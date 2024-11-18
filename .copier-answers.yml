@@ -1,9 +1,9 @@
 # Changes here will be overwritten by Copier
-_commit: v2.0.3
+_commit: v2.0.4
 _src_path: gh:lincc-frameworks/python-project-template
 author_email: tlister@lco.global
 author_name: SSSC Software
-create_example_module: false
+create_example_module: true
 custom_install: true
 enforce_style:
 - ruff_lint
