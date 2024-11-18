@@ -1,0 +1,23 @@
+# Changes here will be overwritten by Copier
+_commit: v2.0.3
+_src_path: gh:lincc-frameworks/python-project-template
+author_email: tlister@lco.global
+author_name: SSSC Software
+create_example_module: false
+custom_install: true
+enforce_style:
+- ruff_lint
+- ruff_format
+failure_notification: []
+include_benchmarks: true
+include_docs: true
+include_notebooks: true
+mypy_type_checking: none
+package_name: fomo
+project_license: MIT
+project_name: fomo
+project_organization: lsst-sssc
+python_versions:
+- '3.9'
+- '3.10'
+- '3.11'
