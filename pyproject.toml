@@ -17,6 +17,7 @@ classifiers = [
 dynamic = ["version"]
 requires-python = ">=3.9"
 dependencies = [
+    "tomtoolkit"
 ]
 
 [project.urls]
@@ -60,23 +61,19 @@ line_length = 110
 line-length = 110
 target-version = "py39"
 
+[tool.ruff.format]
+quote-style = "single"
+
 [tool.ruff.lint]
 select = [
-    # pycodestyle
-    "E",
-    "W",
-    # Pyflakes
-    "F",
-    # pep8-naming
-    "N",
-    # pyupgrade
-    "UP",
-    # flake8-bugbear
-    "B",
-    # flake8-simplify
-    "SIM",
-    # isort
-    "I",
+    "E",    # pycodestyle
+    "W",    # pycodestyle
+    "F",    # Pyflakes
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "I",    # isort
     # docstrings
     "D101",
     "D102",
@@ -100,6 +97,16 @@ ignore = [
     "SIM117", # Allow nested with
     "UP015", # Allow redundant open parameters
     "UP028", # Allow yield in for loop
+    # From Rubin DM "suggestions" for Science Pipelines
+    # (https://developer.lsst.io/python/style.html#ruff-configuration-files)
+    "N802",
+    "N803",
+    "N806",
+    "N812",
+    "N813",
+    "N815",
+    "N816",
+    "N999",
 ]
 
 [tool.coverage.run]
