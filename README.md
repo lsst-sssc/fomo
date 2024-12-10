@@ -1,5 +1,7 @@
 
-# fomo
+# FOMO - Follow-up Observations of Moving Objects
+
+FOMO (Follow-up Observations of Moving Objects) is a Target and Observation Manager (TOM) built using the [TOM Toolkit](https://tom-toolkit.readthedocs.io/en/stable/) intended for coordinating follow-up observations of "interesting" Solar System targets, primarily from the [Vera C. Rubin Observatory](https://rubinobservatory.org/).
 
 [![Template](https://img.shields.io/badge/Template-LINCC%20Frameworks%20Python%20Project%20Template-brightgreen)](https://lincc-ppt.readthedocs.io/en/latest/)
 
@@ -9,13 +11,13 @@
 [![Read The Docs](https://img.shields.io/readthedocs/fomo)](https://fomo.readthedocs.io/)
 [![Benchmarks](https://img.shields.io/github/actions/workflow/status/lsst-sssc/fomo/asv-main.yml?label=benchmarks)](https://lsst-sssc.github.io/fomo/)
 
-This project was automatically generated using the LINCC-Frameworks 
+This project was automatically generated using the LINCC-Frameworks
 [python-project-template](https://github.com/lincc-frameworks/python-project-template).
 
 A repository badge was added to show that this project uses the python-project-template, however it's up to
 you whether or not you'd like to display it!
 
-For more information about the project template see the 
+For more information about the project template see the
 [documentation](https://lincc-ppt.readthedocs.io/en/latest/).
 
 ## Dev Guide - Getting Started
@@ -41,7 +43,7 @@ development using the following commands:
 Notes:
 1. `./.setup_dev.sh` will initialize pre-commit for this local repository, so
    that a set of tests will be run prior to completing a local commit. For more
-   information, see the Python Project Template documentation on 
+   information, see the Python Project Template documentation on
    [pre-commit](https://lincc-ppt.readthedocs.io/en/latest/practices/precommit.html)
 2. Install `pandoc` allows you to verify that automatic rendering of Jupyter notebooks
    into documentation for ReadTheDocs works as expected. For more information, see
