@@ -4,7 +4,7 @@ name = "fomo"
 license = {file = "LICENSE"}
 readme = "README.md"
 authors = [
-    { name = "SSSC Software", email = "tlister@lco.global" }
+    { name = "SSSC FOMO Software Developers", email = "fomo@lco.global" }
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -17,7 +17,9 @@ classifiers = [
 dynamic = ["version"]
 requires-python = ">=3.9"
 dependencies = [
-    "tomtoolkit"
+    "tomtoolkit",
+    "tom_alertstreams",
+    "tom_fink"
 ]
 
 [project.urls]
@@ -27,6 +29,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "asv==0.6.4", # Used to compute performance benchmarks
+    "ipython",
     "jupyter", # Clears output from Jupyter notebooks
     "pre-commit", # Used to run checks before finalizing a git commit
     "pytest",
@@ -50,15 +53,15 @@ testpaths = [
 ]
 
 [tool.black]
-line-length = 110
+line-length = 120
 target-version = ["py39"]
 
 [tool.isort]
 profile = "black"
-line_length = 110
+line_length = 120
 
 [tool.ruff]
-line-length = 110
+line-length = 120
 target-version = "py39"
 
 [tool.ruff.format]
