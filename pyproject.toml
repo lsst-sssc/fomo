@@ -113,5 +113,10 @@ ignore = [
     "N999",
 ]
 
+# 4. Ignore `D101` and `D102` (missing docs strings) in all tests subdirectories.
+[tool.ruff.lint.per-file-ignores]
+"solsys_code/tests*" = ["D101", "D102"]
+"**/tests/*" = ["D101", "D102"]
+
 [tool.coverage.run]
 omit=["src/fomo/_version.py"]
