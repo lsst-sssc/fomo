@@ -1,13 +1,13 @@
 # from django.db import models
-# 
+#
 # from tom_targets.base_models import BaseTarget
-# 
-# 
+#
+#
 # class UserDefinedTarget(BaseTarget):
 #     """
 #     A target with fields defined by a user.
 #     """
-# 
+#
 #     class Meta:
 #         verbose_name = "target"
 #         permissions = (
