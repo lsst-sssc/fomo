@@ -10,10 +10,8 @@ https://docs.djangoproject.com/en/2.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.1/ref/settings/
 """
-import logging.config
 import os
 import tempfile
-
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,7 +60,7 @@ INSTALLED_APPS = [
     'tom_dataproducts',
     'solsys_code',
     'tom_alertstreams',
-    'tom_fink'
+    'tom_fink',
 ]
 
 SITE_ID = 1
@@ -81,7 +79,7 @@ MIDDLEWARE = [
     'tom_common.middleware.AuthStrategyMiddleware',
 ]
 
-ROOT_URLCONF = 'FOMO.urls'
+ROOT_URLCONF = 'fomo.urls'
 
 TEMPLATES = [
     {
@@ -101,7 +99,7 @@ TEMPLATES = [
 
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
-WSGI_APPLICATION = 'FOMO.wsgi.application'
+WSGI_APPLICATION = 'fomo.wsgi.application'
 
 
 # Database
@@ -177,12 +175,7 @@ LOGGING = {
             'class': 'logging.StreamHandler',
         }
     },
-    'loggers': {
-        '': {
-            'handlers': ['console'],
-            'level': 'INFO'
-        }
-    }
+    'loggers': {'': {'handlers': ['console'], 'level': 'INFO'}},
 }
 
 # Caching
@@ -191,7 +184,7 @@ LOGGING = {
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-        'LOCATION': tempfile.gettempdir()
+        'LOCATION': tempfile.gettempdir(),
     }
 }
 
@@ -225,10 +218,7 @@ FACILITIES = {
         },
         'user_email': '',
         'programs': {
-            'GS-YYYYS-T-NNN': {
-                'MM': 'Std: Some descriptive text',
-                'NN': 'Rap: Some descriptive text'
-            },
+            'GS-YYYYS-T-NNN': {'MM': 'Std: Some descriptive text', 'NN': 'Rap: Some descriptive text'},
             'GN-YYYYS-T-NNN': {
                 'QQ': 'Std: Some descriptive text',
                 'PP': 'Rap: Some descriptive text',
@@ -246,7 +236,7 @@ DATA_PRODUCT_TYPES = {
     'photometry': ('photometry', 'Photometry'),
     'fits_file': ('fits_file', 'FITS File'),
     'spectroscopy': ('spectroscopy', 'Spectroscopy'),
-    'image_file': ('image_file', 'Image File')
+    'image_file': ('image_file', 'Image File'),
 }
 
 DATA_PROCESSORS = {
@@ -267,7 +257,7 @@ TOM_ALERT_CLASSES = [
     'tom_alerts.brokers.lasair.LasairBroker',
     'tom_alerts.brokers.tns.TNSBroker',
     #  'tom_alerts.brokers.fink.FinkBroker',   # for REST API
-    'tom_fink.fink.FinkBroker'  # for Fink streams
+    'tom_fink.fink.FinkBroker',  # for Fink streams
 ]
 
 ALERT_STREAMS = [
@@ -279,7 +269,7 @@ ALERT_STREAMS = [
             'USERNAME': os.getenv('FINK_CREDENTIAL_USERNAME', 'set FINK_CREDENTIAL_USERNAME value in environment'),
             'GROUP_ID': os.getenv('FINK_CREDENTIAL_GROUP_ID', 'set FINK_CREDENTIAL_GROUP_ID value in environment'),
             'TOPIC': os.getenv('FINK_TOPIC', 'set FINK_TOPIC value in environment'),
-            'MAX_POLL_NUMBER': os.getenv("FINK_MAX_POLL_NUMBER", 1e10),
+            'MAX_POLL_NUMBER': os.getenv('FINK_MAX_POLL_NUMBER', 1e10),
             'TIMEOUT': os.getenv('FINK_TIMEOUT', 10),
             'TOPIC_HANDLERS': {
                 'fink.stream': 'tom_fink.alertstream.alert_logger',
@@ -296,7 +286,7 @@ BROKERS = {
     },
     'LASAIR': {
         'api_key': os.getenv('LASAIR_TOKEN', ''),
-    }
+    },
 }
 
 TOM_HARVESTER_CLASSES = [
@@ -304,13 +294,10 @@ TOM_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.ned.NEDHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
     'tom_catalogs.harvesters.tns.TNSHarvester',
+    'tom_catalogs.harvesters.mpc.MPCExplorerHarvester',
 ]
 
-HARVESTERS = {
-    'TNS': {
-        'api_key': ''
-    }
-}
+HARVESTERS = {'TNS': {'api_key': ''}}
 
 # Define extra target fields here. Types can be any of "number", "string", "boolean" or "datetime"
 # See https://tomtoolkit.github.io/docs/target_fields for documentation on this feature
@@ -355,11 +342,10 @@ HINTS_ENABLED = True
 HINT_LEVEL = 20
 
 REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': [
-    ],
+    'DEFAULT_PERMISSION_CLASSES': [],
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
-    'PAGE_SIZE': 100
+    'PAGE_SIZE': 100,
 }
 
 # Default Plotly theme setting, can set to any valid theme:
@@ -367,6 +353,6 @@ REST_FRAMEWORK = {
 PLOTLY_THEME = 'plotly_white'
 
 try:
-    from local_settings import * # noqa
+    from local_settings import *  # noqa
 except ImportError:
     pass
