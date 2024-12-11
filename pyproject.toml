@@ -95,6 +95,7 @@ select = [
 ignore = [
     "UP006", # Allow non standard library generics in type hints
     "UP007", # Allow Union in type hints
+    "SIM105", # Prefer `try`-`except`-`pass` to contextlib.suppress
     "SIM114", # Allow if with same arms
     "B028", # Allow default warning level
     "SIM117", # Allow nested with
