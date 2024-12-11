@@ -9,7 +9,7 @@ def greetings() -> str:
     str
         A typical greeting from a software engineer.
     """
-    return "Hello from LINCC-Frameworks!"
+    return 'Hello from LINCC-Frameworks!'
 
 
 def meaning() -> int:
