@@ -294,7 +294,6 @@ TOM_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.ned.NEDHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
     'tom_catalogs.harvesters.tns.TNSHarvester',
-    'tom_catalogs.harvesters.mpc.MPCExplorerHarvester',
 ]
 
 HARVESTERS = {'TNS': {'api_key': ''}}
