@@ -108,7 +108,7 @@ WSGI_APPLICATION = 'fomo.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'NAME': os.path.join(BASE_DIR, 'fomo_db.sqlite3'),
     }
 }
 
@@ -293,7 +293,7 @@ TOM_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
     'tom_catalogs.harvesters.tns.TNSHarvester',
-    'tom_catalogs.harvesters.mpc.MPCExplorerHarveter',
+    'tom_catalogs.harvesters.mpc.MPCExplorerHarvester',
 ]
 
 HARVESTERS = {'TNS': {'api_key': ''}}
