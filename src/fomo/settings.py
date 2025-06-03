@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'tom_observations',
     'tom_dataproducts',
     'solsys_code',
+    'solsys_code.solsys_code_observatory.apps.SolsysCodeObservatoryConfig',
     'tom_alertstreams',
     'tom_fink',
 ]
