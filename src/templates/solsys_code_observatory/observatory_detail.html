@@ -1,0 +1,89 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+{% block title %}Observatory{% endblock %}
+
+{% block content %}
+
+<h1>Observatory: {{ observatory.name }} ({{observatory.obscode}})</h1>
+
+<div class="row obs-details-container">
+    <div class="col-md-12">
+        <h2>Observatory details</h2>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>
+                        Longitude
+                    </td>
+                    <td>
+                        {{ observatory.lon }} deg (East is positive)
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        Latitude
+                    </td>
+                    <td>
+                        {{ observatory.lat }} deg (North is positive)
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        Altitude
+                    </td>
+                    <td>
+                        {{ observatory.altitude }} m
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        Observation type
+                    </td>
+                    <td>
+                        {{ observatory.get_observations_type }}
+                    </td>
+                </tr>                <tr>
+                    <td>
+                        Uses two line obs?
+                    </td>
+                    <td>
+                        {{ observatory.uses_two_line_obs }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        Approx. limit magnitude
+                    </td>
+                    <td>
+                        {{ observatory.approx_lim_mag }} mag
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        Filters
+                    </td>
+                    <td>
+                        {{ observatory.filters }}
+                    </td>
+                </tr>
+                <tr style="width: 50px;">
+                    <td>
+                        Previous names
+                    </td>
+                    <td><div class="multiline-text">
+                        {{ observatory.old_names }}
+                    </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

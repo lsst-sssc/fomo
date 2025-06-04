@@ -16,5 +16,6 @@ Including another URLconf
 from django.urls import include, path
 
 urlpatterns = [
+    path('observatory/', include('solsys_code.solsys_code_observatory.urls', namespace='solsys_code_observatory')),
     path('', include('tom_common.urls')),
 ]
