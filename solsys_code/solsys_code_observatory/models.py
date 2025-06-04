@@ -55,7 +55,7 @@ class Observatory(models.Model):
     uses_two_line_obs = models.BooleanField(
         default=False, verbose_name='Whether this observatory uses two-line observations e.g. satellite/radar'
     )
-    old_names = models.TextField(verbose_name='Any previous names used by the observatory')
+    old_names = models.TextField(blank=True, verbose_name='Any previous names used by the observatory')
     created = models.DateTimeField(null=True, blank=False, editable=False, auto_now_add=True)
     modified = models.DateTimeField(null=True, blank=True, editable=True, auto_now_add=True)
 
@@ -95,3 +95,8 @@ class Observatory(models.Model):
         rho_cos_phi = cos(u) + (self.altitude / r) * cos(radians(self.lat))
 
         return rho_cos_phi, rho_sin_phi
+
+    @property
+    def get_observations_type(self) -> str:
+        """Returns the str version of the stored observations type"""
+        return self.OBSTYPE_CHOICES[self.observations_type][1]

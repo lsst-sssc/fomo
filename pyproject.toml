@@ -63,6 +63,7 @@ line_length = 120
 [tool.ruff]
 line-length = 120
 target-version = "py39"
+exclude = ["solsys_code/**/migrations/*.py", ]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -115,7 +116,8 @@ ignore = [
 
 # 4. Ignore `D101` and `D102` (missing docs strings) in all tests subdirectories.
 [tool.ruff.lint.per-file-ignores]
-"solsys_code/{apps,tests}.py" = ["D101", "D102"]
+"solsys_code/**/{apps,tests}.py" = ["D101", "D102"]
+"solsys_code/*/migrations/*.py" = ["D100", "D101", "D102", "D103", "E501", "RUF012"]
 "**/tests/*" = ["D101", "D102"]
 
 [tool.coverage.run]
