@@ -68,11 +68,13 @@ class Observatory(models.Model):
         """
 
         # Get Earth's equatorial radius and flattening factor for WGS84
-        # reference ellipsoid
+        # reference ellipsoid. This should move to the class level
         r, f = erfa.eform(1)
 
+        # print(f"elong={elong:.6f} rhocosphi={rho_cos_phi:.6f} rhosinphi={rho_sin_phi:.6f}")
+
         # Form X,Y,Z vector (geocenter->observatory) from longitude and parallax constants, scaled to meters
-        xyz = [r * cos(elong) * rho_cos_phi, r * sin(elong) * rho_cos_phi, r * rho_sin_phi]
+        xyz = [r * cos(radians(elong)) * rho_cos_phi, r * sin(radians(elong)) * rho_cos_phi, r * rho_sin_phi]
         # Transform geocentric to geodetic
         lon, lat, alt = erfa.gc2gde(r, f, xyz)
         self.lon = degrees(lon)

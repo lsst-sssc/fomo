@@ -1,11 +1,71 @@
+from datetime import datetime
 from typing import Any
 
 import requests
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView
+from tom_catalogs.harvester import MissingDataException
 
 from solsys_code.solsys_code_observatory.forms import CreateObservatoryForm
 from solsys_code.solsys_code_observatory.models import Observatory
+
+
+class MPCObscodeFetcher:
+    """
+    The ``MPCObscodeFetcher`` is the interface to the Minor Planet Center (MPC)
+    Observatory Codes API
+    (https://www.minorplanetcenter.net/mpcops/documentation/obscodes-api/)
+    """
+
+    def query(self, obscode: str):
+        """Query the MPC obscodes API for the specific <obscode>
+        XXX needs more work
+
+        :param obscode: 3 character MPC observatory code to search for
+        :type term: str
+        """
+        self.obs_data = None
+
+        response = requests.get('https://data.minorplanetcenter.net/api/obscodes', json={'obscode': obscode})
+
+        if response.ok:
+            self.obs_data = response.json()
+            for key, value in response.json().items():
+                print(f'{key:<27}: {value}')
+        else:
+            print('Error: ', response.status_code, response.content)
+
+    def to_observatory(self):
+        """
+        Instantiates a ``Observatory`` object with the data from the obscode query search result.
+
+        :returns: ``Observatory` representation of the entry from the ObsCodes API
+
+        """
+        if not self.obs_data:
+            raise MissingDataException('No observatory data. Did you call query()?')
+        else:
+            obs = Observatory()
+
+            obs.obscode = self.obs_data['obscode']
+            obs.name = self.obs_data['name_utf8']
+            obs.short_name = self.obs_data['short_name']
+            if self.obs_data['old_names']:
+                obs.old_names = self.obs_data['old_names']
+            elong = float(self.obs_data['longitude'])
+            obs.lon = elong
+            # Convert parallax constants to longitude (again), latitude and altitude
+            obs.from_parallax_constants(elong, float(self.obs_data['rhocosphi']), float(self.obs_data['rhosinphi']))
+            try:
+                obs.created = datetime.strptime(self.obs_data['created_at'], '%a, %d %b %Y %H:%M:%S %Z')
+            except ValueError:
+                pass
+            try:
+                obs.modified = datetime.strptime(self.obs_data['updated_at'], '%a, %d %b %Y %H:%M:%S %Z')
+            except ValueError:
+                pass
+            obs.save()
+        return obs
 
 
 class CreateObservatory(CreateView):
@@ -18,17 +78,8 @@ class CreateObservatory(CreateView):
     template_name = 'solsys_code_observatory/observatory_create.html'
     success_url = reverse_lazy('solsys_code_observatory:<pk>')
 
-    def get_data(self, obscode):
-        """Query the MPC obscodes API for the specific <obscode>
-        XXX needs more work
-        """
-        resp = requests.get('https://data.minorplanetcenter.net/api/obscodes', json={'obscode': obscode})
-
-        if resp.ok:
-            for key, value in resp.json().items():
-                print(f'{key:<27}: {value}')
-        else:
-            print('Error: ', resp.status_code, resp.content)
+    def get_data(self, obscode):  # noqa: D102
+        pass
 
 
 class ObservatoryDetailView(DetailView):
