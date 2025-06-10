@@ -3,6 +3,7 @@ from math import atan2, cos, degrees, radians, sin
 import erfa
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 class Observatory(models.Model):
@@ -56,8 +57,8 @@ class Observatory(models.Model):
         default=False, verbose_name='Whether this observatory uses two-line observations e.g. satellite/radar'
     )
     old_names = models.TextField(blank=True, verbose_name='Any previous names used by the observatory')
-    created = models.DateTimeField(null=True, blank=False, editable=False, auto_now_add=True)
-    modified = models.DateTimeField(null=True, blank=True, editable=True, auto_now_add=True)
+    created = models.DateTimeField(null=True, blank=False, editable=False, default=timezone.now)
+    modified = models.DateTimeField(null=True, blank=True, editable=True, default=timezone.now)
 
     def __str__(self) -> str:
         return f'{self.obscode}: {self.name}'
