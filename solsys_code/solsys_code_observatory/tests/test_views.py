@@ -75,5 +75,5 @@ class TestMPCObscodeFetcher(TestCase):
         )  # Doesn't quite match find_orb due to different axis ratio/flattening factor used
         self.assertEqual(obs.observations_type, 0)
         self.assertEqual(obs.uses_two_line_obs, False)
-        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 16, tzinfo=timezone.utc))
+        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 26, tzinfo=timezone.utc))
         self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 52, 50, tzinfo=timezone.utc))

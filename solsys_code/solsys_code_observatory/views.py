@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -57,11 +57,15 @@ class MPCObscodeFetcher:
             # Convert parallax constants to longitude (again), latitude and altitude
             obs.from_parallax_constants(elong, float(self.obs_data['rhocosphi']), float(self.obs_data['rhosinphi']))
             try:
-                obs.created = datetime.strptime(self.obs_data['created_at'], '%a, %d %b %Y %H:%M:%S %Z')
+                created_time = datetime.strptime(self.obs_data['created_at'], '%a, %d %b %Y %H:%M:%S %Z')
+                created_time = created_time.replace(tzinfo=timezone.utc)
+                obs.created = created_time
             except ValueError:
                 pass
             try:
-                obs.modified = datetime.strptime(self.obs_data['updated_at'], '%a, %d %b %Y %H:%M:%S %Z')
+                modified_time = datetime.strptime(self.obs_data['updated_at'], '%a, %d %b %Y %H:%M:%S %Z')
+                modified_time = modified_time.replace(tzinfo=timezone.utc)
+                obs.modified = modified_time
             except ValueError:
                 pass
             obs.save()
@@ -104,5 +108,4 @@ class ObservatoryList(ListView):
         context['num_obs'] = Observatory.objects.count()
         context['observatory_list'] = Observatory.objects.all()
 
-        print(context['observatory_list'])
         return context
