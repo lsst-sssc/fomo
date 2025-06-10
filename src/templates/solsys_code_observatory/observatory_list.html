@@ -22,9 +22,9 @@
             <tr>
               <td>{{ observatory.obscode }}</td>
               <td>{{ observatory.name }}</td>
-              <td>{{ observatory.lon }}</td>
-              <td>{{ observatory.lat }}</td>
-              <td>{{ observatory.altitude }}</td>
+              <td>{{ observatory.lon|floatformat:6 }}</td>
+              <td>{{ observatory.lat|floatformat:6 }}</td>
+              <td>{{ observatory.altitude|floatformat:3 }}</td>
               <td>
                 <a href="{% url 'solsys_code_observatory:detail' pk=observatory.id %}" title="Observatory details" class="btn  btn-primary">Details</a>
               </td>
