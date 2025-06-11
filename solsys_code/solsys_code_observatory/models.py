@@ -102,7 +102,8 @@ class Observatory(models.Model):
     @property
     def get_observations_type(self) -> str:
         """Returns the str version of the stored observations type"""
-        return self.OBSTYPE_CHOICES[self.observations_type][1]
+        obstype_choices = dict(self.OBSTYPE_CHOICES)
+        return obstype_choices[self.observations_type]
 
     class Meta:  # noqa: D106
         verbose_name_plural = 'Observatories'
