@@ -2,6 +2,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 import requests
+from django.contrib import messages
+from django.db.utils import IntegrityError
+from django.forms import BaseModelForm
+from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView
 from tom_catalogs.harvester import MissingDataException
@@ -17,7 +22,7 @@ class MPCObscodeFetcher:
     (https://www.minorplanetcenter.net/mpcops/documentation/obscodes-api/)
     """
 
-    def query(self, obscode: str):
+    def query(self, obscode: str, dbg: bool = True):
         """Query the MPC obscodes API for the specific <obscode>
         XXX needs more work
 
@@ -31,9 +36,11 @@ class MPCObscodeFetcher:
         if response.ok:
             self.obs_data = response.json()
             for key, value in response.json().items():
-                print(f'{key:<27}: {value}')
+                if dbg:
+                    print(f'{key:<27}: {value}')
         else:
-            print('Error: ', response.status_code, response.content)
+            if dbg:
+                print('Error: ', response.status_code, response.content)
 
     def to_observatory(self):
         """
@@ -80,10 +87,36 @@ class CreateObservatory(CreateView):
     model = Observatory
     form_class = CreateObservatoryForm
     template_name = 'solsys_code_observatory/observatory_create.html'
-    success_url = reverse_lazy('solsys_code_observatory:<pk>')
 
-    def get_data(self, obscode):  # noqa: D102
-        pass
+    def get_success_url(self):
+        """Create a custom success_url to redirect to the detail page for the
+        newly created Observatory.
+        """
+        return reverse_lazy('solsys_code_observatory:detail', kwargs={'pk': self.kwargs['pk']})
+
+    def get_context_data(self, **kwargs):  # noqa: D102
+        context = super().get_context_data(**kwargs)
+        return context
+
+    def form_valid(self, form: BaseModelForm) -> HttpResponse:
+        """
+        Runs after the form validation (which ensures that the obscode is uppercased (required))
+        Performs the query through the MPC API using ``MPCObscodeFetcher()`` and then tries to
+        create the ``Observatory`` through ``MPCObscodeFetcher.to_observatory(). This means
+        we shouldn't/don't call the superclass's ``form_valid`` method as this will
+        attempt to create a duplicate (which raises an IntegrityError)
+        """
+        obs = MPCObscodeFetcher()
+        obs.query(form.cleaned_data['obscode'])
+        try:
+            obs = obs.to_observatory()
+            self.object = obs
+            self.kwargs['pk'] = obs.pk
+        except IntegrityError:
+            print('Attempt to create duplicate Observatory')
+            messages.error(self.request, 'Attempt to create duplicate Observatory')
+
+        return redirect(self.get_success_url())
 
 
 class ObservatoryDetailView(DetailView):
