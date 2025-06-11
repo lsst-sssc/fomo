@@ -75,6 +75,11 @@ class MPCObscodeFetcher:
                 obs.modified = modified_time
             except ValueError:
                 pass
+            # Make dictionary of choices using dict comprehension
+            obstype_choices = {choice[1].lower(): choice[0] for choice in Observatory.OBSTYPE_CHOICES}
+            obs.observations_type = obstype_choices.get(self.obs_data['observations_type'], 0)
+            obs.uses_two_line_obs = self.obs_data['uses_two_line_observations']
+
             obs.save()
         return obs
 

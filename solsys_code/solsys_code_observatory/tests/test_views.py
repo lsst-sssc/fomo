@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from solsys_code.solsys_code_observatory.models import Observatory
+
 # Import models to test
 from solsys_code.solsys_code_observatory.views import MPCObscodeFetcher
 
@@ -77,3 +79,40 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertEqual(obs.uses_two_line_obs, False)
         self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 26, tzinfo=timezone.utc))
         self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 52, 50, tzinfo=timezone.utc))
+
+    def test_to_radar_observatory(self):
+        self.fetcher.obs_data = {
+            'created_at': 'Sat, 25 May 2019 00:11:21 GMT',
+            'firstdate': None,
+            'lastdate': None,
+            'longitude': '243.11047',
+            'name': 'Goldstone DSS 14, Fort Irwin',
+            'name_latex': 'Goldstone DSS 14, Fort Irwin',
+            'name_utf8': 'Goldstone DSS 14, Fort Irwin',
+            'obscode': '253',
+            'observations_type': 'radar',
+            'old_names': None,
+            'rhocosphi': '0.815913',
+            'rhosinphi': '0.576510',
+            'short_name': 'Goldstone DSS 14, Fort Irwin',
+            'updated_at': 'Tue, 15 Apr 2025 20:51:48 GMT',
+            'uses_two_line_observations': True,
+            'web_link': 'http://gssr.jpl.nasa.gov/',
+        }
+
+        obs = self.fetcher.to_observatory()
+
+        tobs_data = self.fetcher.obs_data
+        self.assertEqual(obs.obscode, '253')
+        self.assertEqual(obs.name, tobs_data['name_utf8'])
+        self.assertEqual(obs.short_name, tobs_data['short_name'])
+        self.assertEqual(obs.old_names, '')
+        self.assertAlmostEqual(obs.lon, -116.88953)
+        self.assertAlmostEqual(obs.lat, 35.425914131)
+        self.assertAlmostEqual(
+            obs.altitude, 1012.164086, 5
+        )  # Doesn't quite match find_orb due to different axis ratio/flattening factor used
+        self.assertEqual(obs.observations_type, Observatory.RADAR_OBSTYPE)
+        self.assertEqual(obs.uses_two_line_obs, True)
+        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 21, tzinfo=timezone.utc))
+        self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 51, 48, tzinfo=timezone.utc))
