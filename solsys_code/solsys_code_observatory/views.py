@@ -22,12 +22,14 @@ class MPCObscodeFetcher:
     (https://www.minorplanetcenter.net/mpcops/documentation/obscodes-api/)
     """
 
-    def query(self, obscode: str, dbg: bool = True):
-        """Query the MPC obscodes API for the specific <obscode>
-        XXX needs more work
+    def query(self, obscode: str, dbg: bool = False):
+        """Query the MPC obscodes API for the specific <obscode>.
+        If successful, the JSON response data is stored in self.obs_data.
 
         :param obscode: 3 character MPC observatory code to search for
         :type term: str
+        :param dbg: Turns on basic print dump of the key-value pairs (or error response)
+        :type term: bool
         """
         self.obs_data = None
 
