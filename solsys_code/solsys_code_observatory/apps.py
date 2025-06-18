@@ -12,9 +12,9 @@ class SolsysCodeObservatoryConfig(AppConfig):  # noqa: D101
         be included in the navbar. The `position` key, if included, should be either "left" or "right" to specify which
         side of the navbar the partial should be included on. If not included, a left side nav item is assumed.
         """
-        # TODO: These filenames probably don't need 'demo' in them b/c they're namespaced in the app folder
-        # XXX: Map the '.' in the module hierarchy to a '/'
+
+        template_path = self.name.split('.')[-1]
         return [
-            {'partial': f'{self.name}/partials/navbar_demo.html', 'position': 'right'},
-            {'partial': f'{self.name}/partials/navbar_list_demo.html'},
+            {'partial': f'{template_path}/partials/navbar.html', 'position': 'right'},
+            {'partial': f'{template_path}/partials/navbar_list.html'},
         ]
