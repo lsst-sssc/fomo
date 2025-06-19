@@ -5,3 +5,6 @@ from django.test import TestCase
 class TestSomeThings(TestCase):
     def setUp(self):
         pass
+
+    def test_also_wibble(self):
+        self.assertEqual(True, False)
