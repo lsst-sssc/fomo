@@ -55,6 +55,34 @@ class TestJPLSBId(SimpleTestCase):
 
         self.assertEqual(expected_url, url)
 
+    def test_build_query_center_positive_dec(self):
+        expected_url = (
+            self.base_url
+            + '&obs-time=2020-01-01T11:10:01&fov-ra-center=10-10-10&fov-dec-center=42-05-10'
+            + '&fov-ra-hwidth=1.75&fov-dec-hwidth=1.75'
+        )
+
+        obs_time = Time('2020-01-01T11:10:01', scale='utc')
+        center = SkyCoord('10h10m10s +42d05m10s', frame='icrs')
+
+        url = self.test_rubin._build_center_query(obs_time, center)
+
+        self.assertEqual(expected_url, url)
+
+    def test_build_query_center_negative_dec(self):
+        expected_url = (
+            self.base_url
+            + '&obs-time=2020-01-01T11:10:01&fov-ra-center=10-10-10&fov-dec-center=M42-05-10'
+            + '&fov-ra-hwidth=1.75&fov-dec-hwidth=1.75'
+        )
+
+        obs_time = Time('2020-01-01T11:10:01', scale='utc')
+        center = SkyCoord('10h10m10s -42d05m10s', frame='icrs')
+
+        url = self.test_rubin._build_center_query(obs_time, center)
+
+        self.assertEqual(expected_url, url)
+
     def test_query_center_positive_dec(self):
         expected_url = (
             self.base_url
@@ -65,7 +93,7 @@ class TestJPLSBId(SimpleTestCase):
         obs_time = Time('2020-01-01T11:10:01', scale='utc')
         center = SkyCoord('10h10m10s +42d05m10s', frame='icrs')
 
-        url = self.test_rubin.query_center(obs_time, center)
+        url = self.test_rubin.query_center(obs_time, center, verbose=False)
 
         self.assertEqual(expected_url, url)
 
@@ -79,6 +107,6 @@ class TestJPLSBId(SimpleTestCase):
         obs_time = Time('2020-01-01T11:10:01', scale='utc')
         center = SkyCoord('10h10m10s -42d05m10s', frame='icrs')
 
-        url = self.test_rubin.query_center(obs_time, center)
+        url = self.test_rubin.query_center(obs_time, center, verbose=False)
 
         self.assertEqual(expected_url, url)

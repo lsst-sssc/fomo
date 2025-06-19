@@ -39,19 +39,11 @@ class JPLSBId:
         return url
 
     @u.quantity_input
-    def query_center(self, obs_time: Time, center: SkyCoord):
+    def _build_center_query(self, obs_time: Time, center: SkyCoord):
         """
-        Query for small bodies around <center> (a SkyCoord in the ICRS frame) at <obs_time> (a Time instance)
+        Build query for small bodies around <center> (a SkyCoord in the ICRS frame) at <obs_time> (a Time instance)
         """
 
-        if not isinstance(obs_time, Time):
-            obs_time = Time(obs_time, scale='utc')
-        if not isinstance(center, SkyCoord):
-            if isinstance(center, [tuple, list]):
-                center = SkyCoord(center[0], center[1], frame='icrs')
-            else:
-                raise ValueError('center must be a SkyCoord or a pair of values that can initialize one')
-        print(f'Querying around ({center.ra.deg:.3f}, {center.dec.deg:+.2f}) at {obs_time.utc} UTC')
         url = self._build_base_query()
         # XXX may need '_' not 'T', docs inconsistent
         time_fmt = '%Y-%m-%dT%H:%M:%S'
@@ -66,5 +58,24 @@ class JPLSBId:
         # Add RA and Dec half-widths
         url += f'&fov-ra-hwidth={self.fov_ra_hwidth.to(u.deg).value:.2f}'
         url += f'&fov-dec-hwidth={self.fov_dec_hwidth.to(u.deg).value:.2f}'
+
+        return url
+
+    @u.quantity_input
+    def query_center(self, obs_time: Time, center: SkyCoord, verbose: bool = True):
+        """
+        Query for small bodies around <center> (a SkyCoord in the ICRS frame) at <obs_time> (a Time instance)
+        """
+
+        if not isinstance(obs_time, Time):
+            obs_time = Time(obs_time, scale='utc')
+        if not isinstance(center, SkyCoord):
+            if isinstance(center, [tuple, list]):
+                center = SkyCoord(center[0], center[1], frame='icrs')
+            else:
+                raise ValueError('center must be a SkyCoord or a pair of values that can initialize one')
+        if verbose:
+            print(f'Querying around ({center.ra.deg:.3f}, {center.dec.deg:+.2f}) at {obs_time.utc} UTC')
+        url = self._build_center_query(obs_time, center)
 
         return url
