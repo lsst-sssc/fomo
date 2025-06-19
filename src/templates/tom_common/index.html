@@ -1,0 +1,61 @@
+{% extends 'tom_common/base.html' %}
+{% load static targets_extras observation_extras dataproduct_extras tom_common_extras %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-8">
+    <h2 class="text-center">Welcome to FOMO, a TOM for Follow-up Observations of Moving Objects.</h2>
+    <div class="row" style="align-items:center">
+      <div class="col-md-6">
+        <p class="text-center"><img src="{% static 'tom_common/img/rubin-logo-color.png' %}" class="img-fluid m-auto"></p>
+      </div>
+      <div class="col-md-6">
+        <p class="text-center"><img src="{% static 'tom_common/img/logo-color.png' %}" class="img-fluid m-auto"></p>
+      </div>
+    </div>
+    <h3>Next steps</h3>
+    <ul>
+      <li><h4>Targets:</h4></li>
+      <ul>
+        <li>
+          <a href="{% url 'targets:list' %}" title="View Targets">View existing targets</a>.
+        </li>
+        <li>
+          <a href="{% url 'targets:create' %}" title="Create Target">Add your first target</a>.
+        </li>
+      </ul>
+      <li><h4>Observations:</h4></li>
+      <ul>
+        <li>
+          <a href="{% url 'observations:list' %}" title="View Observations">View follow-up observations</a>.
+        </li>
+      </ul>
+    </ul>
+    <h3>Other Resources</h3>
+    <ul>
+      <li>The Rubin <a href="https://lsst-sssc.github.io/" target="_blank">Solar System Science Collaboration (SSSC)</a>.</li>
+      <li>The <a href="https://tom-toolkit.readthedocs.io/en/stable/" title="TOM Toolkit home page" target="_blank">TOM
+        Toolkit homepage</a> has the latest news, downloads and documentation.
+      </li>
+      <li>The official <a href="https://www.djangoproject.com/" target="_blank">Django documentation</a>.</li>
+      <li>The official <a href="http://www.astropy.org/" target="_blank">Astropy documentation</a>.</li>
+    </ul>
+    <hr>
+    <p><em><a target="_blank" href="https://github.com/TOMToolkit/tom_base">TOM Toolkit</a> version {{ version }}</em></p>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header">
+        Latest Comments
+      </div>
+      {% recent_comments %}
+    </div>
+    <br/>
+    <div class="card">
+      <div class="card-header">
+        Latest Targets
+      </div>
+      {% recent_targets %}
+  </div>
+</div>
+{% endblock %}
