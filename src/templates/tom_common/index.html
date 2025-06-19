@@ -15,16 +15,28 @@
     </div>
     <h3>Next steps</h3>
     <ul>
-      <li>
-        Check out the <a href="https://tom-toolkit.readthedocs.io/en/stable/" title="TOM Toolkit home page" target="_blank">TOM
-        Toolkit homepage</a> for the latest news, downloads and documentation.
-      </li>
-      <li>
-        <a href="{% url 'targets:create' %}" title="Create Target">Add your first target</a>.
-      </li>
+      <li><h4>Targets:</h4></li>
+      <ul>
+        <li>
+          <a href="{% url 'targets:list' %}" title="View Targets">View existing targets</a>.
+        </li>
+        <li>
+          <a href="{% url 'targets:create' %}" title="Create Target">Add your first target</a>.
+        </li>
+      </ul>
+      <li><h4>Observations:</h4></li>
+      <ul>
+        <li>
+          <a href="{% url 'observations:list' %}" title="View Observations">View follow-up observations</a>.
+        </li>
+      </ul>
     </ul>
     <h3>Other Resources</h3>
     <ul>
+      <li>The Rubin <a href="https://lsst-sssc.github.io/" target="_blank">Solar System Science Collaboration (SSSC)</a>.</li>
+      <li>The <a href="https://tom-toolkit.readthedocs.io/en/stable/" title="TOM Toolkit home page" target="_blank">TOM
+        Toolkit homepage</a> has the latest news, downloads and documentation.
+      </li>
       <li>The official <a href="https://www.djangoproject.com/" target="_blank">Django documentation</a>.</li>
       <li>The official <a href="http://www.astropy.org/" target="_blank">Astropy documentation</a>.</li>
     </ul>
