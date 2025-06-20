@@ -1,6 +1,10 @@
+import re
+from typing import Any
+
 import requests
 from astropy import units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import Angle, SkyCoord
+from astropy.table import QTable
 from astropy.time import Time
 
 # from django.shortcuts import render
@@ -79,10 +83,88 @@ class JPLSBId:
 
         return results
 
+    def parse_results(self, results: dict[str, Any]) -> QTable:
+        """
+        Parses the JSON results from the JPL SBID API service returned via ``make_query()` and returns a
+        QTable. The seperate Astrometric RA/Dec columns in the original are merged into a single SkyCoord
+        column. Other fields with units are turned into Quantity columns.
+        """
+        table = None
+
+        if results and len(results) > 0 and 'fields_first' in results:
+            column_names = [
+                'Object name',
+                'Astrometric position',
+                'Dist. from center RA',
+                'Dist. from center Dec',
+                'Dist. from center Norm',
+                'V magnitude',
+                'RA rate',
+                'Dec rate',
+                'Pos error RA',
+                'Pos error Dec',
+            ]
+            names = []
+            ras = []
+            decs = []
+            ra_dist = []
+            dec_dist = []
+            norm_dist = []
+            mags = []
+            rates_ra = []
+            rates_dec = []
+            poserr_ra = []
+            poserr_dec = []
+            numbered_object = re.compile(r'^(\d*) ')
+            unnumbered_object = re.compile(r'^\((\d{4}\s[A-Z]{2}\d*)\)')
+            comets = re.compile(r'^(\d+[I,P])|([C,P,A]/\d{4} [A-H,J-Y]\d+)')
+            for sb in results['data_first_pass']:
+                # Try to match numbered objects first
+                name = sb[0]
+                match = re.search(numbered_object, name)
+                if match:
+                    new_name = match.groups()[0]
+                else:
+                    # Un-numbered/provisional desiginations
+                    match = re.search(unnumbered_object, name)
+                    if match:
+                        new_name = match.groups()[0]
+                    else:
+                        # Final try for comets
+                        match = re.search(comets, name)
+                        new_name = match[0] if match else name
+                names.append(new_name)
+                ra = Angle(sb[1], unit=u.hourangle)
+                dec = Angle(sb[2].replace(' ', 'd').replace("'", 'm').replace('"', 's'), unit=u.deg)
+                ras.append(ra)
+                decs.append(dec)
+                ra_dist.append(float(sb[3]) * u.arcsec)
+                dec_dist.append(float(sb[4]) * u.arcsec)
+                norm_dist.append(float(sb[5]) * u.arcsec)
+                mags.append(float(sb[6]))
+                ra_rate = float(sb[7]) * (u.arcsec / u.hour)
+                rates_ra.append(ra_rate)  # .to(u.arcsec/u.minute))
+                dec_rate = float(sb[8]) * (u.arcsec / u.hour)
+                rates_dec.append(dec_rate)  # .to(u.arcsec/u.minute))
+
+                poserr_ra.append(float(sb[9]) * u.arcsec)
+                poserr_dec.append(float(sb[10]) * u.arcsec)
+            # Assemble table from columns
+            position = SkyCoord(ras, decs, frame='icrs')
+            table = QTable(
+                [names, position, ra_dist, dec_dist, norm_dist, mags, rates_ra, rates_dec, poserr_ra, poserr_dec],
+                names=column_names,
+            )
+
+        return table
+
     @u.quantity_input
-    def query_center(self, obs_time: Time, center: SkyCoord, verbose: bool = True):
+    def query_center(self, obs_time: Time, center: SkyCoord, raw_response: bool = True, verbose: bool = True):
         """
         Query for small bodies around <center> (a SkyCoord in the ICRS frame) at <obs_time> (a Time instance)
+        Returns either a parsed QTable of the small bodies (if [raw_response] is False) or the raw JSON
+        response from the JPL service (if [raw_resonse] is True). In the event of an error from the API
+        endpoint, the query url is returned.
         """
 
         results = None
@@ -100,6 +182,10 @@ class JPLSBId:
 
         if url:
             results = self.make_query(url)
-            if results is None:
+            if results is not None:
+                if verbose:
+                    print(f"Found {results['n_first_pass']} small bodies in FOV")
+                results = self.parse_results(results)
+            else:
                 results = url
         return results

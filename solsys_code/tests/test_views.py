@@ -6,6 +6,8 @@ from unittest.mock import Mock, patch
 import requests
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+from astropy.table import QTable
+from astropy.tests.helper import assert_quantity_allclose
 from astropy.time import Time
 from django.test import SimpleTestCase
 from importlib_resources import files
@@ -202,3 +204,46 @@ class TestJPLSBId(SimpleTestCase):
         self.assertEqual(4, len(result['data_first_pass']))
         self.assertEqual(expected_first_obj, result['data_first_pass'][0])
         self.assertEqual(expected_last_obj, result['data_first_pass'][-1])
+
+    def test_parse_results_bad_none(self):
+        table = self.test_ps1.parse_results(None)
+
+        self.assertEqual(None, table)
+
+    def test_parse_results_bad_empty_dict(self):
+        table = self.test_ps1.parse_results({})
+
+        self.assertEqual(None, table)
+
+    def test_parse_results(self):
+        expected_columns = [
+            'Object name',
+            'Astrometric position',
+            'Dist. from center RA',
+            'Dist. from center Dec',
+            'Dist. from center Norm',
+            'V magnitude',
+            'RA rate',
+            'Dec rate',
+            'Pos error RA',
+            'Pos error Dec',
+        ]
+        expected_names = ['90', '1627', '2025 AW11', 'C/2024 J2']
+        expected_positions = SkyCoord(
+            ['10:22:20', '09:47:52', '10:11:23', '12:53:04'],
+            ['+12:54:02', '+12:28:03', '+08:53:27', '-02:48:06'],
+            frame='icrs',
+            unit=(u.hourangle, u.deg),
+        )
+        expected_ra_rates = u.Quantity([-6.942, -18.62, -4.166, 1.516], unit=u.arcsec / u.hour)
+
+        table = self.test_ps1.parse_results(self.test_json_ps1)
+
+        self.assertTrue(isinstance(table, QTable))
+        self.assertEqual(expected_columns, table.colnames)
+        self.assertEqual(4, len(table))
+        for name1, name2 in zip(expected_names, table['Object name']):
+            self.assertEqual(name1, name2)
+        assert_quantity_allclose(expected_ra_rates, table['RA rate'])
+        assert_quantity_allclose(expected_positions.ra, table['Astrometric position'].ra)
+        assert_quantity_allclose(expected_positions.dec, table['Astrometric position'].dec)
