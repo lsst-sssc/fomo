@@ -1,3 +1,4 @@
+import requests
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
@@ -28,6 +29,7 @@ class JPLSBId:
         self.fov_dec_hwidth = fov_dec_hwidth.to(u.deg)
         self.two_pass = False  # whether to request the 2nd numerical integration pass rather than two-body model
         self.mag_required = True  # skip objects without magnitude parameters
+        self.elems_required = False  # whether to request orbital elements
 
     def _build_base_query(self):
         """
@@ -47,7 +49,7 @@ class JPLSBId:
         url = self._build_base_query()
         # XXX may need '_' not 'T', docs inconsistent
         time_fmt = '%Y-%m-%dT%H:%M:%S'
-        url += f'&obs-time={obs_time.utc.to_datetime().strftime(time_fmt)}'
+        url += f'&obs-time={obs_time.utc.strftime(time_fmt)}'
         # Add RA string
         url += f"&fov-ra-center={center.ra.to_string(u.hourangle, sep='-', precision=0, pad=True)}"
         # Add Dec string
@@ -61,11 +63,29 @@ class JPLSBId:
 
         return url
 
+    def make_query(self, url):
+        """
+        Executes query in <url>. If the response status is good, the results are returned as JSON
+        dict structure and the ['signature']['version'] is checked for the known current version (1.1)
+        In the case of error, None is returned.
+        """
+        results = None
+        resp = requests.get(url)
+        # print("status code=", resp.status_code, resp.ok is True)
+        if resp.ok is True:
+            # print("Response OK")
+            results = resp.json()
+            assert results['signature']['version'] == '1.1'
+
+        return results
+
     @u.quantity_input
     def query_center(self, obs_time: Time, center: SkyCoord, verbose: bool = True):
         """
         Query for small bodies around <center> (a SkyCoord in the ICRS frame) at <obs_time> (a Time instance)
         """
+
+        results = None
 
         if not isinstance(obs_time, Time):
             obs_time = Time(obs_time, scale='utc')
@@ -78,4 +98,8 @@ class JPLSBId:
             print(f'Querying around ({center.ra.deg:.3f}, {center.dec.deg:+.2f}) at {obs_time.utc} UTC')
         url = self._build_center_query(obs_time, center)
 
-        return url
+        if url:
+            results = self.make_query(url)
+            if results is None:
+                results = url
+        return results
