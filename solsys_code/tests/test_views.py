@@ -133,7 +133,7 @@ class TestJPLSBId(SimpleTestCase):
         mock_response.raise_for_status.side_effect = http_error
         mock_response.json.return_value = (
             b'{"message":"invalid obs-code (should be MPC 3-character string: e.g., '
-            + '\'G96\', \'704\', etc.)","moreInfo":"https://ssd-api.jpl.nasa.gov/doc/sb_ident.html","code":"400"}\n'
+            + b'\'G96\', \'704\', etc.)","moreInfo":"https://ssd-api.jpl.nasa.gov/doc/sb_ident.html","code":"400"}\n'
         )
         mock_get.return_value = mock_response
         url = self.base_url + '?mpc-code=FOO'
