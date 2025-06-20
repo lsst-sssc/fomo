@@ -185,7 +185,8 @@ class JPLSBId:
             if results is not None:
                 if verbose:
                     print(f"Found {results['n_first_pass']} small bodies in FOV")
-                results = self.parse_results(results)
+                if raw_response is False:
+                    results = self.parse_results(results)
             else:
                 results = url
         return results
