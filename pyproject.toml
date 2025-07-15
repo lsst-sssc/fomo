@@ -20,6 +20,7 @@ dependencies = [
     "tomtoolkit>=2.23.1",
     "tom_alertstreams",
     "tom_fink",
+    "tom-registration",
     "sorcha",
 ]
 
