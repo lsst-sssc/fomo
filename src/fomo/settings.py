@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'solsys_code.solsys_code_observatory.apps.SolsysCodeObservatoryConfig',
     'tom_alertstreams',
     'tom_fink',
+    'tom_registration',
 ]
 
 SITE_ID = 1
