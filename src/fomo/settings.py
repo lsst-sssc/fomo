@@ -258,11 +258,12 @@ TOM_REGISTRATION = {
     'REGISTRATION_REDIRECT_PATTERN': 'home',
     'REGISTRATION_STRATEGY': 'open',  # ['open', 'approval_required']
     # Optional email behavior if `REGISTRATION_STRATEGY = 'approval_required'`, default is False
-    'SEND_APPROVAL_EMAILS': False,  
+    'SEND_APPROVAL_EMAILS': False,
     # Optional subject line of approval email, (Default Shown)
-    #'APPROVAL_SUBJECT': f'Your {TOM_NAME} registration has been approved!',  
+    #'APPROVAL_SUBJECT': f'Your {TOM_NAME} registration has been approved!',
     # Optional html-enabled body for approval email, (Default Shown)
-    #'APPROVAL_MESSAGE': f'Your {TOM_NAME} registration has been approved. You can log in <a href="mytom.com/login">here</a>.'  
+    #'APPROVAL_MESSAGE': f'Your {TOM_NAME} registration has been approved. \
+    #    You can log in <a href="mytom.com/login">here</a>.'
 }
 
 TOM_ALERT_CLASSES = [
