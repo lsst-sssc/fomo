@@ -24,7 +24,7 @@ class VROFacility(BaseManualObservationFacility):
     Stub of facility for the Vera C. Rubin Observatory
     """
 
-    name = 'Vera C. Rubin Observatory'
+    name = 'VRO'
     observation_types = [('OBSERVATION', 'Manual Observation')]
     observation_forms = {
         'IMAGING': BaseManualObservationForm,
