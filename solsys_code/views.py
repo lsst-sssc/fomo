@@ -67,6 +67,38 @@ class JPLSBId:
 
         return url
 
+    @u.quantity_input
+    def _build_limits_query(self, obs_time: Time, center: SkyCoord):
+        """
+        Build query for small bodies around within limits <center.ra> - fov_ra_hwidth ... <center.ra> + fov_ra_hwidth
+        and <center.dec> - fov_dec_hwidth ... <center.dec> + fov_dec_hwidth
+        where <center> is a SkyCoord in the ICRS frame at <obs_time> (a Time instance)
+        """
+
+        url = self._build_base_query()
+        # XXX may need '_' not 'T', docs inconsistent
+        time_fmt = '%Y-%m-%dT%H:%M:%S'
+        url += f'&obs-time={obs_time.utc.strftime(time_fmt)}'
+        # Add RA string
+        ra_lower_lim = center.ra - self.fov_ra_hwidth
+        ra_upper_lim = center.ra + self.fov_ra_hwidth
+        url += (
+            f"&fov-ra-lim={ra_lower_lim.to_string(u.hourangle, sep='-', precision=0, pad=True)},"
+            + f"{ra_upper_lim.to_string(u.hourangle, sep='-', precision=0, pad=True)}"
+        )
+        # Add Dec string
+        dec_lower_lim = center.dec - self.fov_dec_hwidth
+        dec_upper_lim = center.dec + self.fov_dec_hwidth
+        dec_lower_string = dec_lower_lim.to_string(u.deg, sep='-', precision=0, pad=True)
+        # Turn minus sign into 'M' needed by API
+        dec_lower_string = dec_lower_string[0].replace('-', 'M') + dec_lower_string[1:]
+        dec_upper_string = dec_upper_lim.to_string(u.deg, sep='-', precision=0, pad=True)
+        # Turn minus sign into 'M' needed by API
+        dec_upper_string = dec_upper_string[0].replace('-', 'M') + dec_upper_string[1:]
+        url += f'&fov-dec-lim={dec_lower_string},{dec_upper_string}'
+
+        return url
+
     def make_query(self, url):
         """
         Executes query in <url>. If the response status is good, the results are returned as JSON
@@ -91,7 +123,7 @@ class JPLSBId:
         """
         table = None
 
-        if results and len(results) > 0 and 'fields_first' in results:
+        if results and len(results) > 0 and ('fields_first' in results or 'fields_second' in results):
             column_names = [
                 'Object name',
                 'Astrometric position',
@@ -118,7 +150,14 @@ class JPLSBId:
             numbered_object = re.compile(r'^(\d*) ')
             unnumbered_object = re.compile(r'^\((\d{4}\s[A-Z]{2}\d*)\)')
             comets = re.compile(r'^(\d+[I,P])|([C,P,A]/\d{4} [A-H,J-Y]\d+)')
-            for sb in results['data_first_pass']:
+            results_key = 'data_first_pass'
+            have_errors = True
+            if 'data_second_pass' in results:
+                results_key = 'data_second_pass'
+                if len(results['fields_second']) < len(column_names):
+                    column_names = column_names[0 : len(results['fields_second']) - 1]
+                    have_errors = False
+            for sb in results[results_key]:
                 # Try to match numbered objects first
                 name = sb[0]
                 match = re.search(numbered_object, name)
@@ -146,15 +185,15 @@ class JPLSBId:
                 rates_ra.append(ra_rate)  # .to(u.arcsec/u.minute))
                 dec_rate = float(sb[8]) * (u.arcsec / u.hour)
                 rates_dec.append(dec_rate)  # .to(u.arcsec/u.minute))
-
-                poserr_ra.append(float(sb[9]) * u.arcsec)
-                poserr_dec.append(float(sb[10]) * u.arcsec)
+                if have_errors:
+                    poserr_ra.append(float(sb[9]) * u.arcsec)
+                    poserr_dec.append(float(sb[10]) * u.arcsec)
             # Assemble table from columns
             position = SkyCoord(ras, decs, frame='icrs')
-            table = QTable(
-                [names, position, ra_dist, dec_dist, norm_dist, mags, rates_ra, rates_dec, poserr_ra, poserr_dec],
-                names=column_names,
-            )
+            columns = [names, position, ra_dist, dec_dist, norm_dist, mags, rates_ra, rates_dec]
+            if have_errors:
+                columns += [poserr_ra, poserr_dec]
+            table = QTable(columns, names=column_names)
 
         return table
 
@@ -181,6 +220,8 @@ class JPLSBId:
         url = self._build_center_query(obs_time, center)
 
         if url:
+            if verbose:
+                print(url)
             results = self.make_query(url)
             if results is not None:
                 if verbose:
