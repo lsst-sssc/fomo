@@ -19,7 +19,8 @@ requires-python = ">=3.9"
 dependencies = [
     "tomtoolkit>=2.23.1",
     "tom_alertstreams",
-    "tom_fink"
+    "tom_fink",
+    "tom-registration",
 ]
 
 [project.urls]
