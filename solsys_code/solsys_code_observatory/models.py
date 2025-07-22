@@ -99,6 +99,35 @@ class Observatory(models.Model):
 
         return rho_cos_phi, rho_sin_phi
 
+    def to_geocentric(self) -> tuple[float, float, float]:  # Potentially support optional units later
+        """Converts the observatory location to geocentric coordinates
+        WGS84 ellipsoid is assumed and specifically set in the erfa gd2gc() call
+
+        Returns:
+            tuple[float, float, float]: Geocentric position (x,y,z) in km
+        """
+        xyz = [None, None, None]
+        if self.lat and self.lon and self.altitude:
+            xyz = erfa.gd2gc(1, radians(self.lon), radians(self.lat), self.altitude)
+            # Convert to km
+            xyz /= 1000.0
+        return xyz
+
+    def ObservatoryXYZ(self) -> tuple[float, float, float]:
+        """Converts the observatory location to geocentric coordinates (in units of Earth radii)
+        Provides similar functionality to Sorcha's Observatory.ObservatoryXY()
+
+        Returns:
+            tuple[float, float, float]: Geocentric position (x,y,z) in Earth radii
+        """
+        xyz = self.to_geocentric()
+        if all(xyz):
+            # Convert to Earth radii
+            r_in_m, f = erfa.eform(1)
+            r_in_km = r_in_m / 1000.0
+            xyz /= r_in_km
+        return xyz
+
     @property
     def get_observations_type(self) -> str:
         """Returns the str version of the stored observations type"""
