@@ -60,6 +60,10 @@ class Observatory(models.Model):
     created = models.DateTimeField(null=True, blank=False, editable=False, default=timezone.now)
     modified = models.DateTimeField(null=True, blank=True, editable=True, default=timezone.now)
 
+    # Get Earth's equatorial radius and flattening factor for WGS84
+    # reference ellipsoid. `r` is in meters
+    _r, _f = erfa.eform(1)
+
     def __str__(self) -> str:
         return f'{self.obscode}: {self.name}'
 
@@ -68,16 +72,16 @@ class Observatory(models.Model):
         latitude, altitude and store these
         """
 
-        # Get Earth's equatorial radius and flattening factor for WGS84
-        # reference ellipsoid. This should move to the class level
-        r, f = erfa.eform(1)
-
         # print(f"elong={elong:.6f} rhocosphi={rho_cos_phi:.6f} rhosinphi={rho_sin_phi:.6f}")
 
         # Form X,Y,Z vector (geocenter->observatory) from longitude and parallax constants, scaled to meters
-        xyz = [r * cos(radians(elong)) * rho_cos_phi, r * sin(radians(elong)) * rho_cos_phi, r * rho_sin_phi]
+        xyz = [
+            self._r * cos(radians(elong)) * rho_cos_phi,
+            self._r * sin(radians(elong)) * rho_cos_phi,
+            self._r * rho_sin_phi,
+        ]
         # Transform geocentric to geodetic
-        lon, lat, alt = erfa.gc2gde(r, f, xyz)
+        lon, lat, alt = erfa.gc2gde(self._r, self._f, xyz)
         self.lon = degrees(lon)
         self.lat = degrees(lat)
         self.altitude = alt
@@ -88,27 +92,25 @@ class Observatory(models.Model):
         and return these
         """
 
-        # Get Earth's equatorial radius (in meters) and flattening factor for
-        # WGS84 reference ellipsoid
-        r, f = erfa.eform(1)
-        axis_ratio = 1.0 - f
-
+        axis_ratio = 1.0 - self._f
         u = atan2(sin(radians(self.lat)) * axis_ratio, cos(radians(self.lat)))
-        rho_sin_phi = axis_ratio * sin(u) + (self.altitude / r) * sin(radians(self.lat))
-        rho_cos_phi = cos(u) + (self.altitude / r) * cos(radians(self.lat))
+        rho_sin_phi = axis_ratio * sin(u) + (self.altitude / self._r) * sin(radians(self.lat))
+        rho_cos_phi = cos(u) + (self.altitude / self._r) * cos(radians(self.lat))
 
         return rho_cos_phi, rho_sin_phi
 
     def to_geocentric(self) -> tuple[float, float, float]:  # Potentially support optional units later
         """Converts the observatory location to geocentric coordinates
-        WGS84 ellipsoid is assumed and specifically set in the erfa gd2gc() call
+        WGS84 ellipsoid is assumed and the values corresponding to that are
+        set in the erfa.gd2gce() call
 
         Returns:
             tuple[float, float, float]: Geocentric position (x,y,z) in km
         """
+
         xyz = [None, None, None]
         if self.lat and self.lon and self.altitude:
-            xyz = erfa.gd2gc(1, radians(self.lon), radians(self.lat), self.altitude)
+            xyz = erfa.gd2gce(self._r, self._f, radians(self.lon), radians(self.lat), self.altitude)
             # Convert to km
             xyz /= 1000.0
         return xyz
@@ -120,11 +122,11 @@ class Observatory(models.Model):
         Returns:
             tuple[float, float, float]: Geocentric position (x,y,z) in Earth radii
         """
+
         xyz = self.to_geocentric()
         if all(xyz):
             # Convert to Earth radii
-            r_in_m, f = erfa.eform(1)
-            r_in_km = r_in_m / 1000.0
+            r_in_km = self._r / 1000.0
             xyz /= r_in_km
         return xyz
 
