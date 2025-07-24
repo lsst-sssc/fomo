@@ -123,9 +123,18 @@ class Ephemeris(View):
         observatory = get_object_or_404(Observatory, obscode=obscode)
         # Construct time series of `Time` objects in UTC.
         # XXX Todo: initialize start, stop, step from query parameters
-        t_now = Time.now()
-        t_now = Time(t_now.datetime.replace(hour=0, minute=0, second=0, microsecond=0))
-        ts = TimeSeries(time_start=t_now, time_delta=1 * u.day, n_samples=20)
+        start_time = request.GET.get('start', None)
+        if start_time is None:
+            start_time = Time.now()
+            start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0))
+        else:
+            try:
+                start_time = Time(start_time, scale='utc')
+            except ValueError:
+                start_time = Time.now()
+                start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0))
+
+        ts = TimeSeries(time_start=start_time, time_delta=1 * u.day, n_samples=20)
         # Generate a list of JD_TDB times
         times = ts.time.tdb.jd
 
