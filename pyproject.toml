@@ -21,6 +21,7 @@ dependencies = [
     "tom_alertstreams",
     "tom_fink",
     "tom-registration",
+    "sregion>=1.5",
 ]
 
 [project.urls]
