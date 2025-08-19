@@ -309,6 +309,7 @@ TOM_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
     'tom_catalogs.harvesters.tns.TNSHarvester',
+    'tom_catalogs.harvesters.mpc.MPCHarvester',
     'tom_catalogs.harvesters.mpc.MPCExplorerHarvester',
 ]
 
@@ -334,6 +335,11 @@ AUTH_STRATEGY = 'READ_ONLY'
 # objects to be seen by everyone. Setting it to False will allow users to specify which groups can access
 # `ObservationRecord`, `DataProduct`, and `ReducedDatum` objects.
 TARGET_PERMISSIONS_ONLY = True
+
+
+# Default permission for newly created targets. Values can be 'PRIVATE', 'PUBLIC', or 'OPEN'
+# Set FOMO default to 'OPEN' (visible to everyone, even when not logged in)
+TARGET_DEFAULT_PERMISSION = 'OPEN'
 
 # URLs that should be allowed access even with AUTH_STRATEGY = LOCKED
 # for example: OPEN_URLS = ['/', '/about']
