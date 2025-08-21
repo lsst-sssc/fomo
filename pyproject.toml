@@ -22,6 +22,9 @@ dependencies = [
     "tom_fink",
     "tom-registration",
     "sregion>=1.5",
+    "skyproj",
+    "ipympl",
+    "ipywidgets",
 ]
 
 [project.urls]
