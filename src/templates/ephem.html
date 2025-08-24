@@ -11,7 +11,7 @@
           <table id="ephemeris-table" class="table table-hover sortable">
           <thead>
             <tr>
-              <th>Date/Time</th><th>RA</th><th>Dec</th><th>Mag</th>
+              <th>Date/Time</th><th>RA</th><th>Dec</th><th>Mag</th><th>r (AU)</th><th>delta (AU)</th><th>Phase angle</th>
             </tr>
           </thead>
           <tbody>
@@ -21,6 +21,9 @@
               <td>{{ line.1 }}</td>
               <td>{{ line.2 }}</td>
               <td>{{ line.3 }}</td>
+              <td>{{ line.4 }}</td>
+              <td>{{ line.5 }}</td>
+              <td>{{ line.6|floatformat:3 }}</td>
             </tr>
             {% endfor %}
           </tbody>

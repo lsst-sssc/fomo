@@ -1,27 +1,50 @@
-from collections import namedtuple
+from collections import defaultdict, namedtuple
+from csv import writer
+from io import StringIO
 from pathlib import Path
 
+import assist
 import numpy as np
+import pandas as pd
 import pooch
+import rebound
 import spiceypy as spice
 from astropy import units as u
-from astropy.constants import GM_sun
+from astropy.constants import GM_sun, c
 from astropy.time import Time
 from astropy.timeseries import TimeSeries
 from django.shortcuts import get_object_or_404, render
 from django.views.generic import View
 from layup.convert import get_output_column_names_and_types
-from layup.predict import predict
-from layup.utilities.data_processing_utilities import layup_furnish_spiceypy
+from layup.utilities.data_processing_utilities import FakeSorchaArgs, layup_furnish_spiceypy
 from sorcha.ephemeris.orbit_conversion_utilities import universal_cartesian
-from sorcha.ephemeris.simulation_geometry import ecliptic_to_equatorial
+from sorcha.ephemeris.simulation_driver import EphemerisGeometryParameters, get_residual_vectors, get_vec
+from sorcha.ephemeris.simulation_geometry import (
+    barycentricObservatoryRates,
+    ecliptic_to_equatorial,
+    integrate_light_time,
+    vec2ra_dec,
+)
+from sorcha.ephemeris.simulation_parsing import Observatory as SorchaObservatory
+from sorcha.ephemeris.simulation_setup import create_assist_ephemeris
+from sorcha.utilities.sorchaConfigs import auxiliaryConfigs
 from tom_targets.models import Target
 
 from solsys_code.solsys_code_observatory.models import Observatory
 
+# Value of au in meters (fixed by IAU 2012 resolution)
+AU_M = 149597870700
+AU_KM = AU_M / 1000.0
+SEC_PER_DAY = 24 * 60 * 60
+SPEED_OF_LIGHT = c.to(u.km / u.s).value * SEC_PER_DAY / AU_KM
+
 cache_dir = Path(pooch.os_cache('layup'))
 # "Furnish" (load) SPICE kernels
 layup_furnish_spiceypy(cache_dir)
+args = FakeSorchaArgs(cache_dir)
+# Create ASSIST ephemeris
+ephem, gm_sun, gm_total = create_assist_ephemeris(args, auxiliaryConfigs())
+observatories = SorchaObservatory(args, auxiliaryConfigs())
 
 
 def convert_target_to_layup(target, sun_dict=None):
@@ -43,10 +66,6 @@ def convert_target_to_layup(target, sun_dict=None):
     # mu_sun = 2.9591220828559115e-04 # value from tests
     # mu_total = 0.00029630927487993194
     mu = mu_sun
-    # Value of au in meters (fixed by IAU 2012 resolution)
-    AU_M = 149597870700
-    AU_KM = AU_M / 1000.0
-    SEC_PER_DAY = 24 * 60 * 60
 
     if sun_dict is None:
         sun_dict = {}
@@ -143,6 +162,136 @@ def convert_target_to_layup(target, sun_dict=None):
     return output
 
 
+def generate_assist_simulations(ephem, orbit_data):
+    """Creates the ASSIST+Rebound simulations for ephemeris generation.
+    This is different from the original in
+    `sorcha.ephemeris.simulation_setup.generate_simulations()`:
+    * Since we are only concerned with a single object, there is no need to
+      create a dictionary keyed on the object id.
+    * Similarly there is no need to iterate over rows of orbital parameters
+      and perform conversion since the `Target`->state vector has already
+      been done in `convert_target_to_layup`. This means that there is no need
+      for `gm_sun`, `gm_total` to be passed in.
+    * The adaptive timestamp criterion (new default) is used and not turned
+      off as in sorcha to better resolve close passes.
+    * The full EIH GR model is used since we are less concerned for speed (TBD).
+
+    Parameters
+    ----------
+    ephem : Ephem
+        The ASSIST ephemeris object
+    gm_sun : float
+        Standard gravitational parameter GM for the Sun
+    gm_total : float
+        Standard gravitational parameter GM for the Solar System Barycenter
+    orbit_data : numpy structured array
+        Converted orbit data
+
+    Returns
+    -------
+    sim: Simulation
+        The REBOUND Simulation object
+    ex: Extras
+        The ASSIST Extras object for the forces
+    """
+
+    epoch = orbit_data['epochMJD_TDB'][0]
+    # convert from MJD to JD, if not done already.
+    # XXX This is done repeatedly in both directions... this must lose speed and precision Shirley...
+    if epoch < 2400000.5:
+        epoch += 2400000.5
+
+    # Instantiate a rebound particle
+    x, y, z, vx, vy, vz = (orbit_data[col] for col in ['x', 'y', 'z', 'xdot', 'ydot', 'zdot'])
+    ic = rebound.Particle(x=x, y=y, z=z, vx=vx, vy=vy, vz=vz)
+    sim = rebound.Simulation()
+    sim.t = epoch - ephem.jd_ref
+    sim.dt = 0.003  # Approx 5 minutes if the units are days (unclear)
+    # This turns on the iterative timestep introduced in arXiv:2401.02849 and default since rebound 4.0.3
+    sim.ri_ias15.adaptive_mode = 2
+    # Add the particle to the simulation
+    sim.add(ic)
+
+    # Attach assist extras to the simulation
+    ex = assist.Extras(sim, ephem)
+
+    # (Don't) Change the GR model for speed
+    forces = ex.forces
+    # forces.remove("GR_EIH")
+    # forces.append("GR_SIMPLE")
+    ex.forces = forces
+
+    return sim, ex
+
+
+def calculate_rates_and_geometry(pointing: pd.DataFrame, ephem_geom_params: EphemerisGeometryParameters):
+    """Calculate rates and geometry for objects within the field of view
+
+    Parameters
+    ----------
+    pointing : pandas dataframe
+        The dataframe containing the pointing database.
+    ephem_geom_params : EphemerisGeometryParameters
+        Various parameters necessary to calculate the ephemeris
+
+    Returns
+    -------
+    : tuple
+        Tuple containing the ephemeris parameters needed for Sorcha post processing.
+    """
+
+    r_sun = get_vec(pointing, 'r_sun')
+    r_obs = get_vec(pointing, 'r_obs')
+    v_sun = get_vec(pointing, 'v_sun')
+    v_obs = get_vec(pointing, 'v_obs')
+
+    ra0, dec0 = vec2ra_dec(ephem_geom_params.rho_hat)
+    drhodt = ephem_geom_params.v_ast - v_obs
+    drho_magdt = (1 / ephem_geom_params.rho_mag) * np.dot(ephem_geom_params.rho, drhodt)
+    ddeltatdt = drho_magdt / SPEED_OF_LIGHT
+    drhodt = ephem_geom_params.v_ast * (1 - ddeltatdt) - v_obs
+    A, D = get_residual_vectors(ephem_geom_params.rho_hat)
+    drho_hatdt = drhodt / ephem_geom_params.rho_mag - drho_magdt * ephem_geom_params.rho_hat / ephem_geom_params.rho_mag
+    dradt = np.dot(A, drho_hatdt)
+    ddecdt = np.dot(D, drho_hatdt)
+    r_ast_sun = ephem_geom_params.r_ast - r_sun
+    v_ast_sun = ephem_geom_params.v_ast - v_sun
+    r_ast_obs = ephem_geom_params.r_ast - r_obs
+    helio_r = np.linalg.norm(r_ast_sun)
+    helio_v = np.linalg.norm(v_ast_sun)
+    phase_angle = np.arccos(np.dot(r_ast_sun, r_ast_obs) / (helio_r * np.linalg.norm(r_ast_obs)))
+    obs_sun = r_obs - r_sun
+    dobs_sundt = v_obs - v_sun
+
+    return (
+        ephem_geom_params.obj_id,
+        pointing['epoch_UTC'],  # replaces FieldID
+        ephem_geom_params.mjd_tai,
+        pointing['fieldJD_TDB'],
+        ephem_geom_params.rho_mag,  # Range_LTC_{km,au}
+        drho_magdt,  # RangeRate_LTC_{km_s,au}
+        helio_r,  # Helio_LTC_au
+        helio_v,  # HelioRate_LTC_au
+        ra0,
+        dradt * 180 / np.pi,
+        dec0,
+        ddecdt * 180 / np.pi,
+        r_ast_sun[0],
+        r_ast_sun[1],
+        r_ast_sun[2],
+        v_ast_sun[0],
+        v_ast_sun[1],
+        v_ast_sun[2],
+        obs_sun[0],
+        obs_sun[1],
+        obs_sun[2],
+        dobs_sundt[0],
+        dobs_sundt[1],
+        dobs_sundt[2],
+        phase_angle * 180 / np.pi,
+    )
+
+
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,
     for an `Observatory`, specific by <obscode> which are retrieved from
@@ -182,10 +331,126 @@ class Ephemeris(View):
 
         data = convert_target_to_layup(target)
 
-        # Get results from layup's predict routine
-        predictions = predict(data, obscode=obscode, times=times, cache_dir=cache_dir)
+        ## Get results from layup's predict routine
+        # predictions = predict(data, obscode=obscode, times=times, cache_dir=cache_dir)
+
+        # Assemble stuff needed for sorcha's version of `integrate_light_time`
+        sim, ex = generate_assist_simulations(ephem, data)
+
+        output = StringIO()
+        in_memory_csv = writer(output)
+
+        column_names = (
+            'ObjID',
+            'epoch_UTC',
+            'fieldMJD_TAI',
+            'fieldJD_TDB',
+            'Range_LTC_au',
+            'RangeRate_LTC_au_s',
+            'Helio_LTC_au',
+            'HelioRate_LTC_au',
+            'RA_deg',
+            'RARateCosDec_deg_day',
+            'Dec_deg',
+            'DecRate_deg_day',
+            'Obj_Sun_x_LTC_au',
+            'Obj_Sun_y_LTC_au',
+            'Obj_Sun_z_LTC_au',
+            'Obj_Sun_vx_LTC_au_s',
+            'Obj_Sun_vy_LTC_au_s',
+            'Obj_Sun_vz_LTC_au_s',
+            'Obs_Sun_x_au',
+            'Obs_Sun_y_au',
+            'Obs_Sun_z_au',
+            'Obs_Sun_vx_au_s',
+            'Obs_Sun_vy_au_s',
+            'Obs_Sun_vz_au_s',
+            'phase_deg',
+        )
+        column_types = defaultdict(ObjID=str, FieldID=str).setdefault(float)
+        in_memory_csv.writerow(column_names)
+
+        # Make equivalent `pointings_df`
+        pointings_df = pd.DataFrame()
+        pointings_df['epoch_UTC'] = ts.time
+        pointings_df['fieldJD_TDB'] = times
+        pointings_df['observationMidpointMJD_TAI'] = ts.time.tai.mjd
+        # et_sun = spice.str2et(f'jd {epoch_tdb.jd} tdb')
+        # sun_posvel, sun_ltt = spice.spkezr('SUN', et_sun, 'J2000', 'NONE', 'SSB')
+        # # Convert from km and km/s to AU and AU/day
+        # sun_posvel /= AU_KM
+        # sun_posvel[3:6] *= SEC_PER_DAY
+
+        # Create ET for SPICE
+        et = (pointings_df['fieldJD_TDB'] - spice.j2000()) * SEC_PER_DAY
+
+        # create empty arrays for observatory position and velocity to be filled in
+        r_obs = np.empty((len(pointings_df), 3))
+        v_obs = np.empty((len(pointings_df), 3))
+
+        for idx, et_i in enumerate(et):
+            r_obs[idx], v_obs[idx] = barycentricObservatoryRates(et_i, obscode, observatories=observatories)
+
+        r_obs /= AU_KM  # convert to au
+        v_obs *= SEC_PER_DAY / AU_KM  # convert to au/day
+
+        pointings_df['r_obs_x'] = r_obs[:, 0]
+        pointings_df['r_obs_y'] = r_obs[:, 1]
+        pointings_df['r_obs_z'] = r_obs[:, 2]
+        pointings_df['v_obs_x'] = v_obs[:, 0]
+        pointings_df['v_obs_y'] = v_obs[:, 1]
+        pointings_df['v_obs_z'] = v_obs[:, 2]
+
+        # create empty arrays for sun position and velocity to be filled in
+        r_sun = np.empty((len(pointings_df), 3))
+        v_sun = np.empty((len(pointings_df), 3))
+        time_offsets = pointings_df['fieldJD_TDB'] - ephem.jd_ref
+        for idx, time_offset_i in enumerate(time_offsets):
+            sun = ephem.get_particle('Sun', time_offset_i)
+            r_sun[idx] = np.array((sun.x, sun.y, sun.z))
+            v_sun[idx] = np.array((sun.vx, sun.vy, sun.vz))
+
+        pointings_df['r_sun_x'] = r_sun[:, 0]
+        pointings_df['r_sun_y'] = r_sun[:, 1]
+        pointings_df['r_sun_z'] = r_sun[:, 2]
+        pointings_df['v_sun_x'] = v_sun[:, 0]
+        pointings_df['v_sun_y'] = v_sun[:, 1]
+        pointings_df['v_sun_z'] = v_sun[:, 2]
+
+        # Generate ephemeris
+        for _, pointing in pointings_df.iterrows():
+            mjd_tai = float(pointing['observationMidpointMJD_TAI'])
+            r_obs = get_vec(pointing, 'r_obs')
+            ephem_geom_params = EphemerisGeometryParameters()
+            ephem_geom_params.obj_id = target.name
+            ephem_geom_params.mjd_tai = mjd_tai
+            (
+                ephem_geom_params.rho,
+                ephem_geom_params.rho_mag,
+                ltt,
+                ephem_geom_params.r_ast,
+                ephem_geom_params.v_ast,
+            ) = integrate_light_time(sim, ex, pointing['fieldJD_TDB'] - ephem.jd_ref, r_obs, lt0=0.01)
+            ephem_geom_params.rho_hat = ephem_geom_params.rho / ephem_geom_params.rho_mag
+
+            out_tuple = calculate_rates_and_geometry(pointing, ephem_geom_params)
+            in_memory_csv.writerow(out_tuple)
+        output.seek(0)
+        predictions = pd.read_csv(output, dtype=column_types)
         ephem_lines = []
-        for e in predictions:
-            ephem_line = [e['epoch_UTC'], e['ra_deg'], e['dec_deg'], 42.0]
+        for _, e in predictions.iterrows():
+            # Old layup line
+            # ephem_line = [e['epoch_UTC'], e['ra_deg'], e['dec_deg'], 42.0]
+
+            ephem_line = [
+                e['epoch_UTC'],
+                e['RA_deg'],
+                e['Dec_deg'],
+                42.0,
+                e['Helio_LTC_au'],
+                e['Range_LTC_au'],
+                e['phase_deg'],
+            ]
+
             ephem_lines.append(ephem_line)
         return render(request, 'ephem.html', {'target': target, 'ephem_lines': ephem_lines, 'observatory': observatory})

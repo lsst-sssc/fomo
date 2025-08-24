@@ -59,7 +59,7 @@ class TestConvertTargetToLayup(TestCase):
         """test conversion with in-place Sun position determination
         This tests needs SPICE kernels available (TBD but at least:
         * naif0012.tls (leap second kernel)
-        * de440s.bsp (Some version of DE440 ephemeris)
+        * de440s.bsp (Short version of DE440 ephemeris)
         )"""
 
         converted = convert_target_to_layup(self.target)
