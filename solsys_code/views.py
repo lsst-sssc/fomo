@@ -17,6 +17,8 @@ from django.shortcuts import get_object_or_404, render
 from django.views.generic import View
 from layup.convert import get_output_column_names_and_types
 from layup.utilities.data_processing_utilities import FakeSorchaArgs, layup_furnish_spiceypy
+
+# from sbpy.photometry import HG
 from sorcha.ephemeris.orbit_conversion_utilities import universal_cartesian
 from sorcha.ephemeris.simulation_driver import EphemerisGeometryParameters, get_residual_vectors, get_vec
 from sorcha.ephemeris.simulation_geometry import (
@@ -292,6 +294,59 @@ def calculate_rates_and_geometry(pointing: pd.DataFrame, ephem_geom_params: Ephe
     )
 
 
+def add_magnitude(pandain, H, G=0.15):
+    """The apparent magnitude is calculated for the given H, G parameters using
+    the classic HG phase function (the HG12 phase function (Penttilä et al. 2016,
+      PSS 123 117) may be added later)
+
+    Parameters
+    ----------
+    pandain : Pandas dataframe
+        Dataframe of observations.
+
+    H : float
+        absolute magnitude (H) in the H, G model
+    G : float, optional
+        slope parameter (G), by default 0.15
+
+    Returns
+    -------
+    pandain : Pandas dataframe
+        Dataframe of observations modified with calculated source apparent
+        magnitude column ("APmag")
+    """
+
+    # first, get rho, delta and alpha as ndarrays
+    # delta, rho (r) are already in au and don't need converting from kilometres
+    #  unlike original Sorcha. alpha is in degrees
+    delta = pandain['Range_LTC_au'].values
+
+    rho = pandain['Helio_LTC_au'].values
+
+    alpha = pandain['phase_deg'].values
+    H = np.full(alpha.shape, H)
+    G = np.full(alpha.shape, G)
+
+    # This code (from sorcha) doesn't give values that match (~0.05) those
+    # from Horizons, our primary source of truth.
+    # calculate reduced magnitude and contribution from phase function
+    # reduced magnitude = H + 2.5log10(f(phi))
+
+    # HGm = HG(H=H * u.mag, G=G)
+    # reduced_mag = HGm(alpha * u.deg).value
+
+    # # apparent magnitude equation: see equation 1 in Schwamb et al. 2023
+    # pandain['APmag'] = 5.0 * np.log10(delta) + 5.0 * np.log10(rho) + reduced_mag
+
+    # Calculate phase functions. Likely need an alpha>~120 wackiness check somewhere
+    phi1 = np.exp(-3.33 * (np.tan(np.radians(alpha) / 2.0)) ** 0.63)
+    phi2 = np.exp(-1.87 * (np.tan(np.radians(alpha) / 2.0)) ** 1.22)
+
+    pandain['APmag'] = H + 5.0 * np.log10(delta * rho) - 2.5 * np.log10((1.0 - G) * phi1 + G * phi2)
+
+    return pandain
+
+
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,
     for an `Observatory`, specific by <obscode> which are retrieved from
@@ -437,6 +492,10 @@ class Ephemeris(View):
             in_memory_csv.writerow(out_tuple)
         output.seek(0)
         predictions = pd.read_csv(output, dtype=column_types)
+        # Add magnitude column
+        H = target.extra_fields.get('H', 12.79)
+        G = target.extra_fields.get('G', 0.6)
+        predictions = add_magnitude(predictions, H, G)
         ephem_lines = []
         for _, e in predictions.iterrows():
             # Old layup line
@@ -446,7 +505,7 @@ class Ephemeris(View):
                 e['epoch_UTC'],
                 e['RA_deg'],
                 e['Dec_deg'],
-                42.0,
+                e['APmag'],
                 e['Helio_LTC_au'],
                 e['Range_LTC_au'],
                 e['phase_deg'],

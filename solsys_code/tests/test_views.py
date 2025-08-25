@@ -1,12 +1,13 @@
 from collections import namedtuple
 
 import numpy as np
-from django.test import TestCase, tag
+import pandas as pd
+from django.test import SimpleTestCase, TestCase, tag
 from numpy.testing import assert_almost_equal
 from tom_targets.models import Target
 
 # Import module to test
-from solsys_code.views import convert_target_to_layup
+from solsys_code.views import add_magnitude, convert_target_to_layup
 
 MJD_TO_JD_CONVERSION = 2400000.5
 
@@ -65,3 +66,41 @@ class TestConvertTargetToLayup(TestCase):
         converted = convert_target_to_layup(self.target)
         for name, j in zip(converted.dtype.names[2:8], range(6)):
             assert_almost_equal(converted[name], self.bary_vec[j], 8)
+
+
+class TestAddMagnitude(SimpleTestCase):
+    def test_asteroid_no_default_G(self):
+        expected_mags = [17.052, 16.838]
+
+        # Values for (1627) Ivar from K92 calculated by JPL Horizons on 2025-08-25
+        # using  soln ref.= JPL#1496
+        obs_df = pd.DataFrame(
+            {
+                'epoch_UTC': ['2025-08-21 00:00:00', '2025-09-09 00:00:00'],
+                'Range_LTC_au': np.array([2.068039560205, 1.982726563532]),
+                'Helio_LTC_au': np.array([3.010816010789, 2.969972029686]),
+                'phase_deg': np.array([8.4394, 4.7247]),
+            }
+        )
+
+        obs_df = add_magnitude(obs_df, 12.79, 0.6)
+        self.assertIn('APmag', obs_df.columns)
+        assert_almost_equal(expected_mags, obs_df['APmag'], 3)
+
+    def test_asteroid_default_G(self):
+        expected_mags = [23.612, 24.047]
+
+        # Values for 2025 ME74 from X05 calculated by JPL Horizons on 2025-08-25
+        # using  soln ref.= JPL#16
+        obs_df = pd.DataFrame(
+            {
+                'epoch_UTC': ['2025-05-01 00:00:00', '2025-05-11 00:00:00'],
+                'Range_LTC_au': np.array([1.339060408365, 1.352758415830]),
+                'Helio_LTC_au': np.array([0.395257884579, 0.446185902680]),
+                'phase_deg': np.array([28.0414, 33.2737]),
+            }
+        )
+
+        obs_df = add_magnitude(obs_df, 23.75)
+        self.assertIn('APmag', obs_df.columns)
+        assert_almost_equal(expected_mags, obs_df['APmag'], 3)
