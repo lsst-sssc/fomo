@@ -294,10 +294,11 @@ def calculate_rates_and_geometry(pointing: pd.DataFrame, ephem_geom_params: Ephe
     )
 
 
-def add_magnitude(pandain, H, G=0.15):
+def add_magnitude(pandain, H, G=0.15, comet=False):
     """The apparent magnitude is calculated for the given H, G parameters using
     the classic HG phase function (the HG12 phase function (Penttilä et al. 2016,
-      PSS 123 117) may be added later)
+      PSS 123 117) may be added later). If [comet]=True, the H and G are
+    interpreted as the M1, k1 values for the comet magnitude formula.
 
     Parameters
     ----------
@@ -305,9 +306,11 @@ def add_magnitude(pandain, H, G=0.15):
         Dataframe of observations.
 
     H : float
-        absolute magnitude (H) in the H, G model
+        absolute magnitude (H) in the H, G model or M1 (nuclear absolute magnitude)
     G : float, optional
-        slope parameter (G), by default 0.15
+        slope parameter (G; default 0.15) or k1
+    comet : bool, default False
+        Whether this is a comet or not (determines which magnitude formula is used)
 
     Returns
     -------
@@ -338,11 +341,14 @@ def add_magnitude(pandain, H, G=0.15):
     # # apparent magnitude equation: see equation 1 in Schwamb et al. 2023
     # pandain['APmag'] = 5.0 * np.log10(delta) + 5.0 * np.log10(rho) + reduced_mag
 
-    # Calculate phase functions. Likely need an alpha>~120 wackiness check somewhere
-    phi1 = np.exp(-3.33 * (np.tan(np.radians(alpha) / 2.0)) ** 0.63)
-    phi2 = np.exp(-1.87 * (np.tan(np.radians(alpha) / 2.0)) ** 1.22)
+    if comet is True:
+        pandain['APmag'] = H + 5.0 * np.log10(delta) + G * np.log10(rho)
+    else:
+        # Calculate phase functions. Likely need an alpha>~120 wackiness check somewhere
+        phi1 = np.exp(-3.33 * (np.tan(np.radians(alpha) / 2.0)) ** 0.63)
+        phi2 = np.exp(-1.87 * (np.tan(np.radians(alpha) / 2.0)) ** 1.22)
 
-    pandain['APmag'] = H + 5.0 * np.log10(delta * rho) - 2.5 * np.log10((1.0 - G) * phi1 + G * phi2)
+        pandain['APmag'] = H + 5.0 * np.log10(delta * rho) - 2.5 * np.log10((1.0 - G) * phi1 + G * phi2)
 
     return pandain
 
@@ -522,9 +528,12 @@ class Ephemeris(View):
         output.seek(0)
         predictions = pd.read_csv(output, dtype=column_types)
         # Add magnitude column
-        H = target.extra_fields.get('H', 12.79)
-        G = target.extra_fields.get('G', 0.6)
-        predictions = add_magnitude(predictions, H, G)
+        H = target.extra_fields.get('H', 22.0)
+        G = target.extra_fields.get('G', 0.15)
+        comet = False
+        if target.scheme == 'MPC_COMET':
+            comet = True
+        predictions = add_magnitude(predictions, H, G, comet)
         # Add sky motion rate column
         predictions = add_sky_motion(predictions)
         ephem_lines = []

@@ -106,6 +106,24 @@ class TestAddMagnitude(SimpleTestCase):
         self.assertIn('APmag', obs_df.columns)
         assert_almost_equal(expected_mags, obs_df['APmag'], 3)
 
+    def test_comet(self):
+        expected_mags = [21.136, 21.089]
+
+        # Values for C/2023 RS61 from F65 calculated by JPL Horizons on 2025-08-26
+        # using  soln ref.= JPL#14
+        obs_df = pd.DataFrame(
+            {
+                'epoch_UTC': ['2025-08-26 00:00:00', '2025-09-05 00:00:00'],
+                'Helio_LTC_au': np.array([8.953438259855, 8.939216740294]),
+                'Range_LTC_au': np.array([8.79141206043956, 8.62613767932531]),
+                'phase_deg': np.array([6.4482, 6.2598]),
+            }
+        )
+
+        obs_df = add_magnitude(obs_df, 8.8, 8.0, comet=True)
+        self.assertIn('APmag', obs_df.columns)
+        assert_almost_equal(expected_mags, obs_df['APmag'], 3)
+
 
 class TestAddSkyMotion(SimpleTestCase):
     def setUp(self) -> None:
