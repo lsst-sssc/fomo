@@ -2,12 +2,13 @@ from collections import namedtuple
 
 import numpy as np
 import pandas as pd
+from astropy import units as u
 from django.test import SimpleTestCase, TestCase, tag
 from numpy.testing import assert_almost_equal
 from tom_targets.models import Target
 
 # Import module to test
-from solsys_code.views import add_magnitude, convert_target_to_layup
+from solsys_code.views import add_magnitude, add_sky_motion, convert_target_to_layup
 
 MJD_TO_JD_CONVERSION = 2400000.5
 
@@ -104,3 +105,49 @@ class TestAddMagnitude(SimpleTestCase):
         obs_df = add_magnitude(obs_df, 23.75)
         self.assertIn('APmag', obs_df.columns)
         assert_almost_equal(expected_mags, obs_df['APmag'], 3)
+
+
+class TestAddSkyMotion(SimpleTestCase):
+    def setUp(self) -> None:
+        # Define various rate units to simplify things
+        self.jpl = u.arcsec / u.hour
+        self.sorcha = u.deg / u.day
+        self.fomo = u.arcsec / u.min
+
+        return super().setUp()
+
+    def test_default_units(self):
+        expected_rate = [1.2440149, 1.3341748]
+        expected_pa = [110.94500, 111.53031]
+
+        obs_df = pd.DataFrame(
+            {
+                'RARateCosDec_deg_day': (([69.70892, 74.46485] * self.jpl).to(self.sorcha)),
+                'DecRate_deg_day': (([-26.6820, -29.3780] * self.jpl).to(self.sorcha)),
+            }
+        )
+
+        obs_df = add_sky_motion(obs_df)
+
+        self.assertIn('sky_motion', obs_df.columns)
+        self.assertIn('sky_motion_PA_deg', obs_df.columns)
+        assert_almost_equal(expected_rate, obs_df['sky_motion'], 6)
+        assert_almost_equal(expected_pa, obs_df['sky_motion_PA_deg'], 6)
+
+    def test_jpl_units(self):
+        expected_rate = [1.2440149 * 60, 1.3341748 * 60]
+        expected_pa = [110.94500, 111.53031]
+
+        obs_df = pd.DataFrame(
+            {
+                'RARateCosDec_deg_day': (([69.70892, 74.46485] * self.jpl).to(self.sorcha)),
+                'DecRate_deg_day': (([-26.6820, -29.3780] * self.jpl).to(self.sorcha)),
+            }
+        )
+
+        obs_df = add_sky_motion(obs_df, self.jpl)
+
+        self.assertIn('sky_motion', obs_df.columns)
+        self.assertIn('sky_motion_PA_deg', obs_df.columns)
+        assert_almost_equal(expected_rate, obs_df['sky_motion'], 5)
+        assert_almost_equal(expected_pa, obs_df['sky_motion_PA_deg'], 6)

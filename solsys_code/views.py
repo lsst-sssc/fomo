@@ -347,6 +347,35 @@ def add_magnitude(pandain, H, G=0.15):
     return pandain
 
 
+def add_sky_motion(pandain, motion_units=u.arcsec / u.minute):
+    """Adds the combined sky motion and position angle columns to the passed
+    pandas DataFrame `pandain`
+
+    Parameters
+    ----------
+    pandain : Pandas dataframe
+        Dataframe of observations.
+    motion_units : astropy.units.CompositeUnit, optional
+        Units for output rate of motion, by default u.arcsec/u.minute
+
+    Returns
+    -------
+    pandain : Pandas dataframe
+        Dataframe of observations modified with calculated apparent
+        rate of motion ("sky_motion") and position angle ("sky_motion_PA_deg")
+        columns added.
+    """
+
+    sky_motion = np.sqrt(pandain['RARateCosDec_deg_day'].values ** 2 + pandain['DecRate_deg_day'].values ** 2)
+    sky_motion *= u.deg / u.day
+    pandain['sky_motion'] = sky_motion.to(motion_units)
+    # I doubt this is all that's needed to get the right angle in all cases but we'll see...
+    sky_PA = np.atan2(pandain['RARateCosDec_deg_day'], pandain['DecRate_deg_day'])
+    pandain['sky_motion_PA_deg'] = np.degrees(sky_PA)
+
+    return pandain
+
+
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,
     for an `Observatory`, specific by <obscode> which are retrieved from
@@ -496,6 +525,8 @@ class Ephemeris(View):
         H = target.extra_fields.get('H', 12.79)
         G = target.extra_fields.get('G', 0.6)
         predictions = add_magnitude(predictions, H, G)
+        # Add sky motion rate column
+        predictions = add_sky_motion(predictions)
         ephem_lines = []
         for _, e in predictions.iterrows():
             # Old layup line
@@ -509,6 +540,8 @@ class Ephemeris(View):
                 e['Helio_LTC_au'],
                 e['Range_LTC_au'],
                 e['phase_deg'],
+                e['sky_motion'],
+                e['sky_motion_PA_deg'],
             ]
 
             ephem_lines.append(ephem_line)
