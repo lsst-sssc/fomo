@@ -115,6 +115,17 @@ class Observatory(models.Model):
             xyz /= 1000.0
         return xyz
 
+    def to_geodetic(self) -> tuple[float, float, float]:
+        """Returns the observatory location in geodetic coordinates
+        (longitude, latitude, altitude/height). The longitude and latitude
+        values are returned in radians, with East longitude positive and the
+        altitude is returned in meters
+
+        Returns
+            tuple[float, float, float]: Geodetic position (lon,lat,height) in radians/m
+        """
+        return (radians(self.lon), radians(self.lat), self.altitude)
+
     def ObservatoryXYZ(self) -> tuple[float, float, float]:
         """Converts the observatory location to geocentric coordinates (in units of Earth radii)
         Provides similar functionality to Sorcha's Observatory.ObservatoryXY()

@@ -1,4 +1,5 @@
 from datetime import datetime
+from math import radians
 
 from django.db import IntegrityError
 from django.test import TestCase
@@ -57,6 +58,23 @@ class TestObservatory(TestCase):
         self.assertAlmostEqual(expected_XYZ[0], xyz[0], self.precision)
         self.assertAlmostEqual(expected_XYZ[1], xyz[1], self.precision)
         self.assertAlmostEqual(expected_XYZ[2], xyz[2], self.precision)
+
+    def test_geodetic_X05(self):
+        expected_llh = [radians(-70.74941666666666), radians(-30.244633333333333), 2662.75]
+
+        # Use slightly different values than above to match `EarthLocation.of_site('Rubin')`
+        rubin, created = Observatory.objects.get_or_create(
+            obscode='X05',
+            name='Simonyi Survey Telescope, Rubin Observatory',
+            lat=-30.244633333333333,
+            lon=-70.74941666666666,
+            altitude=2662.75,
+        )
+
+        llh = rubin.to_geodetic()
+        self.assertAlmostEqual(expected_llh[0], llh[0], self.precision)
+        self.assertAlmostEqual(expected_llh[1], llh[1], self.precision)
+        self.assertAlmostEqual(expected_llh[2], llh[2], self.precision)
 
     def test_ObservatoryXYZ_X05(self):
         expected_XYZ = [+0.2851834, -0.8166132, -0.5009568]
