@@ -4,6 +4,7 @@ from io import StringIO
 from pathlib import Path
 
 import assist
+import erfa
 import numpy as np
 import pandas as pd
 import pooch
@@ -11,6 +12,7 @@ import rebound
 import spiceypy as spice
 from astropy import units as u
 from astropy.constants import GM_sun, c
+from astropy.coordinates.builtin_frames.utils import get_jd12, get_polar_motion
 from astropy.time import Time
 from astropy.timeseries import TimeSeries
 from django.shortcuts import get_object_or_404, render
@@ -39,6 +41,7 @@ AU_M = 149597870700
 AU_KM = AU_M / 1000.0
 SEC_PER_DAY = 24 * 60 * 60
 SPEED_OF_LIGHT = c.to(u.km / u.s).value * SEC_PER_DAY / AU_KM
+PI_OVER_2 = np.pi / 2.0  # aka 90 degrees
 
 cache_dir = Path(pooch.os_cache('layup'))
 # "Furnish" (load) SPICE kernels
@@ -382,6 +385,65 @@ def add_sky_motion(pandain, motion_units=u.arcsec / u.minute):
     return pandain
 
 
+def build_apco_context(pointing, observatory):
+    """
+    Wrapper for ``erfa.apco``, used in conversions ICRS <-> AltAz/HADec and ICRS <-> CIRS.
+
+    Parameters
+    ----------
+    pointing : ``pd.Series``
+        A single row (``pd.Series``) pulled from the pointings_df instance
+        for which to calculate the calculate the astrom values.
+    observatory : ``Observatory``
+        An observatory
+    """
+    lon, lat, height = observatory.to_geodetic()
+    obstime = Time(pointing['observationMidpointMJD_TAI'], format='mjd', scale='tai')
+
+    jd1_tt, jd2_tt = get_jd12(obstime, 'tt')
+    # Polar motion values (interpolated from IERS data) and TIO locator, s' (`sp`)
+    xp, yp = get_polar_motion(obstime)
+    sp = erfa.sp00(jd1_tt, jd2_tt)
+    # Find the X, Y coordinates of the CIP and the CIO locator, s.
+    # x, y, s = get_cip(jd1_tt, jd2_tt)
+    # xys00a and xys00b provide the equivalent of get_cip() above namely:
+    # - pnm06a or pnm06b: provides the BPN matrix from either IAU 2006/2000A or 2000B
+    # - bpn2xy: convert BPN matrix to CIP X,Y coordinates
+    # - s06 or s00: CIO locator, s
+    # Not sure why astropy rolled its own, maybe it was only added to SOFA/erfa later?
+    # We're using the 77 term 2000B nutation for speed over the 1361 term 2000A for speed
+    x, y, s = erfa.xys00b(jd1_tt, jd2_tt)
+    # Earth rotation angle (modern CIO-based equivalent of GST)
+    era = erfa.era00(*get_jd12(obstime, 'ut1'))
+
+    # Earth barycentric position and velocity and heliocentric position
+    # XXX TODO can almost certainly get this back out of `pointing`
+    jd1_tdb, jd2_tdb = get_jd12(obstime, 'tdb')
+    earth_pv_heliocentric, earth_pv = erfa.epv00(jd1_tdb, jd2_tdb)
+    earth_heliocentric = earth_pv_heliocentric['p']
+    # refraction constants
+    refa, refb = 0.0, 0.0  # airless apparent (for now) #_refco(frame_or_coord)
+
+    return erfa.apco(
+        jd1_tt,
+        jd2_tt,
+        earth_pv,
+        earth_heliocentric,
+        x,
+        y,
+        s,
+        era,
+        lon,
+        lat,
+        height,
+        xp,
+        yp,
+        sp,
+        refa,
+        refb,
+    )
+
+
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,
     for an `Observatory`, specific by <obscode> which are retrieved from
@@ -456,6 +518,9 @@ class Ephemeris(View):
             'Obs_Sun_vy_au_s',
             'Obs_Sun_vz_au_s',
             'phase_deg',
+            'Obs_Az_deg',
+            'Obs_Alt_deg',
+            'Obs_HA_deg',
         )
         column_types = defaultdict(ObjID=str, FieldID=str).setdefault(float)
         in_memory_csv.writerow(column_names)
@@ -478,6 +543,7 @@ class Ephemeris(View):
         r_obs = np.empty((len(pointings_df), 3))
         v_obs = np.empty((len(pointings_df), 3))
 
+        # SSB->observatory position and velocity vectors
         for idx, et_i in enumerate(et):
             r_obs[idx], v_obs[idx] = barycentricObservatoryRates(et_i, obscode, observatories=observatories)
 
@@ -524,6 +590,17 @@ class Ephemeris(View):
             ephem_geom_params.rho_hat = ephem_geom_params.rho / ephem_geom_params.rho_mag
 
             out_tuple = calculate_rates_and_geometry(pointing, ephem_geom_params)
+            # Transform from ICRS RA, Dec -> observed Alt, Az, HA
+            # Assemble astrometric context
+            astrom = build_apco_context(pointing, observatory)
+            # Transform to CIRS (can easily transform further to apparent RA, Dec if needed)
+            cirs_ra, cirs_dec = erfa.atciqz(np.radians(out_tuple[8]), np.radians(out_tuple[10]), astrom)
+            # Transform from CIRS->observed
+            obs_az, obs_zd, obs_ha, obs_dec, obs_ra = erfa.atioq(cirs_ra, cirs_dec, astrom)
+            # Convert zenith distance to altitude (in degrees)
+            obs_alt = np.degrees(PI_OVER_2 - obs_zd)
+            out_tuple = out_tuple + (np.degrees(obs_az), obs_alt, np.degrees(obs_ha))
+
             in_memory_csv.writerow(out_tuple)
         output.seek(0)
         predictions = pd.read_csv(output, dtype=column_types)
@@ -545,6 +622,8 @@ class Ephemeris(View):
                 e['epoch_UTC'],
                 e['RA_deg'],
                 e['Dec_deg'],
+                e['Obs_Az_deg'],
+                e['Obs_Alt_deg'],
                 e['APmag'],
                 e['Helio_LTC_au'],
                 e['Range_LTC_au'],
