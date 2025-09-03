@@ -21,6 +21,7 @@ dependencies = [
     "tom_alertstreams",
     "tom_fink",
     "tom-registration",
+    "tom_eso",
 ]
 
 [project.urls]
