@@ -1,9 +1,10 @@
-import requests
-from typing import Optional, Dict, Any
-from astropy.table import QTable
-import logging
 import json
+import logging
 import urllib.parse
+from typing import Any, Optional
+
+import requests
+from astropy.table import QTable
 
 
 class JPLSBDBQuery:
@@ -12,7 +13,7 @@ class JPLSBDBQuery:
     via its API interface (https://ssd.jpl.nasa.gov/tools/sbdb_query.html)
     """
 
-    base_url = "https://ssd-api.jpl.nasa.gov/sbdb_query.api"
+    base_url = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
 
     def __init__(self, orbit_class=None, orbital_constraints=None):
         """
@@ -27,55 +28,59 @@ class JPLSBDBQuery:
         translated = []
         for c in constraints:
             # Handle range (e.g. 6<=H<=7)
-            if "<=" in c and c.count("<=") == 2:
-                parts = c.split("<=")
+            if '<=' in c and c.count('<=') == 2:
+                parts = c.split('<=')
                 min_val = parts[0].strip()
                 field = parts[1].strip()
                 max_val = parts[2].strip()
-                translated.append(f"{field}|RG|{min_val}|{max_val}")
+                translated.append(f'{field}|RG|{min_val}|{max_val}')
                 continue
 
             # Handle <, <=, >, >=
-            if "<=" in c:
-                field, value = c.split("<=")
-                translated.append(f"{field.strip()}|LE|{value.strip()}")
-            elif ">=" in c:
-                field, value = c.split(">=")
-                translated.append(f"{field.strip()}|GE|{value.strip()}")
-            elif "<" in c:
-                field, value = c.split("<")
-                translated.append(f"{field.strip()}|LT|{value.strip()}")
-            elif ">" in c:
-                field, value = c.split(">")
-                translated.append(f"{field.strip()}|GT|{value.strip()}")
+            if '<=' in c:
+                field, value = c.split('<=')
+                translated.append(f'{field.strip()}|LE|{value.strip()}')
+            elif '>=' in c:
+                field, value = c.split('>=')
+                translated.append(f'{field.strip()}|GE|{value.strip()}')
+            elif '<' in c:
+                field, value = c.split('<')
+                translated.append(f'{field.strip()}|LT|{value.strip()}')
+            elif '>' in c:
+                field, value = c.split('>')
+                translated.append(f'{field.strip()}|GT|{value.strip()}')
+            elif 'IS DEFINED' in c:
+                field, value = c.split('IS DEFINED')
+                translated.append(f'{field.strip()}|DF')
             else:
-                raise ValueError(f"Unsupported constraint format: {c}")
+                raise ValueError(f'Unsupported constraint format: {c}')
 
         return translated
 
     def build_query_url(self):
+        """
+        Build a query for the JPL SBDB service.
+        """
         # Base query fields
-        params = {
-            "fields": "full_name,first_obs,epoch,e,a,q,i,om,w"
-        }
+        params = {'fields': 'full_name,first_obs,epoch,e,a,q,i,om,w'}
 
         # Add sb-class if provided
         if self.orbit_class:
-            params["sb-class"] = self.orbit_class
+            params['sb-class'] = self.orbit_class
 
         # Add sb-cdata if constraints provided
         if self.orbital_constraints:
-            constraint_obj = {"AND": self.orbital_constraints}
+            constraint_obj = {'AND': self.orbital_constraints}
             json_str = json.dumps(constraint_obj, separators=(',', ':'))
             encoded_cdata = urllib.parse.quote(json_str)
-            params["sb-cdata"] = encoded_cdata
+            params['sb-cdata'] = encoded_cdata
 
         # Build URL
-        query_parts = [f"{key}={urllib.parse.quote(str(value))}" for key, value in params.items()]
-        url = f"{self.base_url}?" + "&".join(query_parts)
+        query_parts = [f'{key}={urllib.parse.quote(str(value))}' for key, value in params.items()]
+        url = f'{self.base_url}?' + '&'.join(query_parts)
         return url
 
-    def run_query(self) -> Optional[Dict[str, Any]]:
+    def run_query(self) -> Optional[dict[str, Any]]:
         """
         Execute the query and return results as JSON (if successful).
         """
@@ -86,20 +91,20 @@ class JPLSBDBQuery:
             return resp.json()
         else:
             logger = logging.getLogger(__name__)
-            logger.debug(f"Query failed with status {resp.status_code}")
+            logger.debug(f'Query failed with status {resp.status_code}')
             return None
 
-    def parse_results(self, results: Dict[str, Any]) -> QTable:
+    def parse_results(self, results: dict[str, Any]) -> QTable:
         """
         Parse JSON results into an Astropy QTable.
         """
-        if not results or "data" not in results:
+        if not results or 'data' not in results:
             logger = logging.getLogger(__name__)
-            logger.debug(f"No data found in results")
+            logger.debug('No data found in results')
             return QTable()
 
-        data = results["data"]
-        columns = results["fields"]
+        data = results['data']
+        columns = results['fields']
         table = QTable(rows=data, names=columns)
 
         return table
