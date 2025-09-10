@@ -4,11 +4,13 @@ import numpy as np
 import pandas as pd
 from astropy import units as u
 from django.test import SimpleTestCase, TestCase, tag
-from numpy.testing import assert_almost_equal
+from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from tom_targets.models import Target
 
+from solsys_code.solsys_code_observatory.models import Observatory
+
 # Import module to test
-from solsys_code.views import add_magnitude, add_sky_motion, convert_target_to_layup
+from solsys_code.views import add_magnitude, add_sky_motion, build_apco_context, convert_target_to_layup
 
 MJD_TO_JD_CONVERSION = 2400000.5
 
@@ -169,3 +171,24 @@ class TestAddSkyMotion(SimpleTestCase):
         self.assertIn('sky_motion_PA_deg', obs_df.columns)
         assert_almost_equal(expected_rate, obs_df['sky_motion'], 5)
         assert_almost_equal(expected_pa, obs_df['sky_motion_PA_deg'], 6)
+
+
+class TestBuildAPCOContext(TestCase):
+    def setUp(self):
+        self.test_observatory, created = Observatory.objects.get_or_create(
+            obscode='K93',
+            name='Sutherland-LCO Dome C',
+            lat=-32.380667412,
+            lon=+20.81011,
+            altitude=1808.33,
+        )
+        self.test_pointing = pd.DataFrame()
+
+        return super().setUp()
+
+    def test1(self):
+        expected_context = []
+
+        context = build_apco_context(self.test_pointing, self.test_observatory)
+
+        assert_array_almost_equal(expected_context, context)
