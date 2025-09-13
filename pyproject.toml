@@ -21,7 +21,6 @@ dependencies = [
     "tom_alertstreams",
     "tom_fink",
     "sorcha",
-    "layup"
 ]
 
 [project.urls]
