@@ -45,6 +45,8 @@ PI_OVER_2 = np.pi / 2.0  # aka 90 degrees
 
 cache_dir = Path(pooch.os_cache('layup'))
 # "Furnish" (load) SPICE kernels
+# This will download 1.6 GB of SPICE kernels to the `cache_dir` defined
+# above (~/.cache/layup/) if they don't already exist...
 layup_furnish_spiceypy(cache_dir)
 args = FakeSorchaArgs(cache_dir)
 # Create ASSIST ephemeris
@@ -411,7 +413,7 @@ def build_apco_context(pointing, observatory):
     # - bpn2xy: convert BPN matrix to CIP X,Y coordinates
     # - s06 or s00: CIO locator, s
     # Not sure why astropy rolled its own, maybe it was only added to SOFA/erfa later?
-    # We're using the 77 term 2000B nutation for speed over the 1361 term 2000A for speed
+    # We're using the 77 term 2000B nutation over the 1361 term 2000A for speed
     x, y, s = erfa.xys00b(jd1_tt, jd2_tt)
     # Earth rotation angle (modern CIO-based equivalent of GST)
     era = erfa.era00(*get_jd12(obstime, 'ut1'))
@@ -425,8 +427,8 @@ def build_apco_context(pointing, observatory):
     refa, refb = 0.0, 0.0  # airless apparent (for now) #_refco(frame_or_coord)
 
     return erfa.apco(
-        jd1_tt,
-        jd2_tt,
+        jd1_tdb,
+        jd2_tdb,
         earth_pv,
         earth_heliocentric,
         x,
