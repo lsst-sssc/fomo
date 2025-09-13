@@ -1,8 +1,10 @@
 from collections import namedtuple
 
+import erfa
 import numpy as np
 import pandas as pd
 from astropy import units as u
+from astropy.time import Time
 from django.test import SimpleTestCase, TestCase, tag
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from tom_targets.models import Target
@@ -13,6 +15,8 @@ from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.views import add_magnitude, add_sky_motion, build_apco_context, convert_target_to_layup
 
 MJD_TO_JD_CONVERSION = 2400000.5
+JD2000 = 2451545.0  # Reference epoch
+CR = 299792.458  # speed of light in km/s
 
 
 class TestConvertTargetToLayup(TestCase):
@@ -182,13 +186,114 @@ class TestBuildAPCOContext(TestCase):
             lon=+20.81011,
             altitude=1808.33,
         )
-        self.test_pointing = pd.DataFrame()
+        # East +ve longitude and latitude (radians)
+        self.elong = np.radians(self.test_observatory.lon)
+        self.phi = np.radians(self.test_observatory.lat)
+        self.t = Time(2460806.5, format='jd', scale='tdb')
+        pointing_df = pd.DataFrame(
+            {
+                'FieldID': [848],
+                'observationMidpointMJD_TAI': self.t.tai.mjd,
+            }
+        )
+        self.test_pointing = pointing_df.iloc[0]
+        # Values from JPL Horizons (Observer barycentric position (AU) & velocity (km/s), heliocentric position)
+        self.jplh_opb = np.array([-0.6510291307158590, -0.7169649592007841, -0.3106161232372137])
+        self.jplh_ovb = np.array([2.278186862894084e01, -1.772608691513609e01, -7.623840806832071e00])
+        self.jplh_eph = np.array([-0.6462284900804688, -0.7120159592468899, -0.3086406400831245])
+        # Values from erfa.epv00
+        self.erfa_epb = np.array([-0.6510155687487159, -0.7169309490408324, -0.3105933888770286])
+        # Difference is ~100km or  0.0000006684587122 au) mostly in X
+
+        # Values from test_observatory above, passed through erfa.pvtob, rotated by BPN matrix from
+        # erfa.c2ixys/erfa.xys00b
+        self.obs_pos = np.array([-1.2840145962839264e-05, -3.3708560834745510e-05, -2.2675569329249562e-05])
+
+        # Observer position barycentric and heliocentric from erfa.apco13
+        self.erfa_opb = np.array([-0.6510284090924512, -0.7169646574464681, -0.3106160643791047])
+        self.erfa_oph = np.array([-0.6399007072710181, -0.7050634136553813, -0.3056348598551406])
+
+        # Polar motion values "rotated to local meridian" (not sure how this is derived)
+        # values from IERS-B columns of https://datacenter.iers.org/data/latestVersion/finals.all.iau2000.txt
+        self.xpl = -2.9954710682224965e-07  # originally np.radians(0.095486/3600.0)
+        self.ypl = np.radians(0.425156 / 3600.0)
+        self.field_names = (
+            'pmt',
+            'eb',
+            'eh',
+            'em',
+            'v',
+            'bm1',
+            # 'bpn',
+            'along',
+            'phi',  # not initialized/used in apco
+            'xpl',
+            'ypl',
+            'sphi',
+            'cphi',
+            'diurab',
+            'eral',
+            'refa',
+            'refb',
+        )
 
         return super().setUp()
 
     def test1(self):
-        expected_context = []
+        obs_sun_dist, obs_sun_vec = erfa.pn(self.jplh_eph + self.obs_pos)
+        v_vec = self.jplh_ovb / CR
+        v = np.linalg.norm(v_vec)
+        expected_context = np.array(
+            (
+                (self.t.tdb.jd - JD2000) / 365.25,  # pmt
+                self.jplh_opb,
+                obs_sun_vec,
+                obs_sun_dist,  # eb, eh, em
+                v_vec,
+                1 - (v**2),  # v(el), Lorentz factor (bm1)
+                erfa.pnm00b(self.t.tt.jd1, self.t.tt.jd2),  # bpn (Bias-Precession-Nutation matrix)
+                self.elong,
+                0.0,
+                self.xpl,
+                self.ypl,  # along, phi, xpl, ypl
+                np.sin(self.phi),
+                np.cos(self.phi),  # sphi, cphi (sin/cos(phi))
+                0.0,
+                erfa.era00(self.t.ut1.jd1, self.t.ut1.jd2) + self.elong - 2 * np.pi,
+                0.0,
+                -0.0,
+            ),
+            dtype=[
+                ('pmt', '<f8'),
+                ('eb', '<f8', (3,)),
+                ('eh', '<f8', (3,)),
+                ('em', '<f8'),
+                ('v', '<f8', (3,)),
+                ('bm1', '<f8'),
+                ('bpn', '<f8', (3, 3)),
+                ('along', '<f8'),
+                ('phi', '<f8'),
+                ('xpl', '<f8'),
+                ('ypl', '<f8'),
+                ('sphi', '<f8'),
+                ('cphi', '<f8'),
+                ('diurab', '<f8'),
+                ('eral', '<f8'),
+                ('refa', '<f8'),
+                ('refb', '<f8'),
+            ],
+        )
 
         context = build_apco_context(self.test_pointing, self.test_observatory)
-
-        assert_array_almost_equal(expected_context, context)
+        np.set_printoptions(precision=16, floatmode='fixed')
+        for field in self.field_names:
+            precision = 7
+            if field in ['eb', 'eh']:
+                # Lower precision of Earth's barycentric and heliocentric position since the JPL Horizons-derived
+                # values don't match the erfa/VSOP2000 derived ones. This got worse with DE440/441 in 2021 which
+                # includes KBOs, which weren't in previous DE's, which shifts the Sol. Sys. barycenter by ~100km
+                # (which is ~0.67e-6 or 0.0000006684587122 au)
+                precision = 6
+            assert_array_almost_equal(
+                expected_context[field], context[field], decimal=precision, err_msg=f'Failure on field {field}'
+            )
