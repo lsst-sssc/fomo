@@ -1,0 +1,6 @@
+{% extends 'tom_common/base.html' %}
+{% load crispy_forms_tags %}
+{% block content %}
+<h3>Create Ephemeris for Target {{target}}</h3>
+{% crispy form %}
+{% endblock %}

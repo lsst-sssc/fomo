@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict, namedtuple
 from csv import writer
 from io import StringIO
@@ -15,8 +16,11 @@ from astropy.constants import GM_sun, c
 from astropy.coordinates.builtin_frames.utils import get_jd12, get_polar_motion
 from astropy.time import Time
 from astropy.timeseries import TimeSeries
+from crispy_forms.bootstrap import FormActions
+from crispy_forms.layout import HTML, Layout, Submit
 from django.shortcuts import get_object_or_404, render
-from django.views.generic import View
+from django.urls import reverse
+from django.views.generic import FormView, View
 from layup.convert import get_output_column_names_and_types
 from layup.utilities.data_processing_utilities import FakeSorchaArgs, layup_furnish_spiceypy
 
@@ -35,6 +39,8 @@ from sorcha.utilities.sorchaConfigs import auxiliaryConfigs
 from tom_targets.models import Target
 
 from solsys_code.solsys_code_observatory.models import Observatory
+
+from .forms import EphemerisForm
 
 # Value of au in meters (fixed by IAU 2012 resolution)
 AU_M = 149597870700
@@ -446,6 +452,54 @@ def build_apco_context(pointing, observatory):
     )
 
 
+def split_number_unit_regex(s):
+    """
+    Matches a number (integer or float) followed by an optional unit
+    """
+
+    match = re.match(r'([-+]?\d*\.?\d+)([a-zA-Z%]+)?', s)
+    if match:
+        number = float(match.group(1))  # Convert to float for numerical operations
+        unit = match.group(2) if match.group(2) else ''  # Handle cases with no unit
+        return number, unit
+    else:
+        return None, None
+
+
+class MakeEphemerisView(FormView):
+    """
+    View for making an ephemeris
+    """
+
+    template_name = 'ephem_form.html'
+    form_class = EphemerisForm
+
+    def get_form(self, form_class=None):
+        """
+        Form handler
+        """
+        form = super().get_form()
+        if self.request.method == 'GET':
+            target_id = self.request.GET.get('target_id')
+        elif self.request.method == 'POST':
+            target_id = self.request.POST.get('target_id')
+        cancel_url = reverse('home')
+        if target_id:
+            cancel_url = reverse('tom_targets:detail', kwargs={'pk': target_id}) + '?tab=ephemeris'
+        form.helper.layout = Layout(
+            HTML("""<p>Fill in form to generate an ephemeris</p>"""),
+            'target_id',
+            'start_date',
+            'end_date',
+            'site_code',
+            'confirm',
+            FormActions(
+                Submit('confirm', 'Confirm'), HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>')
+            ),
+        )
+        return form
+
+
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,
     for an `Observatory`, specific by <obscode> which are retrieved from
@@ -478,8 +532,19 @@ class Ephemeris(View):
             except ValueError:
                 start_time = Time.now()
                 start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0))
-
-        ts = TimeSeries(time_start=start_time, time_delta=1 * u.day, n_samples=20)
+        step = request.GET.get('step', None)
+        if step is None:
+            step_size = 1 * u.day
+        else:
+            number, unit = split_number_unit_regex(step)
+            unit = u.day
+            if number is not None:
+                step_size = number
+            if unit is not None:
+                # Do unit handling here
+                pass
+            step_size *= unit
+        ts = TimeSeries(time_start=start_time, time_delta=step_size, n_samples=20)
         # Generate a list of JD_TDB times
         times = ts.time.tdb.jd
 
