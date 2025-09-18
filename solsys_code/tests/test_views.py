@@ -217,6 +217,11 @@ class TestBuildAPCOContext(TestCase):
         # values from IERS-B columns of https://datacenter.iers.org/data/latestVersion/finals.all.iau2000.txt
         self.xpl = -2.9954710682224965e-07  # originally np.radians(0.095486/3600.0)
         self.ypl = np.radians(0.425156 / 3600.0)
+        # Form bpn (Bias-Precession-Nutation matrix) from CIP (X, Y) and CIO locator
+        # This is CIO-based so the terms in bpn[0][1] and bpn[1][0] are several orders of magnitude bigger
+        # than those in classical equinox-based BPN matrix. So can't just call erfa.pnm00b.
+        X, Y, s = erfa.xys06a(self.t.tt.jd1, self.t.tt.jd2)
+        self.bpn = erfa.c2ixys(X, Y, s)
         self.field_names = (
             'pmt',
             'eb',
@@ -224,7 +229,7 @@ class TestBuildAPCOContext(TestCase):
             'em',
             'v',
             'bm1',
-            # 'bpn',
+            'bpn',
             'along',
             'phi',  # not initialized/used in apco
             'xpl',
@@ -245,22 +250,22 @@ class TestBuildAPCOContext(TestCase):
         v = np.linalg.norm(v_vec)
         expected_context = np.array(
             (
-                (self.t.tdb.jd - JD2000) / 365.25,  # pmt
-                self.jplh_opb,
-                obs_sun_vec,
-                obs_sun_dist,  # eb, eh, em
-                v_vec,
-                1 - (v**2),  # v(el), Lorentz factor (bm1)
-                erfa.pnm00b(self.t.tt.jd1, self.t.tt.jd2),  # bpn (Bias-Precession-Nutation matrix)
+                (self.t.tdb.jd - JD2000) / 365.25,  # pmt (for proper motions)
+                self.jplh_opb,  # eb, Observer-SSB position vector
+                obs_sun_vec,  # eh, Observer-Sun position vector
+                obs_sun_dist,  # em, Observer-Sun distance
+                v_vec,  # v(elocity)
+                1 - (v**2),  # bm1, Lorentz factor
+                self.bpn,  # bpn (Bias-Precession-Nutation matrix)
                 self.elong,
                 0.0,
-                self.xpl,
-                self.ypl,  # along, phi, xpl, ypl
-                np.sin(self.phi),
-                np.cos(self.phi),  # sphi, cphi (sin/cos(phi))
+                self.xpl,  # xpl, ypl, polar motion
+                self.ypl,
+                np.sin(self.phi),  # sphi, cphi (sin/cos(phi))
+                np.cos(self.phi),
                 0.0,
                 erfa.era00(self.t.ut1.jd1, self.t.ut1.jd2) + self.elong - 2 * np.pi,
-                0.0,
+                0.0,  # refa, refb, refraction constants
                 -0.0,
             ),
             dtype=[
