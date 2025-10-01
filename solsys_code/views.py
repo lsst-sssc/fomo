@@ -544,13 +544,13 @@ class Ephemeris(View):
         start_time = request.GET.get('start', None)
         if start_time is None:
             start_time = Time.now()
-            start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0))
+            start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0), scale='utc')
         else:
             try:
                 start_time = Time(start_time, scale='utc')
             except ValueError:
                 start_time = Time.now()
-                start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0))
+                start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0), scale='utc')
         step = request.GET.get('step', None)
         if step is None:
             step_size = 1 * u.day
