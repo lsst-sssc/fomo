@@ -3,6 +3,7 @@ from collections import defaultdict, namedtuple
 from csv import writer
 from io import StringIO
 from pathlib import Path
+from typing import Any
 
 import assist
 import erfa
@@ -18,9 +19,11 @@ from astropy.time import Time
 from astropy.timeseries import TimeSeries
 from crispy_forms.bootstrap import FormActions
 from crispy_forms.layout import HTML, Layout, Submit
+from django.contrib.auth import login
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse
-from django.views.generic import FormView, View
+from django.urls import reverse, reverse_lazy
+from django.views.generic import CreateView, FormView, ListView, View
 from layup.convert import get_output_column_names_and_types
 from layup.utilities.data_processing_utilities import FakeSorchaArgs, layup_furnish_spiceypy
 
@@ -478,6 +481,7 @@ class MakeEphemerisView(FormView):
         """
         Form handler
         """
+        print("In get form")
         form = super().get_form()
         if self.request.method == 'GET':
             target_id = self.request.GET.get('target_id')
@@ -486,19 +490,34 @@ class MakeEphemerisView(FormView):
         cancel_url = reverse('home')
         if target_id:
             cancel_url = reverse('tom_targets:detail', kwargs={'pk': target_id}) + '?tab=ephemeris'
-        form.helper.layout = Layout(
-            HTML("""<p>Fill in form to generate an ephemeris</p>"""),
-            'target_id',
-            'start_date',
-            'end_date',
-            'site_code',
-            'confirm',
-            FormActions(
-                Submit('confirm', 'Confirm'), HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>')
-            ),
-        )
+        # form.helper.layout = Layout(
+        #     HTML("""<p>Fill in form to generate an ephemeris</p>"""),
+        #     'target_id',
+        #     'start_date',
+        #     'end_date',
+        #     'site_code',
+        #     'confirm',
+        #     FormActions(
+        #         Submit('confirm', 'Confirm'), HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>')
+        #     ),
+        # )
         return form
 
+    def form_valid(self, form: Any) -> HttpResponse:
+        """form validator
+
+        Parameters
+        ----------
+        form : Any
+            _description_
+
+        Returns
+        -------
+        HttpResponse
+            _description_
+        """
+        print("In form_valid")
+        return super().form_valid(form)
 
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,

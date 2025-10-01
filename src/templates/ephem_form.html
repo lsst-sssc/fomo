@@ -1,6 +1,15 @@
 {% extends 'tom_common/base.html' %}
-{% load crispy_forms_tags %}
+{% load bootstrap4 crispy_forms_tags %}
+{% block title %} Create Ephemeris for a Target {{target.name}} {% endblock %}
 {% block content %}
 <h3>Create Ephemeris for Target {{target}}</h3>
-{% crispy form %}
+<form method="POST" class="form">
+  {% csrf_token %}
+  {% bootstrap_form form %}
+  {% buttons %}
+  <button type="submit" formaction="{% url 'makeephem' pk=target.id %}"class="btn btn-primary">Create Ephemeris</button>
+
+  {% endbuttons %}
+</form>
+<a href="{{ the_url }}">I'm linking to {{ the_url }}</a>
 {% endblock %}
