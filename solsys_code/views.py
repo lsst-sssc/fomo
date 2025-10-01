@@ -477,6 +477,16 @@ class MakeEphemerisView(FormView):
     template_name = 'ephem_form.html'
     form_class = EphemerisForm
 
+    def get_context_data(self, **kwargs):
+        """Extract the pk from the kwargs and get the Target and add it to the context.
+        """
+        context = super().get_context_data(**kwargs)
+
+        target_id = self.kwargs['pk']
+        context['target'] = Target.objects.get(id=target_id)
+
+        return context
+
     def get_form(self, form_class=None):
         """
         Form handler

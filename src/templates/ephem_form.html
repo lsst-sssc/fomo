@@ -7,7 +7,7 @@
   {% csrf_token %}
   {% bootstrap_form form %}
   {% buttons %}
-  <button type="submit" formaction="{% url 'makeephem' pk=target.id %}"class="btn btn-primary">Create Ephemeris</button>
+  <button type="submit" formaction="{% url 'makeephem' pk=target.id %}" class="btn btn-primary">Create Ephemeris</button>
 
   {% endbuttons %}
 </form>
