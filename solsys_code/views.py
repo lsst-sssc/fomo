@@ -571,7 +571,10 @@ class Ephemeris(View):
                 step_size = number
             if unit is not None:
                 # Do unit handling here
-                pass
+                try:
+                    unit = u.Unit(unit)
+                except ValueError:
+                    pass
             step_size *= unit
         ts = TimeSeries(time_start=start_time, time_delta=step_size, n_samples=20)
         # Generate a list of JD_TDB times
