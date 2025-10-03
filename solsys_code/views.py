@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict, namedtuple
 from csv import writer
+from datetime import timezone
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -17,13 +18,10 @@ from astropy.constants import GM_sun, c
 from astropy.coordinates.builtin_frames.utils import get_jd12, get_polar_motion
 from astropy.time import Time
 from astropy.timeseries import TimeSeries
-from crispy_forms.bootstrap import FormActions
-from crispy_forms.layout import HTML, Layout, Submit
-from django.contrib.auth import login
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, render
-from django.urls import reverse, reverse_lazy
-from django.views.generic import CreateView, FormView, ListView, View
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.views.generic import FormView, View
 from layup.convert import get_output_column_names_and_types
 from layup.utilities.data_processing_utilities import FakeSorchaArgs, layup_furnish_spiceypy
 
@@ -477,6 +475,38 @@ class MakeEphemerisView(FormView):
     template_name = 'ephem_form.html'
     form_class = EphemerisForm
 
+
+    def get_target_id(self):
+        """
+        Parses the target id for the given observation from the query parameters.
+
+        :returns: id of the target for observing
+        :rtype: int
+        """
+
+        target_id = self.kwargs['pk']
+        return target_id
+        # if self.request.method == 'GET':
+        #     return self.request.GET.get('target_id')
+        # elif self.request.method == 'POST':
+        #     return self.request.POST.get('target_id')
+
+    def get_initial(self):
+        """
+        Populate form's HiddenField with the target_id
+        """
+        import pprint
+        initial = super().get_initial()
+        if not self.get_target_id():
+            raise Exception('Must provide target_id')
+        target_id = self.get_target_id()
+
+        print("In get_initial: target_id=", target_id)
+        initial['target_id'] = target_id
+        initial.update(self.request.GET.dict())
+        pprint.pprint(initial)
+        return initial
+
     def get_context_data(self, **kwargs):
         """Extract the pk from the kwargs and get the Target and add it to the context.
         """
@@ -513,12 +543,13 @@ class MakeEphemerisView(FormView):
         # )
         return form
 
-    def form_valid(self, form: Any) -> HttpResponse:
+
+    def form_valid(self, form: EphemerisForm) -> HttpResponse:
         """form validator
 
         Parameters
         ----------
-        form : Any
+        form : EphemerisForm
             _description_
 
         Returns
@@ -526,8 +557,24 @@ class MakeEphemerisView(FormView):
         HttpResponse
             _description_
         """
-        print("In form_valid")
-        return super().form_valid(form)
+        print("In form_valid: ", end='')
+        obscode = form.cleaned_data['site_code']
+        try:
+            _ = Observatory.objects.get(obscode=obscode)
+        except Observatory.DoesNotExist:
+            return redirect('solsys_code_observatory:create')
+        start = form.cleaned_data['start_date']
+        # Not sure we want to deal with the horrors of local timezones but as first step, convert it to UTC
+        # and then make it naive (as astropy.Time in Ephmeris() can't handle non-naive `datetime`s)
+        print(start, start.tzinfo)
+        # Convert to UTC (still timezone aware at this stage)
+        utc_start = start.astimezone(timezone.utc)
+        utc_start = utc_start.replace(tzinfo=None)
+        step = form.cleaned_data['step']
+        url = reverse('ephem', kwargs={'pk': form.cleaned_data['target_id']}) + \
+            f'?obscode={obscode}&start={utc_start.isoformat()}&step={step}'
+        print(url)
+        return redirect(url)
 
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,
@@ -565,14 +612,14 @@ class Ephemeris(View):
         if step is None:
             step_size = 1 * u.day
         else:
-            number, unit = split_number_unit_regex(step)
+            number, unit_str = split_number_unit_regex(step)
             unit = u.day
             if number is not None:
                 step_size = number
-            if unit is not None:
+            if unit_str is not None:
                 # Do unit handling here
                 try:
-                    unit = u.Unit(unit)
+                    unit = u.Unit(unit_str)
                 except ValueError:
                     pass
             step_size *= unit

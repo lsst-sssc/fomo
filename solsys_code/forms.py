@@ -9,6 +9,7 @@ class EphemerisForm(forms.Form):
     target_id = forms.IntegerField(required=True, widget=forms.HiddenInput())
     start_date = forms.DateTimeField(required=True)
     end_date = forms.DateTimeField(required=True)
+    step = forms.CharField(required=False, initial='1d')
     site_code = forms.CharField(required=True, max_length=3)
 
     # def __init__(self, *args, **kwargs):
