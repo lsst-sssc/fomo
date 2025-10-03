@@ -4,7 +4,6 @@ from csv import writer
 from datetime import timezone
 from io import StringIO
 from pathlib import Path
-from typing import Any
 
 import assist
 import erfa
@@ -18,6 +17,8 @@ from astropy.constants import GM_sun, c
 from astropy.coordinates.builtin_frames.utils import get_jd12, get_polar_motion
 from astropy.time import Time
 from astropy.timeseries import TimeSeries
+from crispy_forms.bootstrap import FormActions
+from crispy_forms.layout import HTML, Layout, Submit
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -475,40 +476,37 @@ class MakeEphemerisView(FormView):
     template_name = 'ephem_form.html'
     form_class = EphemerisForm
 
-
     def get_target_id(self):
         """
         Parses the target id for the given observation from the query parameters.
 
-        :returns: id of the target for observing
-        :rtype: int
+        Returns
+        -------
+        int
+            id (primary key) of the target for ephemeris generation
         """
 
-        target_id = self.kwargs['pk']
-        return target_id
-        # if self.request.method == 'GET':
-        #     return self.request.GET.get('target_id')
-        # elif self.request.method == 'POST':
-        #     return self.request.POST.get('target_id')
+        if self.request.method == 'GET':
+            return self.kwargs['pk']
+        elif self.request.method == 'POST':
+            return self.request.POST.get('target_id')
 
     def get_initial(self):
         """
         Populate form's HiddenField with the target_id
         """
-        import pprint
         initial = super().get_initial()
         if not self.get_target_id():
             raise Exception('Must provide target_id')
         target_id = self.get_target_id()
 
-        print("In get_initial: target_id=", target_id)
         initial['target_id'] = target_id
         initial.update(self.request.GET.dict())
-        pprint.pprint(initial)
         return initial
 
     def get_context_data(self, **kwargs):
-        """Extract the pk from the kwargs and get the Target and add it to the context.
+        """
+        Extract the pk from the kwargs and get the Target and add it to the context.
         """
         context = super().get_context_data(**kwargs)
 
@@ -521,43 +519,48 @@ class MakeEphemerisView(FormView):
         """
         Form handler
         """
-        print("In get form")
         form = super().get_form()
-        if self.request.method == 'GET':
-            target_id = self.request.GET.get('target_id')
-        elif self.request.method == 'POST':
-            target_id = self.request.POST.get('target_id')
+        target_id = self.get_target_id()
+
         cancel_url = reverse('home')
         if target_id:
-            cancel_url = reverse('tom_targets:detail', kwargs={'pk': target_id}) + '?tab=ephemeris'
-        # form.helper.layout = Layout(
-        #     HTML("""<p>Fill in form to generate an ephemeris</p>"""),
-        #     'target_id',
-        #     'start_date',
-        #     'end_date',
-        #     'site_code',
-        #     'confirm',
-        #     FormActions(
-        #         Submit('confirm', 'Confirm'), HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>')
-        #     ),
-        # )
+            cancel_url = reverse('tom_targets:detail', kwargs={'pk': target_id})  # + '?tab=ephemeris'
+        form.helper.layout = Layout(
+            HTML(
+                """<p>Fill in the form to generate an ephemeris. If the Site code doesn't already exist you will be
+                 redirected to the Observatory creation form to make it.</p>"""
+            ),
+            'target_id',
+            'start_date',
+            'end_date',
+            'step',
+            'site_code',
+            'confirm',
+            FormActions(
+                Submit('confirm', 'Create Ephemeris'),
+                HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>'),
+            ),
+        )
         return form
 
-
     def form_valid(self, form: EphemerisForm) -> HttpResponse:
-        """form validator
+        """form validator for ephemeris generation
+        Checks to see if there is a `Observatory` for the requested site_code and converts
+        the start time to a naive datetime
 
         Parameters
         ----------
         form : EphemerisForm
-            _description_
+            The filled-in form for validation.
 
         Returns
         -------
         HttpResponse
-            _description_
+            A redirect either to the ephemeris generator (``ephem`` View) with url parameters or
+            to the Observatory creation form (``solsys_code_observatory:create``) if the requested `obscode`
+            doesn't exist.
         """
-        print("In form_valid: ", end='')
+        print('In form_valid: ', end='')
         obscode = form.cleaned_data['site_code']
         try:
             _ = Observatory.objects.get(obscode=obscode)
@@ -571,10 +574,13 @@ class MakeEphemerisView(FormView):
         utc_start = start.astimezone(timezone.utc)
         utc_start = utc_start.replace(tzinfo=None)
         step = form.cleaned_data['step']
-        url = reverse('ephem', kwargs={'pk': form.cleaned_data['target_id']}) + \
-            f'?obscode={obscode}&start={utc_start.isoformat()}&step={step}'
+        url = (
+            reverse('ephem', kwargs={'pk': form.cleaned_data['target_id']})
+            + f'?obscode={obscode}&start={utc_start.isoformat()}&step={step}'
+        )
         print(url)
         return redirect(url)
+
 
 class Ephemeris(View):
     """Generate an ephemeris for a specific `Target`, specified by <pk>,
@@ -597,7 +603,7 @@ class Ephemeris(View):
         # relatively easily
         observatory = get_object_or_404(Observatory, obscode=obscode)
         # Construct time series of `Time` objects in UTC.
-        # XXX Todo: initialize start, stop, step from query parameters
+        # XXX Todo: better initialize start, stop, step from query parameters
         start_time = request.GET.get('start', None)
         if start_time is None:
             start_time = Time.now()
@@ -614,8 +620,7 @@ class Ephemeris(View):
         else:
             number, unit_str = split_number_unit_regex(step)
             unit = u.day
-            if number is not None:
-                step_size = number
+            step_size = number if number is not None else 1
             if unit_str is not None:
                 # Do unit handling here
                 try:
