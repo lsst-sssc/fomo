@@ -539,7 +539,6 @@ class MakeEphemerisView(FormView):
             'end_date',
             'step',
             'site_code',
-            'confirm',
             FormActions(
                 Submit('confirm', 'Create Ephemeris'),
                 HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>'),

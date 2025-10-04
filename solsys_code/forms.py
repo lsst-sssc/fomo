@@ -26,6 +26,6 @@ class EphemerisForm(forms.Form):
                 Column('end_date'),
                 Column('site_code'),
                 Column('step'),
-                Column(ButtonHolder(Submit('submit', 'Create Ephemeris'))),
+                Column(ButtonHolder(Submit('confirm', 'Create Ephemeris'))),
             ),
         )
