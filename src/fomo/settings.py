@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'tom_alertstreams',
     'tom_fink',
     'tom_registration',
+    'tom_eso',
 ]
 
 SITE_ID = 1
@@ -251,6 +252,7 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.lco.LCOFacility',
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
+    'tom_eso.eso.ESOFacility',
 ]
 
 TOM_REGISTRATION = {
