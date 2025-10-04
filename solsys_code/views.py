@@ -23,7 +23,6 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.generic import FormView, View
-from layup.convert import get_output_column_names_and_types
 from layup.utilities.data_processing_utilities import FakeSorchaArgs, layup_furnish_spiceypy
 
 # from sbpy.photometry import HG
@@ -109,13 +108,18 @@ def convert_target_to_layup(target, sun_dict=None):
     cols_to_keep = ORBIT_FIT_COLS
     primary_id_column_name = 'provID'
     has_covariance = False
-    required_column_names, default_column_dtypes = get_output_column_names_and_types(
-        primary_id_column_name, has_covariance, cols_to_keep
-    )
+    # Generate columns and dtypes explicitly here for BCART_EQ only since we don't
+    # need anything else and it removes dependency on ``layup``
+    # Will need modifying if we do anything with covariance
+    required_column_names = [primary_id_column_name, 'FORMAT', 'x', 'y', 'z', 'xdot', 'ydot', 'zdot', 'epochMJD_TDB']
+    default_column_dtypes = ['O', '<U8', '<f8', '<f8', '<f8', '<f8', '<f8', '<f8', '<f8']
+    for col_name, dtype in cols_to_keep:
+        # Add the column name and dtype to the default column dtypes
+        required_column_names.append(col_name)
+        default_column_dtypes.append(dtype)
+
     # Construct the output dtype for the converted data
-    output_dtype = [
-        (col, dtype) for col, dtype in zip(required_column_names['BCART_EQ'], default_column_dtypes, strict=False)
-    ]
+    output_dtype = [(col, dtype) for col, dtype in zip(required_column_names, default_column_dtypes, strict=False)]
     row = (np.nan,) * 6
     cov = np.full((6, 6), np.nan)
     # First we convert our data into equatorial barycentric cartesian coordinates,
@@ -673,7 +677,7 @@ class Ephemeris(View):
             'Obs_Alt_deg',
             'Obs_HA_deg',
         )
-        column_types = defaultdict(ObjID=str, FieldID=str).setdefault(float)
+        column_types = defaultdict(ObjID=str, FieldID=str).setdefault(float)  # type: ignore
         in_memory_csv.writerow(column_names)
 
         # Make equivalent `pointings_df`
