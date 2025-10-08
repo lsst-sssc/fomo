@@ -23,7 +23,6 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.generic import FormView, View
-from layup.utilities.data_processing_utilities import FakeSorchaArgs, layup_furnish_spiceypy
 
 # from sbpy.photometry import HG
 from sorcha.ephemeris.orbit_conversion_utilities import universal_cartesian
@@ -35,7 +34,7 @@ from sorcha.ephemeris.simulation_geometry import (
     vec2ra_dec,
 )
 from sorcha.ephemeris.simulation_parsing import Observatory as SorchaObservatory
-from sorcha.ephemeris.simulation_setup import create_assist_ephemeris
+from sorcha.ephemeris.simulation_setup import create_assist_ephemeris, furnish_spiceypy
 from sorcha.utilities.sorchaConfigs import auxiliaryConfigs
 from tom_targets.models import Target
 
@@ -51,10 +50,27 @@ SPEED_OF_LIGHT = c.to(u.km / u.s).value * SEC_PER_DAY / AU_KM
 PI_OVER_2 = np.pi / 2.0  # aka 90 degrees
 
 cache_dir = Path(pooch.os_cache('layup'))
+
+
 # "Furnish" (load) SPICE kernels
 # This will download 1.6 GB of SPICE kernels to the `cache_dir` defined
 # above (~/.cache/layup/) if they don't already exist...
-layup_furnish_spiceypy(cache_dir)
+class FakeSorchaArgs:
+    """Simple wrapper class to mimic the arguments expected by Sorcha methods."""
+
+    def __init__(self, cache_dir=None):
+        # Sorcha allows this argument to be None, so simply use that here
+        self.ar_data_file_path = cache_dir
+
+
+def fomo_furnish_spiceypy(cache_dir):
+    """A simple wrapper to furnish spiceypy kernels, adapted from the layup version."""
+    # A simple class to mimic the arguments processed by Sorcha's observatory class
+    auxconfig = auxiliaryConfigs()
+    furnish_spiceypy(FakeSorchaArgs(cache_dir), auxconfig)
+
+
+fomo_furnish_spiceypy(cache_dir)
 args = FakeSorchaArgs(cache_dir)
 # Create ASSIST ephemeris
 ephem, gm_sun, gm_total = create_assist_ephemeris(args, auxiliaryConfigs())
