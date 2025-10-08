@@ -325,7 +325,7 @@ HARVESTERS = {'TNS': {'api_key': ''}}
 #     {'name': 'eligible', 'type': 'boolean'},
 #     {'name': 'discovery_date', 'type': 'datetime'}
 # ]
-EXTRA_FIELDS = [{'name': 'H', 'type': 'number'}, {'name': 'G', 'type': 'number', 'default': 0.15}]
+EXTRA_FIELDS = []
 
 # Authentication strategy can either be LOCKED (required login for all views)
 # or READ_ONLY (read only access to views)
