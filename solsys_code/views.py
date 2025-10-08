@@ -555,6 +555,7 @@ class MakeEphemerisView(FormView):
             'end_date',
             'step',
             'site_code',
+            'full_precision',
             FormActions(
                 Submit('confirm', 'Create Ephemeris'),
                 HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>'),
@@ -593,9 +594,10 @@ class MakeEphemerisView(FormView):
         utc_start = start.astimezone(timezone.utc)
         utc_start = utc_start.replace(tzinfo=None)
         step = form.cleaned_data['step']
+        full_precision = form.cleaned_data['full_precision']
         url = (
             reverse('ephem', kwargs={'pk': form.cleaned_data['target_id']})
-            + f'?obscode={obscode}&start={utc_start.isoformat()}&step={step}'
+            + f'?obscode={obscode}&start={utc_start.isoformat()}&step={step}&full_precision={full_precision}'
         )
         print(url)
         return redirect(url)
@@ -621,6 +623,7 @@ class Ephemeris(View):
         # XXX Could replace this by a creation of the missing Observatory
         # relatively easily
         observatory = get_object_or_404(Observatory, obscode=obscode)
+        high_precision = request.GET.get('high_precision', False)
         # Construct time series of `Time` objects in UTC.
         # XXX Todo: better initialize start, stop, step from query parameters
         start_time = request.GET.get('start', None)
@@ -803,4 +806,13 @@ class Ephemeris(View):
             ]
 
             ephem_lines.append(ephem_line)
-        return render(request, 'ephem.html', {'target': target, 'ephem_lines': ephem_lines, 'observatory': observatory})
+        return render(
+            request,
+            'ephem.html',
+            {
+                'target': target,
+                'ephem_lines': ephem_lines,
+                'observatory': observatory,
+                'high_precision': high_precision,
+            },
+        )

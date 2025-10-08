@@ -14,6 +14,9 @@ class EphemerisForm(forms.Form):
     end_date = forms.DateTimeField(required=True)
     step = forms.CharField(required=False, initial='1d')
     site_code = forms.CharField(required=True, max_length=3)
+    full_precision = forms.BooleanField(
+        required=False, initial=True, help_text='Whether to show the full results precision'
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -26,6 +29,7 @@ class EphemerisForm(forms.Form):
                 Column('end_date'),
                 Column('site_code'),
                 Column('step'),
+                Column('full_precision'),
                 Column(ButtonHolder(Submit('confirm', 'Create Ephemeris'))),
             ),
         )

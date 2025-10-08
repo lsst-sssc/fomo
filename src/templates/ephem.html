@@ -17,17 +17,31 @@
           <tbody>
             {% for line in ephem_lines %}
             <tr class="{% cycle 'odd' 'even' %}">
-              <td>{{ line.0 }}</td>
-              <td>{{ line.1 }}</td>
-              <td>{{ line.2 }}</td>
-              <td>{{ line.3 }}</td>
-              <td>{{ line.4 }}</td>
-              <td>{{ line.5|floatformat:3 }}</td>
-              <td>{{ line.6 }}</td>
-              <td>{{ line.7 }}</td>
-              <td>{{ line.8|floatformat:3 }}</td>
-              <td>{{ line.9 }}</td>
-              <td>{{ line.10|floatformat:3 }}</td>
+              {% if high_precision %}
+                <td>{{ line.0 }}</td>
+                <td>{{ line.1 }}</td>
+                <td>{{ line.2 }}</td>
+                <td>{{ line.3 }}</td>
+                <td>{{ line.4 }}</td>
+                <td>{{ line.5|floatformat:3 }}</td>
+                <td>{{ line.6 }}</td>
+                <td>{{ line.7 }}</td>
+                <td>{{ line.8|floatformat:3 }}</td>
+                <td>{{ line.9 }}</td>
+                <td>{{ line.10|floatformat:3 }}</td>
+              {% else %}
+                <td>{{ line.0 }}</td>
+                <td>{{ line.1|floatformat:5 }}</td>
+                <td>{{ line.2|floatformat:5 }}</td>
+                <td>{{ line.3|floatformat:1 }}</td>
+                <td>{{ line.4|floatformat:1 }}</td>
+                <td>{{ line.5|floatformat:1 }}</td>
+                <td>{{ line.6|floatformat:3 }}</td>
+                <td>{{ line.7|floatformat:3 }}</td>
+                <td>{{ line.8|floatformat:1 }}</td>
+                <td>{{ line.9|floatformat:3 }}</td>
+                <td>{{ line.10|floatformat:3 }}</td>
+              {% endif %}
             </tr>
             {% endfor %}
           </tbody>
