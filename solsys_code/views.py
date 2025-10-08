@@ -49,12 +49,12 @@ SEC_PER_DAY = 24 * 60 * 60
 SPEED_OF_LIGHT = c.to(u.km / u.s).value * SEC_PER_DAY / AU_KM
 PI_OVER_2 = np.pi / 2.0  # aka 90 degrees
 
-cache_dir = Path(pooch.os_cache('layup'))
+cache_dir = Path(pooch.os_cache('sorcha'))
 
 
 # "Furnish" (load) SPICE kernels
 # This will download 1.6 GB of SPICE kernels to the `cache_dir` defined
-# above (~/.cache/layup/) if they don't already exist...
+# above (~/.cache/sorcha/) if they don't already exist...
 class FakeSorchaArgs:
     """Simple wrapper class to mimic the arguments expected by Sorcha methods."""
 
@@ -152,12 +152,6 @@ def convert_target_to_layup(target, sun_dict=None):
     # This can either be passed in as [sun_dict] (e.g. for testing) or we can
     # determine it ourselves using plain SPICE calls
     if epoch_tdb.jd not in sun_dict:
-        # Rebound:
-        # from layup.utilities.layup_configs import LayupConfigs
-        # from sorcha.ephemeris.simulation_setup import _create_assist_ephemeris
-        # configs = LayupConfigs()
-        # ephem, gm_sun, gm_total = _create_assist_ephemeris(configs.auxiliary, cache_dir)
-        # sun_dict[epoch_tdb.jd] = ephem.get_particle("Sun", epoch_tdb.jd - ephem.jd_ref)
         et_sun = spice.str2et(f'jd {epoch_tdb.jd} tdb')
         sun_posvel, sun_ltt = spice.spkezr('SUN', et_sun, 'J2000', 'NONE', 'SSB')
         # Convert from km and km/s to AU and AU/day
@@ -215,10 +209,6 @@ def generate_assist_simulations(ephem, orbit_data):
     ----------
     ephem : Ephem
         The ASSIST ephemeris object
-    gm_sun : float
-        Standard gravitational parameter GM for the Sun
-    gm_total : float
-        Standard gravitational parameter GM for the Solar System Barycenter
     orbit_data : numpy structured array
         Converted orbit data
 
@@ -658,9 +648,6 @@ class Ephemeris(View):
 
         data = convert_target_to_layup(target)
 
-        ## Get results from layup's predict routine
-        # predictions = predict(data, obscode=obscode, times=times, cache_dir=cache_dir)
-
         # Assemble stuff needed for sorcha's version of `integrate_light_time`
         sim, ex = generate_assist_simulations(ephem, data)
 
@@ -790,9 +777,6 @@ class Ephemeris(View):
         predictions = add_sky_motion(predictions)
         ephem_lines = []
         for _, e in predictions.iterrows():
-            # Old layup line
-            # ephem_line = [e['epoch_UTC'], e['ra_deg'], e['dec_deg'], 42.0]
-
             ephem_line = [
                 e['epoch_UTC'],
                 e['RA_deg'],
