@@ -785,8 +785,8 @@ class Ephemeris(View):
         output.seek(0)
         predictions = pd.read_csv(output, dtype=column_types)
         # Add magnitude column
-        H = target.extra_fields.get('H', 22.0)
-        G = target.extra_fields.get('G', 0.15)
+        H = target.abs_mag or 22.0
+        G = target.slope or 0.15
         comet = False
         if target.scheme == 'MPC_COMET':
             comet = True
