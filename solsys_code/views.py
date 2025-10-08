@@ -623,7 +623,9 @@ class Ephemeris(View):
         # XXX Could replace this by a creation of the missing Observatory
         # relatively easily
         observatory = get_object_or_404(Observatory, obscode=obscode)
-        high_precision = request.GET.get('high_precision', False)
+        full_precision = False
+        if request.GET.get('full_precision', 'False').lower() in ['true', '1', 'yes']:
+            full_precision = True
         # Construct time series of `Time` objects in UTC.
         # XXX Todo: better initialize start, stop, step from query parameters
         start_time = request.GET.get('start', None)
@@ -813,6 +815,6 @@ class Ephemeris(View):
                 'target': target,
                 'ephem_lines': ephem_lines,
                 'observatory': observatory,
-                'high_precision': high_precision,
+                'full_precision': full_precision,
             },
         )
