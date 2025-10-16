@@ -3,6 +3,7 @@ from collections import defaultdict, namedtuple
 from csv import writer
 from datetime import timezone
 from io import StringIO
+from math import ceil
 from pathlib import Path
 
 import assist
@@ -15,7 +16,7 @@ import spiceypy as spice
 from astropy import units as u
 from astropy.constants import GM_sun, c
 from astropy.coordinates.builtin_frames.utils import get_jd12, get_polar_motion
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
 from crispy_forms.bootstrap import FormActions
 from crispy_forms.layout import HTML, Layout, Submit
@@ -570,26 +571,33 @@ class MakeEphemerisView(FormView):
             to the Observatory creation form (``solsys_code_observatory:create``) if the requested `obscode`
             doesn't exist.
         """
-        print('In form_valid: ', end='')
+        # print('In form_valid: ', end='')
         obscode = form.cleaned_data['site_code']
         try:
             _ = Observatory.objects.get(obscode=obscode)
         except Observatory.DoesNotExist:
             return redirect('solsys_code_observatory:create')
-        start = form.cleaned_data['start_date']
+        # Retrieve the start and end times out of the cleaned Form data.
         # Not sure we want to deal with the horrors of local timezones but as first step, convert it to UTC
-        # and then make it naive (as astropy.Time in Ephmeris() can't handle non-naive `datetime`s)
-        print(start, start.tzinfo)
+        # and then make it naive (as astropy.Time in Ephemeris() can't handle non-naive `datetime`s)
+        start = form.cleaned_data['start_date']
         # Convert to UTC (still timezone aware at this stage)
         utc_start = start.astimezone(timezone.utc)
+        # Replace timezone info making it naive
         utc_start = utc_start.replace(tzinfo=None)
+
+        end = form.cleaned_data['end_date']
+        utc_end = end.astimezone(timezone.utc)
+        utc_end = utc_end.replace(tzinfo=None)
+
         step = form.cleaned_data['step']
         full_precision = form.cleaned_data['full_precision']
         url = (
             reverse('ephem', kwargs={'pk': form.cleaned_data['target_id']})
-            + f'?obscode={obscode}&start={utc_start.isoformat()}&step={step}&full_precision={full_precision}'
+            + f'?obscode={obscode}&start={utc_start.isoformat()}&stop={utc_end.isoformat()}'
+            + f'&step={step}&full_precision={full_precision}'
         )
-        print(url)
+        # print(url)
         return redirect(url)
 
 
@@ -617,7 +625,6 @@ class Ephemeris(View):
         if request.GET.get('full_precision', 'False').lower() in ['true', '1', 'yes']:
             full_precision = True
         # Construct time series of `Time` objects in UTC.
-        # XXX Todo: better initialize start, stop, step from query parameters
         start_time = request.GET.get('start', None)
         if start_time is None:
             start_time = Time.now()
@@ -628,6 +635,16 @@ class Ephemeris(View):
             except ValueError:
                 start_time = Time.now()
                 start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0), scale='utc')
+        end_time = request.GET.get('stop', None)
+        if end_time is None:
+            end_time = start_time + TimeDelta(20 * u.day)
+            end_time = Time(end_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0), scale='utc')
+        else:
+            try:
+                end_time = Time(end_time, scale='utc')
+            except ValueError:
+                end_time = start_time + TimeDelta(20 * u.day)
+                end_time = Time(end_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0), scale='utc')
         step = request.GET.get('step', None)
         if step is None:
             step_size = 1 * u.day
@@ -642,7 +659,8 @@ class Ephemeris(View):
                 except ValueError:
                     pass
             step_size *= unit
-        ts = TimeSeries(time_start=start_time, time_delta=step_size, n_samples=20)
+        n_steps = (end_time - start_time) / step_size
+        ts = TimeSeries(time_start=start_time, time_delta=step_size, n_samples=ceil(n_steps) + 1)
         # Generate a list of JD_TDB times
         times = ts.time.tdb.jd
 
