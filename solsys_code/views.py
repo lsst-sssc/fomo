@@ -438,7 +438,9 @@ def build_apco_context(pointing, observatory):
     era = erfa.era00(*get_jd12(obstime, 'ut1'))
 
     # Earth barycentric position and velocity and heliocentric position
-    # XXX TODO can almost certainly get this back out of `pointing`
+    # XXX TODO can almost certainly get this back out of `pointing` - technically yes
+    # but it requires including most of `apco` and `apcs`, minus the part that does the
+    # geocenter->observer corrections, in here.
     jd1_tdb, jd2_tdb = get_jd12(obstime, 'tdb')
     earth_pv_heliocentric, earth_pv = erfa.epv00(jd1_tdb, jd2_tdb)
     earth_heliocentric = earth_pv_heliocentric['p']
