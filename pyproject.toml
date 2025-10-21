@@ -1,14 +1,14 @@
 
 [project]
 name = "fomo"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 authors = [
     { name = "SSSC FOMO Software Developers", email = "fomo@lco.global" }
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
@@ -31,7 +31,6 @@ dependencies = [
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 [project.optional-dependencies]
 dev = [
-    "asv==0.6.5", # Used to compute performance benchmarks
     "ipython",
     "jupyter", # Clears output from Jupyter notebooks
     "pre-commit", # Used to run checks before finalizing a git commit
@@ -53,6 +52,8 @@ write_to = "src/fomo/_version.py"
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
+    "src",
+    "docs",
 ]
 
 [tool.black]
@@ -62,6 +63,7 @@ target-version = ["py39"]
 [tool.isort]
 profile = "black"
 line_length = 120
+addopts = "--doctest-modules --doctest-glob=*.rst"
 
 [tool.ruff]
 line-length = 120
@@ -95,7 +97,6 @@ select = [
     # Numpy v2.0 compatibility
     "NPY201",
 ]
-
 ignore = [
     "UP006", # Allow non standard library generics in type hints
     "UP007", # Allow Union in type hints
