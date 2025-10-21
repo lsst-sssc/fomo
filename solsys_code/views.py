@@ -9,6 +9,7 @@ from pathlib import Path
 import assist
 import erfa
 import numpy as np
+
 try:
     from numpy import atan2 as atan2
 except ImportError:
