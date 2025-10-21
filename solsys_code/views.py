@@ -9,6 +9,11 @@ from pathlib import Path
 import assist
 import erfa
 import numpy as np
+try:
+    from numpy import atan2 as atan2
+except ImportError:
+    # numpy<2.0, needed by astroplan 0.10 needed for Python 3.9 doesn't define the above alias
+    from numpy import arctan2 as atan2
 import pandas as pd
 import pooch
 import rebound
@@ -400,7 +405,7 @@ def add_sky_motion(pandain, motion_units=u.arcsec / u.minute):
     sky_motion *= u.deg / u.day
     pandain['sky_motion'] = sky_motion.to(motion_units)
     # I doubt this is all that's needed to get the right angle in all cases but we'll see...
-    sky_PA = np.atan2(pandain['RARateCosDec_deg_day'], pandain['DecRate_deg_day'])
+    sky_PA = atan2(pandain['RARateCosDec_deg_day'], pandain['DecRate_deg_day'])
     pandain['sky_motion_PA_deg'] = np.degrees(sky_PA)
 
     return pandain
