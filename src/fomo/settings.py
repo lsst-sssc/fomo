@@ -62,6 +62,8 @@ INSTALLED_APPS = [
     'tom_alertstreams',
     'tom_fink',
     'tom_registration',
+    #    'solsys_code',
+    'solsys_code.etc.apps.EtcConfig',
 ]
 
 SITE_ID = 1
