@@ -62,7 +62,13 @@ class TestETC(TestCase):
         """
         expected_snr = 2.37862
 
-        etc = ETC(primary_diam=200 * u.cm, obstruction_diam=40 * u.cm)
+        etc = ETC(
+            primary_diam=200 * u.cm,
+            obstruction_diam=40 * u.cm,
+            pixel_size=1.036 * u.arcsec,
+            sky_brightness=19.0,
+            airmass=1.5,
+        )
         snr = etc.internal_snr_from_mag_and_exposure(20.5, 30)
 
         assert_almost_equal(expected_snr, snr, 5)

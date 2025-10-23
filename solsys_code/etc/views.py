@@ -6,6 +6,50 @@ from astropy import units as u
 
 
 @dataclass
+class EtcInternals:
+    """Internal current configuration details for the ETC
+    adapted from expcalc.cpp's expcalc_internals_t struct
+    Defaults for 'V'
+    """
+
+    extinction: float = 0.15
+    zero_point: float = 8.66e05
+    n_pixels_in_aperture: float = 9
+    countrate_sky: float = 0.0
+    noise2: float = 0.0
+    n_star: float = 0.0
+    area: float = 0.0
+
+
+def find_filter(e: EtcInternals, filter: str):
+    """Performs a lookup/mapping of the passed <filter>
+    and sets the extinction and zero_point in the passed
+    <e> instance. 'R' filter is used if the filter is not
+    found.
+
+    Args:
+        e (ETC_Internals): ETC_Internals (dataclass) instance
+        filter (str): Observed filter
+
+    Returns:
+        _type_: _description_
+    """
+    filters = {
+        'U': [0.60, 5.50e05],
+        'B': [0.40, 3.91e05],
+        'V': [0.20, 8.66e05],
+        'R': [0.10, 1.10e06],
+        'I': [0.08, 6.75e05],
+        'N': [0.20, 4.32e06],
+        'W': [0.15, 2.00e06],
+    }
+    filt_info = filters.get(filter, 'R')
+    e.extinction = filt_info[0]
+    e.zero_point = filt_info[1]
+    return 0
+
+
+@dataclass
 class ETC:
     """
     Exposure Time Calculator
@@ -47,6 +91,21 @@ class ETC:
         loss = 1.0 - np.exp(-r_scaled * r_scaled / 2.0)
         return loss
 
+    def _set_internals(self):
+        self.e = EtcInternals()
+        if find_filter(self.e, self.filter):
+            return -1
+        assert self.aperture > 0.1 * u.arcsec and self.aperture < 100.0 * u.arcsec
+        assert self.pixel_size > 0.0 * u.arcsec and self.pixel_size < 100.0 * u.arcsec
+        assert self.readnoise > 0.0
+        assert self.primary_diam > 1.0 * u.cm and self.primary_diam < 31 * u.m
+        assert self.obstruction_diam >= 0.0 and self.obstruction_diam < self.primary_diam
+        assert self.qe > 0.01 and self.qe <= 1.0
+        self.e.zero_point = self.e.zero_point * u.photon / (u.cm**2 * u.s)
+        self.e.n_pixels_in_aperture = np.pi * self.aperture * self.aperture / (self.pixel_size * self.pixel_size)
+        self.e.noise2 = self.readnoise * self.readnoise
+        self.e.countrate_sky = self.sky_electrons_per_second_per_pixel(self.e.zero_point)
+
     def effective_area(self) -> u.Quantity:
         """
         Returns the effective area of the telescope as area Quantity
@@ -59,15 +118,40 @@ class ETC:
         """
         mag_corr = mag + self.airmass * self.e.extinction
         countrate = (
-            np.pow(10.0, -0.4 * mag_corr) * self.e.zero_point * self.effective_area() * self.qe * 1.0
-        )  # _fraction_inside( c);
+            np.power(10.0, -0.4 * mag_corr)
+            * self.e.zero_point
+            * self.effective_area()
+            * self.qe
+            * self._fraction_inside()
+        )
+
         return countrate
+
+    def sky_electrons_per_second_per_pixel(self, zero_point):
+        """Calculate the countrate (in electrons/pixels/sec) coming from the sky for the
+        given <zero_point
+
+        Args:
+            zero_point (float): Zeropoint of system
+        """
+        area = self.effective_area()
+        sky_electrons_per_sec_per_square_arcsec = (
+            np.power(10.0, -0.4 * self.sky_brightness) * zero_point * area * self.qe
+        )
+        pixel_area = self.pixel_size * self.pixel_size
+        return sky_electrons_per_sec_per_square_arcsec * pixel_area.to(u.arcsec**2).value
 
     def internal_snr_from_mag_and_exposure(self, mag, exposure):
         """
         Calculate a SNR from given <mag> and <exposure>
         """
-        countrate_obj = self.star_electrons_per_second_per_pixel(mag, self.e)
+        self._set_internals()
+        if not isinstance(exposure, u.Quantity):
+            exposure *= u.s
+        countrate_obj = self.star_electrons_per_second_per_pixel(mag)
         signal = countrate_obj * exposure
-        noise = np.sqrt(signal)
-        return signal / noise
+        noise = np.sqrt(
+            signal + self.e.n_pixels_in_aperture * (self.e.countrate_sky * exposure + self.e.noise2 * u.photon)
+        )
+
+        return signal.value / noise.value
