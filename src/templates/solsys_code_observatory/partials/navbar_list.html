@@ -1,0 +1,13 @@
+<li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" data-toggle="dropdown">Observatories</a>
+    <ul class="dropdown-menu">
+        <li class="nav-item {% if request.resolver_match.namespace == 'solsys_code_observatory' %}active{% endif %}">
+            <a class="nav-link" href="{% url 'solsys_code_observatory:list' %}" style="color:black">Known Observatories</a>
+        </li>
+        <div class="dropdown-divider"></div>
+        <li class="nav-item {% if request.resolver_match.namespace == 'solsys_code_observatory' %}active{% endif %}">
+            <a class="nav-link" href="{% url 'solsys_code_observatory:create' %}" style="color:black">Create</a>
+        </li>
+
+    </ul>
+</li>
