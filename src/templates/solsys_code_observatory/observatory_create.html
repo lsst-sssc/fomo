@@ -8,6 +8,8 @@
 <p>
   Please fill the form below.
   Your entry will then be retrieved with the MPC and the details returned.
+  <br>
+  (<a href=https://minorplanetcenter.net/iau/lists/ObsCodesF.html>This page</a> lists all the MPC site codes)
 </p>
 <form action="{% url 'solsys_code_observatory:create' %}" enctype="multipart/form-data" method="POST">
   {% csrf_token %}

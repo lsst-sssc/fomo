@@ -1,7 +1,5 @@
-from datetime import datetime, timezone
 from typing import Any
 
-import requests
 from django.contrib import messages
 from django.db.utils import IntegrityError
 from django.forms import BaseModelForm
@@ -9,81 +7,10 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView
-from tom_catalogs.harvester import MissingDataException
 
 from solsys_code.solsys_code_observatory.forms import CreateObservatoryForm
 from solsys_code.solsys_code_observatory.models import Observatory
-
-
-class MPCObscodeFetcher:
-    """
-    The ``MPCObscodeFetcher`` is the interface to the Minor Planet Center (MPC)
-    Observatory Codes API
-    (https://www.minorplanetcenter.net/mpcops/documentation/obscodes-api/)
-    """
-
-    def query(self, obscode: str, dbg: bool = False):
-        """Query the MPC obscodes API for the specific <obscode>.
-        If successful, the JSON response data is stored in self.obs_data.
-
-        :param obscode: 3 character MPC observatory code to search for
-        :type term: str
-        :param dbg: Turns on basic print dump of the key-value pairs (or error response)
-        :type term: bool
-        """
-        self.obs_data = None
-
-        response = requests.get('https://data.minorplanetcenter.net/api/obscodes', json={'obscode': obscode})
-
-        if response.ok:
-            self.obs_data = response.json()
-            for key, value in response.json().items():
-                if dbg:
-                    print(f'{key:<27}: {value}')
-        else:
-            if dbg:
-                print('Error: ', response.status_code, response.content)
-
-    def to_observatory(self):
-        """
-        Instantiates a ``Observatory`` object with the data from the obscode query search result.
-
-        :returns: ``Observatory` representation of the entry from the ObsCodes API
-
-        """
-        if not self.obs_data:
-            raise MissingDataException('No observatory data. Did you call query()?')
-        else:
-            obs = Observatory()
-
-            obs.obscode = self.obs_data['obscode']
-            obs.name = self.obs_data['name_utf8']
-            obs.short_name = self.obs_data['short_name']
-            if self.obs_data['old_names']:
-                obs.old_names = self.obs_data['old_names']
-            elong = float(self.obs_data['longitude'])
-            obs.lon = elong
-            # Convert parallax constants to longitude (again), latitude and altitude
-            obs.from_parallax_constants(elong, float(self.obs_data['rhocosphi']), float(self.obs_data['rhosinphi']))
-            try:
-                created_time = datetime.strptime(self.obs_data['created_at'], '%a, %d %b %Y %H:%M:%S %Z')
-                created_time = created_time.replace(tzinfo=timezone.utc)
-                obs.created = created_time
-            except ValueError:
-                pass
-            try:
-                modified_time = datetime.strptime(self.obs_data['updated_at'], '%a, %d %b %Y %H:%M:%S %Z')
-                modified_time = modified_time.replace(tzinfo=timezone.utc)
-                obs.modified = modified_time
-            except ValueError:
-                pass
-            # Make dictionary of choices using dict comprehension
-            obstype_choices = {choice[1].lower(): choice[0] for choice in Observatory.OBSTYPE_CHOICES}
-            obs.observations_type = obstype_choices.get(self.obs_data['observations_type'], 0)
-            obs.uses_two_line_obs = self.obs_data['uses_two_line_observations']
-
-            obs.save()
-        return obs
+from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
 
 
 class CreateObservatory(CreateView):
@@ -137,7 +64,7 @@ class ObservatoryDetailView(DetailView):
 
 
 class ObservatoryList(ListView):
-    """Overview of all Observatory site with basic parameters and link to details"""
+    """Overview of all Observatory sites with basic parameters and link to details"""
 
     model = Observatory
     template_name = 'solsys_code_observatory/observatory_list.html'
