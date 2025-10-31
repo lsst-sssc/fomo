@@ -31,6 +31,8 @@ class TestMPCObscodeFetcher(TestCase):
             'uses_two_line_observations': False,
             'web_link': None,
         }
+        self.bad_input_resp = {'error': 'input_error', 'message': 'Malformed input: bad obscode'}
+        self.bad_code_resp = {'error': 'input_error', 'message': "obscodes failed: No obscode 'Y69'"}
 
     @patch('requests.get')
     def test_query_failure_invalid_code(self, mock_get):
@@ -38,13 +40,12 @@ class TestMPCObscodeFetcher(TestCase):
         mock_response = MagicMock()
         mock_response.status_code = 501
         mock_response.ok = False
-        mock_response.json.return_value = (
-            b'{\n  "error": "input_error",\n  "message": "Malformed input: bad obscode\n}\n'
-        )
+        mock_response.json.return_value = {'error': 'input_error', 'message': 'Malformed input: bad obscode'}
+        mock_response.content = b'{\n  "error": "input_error",\n  "message": "Malformed input: bad obscode\n}\n'
         mock_get.return_value = mock_response
 
         result = self.fetcher.query('FOO')
-        self.assertEqual(result, None)
+        self.assertEqual(self.bad_input_resp, result)
         self.assertIsNone(self.fetcher.obs_data)
 
     @patch('requests.get')
@@ -53,13 +54,12 @@ class TestMPCObscodeFetcher(TestCase):
         mock_response = MagicMock()
         mock_response.status_code = 501
         mock_response.ok = False
-        mock_response.json.return_value = (
-            b'{\n  "error": "input_error",\n  "message": "obscodes failed: No obscode \'Y69\'"\n}\n'
-        )
+        mock_response.json.return_value = {'error': 'input_error', 'message': "obscodes failed: No obscode 'Y69'"}
+        mock_response.content = b'{\n  "error": "input_error",\n  "message": "obscodes failed: No obscode \'Y69\'"\n}\n'
         mock_get.return_value = mock_response
 
         result = self.fetcher.query('Y69')
-        self.assertEqual(result, None)
+        self.assertEqual(self.bad_code_resp, result)
         self.assertIsNone(self.fetcher.obs_data)
 
     def test_to_observatory(self):

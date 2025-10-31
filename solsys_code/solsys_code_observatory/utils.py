@@ -17,6 +17,18 @@ class MPCObscodeFetcher:
     (https://www.minorplanetcenter.net/mpcops/documentation/obscodes-api/)
     """
 
+    def _flatten_error_dict(self, error_dict):
+        """Flattens down the passed `error_dict` for outputting as an error message"""
+        non_field_errors = []
+        for k, v in error_dict.items():
+            if isinstance(v, list):
+                for i in v:
+                    if isinstance(i, str):
+                        non_field_errors.append(f'{k}: {i}')
+            elif isinstance(v, str):
+                non_field_errors.append(f'{k}: {v}')
+        return non_field_errors
+
     def query(self, obscode: str, dbg: bool = False):
         """Query the MPC obscodes API for the specific <obscode>.
         If successful, the JSON response data is stored in self.obs_data.
@@ -36,9 +48,12 @@ class MPCObscodeFetcher:
                 for key, value in response.json().items():
                     logger.debug(f'{key:<27}: {value}')
         else:
-            logging.error('Error: ', response.status_code, response.content)
+            json_resp = response.json()
+            errors = self._flatten_error_dict(json_resp)
+            logging.error(f'Error: {response.status_code} Message: {". ".join(errors)}')
             if dbg:
-                print('Error: ', response.status_code, response.content)
+                print('Error: ', response.status_code, self._flatten_error_dict(json_resp))
+            return json_resp
 
     def to_observatory(self):
         """

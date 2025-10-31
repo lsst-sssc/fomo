@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView
+from tom_catalogs.harvester import MissingDataException
 
 from solsys_code.solsys_code_observatory.forms import CreateObservatoryForm
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -41,11 +42,16 @@ class CreateObservatory(CreateView):
         attempt to create a duplicate (which raises an IntegrityError)
         """
         obs = MPCObscodeFetcher()
-        obs.query(form.cleaned_data['obscode'])
+        errors = obs.query(form.cleaned_data['obscode'])
         try:
             obs = obs.to_observatory()
             self.object = obs
             self.kwargs['pk'] = obs.pk
+        except MissingDataException:
+            if errors:
+                form.add_error('obscode', errors.get('message', 'Invalid MPC site code'))
+            return self.form_invalid(form)
+
         except IntegrityError:
             print('Attempt to create duplicate Observatory')
             messages.error(self.request, 'Attempt to create duplicate Observatory')
