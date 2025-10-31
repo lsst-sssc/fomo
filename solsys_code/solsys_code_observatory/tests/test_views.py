@@ -1,5 +1,4 @@
 from django.test import Client, TestCase
-from tom_catalogs.harvester import MissingDataException
 
 
 class CreateObservatoryTest(TestCase):
@@ -11,6 +10,8 @@ class CreateObservatoryTest(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_form_view_bad_code(self):
-        with self.assertRaises(MissingDataException):
-            response = self.client.post('/observatory/create/', {'obscode': 'FOO'})
-            self.assertEqual(response.status_code, 422)
+        response = self.client.post('/observatory/create/', {'obscode': 'FOO'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, 'Malformed input: &quot;obscode&quot;=&quot;FOO&quot; does not match regular expression'
+        )
