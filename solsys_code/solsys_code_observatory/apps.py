@@ -15,6 +15,5 @@ class SolsysCodeObservatoryConfig(AppConfig):  # noqa: D101
 
         template_path = self.name.split('.')[-1]
         return [
-            {'partial': f'{template_path}/partials/navbar.html', 'position': 'right'},
             {'partial': f'{template_path}/partials/navbar_list.html'},
         ]
