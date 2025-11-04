@@ -44,8 +44,8 @@ class Observatory(models.Model):
         blank=False,
         verbose_name='Latitude (North is positive) [deg]',
         validators=[
-            MinValueValidator(-180.0, message='latitude must be greater than -90.'),
-            MaxValueValidator(180.0, message='latitude must be less than 90.'),
+            MinValueValidator(-90.0, message='latitude must be greater than -90.'),
+            MaxValueValidator(90.0, message='latitude must be less than 90.'),
         ],
         db_index=True,
     )
