@@ -625,7 +625,9 @@ class Ephemeris(View):
         """
 
         target = get_object_or_404(Target, pk=kwargs['pk'])
-        obscode = request.GET.get('obscode', '500')
+        # Sorcha doesn't support the geocenter (code 500), so until we have our own version
+        # of `barycentricObservatoryRates()` which does, default to something else e.g. Rubin (X05) in this case
+        obscode = request.GET.get('obscode', 'X05')
         # XXX Could replace this by a creation of the missing Observatory
         # relatively easily
         observatory = get_object_or_404(Observatory, obscode=obscode)
