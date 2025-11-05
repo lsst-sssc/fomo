@@ -18,7 +18,11 @@ class EphemerisForm(forms.Form):
     target_id = forms.IntegerField(required=True, widget=forms.HiddenInput())
     start_date = forms.DateTimeField(required=True, help_text=f'Start {time_text}')
     end_date = forms.DateTimeField(required=True, help_text=f'End {time_text}')
-    step = forms.CharField(required=False, initial='1d')
+    step = forms.CharField(
+        required=False,
+        initial='1d',
+        help_text="Step size; any combination of number and parseable unit e.g. '1d', '0.5hour', '5m'",
+    )
     site_code = forms.ModelChoiceField(
         Observatory.objects.filter(altitude__gt=0).order_by('name'), blank=False, required=True
     )
