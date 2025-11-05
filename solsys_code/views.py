@@ -150,11 +150,7 @@ class MakeEphemerisView(FormView):
             doesn't exist.
         """
         # print('In form_valid: ', end='')
-        obscode = form.cleaned_data['site_code']
-        try:
-            _ = Observatory.objects.get(obscode=obscode)
-        except Observatory.DoesNotExist:
-            return redirect('solsys_code_observatory:create')
+        obs = form.cleaned_data['site_code']
         # Retrieve the start and end times out of the cleaned Form data.
         # Not sure we want to deal with the horrors of local timezones but as first step, convert it to UTC
         # and then make it naive (as astropy.Time in Ephemeris() can't handle non-naive `datetime`s)
@@ -172,7 +168,7 @@ class MakeEphemerisView(FormView):
         full_precision = form.cleaned_data['full_precision']
         url = (
             reverse('ephem', kwargs={'pk': form.cleaned_data['target_id']})
-            + f'?obscode={obscode}&start={utc_start.isoformat()}&stop={utc_end.isoformat()}'
+            + f'?obscode={obs.obscode}&start={utc_start.isoformat()}&stop={utc_end.isoformat()}'
             + f'&step={step}&full_precision={full_precision}'
         )
         # print(url)
