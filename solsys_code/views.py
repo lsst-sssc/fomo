@@ -12,8 +12,6 @@ import spiceypy as spice
 from astropy import units as u
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
-from crispy_forms.bootstrap import FormActions
-from crispy_forms.layout import HTML, Layout, Submit
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -109,27 +107,7 @@ class MakeEphemerisView(FormView):
         Form handler
         """
         form = super().get_form()
-        target_id = self.get_target_id()
 
-        cancel_url = reverse('home')
-        if target_id:
-            cancel_url = reverse('tom_targets:detail', kwargs={'pk': target_id})  # + '?tab=ephemeris'
-        form.helper.layout = Layout(
-            HTML(
-                """<p>Fill in the form to generate an ephemeris. If the Site code doesn't already exist you will be
-                 redirected to the Observatory creation form to make it.</p>"""
-            ),
-            'target_id',
-            'start_date',
-            'end_date',
-            'step',
-            'site_code',
-            'full_precision',
-            FormActions(
-                Submit('confirm', 'Create Ephemeris'),
-                HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>'),
-            ),
-        )
         return form
 
     def form_valid(self, form: EphemerisForm) -> HttpResponse:

@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
+from crispy_forms.bootstrap import FormActions
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import ButtonHolder, Column, Layout, Row, Submit
+from crispy_forms.layout import HTML, Div, Fieldset, Layout, Submit
 from django import forms
 from django.urls import reverse
 
@@ -38,15 +39,39 @@ class EphemerisForm(forms.Form):
         end_date = start_date + timedelta(days=20)
         self.fields['start_date'].initial = start_date
         self.fields['end_date'].initial = end_date
-        self.helper.form_action = reverse('makeephem', kwargs={'pk': self.initial.get('target_id')})
+        target_id = self.initial.get('target_id')
+        self.helper.form_action = reverse('makeephem', kwargs={'pk': target_id})
+        cancel_url = reverse('home')
+        if target_id:
+            cancel_url = reverse('tom_targets:detail', kwargs={'pk': target_id})  # + '?tab=ephemeris'
         self.helper.layout = Layout(
+            HTML(
+                """
+                <p>
+                Fill in the form to generate an ephemeris for the object from the selected site.
+                </p>
+            """
+            ),
             'target_id',
-            Row(
-                Column('start_date'),
-                Column('end_date'),
-                Column('site_code'),
-                Column('step'),
-                Column('full_precision'),
-                Column(ButtonHolder(Submit('confirm', 'Create Ephemeris'))),
+            Fieldset(
+                'Ephemeris Parameters',
+                Div(
+                    Div(
+                        'start_date',
+                        'end_date',
+                        css_class='col',
+                    ),
+                    Div(
+                        'site_code',
+                        'step',
+                        'full_precision',
+                        css_class='col',
+                    ),
+                    css_class='form-row',
+                ),
+            ),
+            FormActions(
+                Submit('confirm', 'Create Ephemeris'),
+                HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>'),
             ),
         )
