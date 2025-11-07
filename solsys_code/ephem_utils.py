@@ -1,3 +1,4 @@
+import logging
 from collections import namedtuple
 from pathlib import Path
 
@@ -61,6 +62,9 @@ def fomo_furnish_spiceypy(cache_dir):
 fomo_furnish_spiceypy(cache_dir)
 args = FakeSorchaArgs(cache_dir)
 # Create ASSIST ephemeris
+# (but first tell Sorcha to wheesht abot the GM values...)
+sorcha_logger = logging.getLogger('sorcha.ephemeris.simulation_setup')
+sorcha_logger.setLevel(logging.WARNING)
 ephem, gm_sun, gm_total = create_assist_ephemeris(args, auxiliaryConfigs())
 observatories = SorchaObservatory(args, auxiliaryConfigs())
 
