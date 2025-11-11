@@ -10,10 +10,11 @@ from ades.psvtoxml import (
     TOP_HEADER_LINE,
     stateTransitions,
 )
+from astropy.table import Table
 
 logger = logging.getLogger(__name__)
 
-allowedElementDict, requiredElementDict, _ = adesutility.getAdesTables()
+allowedElementDict, requiredElementDict, psvFormatDict = adesutility.getAdesTables()
 
 #
 # create regular expression matching a string with no
@@ -195,3 +196,42 @@ def read_psv(psvfile, psvencoding='UTF-8'):
 
     del stack['currentHeader']
     return stack
+
+
+def convert_ades_to_table(ades_data):
+    """Convert ADES data dictionary to a Table format.
+
+    :param ades_data: ADES data dictionary with 'keywords' and 'observations'
+    :type ades_data: dict
+    :return: Table format with header and rows
+    :rtype: astropy.table.Table
+    """
+
+    # Assemble dtypes for each column based on psvFormatDict (way harder than it should be as it's missing some columns
+    # and has others that aren't needed in our case)
+    dtypes = []
+    skip_cols = ['artSat', 'prog', 'rmsCorr']
+    for col in psvFormatDict['optical']:
+        if col[0] == 'photCat' and 'fltr' in ades_data['keywords']:
+            # psvFormatDict is missing an entry for 'fltr' (which is only available in ADES version=2022)
+            # Insert it first if we have that column keyword
+            dtypes.append('U3')
+        elif col[0] == 'notes' and 'rmsFit' in ades_data['keywords'] and 'nStars' in ades_data['keywords']:
+            # Insert dtype for missing rmsFit
+            dtypes.append('f4')
+            # Insert dtype for missing nStars
+            dtypes.append('i4')
+        elif col[0] in skip_cols and col[0] not in ades_data['keywords']:
+            print(f'Skipping {col[0]}')
+            continue
+        dtype = 'f8'
+        if col[2] in ['L', 'R']:
+            length = col[1]
+            if length == 0:
+                length = 300
+            dtype = f'U{length}'
+        dtypes.append(dtype)
+
+    table = Table(rows=ades_data['observations'], names=ades_data['keywords'], dtype=dtypes)
+
+    return table
