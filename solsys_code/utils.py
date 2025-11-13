@@ -236,7 +236,7 @@ def convert_ades_to_table(ades_data):
             # Insert dtype for missing nStars
             dtypes.append('i4')
         elif col[0] in skip_cols and col[0] not in ades_data['keywords']:
-            print(f'Skipping {col[0]}')
+            # print(f'Skipping {col[0]}')
             continue
         dtype = 'f8'
         if col[2] in ['L', 'R']:
