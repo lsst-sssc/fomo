@@ -165,6 +165,7 @@ class TestWritePSV(SimpleTestCase):
             (138.038080, 12.403972),
             (138.038430, 12.403934),
         ]
+        self.maxDiff = None
         return super().setUp()
 
     def test_write_psv(self):
@@ -175,6 +176,20 @@ class TestWritePSV(SimpleTestCase):
         # Read back the written file and compare
         written_data = read_psv(output_psv_file)
         self.assertEqual(self.ades_data, written_data)
+        with open(output_psv_file, 'r') as f:
+            written_lines = f.readlines()
+        for line in written_lines:
+            if line.startswith('permID'):
+                header_line = line.strip()
+                self.assertEqual(
+                    header_line,
+                    (
+                        'permID |provID     |trkSub  |mode|stn |obsTime                |ra         |dec        |rmsRA'
+                        '|rmsDec|astCat  |mag  '
+                        '|rmsMag|band|fltr|photCat |photAp|logSNR|seeing|exp |rmsFit|nStars|notes|remarks'
+                    ),
+                )
+                break
 
         # Clean up
         tmp.close()
