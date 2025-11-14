@@ -42,7 +42,7 @@ psvFormatDict = {
         ('mag', 5, 'D', 3),
         ('rmsMag', 4, 'D', 2),
         ('band', 3, 'R', 0),
-        ('photCat', 8, 'R', 0),
+        ('photCat', 8, 'L', 0),
         ('photAp', 4, 'D', 3),
         ('logSNR', 4, 'D', 2),
         ('seeing', 3, 'D', 2),
