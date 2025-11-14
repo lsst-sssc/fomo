@@ -3,6 +3,7 @@ import re
 
 import numpy as np
 from ades import adesutility
+from ades.adesutility import applyPaddingAndJustification
 from ades.psvtoxml import (
     DATA_RECORD_LINE,
     EMPTY_STATE,
@@ -16,7 +17,41 @@ from matplotlib import pyplot as plt
 
 logger = logging.getLogger(__name__)
 
-allowedElementDict, requiredElementDict, psvFormatDict = adesutility.getAdesTables()
+allowedElementDict, requiredElementDict, _ = adesutility.getAdesTables()
+
+# psvFormatDict doesn't seem to match the achieved format... not sure why not - longer
+# entries based on the data is one thing, but swapping justification is another.
+# We'll just define our own version here based on what is in the Astrometrica output files
+# for optical observations and the tests in the ADES-Master repository
+psvFormatDict = {
+    'optical': [
+        ('permID', 7, 'L', 0),
+        ('provID', 11, 'L', 0),
+        ('artSat', 8, 'R', 0),
+        ('trkSub', 8, 'L', 0),
+        ('mode', 4, 'R', 0),
+        ('stn', 4, 'L', 0),
+        ('prog', 2, 'R', 0),
+        ('obsTime', 23, 'L', 0),
+        ('ra', 11, 'D', 3),
+        ('dec', 11, 'D', 4),
+        ('rmsRA', 5, 'D', 2),
+        ('rmsDec', 6, 'D', 2),
+        ('rmsCorr', 7, 'D', 3),
+        ('astCat', 8, 'L', 0),
+        ('mag', 5, 'D', 3),
+        ('rmsMag', 4, 'D', 2),
+        ('band', 3, 'R', 0),
+        ('photCat', 8, 'R', 0),
+        ('photAp', 4, 'D', 3),
+        ('logSNR', 4, 'D', 2),
+        ('seeing', 3, 'D', 2),
+        ('exp', 4, 'L', 0),
+        ('notes', 5, 'L', 0),
+        ('remarks', 0, 'L', 0),
+    ]
+}
+
 
 # A lot of this ADES PSV parsing code is adapted from `psvtoxml.py` in the `ades` package
 # but somewhat simplified for our purposes here and to avoid carrying lots of `globals` about
@@ -368,3 +403,78 @@ def zero_aperture_extrapolation(ades_table, reference_ap=1.8, make_plots=False):
                     'delta_zero_ap_dec': delta_zero_ap_dec,
                 }
     return derived_zaa
+
+
+def write_psv(ades_data, zaa_ra_dec, output_psv_file, psvencoding='UTF-8'):
+    """Write ADES data dictionary to a PSV format ADES file, including zero-aperture RA and Dec values.
+
+    :param ades_data: ADES data dictionary with 'keywords' and 'observations'
+    :type ades_data: dict
+    :param zaa_ra_dec: List of tuples with zero-aperture RA and Dec values
+    :type zaa_ra_dec: list of tuples
+    :param output_psv_file: Filepath to output PSV file
+    :type output_psv_file: str
+    :param psvencoding: PSV file encoding, defaults to "UTF-8"
+    :type psvencoding: str, optional
+    """
+
+    with open(output_psv_file, 'w', encoding=psvencoding) as f:
+        # Write version line
+        f.write('# version=2022\n')
+        # Write header lines
+        for key, value in ades_data['header'].items():
+            if key == 'version':
+                # version is special case, already written
+                continue
+            elif isinstance(value, dict):
+                f.write(f'# {key}\n')
+                for subkey, subvalue in value.items():
+                    f.write(f'! {subkey} {subvalue}\n')
+            else:
+                f.write(f'# {key} {value}\n')
+
+        # Write keyword line
+        ## Turn psvFormatDict into an actual dict of colname: (length, type)
+        psvList = []
+        headerInfo = []
+        headerDict = {}
+        cols = []
+        for j in psvFormatDict['optical']:
+            if j[0] in ades_data['keywords']:
+                psvList.append(j[0])  # keep for adding other elements
+                headerItem = [j[0], int(j[1]), j[2], j[3], False]
+                headerInfo.append(headerItem)
+                headerDict[j[0]] = headerItem
+
+        #
+        # add in the rest of the allowed elements between notes and remarks
+        #
+        for j in allowedElementDict['optical']:  # allowed elements
+            if j not in psvList:  # not already in list
+                #
+                # Insert before "remarks", which is the last item
+                #
+                headerItem = [j, len(j), 'R', 0, False]
+                headerInfo.insert(-1, headerItem)
+                headerDict[j] = headerItem
+
+        #
+        # adjust lengths if header doesn't fit (not sure this does anything useful)
+        #
+        for headerItem in headerInfo:
+            if len(headerItem[0]) > headerItem[1]:  # too wide
+                headerItem[1] = len(headerItem[0])
+
+        for i in ades_data['keywords']:
+            if i in headerDict:
+                headerItem = headerDict[i]
+                col, w, dposnew = applyPaddingAndJustification(i, headerItem[1], headerItem[2], headerItem[3])
+                cols.append(col)
+
+        f.write('|'.join(cols) + '\n')
+        # Write data lines with zero-aperture RA and Dec appended
+        for i, observation in enumerate(ades_data['observations']):
+            ra_dec = zaa_ra_dec[i // (len(observation) // 2)]  # Assuming half the observations are RA/Dec pairs
+            observation.append(f'{ra_dec[0]:.7f}')  # Append zero-aperture RA
+            observation.append(f'{ra_dec[1]:+.7f}')  # Append zero-aperture Dec
+            f.write('|'.join(observation) + '\n')
