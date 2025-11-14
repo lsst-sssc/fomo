@@ -1,9 +1,10 @@
+import tempfile
 from pathlib import Path
 
 from astropy.table import Table
 from django.test import SimpleTestCase
 
-from solsys_code.utils import convert_ades_to_table, read_psv, zero_aperture_extrapolation
+from solsys_code.utils import convert_ades_to_table, read_psv, write_psv, zero_aperture_extrapolation
 
 
 class TestReadPSV(SimpleTestCase):
@@ -150,3 +151,30 @@ class TestZeroApertureExtrapolation(SimpleTestCase):
         for expected_ra_dec, values in zip(expected_zaa_ra_dec, derived_zaa.values()):
             self.assertAlmostEqual(expected_ra_dec[0], values['zero_ap_ra'], places=6)
             self.assertAlmostEqual(expected_ra_dec[1], values['zero_ap_dec'], places=6)
+
+
+class TestWritePSV(SimpleTestCase):
+    def setUp(self) -> None:
+        self.test_psv_file = Path(__file__).parent / 'test_data' / 'sample.psv'
+        self.ades_data = read_psv(self.test_psv_file)
+        self.expected_zaa_ra_dec = [
+            (138.036628, 12.403883),
+            (138.037016, 12.403832),
+            (138.037354, 12.403898),
+            (138.037738, 12.404076),
+            (138.038080, 12.403972),
+            (138.038430, 12.403934),
+        ]
+        return super().setUp()
+
+    def test_write_psv(self):
+        tmp = tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv', delete=False)
+        output_psv_file = Path(tmp.name)
+        write_psv(self.ades_data, self.expected_zaa_ra_dec, output_psv_file)
+
+        # Read back the written file and compare
+        written_data = read_psv(output_psv_file)
+        self.assertEqual(self.ades_data, written_data)
+
+        # Clean up
+        tmp.close()
