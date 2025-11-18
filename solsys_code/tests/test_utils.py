@@ -157,27 +157,27 @@ class TestWritePSV(SimpleTestCase):
     def setUp(self) -> None:
         self.test_psv_file = Path(__file__).parent / 'test_data' / 'sample.psv'
         self.ades_data = read_psv(self.test_psv_file)
-        self.expected_zaa_ra_dec = [
-            (138.036628, 12.403883),
-            (138.037016, 12.403832),
-            (138.037354, 12.403898),
-            (138.037738, 12.404076),
-            (138.038080, 12.403972),
-            (138.038430, 12.403934),
-        ]
+        self.expected_zaa_ra_dec = {
+            '2025-11-11T05:27:02.7Z': {'zero_ap_ra': 138.036628, 'zero_ap_dec': 12.403883},
+            '2025-11-11T05:30:22.0Z': {'zero_ap_ra': 138.037016, 'zero_ap_dec': 12.403832},
+            '2025-11-11T05:33:42.3Z': {'zero_ap_ra': 138.037354, 'zero_ap_dec': 12.403898},
+            '2025-11-11T05:37:02.8Z': {'zero_ap_ra': 138.037738, 'zero_ap_dec': 12.404076},
+            '2025-11-11T05:40:24.0Z': {'zero_ap_ra': 138.038080, 'zero_ap_dec': 12.403972},
+            '2025-11-11T05:43:44.6Z': {'zero_ap_ra': 138.038430, 'zero_ap_dec': 12.403934},
+        }
+
         self.maxDiff = None
         return super().setUp()
 
     def test_write_psv(self):
-        tmp = tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv', delete=False)
+        tmp = tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv', delete=True)
         output_psv_file = Path(tmp.name)
         write_psv(self.ades_data, self.expected_zaa_ra_dec, output_psv_file)
 
         # Read back the written file and compare
-        written_data = read_psv(output_psv_file)
-        self.assertEqual(self.ades_data, written_data)
         with open(output_psv_file, 'r') as f:
             written_lines = f.readlines()
+        check_217p = False
         for line in written_lines:
             if line.startswith('permID'):
                 header_line = line.strip()
@@ -189,7 +189,25 @@ class TestWritePSV(SimpleTestCase):
                         '|rmsMag|band|fltr|photCat |photAp|logSNR|seeing|exp |rmsFit|nStars|notes|remarks'
                     ),
                 )
+            elif line.lstrip().startswith('217P') and not check_217p:
+                self.assertEqual(
+                    line.rstrip(),
+                    (
+                        '   217P|           |        | CCD|Z24 |2025-11-11T05:27:02.7Z |138.036628 |+12.403883 |0.145'
+                        '|0.102 |   Gaia3|18.22'
+                        '|0.269 |   G|   g|   Gaia3| 1.8  |1.51  |1.1   | 170|  0.17|   332|e    |'
+                    ),
+                )
+                check_217p = True
+            elif line.lstrip().startswith('|C/2025 K1'):
+                self.assertEqual(
+                    line.rstrip(),
+                    (
+                        '       |C/2025 K1  |        | CCD|Z24 |2025-11-11T05:43:44.6Z |138.038430 |-12.403934 |0.119'
+                        '|0.071 |   Gaia3|18.52'
+                        '|0.244 |   G|   i|   Gaia3| 1.8  |1.76  |1.1   | 170|  0.13|   474|eK   |'
+                    ),
+                )
                 break
-
         # Clean up
         tmp.close()
