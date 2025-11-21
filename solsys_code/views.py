@@ -12,6 +12,7 @@ import spiceypy as spice
 from astropy import units as u
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
+from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -208,10 +209,20 @@ class Ephemeris(View):
             step_size = number if number is not None else 1
             if unit_str is not None:
                 # Do unit handling here
+                err_msg = f'Unit {unit_str} is not compatible with time units, defaulting to days'
                 try:
                     unit = u.Unit(unit_str)
+                    # Check that unit is compatible with time
+                    if not unit.is_equivalent(u.day):
+                        # See if we got 'm' for minutes first (which would convert to `Unit('meter')`...), first
+                        if unit_str == 'm':
+                            unit = u.min
+                        else:
+                            # Bail on trying to read users' mind and default to days
+                            messages.warning(request, err_msg)
+                            unit = u.day
                 except ValueError:
-                    pass
+                    messages.warning(request, err_msg)
             step_size *= unit
         n_steps = (end_time - start_time) / step_size
         ts = TimeSeries(time_start=start_time, time_delta=step_size, n_samples=ceil(n_steps) + 1)
