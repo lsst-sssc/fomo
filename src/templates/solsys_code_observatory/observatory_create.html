@@ -1,0 +1,29 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+{% block title %}Create Observatory from MPC Code{% endblock %}
+
+{% block content %}
+<h4>Create a new Observatory in FOMO from MPC code. </h4>
+<br>
+<p>
+  Please fill the form below.
+  Your entry will then be retrieved with the MPC and the details returned.
+  <br>
+  (<a href=https://minorplanetcenter.net/iau/lists/ObsCodesF.html>This page</a> lists all the MPC site codes)
+</p>
+<form action="{% url 'solsys_code_observatory:create' %}" enctype="multipart/form-data" method="POST">
+  {% csrf_token %}
+  {% bootstrap_form form %}
+
+  {% buttons %}
+  <button type="submit" class="btn btn-primary">
+    {% if object %}
+      Update
+    {% else %}
+      Create Observatory
+    {% endif %}
+  </button>
+  {% endbuttons %}
+
+</form>
+{% endblock %}
