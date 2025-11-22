@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'tom_observations',
     'tom_dataproducts',
     'solsys_code',
+    'solsys_code.solsys_code_observatory.apps.SolsysCodeObservatoryConfig',
     'tom_alertstreams',
     'tom_fink',
     'tom_registration',
@@ -306,11 +307,11 @@ BROKERS = {
 }
 
 TOM_HARVESTER_CLASSES = [
-    'tom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
-    'tom_catalogs.harvesters.tns.TNSHarvester',
     'tom_catalogs.harvesters.mpc.MPCHarvester',
     'tom_catalogs.harvesters.mpc.MPCExplorerHarvester',
+    'tom_catalogs.harvesters.simbad.SimbadHarvester',
+    'tom_catalogs.harvesters.tns.TNSHarvester',
 ]
 
 HARVESTERS = {'TNS': {'api_key': ''}}
