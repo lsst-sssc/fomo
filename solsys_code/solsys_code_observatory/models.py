@@ -93,9 +93,11 @@ class Observatory(models.Model):
         """
 
         axis_ratio = 1.0 - self._f
-        u = atan2(sin(radians(self.lat)) * axis_ratio, cos(radians(self.lat)))
-        rho_sin_phi = axis_ratio * sin(u) + (self.altitude / self._r) * sin(radians(self.lat))
-        rho_cos_phi = cos(u) + (self.altitude / self._r) * cos(radians(self.lat))
+        rho_cos_phi = rho_sin_phi = 0.0
+        if self.lat and self.lon and self.altitude:
+            u = atan2(sin(radians(self.lat)) * axis_ratio, cos(radians(self.lat)))
+            rho_sin_phi = axis_ratio * sin(u) + (self.altitude / self._r) * sin(radians(self.lat))
+            rho_cos_phi = cos(u) + (self.altitude / self._r) * cos(radians(self.lat))
 
         return rho_cos_phi, rho_sin_phi
 
@@ -128,7 +130,7 @@ class Observatory(models.Model):
 
     def ObservatoryXYZ(self) -> tuple[float, float, float]:
         """Converts the observatory location to geocentric coordinates (in units of Earth radii)
-        Provides similar functionality to Sorcha's Observatory.ObservatoryXY()
+        Provides similar functionality to Sorcha's Observatory.ObservatoryXYZ()
 
         Returns:
             tuple[float, float, float]: Geocentric position (x,y,z) in Earth radii
