@@ -114,3 +114,31 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertEqual(obs.uses_two_line_obs, True)
         self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 21, tzinfo=timezone.utc))
         self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 51, 48, tzinfo=timezone.utc))
+
+    def test_geocenter(self):
+        self.fetcher.obs_data = {
+            'created_at': 'Sat, 25 May 2019 00:11:22 GMT',
+            'firstdate': None,
+            'lastdate': None,
+            'longitude': '0.00000',
+            'name': 'Geocentric',
+            'name_latex': 'Geocentric',
+            'name_utf8': 'Geocentric',
+            'obscode': '500',
+            'observations_type': 'optical',
+            'old_names': None,
+            'rhocosphi': '0.000000',
+            'rhosinphi': '0.000000',
+            'short_name': 'Geocentric',
+            'updated_at': 'Wed, 17 Sep 2025 18:12:06 GMT',
+            'uses_two_line_observations': False,
+            'web_link': None,
+        }
+
+        obs = self.fetcher.to_observatory()
+        self.assertEqual(obs.obscode, '500')
+        self.assertEqual(obs.name, 'Geocentric')
+        self.assertEqual(obs.lon, 0.0)
+        self.assertEqual(obs.lat, 0.0)
+        self.assertEqual(obs.altitude, 0.0)
+        self.assertEqual(obs.ObservatoryXYZ(), [0, 0, 0])
