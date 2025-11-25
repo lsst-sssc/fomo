@@ -22,6 +22,7 @@ dependencies = [
     "tom_fink",
     "tom-registration",
     "numpy>1.24",
+    "iau-ades>=0.1",
     "sorcha",
 ]
 
