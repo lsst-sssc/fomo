@@ -1,14 +1,14 @@
 
 [project]
 name = "fomo"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 authors = [
     { name = "SSSC FOMO Software Developers", email = "fomo@lco.global" }
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
@@ -17,10 +17,12 @@ classifiers = [
 dynamic = ["version"]
 requires-python = ">=3.9"
 dependencies = [
-    "tomtoolkit>=2.26.0",
+    "tomtoolkit>=2.27.1",
     "tom_alertstreams",
     "tom_fink",
     "tom-registration",
+    "numpy>1.24",
+    "sorcha",
 ]
 
 [project.urls]
@@ -29,7 +31,6 @@ dependencies = [
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 [project.optional-dependencies]
 dev = [
-    "asv==0.6.4", # Used to compute performance benchmarks
     "ipython",
     "jupyter", # Clears output from Jupyter notebooks
     "pre-commit", # Used to run checks before finalizing a git commit
@@ -51,6 +52,8 @@ write_to = "src/fomo/_version.py"
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
+    "src",
+    "docs",
 ]
 
 [tool.black]
@@ -60,10 +63,12 @@ target-version = ["py39"]
 [tool.isort]
 profile = "black"
 line_length = 120
+addopts = "--doctest-modules --doctest-glob=*.rst"
 
 [tool.ruff]
 line-length = 120
 target-version = "py39"
+exclude = ["solsys_code/**/migrations/*.py", ]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -92,7 +97,6 @@ select = [
     # Numpy v2.0 compatibility
     "NPY201",
 ]
-
 ignore = [
     "UP006", # Allow non standard library generics in type hints
     "UP007", # Allow Union in type hints
@@ -116,7 +120,8 @@ ignore = [
 
 # 4. Ignore `D101` and `D102` (missing docs strings) in all tests subdirectories.
 [tool.ruff.lint.per-file-ignores]
-"solsys_code/{apps,tests}.py" = ["D101", "D102"]
+"solsys_code/**/{apps,tests}.py" = ["D101", "D102"]
+"solsys_code/*/migrations/*.py" = ["D100", "D101", "D102", "D103", "E501", "RUF012"]
 "**/tests/*" = ["D101", "D102"]
 
 [tool.coverage.run]
