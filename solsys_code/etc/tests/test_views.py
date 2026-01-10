@@ -30,6 +30,16 @@ class TestETC(TestCase):
 
         assert_quantity_allclose(expected_area, area)
 
+    def test_effective_area2(self):
+        expected_area = 660.39419171 * u.cm**2
+
+        self.test_etc.primary_diam = 350 * u.mm
+        self.test_etc.obstruction_diam = 196 * u.mm
+        area = self.test_etc.effective_area()
+
+        assert_quantity_allclose(expected_area, area)
+        self.assertEqual(u.cm**2, area.unit)
+
     def test_fraction_inside(self):
         expected_loss = 0.9999847
 

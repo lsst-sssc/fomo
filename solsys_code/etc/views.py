@@ -108,9 +108,13 @@ class ETC:
 
     def effective_area(self) -> u.Quantity:
         """
-        Returns the effective area of the telescope as area Quantity
+        Returns the effective area of the telescope as area Quantity (converted to cm**2 units)
         """
-        return np.pi * (self.primary_diam * self.primary_diam - self.obstruction_diam * self.obstruction_diam) / 4.0
+
+        pri_diam_cm = self.primary_diam.to(u.cm)
+        sec_diam_cm = self.obstruction_diam.to(u.cm)
+
+        return np.pi * (pri_diam_cm * pri_diam_cm - sec_diam_cm * sec_diam_cm) / 4.0
 
     def star_electrons_per_second_per_pixel(self, mag):
         """
