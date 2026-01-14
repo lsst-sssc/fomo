@@ -9,9 +9,6 @@ class SolsysCodeConfig(AppConfig):
         """
         Integration point for adding buttons to the Target detail view
         """
-        print("You made it!")
-        print({'partial': f'{self.name}/partials/ephem_button.html',
-                 'context': f'{self.name}.templatetags.solsys_code_extras.ephem_button'})
         return [{'partial': f'{self.name}/partials/ephem_button.html',
                  'context': f'src.templatetags.solsys_code_extras.ephem_button'}]
 
