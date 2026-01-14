@@ -21,6 +21,7 @@ dependencies = [
     "tom_alertstreams",
     "tom_fink",
     "tom-registration",
+    "tom_eso",
     "numpy>1.24",
     "sorcha",
 ]
