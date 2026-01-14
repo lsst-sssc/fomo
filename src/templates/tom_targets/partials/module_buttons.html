@@ -1,0 +1,9 @@
+{% for button in button_list %}
+    {% if button.namespace == 'makeephem' %}
+        {% if target.type != 'SIDEREAL' %}
+            <a href="{% url button.namespace pk=target.id %}" title="{{button.title}}" class="{{ button.class }}">{{button.text}}</a>
+        {% endif %}
+    {% else %}
+        <a href="{% url button.namespace pk=target.id %}" title="{{button.title}}" class="{{ button.class }}">{{button.text}}</a>
+    {% endif %}
+{% endfor %}

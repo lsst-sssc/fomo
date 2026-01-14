@@ -1,3 +1,3 @@
-from .example_module import greetings, meaning
+from ._version import __version__  # noqa: F401
 
-__all__ = ['greetings', 'meaning']
+__all__ = ['__version__']
