@@ -41,7 +41,9 @@ def find_filter(e: EtcInternals, filter: str):
         'R': [0.10, 1.10e06],
         'I': [0.08, 6.75e05],
         'N': [0.20, 4.32e06],
-        'W': [0.15, 2.00e06],
+        #        'W': [0.15, 2.00e06], # Original value (maybe a VR value?)
+        # Value from synphot of obs.countrate() for 1 cm**2 Vega spec and LCO PS-w filter from SVO
+        'W': [0.15, 3.69e06],
     }
     filt_info = filters.get(filter, 'R')
     e.extinction = filt_info[0]
