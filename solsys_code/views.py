@@ -394,50 +394,88 @@ class Ephemeris(View):
 
 
 class JPLSBDBQuery:
-    """
+    '''
     The ``JPLSBDBQuery`` provides an interface to JPL's Small Body Database Query
     via its API interface (https://ssd.jpl.nasa.gov/tools/sbdb_query.html)
-    """
+    '''
 
     base_url = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
 
+    _CHAIN_PATTERN = re.compile(
+        r'''
+        ^\s*
+        (?P<a>.+?)\s*
+        (?P<op1><=|<|>=|>)\s*
+        (?P<field>[A-Za-z_][A-Za-z0-9_\.]*)\s*
+        (?P<op2><=|<|>=|>)\s*
+        (?P<b>.+?)\s*
+        $
+        ''',
+        re.VERBOSE,
+    )
+
     def __init__(self, orbit_class=None, orbital_constraints=None):
-        """
-        orbit_class: str or None (e.g. "IEO", "TJN", etc.)
-        orbital_constraints: list of constraint strings, e.g. ["q|LT|1.3", "i|LT|10.5"]
-        """
+        '''
+        orbit_class: str or None (e.g. 'IEO', 'TJN', etc.)
+        orbital_constraints: list of constraint strings, e.g. ['q|LT|1.3', 'i|LT|10.5']
+        '''
         self.orbit_class = orbit_class
         self.orbital_constraints_raw = orbital_constraints or []
         self.orbital_constraints = self._translate_constraints(self.orbital_constraints_raw)
 
     def _translate_constraints(self, constraints):
         translated = []
+
         for c in constraints:
-            # Handle range (e.g. 6<=H<=7)
-            if '<=' in c and c.count('<=') == 2:
-                parts = c.split('<=')
-                min_val = parts[0].strip()
-                field = parts[1].strip()
-                max_val = parts[2].strip()
-                translated.append(f'{field}|RG|{min_val}|{max_val}')
+            s = c.strip()
+
+            # Between 2 values
+            m = self._CHAIN_PATTERN.match(s)
+            if m:
+                a = m.group('a').strip()
+                op1 = m.group('op1')
+                field = m.group('field').strip()
+                op2 = m.group('op2')
+                b = m.group('b').strip()
+
+                lt_like = {'<', '<='}
+                gt_like = {'>', '>='}
+
+                if op1 in lt_like and op2 in lt_like:
+                    # a (min) op1 field op2 b (max)
+                    min_val, max_val = a, b
+                    left_incl = (op1 == '<=')
+                    right_incl = (op2 == '<=')
+
+                elif op1 in gt_like and op2 in gt_like:
+                    # a (max) op1 field op2 b (min)
+                    min_val, max_val = b, a
+                    left_incl = (op2 == '>=')
+                    right_incl = (op1 == '>=')
+
+                else:
+                    raise ValueError(
+                        f'Unsupported chained comparison direction (must both point same way): {c}'
+                    )
+
+                li = 'E' if left_incl else 'O'
+                ri = 'E' if right_incl else 'O'
+                translated.append(f'{field}|RG{li}{ri}|{min_val.strip()}|{max_val.strip()}')
                 continue
 
-            # Handle <, <=, >, >=
-            if '<=' in c:
-                field, value = c.split('<=')
+            # Single value
+            if '<=' in s:
+                field, value = s.split('<=', 1)
                 translated.append(f'{field.strip()}|LE|{value.strip()}')
-            elif '>=' in c:
-                field, value = c.split('>=')
+            elif '>=' in s:
+                field, value = s.split('>=', 1)
                 translated.append(f'{field.strip()}|GE|{value.strip()}')
-            elif '<' in c:
-                field, value = c.split('<')
+            elif '<' in s:
+                field, value = s.split('<', 1)
                 translated.append(f'{field.strip()}|LT|{value.strip()}')
-            elif '>' in c:
-                field, value = c.split('>')
+            elif '>' in s:
+                field, value = s.split('>', 1)
                 translated.append(f'{field.strip()}|GT|{value.strip()}')
-            elif 'IS DEFINED' in c:
-                field, value = c.split('IS DEFINED')
-                translated.append(f'{field.strip()}|DF')
             else:
                 raise ValueError(f'Unsupported constraint format: {c}')
 
