@@ -59,9 +59,11 @@ INSTALLED_APPS = [
     'tom_observations',
     'tom_dataproducts',
     'solsys_code',
+    'solsys_code.solsys_code_observatory.apps.SolsysCodeObservatoryConfig',
     'tom_alertstreams',
     'tom_fink',
     'tom_registration',
+    'tom_eso',
 ]
 
 SITE_ID = 1
@@ -251,6 +253,7 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.lco.LCOFacility',
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
+    'tom_eso.eso.ESOFacility',
 ]
 
 TOM_REGISTRATION = {
@@ -306,10 +309,11 @@ BROKERS = {
 }
 
 TOM_HARVESTER_CLASSES = [
-    'tom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
-    'tom_catalogs.harvesters.tns.TNSHarvester',
+    'tom_catalogs.harvesters.mpc.MPCHarvester',
     'tom_catalogs.harvesters.mpc.MPCExplorerHarvester',
+    'tom_catalogs.harvesters.simbad.SimbadHarvester',
+    'tom_catalogs.harvesters.tns.TNSHarvester',
 ]
 
 HARVESTERS = {'TNS': {'api_key': ''}}
@@ -334,6 +338,11 @@ AUTH_STRATEGY = 'READ_ONLY'
 # objects to be seen by everyone. Setting it to False will allow users to specify which groups can access
 # `ObservationRecord`, `DataProduct`, and `ReducedDatum` objects.
 TARGET_PERMISSIONS_ONLY = True
+
+
+# Default permission for newly created targets. Values can be 'PRIVATE', 'PUBLIC', or 'OPEN'
+# Set FOMO default to 'OPEN' (visible to everyone, even when not logged in)
+TARGET_DEFAULT_PERMISSION = 'OPEN'
 
 # URLs that should be allowed access even with AUTH_STRATEGY = LOCKED
 # for example: OPEN_URLS = ['/', '/about']
