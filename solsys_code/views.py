@@ -510,7 +510,7 @@ class JPLSBDBQuery:
         Build a query for the JPL SBDB service.
         """
         # Base query fields
-        params = {'fields': 'full_name,first_obs,epoch,e,a,q,i,om,w'}
+        params = {'fields': 'pdes,prefix,epoch,e,a,q,i,om,w,H,G,M1,K1'}
 
         # Add sb-class if provided
         if self.orbit_class:
@@ -524,7 +524,7 @@ class JPLSBDBQuery:
             params['sb-cdata'] = encoded_cdata
 
         # Build URL
-        query_parts = [f'{key}={urllib.parse.quote(str(value))}' for key, value in params.items()]
+        query_parts = [f'{key}={str(value)}' for key, value in params.items()]
         url = f'{self.base_url}?' + '&'.join(query_parts)
         return url
 
@@ -553,6 +553,6 @@ class JPLSBDBQuery:
 
         data = results['data']
         columns = results['fields']
-        table = QTable(rows=data, names=columns)
+        self.results_table = QTable(rows=data, names=columns)
 
-        return table
+        return None
