@@ -471,9 +471,16 @@ class JPLSBDBQuery:
                 else:
                     raise ValueError(f'Unsupported chained comparison direction (must both point same way): {c}')
 
-                li = 'E' if left_incl else 'O'
-                ri = 'E' if right_incl else 'O'
-                translated.append(f'{field}|RG{li}{ri}|{min_val.strip()}|{max_val.strip()}')
+                # Only allow both-inclusive (RG) or both-exclusive (RE)
+                if left_incl and right_incl:
+                    translated.append(f'{field}|RG|{min_val}|{max_val}')
+                elif (not left_incl) and (not right_incl):
+                    translated.append(f'{field}|RE|{min_val}|{max_val}')
+                else:
+                    raise ValueError(
+                        f'Mixed inclusive/exclusive ranges not supported (use <=...<= or <...< ): {c}'
+                    )
+
                 continue
 
             # Single value
