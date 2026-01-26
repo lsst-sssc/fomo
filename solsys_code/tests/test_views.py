@@ -100,6 +100,40 @@ class TestJPLSBDBQuery(SimpleTestCase):
         expected = ['rot_per|DF', 'rot_per|LE|4.2']
         self.assertEqual(query.orbital_constraints, expected)
 
+    def test_translate_constraints_not_defined(self):
+        raw = [
+            'rot_per IS NOT DEFINED',
+        ]
+        query = JPLSBDBQuery(orbital_constraints=raw)
+        expected = [
+            'rot_per|ND',
+        ]
+        self.assertEqual(query.orbital_constraints, expected)
+
+    def test_translate_constraints_both_defined_and_not(self):
+        raw = ['rot_per IS NOT DEFINED', 'H IS DEFINED']
+        query = JPLSBDBQuery(orbital_constraints=raw)
+        expected = ['rot_per|ND', 'H|DF']
+        self.assertEqual(query.orbital_constraints, expected)
+
+    def test_translate_constraints_equals(self):
+        raw = ['condition_code == 0', 'source == ORB']
+        query = JPLSBDBQuery(orbital_constraints=raw)
+        expected = ['condition_code|EQ|0', 'source|EQ|ORB']
+        self.assertEqual(query.orbital_constraints, expected)
+
+    def test_translate_constraints_not_equals(self):
+        raw = ['condition_code != 9', 'source != MPC:mpo']
+        query = JPLSBDBQuery(orbital_constraints=raw)
+        expected = ['condition_code|NE|9', 'source|NE|MPC:mpo']
+        self.assertEqual(query.orbital_constraints, expected)
+
+    def test_translate_constraints_both_equals_and_not(self):
+        raw = ['condition_code == 8', 'source != MPC:mpo']
+        query = JPLSBDBQuery(orbital_constraints=raw)
+        expected = ['condition_code|EQ|8', 'source|NE|MPC:mpo']
+        self.assertEqual(query.orbital_constraints, expected)
+
     def test_build_query_url(self):
         url = self.query.build_query_url()
         self.assertTrue(url.startswith(self.base_url))

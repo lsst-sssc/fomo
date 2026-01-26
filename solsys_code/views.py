@@ -431,14 +431,14 @@ class JPLSBDBQuery:
             lower = s.lower()
 
             if lower.endswith(' is defined'):
-                field = s[:-len(' is defined')].strip()
+                field = s[: -len(' is defined')].strip()
                 if not field:
                     raise ValueError(f'Invalid "is defined" constraint (missing field): {c}')
                 translated.append(f'{field}|DF')
                 continue
 
             if lower.endswith(' is not defined'):
-                field = s[:-len(' is not defined')].strip()
+                field = s[: -len(' is not defined')].strip()
                 if not field:
                     raise ValueError(f'Invalid "is not defined" constraint (missing field): {c}')
                 translated.append(f'{field}|ND')
@@ -477,9 +477,7 @@ class JPLSBDBQuery:
                 elif (not left_incl) and (not right_incl):
                     translated.append(f'{field}|RE|{min_val}|{max_val}')
                 else:
-                    raise ValueError(
-                        f'Mixed inclusive/exclusive ranges not supported (use <=...<= or <...< ): {c}'
-                    )
+                    raise ValueError(f'Mixed inclusive/exclusive ranges not supported (use <=...<= or <...< ): {c}')
 
                 continue
 
@@ -496,6 +494,12 @@ class JPLSBDBQuery:
             elif '>' in s:
                 field, value = s.split('>', 1)
                 translated.append(f'{field.strip()}|GT|{value.strip()}')
+            elif '==' in c:
+                field, value = c.split('==')
+                translated.append(f'{field.strip()}|EQ|{value.strip()}')
+            elif '!=' in c:
+                field, value = c.split('!=')
+                translated.append(f'{field.strip()}|NE|{value.strip()}')
             else:
                 raise ValueError(f'Unsupported constraint format: {c}')
 
