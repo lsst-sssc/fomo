@@ -428,6 +428,21 @@ class JPLSBDBQuery:
 
         for c in constraints:
             s = c.strip()
+            lower = s.lower()
+
+            if lower.endswith(' is defined'):
+                field = s[:-len(' is defined')].strip()
+                if not field:
+                    raise ValueError(f'Invalid "is defined" constraint (missing field): {c}')
+                translated.append(f'{field}|DF')
+                continue
+
+            if lower.endswith(' is not defined'):
+                field = s[:-len(' is not defined')].strip()
+                if not field:
+                    raise ValueError(f'Invalid "is not defined" constraint (missing field): {c}')
+                translated.append(f'{field}|ND')
+                continue
 
             # Between 2 values
             m = self._CHAIN_PATTERN.match(s)
