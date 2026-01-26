@@ -89,9 +89,9 @@ class TestJPLSBDBQuery(SimpleTestCase):
         self.test_json = json.loads(test_json_fp.read_text())
 
     def test_translate_constraints(self):
-        raw = ['q<1.3', 'i<=10.5', '6<=H<=7']
+        raw = ['q<1.3', 'i<=10.5', '6<=H<=7', '9<=a<14']
         query = JPLSBDBQuery(orbital_constraints=raw)
-        expected = ['q|LT|1.3', 'i|LE|10.5', 'H|RG|6|7']
+        expected = ['q|LT|1.3', 'i|LE|10.5', 'H|RGEE|6|7', 'a|RGEO|9|14']
         self.assertEqual(query.orbital_constraints, expected)
 
     def test_translate_constraints_is_defined(self):
