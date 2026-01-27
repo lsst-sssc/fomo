@@ -561,6 +561,9 @@ class JPLSBDBQuery:
         return self.results_table
 
     def create_targets(self):
+        """
+        Create TOM Targets from JPL SBDB Query.
+        """
         for result in self.results_table:
             asteroid = True
             name = result['pdes']
