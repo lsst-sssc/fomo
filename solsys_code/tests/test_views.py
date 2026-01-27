@@ -179,7 +179,7 @@ class TestJPLSBDBQuery(SimpleTestCase):
         self.assertIsInstance(table, QTable)
         self.assertEqual(table.colnames, self.test_json['fields'])
         self.assertEqual(len(table), len(self.test_json['data']))
-        self.assertEqual(table['full_name'][0], self.test_json['data'][0][0])
+        self.assertEqual(table['pdes'][0], self.test_json['data'][0][0])
 
     def test_parse_results_empty(self):
         empty_table = self.query.parse_results({})
