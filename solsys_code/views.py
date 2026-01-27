@@ -510,7 +510,10 @@ class JPLSBDBQuery:
         Build a query for the JPL SBDB service.
         """
         # Base query fields
-        params = {'fields': 'pdes,prefix,epoch,e,a,q,i,om,w,H,G,M1,K1'}
+        params = {'fields': 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,H,G,M1,K1,condition_code,data_arc,n_obs_used',
+                  'full-prec': 'true',
+                  'sb-xfrag': 'true',
+                  }
 
         # Add sb-class if provided
         if self.orbit_class:
@@ -526,6 +529,7 @@ class JPLSBDBQuery:
         # Build URL
         query_parts = [f'{key}={str(value)}' for key, value in params.items()]
         url = f'{self.base_url}?' + '&'.join(query_parts)
+        self.url = url
         return url
 
     def run_query(self) -> Optional[dict[str, Any]]:
@@ -556,3 +560,13 @@ class JPLSBDBQuery:
         self.results_table = QTable(rows=data, names=columns)
 
         return None
+
+    def create_targets(self):
+        for results in self.results_table:
+            #name =
+            existing_objects = Target.objects.filter(name=name)
+            if existing_objects.count() == 0:
+                target = Target()
+                target.name = name
+                target.epoch_of_elements = self.results_table['epoch_mjd'].item()
+                target.save()
