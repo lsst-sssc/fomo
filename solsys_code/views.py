@@ -558,7 +558,7 @@ class JPLSBDBQuery:
         data = results['data']
         columns = results['fields']
         self.results_table = QTable(rows=data, names=columns)
-        return None
+        return self.results_table
 
     def create_targets(self):
         for result in self.results_table:
