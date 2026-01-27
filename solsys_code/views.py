@@ -558,15 +558,39 @@ class JPLSBDBQuery:
         data = results['data']
         columns = results['fields']
         self.results_table = QTable(rows=data, names=columns)
-
-        return self.results_table
+        return None
 
     def create_targets(self):
-        for results in self.results_table:
-            #name =
+        for result in self.results_table:
+            asteroid = True
+            name = result['pdes']
+            if result['prefix'] == 'C' or result['prefix'] == 'A':
+                name = result['prefix']+'/'+name
             existing_objects = Target.objects.filter(name=name)
             if existing_objects.count() == 0:
                 target = Target()
+                target.type = 'NON_SIDEREAL'
+                if result['prefix'] is None:
+                    target.scheme = 'MPC_MINOR_PLANET'
+                else:
+                    target.scheme = 'MPC_COMET'
+                    asteroid = False
                 target.name = name
-                target.epoch_of_elements = self.results_table['epoch_mjd'].item()
+                target.arg_of_perihelion = result['w']  # argument of the perifocus in JPL
+                target.lng_asc_node = result['om']  # longitude of asc. node in JPL
+                target.inclination = result['i']  # inclination in JPL
+                target.semimajor_axis = result['a']  # semi-major axis in JPL
+                target.eccentricity = result['e']  # eccentricity in JPL
+                target.epoch_of_elements = result['epoch_mjd'] # epoch Julian Date in JPL
+                target.perihdist = result['q']  # periapsis distance in JPL
+                target.orbitcode = result['condition_code']
+                target.data_arc = result['data_arc']
+                target.n_obs_used = result['n_obs_used']
+                # Extract absolute magnitude (H) and slope (G) or M1, k1 for comets
+                if asteroid:
+                    target.abs_mag = result['H']
+                    target.slope = result['G']
+                else:
+                    target.abs_mag = result['M1']
+                    target.slope = result['K1']
                 target.save()
