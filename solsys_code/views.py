@@ -564,10 +564,12 @@ class JPLSBDBQuery:
         """
         Create TOM Targets from JPL SBDB Query.
         """
+        if not getattr(self, "results_table", None):
+            return
         for result in self.results_table:
             asteroid = True
             name = result['pdes']
-            if result['prefix'] == 'C' or result['prefix'] == 'A':
+            if result["prefix"] in {"C", "A"}:
                 name = result['prefix']+'/'+name
             existing_objects = Target.objects.filter(name=name)
             if existing_objects.count() == 0:
@@ -579,7 +581,7 @@ class JPLSBDBQuery:
                     target.scheme = 'MPC_COMET'
                     asteroid = False
                 target.name = name
-                target.arg_of_perihelion = result['w']  # argument of the perifocus in JPL
+                target.arg_of_perihelion = resugitlt['w']  # argument of the perifocus in JPL
                 target.lng_asc_node = result['om']  # longitude of asc. node in JPL
                 target.inclination = result['i']  # inclination in JPL
                 target.semimajor_axis = result['a']  # semi-major axis in JPL
