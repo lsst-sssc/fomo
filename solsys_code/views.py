@@ -419,11 +419,11 @@ class JPLSBDBQuery:
         orbit_class: str or None (e.g. 'IEO', 'TJN', etc.)
         orbital_constraints: list of constraint strings, e.g. ['q|LT|1.3', 'i|LT|10.5']
         """
+        if orbit_class is None and orbital_constraints is None:
+            orbital_constraints = ['e>=1.2']
         self.orbit_class = orbit_class
         self.orbital_constraints_raw = orbital_constraints or []
         self.orbital_constraints = self._translate_constraints(self.orbital_constraints_raw)
-        if self.orbit_class == None and self.orbital_constraints == None:
-            self.orbital_constraints = 'e>=1.2'
 
     def _translate_constraints(self, constraints):
         translated = []
@@ -583,7 +583,7 @@ class JPLSBDBQuery:
                     target.scheme = 'MPC_COMET'
                     asteroid = False
                 target.name = name
-                target.arg_of_perihelion = resugitlt['w']  # argument of the perifocus in JPL
+                target.arg_of_perihelion = result['w']  # argument of the perifocus in JPL
                 target.lng_asc_node = result['om']  # longitude of asc. node in JPL
                 target.inclination = result['i']  # inclination in JPL
                 target.semimajor_axis = result['a']  # semi-major axis in JPL

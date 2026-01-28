@@ -106,6 +106,10 @@ class TestJPLSBDBQuery(TestCase):
         test_json_fp = files('solsys_code.tests.data').joinpath('test_query_jplsbdb.json')
         self.test_json = json.loads(test_json_fp.read_text())
 
+    def test_default_constraints_when_no_inputs(self):
+        query = JPLSBDBQuery()
+        self.assertEqual(query.orbital_constraints, ['e|GE|1.2'])
+
     def test_translate_constraints(self):
         raw = ['q<1.3', 'i<=10.5', '6<=H<=7', '9<a<14']
         query = JPLSBDBQuery(orbital_constraints=raw)
@@ -151,6 +155,7 @@ class TestJPLSBDBQuery(TestCase):
         query = JPLSBDBQuery(orbital_constraints=raw)
         expected = ['condition_code|EQ|8', 'source|NE|MPC:mpo']
         self.assertEqual(query.orbital_constraints, expected)
+
 
     def test_build_query_url(self):
         url = self.query.build_query_url()
