@@ -423,7 +423,7 @@ class JPLSBDBQuery:
         self.orbital_constraints_raw = orbital_constraints or []
         self.orbital_constraints = self._translate_constraints(self.orbital_constraints_raw)
         if self.orbit_class == None and self.orbital_constraints == None:
-            self.orbit_class == 'HYA'
+            self.orbital_constraints = 'e>=1.2'
 
     def _translate_constraints(self, constraints):
         translated = []
