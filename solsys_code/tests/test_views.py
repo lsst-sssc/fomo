@@ -81,7 +81,7 @@ class TestJPLSBDBQuery(SimpleTestCase):
     def setUp(self):
         self.query = JPLSBDBQuery(orbit_class='IEO', orbital_constraints=['q<1.3', 'i<10.5'])
         self.base_url = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
-        self.fields = 'full_name,first_obs,epoch,e,a,q,i,om,w'
+        self.fields = 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,H,G,M1,K1,condition_code,data_arc,n_obs_used'
         self.maxDiff = None
 
         # Load sample response JSON from file
@@ -179,7 +179,7 @@ class TestJPLSBDBQuery(SimpleTestCase):
         self.assertIsInstance(table, QTable)
         self.assertEqual(table.colnames, self.test_json['fields'])
         self.assertEqual(len(table), len(self.test_json['data']))
-        self.assertEqual(table['full_name'][0], self.test_json['data'][0][0])
+        self.assertEqual(table['pdes'][0], self.test_json['data'][0][0])
 
     def test_parse_results_empty(self):
         empty_table = self.query.parse_results({})
