@@ -34,7 +34,7 @@ class Command(BaseCommand):
         else:
             orbital_constraints = None
         if orbit_class == None and orbital_constraints == None:
-            orbital_constraints = 'e>=1.2'
+            orbital_constraints = ['e>=1.2']
         new_objects = JPLSBDBQuery(orbit_class=orbit_class, orbital_constraints=orbital_constraints)
         self.stdout.write(f"Querying JPL SBDB for new_objects with constraints= {new_objects.orbit_class}, {new_objects.orbital_constraints}.")
         results = new_objects.run_query()
