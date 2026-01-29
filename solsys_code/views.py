@@ -512,7 +512,7 @@ class JPLSBDBQuery:
         Build a query for the JPL SBDB service.
         """
         # Base query fields
-        params = {'fields': 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,H,G,M1,K1,condition_code,data_arc,n_obs_used',
+        params = {'fields': 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,tp,H,G,M1,K1,condition_code,data_arc,n_obs_used',
                   'full-prec': 'true',
                   'sb-xfrag': 'true',
                   }
@@ -590,6 +590,7 @@ class JPLSBDBQuery:
                 target.eccentricity = result['e']  # eccentricity in JPL
                 target.epoch_of_elements = result['epoch_mjd'] # epoch Julian Date in JPL
                 target.perihdist = result['q']  # periapsis distance in JPL
+                target.epoch_of_perihelion = float(result['tp']) - 2400000.5 #convert to mjd from jd
                 target.orbitcode = result['condition_code']
                 target.data_arc = result['data_arc']
                 target.n_obs_used = result['n_obs_used']
