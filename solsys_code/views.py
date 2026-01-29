@@ -419,6 +419,8 @@ class JPLSBDBQuery:
         orbit_class: str or None (e.g. 'IEO', 'TJN', etc.)
         orbital_constraints: list of constraint strings, e.g. ['q|LT|1.3', 'i|LT|10.5']
         """
+        if orbit_class is None and orbital_constraints is None:
+            orbital_constraints = ['e>=1.2']
         self.orbit_class = orbit_class
         self.orbital_constraints_raw = orbital_constraints or []
         self.orbital_constraints = self._translate_constraints(self.orbital_constraints_raw)
@@ -510,10 +512,11 @@ class JPLSBDBQuery:
         Build a query for the JPL SBDB service.
         """
         # Base query fields
-        params = {'fields': 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,H,G,M1,K1,condition_code,data_arc,n_obs_used',
-                  'full-prec': 'true',
-                  'sb-xfrag': 'true',
-                  }
+        params = {
+            'fields': 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,tp,H,G,M1,K1,condition_code,data_arc,n_obs_used',
+            'full-prec': 'true',
+            'sb-xfrag': 'true',
+        }
 
         # Add sb-class if provided
         if self.orbit_class:
@@ -564,11 +567,13 @@ class JPLSBDBQuery:
         """
         Create TOM Targets from JPL SBDB Query.
         """
+        if not getattr(self, 'results_table', None):
+            return
         for result in self.results_table:
             asteroid = True
             name = result['pdes']
-            if result['prefix'] == 'C' or result['prefix'] == 'A':
-                name = result['prefix']+'/'+name
+            if result['prefix'] in {'C', 'A'}:
+                name = result['prefix'] + '/' + name
             existing_objects = Target.objects.filter(name=name)
             if existing_objects.count() == 0:
                 target = Target()
@@ -584,8 +589,9 @@ class JPLSBDBQuery:
                 target.inclination = result['i']  # inclination in JPL
                 target.semimajor_axis = result['a']  # semi-major axis in JPL
                 target.eccentricity = result['e']  # eccentricity in JPL
-                target.epoch_of_elements = result['epoch_mjd'] # epoch Julian Date in JPL
+                target.epoch_of_elements = result['epoch_mjd']  # epoch Julian Date in JPL
                 target.perihdist = result['q']  # periapsis distance in JPL
+                target.epoch_of_perihelion = float(result['tp']) - 2400000.5  # convert to mjd from jd
                 target.orbitcode = result['condition_code']
                 target.data_arc = result['data_arc']
                 target.n_obs_used = result['n_obs_used']

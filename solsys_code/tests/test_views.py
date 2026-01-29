@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
 from astropy.table import QTable
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 from tom_targets.models import Target
 
@@ -77,16 +77,39 @@ class TestEphemeris(TestCase):
         self.assertInHTML(expected_result, response.content.decode())
 
 
-class TestJPLSBDBQuery(SimpleTestCase):
+class TestJPLSBDBQuery(TestCase):
     def setUp(self):
         self.query = JPLSBDBQuery(orbit_class='IEO', orbital_constraints=['q<1.3', 'i<10.5'])
         self.base_url = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
-        self.fields = 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,H,G,M1,K1,condition_code,data_arc,n_obs_used'.split(',')
+        self.fields = 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,tp,H,G,M1,K1,condition_code,data_arc,n_obs_used'.split(',')
         self.maxDiff = None
+
+        self.existing_target, _ = Target.objects.get_or_create(
+            name='99942',
+            defaults=dict(
+                type='NON_SIDEREAL',
+                permissions='PUBLIC',
+                scheme='MPC_MINOR_PLANET',
+                epoch_of_elements=60000.0,
+                arg_of_perihelion=1.0,
+                lng_asc_node=2.0,
+                inclination=3.0,
+                semimajor_axis=4.0,
+                eccentricity=0.1,
+                perihdist=0.9,
+                epoch_of_perihelion=61000.0,
+                abs_mag=19.7,
+                slope=0.15,
+            ),
+        )
 
         # Load sample response JSON from file
         test_json_fp = files('solsys_code.tests.data').joinpath('test_query_jplsbdb.json')
         self.test_json = json.loads(test_json_fp.read_text())
+
+    def test_default_constraints_when_no_inputs(self):
+        query = JPLSBDBQuery()
+        self.assertEqual(query.orbital_constraints, ['e|GE|1.2'])
 
     def test_translate_constraints(self):
         raw = ['q<1.3', 'i<=10.5', '6<=H<=7', '9<a<14']
@@ -190,3 +213,395 @@ class TestJPLSBDBQuery(SimpleTestCase):
         none_table = self.query.parse_results(None)
         self.assertIsInstance(none_table, QTable)
         self.assertEqual(len(none_table), 0)
+
+    def _set_results_table(self, rows):
+        self.query.results_table = QTable(rows=rows)
+
+    def test_create_target_asteroid(self):
+        asteroid_row = [
+            {
+                'pdes': '12345',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.15,
+                'M1': None,
+                'K1': None,
+            }
+        ]
+        self._set_results_table(asteroid_row)
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 1)
+
+        t = Target.objects.get(name='12345')
+        self.assertEqual(t.type, 'NON_SIDEREAL')
+        self.assertEqual(t.scheme, 'MPC_MINOR_PLANET')
+        self.assertEqual(t.abs_mag, 14.1)
+        self.assertEqual(t.slope, 0.15)
+        self.assertEqual(t.semimajor_axis, 2.5)
+
+    def test_create_target_asteroid2(self):
+        asteroid_row = [
+            {
+                'pdes': '2025 X5',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.15,
+                'M1': None,
+                'K1': None,
+            }
+        ]
+        self._set_results_table(asteroid_row)
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 1)
+
+        t = Target.objects.get(name='2025 X5')
+        self.assertEqual(t.type, 'NON_SIDEREAL')
+        self.assertEqual(t.scheme, 'MPC_MINOR_PLANET')
+        self.assertEqual(t.abs_mag, 14.1)
+        self.assertEqual(t.slope, 0.15)
+        self.assertEqual(t.semimajor_axis, 2.5)
+
+    def test_create_target_periodic_comet(self):
+        periodic_comet_row = [
+            {
+                'pdes': '40P',
+                'prefix': 'P',
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 4.1,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': None,
+                'G': None,
+                'M1': 15.0,
+                'K1': 4.0,
+            }
+        ]
+        self._set_results_table(periodic_comet_row)
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 1)
+
+        t = Target.objects.get(name='40P')
+        self.assertEqual(t.type, 'NON_SIDEREAL')
+        self.assertEqual(t.scheme, 'MPC_COMET')
+        self.assertEqual(t.abs_mag, 15.0)
+        self.assertEqual(t.slope, 4.0)
+        self.assertEqual(t.semimajor_axis, 4.1)
+
+    def test_create_target_longperiod_comet(self):
+        periodic_comet_row = [
+            {
+                'pdes': '2021 S3',
+                'prefix': 'C',
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 100000.0,
+                'e': 0.99,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': None,
+                'G': None,
+                'M1': 13.0,
+                'K1': 2.0,
+            }
+        ]
+        self._set_results_table(periodic_comet_row)
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 1)
+
+        t = Target.objects.get(name='C/2021 S3')
+        self.assertEqual(t.type, 'NON_SIDEREAL')
+        self.assertEqual(t.scheme, 'MPC_COMET')
+        self.assertEqual(t.abs_mag, 13.0)
+        self.assertEqual(t.slope, 2.0)
+        self.assertEqual(t.semimajor_axis, 100000.0)
+
+    def test_does_not_duplicate_existing_target(self):
+        duplicate_row = [
+            {
+                'pdes': '99942',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.15,
+                'M1': None,
+                'K1': None,
+            }
+        ]
+        self._set_results_table(duplicate_row)
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before)
+        self.assertEqual(Target.objects.filter(name='99942').count(), 1)
+
+    def test_multiple_rows_creates_all_unique_targets(self):
+        rows = [
+            {
+                'pdes': '12345',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.15,
+                'M1': None,
+                'K1': None,
+            },
+            {
+                'pdes': '2021 S3',
+                'prefix': 'C',
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 100000.0,
+                'e': 0.99,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': None,
+                'G': None,
+                'M1': 13.0,
+                'K1': 2.0,
+            },
+            {
+                'pdes': '2021 S3',
+                'prefix': 'C',
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 100000.0,
+                'e': 0.99,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': None,
+                'G': None,
+                'M1': 13.0,
+                'K1': 2.0,
+            },
+        ]
+        self._set_results_table(rows)
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 3)
+
+        self.assertTrue(Target.objects.filter(name='12345').exists())
+        self.assertTrue(Target.objects.filter(name='C/2021 S3').exists())
+        self.assertTrue(Target.objects.filter(name='40P').exists())
+
+    def test_multiple_rows_with_duplicates_only_creates_once_per_target(self):
+        rows = [
+            {
+                'pdes': '99942',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.15,
+                'M1': None,
+                'K1': None,
+            },
+            {
+                'pdes': '12345',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.15,
+                'M1': None,
+                'K1': None,
+            },
+            {
+                'pdes': '12345',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.15,
+                'M1': None,
+                'K1': None,
+            },
+            {
+                'pdes': '2021 S3',
+                'prefix': 'C',
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 100000.0,
+                'e': 0.99,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': None,
+                'G': None,
+                'M1': 13.0,
+                'K1': 2.0,
+            },
+            {
+                'pdes': '2021 S3',
+                'prefix': 'C',
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 100000.0,
+                'e': 0.99,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': None,
+                'G': None,
+                'M1': 13.0,
+                'K1': 2.0,
+            },
+        ]
+        self._set_results_table(rows)
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 2)
+
+        self.assertEqual(Target.objects.filter(name='99942').count(), 1)
+        self.assertEqual(Target.objects.filter(name='12345').count(), 1)
+        self.assertEqual(Target.objects.filter(name='C/2021 S3').count(), 1)
+
+    def test_empty_results_table(self):
+        self._set_results_table([])
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before)
+
+    def test_null_results_table(self):
+        self.query.results_table = None
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before)
+
+    def test_missing_results_table_attribute(self):
+        if hasattr(self.query, 'results_table'):
+            delattr(self.query, 'results_table')
+
+        before = Target.objects.count()
+        self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before)
