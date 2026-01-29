@@ -437,13 +437,13 @@ class TestJPLSBDBQuery(TestCase):
                 'K1': 2.0,
             },
             {
-                'pdes': '2021 S3',
-                'prefix': 'C',
+                'pdes': '40P',
+                'prefix': 'P',
                 'w': 10.0,
                 'om': 20.0,
                 'i': 5.0,
-                'a': 100000.0,
-                'e': 0.99,
+                'a': 4.1,
+                'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
                 'tp': 61000.0,
@@ -452,8 +452,8 @@ class TestJPLSBDBQuery(TestCase):
                 'n_obs_used': 25,
                 'H': None,
                 'G': None,
-                'M1': 13.0,
-                'K1': 2.0,
+                'M1': 15.0,
+                'K1': 4.0,
             },
         ]
         self._set_results_table(rows)
