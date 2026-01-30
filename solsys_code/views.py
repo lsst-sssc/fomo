@@ -572,8 +572,12 @@ class JPLSBDBQuery:
         for result in self.results_table:
             asteroid = True
             name = result['pdes']
-            if result['prefix'] in {'C', 'A'}:
-                name = result['prefix'] + '/' + name
+            if result['prefix'] in ['C', 'A', 'P', 'D']:
+                if name[-1:] == 'P' and result['prefix'] == 'P':
+                    # Numbered periodic comet, don't add prefix
+                    pass
+                else:
+                    name = result['prefix'] + '/' + name
             existing_objects = Target.objects.filter(name=name)
             if existing_objects.count() == 0:
                 target = Target()

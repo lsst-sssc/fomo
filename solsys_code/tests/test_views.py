@@ -455,6 +455,25 @@ class TestJPLSBDBQuery(TestCase):
                 'M1': 15.0,
                 'K1': 4.0,
             },
+            {
+                'pdes': '2016 P5',
+                'prefix': 'P',
+                'epoch_mjd': '59604',
+                'e': '.05782617848139004',
+                'a': '4.704576675254504',
+                'q': '4.432528984751853',
+                'i': '7.03721301721883',
+                'om': '185.406425937313',
+                'w': '34.9768095094869',
+                'tp': '2460096.977777302902',
+                'H': None,
+                'G': None,
+                'M1': '7.7',
+                'K1': '16.5',
+                'condition_code': '0',
+                'data_arc': '7767',
+                'n_obs_used': 233,
+            },
         ]
         self._set_results_table(rows)
 
@@ -462,11 +481,12 @@ class TestJPLSBDBQuery(TestCase):
         self.query.create_targets()
         after = Target.objects.count()
 
-        self.assertEqual(after, before + 3)
+        self.assertEqual(after, before + 4)
 
         self.assertTrue(Target.objects.filter(name='12345').exists())
         self.assertTrue(Target.objects.filter(name='C/2021 S3').exists())
         self.assertTrue(Target.objects.filter(name='40P').exists())
+        self.assertTrue(Target.objects.filter(name='P/2016 P5').exists())
 
     def test_multiple_rows_with_duplicates_only_creates_once_per_target(self):
         rows = [
