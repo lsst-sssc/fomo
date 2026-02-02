@@ -292,10 +292,11 @@ class TestJPLSBDBQuery(TestCase):
         self._set_results_table(asteroid_row)
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
         self.assertEqual(after, before + 1)
+        self.assertEqual(len(new_targets), 1)
 
         t = Target.objects.get(name='12345')
         self.assertEqual(t.type, 'NON_SIDEREAL')
@@ -329,10 +330,11 @@ class TestJPLSBDBQuery(TestCase):
         self._set_results_table(asteroid_row)
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
         self.assertEqual(after, before + 1)
+        self.assertEqual(len(new_targets), 1)
 
         t = Target.objects.get(name='2025 X5')
         self.assertEqual(t.type, 'NON_SIDEREAL')
@@ -366,10 +368,11 @@ class TestJPLSBDBQuery(TestCase):
         self._set_results_table(periodic_comet_row)
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
         self.assertEqual(after, before + 1)
+        self.assertEqual(len(new_targets), 1)
 
         t = Target.objects.get(name='40P')
         self.assertEqual(t.type, 'NON_SIDEREAL')
@@ -403,10 +406,11 @@ class TestJPLSBDBQuery(TestCase):
         self._set_results_table(periodic_comet_row)
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
         self.assertEqual(after, before + 1)
+        self.assertEqual(len(new_targets), 1)
 
         t = Target.objects.get(name='C/2021 S3')
         self.assertEqual(t.type, 'NON_SIDEREAL')
@@ -438,11 +442,13 @@ class TestJPLSBDBQuery(TestCase):
             }
         ]
         self._set_results_table(duplicate_row)
+        expected_num_new_targets = 0
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
+        self.assertEqual(len(new_targets), expected_num_new_targets)
         self.assertEqual(after, before)
         self.assertEqual(Target.objects.filter(name='99942').count(), 1)
 
@@ -526,12 +532,14 @@ class TestJPLSBDBQuery(TestCase):
             },
         ]
         self._set_results_table(rows)
+        expected_num_new_targets = 4
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
-        self.assertEqual(after, before + 4)
+        self.assertEqual(len(new_targets), expected_num_new_targets)
+        self.assertEqual(after, before + expected_num_new_targets)
 
         self.assertTrue(Target.objects.filter(name='12345').exists())
         self.assertTrue(Target.objects.filter(name='C/2021 S3').exists())
@@ -637,12 +645,14 @@ class TestJPLSBDBQuery(TestCase):
             },
         ]
         self._set_results_table(rows)
+        expected_num_new_targets = 2
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
-        self.assertEqual(after, before + 2)
+        self.assertEqual(len(new_targets), expected_num_new_targets)
+        self.assertEqual(after, before + expected_num_new_targets)
 
         self.assertEqual(Target.objects.filter(name='99942').count(), 1)
         self.assertEqual(Target.objects.filter(name='12345').count(), 1)
@@ -652,18 +662,20 @@ class TestJPLSBDBQuery(TestCase):
         self._set_results_table([])
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
+        self.assertEqual(len(new_targets), 0)
         self.assertEqual(after, before)
 
     def test_null_results_table(self):
         self.query.results_table = None
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
+        self.assertEqual(len(new_targets), 0)
         self.assertEqual(after, before)
 
     def test_missing_results_table_attribute(self):
@@ -671,7 +683,8 @@ class TestJPLSBDBQuery(TestCase):
             delattr(self.query, 'results_table')
 
         before = Target.objects.count()
-        self.query.create_targets()
+        new_targets = self.query.create_targets()
         after = Target.objects.count()
 
+        self.assertEqual(len(new_targets), 0)
         self.assertEqual(after, before)

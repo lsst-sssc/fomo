@@ -556,19 +556,28 @@ class JPLSBDBQuery:
         if not results or 'data' not in results:
             logger = logging.getLogger(__name__)
             logger.debug('No data found in results')
-            return QTable()
+            self.results_table = QTable()
+            return self.results_table
 
         data = results['data']
         columns = results['fields']
         self.results_table = QTable(rows=data, names=columns)
         return self.results_table
 
-    def create_targets(self):
+    def create_targets(self) -> list:
         """
-        Create TOM Targets from JPL SBDB Query.
+        Create TOM Targets from JPL SBDB Query. Returns a list of the newly created `Target`s.
+
+        Returns
+        -------
+        list
+            A list of the newly created `Target` objects (or an empty list if the needed `self.results_table`
+            is empty.
         """
+
+        new_targets = []
         if not getattr(self, 'results_table', None):
-            return
+            return new_targets
         for result in self.results_table:
             asteroid = True
             name = result['pdes']
@@ -607,3 +616,5 @@ class JPLSBDBQuery:
                     target.abs_mag = result['M1']
                     target.slope = result['K1']
                 target.save()
+                new_targets.append(target)
+        return new_targets
