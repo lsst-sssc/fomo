@@ -117,6 +117,12 @@ class TestJPLSBDBQuery(TestCase):
         expected = ['q|LT|1.3', 'i|LE|10.5', 'H|RG|6|7', 'a|RE|9|14']
         self.assertEqual(query.orbital_constraints, expected)
 
+    def test_translate_constraints_gt_like(self):
+        raw = ['q>1.3', 'i>=10.5', '6>=H>=7', '9>a>14']
+        query = JPLSBDBQuery(orbital_constraints=raw)
+        expected = ['q|GT|1.3', 'i|GE|10.5', 'H|RG|7|6', 'a|RE|14|9']
+        self.assertEqual(query.orbital_constraints, expected)
+
     def test_translate_constraints_is_defined(self):
         raw = ['rot_per IS DEFINED', 'rot_per<=4.2']
         query = JPLSBDBQuery(orbital_constraints=raw)
@@ -156,6 +162,50 @@ class TestJPLSBDBQuery(TestCase):
         query = JPLSBDBQuery(orbital_constraints=raw)
         expected = ['condition_code|EQ|8', 'source|NE|MPC:mpo']
         self.assertEqual(query.orbital_constraints, expected)
+
+    def test_translate_constraints_invalid_is_defined(self):
+        # The code this is trying to test (lines 436--438) is actually unreachable...
+        raw = [
+            ' is defined',
+        ]
+        with self.assertRaises(ValueError):
+            foo = JPLSBDBQuery(orbital_constraints=raw)
+            self.assertEqual(foo.orbital_constraints, '42')
+
+    def test_translate_constraints_comp_mismatch1(self):
+        raw = [
+            '6 > H < 7',
+        ]
+        with self.assertRaises(ValueError):
+            _ = JPLSBDBQuery(orbital_constraints=raw)
+
+    def test_translate_constraints_comp_mismatch2(self):
+        raw = [
+            '6 < H > 7',
+        ]
+        with self.assertRaises(ValueError):
+            _ = JPLSBDBQuery(orbital_constraints=raw)
+
+    def test_translate_constraints_comp_mismatch3(self):
+        raw = [
+            '6 >= H <= 7',
+        ]
+        with self.assertRaises(ValueError):
+            _ = JPLSBDBQuery(orbital_constraints=raw)
+
+    def test_translate_constraints_comp_mismatch4(self):
+        raw = [
+            '6 <= H >= 7',
+        ]
+        with self.assertRaises(ValueError):
+            _ = JPLSBDBQuery(orbital_constraints=raw)
+
+    def test_translate_constraints_comp_mismatch5(self):
+        raw = [
+            '6 <= H < 7',
+        ]
+        with self.assertRaises(ValueError):
+            _ = JPLSBDBQuery(orbital_constraints=raw)
 
     def test_build_query_url(self):
         url = self.query.build_query_url()
