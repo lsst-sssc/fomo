@@ -98,8 +98,8 @@ class TestJPLSBDBQuery(TestCase):
                 eccentricity=0.1,
                 perihdist=0.9,
                 epoch_of_perihelion=61000.0,
-                abs_mag=19.7,
-                slope=0.15,
+                abs_mag=19.1,
+                slope=0.24,
             ),
         )
 
@@ -279,7 +279,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -304,6 +304,7 @@ class TestJPLSBDBQuery(TestCase):
         self.assertEqual(t.abs_mag, 14.1)
         self.assertEqual(t.slope, 0.15)
         self.assertEqual(t.semimajor_axis, 2.5)
+        self.assertEqual(t.epoch_of_perihelion, 61000.0)
 
     def test_create_target_asteroid2(self):
         asteroid_row = [
@@ -317,7 +318,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -342,6 +343,7 @@ class TestJPLSBDBQuery(TestCase):
         self.assertEqual(t.abs_mag, 14.1)
         self.assertEqual(t.slope, 0.15)
         self.assertEqual(t.semimajor_axis, 2.5)
+        self.assertEqual(t.epoch_of_perihelion, 61000.0)
 
     def test_create_target_asteroid3(self):
         # Tests if default slope (G) parameter is created if not present
@@ -356,7 +358,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': '2461000.5',
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -381,6 +383,47 @@ class TestJPLSBDBQuery(TestCase):
         self.assertEqual(t.abs_mag, 14.1)
         self.assertEqual(t.slope, 0.15)
         self.assertEqual(t.semimajor_axis, 2.5)
+        self.assertEqual(t.epoch_of_perihelion, 61000.0)
+
+    def test_create_target_asteroid4(self):
+        # Tests if epoch_of_perihelion parameter is created if not present
+        asteroid_row = [
+            {
+                'pdes': '2025 X5',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': None,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': 0.24,
+                'M1': None,
+                'K1': None,
+            }
+        ]
+        self._set_results_table(asteroid_row)
+
+        before = Target.objects.count()
+        new_targets = self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 1)
+        self.assertEqual(len(new_targets), 1)
+
+        t = Target.objects.get(name='2025 X5')
+        self.assertEqual(t.type, 'NON_SIDEREAL')
+        self.assertEqual(t.scheme, 'MPC_MINOR_PLANET')
+        self.assertEqual(t.abs_mag, 14.1)
+        self.assertEqual(t.slope, 0.24)
+        self.assertEqual(t.semimajor_axis, 2.5)
+        self.assertEqual(t.epoch_of_perihelion, None)
 
     def test_create_target_periodic_comet(self):
         periodic_comet_row = [
@@ -394,7 +437,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -419,6 +462,7 @@ class TestJPLSBDBQuery(TestCase):
         self.assertEqual(t.abs_mag, 15.0)
         self.assertEqual(t.slope, 4.0)
         self.assertEqual(t.semimajor_axis, 4.1)
+        self.assertEqual(t.epoch_of_perihelion, 61000.0)
 
     def test_create_target_longperiod_comet(self):
         periodic_comet_row = [
@@ -432,7 +476,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.99,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -457,6 +501,7 @@ class TestJPLSBDBQuery(TestCase):
         self.assertEqual(t.abs_mag, 13.0)
         self.assertEqual(t.slope, 2.0)
         self.assertEqual(t.semimajor_axis, 100000.0)
+        self.assertEqual(t.epoch_of_perihelion, 61000.0)
 
     def test_does_not_duplicate_existing_target(self):
         duplicate_row = [
@@ -470,7 +515,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -503,7 +548,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -522,7 +567,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.99,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -541,7 +586,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -597,7 +642,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -616,7 +661,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -635,7 +680,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.2,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -654,7 +699,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.99,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,
@@ -673,7 +718,7 @@ class TestJPLSBDBQuery(TestCase):
                 'e': 0.99,
                 'epoch_mjd': 61000.0,
                 'q': 2.0,
-                'tp': 61000.0,
+                'tp': 2461000.5,
                 'condition_code': '0',
                 'data_arc': 100,
                 'n_obs_used': 25,

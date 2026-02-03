@@ -604,7 +604,15 @@ class JPLSBDBQuery:
                 target.eccentricity = result['e']  # eccentricity in JPL
                 target.epoch_of_elements = result['epoch_mjd']  # epoch Julian Date in JPL
                 target.perihdist = result['q']  # periapsis distance in JPL
-                target.epoch_of_perihelion = float(result['tp']) - 2400000.5  # convert to mjd from jd
+                # convert to mjd from jd (preserving precision)
+                try:
+                    target.epoch_of_perihelion = float(result['tp'][2:]) - 0.5
+                except (IndexError, TypeError):
+                    # Already not a string (or None)
+                    try:
+                        target.epoch_of_perihelion = float(result['tp']) - 2400000.5
+                    except (ValueError, TypeError):
+                        pass
                 target.orbitcode = result['condition_code']
                 target.data_arc = result['data_arc']
                 target.n_obs_used = result['n_obs_used']
