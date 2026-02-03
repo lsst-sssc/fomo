@@ -343,6 +343,45 @@ class TestJPLSBDBQuery(TestCase):
         self.assertEqual(t.slope, 0.15)
         self.assertEqual(t.semimajor_axis, 2.5)
 
+    def test_create_target_asteroid3(self):
+        # Tests if default slope (G) parameter is created if not present
+        asteroid_row = [
+            {
+                'pdes': '2025 X5',
+                'prefix': None,
+                'w': 10.0,
+                'om': 20.0,
+                'i': 5.0,
+                'a': 2.5,
+                'e': 0.2,
+                'epoch_mjd': 61000.0,
+                'q': 2.0,
+                'tp': 61000.0,
+                'condition_code': '0',
+                'data_arc': 100,
+                'n_obs_used': 25,
+                'H': 14.1,
+                'G': None,
+                'M1': None,
+                'K1': None,
+            }
+        ]
+        self._set_results_table(asteroid_row)
+
+        before = Target.objects.count()
+        new_targets = self.query.create_targets()
+        after = Target.objects.count()
+
+        self.assertEqual(after, before + 1)
+        self.assertEqual(len(new_targets), 1)
+
+        t = Target.objects.get(name='2025 X5')
+        self.assertEqual(t.type, 'NON_SIDEREAL')
+        self.assertEqual(t.scheme, 'MPC_MINOR_PLANET')
+        self.assertEqual(t.abs_mag, 14.1)
+        self.assertEqual(t.slope, 0.15)
+        self.assertEqual(t.semimajor_axis, 2.5)
+
     def test_create_target_periodic_comet(self):
         periodic_comet_row = [
             {

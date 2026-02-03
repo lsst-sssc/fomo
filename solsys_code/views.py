@@ -609,9 +609,10 @@ class JPLSBDBQuery:
                 target.data_arc = result['data_arc']
                 target.n_obs_used = result['n_obs_used']
                 # Extract absolute magnitude (H) and slope (G) or M1, k1 for comets
+                # Default to G=0.15 for asteroids, no instances of comets with M1 defined but k1 not defined were found
                 if asteroid:
                     target.abs_mag = result['H']
-                    target.slope = result['G']
+                    target.slope = result['G'] if result['G'] is not None else 0.15
                 else:
                     target.abs_mag = result['M1']
                     target.slope = result['K1']
