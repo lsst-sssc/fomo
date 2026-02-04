@@ -62,7 +62,7 @@ class Command(BaseCommand):
                 self.stdout.write(f'Created {len(new_targets)} new Targets')
                 if options['group_name'] is not None:
                     group_name = options['group_name']
-                    targetlist = TargetList.objects.get_or_create(name=group_name)
+                    targetlist, created = TargetList.objects.get_or_create(name=group_name)
                     targetlist.targets.add(new_targets)
                     self.stdout.write(f'Added {len(new_targets)} new Targets to Target Group: {group_name}')
             else:
