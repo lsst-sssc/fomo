@@ -221,6 +221,22 @@ class TestJPLSBDBQuery(TestCase):
             foo = JPLSBDBQuery(orbital_constraints=raw)
             self.assertEqual(foo.orbital_constraints, '42')
 
+    def test_translate_constraints_invalid_is_not_defined(self):
+        raw = [
+            ' is not defined',
+        ]
+        with self.assertRaises(ValueError):
+            foo = JPLSBDBQuery(orbital_constraints=raw)
+            self.assertEqual(foo.orbital_constraints, '42')
+
+    def test_translate_constraints_invalid(self):
+        raw = [
+            'foo bar biff splod',
+        ]
+        with self.assertRaises(ValueError):
+            foo = JPLSBDBQuery(orbital_constraints=raw)
+            self.assertEqual(foo.orbital_constraints, '42')
+
     def test_translate_constraints_comp_mismatch1(self):
         raw = [
             '6 > H < 7',
