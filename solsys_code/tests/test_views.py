@@ -5,12 +5,12 @@ from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
 from astropy.table import QTable
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from tom_targets.models import Target
 
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.views import JPLSBDBQuery
+from solsys_code.views import JPLSBDBQuery, split_number_unit_regex
 
 ## Silence logging during tests
 logging.disable(logging.CRITICAL)
@@ -18,6 +18,55 @@ logging.disable(logging.CRITICAL)
 MJD_TO_JD_CONVERSION = 2400000.5
 JD2000 = 2451545.0  # Reference epoch
 CR = 299792.458  # speed of light in km/s
+
+
+class TestSplitNumberUnitRegex(SimpleTestCase):
+    def test_int1(self):
+        expected_value = 10
+        expected_units = 'd'
+
+        value, unit = split_number_unit_regex('10d')
+        self.assertEqual(expected_value, value)
+        self.assertEqual(expected_units, unit)
+
+    def test_int2(self):
+        expected_value = 10
+        expected_units = 'days'
+
+        value, unit = split_number_unit_regex('10days')
+        self.assertEqual(expected_value, value)
+        self.assertEqual(expected_units, unit)
+
+    def test_float1(self):
+        expected_value = 10.0
+        expected_units = 'd'
+
+        value, unit = split_number_unit_regex('10.0d')
+        self.assertEqual(expected_value, value)
+        self.assertEqual(expected_units, unit)
+
+    def test_float2(self):
+        expected_value = 1.5
+        expected_units = 'days'
+
+        value, unit = split_number_unit_regex('1.5days')
+        self.assertEqual(expected_value, value)
+        self.assertEqual(expected_units, unit)
+
+    def test_float_nounit(self):
+        expected_value = 1.5
+        expected_units = ''
+
+        value, unit = split_number_unit_regex('1.5')
+        self.assertEqual(expected_value, value)
+        self.assertEqual(expected_units, unit)
+
+    def test_bad(self):
+        expected_value = expected_units = None
+
+        value, unit = split_number_unit_regex('wibble')
+        self.assertEqual(expected_value, value)
+        self.assertEqual(expected_units, unit)
 
 
 class TestEphemeris(TestCase):
