@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
+from tom_targets.models import TargetList
 
 from solsys_code.views import JPLSBDBQuery
 
@@ -28,6 +29,13 @@ class Command(BaseCommand):
             default=None,
             help='Orbital constraints as a comma separated string',
         )
+        parser.add_argument(
+            '--group_name',
+            action='store',
+            type=str,
+            default=None,
+            help='Name of the target group to put the filtered objects in',
+        )
         return super().add_arguments(parser)
 
     def handle(self, *args: Any, **options: Any) -> str | None:
@@ -52,6 +60,11 @@ class Command(BaseCommand):
             if new_objects.results_table is not None:
                 new_targets = new_objects.create_targets()
                 self.stdout.write(f'Created {len(new_targets)} new Targets')
+                if options['group_name'] is not None:
+                    group_name = options['group_name']
+                    targetlist = TargetList.objects.get_or_create(name=group_name)
+                    targetlist.targets.add(new_targets)
+                    self.stdout.write(f'Added {len(new_targets)} new Targets to Target Group: {group_name}')
             else:
                 self.stderr.write(self.style.ERROR('No results found for new_objects'))
         else:
