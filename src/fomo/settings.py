@@ -308,6 +308,12 @@ BROKERS = {
     },
 }
 
+DATA_SERVICES = {
+    'Scout': {
+        'base_url': 'https://ssd-api.jpl.nasa.gov/scout.api',
+    },
+}
+
 TOM_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
     'tom_catalogs.harvesters.mpc.MPCHarvester',
