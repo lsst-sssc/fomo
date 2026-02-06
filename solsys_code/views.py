@@ -1,15 +1,21 @@
+import json
+import logging
 import re
+import urllib.parse
 from collections import defaultdict
 from csv import writer
 from datetime import timezone
 from io import StringIO
 from math import ceil
+from typing import Any, Optional
 
 import erfa
 import numpy as np
 import pandas as pd
+import requests
 import spiceypy as spice
 from astropy import units as u
+from astropy.table import QTable
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
 from django.contrib import messages
@@ -385,3 +391,239 @@ class Ephemeris(View):
                 'full_precision': full_precision,
             },
         )
+
+
+class JPLSBDBQuery:
+    """
+    The ``JPLSBDBQuery`` provides an interface to JPL's Small Body Database Query
+    via its API interface (https://ssd.jpl.nasa.gov/tools/sbdb_query.html)
+    """
+
+    base_url = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
+
+    _CHAIN_PATTERN = re.compile(
+        r"""
+        ^\s*
+        (?P<a>.+?)\s*
+        (?P<op1><=|<|>=|>)\s*
+        (?P<field>[A-Za-z_][A-Za-z0-9_\.]*)\s*
+        (?P<op2><=|<|>=|>)\s*
+        (?P<b>.+?)\s*
+        $
+        """,
+        re.VERBOSE,
+    )
+
+    def __init__(self, orbit_class=None, orbital_constraints=None):
+        """
+        orbit_class: str or None (e.g. 'IEO', 'TJN', etc.)
+        orbital_constraints: list of constraint strings, e.g. ['q|LT|1.3', 'i|LT|10.5']
+        """
+        if orbit_class is None and orbital_constraints is None:
+            orbital_constraints = ['e>=1.2']
+        self.orbit_class = orbit_class
+        self.orbital_constraints_raw = orbital_constraints or []
+        self.orbital_constraints = self._translate_constraints(self.orbital_constraints_raw)
+
+    def _translate_constraints(self, constraints):
+        translated = []
+
+        for c in constraints:
+            s = c.strip()
+            lower = s.lower()
+
+            if lower.endswith('is defined'):
+                field = s[: -len(' is defined')].strip()
+                if field == '':
+                    raise ValueError(f'Invalid "is defined" constraint (missing field): {c}')
+                translated.append(f'{field}|DF')
+                continue
+
+            if lower.endswith('is not defined'):
+                field = s[: -len(' is not defined')].strip()
+                if field == '':
+                    raise ValueError(f'Invalid "is not defined" constraint (missing field): {c}')
+                translated.append(f'{field}|ND')
+                continue
+
+            # Between 2 values
+            m = self._CHAIN_PATTERN.match(s)
+            if m:
+                a = m.group('a').strip()
+                op1 = m.group('op1')
+                field = m.group('field').strip()
+                op2 = m.group('op2')
+                b = m.group('b').strip()
+
+                lt_like = {'<', '<='}
+                gt_like = {'>', '>='}
+
+                if op1 in lt_like and op2 in lt_like:
+                    # a (min) op1 field op2 b (max)
+                    min_val, max_val = a, b
+                    left_incl = op1 == '<='
+                    right_incl = op2 == '<='
+
+                elif op1 in gt_like and op2 in gt_like:
+                    # a (max) op1 field op2 b (min)
+                    min_val, max_val = b, a
+                    left_incl = op2 == '>='
+                    right_incl = op1 == '>='
+
+                else:
+                    raise ValueError(f'Unsupported chained comparison direction (must both point same way): {c}')
+
+                # Only allow both-inclusive (RG) or both-exclusive (RE)
+                if left_incl and right_incl:
+                    translated.append(f'{field}|RG|{min_val}|{max_val}')
+                elif (not left_incl) and (not right_incl):
+                    translated.append(f'{field}|RE|{min_val}|{max_val}')
+                else:
+                    raise ValueError(f'Mixed inclusive/exclusive ranges not supported (use <=...<= or <...< ): {c}')
+
+                continue
+
+            # Single value
+            if '<=' in s:
+                field, value = s.split('<=', 1)
+                translated.append(f'{field.strip()}|LE|{value.strip()}')
+            elif '>=' in s:
+                field, value = s.split('>=', 1)
+                translated.append(f'{field.strip()}|GE|{value.strip()}')
+            elif '<' in s:
+                field, value = s.split('<', 1)
+                translated.append(f'{field.strip()}|LT|{value.strip()}')
+            elif '>' in s:
+                field, value = s.split('>', 1)
+                translated.append(f'{field.strip()}|GT|{value.strip()}')
+            elif '==' in c:
+                field, value = c.split('==')
+                translated.append(f'{field.strip()}|EQ|{value.strip()}')
+            elif '!=' in c:
+                field, value = c.split('!=')
+                translated.append(f'{field.strip()}|NE|{value.strip()}')
+            else:
+                raise ValueError(f'Unsupported constraint format: {c}')
+
+        return translated
+
+    def build_query_url(self):
+        """
+        Build a query for the JPL SBDB service.
+        """
+        # Base query fields
+        params = {
+            'fields': 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,tp,H,G,M1,K1,condition_code,data_arc,n_obs_used',
+            'full-prec': 'true',
+            'sb-xfrag': 'true',
+        }
+
+        # Add sb-class if provided
+        if self.orbit_class:
+            params['sb-class'] = self.orbit_class
+
+        # Add sb-cdata if constraints provided
+        if self.orbital_constraints:
+            constraint_obj = {'AND': self.orbital_constraints}
+            json_str = json.dumps(constraint_obj, separators=(',', ':'))
+            encoded_cdata = urllib.parse.quote(json_str)
+            params['sb-cdata'] = encoded_cdata
+
+        # Build URL
+        query_parts = [f'{key}={str(value)}' for key, value in params.items()]
+        url = f'{self.base_url}?' + '&'.join(query_parts)
+        self.url = url
+        return url
+
+    def run_query(self) -> Optional[dict[str, Any]]:
+        """
+        Execute the query and return results as JSON (if successful).
+        """
+        url = self.build_query_url()
+        resp = requests.get(url)
+
+        if resp.ok:
+            return resp.json()
+        else:
+            logger = logging.getLogger(__name__)
+            logger.debug(f'Query failed with status {resp.status_code}')
+            return None
+
+    def parse_results(self, results: dict[str, Any]) -> QTable:
+        """
+        Parse JSON results into an Astropy QTable.
+        """
+        if not results or 'data' not in results:
+            logger = logging.getLogger(__name__)
+            logger.debug('No data found in results')
+            self.results_table = QTable()
+            return self.results_table
+
+        data = results['data']
+        columns = results['fields']
+        self.results_table = QTable(rows=data, names=columns)
+        return self.results_table
+
+    def create_targets(self) -> list:
+        """
+        Create TOM Targets from JPL SBDB Query. Returns a list of the newly created `Target`s.
+
+        Returns
+        -------
+        list
+            A list of the newly created `Target` objects (or an empty list if the needed `self.results_table`
+            is empty.
+        """
+
+        new_targets = []
+        if not getattr(self, 'results_table', None):
+            return new_targets
+        for result in self.results_table:
+            asteroid = True
+            name = result['pdes']
+            if result['prefix'] in ['C', 'A', 'P', 'D']:
+                if name[-1:] == 'P' and result['prefix'] == 'P':
+                    # Numbered periodic comet, don't add prefix
+                    pass
+                else:
+                    name = result['prefix'] + '/' + name
+            existing_objects = Target.objects.filter(name=name)
+            if existing_objects.count() == 0:
+                target = Target()
+                target.type = 'NON_SIDEREAL'
+                if result['prefix'] is None:
+                    target.scheme = 'MPC_MINOR_PLANET'
+                else:
+                    target.scheme = 'MPC_COMET'
+                    asteroid = False
+                target.name = name
+                target.arg_of_perihelion = result['w']  # argument of the perifocus in JPL
+                target.lng_asc_node = result['om']  # longitude of asc. node in JPL
+                target.inclination = result['i']  # inclination in JPL
+                target.semimajor_axis = result['a']  # semi-major axis in JPL
+                target.eccentricity = result['e']  # eccentricity in JPL
+                target.epoch_of_elements = result['epoch_mjd']  # epoch Julian Date in JPL
+                target.perihdist = result['q']  # periapsis distance in JPL
+                # convert to mjd from jd (preserving precision)
+                try:
+                    target.epoch_of_perihelion = float(result['tp'][2:]) - 0.5
+                except (IndexError, TypeError):
+                    # Already not a string (or None)
+                    try:
+                        target.epoch_of_perihelion = float(result['tp']) - 2400000.5
+                    except (ValueError, TypeError):
+                        pass
+                target.orbitcode = result['condition_code']
+                target.data_arc = result['data_arc']
+                target.n_obs_used = result['n_obs_used']
+                # Extract absolute magnitude (H) and slope (G) or M1, k1 for comets
+                # Default to G=0.15 for asteroids, no instances of comets with M1 defined but k1 not defined were found
+                if asteroid:
+                    target.abs_mag = result['H']
+                    target.slope = result['G'] if result['G'] is not None else 0.15
+                else:
+                    target.abs_mag = result['M1']
+                    target.slope = result['K1']
+                target.save()
+                new_targets.append(target)
+        return new_targets
