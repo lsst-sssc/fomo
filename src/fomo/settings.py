@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
+    'django_tables2',
     'django_gravatar',
     'django_htmx',
     'tom_targets',
@@ -64,6 +65,7 @@ INSTALLED_APPS = [
     'tom_fink',
     'tom_registration',
     'tom_eso',
+    'tom_dataservices',
 ]
 
 SITE_ID = 1
