@@ -21,4 +21,6 @@ class SolsysCodeConfig(AppConfig):
         integration point for including data services in the TOM
         This method should return a list of dictionaries containing dot separated DataService classes
         """
-        return [{'class': 'tom_fink.fink.FinkDataService'}]
+        return [{'class': 'tom_fink.fink.FinkDataService'},
+                {'class': 'tom_dataservices.data_services.jpl.ScoutDataService'},
+               ]
