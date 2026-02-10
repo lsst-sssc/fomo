@@ -9,6 +9,16 @@ class SolsysCodeConfig(AppConfig):
         """
         Integration point for adding buttons to the Target detail view
         """
-        return [{'partial': f'{self.name}/partials/ephem_button.html',
-                 'context': f'src.templatetags.solsys_code_extras.ephem_button'}]
+        return [
+            {
+                'partial': f'{self.name}/partials/ephem_button.html',
+                'context': 'src.templatetags.solsys_code_extras.ephem_button',
+            }
+        ]
 
+    def data_services(self):
+        """
+        integration point for including data services in the TOM
+        This method should return a list of dictionaries containing dot separated DataService classes
+        """
+        return [{'class': 'tom_dataservices.data_services.jpl.ScoutDataService'}]
