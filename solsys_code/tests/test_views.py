@@ -1046,10 +1046,10 @@ class TestJPLSBId(SimpleTestCase):
         self.assertEqual(self.test_ps1.elems_required, json.loads(summary['req-elem']))
         self.assertEqual(obs_time.strftime(self.time_fmt), summary['obs-time'])
 
-        self.assertEqual(4, result['n_first_pass'])
-        self.assertEqual(4, len(result['data_first_pass']))
+        self.assertEqual(5, result['n_first_pass'])
+        self.assertEqual(5, len(result['data_first_pass']))
         self.assertEqual(expected_first_obj, result['data_first_pass'][0])
-        self.assertEqual(expected_last_obj, result['data_first_pass'][-1])
+        self.assertEqual(expected_last_obj, result['data_first_pass'][-2])
 
     @patch('requests.get')
     def test_query_center_PS1(self, mock_get):
@@ -1065,8 +1065,8 @@ class TestJPLSBId(SimpleTestCase):
             'Pos error RA',
             'Pos error Dec',
         ]
-        expected_names = ['90', '1627', '2025 AW11', 'C/2024 J2']
-        expected_dec_error = u.Quantity([11_000, 22_000, 10_000, 310_000] * u.arcsec)
+        expected_names = ['90', '1627', '2025 AW11', 'C/2024 J2', '472P']
+        expected_dec_error = u.Quantity([11_000, 22_000, 10_000, 310_000, 42_000] * u.arcsec)
 
         # Mock the requests.get call and insert the JSON results from file
         mock_response = Mock()
@@ -1084,7 +1084,7 @@ class TestJPLSBId(SimpleTestCase):
 
         self.assertTrue(isinstance(table, QTable))
         self.assertEqual(expected_columns, table.colnames)
-        self.assertEqual(4, len(table))
+        self.assertEqual(5, len(table))
         for name1, name2 in zip(expected_names, table['Object name']):
             self.assertEqual(name1, name2)
         assert_quantity_allclose(expected_dec_error, table['Pos error Dec'])
@@ -1100,6 +1100,7 @@ class TestJPLSBId(SimpleTestCase):
         self.assertEqual(None, table)
 
     def test_parse_results(self):
+        expected_num_objs = 5
         expected_columns = [
             'Object name',
             'Astrometric position',
@@ -1112,20 +1113,20 @@ class TestJPLSBId(SimpleTestCase):
             'Pos error RA',
             'Pos error Dec',
         ]
-        expected_names = ['90', '1627', '2025 AW11', 'C/2024 J2']
+        expected_names = ['90', '1627', '2025 AW11', 'C/2024 J2', '472P']
         expected_positions = SkyCoord(
-            ['10:22:20', '09:47:52', '10:11:23', '12:53:04'],
-            ['+12:54:02', '+12:28:03', '+08:53:27', '-02:48:06'],
+            ['10:22:20', '09:47:52', '10:11:23', '12:53:04', '09:55:30.54',],
+            ['+12:54:02', '+12:28:03', '+08:53:27', '-02:48:06', '+00:54:27.4'],
             frame='icrs',
             unit=(u.hourangle, u.deg),
         )
-        expected_ra_rates = u.Quantity([-6.942, -18.62, -4.166, 1.516], unit=u.arcsec / u.hour)
+        expected_ra_rates = u.Quantity([-6.942, -18.62, -4.166, 1.516, -18.44], unit=u.arcsec / u.hour)
 
         table = self.test_ps1.parse_results(self.test_json_ps1)
 
         self.assertTrue(isinstance(table, QTable))
         self.assertEqual(expected_columns, table.colnames)
-        self.assertEqual(4, len(table))
+        self.assertEqual(expected_num_objs, len(table))
         for name1, name2 in zip(expected_names, table['Object name']):
             self.assertEqual(name1, name2)
         assert_quantity_allclose(expected_ra_rates, table['RA rate'])

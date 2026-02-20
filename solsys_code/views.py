@@ -800,7 +800,12 @@ class JPLSBId:
                 ra_dist.append(float(sb[3]) * u.arcsec)
                 dec_dist.append(float(sb[4]) * u.arcsec)
                 norm_dist.append(float(sb[5]) * u.arcsec)
-                mags.append(float(sb[6]))
+                try:
+                    mag = float(sb[6])
+                except ValueError:
+                    # Trim off 'N' or 'T' letter at end
+                    mag = float(sb[6][:-1])
+                mags.append(mag)
                 ra_rate = float(sb[7]) * (u.arcsec / u.hour)
                 rates_ra.append(ra_rate)  # .to(u.arcsec/u.minute))
                 dec_rate = float(sb[8]) * (u.arcsec / u.hour)
