@@ -1,0 +1,10 @@
+{% load tom_common_extras %}
+{% for button in target_buttons_to_display %}
+    {% if 'ephem_button' in button.context %}
+        {% if target.type != 'SIDEREAL' %}
+            <a href="{% url button.namespace pk=target.id %}" title="{{button.title}}" class="{{ button.class }}">{{button.text}}</a>
+        {% endif %}
+    {% else %}
+        {% show_individual_app_partial button %}
+    {% endif %}
+{% endfor %}
