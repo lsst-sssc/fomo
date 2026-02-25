@@ -652,6 +652,7 @@ class JPLSBId:
         self.fov_ra_hwidth = fov_ra_hwidth.to(u.deg)
         self.fov_dec_hwidth = fov_dec_hwidth.to(u.deg)
         self.two_pass = False  # whether to request the 2nd numerical integration pass rather than two-body model
+        self.filter_fov = True  # whether to filter to the FOV
         self.mag_required = True  # skip objects without magnitude parameters
         self.elems_required = False  # whether to request orbital elements
 
@@ -740,6 +741,9 @@ class JPLSBId:
         Parses the JSON results from the JPL SBID API service returned via ``make_query()` and returns a
         QTable. The seperate Astrometric RA/Dec columns in the original are merged into a single SkyCoord
         column. Other fields with units are turned into Quantity columns.
+        If `self.filter_fov` is True (the default), the distance from the center in RA and Dec are
+        checked against `self.fov_ra_hwidth` and `self.fov_dec_hwidth` respectively and the object
+        is only added to the Table if it is within both of these.
         """
         table = None
 
@@ -778,6 +782,14 @@ class JPLSBId:
                     column_names = column_names[0 : len(results['fields_second']) - 1]
                     have_errors = False
             for sb in results[results_key]:
+                # Check whether it's within the FOV first otherwise the remainder is a waste of time
+                ra_distance = float(sb[3]) * u.arcsec
+                dec_distance = float(sb[4]) * u.arcsec
+                if self.filter_fov and (
+                    abs(ra_distance) > self.fov_ra_hwidth or abs(dec_distance) > self.fov_dec_hwidth
+                ):
+                    # Outside FOV, skip
+                    continue
                 # Try to match numbered objects first
                 name = sb[0]
                 match = re.search(numbered_object, name)
@@ -797,8 +809,9 @@ class JPLSBId:
                 dec = Angle(sb[2].replace(' ', 'd').replace("'", 'm').replace('"', 's'), unit=u.deg)
                 ras.append(ra)
                 decs.append(dec)
-                ra_dist.append(float(sb[3]) * u.arcsec)
-                dec_dist.append(float(sb[4]) * u.arcsec)
+
+                ra_dist.append(ra_distance)
+                dec_dist.append(dec_distance)
                 norm_dist.append(float(sb[5]) * u.arcsec)
                 try:
                     mag = float(sb[6])

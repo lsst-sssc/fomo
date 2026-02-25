@@ -1,10 +1,10 @@
 import json
 import logging
-import requests
 from importlib.resources import files
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
+import requests
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import QTable
@@ -15,7 +15,7 @@ from django.urls import reverse
 from tom_targets.models import Target
 
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.views import JPLSBId, JPLSBDBQuery, split_number_unit_regex
+from solsys_code.views import JPLSBDBQuery, JPLSBId, split_number_unit_regex
 
 ## Silence logging during tests
 logging.disable(logging.CRITICAL)
@@ -1052,7 +1052,7 @@ class TestJPLSBId(SimpleTestCase):
         self.assertEqual(expected_last_obj, result['data_first_pass'][-2])
 
     @patch('requests.get')
-    def test_query_center_PS1(self, mock_get):
+    def test_query_center_rubin(self, mock_get):
         expected_columns = [
             'Object name',
             'Astrometric position',
@@ -1068,6 +1068,7 @@ class TestJPLSBId(SimpleTestCase):
         expected_names = ['90', '1627', '2025 AW11', 'C/2024 J2', '472P']
         expected_dec_error = u.Quantity([11_000, 22_000, 10_000, 310_000, 42_000] * u.arcsec)
 
+        self.test_rubin.filter_fov = False
         # Mock the requests.get call and insert the JSON results from file
         mock_response = Mock()
         mock_response.json.return_value = self.test_json_ps1
@@ -1085,6 +1086,45 @@ class TestJPLSBId(SimpleTestCase):
         self.assertTrue(isinstance(table, QTable))
         self.assertEqual(expected_columns, table.colnames)
         self.assertEqual(5, len(table))
+        for name1, name2 in zip(expected_names, table['Object name']):
+            self.assertEqual(name1, name2)
+        assert_quantity_allclose(expected_dec_error, table['Pos error Dec'])
+
+    @patch('requests.get')
+    def test_query_center_rubin_filter(self, mock_get):
+        expected_columns = [
+            'Object name',
+            'Astrometric position',
+            'Dist. from center RA',
+            'Dist. from center Dec',
+            'Dist. from center Norm',
+            'V magnitude',
+            'RA rate',
+            'Dec rate',
+            'Pos error RA',
+            'Pos error Dec',
+        ]
+        expected_names = ['2025 AW11', '472P']
+        expected_dec_error = u.Quantity([10_000, 42_000] * u.arcsec)
+
+        self.test_rubin.filter_fov = True
+        # Mock the requests.get call and insert the JSON results from file
+        mock_response = Mock()
+        mock_response.json.return_value = self.test_json_ps1
+        mock_response.status_code = 200
+        mock_response.ok = True
+        mock_get.return_value = mock_response
+
+        # We're mocking the response but do this for the look of the thing
+        # (and it makes for easier testing of expected values)
+        obs_time = Time('2020-01-01T11:10:01', scale='utc')
+        center = SkyCoord('10h10m10s -42d05m10s', frame='icrs')
+
+        table = self.test_rubin.query_center(obs_time, center, raw_response=False, verbose=False)
+
+        self.assertTrue(isinstance(table, QTable))
+        self.assertEqual(expected_columns, table.colnames)
+        self.assertEqual(2, len(table))
         for name1, name2 in zip(expected_names, table['Object name']):
             self.assertEqual(name1, name2)
         assert_quantity_allclose(expected_dec_error, table['Pos error Dec'])
@@ -1115,13 +1155,20 @@ class TestJPLSBId(SimpleTestCase):
         ]
         expected_names = ['90', '1627', '2025 AW11', 'C/2024 J2', '472P']
         expected_positions = SkyCoord(
-            ['10:22:20', '09:47:52', '10:11:23', '12:53:04', '09:55:30.54',],
+            [
+                '10:22:20',
+                '09:47:52',
+                '10:11:23',
+                '12:53:04',
+                '09:55:30.54',
+            ],
             ['+12:54:02', '+12:28:03', '+08:53:27', '-02:48:06', '+00:54:27.4'],
             frame='icrs',
             unit=(u.hourangle, u.deg),
         )
         expected_ra_rates = u.Quantity([-6.942, -18.62, -4.166, 1.516, -18.44], unit=u.arcsec / u.hour)
 
+        self.test_ps1.filter_fov = False
         table = self.test_ps1.parse_results(self.test_json_ps1)
 
         self.assertTrue(isinstance(table, QTable))
