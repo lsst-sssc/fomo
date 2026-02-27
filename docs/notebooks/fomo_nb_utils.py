@@ -28,6 +28,7 @@ def special_locations(skycoords=False):
     result['EDFS_a'] = SkyCoord(ra=58.90 * u.deg, dec=-49.32 * u.deg, frame='icrs')
     result['EDFS_b'] = SkyCoord(ra=63.60 * u.deg, dec=-47.60 * u.deg, frame='icrs')
     result['Roman_bulge_location'] = SkyCoord(268.708 * u.deg, -28.975 * u.deg, frame='icrs')
+    result['M49 (Virgo)'] = SkyCoord(187.4 * u.deg, +8 * u.deg, frame='icrs')
 
     if not skycoords:
         # replace SkyCoord with ra/deg tuple in degrees
