@@ -242,11 +242,13 @@ DATA_PRODUCT_TYPES = {
     'fits_file': ('fits_file', 'FITS File'),
     'spectroscopy': ('spectroscopy', 'Spectroscopy'),
     'image_file': ('image_file', 'Image File'),
+    'astrometry': ('astrometry', 'Astrometry'),
 }
 
 DATA_PROCESSORS = {
     'photometry': 'tom_dataproducts.processors.photometry_processor.PhotometryProcessor',
     'spectroscopy': 'tom_dataproducts.processors.spectroscopy_processor.SpectroscopyProcessor',
+    'astrometry': 'tom_dataproducts.processors.astrometry_processor.ADESProcessor',
 }
 
 TOM_FACILITY_CLASSES = [
