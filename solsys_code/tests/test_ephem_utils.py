@@ -59,7 +59,7 @@ class TestConvertTargetToLayup(TestCase):
 
     def test_provided_sun_dict(self):
         converted = convert_target_to_layup(self.target, self.sun_dict)
-        for name, j in zip(converted.dtype.names[2:8], range(6)):
+        for name, j in zip(converted.dtype.names[2:8], range(6), strict=False):
             assert_almost_equal(converted[name], self.bary_vec[j], 8)
 
     @tag('spiceypy')
@@ -71,7 +71,7 @@ class TestConvertTargetToLayup(TestCase):
         )"""
 
         converted = convert_target_to_layup(self.target)
-        for name, j in zip(converted.dtype.names[2:8], range(6)):
+        for name, j in zip(converted.dtype.names[2:8], range(6), strict=False):
             assert_almost_equal(converted[name], self.bary_vec[j], 8)
 
 
