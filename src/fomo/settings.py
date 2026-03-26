@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
+    'django_tables2',
     'django_gravatar',
     'django_htmx',
     'tom_targets',
@@ -251,6 +252,7 @@ DATA_PROCESSORS = {
 
 TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.lco.LCOFacility',
+    'tom_observations.facilities.lco_redirect.LCORedirectFacility',
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
     'tom_eso.eso.ESOFacility',
