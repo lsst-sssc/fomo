@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     'tom_registration',
     'tom_eso',
     'tom_dataservices',
+    'tom_jpl',
 ]
 
 SITE_ID = 1

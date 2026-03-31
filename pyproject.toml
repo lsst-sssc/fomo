@@ -22,6 +22,7 @@ dependencies = [
     "tom_fink>=1.0.0",
     "tom-registration",
     "tom_eso",
+    "tom_jpl",
     "numpy>1.24",
     "sorcha",
 ]

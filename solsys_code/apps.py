@@ -22,5 +22,4 @@ class SolsysCodeConfig(AppConfig):
         This method should return a list of dictionaries containing dot separated DataService classes
         """
         return [{'class': 'tom_fink.fink.FinkDataService'},
-                {'class': 'tom_dataservices.data_services.jpl.ScoutDataService'},
-               ]
+                {'class': 'tom_jpl.jpl.ScoutDataService'}]
