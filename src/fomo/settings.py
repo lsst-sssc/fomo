@@ -10,6 +10,7 @@ https://docs.djangoproject.com/en/2.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.1/ref/settings/
 """
+
 import os
 import tempfile
 
@@ -51,6 +52,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
+    'django_tables2',
     'django_gravatar',
     'django_htmx',
     'tom_targets',
@@ -64,6 +66,7 @@ INSTALLED_APPS = [
     'tom_fink',
     'tom_registration',
     'tom_eso',
+    'tom_dataservices',
 ]
 
 SITE_ID = 1
@@ -307,6 +310,13 @@ BROKERS = {
         'api_key': os.getenv('LASAIR_TOKEN', ''),
     },
 }
+
+DATA_SERVICES = {
+    'MPC Explorer': {
+        'base_url': 'https://data.minorplanetcenter.net/api/get-orb',
+    },
+}
+
 
 TOM_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
