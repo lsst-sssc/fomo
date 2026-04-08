@@ -17,7 +17,7 @@ classifiers = [
 dynamic = ["version"]
 requires-python = ">=3.10"
 dependencies = [
-    "tomtoolkit>=2.31.4,<3.0",
+    "tomtoolkit>=2.31.4",
     "tom_alertstreams",
     "tom_fink>=1.0.0",
     "tom-registration",
