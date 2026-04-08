@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'tom_fink',
     'tom_registration',
     'tom_eso',
+    'tom_dataservices',
 ]
 
 SITE_ID = 1
@@ -277,8 +278,6 @@ TOM_ALERT_CLASSES = [
     'tom_alerts.brokers.gaia.GaiaBroker',
     'tom_alerts.brokers.lasair.LasairBroker',
     'tom_alerts.brokers.tns.TNSBroker',
-    #  'tom_alerts.brokers.fink.FinkBroker',   # for REST API
-    'tom_fink.fink.FinkBroker',  # for Fink streams
 ]
 
 ALERT_STREAMS = [

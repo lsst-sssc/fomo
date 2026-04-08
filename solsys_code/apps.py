@@ -15,3 +15,10 @@ class SolsysCodeConfig(AppConfig):
                 'context': 'src.templatetags.solsys_code_extras.ephem_button',
             }
         ]
+
+    def data_services(self):
+        """
+        integration point for including data services in the TOM
+        This method should return a list of dictionaries containing dot separated DataService classes
+        """
+        return [{'class': 'tom_fink.fink.FinkDataService'}]
