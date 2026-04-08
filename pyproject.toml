@@ -21,7 +21,7 @@ dependencies = [
     "tom_alertstreams",
     "tom_fink>=1.0.0",
     "tom-registration",
-    "tom_eso",
+    "tom_eso>=0.2.2",
     "tom_jpl",
     "numpy>1.24",
     "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
