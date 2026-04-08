@@ -311,7 +311,7 @@ BROKERS = {
 }
 
 DATA_SERVICES = {
-    'Scout2': {
+    'Scout': {
         'base_url': 'https://ssd-api.jpl.nasa.gov/scout.api',
     },
 }
