@@ -152,3 +152,9 @@ _html/
 
 # Project initialization script
 .initialize_new_project.sh
+
+# Serena MCP
+.serena/
+
+# Local SQLite databases
+rubin.sqlite
