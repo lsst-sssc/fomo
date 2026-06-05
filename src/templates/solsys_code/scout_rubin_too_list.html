@@ -1,0 +1,72 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+{% block title %}Rubin ToO Candidates{% endblock %}
+
+{% block content %}
+
+<h1>Scout candidates passing the Rubin ToO filters</h1>
+<p class="text-muted">
+  Currently passing all Section 2.1 filters: <strong>{{ num_passing }}</strong>
+  of {{ num_total }} stored Scout {{ num_total|pluralize:"candidate,candidates" }}.
+  This is a live snapshot of the latest stored Scout state; an object drops off
+  here as soon as any filter stops being satisfied.
+</p>
+
+<div class="row">
+  <div class="col-md-12">
+    <table id="scout-rubin-too-table" class="table table-hover table-sm sortable">
+      <thead>
+        <tr>
+          <th>Target</th>
+          <th title="NEO digest score (>= 98)">NEO</th>
+          <th title="Geocentric digest score (< 2)">Geo</th>
+          <th title="Scout impact rating (>= 3)">Rating</th>
+          <th title="Orbit-fit RMS, arcsec (< 1.0)">RMS</th>
+          <th title="Number of observations (> 5)">nObs</th>
+          <th title="Observed arc, hours (> 1)">Arc (hr)</th>
+          <th title="Predicted V magnitude (> 21.6 N / 21.8 S)">Vmag</th>
+          <th title="1-sigma uncertainty at +1 day, arcmin (> 60 N / 180 S)">Unc+1d</th>
+          <th title="Plane-of-sky motion, arcsec/min (< 25)">Rate</th>
+          <th>RA</th>
+          <th>Dec</th>
+          <th title="Ephemeris time the RA/Dec/Vmag/rate are valid for">t(ephem)</th>
+          <th title="Last Scout recomputation">Last run</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sd in scout_details %}
+        <tr>
+          <td><a href="{% url 'tom_targets:detail' pk=sd.target.id %}">{{ sd.target.name }}</a></td>
+          <td>{{ sd.neo_score }}</td>
+          <td>{{ sd.geocentric_score }}</td>
+          <td>{{ sd.impact_rating }}</td>
+          <td>{{ sd.rms|floatformat:2 }}</td>
+          <td>{{ sd.num_obs }}</td>
+          <td>{{ sd.arc_hours|floatformat:1 }}</td>
+          <td>{{ sd.vmag|floatformat:1 }}</td>
+          <td>{{ sd.uncertainty_p1|floatformat:0 }}</td>
+          <td>{{ sd.rate|floatformat:1 }}</td>
+          <td>{{ sd.ra|floatformat:4 }}</td>
+          <td>{{ sd.dec|floatformat:4 }}</td>
+          <td>{{ sd.t_ephem|date:"Y-m-d H:i"|default:"&mdash;" }}</td>
+          <td>{{ sd.last_run|date:"Y-m-d H:i"|default:"&mdash;" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="14" class="text-center text-muted">No Scout candidates currently pass the filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.12.1/js/jquery.dataTables.js"></script>
+<script>
+  $(document).ready(function() {
+      $('#scout-rubin-too-table').DataTable({
+          "paging": false,
+          "searching": false
+      });
+  });
+</script>
+
+{% endblock %}

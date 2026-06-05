@@ -5,6 +5,15 @@ class SolsysCodeConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'solsys_code'
 
+    def nav_items(self):
+        """
+        Integration point for adding items to the navbar. Returns a list of dictionaries with a
+        `partial` key pointing to the html template to be included in the navbar.
+        """
+        return [
+            {'partial': f'{self.name}/partials/navbar_list.html'},
+        ]
+
     def target_detail_buttons(self):
         """
         Integration point for adding buttons to the Target detail view
@@ -21,5 +30,4 @@ class SolsysCodeConfig(AppConfig):
         integration point for including data services in the TOM
         This method should return a list of dictionaries containing dot separated DataService classes
         """
-        return [{'class': 'tom_fink.fink.FinkDataService'},
-                {'class': 'tom_jpl.jpl.ScoutDataService'}]
+        return [{'class': 'tom_fink.fink.FinkDataService'}, {'class': 'tom_jpl.jpl.ScoutDataService'}]
