@@ -63,6 +63,7 @@ db.sqlite3
 db.sqlite3-journal
 fomo_db.sqlite3
 fomo_db.sqlite3-journal
+rubin.sqlite
 
 # Flask stuff:
 instance/
@@ -156,5 +157,4 @@ _html/
 # Serena MCP
 .serena/
 
-# Local SQLite databases
-rubin.sqlite
+docs/notebooks/data/**
