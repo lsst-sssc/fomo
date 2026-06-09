@@ -221,6 +221,43 @@ _ANNOUNCED_SCOUT_OBJECT = dict(
 )
 
 
+class RubinTooScoutStatsViewTest(TestCase):
+    """Per-year first-pass aggregation view."""
+
+    def test_empty_no_history(self):
+        response = self.client.get(reverse('scout_rubin_too_stats'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['years'], [])
+        self.assertEqual(response.context['combined_by_year'], [])
+
+    def test_first_pass_counted_in_correct_year(self):
+        # Ingest the same candidate twice: failing first, then passing.
+        # Both snapshots are in 2026, so the first-pass event lands in 2026.
+        _ingest_scout_object(_ANNOUNCED_SCOUT_OBJECT, dict(_ANNOUNCED_SCOUT_OBJECT, orbits=_SCOUT_ORBITS))
+        _ingest_scout_object(_PASSING_SCOUT_OBJECT, dict(_PASSING_SCOUT_OBJECT, orbits=_SCOUT_ORBITS))
+
+        response = self.client.get(reverse('scout_rubin_too_stats'))
+        self.assertEqual(response.status_code, 200)
+
+        years = response.context['years']
+        combined = response.context['combined_by_year']
+        self.assertEqual(years, [2026])
+        self.assertEqual(combined, [1])
+
+        # Every per-filter row should show exactly 1 first-pass event in 2026
+        # (the announced snapshot fails every filter; the passing snapshot satisfies them all).
+        for row in response.context['filter_rows']:
+            self.assertEqual(row['counts'], [1], msg=f'filter {row["key"]} expected 1 first-pass event')
+
+    def test_already_passing_at_year_start_not_recounted(self):
+        # Ingest only the passing snapshot — no prior failing row.
+        # The transition is (absent → passing) on the very first row: should still count once.
+        _ingest_scout_object(_PASSING_SCOUT_OBJECT, dict(_PASSING_SCOUT_OBJECT, orbits=_SCOUT_ORBITS))
+
+        response = self.client.get(reverse('scout_rubin_too_stats'))
+        self.assertEqual(response.context['combined_by_year'], [1])
+
+
 class RubinTooScoutLifecycleTest(TestCase):
     """Drive one candidate through announce -> first Rubin ToO pass -> retirement.
 

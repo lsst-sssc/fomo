@@ -1,0 +1,53 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+{% block title %}Rubin ToO Filter Stats{% endblock %}
+
+{% block content %}
+
+<h1>Rubin ToO filter &mdash; first-pass events per year</h1>
+<p class="text-muted">
+  Counts how many Scout candidates crossed from <em>failing</em> to <em>passing</em>
+  each Section 2.1 filter for the first time within a given calendar year.
+  A candidate is counted at most once per year per filter; re-entries within the
+  same year after a gap are not double-counted. <strong>Combined</strong> counts
+  the first time all filters were satisfied simultaneously.
+  History covers {{ total_targets }} distinct Scout {{ total_targets|pluralize:"candidate,candidates" }}.
+  <a href="{% url 'scout_rubin_too' %}">View currently passing candidates &rarr;</a>
+</p>
+
+{% if years %}
+<div class="row">
+  <div class="col-md-auto">
+    <table class="table table-hover table-sm table-bordered">
+      <thead class="thead-light">
+        <tr>
+          <th>Filter (Section 2.1)</th>
+          {% for year in years %}
+          <th class="text-center">{{ year }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="table-primary">
+          <td><strong>Combined (all filters)</strong></td>
+          {% for count in combined_by_year %}
+          <td class="text-center"><strong>{{ count }}</strong></td>
+          {% endfor %}
+        </tr>
+        {% for row in filter_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          {% for count in row.counts %}
+          <td class="text-center">{{ count }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<p class="text-muted">No Scout history data yet &mdash; run <code>ingest_scout</code> to populate.</p>
+{% endif %}
+
+{% endblock %}

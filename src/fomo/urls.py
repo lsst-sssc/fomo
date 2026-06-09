@@ -16,7 +16,7 @@ Including another URLconf
 
 from django.urls import include, path
 
-from solsys_code.scout_views import RubinTooScoutListView
+from solsys_code.scout_views import RubinTooScoutListView, RubinTooScoutStatsView
 from solsys_code.views import Ephemeris, MakeEphemerisView
 
 urlpatterns = [
@@ -24,5 +24,6 @@ urlpatterns = [
     path('ephem/<int:pk>/', Ephemeris.as_view(), name='ephem'),
     path('targets/<int:pk>/makeephem/', MakeEphemerisView.as_view(), name='makeephem'),
     path('scout/rubin-too/', RubinTooScoutListView.as_view(), name='scout_rubin_too'),
+    path('scout/rubin-too/stats/', RubinTooScoutStatsView.as_view(), name='scout_rubin_too_stats'),
     path('', include('tom_common.urls')),
 ]

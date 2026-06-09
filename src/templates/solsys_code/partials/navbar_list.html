@@ -1,3 +1,7 @@
-<li class="nav-item {% if request.resolver_match.url_name == 'scout_rubin_too' %}active{% endif %}">
-    <a class="nav-link" href="{% url 'scout_rubin_too' %}">Rubin ToO Candidates</a>
+<li class="nav-item dropdown {% if request.resolver_match.url_name == 'scout_rubin_too' or request.resolver_match.url_name == 'scout_rubin_too_stats' %}active{% endif %}">
+    <a class="nav-link dropdown-toggle" href="#" data-toggle="dropdown">Rubin ToO</a>
+    <div class="dropdown-menu">
+        <a class="dropdown-item" href="{% url 'scout_rubin_too' %}">Current candidates</a>
+        <a class="dropdown-item" href="{% url 'scout_rubin_too_stats' %}">First-pass stats</a>
+    </div>
 </li>
