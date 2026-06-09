@@ -16,8 +16,10 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from tom_jpl.jpl import ScoutDataService
-from tom_jpl.models import ScoutDetail
+from tom_jpl.models import ScoutDetail, ScoutDetailHistory
 from tom_targets.models import Target
+
+from solsys_code.rubin_too import passes_filters
 
 # A ScoutDetail field set that passes every Section 2.1 filter (Northern, dec > 0).
 PASSING_DETAIL = dict(
@@ -160,6 +162,27 @@ def _scout_api_get(summary_object, detail_object):
     return _get
 
 
+def _ingest_scout_object(summary_object, detail_object):
+    """Run the real ``ScoutDataService`` query/parse/save chain against a mocked Scout API.
+
+    Patches ``requests.get`` at the HTTP boundary so ``query_targets``/``to_target`` do
+    their normal work, landing rows in ``ScoutDetail`` (current state) and
+    ``ScoutDetailHistory`` (append-only, deduped on ``(target, last_run)``). Shared by
+    the end-to-end ingest tests below so a lifecycle can be replayed across several
+    distinct snapshots of the same object (each with its own ``lastRun``).
+    """
+    ds = ScoutDataService()
+    fake_get = _scout_api_get(summary_object, detail_object)
+    with mock.patch('tom_jpl.jpl.requests.get', side_effect=fake_get):
+        targets_data = ds.query_targets(dict(_PERMISSIVE_INPUT_PARAMETERS))
+
+    request = RequestFactory().get('/')
+    request.user = AnonymousUser()
+    with mock.patch('tom_dataservices.dataservices.messages'):
+        for target_data in targets_data:
+            ds.to_target(target_data, request=request)
+
+
 class RubinTooScoutIngestEndToEndTest(TestCase):
     """Mocked Scout API -> real ingest -> DB -> live view.
 
@@ -168,21 +191,9 @@ class RubinTooScoutIngestEndToEndTest(TestCase):
     confirm the ingested candidate is listed as passing.
     """
 
-    def _ingest(self, summary_object, detail_object):
-        ds = ScoutDataService()
-        fake_get = _scout_api_get(summary_object, detail_object)
-        with mock.patch('tom_jpl.jpl.requests.get', side_effect=fake_get):
-            targets_data = ds.query_targets(dict(_PERMISSIVE_INPUT_PARAMETERS))
-
-        request = RequestFactory().get('/')
-        request.user = AnonymousUser()
-        with mock.patch('tom_dataservices.dataservices.messages'):
-            for target_data in targets_data:
-                ds.to_target(target_data, request=request)
-
     def test_ingested_candidate_appears_in_view(self):
         detail_object = dict(_PASSING_SCOUT_OBJECT, orbits=_SCOUT_ORBITS)
-        self._ingest(_PASSING_SCOUT_OBJECT, detail_object)
+        _ingest_scout_object(_PASSING_SCOUT_OBJECT, detail_object)
 
         self.assertEqual(ScoutDetail.objects.count(), 1)
 
@@ -190,3 +201,73 @@ class RubinTooScoutIngestEndToEndTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'ZTF10BL')
         self.assertEqual(response.context['num_passing'], 1)
+
+
+# --- Lifecycle fixtures ----------------------------------------------------------------
+# The same candidate (ZTF10BL) at an earlier `lastRun`, failing every Section 2.1 filter --
+# its first Scout listing, before enough observations have accumulated to pin down the orbit.
+_ANNOUNCED_SCOUT_OBJECT = dict(
+    _PASSING_SCOUT_OBJECT,
+    neoScore=80,
+    geocentricScore=4,
+    rating=1,
+    rmsN='1.4',
+    nObs=3,
+    arc='0.5',
+    Vmag='20.2',
+    uncP1='25',
+    tEphem='2026-02-08 06:00',
+    lastRun='2026-02-08 10:00',
+)
+
+
+class RubinTooScoutLifecycleTest(TestCase):
+    """Drive one candidate through announce -> first Rubin ToO pass -> retirement.
+
+    Each stage ingests a distinct snapshot (own ``lastRun``) of the same object, so
+    ``ScoutDetailHistory`` accumulates one row per stage -- the temporal trail the
+    still-to-build per-year first-pass aggregation view will walk.
+    """
+
+    def _ingest(self, scout_object):
+        detail_object = dict(scout_object, orbits=_SCOUT_ORBITS)
+        _ingest_scout_object(scout_object, detail_object)
+        return ScoutDetail.objects.get(target__name=scout_object['objectName'])
+
+    def test_announce_pass_and_retire(self):
+        # 1. Announced: listed by Scout, but fails every Section 2.1 filter.
+        announced = self._ingest(_ANNOUNCED_SCOUT_OBJECT)
+        self.assertFalse(passes_filters(announced))
+        self.assertTrue(announced.active)
+
+        # 2. Update: a later snapshot of the same object now passes every filter --
+        # the first-pass event that should trigger a Rubin ToO.
+        passing = self._ingest(_PASSING_SCOUT_OBJECT)
+        self.assertEqual(passing.pk, announced.pk)  # same ScoutDetail row, updated in place
+        self.assertTrue(passes_filters(passing))
+        self.assertTrue(passing.active)
+
+        target = passing.target
+        history = list(ScoutDetailHistory.objects.filter(target=target).order_by('last_run'))
+        self.assertEqual(len(history), 2)
+        self.assertFalse(passes_filters(history[0]))
+        self.assertTrue(passes_filters(history[1]))
+
+        response = self.client.get(reverse('scout_rubin_too'))
+        self.assertContains(response, 'ZTF10BL')
+        self.assertEqual(response.context['num_passing'], 1)
+
+        # 3. Retired: Scout stops listing it. This mirrors the outcome of `ingest_scout`'s
+        # sweep (`ScoutDetail.objects.filter(active=True).exclude(target_id__in=seen_ids)
+        # .update(active=False)`) without re-running the whole management command.
+        # History rows must survive the sweep untouched.
+        ScoutDetail.objects.filter(pk=passing.pk).update(active=False)
+
+        retired = ScoutDetail.objects.get(pk=passing.pk)
+        self.assertFalse(retired.active)
+        self.assertEqual(ScoutDetailHistory.objects.filter(target=target).count(), 2)
+
+        response = self.client.get(reverse('scout_rubin_too'))
+        self.assertNotContains(response, 'ZTF10BL')
+        self.assertEqual(response.context['num_passing'], 0)
+        self.assertEqual(response.context['num_total'], 0)

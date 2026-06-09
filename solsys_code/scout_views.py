@@ -25,7 +25,7 @@ class RubinTooScoutListView(ListView):
 
     def get_queryset(self):
         """Return the stored ScoutDetails that currently pass all Section 2.1 filters."""
-        details = ScoutDetail.objects.select_related('target').all()
+        details = ScoutDetail.objects.select_related('target').filter(active=True)
         passing = [sd for sd in details if passes_filters(sd)]
         for sd in passing:
             # Convenience for the template: arc is stored in days, but is most
@@ -37,5 +37,5 @@ class RubinTooScoutListView(ListView):
         """Add passing/total Scout candidate counts for the template summary line."""
         context = super().get_context_data(**kwargs)
         context['num_passing'] = len(context['scout_details'])
-        context['num_total'] = ScoutDetail.objects.count()
+        context['num_total'] = ScoutDetail.objects.filter(active=True).count()
         return context
