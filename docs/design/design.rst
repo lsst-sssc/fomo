@@ -32,3 +32,11 @@ Component
 
 .. image:: /design/SSSC-Followup_Observations_of_Moving_Objects-Component.png
     :alt: Component diagram for FOMO
+
+Design Notes
+------------
+
+.. toctree::
+   :maxdepth: 1
+
+   target_origin_tracking
