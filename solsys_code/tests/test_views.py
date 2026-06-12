@@ -120,10 +120,8 @@ class TestEphemeris(TestCase):
         self.assertInHTML(expected_result, response.content.decode())
 
     def test_no_site(self):
-        expected_result = 'Not Found'
-
         response = self.client.get(reverse('ephem', kwargs={'pk': self.test_target.pk}) + '?obscode=500')
-        self.assertInHTML(expected_result, response.content.decode())
+        self.assertEqual(response.status_code, 404)
 
 
 class TestJPLSBDBQuery(TestCase):
