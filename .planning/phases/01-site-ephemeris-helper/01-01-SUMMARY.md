@@ -142,3 +142,7 @@ None - no external service configuration required. (The `tom_catalogs` environme
 ---
 *Phase: 01-site-ephemeris-helper*
 *Completed: 2026-06-12*
+
+## Self-Check: PASSED
+
+All created files and commit hashes verified present on disk / in git history (df9bab0, 356e002, ef7936e).
