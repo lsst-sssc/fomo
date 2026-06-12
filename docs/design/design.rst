@@ -40,3 +40,4 @@ Design Notes
    :maxdepth: 1
 
    telescope_runs_calendar
+   gsd_experiment
