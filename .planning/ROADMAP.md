@@ -46,4 +46,4 @@ Phase 1 only.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Site & Ephemeris Helper | 2/2 | Complete   | 2026-06-12 |
+| 1. Site & Ephemeris Helper | 2/2 | Complete    | 2026-06-12 |

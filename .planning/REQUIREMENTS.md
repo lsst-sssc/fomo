@@ -7,18 +7,18 @@
 
 ### Site Registry
 
-- [ ] **SITE-01**: A `SITES` lookup resolves a telescope name (Magellan, NTT, FTS) to its `Observatory` record (by MPC obscode) and constructs an `astropy.coordinates.EarthLocation` from that record's lat/lon/altitude
-- [ ] **SITE-02**: The `SITES` lookup provides the correct IANA timezone for each site (`America/Santiago` for Magellan/NTT, `Australia/Sydney` for FTS)
-- [ ] **SITE-03**: `Observatory` records exist (via the existing CreateObservatory form) for Magellan (Las Campanas), NTT (La Silla), and FTS (Siding Spring) with correct MPC obscodes and lat/lon/altitude
+- [x] **SITE-01**: A `SITES` lookup resolves a telescope name (Magellan, NTT, FTS) to its `Observatory` record (by MPC obscode) and constructs an `astropy.coordinates.EarthLocation` from that record's lat/lon/altitude
+- [x] **SITE-02**: The `SITES` lookup provides the correct IANA timezone for each site (`America/Santiago` for Magellan/NTT, `Australia/Sydney` for FTS)
+- [x] **SITE-03**: `Observatory` records exist (via the existing CreateObservatory form) for Magellan (Las Campanas), NTT (La Silla), and FTS (Siding Spring) with correct MPC obscodes and lat/lon/altitude
 
 ### Ephemeris
 
-- [ ] **EPHEM-01**: `sun_event(site, date, kind)` returns UTC sunset and sunrise times with the refraction+semidiameter correction (-0.833°) and altitude-dependent horizon-dip correction (`dip = 1.76' * sqrt(h_metres)`) applied
-- [ ] **EPHEM-02**: `sun_event(site, date, 'dark')` returns UTC crossing times for the -15° dark window
-- [ ] **EPHEM-03**: The horizon-dip helper returns 1.44° ± 0.02° for an altitude of 2402 m (Las Campanas)
-- [ ] **EPHEM-04**: Computed Las Campanas sunset/sunrise (dip-corrected) for June 2026 sample nights (1, 10, 20, 30) agree with LCO skycalc to within 2 minutes
-- [ ] **EPHEM-05**: Computed astronomical twilight (-18°) for Las Campanas on 10 June 2026 agrees with skycalc's twi.end/twi.beg (19:16/06:08 local) to within 2 minutes
-- [ ] **EPHEM-06**: `America/Santiago` resolves to UTC-4 in June and UTC-3 in January; `Australia/Sydney` resolves to UTC+10 in July and UTC+11 in January
+- [x] **EPHEM-01**: `sun_event(site, date, kind)` returns UTC sunset and sunrise times with the refraction+semidiameter correction (-0.833°) and altitude-dependent horizon-dip correction (`dip = 1.76' * sqrt(h_metres)`) applied
+- [x] **EPHEM-02**: `sun_event(site, date, 'dark')` returns UTC crossing times for the -15° dark window
+- [x] **EPHEM-03**: The horizon-dip helper returns 1.44° ± 0.02° for an altitude of 2402 m (Las Campanas)
+- [x] **EPHEM-04**: Computed Las Campanas sunset/sunrise (dip-corrected) for June 2026 sample nights (1, 10, 20, 30) agree with LCO skycalc to within 2 minutes
+- [x] **EPHEM-05**: Computed astronomical twilight (-18°) for Las Campanas on 10 June 2026 agrees with skycalc's twi.end/twi.beg (19:16/06:08 local) to within 2 minutes
+- [x] **EPHEM-06**: `America/Santiago` resolves to UTC-4 in June and UTC-3 in January; `Australia/Sydney` resolves to UTC+10 in July and UTC+11 in January
 
 ## v2 Requirements
 
@@ -40,17 +40,18 @@ Scope below; they would form a future GSD milestone if Stage 1 succeeds.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SITE-01 | Phase 1 | Pending |
-| SITE-02 | Phase 1 | Pending |
-| SITE-03 | Phase 1 | Pending |
-| EPHEM-01 | Phase 1 | Pending |
-| EPHEM-02 | Phase 1 | Pending |
-| EPHEM-03 | Phase 1 | Pending |
-| EPHEM-04 | Phase 1 | Pending |
-| EPHEM-05 | Phase 1 | Pending |
-| EPHEM-06 | Phase 1 | Pending |
+| SITE-01 | Phase 1 | Complete |
+| SITE-02 | Phase 1 | Complete |
+| SITE-03 | Phase 1 | Complete |
+| EPHEM-01 | Phase 1 | Complete |
+| EPHEM-02 | Phase 1 | Complete |
+| EPHEM-03 | Phase 1 | Complete |
+| EPHEM-04 | Phase 1 | Complete |
+| EPHEM-05 | Phase 1 | Complete |
+| EPHEM-06 | Phase 1 | Complete |
 
 **Coverage:**
+
 - v1 requirements: 9 total
 - Mapped to phases: 9
 - Unmapped: 0 ✓
