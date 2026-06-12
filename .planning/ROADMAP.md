@@ -11,7 +11,7 @@ requirements, coarse granularity), this ships as one phase.
 
 ## Phases
 
-- [ ] **Phase 1: Site & Ephemeris Helper** - Resolve telescope sites via `Observatory` and compute dip-corrected sun-event times validated against skycalc
+- [x] **Phase 1: Site & Ephemeris Helper** - Resolve telescope sites via `Observatory` and compute dip-corrected sun-event times validated against skycalc (completed 2026-06-12)
 
 ## Phase Details
 
@@ -37,7 +37,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Validation slice: skycalc agreement for 4 June dates, -18° twilight cross-check, DST resolution, ruff gates [EPHEM-04/05/06]
+- [x] 01-02-PLAN.md — Validation slice: skycalc agreement for 4 June dates, -18° twilight cross-check, DST resolution, ruff gates [EPHEM-04/05/06]
 
 ## Progress
 
@@ -46,4 +46,4 @@ Phase 1 only.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Site & Ephemeris Helper | 1/2 | In Progress|  |
+| 1. Site & Ephemeris Helper | 2/2 | Complete   | 2026-06-12 |
