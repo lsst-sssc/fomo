@@ -117,4 +117,8 @@ None - no external service configuration required.
 ---
 *Phase: 01-site-ephemeris-helper*
 *Completed: 2026-06-12*
+
+## Self-Check: PASSED
+
+All claimed files and commit hashes verified present on disk / in git history (ee0475a, 678f243, 93eb3b2).
 </content>
