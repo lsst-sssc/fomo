@@ -474,22 +474,25 @@ lat/lon/altitude/timezone *data values* for NTT and FTS in the seed migration
 without independent re-verification against the MPC obscode API in this
 session.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **LCO skycalc reference values for Jun 1, 20, 30 2026 (EPHEM-04)**
+1. **LCO skycalc reference values for Jun 1, 20, 30 2026 (EPHEM-04)** — RESOLVED
    - What we know: Jun 10 2026 -18° twilight crossings (19:16/06:08 local)
      match this session's computation exactly; the design doc reports <=1 min
      agreement for Jun 2026 generally.
    - What's unclear: The specific sunset/sunrise times for Jun 1, 20, 30 2026
-     have not been fetched from https://www.lco.cl/ephemeris-for-lco/ in this
-     session (attempted to use WebFetch was not exercised — D-09 notes these
-     still need to be pulled during planning/execution).
-   - Recommendation: The planner should include a task to fetch these four
-     dates' sunset/sunrise (and ideally -15°/-18°) values from the LCO
-     ephemeris form as part of EPHEM-04 verification, OR rely on the strong
-     internal consistency already demonstrated (exact -18° match for Jun 10)
+     could not be fetched from https://www.lco.cl/ephemeris-for-lco/ — the
+     ephemeris tool is a dynamic form (`?page_id=299`) with no accessible
+     query-string interface for WebFetch, and the page itself returns no
+     pre-computed tables.
+   - Resolution (user sign-off, 2026-06-12): proceed with the
+     internal-consistency fallback documented in Plan 01-02 Task 1. Jun 10
+     2026 is validated against the design-doc skycalc values (exact -18°
+     twilight match). Jun 1/20/30 2026 are validated via internal
+     seasonal-consistency checks (smooth day-to-day progression of
+     sunset/sunrise times, correct DST-aware UTC offsets). This is accepted
      as sufficient evidence that the `sun_event('sun', ...)` threshold/dip
-     logic generalizes correctly to the other three dates.
+     logic generalizes correctly across all four sample dates for EPHEM-04.
 
 2. **MPC obscode 809 / E10 coordinate precision**
    - What we know: Design doc gives lat/lon/altitude for NTT and FTS sourced
