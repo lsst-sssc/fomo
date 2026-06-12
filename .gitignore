@@ -158,3 +158,6 @@ _html/
 .serena/
 
 docs/notebooks/data/**
+
+# Claude Code / GSD tooling (local install + machine-specific config)
+.claude/
