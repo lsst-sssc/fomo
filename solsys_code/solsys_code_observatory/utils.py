@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 import requests
-from tom_catalogs.harvester import MissingDataException
+from tom_dataservices.dataservices import MissingDataException
 
 from solsys_code.solsys_code_observatory.models import Observatory
 

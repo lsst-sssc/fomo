@@ -17,12 +17,13 @@ classifiers = [
 dynamic = ["version"]
 requires-python = ">=3.10"
 dependencies = [
-    "tomtoolkit>=2.31.4",
-    "tom_alertstreams",
+    "tomtoolkit>=3.0.0a9",  # pre-release specifier opts into the 3.0 alpha required by tom_jpl/tom_fink
+    "tom_alertstreams>=1.2.1",
     "tom_fink>=1.0.0",
-    "tom-registration",
-    "tom_eso",
+    "tom-registration>=1.0.5",
+    "tom_eso>=0.2.4",
     "numpy>1.24",
+    "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
     "sorcha",
 ]
 

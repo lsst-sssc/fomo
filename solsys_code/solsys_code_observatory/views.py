@@ -7,7 +7,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView
-from tom_catalogs.harvester import MissingDataException
+from tom_dataservices.dataservices import MissingDataException
 
 from solsys_code.solsys_code_observatory.forms import CreateObservatoryForm
 from solsys_code.solsys_code_observatory.models import Observatory

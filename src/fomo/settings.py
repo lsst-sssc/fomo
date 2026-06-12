@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sites',
     'django_extensions',
+    'django_tasks',
+    'django_tasks.backends.database',
     'guardian',
     'tom_common',
     'django_comments',
@@ -56,16 +58,16 @@ INSTALLED_APPS = [
     'django_htmx',
     'tom_targets',
     'tom_alerts',
-    'tom_catalogs',
     'tom_observations',
     'tom_dataproducts',
+    'tom_dataservices',
+    'tom_calendar',
     'solsys_code',
     'solsys_code.solsys_code_observatory.apps.SolsysCodeObservatoryConfig',
     'tom_alertstreams',
     'tom_fink',
     'tom_registration',
     'tom_eso',
-    'tom_dataservices',
 ]
 
 SITE_ID = 1
@@ -309,15 +311,9 @@ BROKERS = {
     },
 }
 
-TOM_HARVESTER_CLASSES = [
-    'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
-    'tom_catalogs.harvesters.mpc.MPCHarvester',
-    'tom_catalogs.harvesters.mpc.MPCExplorerHarvester',
-    'tom_catalogs.harvesters.simbad.SimbadHarvester',
-    'tom_catalogs.harvesters.tns.TNSHarvester',
-]
-
-HARVESTERS = {'TNS': {'api_key': ''}}
+# Per-service configuration for tom_dataservices DataServices (catalog services such as
+# MPC Explorer, Simbad, TNS, ... are auto-registered in tomtoolkit 3.0)
+DATA_SERVICES = {}
 
 # Define extra target fields here. Types can be any of "number", "string", "boolean" or "datetime"
 # See https://tomtoolkit.github.io/docs/target_fields for documentation on this feature
