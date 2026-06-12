@@ -26,7 +26,11 @@ requirements, coarse granularity), this ships as one phase.
   3. A horizon-dip helper returns 1.44° ± 0.02° for an altitude of 2402 m (Las Campanas)
   4. `sun_event(site, date, 'sun')` (or equivalent) returns dip- and refraction/semidiameter-corrected UTC sunset/sunrise for Las Campanas on June 2026 sample nights (1, 10, 20, 30) that agree with LCO skycalc to within 2 minutes
   5. `sun_event(site, date, 'dark')` returns the -15° dark-window crossing times, and the -18° astronomical twilight crossings for Las Campanas on 10 June 2026 agree with skycalc's twi.end/twi.beg (19:16/06:08 local) to within 2 minutes; `America/Santiago`/`Australia/Sydney` resolve to the correct UTC offsets across their respective DST boundaries (UTC-4/-3 for Santiago in June/January, UTC+10/+11 for Sydney in July/January)
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Walking Skeleton: extend Observatory (timezone field + to_earth_location), seed migration, telescope_runs.py (SITES/get_site/horizon_dip/sun_event) + DB tests [SITE-01/02/03, EPHEM-01/02/03]
+- [ ] 01-02-PLAN.md — Validation slice: skycalc agreement for 4 June dates, -18° twilight cross-check, DST resolution, ruff gates [EPHEM-04/05/06]
 
 ## Progress
 
@@ -35,4 +39,4 @@ Phase 1 only.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Site & Ephemeris Helper | 0/TBD | Not started | - |
+| 1. Site & Ephemeris Helper | 0/2 | Not started | - |
