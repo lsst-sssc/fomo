@@ -34,28 +34,34 @@ experiment actually validates). Either failing is a meaningful result.
 - ✓ `tom_observations.models.ObservationRecord` (LCOFacility configured) carries
   `scheduled_start`/`scheduled_end`/status for real observation blocks —
   existing, used by Stage 4
+- ✓ A `SITES`-equivalent lookup (`telescope_runs.get_site()`) resolves a
+  telescope name (Magellan, NTT, FTS) to an `Observatory` record (by MPC
+  obscode), constructing an `astropy.coordinates.EarthLocation` from its
+  lat/lon/altitude, plus a timezone (`America/Santiago` for Magellan/NTT,
+  `Australia/Sydney` for FTS) — Validated in Phase 01: site-ephemeris-helper
+  (SITE-01, SITE-02)
+- ✓ `sun_event(site, date, kind)` returns UTC sunset, sunrise, and -15° dark
+  crossing times, applying the refraction+semidiameter (-0.833°) and
+  altitude-dependent horizon-dip correction (`dip = 1.76' * sqrt(h_metres)`)
+  — Validated in Phase 01: site-ephemeris-helper (EPHEM-01, EPHEM-02)
+- ✓ Horizon-dip helper returns 1.44° ± 0.02° at 2402 m (Las Campanas
+  altitude) — Validated in Phase 01: site-ephemeris-helper (EPHEM-03)
+- ✓ Computed Las Campanas sunset/sunrise for June 2026 (sample nights
+  1/10/20/30) agree with LCO skycalc to within 2 minutes — Validated in
+  Phase 01: site-ephemeris-helper (EPHEM-04)
+- ✓ Computed astronomical twilight (-18°) for Las Campanas on 10 June 2026
+  agrees with skycalc's twi.end/twi.beg (19:16/06:08 local) to within 2
+  minutes — Validated in Phase 01: site-ephemeris-helper (EPHEM-05)
+- ✓ `America/Santiago` resolves to UTC-4 in June and UTC-3 in January;
+  `Australia/Sydney` resolves to UTC+10 in July and UTC+11 in January —
+  Validated in Phase 01: site-ephemeris-helper (EPHEM-06)
+- ✓ `Observatory` records exist for Magellan (Las Campanas), NTT (La Silla),
+  and FTS (Siding Spring) — created via the existing CreateObservatory form
+  — Validated in Phase 01: site-ephemeris-helper (SITE-03)
 
 ### Active
 
-- [ ] A `SITES` lookup resolves a telescope name (Magellan, NTT, FTS) to an
-      `Observatory` record (by MPC obscode), constructing an
-      `astropy.coordinates.EarthLocation` from its lat/lon/altitude, plus a
-      timezone (`America/Santiago` for Magellan/NTT, `Australia/Sydney` for FTS)
-- [ ] `sun_event(site, date, kind)` returns UTC sunset, sunrise, and -15° dark
-      crossing times, applying the refraction+semidiameter (-0.833°) and
-      altitude-dependent horizon-dip correction (`dip = 1.76' * sqrt(h_metres)`)
-- [ ] Horizon-dip helper returns 1.44° ± 0.02° at 2402 m (Las Campanas
-      altitude)
-- [ ] Computed Las Campanas sunset/sunrise for June 2026 (sample nights
-      1/10/20/30) agree with LCO skycalc to within 2 minutes
-- [ ] Computed astronomical twilight (-18°) for Las Campanas on 10 June 2026
-      agrees with skycalc's twi.end/twi.beg (19:16/06:08 local) to within 2
-      minutes
-- [ ] `America/Santiago` resolves to UTC-4 in June and UTC-3 in January;
-      `Australia/Sydney` resolves to UTC+10 in July and UTC+11 in January
-- [ ] `Observatory` records exist for Magellan (Las Campanas), NTT (La Silla),
-      and FTS (Siding Spring) — created via the existing CreateObservatory form
-      before/while implementing this stage
+_(none — all Stage 1 requirements validated in Phase 01)_
 
 ### Out of Scope
 
@@ -117,9 +123,9 @@ experiment actually validates). Either failing is a meaningful result.
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Source `SITES` coordinates from `Observatory` model by MPC obscode, not a standalone hardcoded dict | Avoids duplicating lat/lon/altitude already modeled in `solsys_code_observatory`; checked `tom_observations.facilities.lco` for overlap and found it incomplete/inconsistent for this purpose | — Pending |
-| Scope this GSD run to Stage 1 only | Per `gsd_experiment.rst` recommendation — self-contained, well-specified unit to trial the GSD workflow before committing to the full 4-stage feature | — Pending |
-| Tests touching `Observatory`-backed `SITES` lookups go in `solsys_code/tests/` (Django suite) | Consistent with existing two-suite split; the pure-Python `tests/` suite has no DB access | — Pending |
+| Source `SITES` coordinates from `Observatory` model by MPC obscode, not a standalone hardcoded dict | Avoids duplicating lat/lon/altitude already modeled in `solsys_code_observatory`; checked `tom_observations.facilities.lco` for overlap and found it incomplete/inconsistent for this purpose | Implemented in Phase 01 via `telescope_runs.get_site()` and `Observatory.to_earth_location()` |
+| Scope this GSD run to Stage 1 only | Per `gsd_experiment.rst` recommendation — self-contained, well-specified unit to trial the GSD workflow before committing to the full 4-stage feature | Phase 01 completed end-to-end through GSD discuss/plan/execute/verify loop; 9/9 requirements validated |
+| Tests touching `Observatory`-backed `SITES` lookups go in `solsys_code/tests/` (Django suite) | Consistent with existing two-suite split; the pure-Python `tests/` suite has no DB access | Implemented in Phase 01 (`solsys_code/tests/test_telescope_runs.py`) |
 
 ## Evolution
 
@@ -139,4 +145,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after initialization*
+*Last updated: 2026-06-12 after Phase 01 (site-ephemeris-helper) completion*
