@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from astropy.time import Time
@@ -126,3 +126,13 @@ class TestTelescopeRuns(TestCase):
         twilight_start_local = twilight_start.to_datetime(timezone=timezone.utc).astimezone(santiago)
         self.assertEqual((twilight_end_local.hour, twilight_end_local.minute), (19, 16))
         self.assertEqual((twilight_start_local.hour, twilight_start_local.minute), (6, 8))
+
+    def test_timezone_dst_resolution(self):
+        """EPHEM-06: America/Santiago and Australia/Sydney resolve to the correct UTC offsets across DST boundaries."""
+        santiago = ZoneInfo('America/Santiago')
+        self.assertEqual(datetime(2026, 6, 15, 12, tzinfo=santiago).utcoffset(), timedelta(hours=-4))
+        self.assertEqual(datetime(2026, 1, 15, 12, tzinfo=santiago).utcoffset(), timedelta(hours=-3))
+
+        sydney = ZoneInfo('Australia/Sydney')
+        self.assertEqual(datetime(2026, 7, 15, 12, tzinfo=sydney).utcoffset(), timedelta(hours=10))
+        self.assertEqual(datetime(2026, 1, 15, 12, tzinfo=sydney).utcoffset(), timedelta(hours=11))
