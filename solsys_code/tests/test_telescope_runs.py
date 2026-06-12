@@ -165,6 +165,21 @@ class TestTelescopeRuns(TestCase):
         self.assertEqual((twilight_end_local.hour, twilight_end_local.minute), (19, 16))
         self.assertEqual((twilight_start_local.hour, twilight_start_local.minute), (6, 8))
 
+    def test_sun_event_raises_on_midnight_sun(self):
+        """sun_event raises ValueError (not IndexError) when the sun never sets, e.g. a
+        high-latitude site near the summer solstice (no sunset/sunrise crossing pair)."""
+        svalbard = Observatory.objects.create(
+            obscode='Z99',
+            name='Polar Test Site',
+            short_name='Polar',
+            lat=78.0,
+            lon=15.0,
+            altitude=0.0,
+            timezone='UTC',
+        )
+        with self.assertRaises(ValueError):
+            sun_event(svalbard, date(2026, 6, 21), 'sun')
+
     def test_timezone_dst_resolution(self):
         """EPHEM-06: America/Santiago and Australia/Sydney resolve to the correct UTC offsets across DST boundaries."""
         santiago = ZoneInfo('America/Santiago')

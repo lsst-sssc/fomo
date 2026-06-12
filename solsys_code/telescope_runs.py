@@ -92,7 +92,9 @@ def _find_crossing(
     Returns:
         list[Time]: UTC times of each altitude crossing, in chronological order.
     """
-    offsets = np.arange(0, search_hours * 60, coarse_step_min) * u.min
+    # +coarse_step_min so the window covers a full, closed [0, search_hours] range
+    # (np.arange's exclusive upper bound would otherwise leave the last minute unscanned).
+    offsets = np.arange(0, search_hours * 60 + coarse_step_min, coarse_step_min) * u.min
     times = anchor + offsets
     alt = _solar_altitude(times, location)
     crossings = []
@@ -143,13 +145,17 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
             UTC scale.
 
     Raises:
-        ValueError: if kind is not 'sun' or 'dark'.
+        ValueError: if kind is not 'sun' or 'dark', or if the solar altitude
+            does not cross threshold exactly twice in the 24h window
+            following local noon (e.g. a high-latitude site in summer where
+            the sun never sets, or never gets dark).
     """
     location = site.to_earth_location()
     anchor = _local_noon_utc(date, site.timezone)
 
     if kind == 'sun':
         dip = horizon_dip(site.altitude)
+        # 0.833 deg = standard solar semi-diameter (~16') + horizon refraction (~34')
         threshold = -(0.833 + dip)
     elif kind == 'dark':
         threshold = -15.0
@@ -157,4 +163,11 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
         raise ValueError(f"kind must be 'sun' or 'dark', got {kind!r}")
 
     crossings = _find_crossing(anchor, location, threshold, search_hours=24)
+    if len(crossings) != 2:
+        raise ValueError(
+            f'Expected 2 sun-event crossings for {site.short_name} on {date} '
+            f'(kind={kind!r}), got {len(crossings)}: {crossings}. '
+            'This can happen at high latitudes when the sun never sets or never '
+            'reaches the requested threshold (e.g. midnight sun or no astronomical darkness).'
+        )
     return crossings[0], crossings[1]
