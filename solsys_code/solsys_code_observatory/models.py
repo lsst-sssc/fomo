@@ -1,9 +1,11 @@
 from math import atan2, cos, degrees, radians, sin
 
+import astropy.units as u
 import erfa
+from astropy.coordinates import EarthLocation
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.utils import timezone
+from django.utils import timezone as django_timezone
 
 
 class Observatory(models.Model):
@@ -50,6 +52,7 @@ class Observatory(models.Model):
         db_index=True,
     )
     altitude = models.FloatField(null=True, blank=False, default=0.0, verbose_name='Altitude [m]')
+    timezone = models.CharField(max_length=64, blank=True, default='', verbose_name='IANA timezone name')
     observations_type = models.SmallIntegerField(
         'Observations Type', null=False, blank=False, default=0, choices=OBSTYPE_CHOICES
     )
@@ -57,8 +60,8 @@ class Observatory(models.Model):
         default=False, verbose_name='Whether this observatory uses two-line observations e.g. satellite/radar'
     )
     old_names = models.TextField(blank=True, verbose_name='Any previous names used by the observatory')
-    created = models.DateTimeField(null=True, blank=False, editable=False, default=timezone.now)
-    modified = models.DateTimeField(null=True, blank=True, editable=True, default=timezone.now)
+    created = models.DateTimeField(null=True, blank=False, editable=False, default=django_timezone.now)
+    modified = models.DateTimeField(null=True, blank=True, editable=True, default=django_timezone.now)
 
     # Get Earth's equatorial radius and flattening factor for WGS84
     # reference ellipsoid. `r` is in meters
@@ -127,6 +130,14 @@ class Observatory(models.Model):
             tuple[float, float, float]: Geodetic position (lon,lat,height) in radians/m
         """
         return (radians(self.lon), radians(self.lat), self.altitude)
+
+    def to_earth_location(self) -> EarthLocation:
+        """Returns the observatory location as an astropy EarthLocation.
+
+        Returns:
+            EarthLocation: built from this observatory's lon, lat, altitude
+        """
+        return EarthLocation(lon=self.lon * u.deg, lat=self.lat * u.deg, height=self.altitude * u.m)
 
     def ObservatoryXYZ(self) -> tuple[float, float, float]:
         """Converts the observatory location to geocentric coordinates (in units of Earth radii)
