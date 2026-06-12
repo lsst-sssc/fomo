@@ -180,6 +180,21 @@ class TestTelescopeRuns(TestCase):
         with self.assertRaises(ValueError):
             sun_event(svalbard, date(2026, 6, 21), 'sun')
 
+    def test_sun_event_raises_on_missing_timezone(self):
+        """sun_event raises a clear ValueError (not a bare ZoneInfoNotFoundError) when
+        Observatory.timezone is unset (its default is '')."""
+        no_tz_site = Observatory.objects.create(
+            obscode='Z98',
+            name='No Timezone Test Site',
+            short_name='NoTZ',
+            lat=-29.0146,
+            lon=-70.6926,
+            altitude=2402,
+        )
+        self.assertEqual(no_tz_site.timezone, '')
+        with self.assertRaises(ValueError):
+            sun_event(no_tz_site, date(2026, 6, 10), 'sun')
+
     def test_timezone_dst_resolution(self):
         """EPHEM-06: America/Santiago and Australia/Sydney resolve to the correct UTC offsets across DST boundaries."""
         santiago = ZoneInfo('America/Santiago')

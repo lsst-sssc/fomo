@@ -145,11 +145,18 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
             UTC scale.
 
     Raises:
-        ValueError: if kind is not 'sun' or 'dark', or if the solar altitude
-            does not cross threshold exactly twice in the 24h window
-            following local noon (e.g. a high-latitude site in summer where
-            the sun never sets, or never gets dark).
+        ValueError: if kind is not 'sun' or 'dark'; if site.timezone is
+            unset; or if the solar altitude does not cross threshold
+            exactly twice in the 24h window following local noon (e.g. a
+            high-latitude site in summer where the sun never sets, or never
+            gets dark).
     """
+    if not site.timezone:
+        raise ValueError(
+            f'Observatory {site.short_name!r} (obscode={site.obscode}) has no timezone set; '
+            'set Observatory.timezone (IANA name, e.g. "America/Santiago") before calling sun_event().'
+        )
+
     location = site.to_earth_location()
     anchor = _local_noon_utc(date, site.timezone)
 
