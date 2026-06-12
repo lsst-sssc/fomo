@@ -63,6 +63,7 @@ db.sqlite3
 db.sqlite3-journal
 fomo_db.sqlite3
 fomo_db.sqlite3-journal
+rubin.sqlite
 
 # Flask stuff:
 instance/
@@ -135,6 +136,7 @@ dmypy.json
 # vscode
 .vscode/
 .vs/
+**/*.code-workspace
 
 # dask
 dask-worker-space/
@@ -151,3 +153,8 @@ _html/
 
 # Project initialization script
 .initialize_new_project.sh
+
+# Serena MCP
+.serena/
+
+docs/notebooks/data/**
