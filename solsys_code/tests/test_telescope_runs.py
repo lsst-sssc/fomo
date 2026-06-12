@@ -26,6 +26,44 @@ TWILIGHT_18DEG_JUN10_UTC = ('2026-06-10T23:16:00', '2026-06-11T10:08:00')
 
 
 class TestTelescopeRuns(TestCase):
+    @classmethod
+    def setUpTestData(cls) -> None:
+        for obscode, fields in {
+            '268': dict(
+                name='Magellan Clay Telescope',
+                short_name='Magellan-Clay',
+                lat=-29.0146,
+                lon=-70.6926,
+                altitude=2402,
+                timezone='America/Santiago',
+            ),
+            '269': dict(
+                name='Magellan Baade Telescope',
+                short_name='Magellan-Baade',
+                lat=-29.0146,
+                lon=-70.6926,
+                altitude=2402,
+                timezone='America/Santiago',
+            ),
+            '809': dict(
+                name='ESO, La Silla',
+                short_name='NTT',
+                lat=-29.2567,
+                lon=-70.7300,
+                altitude=2347,
+                timezone='America/Santiago',
+            ),
+            'E10': dict(
+                name='Siding Spring Observatory',
+                short_name='FTS',
+                lat=-31.2734,
+                lon=149.0612,
+                altitude=1149,
+                timezone='Australia/Sydney',
+            ),
+        }.items():
+            Observatory.objects.update_or_create(obscode=obscode, defaults=fields)
+
     def setUp(self) -> None:
         self.precision = 6
         return super().setUp()

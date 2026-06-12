@@ -3,56 +3,6 @@
 from django.db import migrations, models
 
 
-def seed_observatories(apps, schema_editor):
-    Observatory = apps.get_model('solsys_code_observatory', 'Observatory')
-    records = [
-        dict(
-            obscode='268',
-            name='Magellan Clay Telescope',
-            short_name='Magellan-Clay',
-            lat=-29.0146,
-            lon=-70.6926,
-            altitude=2402,
-            timezone='America/Santiago',
-        ),
-        dict(
-            obscode='269',
-            name='Magellan Baade Telescope',
-            short_name='Magellan-Baade',
-            lat=-29.0146,
-            lon=-70.6926,
-            altitude=2402,
-            timezone='America/Santiago',
-        ),
-        dict(
-            obscode='809',
-            name='ESO, La Silla',
-            short_name='NTT',
-            lat=-29.2567,
-            lon=-70.7300,
-            altitude=2347,
-            timezone='America/Santiago',
-        ),
-        dict(
-            obscode='E10',
-            name='Siding Spring Observatory',
-            short_name='FTS',
-            lat=-31.2734,
-            lon=149.0612,
-            altitude=1149,
-            timezone='Australia/Sydney',
-        ),
-    ]
-    for rec in records:
-        obscode = rec.pop('obscode')
-        Observatory.objects.update_or_create(obscode=obscode, defaults=rec)
-
-
-def unseed_observatories(apps, schema_editor):
-    Observatory = apps.get_model('solsys_code_observatory', 'Observatory')
-    Observatory.objects.filter(obscode__in=['268', '269', '809', 'E10']).delete()
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ('solsys_code_observatory', '0001_initial'),
@@ -64,5 +14,4 @@ class Migration(migrations.Migration):
             name='timezone',
             field=models.CharField(blank=True, default='', max_length=64, verbose_name='IANA timezone name'),
         ),
-        migrations.RunPython(seed_observatories, unseed_observatories),
     ]
