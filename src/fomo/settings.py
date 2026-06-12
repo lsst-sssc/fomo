@@ -312,6 +312,8 @@ BROKERS = {
     },
 }
 
+# Per-service configuration for tom_dataservices DataServices (catalog services such as
+# MPC Explorer, Simbad, TNS, ... are auto-registered in tomtoolkit 3.0)
 DATA_SERVICES = {
     'Scout': {
         'base_url': 'https://ssd-api.jpl.nasa.gov/scout.api',
