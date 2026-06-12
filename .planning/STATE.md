@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 1 context gathered
-last_updated: "2026-06-12T20:58:30.045Z"
-last_activity: 2026-06-12 — Roadmap created
+last_updated: "2026-06-12T21:10:08.287Z"
+last_activity: 2026-06-12 -- Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12)
 
 **Core value:** Sun-event times accurate to within 2 minutes of LCO skycalc, sourced via the `Observatory` model, built end-to-end through GSD's discuss/plan/execute/verify loop.
-**Current focus:** Phase 1 - Site & Ephemeris Helper
+**Current focus:** Phase 01 — site-ephemeris-helper
 
 ## Current Position
 
-Phase: 1 of 1 (Site & Ephemeris Helper)
-Plan: 0 of TBD in current phase
-Status: Ready to execute
-Last activity: 2026-06-12 — Roadmap created
+Phase: 01 (site-ephemeris-helper) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 01
+Last activity: 2026-06-12 -- Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
 

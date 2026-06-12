@@ -33,7 +33,7 @@ requirements, coarse granularity), this ships as one phase.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Walking Skeleton: extend Observatory (timezone field + to_earth_location), seed migration, telescope_runs.py (SITES/get_site/horizon_dip/sun_event) + DB tests [SITE-01/02/03, EPHEM-01/02/03]
+- [x] 01-01-PLAN.md — Walking Skeleton: extend Observatory (timezone field + to_earth_location), seed migration, telescope_runs.py (SITES/get_site/horizon_dip/sun_event) + DB tests [SITE-01/02/03, EPHEM-01/02/03]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -46,4 +46,4 @@ Phase 1 only.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Site & Ephemeris Helper | 0/2 | Not started | - |
+| 1. Site & Ephemeris Helper | 1/2 | In Progress|  |
