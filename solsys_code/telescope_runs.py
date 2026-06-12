@@ -50,7 +50,12 @@ def horizon_dip(altitude_m: float) -> float:
 
     Returns:
         float: dip angle in degrees (e.g. 1.4376 for 2402 m).
+
+    Raises:
+        ValueError: if altitude_m is None or negative.
     """
+    if altitude_m is None or altitude_m < 0:
+        raise ValueError(f'altitude_m must be a non-negative number, got {altitude_m!r}')
     dip_arcmin = 1.76 * sqrt(altitude_m)
     return dip_arcmin / 60.0
 

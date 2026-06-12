@@ -105,6 +105,14 @@ class TestTelescopeRuns(TestCase):
     def test_horizon_dip(self):
         self.assertAlmostEqual(horizon_dip(2402), 1.44, delta=0.02)
 
+    def test_horizon_dip_raises_on_negative_altitude(self):
+        with self.assertRaises(ValueError):
+            horizon_dip(-10)
+
+    def test_horizon_dip_raises_on_none_altitude(self):
+        with self.assertRaises(ValueError):
+            horizon_dip(None)
+
     def test_sun_event_sun(self):
         site = get_site('Magellan-Clay')
         sunset, sunrise = sun_event(site, date(2026, 6, 10), 'sun')
