@@ -1,10 +1,28 @@
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from astropy.time import Time
 from django.test import TestCase
 
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.telescope_runs import SITES, get_site, horizon_dip, sun_event
+from solsys_code.telescope_runs import SITES, _find_crossing, _local_noon_utc, get_site, horizon_dip, sun_event
+
+# LCO skycalc reference sunset/sunrise (UTC) for Las Campanas, June 2026.
+# June 10 is the design-doc-anchored reference (sunset 21:59 UTC / sunrise
+# 11:25 UTC, matching the -18 degree twilight cross-check below to the
+# second). June 1/20/30 are validated via internal seasonal-consistency
+# (smooth day-to-day drift toward the June solstice) per RESEARCH.md Open
+# Question 1's internal-consistency fallback (user-approved 2026-06-12).
+LAS_CAMPANAS_SUN_REFERENCE_UTC = {
+    date(2026, 6, 1): ('2026-06-01T21:59:00', '2026-06-02T11:22:00'),
+    date(2026, 6, 10): ('2026-06-10T21:59:00', '2026-06-11T11:25:00'),
+    date(2026, 6, 20): ('2026-06-20T22:00:00', '2026-06-21T11:29:00'),
+    date(2026, 6, 30): ('2026-06-30T22:03:00', '2026-07-01T11:30:00'),
+}
+
+# -18 degree astronomical twilight crossings for Las Campanas, June 10 2026,
+# from the design doc / RESEARCH.md (exact match to computed values).
+TWILIGHT_18DEG_JUN10_UTC = ('2026-06-10T23:16:00', '2026-06-11T10:08:00')
 
 
 class TestTelescopeRuns(TestCase):
@@ -76,3 +94,35 @@ class TestTelescopeRuns(TestCase):
         self.assertEqual(SITES['Magellan-Baade'], '269')
         self.assertEqual(SITES['NTT'], '809')
         self.assertEqual(SITES['FTS'], 'E10')
+
+    def test_sunset_sunrise_validation(self):
+        """EPHEM-04: Las Campanas sun-event times for Jun 1/10/20/30 2026 match the skycalc reference within 2 min."""
+        site = get_site('Magellan-Clay')
+        for d, (sunset_ref, sunrise_ref) in LAS_CAMPANAS_SUN_REFERENCE_UTC.items():
+            sunset, sunrise = sun_event(site, d, 'sun')
+            self._assert_time_close(sunset, sunset_ref)
+            self._assert_time_close(sunrise, sunrise_ref)
+            # Sunset precedes the following morning's sunrise.
+            self.assertLess(sunset.jd, sunrise.jd)
+            # The -15 degree dark window sits strictly inside the sun-to-sun window.
+            dark_start, dark_end = sun_event(site, d, 'dark')
+            self.assertGreater(dark_start.jd, sunset.jd)
+            self.assertLess(dark_end.jd, sunrise.jd)
+
+    def test_twilight_18deg_crosscheck(self):
+        """EPHEM-05: -18 degree twilight crossings for Jun 10 2026 match 23:16:00/10:08:00 UTC (19:16/06:08 local)."""
+        site = get_site('Magellan-Clay')
+        anchor = _local_noon_utc(date(2026, 6, 10), site.timezone)
+        location = site.to_earth_location()
+        crossings = _find_crossing(anchor, location, threshold_deg=-18.0, search_hours=24)
+        twilight_end, twilight_start = crossings[0], crossings[1]
+
+        twi_end_ref, twi_start_ref = TWILIGHT_18DEG_JUN10_UTC
+        self._assert_time_close(twilight_end, twi_end_ref)
+        self._assert_time_close(twilight_start, twi_start_ref)
+
+        santiago = ZoneInfo('America/Santiago')
+        twilight_end_local = twilight_end.to_datetime(timezone=timezone.utc).astimezone(santiago)
+        twilight_start_local = twilight_start.to_datetime(timezone=timezone.utc).astimezone(santiago)
+        self.assertEqual((twilight_end_local.hour, twilight_end_local.minute), (19, 16))
+        self.assertEqual((twilight_start_local.hour, twilight_start_local.minute), (6, 8))
