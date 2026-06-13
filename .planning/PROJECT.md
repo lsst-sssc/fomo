@@ -119,6 +119,18 @@ _(none — all Stage 1 requirements validated in Phase 01)_
   `solsys_code/tests/`, run with `./manage.py test solsys_code`. Quality gates:
   `ruff check .` and `ruff format --check .` must stay clean.
 
+## Demo Notebooks
+
+Each phase should produce a demo notebook showing its new feature in action,
+to support evaluation of GSD-driven work. Put it under
+`docs/notebooks/pre_executed/` when it needs special setup or DB state (DB
+records, large data, third-party APIs — excluded from automated
+Sphinx/CI/ReadTheDocs builds per `docs/notebooks/README.md`); put it under
+`docs/notebooks/` only when it runs cleanly with repo resources in any
+environment (in which case it may be added to `notebooks.rst`). See
+`docs/notebooks/pre_executed/telescope_runs_demo.ipynb` (Phase 01) for an
+example. This is part of each phase's Definition of Done.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
