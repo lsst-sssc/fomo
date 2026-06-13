@@ -20,7 +20,7 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-06-12)
 
-**Core value:** Sun-event times accurate to within 2 minutes of LCO skycalc, sourced via the `Observatory` model, built end-to-end through GSD's discuss/plan/execute/verify loop.
+**Core value:** Sun-event times accurate to within 2 minutes of Las Campanas skycalc, sourced via the `Observatory` model, built end-to-end through GSD's discuss/plan/execute/verify loop.
 **Current focus:** Phase 01 — site-ephemeris-helper
 
 ## Current Position

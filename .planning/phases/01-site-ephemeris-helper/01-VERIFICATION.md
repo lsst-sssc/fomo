@@ -8,7 +8,7 @@ overrides_applied: 0
 
 # Phase 1: Site & Ephemeris Helper Verification Report
 
-**Phase Goal:** Deliver Stage 1 of the "telescope runs on the calendar" feature — a self-contained helper module (`solsys_code/telescope_runs.py`) that resolves a telescope name to its observing site (via the Observatory model, looked up by MPC obscode) and computes dip-corrected UTC sunset, sunrise, and -15 degree dark-window crossing times for a given date. Must validate to within 2 minutes of the LCO skycalc reference tool, and the dip correction at 2402m must be 1.44 +/- 0.02 degrees.
+**Phase Goal:** Deliver Stage 1 of the "telescope runs on the calendar" feature — a self-contained helper module (`solsys_code/telescope_runs.py`) that resolves a telescope name to its observing site (via the Observatory model, looked up by MPC obscode) and computes dip-corrected UTC sunset, sunrise, and -15 degree dark-window crossing times for a given date. Must validate to within 2 minutes of the Las Campanas skycalc reference tool, and the dip correction at 2402m must be 1.44 +/- 0.02 degrees.
 
 **Verified:** 2026-06-12T22:10:00Z
 **Status:** passed

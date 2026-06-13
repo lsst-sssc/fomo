@@ -146,7 +146,7 @@ Observatory Sites
      - -70.6926
      - 2402
      - ``America/Santiago``
-     - Validated vs LCO tool
+     - Validated vs Las Campanas skycalc tool
    * - NTT @ La Silla
      - -29.2567
      - -70.7300
@@ -188,7 +188,7 @@ Parsing rules (prototype verified against all three lines):
 * Status comes from a parenthetical ``(...)`` or a bare known word
   (``allocation``, ``proposed``, ...).
 
-**Night convention (confirmed from the LCO telescope schedule).**  Run ``Start``
+**Night convention (confirmed from the Las Campanas telescope schedule).**  Run ``Start``
 and ``End`` dates are **both observing nights** by evening date; the next run
 begins the day *after* ``End``.  (E.g. a Las Campanas run ``Start 2026-06-08 /
 End 2026-06-10`` covers the nights of the evenings of the 8th, 9th and 10th; a
@@ -264,7 +264,7 @@ unit-tested.
 *Stage 1 — ephemeris helper*
 
 #. For Las Campanas, June 2026, computed sunset and sunrise (dip-corrected) are
-   within **2 minutes** of the LCO *skycalc* tool for at least the sample nights
+   within **2 minutes** of the Las Campanas *skycalc* tool for at least the sample nights
    Jun 1/10/20/30.  (Observed: <= 1 min.)
 #. Computed astronomical twilight (-18 deg) for Jun 10 2026 is within 2 minutes
    of the tool's ``twi.end`` / ``twi.beg`` (19:16 / 06:08 local).

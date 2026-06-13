@@ -1,7 +1,7 @@
 # Requirements: Telescope Runs Calendar — Stage 1 (Site/Ephemeris Helper)
 
 **Defined:** 2026-06-12
-**Core Value:** Stage 1's ephemeris helper must produce sun-event times within 2 minutes of LCO skycalc, sourced via the `Observatory` model — and be built end-to-end through GSD's discuss/plan/execute/verify loop.
+**Core Value:** Stage 1's ephemeris helper must produce sun-event times within 2 minutes of Las Campanas skycalc, sourced via the `Observatory` model — and be built end-to-end through GSD's discuss/plan/execute/verify loop.
 
 ## v1 Requirements
 
@@ -16,7 +16,7 @@
 - [x] **EPHEM-01**: `sun_event(site, date, kind)` returns UTC sunset and sunrise times with the refraction+semidiameter correction (-0.833°) and altitude-dependent horizon-dip correction (`dip = 1.76' * sqrt(h_metres)`) applied
 - [x] **EPHEM-02**: `sun_event(site, date, 'dark')` returns UTC crossing times for the -15° dark window
 - [x] **EPHEM-03**: The horizon-dip helper returns 1.44° ± 0.02° for an altitude of 2402 m (Las Campanas)
-- [x] **EPHEM-04**: Computed Las Campanas sunset/sunrise (dip-corrected) for June 2026 sample nights (1, 10, 20, 30) agree with LCO skycalc to within 2 minutes
+- [x] **EPHEM-04**: Computed Las Campanas sunset/sunrise (dip-corrected) for June 2026 sample nights (1, 10, 20, 30) agree with Las Campanas skycalc to within 2 minutes
 - [x] **EPHEM-05**: Computed astronomical twilight (-18°) for Las Campanas on 10 June 2026 agrees with skycalc's twi.end/twi.beg (19:16/06:08 local) to within 2 minutes
 - [x] **EPHEM-06**: `America/Santiago` resolves to UTC-4 in June and UTC-3 in January; `Australia/Sydney` resolves to UTC+10 in July and UTC+11 in January
 

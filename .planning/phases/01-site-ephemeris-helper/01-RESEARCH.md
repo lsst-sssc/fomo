@@ -63,7 +63,7 @@ for `timezone`.
 | EPHEM-01 | `sun_event(..., 'sun')` returns dip+refraction-corrected sunset/sunrise | Threshold `-(0.833° + dip)` verified against Las Campanas June 10 2026 — sunset 21:59 UTC / sunrise 11:25 UTC, both consistent with design doc's "<=1 min" claim |
 | EPHEM-02 | `sun_event(..., 'dark')` returns -15° crossings | -15° crossings computed: 23:01:30 UTC / 10:22:30 UTC for June 10 2026 |
 | EPHEM-03 | Dip helper returns 1.44° ± 0.02° at 2402 m | Verified: `1.76 * sqrt(2402) / 60 = 1.4376°` |
-| EPHEM-04 | Las Campanas sunset/sunrise (dip-corrected) within 2 min of LCO skycalc for Jun 1/10/20/30 2026 | Jun 10 values computed and self-consistent with design doc's -18° reference; Jun 1/20/30 values NOT yet pulled from LCO ephemeris form — see Open Questions |
+| EPHEM-04 | Las Campanas sunset/sunrise (dip-corrected) within 2 min of Las Campanas skycalc for Jun 1/10/20/30 2026 | Jun 10 values computed and self-consistent with design doc's -18° reference; Jun 1/20/30 values NOT yet pulled from Las Campanas ephemeris form — see Open Questions |
 | EPHEM-05 | -18° twilight for Jun 10 2026 within 2 min of skycalc twi.end/twi.beg (19:16/06:08 local) | Computed -18° crossings: 23:16:00 UTC (= 19:16 local UTC-4) and 10:08:00 UTC (= 06:08 local UTC-4) — **exact match** to design doc reference |
 | EPHEM-06 | Timezone DST resolution correctness | Verified: Santiago UTC-4 (Jun) / UTC-3 (Jan); Sydney UTC+10 (Jul) / UTC+11 (Jan) |
 
@@ -465,7 +465,7 @@ def sun_event(site, date: date_cls, kind: str):
 | A1 | NTT (La Silla) coordinates: lat=-29.2567, lon=-70.7300, alt=2347m, obscode=809 | Code Examples / Pattern 4 (migration seed data) | If MPC obscode 809's actual registered coordinates differ from the design doc's `of_site('lasilla')`-derived values, SITE-03's "correct lat/lon/altitude" criterion could fail verification — planner should add a step to cross-check against the MPC obscode API or `EarthLocation.of_site()` during execution |
 | A2 | FTS (Siding Spring) coordinates: lat=-31.2734, lon=149.0612, alt=1149m, obscode=E10 | Code Examples / Pattern 4 (migration seed data) | Same as A1 — design-doc-sourced, not independently re-verified against MPC obscode API in this session |
 | A3 | Magellan-Clay/Baade `Observatory.name` values (`"Magellan Clay Telescope"` / `"Magellan Baade Telescope"`) are illustrative — exact strings not locked by CONTEXT.md | Pattern 4 | Low risk — `name` uniqueness just needs any two distinct strings; planner/executor can choose final wording |
-| A4 | LCO skycalc reference sunset/sunrise values for Jun 1, 20, 30 2026 (EPHEM-04) have not been pulled from https://www.lco.cl/ephemeris-for-lco/ in this session | Phase Requirements (EPHEM-04), Open Questions | If the form is unreachable or values differ significantly from computed values, EPHEM-04 verification may need to rely only on the Jun 10 cross-check (already validated via -18° match) plus internal consistency checks |
+| A4 | Las Campanas skycalc reference sunset/sunrise values for Jun 1, 20, 30 2026 (EPHEM-04) have not been pulled from https://www.lco.cl/ephemeris-for-lco/ in this session | Phase Requirements (EPHEM-04), Open Questions | If the form is unreachable or values differ significantly from computed values, EPHEM-04 verification may need to rely only on the Jun 10 cross-check (already validated via -18° match) plus internal consistency checks |
 
 **Note:** obscode values 268, 269, 809, E10 themselves are **locked decisions
 from CONTEXT.md (D-05)**, not assumptions — only the associated
@@ -476,7 +476,7 @@ session.
 
 ## Open Questions (RESOLVED)
 
-1. **LCO skycalc reference values for Jun 1, 20, 30 2026 (EPHEM-04)** — RESOLVED
+1. **Las Campanas skycalc reference values for Jun 1, 20, 30 2026 (EPHEM-04)** — RESOLVED
    - What we know: Jun 10 2026 -18° twilight crossings (19:16/06:08 local)
      match this session's computation exactly; the design doc reports <=1 min
      agreement for Jun 2026 generally.
@@ -522,7 +522,7 @@ session.
 **Missing dependencies with no fallback:** None.
 
 **Missing dependencies with fallback:**
-- LCO ephemeris form access for additional reference dates — fallback is
+- Las Campanas ephemeris form access for additional reference dates — fallback is
   internal consistency validation against the already-confirmed Jun 10 -18°
   values.
 
@@ -577,7 +577,7 @@ astropy computation). No ASVS categories apply.
 - **Data source:** Site coordinates come from `Observatory` model records
   (MPC obscode lookup), not hardcoded constants — satisfied via D-02/D-04
   (`to_earth_location()` built from `Observatory.lon/lat/altitude`).
-- **Precision:** Sunset/sunrise must match LCO skycalc to <= 2 minutes; dip
+- **Precision:** Sunset/sunrise must match Las Campanas skycalc to <= 2 minutes; dip
   at 2402 m must be 1.44° ± 0.02° — both verified achievable in this session.
 - **Testing:** DB-dependent tests go in `solsys_code/tests/`, run with
   `./manage.py test solsys_code`. `ruff check .` and `ruff format --check .`
@@ -612,7 +612,7 @@ astropy computation). No ASVS categories apply.
   computation in this session rather than relying on external docs/search.
 
 ### Tertiary (LOW confidence)
-- LCO skycalc reference values for Jun 1, 20, 30 2026 — NOT fetched in this
+- Las Campanas skycalc reference values for Jun 1, 20, 30 2026 — NOT fetched in this
   session; only Jun 10 (from design doc, cross-checked) is confirmed. See
   Open Questions and Assumptions Log A4.
 

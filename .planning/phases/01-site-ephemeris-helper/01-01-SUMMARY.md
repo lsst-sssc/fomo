@@ -136,7 +136,7 @@ None - no external service configuration required. (The `tom_catalogs` environme
 
 ## Next Phase Readiness
 
-- `telescope_runs.py` (SITES, get_site, horizon_dip, sun_event) and the extended `Observatory` model/migration are ready for Plan 02's validation slice (EPHEM-04/05/06 against LCO skycalc and DST checks).
+- `telescope_runs.py` (SITES, get_site, horizon_dip, sun_event) and the extended `Observatory` model/migration are ready for Plan 02's validation slice (EPHEM-04/05/06 against Las Campanas skycalc and DST checks).
 - **Blocker carried forward:** the `tom_catalogs`/`tomtoolkit==3.0.0a9` environment mismatch prevents `./manage.py migrate`/`./manage.py test` from running in this worktree. Plan 02 (and the phase-gate full-suite run `./manage.py test solsys_code && python -m pytest && ruff check . && ruff format --check .`) will hit the same blocker unless the venv is fixed or a different environment is used for DB-test execution. Recommend flagging this to the user/orchestrator before Plan 02 execution.
 
 ---

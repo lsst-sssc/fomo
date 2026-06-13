@@ -75,12 +75,12 @@ telescopes exist via a data migration.
 
 ### Skycalc validation reference data
 - **D-09:** Validation reference values for sunset/sunrise/dark-window
-  crossings are obtained from the LCO ephemeris form
+  crossings are obtained from the Las Campanas ephemeris form
   (https://www.lco.cl/ephemeris-for-lco/) for Las Campanas on June 1, 10, 20,
   and 30, 2026. The June 10 2026 -18° astronomical twilight crossings
   (twi.end/twi.beg = 19:16/06:08 local) are already known from the design doc;
   sunset/sunrise values for all four sample dates still need to be pulled from
-  the LCO form during planning/execution and used as the comparison targets
+  the Las Campanas form during planning/execution and used as the comparison targets
   for EPHEM-04/EPHEM-05.
 
 ### Claude's Discretion
@@ -105,8 +105,8 @@ telescopes exist via a data migration.
 - `docs/design/telescope_runs_calendar.rst` §"Stage 1" — dip formula
   (`dip = 1.76' * sqrt(h_metres)`), sunset/sunrise threshold
   (`-(0.833° + dip)`, dark-window threshold (-15°, not dip-corrected),
-  3-site coordinate table, and the validation methodology against the LCO
-  ephemeris tool.
+  3-site coordinate table, and the validation methodology against the Las
+  Campanas ephemeris tool.
 
 ### Observatory model
 - `solsys_code/solsys_code_observatory/models.py` — `Observatory` model;
@@ -123,7 +123,7 @@ telescopes exist via a data migration.
   criteria 1-5, including the exact obscodes/coordinates/timezones table.
 
 ### External validation tool
-- https://www.lco.cl/ephemeris-for-lco/ — LCO ephemeris form used to obtain
+- https://www.lco.cl/ephemeris-for-lco/ — Las Campanas ephemeris form used to obtain
   sunset/sunrise/twilight reference values for Las Campanas on the four
   June 2026 sample dates (D-09).
 

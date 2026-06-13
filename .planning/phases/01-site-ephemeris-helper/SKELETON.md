@@ -5,7 +5,7 @@
 
 ## Capability Proven End-to-End
 
-Given a telescope name (e.g. "Magellan-Clay") and a local sunset date, the system reads the site's location and timezone from the `Observatory` model (seeded via migration) and computes dip-corrected UTC sunset/sunrise and -15 degree dark-window times accurate to within 2 minutes of the LCO skycalc reference — exercising the full stack: DB write (migration) → DB read (`get_site`) → real astropy computation (`sun_event`) → real validation (dip formula + June 10 2026 -18 degree skycalc anchor).
+Given a telescope name (e.g. "Magellan-Clay") and a local sunset date, the system reads the site's location and timezone from the `Observatory` model (seeded via migration) and computes dip-corrected UTC sunset/sunrise and -15 degree dark-window times accurate to within 2 minutes of the Las Campanas skycalc reference — exercising the full stack: DB write (migration) → DB read (`get_site`) → real astropy computation (`sun_event`) → real validation (dip formula + June 10 2026 -18 degree skycalc anchor).
 
 ## Architectural Decisions
 

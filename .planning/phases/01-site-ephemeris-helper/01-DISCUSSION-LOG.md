@@ -111,10 +111,10 @@
 |--------|-------------|----------|
 | I have Jun 10 values; others TBD during planning/execution | Jun 10 2026 twi.end/twi.beg known from design doc; sunset/sunrise for all 4 sample dates TBD | (superseded) |
 | I'll provide all reference values now | All 4 sample dates' values provided now | |
-| Other: LCO ephemeris form (https://www.lco.cl/ephemeris-for-lco/) | User will source reference values from this form rather than a generic "skycalc" tool | ✓ |
+| Other: Las Campanas ephemeris form (https://www.lco.cl/ephemeris-for-lco/) | User will source reference values from this form rather than a generic "skycalc" tool | ✓ |
 
 **User's choice:** Use https://www.lco.cl/ephemeris-for-lco/ as the reference source.
-**Notes:** Jun 10 2026 -18° twilight values (19:16/06:08 local) already known from the design doc; sunset/sunrise for Jun 1/10/20/30 2026 still need to be pulled from the LCO form during planning/execution.
+**Notes:** Jun 10 2026 -18° twilight values (19:16/06:08 local) already known from the design doc; sunset/sunrise for Jun 1/10/20/30 2026 still need to be pulled from the Las Campanas form during planning/execution.
 
 ---
 

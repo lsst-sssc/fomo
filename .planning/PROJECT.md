@@ -17,7 +17,7 @@ this codebase before deciding whether to scale to the full 4-stage feature.
 ## Core Value
 
 Stage 1 must do two things at once: produce sun-event times accurate to
-within 2 minutes of the LCO skycalc reference tool (the feature actually
+within 2 minutes of the Las Campanas skycalc reference tool (the feature actually
 works), and be built end-to-end through GSD's discuss/plan/execute/verify
 loop without the workflow stumbling on this repo's conventions (the
 experiment actually validates). Either failing is a meaningful result.
@@ -47,7 +47,7 @@ experiment actually validates). Either failing is a meaningful result.
 - ✓ Horizon-dip helper returns 1.44° ± 0.02° at 2402 m (Las Campanas
   altitude) — Validated in Phase 01: site-ephemeris-helper (EPHEM-03)
 - ✓ Computed Las Campanas sunset/sunrise for June 2026 (sample nights
-  1/10/20/30) agree with LCO skycalc to within 2 minutes — Validated in
+  1/10/20/30) agree with Las Campanas skycalc to within 2 minutes — Validated in
   Phase 01: site-ephemeris-helper (EPHEM-04)
 - ✓ Computed astronomical twilight (-18°) for Las Campanas on 10 June 2026
   agrees with skycalc's twi.end/twi.beg (19:16/06:08 local) to within 2
@@ -81,8 +81,8 @@ _(none — all Stage 1 requirements validated in Phase 01)_
 - **Codebase**: FOMO (Django + TOM Toolkit), Solar System follow-up
   coordination. Codebase map already exists at `.planning/codebase/`.
 - **Design doc**: `docs/design/telescope_runs_calendar.rst` — full feasibility
-  study and 4-stage implementation plan for issue #37, validated against LCO's
-  skycalc tool for June 2026.
+  study and 4-stage implementation plan for issue #37, validated against the
+  Las Campanas skycalc tool for June 2026.
 - **Experiment doc**: `docs/design/gsd_experiment.rst` — rationale for using
   this feature as a GSD trial, scoped to Stage 1.
 - **Site coordinate sourcing decision**: rather than the design doc's
@@ -113,7 +113,7 @@ _(none — all Stage 1 requirements validated in Phase 01)_
 - **Data source**: Site coordinates come from `Observatory` model records
   (MPC obscode lookup), not hardcoded constants — Observatory records for the
   3 sites must exist (created via CreateObservatory form).
-- **Precision**: Sunset/sunrise must match LCO skycalc to <= 2 minutes; horizon
+- **Precision**: Sunset/sunrise must match Las Campanas skycalc to <= 2 minutes; horizon
   dip at 2402 m must be 1.44° ± 0.02°.
 - **Testing**: DB-dependent tests (Observatory lookups) go in
   `solsys_code/tests/`, run with `./manage.py test solsys_code`. Quality gates:
