@@ -70,7 +70,7 @@ addopts = "--doctest-modules --doctest-glob=*.rst"
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-exclude = ["solsys_code/**/migrations/*.py", ]
+exclude = ["solsys_code/**/migrations/*.py", "docs/notebooks/ESO_How_to_download_data.ipynb"]
 
 [tool.ruff.format]
 quote-style = "single"
