@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-12)
 Phase: 01
 Plan: Not started
 Status: Executing Phase 01
-Last activity: 2026-06-13 - Completed quick task 260613-eb1: Add a demo Jupyter notebook for Phase 1 (telescope_runs.py) under docs/notebooks/pre_executed/, and add a convention to .planning/PROJECT.md so future phases produce a similar demo notebook as part of their Definition of Done
+Last activity: 2026-06-13 - Completed quick task 260613-f7d: Redirected ESO_How_to_download_data.ipynb downloads into docs/notebooks/data/ (git-ignored), relocated stray ADP.*.fits files, and excluded the newly-tracked vendored notebook from ruff to keep the `ruff check .` quality gate clean
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -77,6 +77,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260613-eb1 | Add a demo Jupyter notebook for Phase 1 (telescope_runs.py) under docs/notebooks/pre_executed/, and add a convention to .planning/PROJECT.md so future phases produce a similar demo notebook as part of their Definition of Done | 2026-06-13 | 1a36914 | [260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-](./quick/260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-/) |
+| 260613-f7d | Modify docs/notebooks/ESO_How_to_download_data.ipynb to write downloaded files into a git-ignored docs/notebooks/data/ subdirectory, relocate the two stray ADP.*.fits files there, and exclude the newly-tracked vendored notebook from ruff (pyproject.toml) to keep `ruff check .` clean | 2026-06-13 | ef1f9b3 | [260613-f7d-modify-docs-notebooks-eso-how-to-downloa](./quick/260613-f7d-modify-docs-notebooks-eso-how-to-downloa/) |
 
 ## Deferred Items
 
