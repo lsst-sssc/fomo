@@ -327,3 +327,10 @@ Open Items
 * Terminal-failure policy for #3 (delete vs strike-through) to be confirmed.
 * Whether ``Magellan`` should distinguish Baade vs Clay in ``telescope`` (the
   ephemeris is identical; both are at Las Campanas).
+* The Stage 1 ``SITES`` dict hardcodes telescope name -> MPC obscode, so
+  adding a new telescope requires a code change. Consider replacing it with a
+  lookup by ``Observatory.short_name`` directly (data-driven, no code change
+  to add sites) in Stage 2+. Also note ``to_earth_location()``/``sun_event()``
+  assume a ground-based site; a guard against space-based observatories
+  (``Observatory.SATELLITE_OBSTYPE``, e.g. JWST/274) would be needed if
+  ``SITES`` (or its replacement) is ever extended to non-ground sites.
