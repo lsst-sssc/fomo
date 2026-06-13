@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import astropy.units as u
 from astropy.time import Time
 from django.test import TestCase
 
@@ -103,7 +104,7 @@ class TestTelescopeRuns(TestCase):
         self.assertEqual(fts.timezone, 'Australia/Sydney')
 
     def test_horizon_dip(self):
-        self.assertAlmostEqual(horizon_dip(2402), 1.44, delta=0.02)
+        self.assertAlmostEqual(horizon_dip(2402).to_value(u.deg), 1.44, delta=0.02)
 
     def test_horizon_dip_raises_on_negative_altitude(self):
         with self.assertRaises(ValueError):

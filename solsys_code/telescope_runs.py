@@ -40,24 +40,28 @@ def get_site(name: str) -> Observatory:
     return Observatory.objects.get(obscode=obscode)
 
 
-def horizon_dip(altitude_m: float) -> float:
-    """Horizon dip in degrees for an observer at altitude_m metres.
+def horizon_dip(altitude_m: float) -> u.Quantity:
+    """Horizon dip for an observer at altitude_m metres.
 
-    dip = 1.76 arcmin * sqrt(altitude in metres), converted to degrees.
+    dip = 1.76 arcmin * sqrt(altitude in metres).
+
+    This is the Nautical Almanac dip formula (terrestrial refraction k~1/6
+    folded into the spherical-geometry estimate dip ~ sqrt(2h/R), R=6371 km);
+    see docs/design/telescope_runs_calendar.rst ("Astronomy: Night
+    Boundaries") for the derivation.
 
     Args:
         altitude_m: Observer altitude above sea level, in metres.
 
     Returns:
-        float: dip angle in degrees (e.g. 1.4376 for 2402 m).
+        u.Quantity: dip angle (e.g. 1.4376 deg for 2402 m).
 
     Raises:
         ValueError: if altitude_m is None or negative.
     """
     if altitude_m is None or altitude_m < 0:
         raise ValueError(f'altitude_m must be a non-negative number, got {altitude_m!r}')
-    dip_arcmin = 1.76 * sqrt(altitude_m)
-    return dip_arcmin / 60.0
+    return 1.76 * sqrt(altitude_m) * u.arcmin
 
 
 def _solar_altitude(times: Time, location) -> np.ndarray:
@@ -168,7 +172,7 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
     if kind == 'sun':
         dip = horizon_dip(site.altitude)
         # 0.833 deg = standard solar semi-diameter (~16') + horizon refraction (~34')
-        threshold = -(0.833 + dip)
+        threshold = -(0.833 + dip.to_value(u.deg))
     elif kind == 'dark':
         threshold = -15.0
     else:
