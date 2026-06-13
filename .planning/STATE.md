@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-12)
 Phase: 01
 Plan: Not started
 Status: Executing Phase 01
-Last activity: 2026-06-12
+Last activity: 2026-06-13 - Completed quick task 260613-eb1: Add a demo Jupyter notebook for Phase 1 (telescope_runs.py) under docs/notebooks/pre_executed/, and add a convention to .planning/PROJECT.md so future phases produce a similar demo notebook as part of their Definition of Done
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -71,6 +71,12 @@ None yet.
 ### Blockers/Concerns
 
 - Importing `solsys_code.ephem_utils` triggers a ~1.6GB SPICE kernel download; `telescope_runs.py` should avoid this import (use `astropy` directly for `EarthLocation`/`get_sun`/`AltAz`)
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260613-eb1 | Add a demo Jupyter notebook for Phase 1 (telescope_runs.py) under docs/notebooks/pre_executed/, and add a convention to .planning/PROJECT.md so future phases produce a similar demo notebook as part of their Definition of Done | 2026-06-13 | 1a36914 | [260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-](./quick/260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-/) |
 
 ## Deferred Items
 
