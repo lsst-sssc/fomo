@@ -131,6 +131,40 @@ environment (in which case it may be added to `notebooks.rst`). See
 `docs/notebooks/pre_executed/telescope_runs_demo.ipynb` (Phase 01) for an
 example. This is part of each phase's Definition of Done.
 
+### Django setup boilerplate for notebooks
+
+Any notebook that calls `django.setup()` (required before importing
+`solsys_code` modules that touch models, e.g. `Observatory`) needs this setup
+cell — both fixes were discovered the hard way on the Phase 01 demo notebook:
+
+```python
+import os
+import sys
+from pathlib import Path
+
+import django
+
+# Ensure the repo root is on sys.path so `src.fomo.settings` is importable
+# when this notebook is executed from its own directory (e.g.
+# docs/notebooks/pre_executed/).
+repo_root = str(Path.cwd().resolve().parents[2])  # adjust depth to repo root
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.fomo.settings')
+
+# Jupyter's ipykernel runs inside an asyncio event loop, but Django's ORM is
+# sync-only by default and refuses to run there; this opts back in.
+os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', 'true')
+
+django.setup()
+```
+
+Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module
+named 'src'`. Without `DJANGO_ALLOW_ASYNC_UNSAFE`, any ORM call (e.g.
+`Observatory.objects.get(...)`) raises `SynchronousOnlyOperation`. Adjust
+`parents[N]` to match the notebook's depth under the repo root.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
