@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Classical Run Ingest
 status: planning
-last_updated: "2026-06-14T00:33:12.439Z"
-last_activity: 2026-06-14
+last_updated: "2026-06-13T00:00:00.000Z"
+last_activity: 2026-06-13
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-14)
+See: .planning/PROJECT.md (updated 2026-06-13)
 
-**Core value:** v1.0 validated — sun-event times within 2 minutes of Las Campanas skycalc, sourced via the `Observatory` model, built end-to-end through GSD's discuss/plan/execute/verify loop.
-**Current focus:** Planning next milestone (v1.1 — see PROJECT.md "Next Milestone Goals")
+**Core value:** A `load_telescope_runs` management command turns classical-schedule run lines into accurate, idempotent `tom_calendar.CalendarEvent`s — one per observing night — using Stage 1's `telescope_runs.SITES`/`get_site()`/`sun_event()` for sunset/sunrise times.
+**Current focus:** Phase 2 (Run Line Parsing) — roadmap created, ready for `/gsd-plan-phase 2`
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 2 - Run Line Parsing
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-14 — Milestone v1.1 started
+Status: Roadmap created, not yet planned
+Last activity: 2026-06-13 — Roadmap created for v1.1 (Phases 2-3)
 
 ## Performance Metrics
 
@@ -58,8 +58,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - Sourcing: `SITES` coordinates come from `Observatory` model records (by MPC obscode), not a standalone hardcoded dict
-- Scope: this GSD run is Stage 1 only (site/ephemeris helper); Stages 2-4 deferred
-- Testing: `Observatory`-backed `SITES` tests go in `solsys_code/tests/` (Django suite, DB access); pure-math helpers (e.g. dip correction) may live in `tests/` (pytest)
+- Scope: v1.1 covers Stage 2 only (classical run ingest); Stages 3-4 deferred
+- Phase split: Phase 2 (parsing) is a prerequisite for Phase 3 (calendar ingest) — parser output tuples are the contract between them
+- Testing: `Observatory`-backed `SITES`/`sun_event()` tests go in `solsys_code/tests/` (Django suite, DB access); pure-parsing logic (Phase 2) may be unit-testable under `tests/` (pytest) if it has no DB dependency
 
 ### Pending Todos
 
@@ -67,8 +68,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Importing `solsys_code.ephem_utils` triggers a ~1.6GB SPICE kernel download; `telescope_runs.py` should avoid this import (use `astropy` directly for `EarthLocation`/`get_sun`/`AltAz`)
-- `tomtoolkit==3.0.0a9` (installed) no longer ships `tom_catalogs`, which `pyproject.toml`/`src/fomo/settings.py` (2.x-targeted) still expect — blocks `./manage.py migrate`/`./manage.py test` in the dev worktree. Pre-existing, not introduced by v1.0; the 12-test `solsys_code/tests/test_telescope_runs.py` suite remains unconfirmed by the real Django test runner. Recommend resolving before v1.1.
+- Environment blocker from v1.0 resolved (2026-06-13): `tom_catalogs` no longer referenced; `./manage.py test solsys_code` runs 79/79 OK.
 
 ### Quick Tasks Completed
 
@@ -87,10 +87,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T20:33:43.196Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-site-ephemeris-helper/01-CONTEXT.md
+Last session: 2026-06-13T00:00:00.000Z
+Stopped at: Roadmap created for v1.1 (Phases 2-3)
+Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Run `/gsd-plan-phase 2` to plan the Run Line Parsing phase

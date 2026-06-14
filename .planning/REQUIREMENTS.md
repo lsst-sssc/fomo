@@ -37,9 +37,9 @@ Scope below; they would form a future milestone if Stage 2 succeeds.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PARSE-01 | TBD | Pending |
-| PARSE-02 | TBD | Pending |
-| PARSE-03 | TBD | Pending |
-| INGEST-01 | TBD | Pending |
-| INGEST-02 | TBD | Pending |
-| INGEST-03 | TBD | Pending |
+| PARSE-01 | Phase 2 | Pending |
+| PARSE-02 | Phase 2 | Pending |
+| PARSE-03 | Phase 2 | Pending |
+| INGEST-01 | Phase 3 | Pending |
+| INGEST-02 | Phase 3 | Pending |
+| INGEST-03 | Phase 3 | Pending |
