@@ -30,7 +30,9 @@
   2. Parsing `Magellan Proto-Lightspeed Jul 8-12 (proposed)` (month-after-range, hyphenated instrument) yields `instrument='Proto-Lightspeed'` and the correct date fields
   3. A run line with no year present defaults `year` to the current year
   4. A run line whose date range starts in late December produces `year` = current year + 1 (roll-over to next calendar year)
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 02-01-PLAN.md — Add ParsedRun dataclass + parse_run_line() parser to telescope_runs.py, with tests covering all 4 success criteria
 
 ### Phase 3: Classical Calendar Ingest
 **Goal**: Running `load_telescope_runs` against a file of classical run lines populates the calendar with one accurate, idempotent `CalendarEvent` per observing night for each parsed run.
@@ -48,5 +50,5 @@
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|-----------------|--------|-----------|
 | 1. Site & Ephemeris Helper | v1.0 | 2/2 | Complete | 2026-06-12 |
-| 2. Run Line Parsing | v1.1 | 0/? | Not started | - |
+| 2. Run Line Parsing | v1.1 | 0/1 | Planned | - |
 | 3. Classical Calendar Ingest | v1.1 | 0/? | Not started | - |
