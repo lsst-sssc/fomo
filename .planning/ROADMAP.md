@@ -50,7 +50,11 @@ Plans:
   3. Each event's `telescope`/`instrument` fields and a glanceable `title` are set from the parsed run line, and `description` contains both the -15° dark-window times and the original run-line text
   4. Running `load_telescope_runs` twice on the same input file produces no duplicate `CalendarEvent`s
 
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+
+- [ ] 03-01-PLAN.md — Add `load_telescope_runs` management command (test-first) that expands parsed runs into idempotent nightly CalendarEvents (INGEST-01/02/03)
+- [ ] 03-02-PLAN.md — Phase 03 demo notebook (pre_executed) showing the ingest command and resulting CalendarEvents (Definition of Done)
 
 ## Progress
 
@@ -58,4 +62,4 @@ Plans:
 |-------|-----------|-----------------|--------|-----------|
 | 1. Site & Ephemeris Helper | v1.0 | 2/2 | Complete | 2026-06-12 |
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete   | 2026-06-14 |
-| 3. Classical Calendar Ingest | v1.1 | 0/? | Not started | - |
+| 3. Classical Calendar Ingest | v1.1 | 0/2 | Planned | - |
