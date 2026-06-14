@@ -37,7 +37,7 @@
 **Depends on**: Phase 2 (Run Line Parsing) — consumes its parsed tuples; also depends on Phase 1's `telescope_runs.get_site()`/`sun_event()` for sunset/sunrise times
 **Requirements**: INGEST-01, INGEST-02, INGEST-03
 **Success Criteria** (what must be TRUE):
-  1. Ingesting `NTT EFOSC2 allocation 9-13 July` creates 5 `CalendarEvent`s, `Magellan IMACS 13-19 July` creates 7, and `Magellan Proto-Lightspeed Jul 8-12` creates 5 — one per night, `E - S + 1` inclusive
+  1. Ingesting `NTT EFOSC2 allocation 9-13 July` creates 5 `CalendarEvent`s — one per night, `E - S + 1` inclusive. (Per Phase 2's CONTEXT.md D-01, the two `Magellan ...` sample lines raise `ValueError` on bare-`Magellan` telescope-name ambiguity and are Phase 2 error-path fixtures, not Phase 3 ingest fixtures — they are excluded from this phase's numeric success criteria.)
   2. Each created event has `start_time` = dip-corrected sunset of its evening date and `end_time` = sunrise of the following morning (both UTC, `end_time > start_time`, duration 8-15 hours)
   3. Each event's `telescope`/`instrument` fields and a glanceable `title` are set from the parsed run line, and `description` contains both the -15° dark-window times and the original run-line text
   4. Running `load_telescope_runs` twice on the same input file produces no duplicate `CalendarEvent`s
