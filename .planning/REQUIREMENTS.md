@@ -7,9 +7,9 @@
 
 ### Run Line Parsing
 
-- [ ] **PARSE-01**: Parse a classical run line (e.g. `NTT EFOSC2 allocation 9-13 July`, `Magellan IMACS 13-19 July (proposed)`, `Magellan Proto-Lightspeed Jul 8-12 (proposed)`) into `(telescope, instrument, status, year, month, day1, day2)`, handling both month-before-range (`9-13 July`) and month-after-range (`Jul 8-12`) date orderings
-- [ ] **PARSE-02**: Hyphenated instrument names (e.g. `Proto-Lightspeed`) parse correctly as a single instrument token
-- [ ] **PARSE-03**: A run line with no year defaults to the current year; a run starting in late December rolls into the next calendar year
+- [x] **PARSE-01**: Parse a classical run line (e.g. `NTT EFOSC2 allocation 9-13 July`, `Magellan IMACS 13-19 July (proposed)`, `Magellan Proto-Lightspeed Jul 8-12 (proposed)`) into `(telescope, instrument, status, year, month, day1, day2)`, handling both month-before-range (`9-13 July`) and month-after-range (`Jul 8-12`) date orderings
+- [x] **PARSE-02**: Hyphenated instrument names (e.g. `Proto-Lightspeed`) parse correctly as a single instrument token
+- [x] **PARSE-03**: A run line with no year defaults to the current year; a run starting in late December rolls into the next calendar year
 
 ### Classical Ingest
 
@@ -37,9 +37,9 @@ Scope below; they would form a future milestone if Stage 2 succeeds.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PARSE-01 | Phase 2 | Pending |
-| PARSE-02 | Phase 2 | Pending |
-| PARSE-03 | Phase 2 | Pending |
+| PARSE-01 | Phase 2 | Complete |
+| PARSE-02 | Phase 2 | Complete |
+| PARSE-03 | Phase 2 | Complete |
 | INGEST-01 | Phase 3 | Pending |
 | INGEST-02 | Phase 3 | Pending |
 | INGEST-03 | Phase 3 | Pending |

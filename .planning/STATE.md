@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Classical Run Ingest
 status: Roadmap created, not yet planned
 stopped_at: Phase 2 context gathered
-last_updated: "2026-06-14T01:13:41.934Z"
+last_updated: "2026-06-14T01:33:05.981Z"
 last_activity: 2026-06-13 — Roadmap created for v1.1 (Phases 2-3)
 progress:
   total_phases: 2
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -26,15 +26,15 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 2 - Run Line Parsing
-Plan: —
-Status: Roadmap created, not yet planned
-Last activity: 2026-06-13 — Roadmap created for v1.1 (Phases 2-3)
+Plan: 01 - complete
+Status: Plan 02-01 executed; ready for next plan or phase transition
+Last activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 2
+- Total plans completed: 3
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -43,6 +43,7 @@ Last activity: 2026-06-13 — Roadmap created for v1.1 (Phases 2-3)
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 2 | - | - |
+| 02 | 1 | ~35 min | ~35 min |
 
 **Recent Trend:**
 
@@ -62,6 +63,7 @@ Recent decisions affecting current work:
 - Scope: v1.1 covers Stage 2 only (classical run ingest); Stages 3-4 deferred
 - Phase split: Phase 2 (parsing) is a prerequisite for Phase 3 (calendar ingest) — parser output tuples are the contract between them
 - Testing: `Observatory`-backed `SITES`/`sun_event()` tests go in `solsys_code/tests/` (Django suite, DB access); pure-parsing logic (Phase 2) may be unit-testable under `tests/` (pytest) if it has no DB dependency
+- Phase 2 (02-01): telescope resolution by prefix match against `SITES.keys()`; ambiguous prefixes (e.g. `'Magellan'`) raise `ValueError` listing all candidates rather than guessing
 
 ### Pending Todos
 
@@ -88,10 +90,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-14T01:13:41.920Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-run-line-parsing/02-CONTEXT.md
+Last session: 2026-06-13T00:00:00.000Z
+Stopped at: Completed 02-01-PLAN.md (Run Line Parsing)
+Resume file: None
 
 ## Operator Next Steps
 
-- Run `/gsd-plan-phase 2` to plan the Run Line Parsing phase
+- Phase 2 (Run Line Parsing) plan 02-01 complete — proceed to Phase 3 (Classical Calendar Ingest) planning
