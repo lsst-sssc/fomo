@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Classical Run Ingest
 status: Plan 02-01 executed; ready for next plan or phase transition
-stopped_at: context exhaustion at 75% (2026-06-14)
-last_updated: "2026-06-14T02:08:11.387Z"
+stopped_at: Phase 3 context gathered
+last_updated: "2026-06-14T04:35:30.515Z"
 last_activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
 progress:
   total_phases: 2
@@ -90,9 +90,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-14T02:08:11.378Z
-Stopped at: context exhaustion at 75% (2026-06-14)
-Resume file: None
+Last session: 2026-06-14T04:35:30.509Z
+Stopped at: Phase 3 context gathered
+Resume file: .planning/phases/03-classical-calendar-ingest/03-CONTEXT.md
 
 ## Operator Next Steps
 
