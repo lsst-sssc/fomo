@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Classical Run Ingest
-status: Roadmap created, not yet planned
-stopped_at: Phase 2 context gathered
-last_updated: "2026-06-14T01:33:05.981Z"
-last_activity: 2026-06-13 — Roadmap created for v1.1 (Phases 2-3)
+status: Plan 02-01 executed; ready for next plan or phase transition
+stopped_at: context exhaustion at 75% (2026-06-14)
+last_updated: "2026-06-14T02:08:11.387Z"
+last_activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
 progress:
   total_phases: 2
   completed_phases: 1
@@ -90,8 +90,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-13T00:00:00.000Z
-Stopped at: Completed 02-01-PLAN.md (Run Line Parsing)
+Last session: 2026-06-14T02:08:11.378Z
+Stopped at: context exhaustion at 75% (2026-06-14)
 Resume file: None
 
 ## Operator Next Steps
