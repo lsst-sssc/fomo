@@ -6,7 +6,16 @@ from astropy.time import Time
 from django.test import TestCase
 
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.telescope_runs import SITES, _find_crossing, _local_noon_utc, get_site, horizon_dip, sun_event
+from solsys_code.telescope_runs import (
+    SITES,
+    ParsedRun,
+    _find_crossing,
+    _local_noon_utc,
+    get_site,
+    horizon_dip,
+    parse_run_line,
+    sun_event,
+)
 
 # LCO skycalc reference sunset/sunrise (UTC) for Las Campanas, June 2026.
 # June 10 is the design-doc-anchored reference (sunset 21:59 UTC / sunrise
@@ -213,3 +222,82 @@ class TestTelescopeRuns(TestCase):
         sydney = ZoneInfo('Australia/Sydney')
         self.assertEqual(datetime(2026, 7, 15, 12, tzinfo=sydney).utcoffset(), timedelta(hours=10))
         self.assertEqual(datetime(2026, 1, 15, 12, tzinfo=sydney).utcoffset(), timedelta(hours=11))
+
+    def test_parse_run_line_ntt_efosc2_allocation(self):
+        """ROADMAP SC1 / PARSE-01: 'NTT EFOSC2 allocation 9-13 July' parses to the documented fields."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='NTT',
+                instrument='EFOSC2',
+                status='allocation',
+                year=date.today().year,
+                month=7,
+                day1=9,
+                day2=13,
+            ),
+        )
+
+    def test_parse_run_line_ambiguous_magellan_imacs(self):
+        """ROADMAP SC1 error fixture / D-01: bare 'Magellan' raises ValueError naming both Magellan SITES keys."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_run_line('Magellan IMACS 13-19 July (proposed)')
+        self.assertIn('Magellan-Clay', str(ctx.exception))
+        self.assertIn('Magellan-Baade', str(ctx.exception))
+
+    def test_parse_run_line_ambiguous_magellan_proto_lightspeed(self):
+        """ROADMAP SC2 / D-01: 'Magellan Proto-Lightspeed Jul 8-12 (proposed)' raises ambiguous-Magellan ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_run_line('Magellan Proto-Lightspeed Jul 8-12 (proposed)')
+        self.assertIn('Magellan-Clay', str(ctx.exception))
+        self.assertIn('Magellan-Baade', str(ctx.exception))
+
+    def test_parse_run_line_proto_lightspeed_hyphenated_instrument(self):
+        """ROADMAP SC2 / PARSE-02: hyphenated 'Proto-Lightspeed' parses as one token, month-after-range ordering."""
+        result = parse_run_line('NTT Proto-Lightspeed Jul 8-12 (proposed)')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='NTT',
+                instrument='Proto-Lightspeed',
+                status='proposed',
+                year=date.today().year,
+                month=7,
+                day1=8,
+                day2=12,
+            ),
+        )
+
+    def test_parse_run_line_no_year_defaults_to_current_year(self):
+        """ROADMAP SC3 / PARSE-03: a run line with no year present defaults year to the current year."""
+        result = parse_run_line('FTS Spectral confirmed 5-7 Jan')
+        self.assertEqual(result.year, date.today().year)
+
+    def test_parse_run_line_december_january_rolls_over_year(self):
+        """ROADMAP SC4 / PARSE-03: a late-December-start range rolls year to current year + 1."""
+        result = parse_run_line('NTT EFOSC2 28 December-2 January')
+        self.assertEqual(result.year, date.today().year + 1)
+        self.assertEqual(result.month, 12)
+        self.assertEqual(result.day1, 28)
+        self.assertEqual(result.day2, 2)
+
+    def test_parse_run_line_no_status_defaults_to_allocation(self):
+        """D-05: a run line with no status defaults to status='allocation'."""
+        result = parse_run_line('NTT EFOSC2 9-13 July')
+        self.assertEqual(result.status, 'allocation')
+
+    def test_parse_run_line_unknown_status_raises(self):
+        """D-06: a status word not in KNOWN_STATUSES raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 banana 9-13 July')
+
+    def test_parse_run_line_unknown_telescope_raises(self):
+        """D-01: a telescope token matching no SITES key raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('Hubble X 1-2 July')
+
+    def test_parse_run_line_empty_line_raises(self):
+        """D-07: an empty line raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('')
