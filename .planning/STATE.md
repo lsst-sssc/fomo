@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: Classical Run Ingest
 status: Plan 02-01 executed; ready for next plan or phase transition
 stopped_at: Phase 3 context gathered
-last_updated: "2026-06-14T04:35:30.515Z"
+last_updated: "2026-06-14T04:59:10.722Z"
 last_activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
 progress:
   total_phases: 2

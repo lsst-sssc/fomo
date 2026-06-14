@@ -50,10 +50,13 @@ Plans:
   3. Each event's `telescope`/`instrument` fields and a glanceable `title` are set from the parsed run line, and `description` contains both the -15° dark-window times and the original run-line text
   4. Running `load_telescope_runs` twice on the same input file produces no duplicate `CalendarEvent`s
 
-**Plans**: 2 plans
-Plans:
+**Plans**: 2 plansPlans:
+**Wave 1**
 
 - [ ] 03-01-PLAN.md — Add `load_telescope_runs` management command (test-first) that expands parsed runs into idempotent nightly CalendarEvents (INGEST-01/02/03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 03-02-PLAN.md — Phase 03 demo notebook (pre_executed) showing the ingest command and resulting CalendarEvents (Definition of Done)
 
 ## Progress
