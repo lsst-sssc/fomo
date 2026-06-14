@@ -14,6 +14,43 @@ This GSD run is deliberately scoped to Stage 1 only: a self-contained,
 well-specified unit used to trial the GSD discuss→plan→execute→verify loop on
 this codebase before deciding whether to scale to the full 4-stage feature.
 
+## Current State
+
+**Shipped:** v1.0 "Site/Ephemeris Helper" — 2026-06-14
+
+- All 9 v1 requirements (SITE-01..03, EPHEM-01..06) validated in Phase 01;
+  verifier score 9/9 (`.planning/milestones/1.0-ROADMAP.md`).
+- Both halves of the Core Value below held: the sun-event math matches Las
+  Campanas skycalc to well within 2 minutes, and the GSD discuss→plan→
+  execute→verify loop ran end-to-end on this repo without workflow-level
+  blockers — the experiment that motivated this milestone succeeded.
+- **Known pre-existing environment issue** (not introduced by this
+  milestone): the installed `tomtoolkit==3.0.0a9` no longer ships
+  `tom_catalogs`, which `pyproject.toml`/`src/fomo/settings.py` (2.x-targeted)
+  still expect. This blocks `./manage.py migrate`/`./manage.py test` in the
+  dev worktree used for this phase. All algorithmic claims (horizon dip,
+  sun/dark events, skycalc validation, twilight crosscheck, DST resolution)
+  were independently re-verified via standalone `astropy`/`zoneinfo` scripts
+  against the same seeded coordinates. Resolving this (or running in an
+  environment with a 2.x-compatible `tomtoolkit`) is needed before
+  `./manage.py test solsys_code.tests.test_telescope_runs` can confirm the
+  12-test suite end-to-end.
+
+## Next Milestone Goals
+
+Per `docs/design/telescope_runs_calendar.rst`, a successful Stage 1 unlocks
+Stage 2. Candidate v1.1 scope:
+
+- Stage 2 — `load_telescope_runs` classical run ingest command, building on
+  `telescope_runs.SITES` / `get_site()` / `sun_event()`
+- Resolve the `tom_catalogs`/`tomtoolkit==3.0.0a9` environment blocker so
+  `./manage.py test solsys_code` runs cleanly (affects this and future
+  phases)
+- Stages 3-4 (FTS queue banners, observation-record sync) remain deferred
+  pending Stage 2's outcome
+
+Use `/gsd-new-milestone` to define v1.1 requirements formally.
+
 ## Core Value
 
 Stage 1 must do two things at once: produce sun-event times accurate to
@@ -191,4 +228,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after Phase 01 (site-ephemeris-helper) completion*
+*Last updated: 2026-06-14 after v1.0 milestone completion*

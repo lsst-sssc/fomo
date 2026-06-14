@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: Awaiting next milestone
 stopped_at: Phase 1 context gathered
-last_updated: "2026-06-12T21:41:36.252Z"
-last_activity: 2026-06-12
+last_updated: "2026-06-14T00:18:11.014Z"
+last_activity: 2026-06-14 — Milestone 1.0 completed and archived
 progress:
   total_phases: 1
   completed_phases: 1
@@ -25,12 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-12)
 
 ## Current Position
 
-Phase: 01
-Plan: Not started
-Status: Executing Phase 01
-Last activity: 2026-06-13 - Completed quick task 260613-f7d: Redirected ESO_How_to_download_data.ipynb downloads into docs/notebooks/data/ (git-ignored), relocated stray ADP.*.fits files, and excluded the newly-tracked vendored notebook from ruff to keep the `ruff check .` quality gate clean
-
-Progress: [░░░░░░░░░░] 0%
+Phase: Milestone 1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-14 — Milestone 1.0 completed and archived
 
 ## Performance Metrics
 
@@ -92,3 +90,7 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-06-12T20:33:43.196Z
 Stopped at: Phase 1 context gathered
 Resume file: .planning/phases/01-site-ephemeris-helper/01-CONTEXT.md
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
