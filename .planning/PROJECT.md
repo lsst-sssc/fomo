@@ -24,32 +24,37 @@ this codebase before deciding whether to scale to the full 4-stage feature.
   Campanas skycalc to well within 2 minutes, and the GSD discuss→plan→
   execute→verify loop ran end-to-end on this repo without workflow-level
   blockers — the experiment that motivated this milestone succeeded.
-- **Known pre-existing environment issue** (not introduced by this
-  milestone): the installed `tomtoolkit==3.0.0a9` no longer ships
-  `tom_catalogs`, which `pyproject.toml`/`src/fomo/settings.py` (2.x-targeted)
-  still expect. This blocks `./manage.py migrate`/`./manage.py test` in the
-  dev worktree used for this phase. All algorithmic claims (horizon dip,
-  sun/dark events, skycalc validation, twilight crosscheck, DST resolution)
-  were independently re-verified via standalone `astropy`/`zoneinfo` scripts
-  against the same seeded coordinates. Resolving this (or running in an
-  environment with a 2.x-compatible `tomtoolkit`) is needed before
-  `./manage.py test solsys_code.tests.test_telescope_runs` can confirm the
-  12-test suite end-to-end.
+- **Environment blocker resolved (as of 2026-06-13):** the v1.0 note about
+  `tomtoolkit==3.0.0a9` no longer shipping `tom_catalogs` is stale. This
+  branch's history now includes `main`'s `tomtoolkit3-migration` (PR #38,
+  merged 2026-06-11); `tom_catalogs` is no longer referenced anywhere in
+  `pyproject.toml`/`settings.py`. Confirmed: `python manage.py test
+  solsys_code` runs **79/79** tests OK, including the full 16-test
+  `solsys_code/tests/test_telescope_runs.py` suite (EPHEM-04/05/06
+  skycalc/twilight/DST checks all pass under the real Django test runner).
 
-## Next Milestone Goals
+## Current Milestone: v1.1 Classical Run Ingest (Stage 2)
 
-Per `docs/design/telescope_runs_calendar.rst`, a successful Stage 1 unlocks
-Stage 2. Candidate v1.1 scope:
+**Goal:** Add a `load_telescope_runs` management command that parses
+classical-schedule run lines (telescope, instrument, status, date range) and
+idempotently creates one `tom_calendar.CalendarEvent` per observing night,
+using Stage 1's `telescope_runs.SITES` / `get_site()` / `sun_event()` for
+sunset/sunrise times.
 
-- Stage 2 — `load_telescope_runs` classical run ingest command, building on
-  `telescope_runs.SITES` / `get_site()` / `sun_event()`
-- Resolve the `tom_catalogs`/`tomtoolkit==3.0.0a9` environment blocker so
-  `./manage.py test solsys_code` runs cleanly (affects this and future
-  phases)
-- Stages 3-4 (FTS queue banners, observation-record sync) remain deferred
-  pending Stage 2's outcome
+**Target features:**
+- Parse run lines like `NTT EFOSC2 allocation 9-13 July`,
+  `Magellan IMACS 13-19 July (proposed)`,
+  `Magellan Proto-Lightspeed Jul 8-12 (proposed)` — month before or after the
+  day range, no year given, hyphenated instrument names
+- Expand a date range S..E to `E - S + 1` nightly `CalendarEvent`s
+  (`start_time = sunset(d)`, `end_time = sunrise(d+1)`)
+- Populate `telescope`/`instrument`/`title`/`description` (including the -15°
+  dark window and the original run line text)
+- Idempotent re-run (no duplicate events on repeated ingest)
+- Late-December run lines roll over into the next calendar year
 
-Use `/gsd-new-milestone` to define v1.1 requirements formally.
+Stages 3-4 (FTS queue banners, observation-record sync) remain deferred
+pending this milestone's outcome.
 
 ## Core Value
 
@@ -102,8 +107,6 @@ _(none — all Stage 1 requirements validated in Phase 01)_
 
 ### Out of Scope
 
-- Stage 2 (classical run ingest command, `load_telescope_runs`) — deferred to
-  a future GSD run if Stage 1 succeeds
 - Stage 3 (FTS/MuSCAT4 queue window banners) — deferred; FTS queue input format
   is still an open item from the design doc
 - Stage 4 (observation-record sync to calendar) — deferred
@@ -228,4 +231,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 after v1.0 milestone completion*
+*Last updated: 2026-06-13 — started v1.1 milestone*
