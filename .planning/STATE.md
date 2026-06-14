@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-12)
+See: .planning/PROJECT.md (updated 2026-06-14)
 
-**Core value:** Sun-event times accurate to within 2 minutes of Las Campanas skycalc, sourced via the `Observatory` model, built end-to-end through GSD's discuss/plan/execute/verify loop.
-**Current focus:** Phase 01 — site-ephemeris-helper
+**Core value:** v1.0 validated — sun-event times within 2 minutes of Las Campanas skycalc, sourced via the `Observatory` model, built end-to-end through GSD's discuss/plan/execute/verify loop.
+**Current focus:** Planning next milestone (v1.1 — see PROJECT.md "Next Milestone Goals")
 
 ## Current Position
 
@@ -69,6 +69,7 @@ None yet.
 ### Blockers/Concerns
 
 - Importing `solsys_code.ephem_utils` triggers a ~1.6GB SPICE kernel download; `telescope_runs.py` should avoid this import (use `astropy` directly for `EarthLocation`/`get_sun`/`AltAz`)
+- `tomtoolkit==3.0.0a9` (installed) no longer ships `tom_catalogs`, which `pyproject.toml`/`src/fomo/settings.py` (2.x-targeted) still expect — blocks `./manage.py migrate`/`./manage.py test` in the dev worktree. Pre-existing, not introduced by v1.0; the 12-test `solsys_code/tests/test_telescope_runs.py` suite remains unconfirmed by the real Django test runner. Recommend resolving before v1.1.
 
 ### Quick Tasks Completed
 
