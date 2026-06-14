@@ -1,3 +1,5 @@
+import re
+from dataclasses import dataclass
 from datetime import date as date_cls
 from datetime import datetime, time
 from math import sqrt
@@ -18,6 +20,77 @@ SITES = {
     'NTT': '809',
     'FTS': 'E10',
 }
+
+# Known classical-schedule status words/phrases (case-insensitive), per
+# docs/design/telescope_runs_calendar.rst "Classical Run Input Format".
+KNOWN_STATUSES = {'allocation', 'proposed', 'confirmed', 'cancelled', 'not confirmed'}
+
+# Full month names and 3-letter abbreviations, case-insensitive, mapped to 1-12.
+_MONTH_NAMES = {
+    'jan': 1,
+    'january': 1,
+    'feb': 2,
+    'february': 2,
+    'mar': 3,
+    'march': 3,
+    'apr': 4,
+    'april': 4,
+    'may': 5,
+    'jun': 6,
+    'june': 6,
+    'jul': 7,
+    'july': 7,
+    'aug': 8,
+    'august': 8,
+    'sep': 9,
+    'september': 9,
+    'oct': 10,
+    'october': 10,
+    'nov': 11,
+    'november': 11,
+    'dec': 12,
+    'december': 12,
+}
+
+_MONTH_NAME_PATTERN = '|'.join(sorted(_MONTH_NAMES, key=len, reverse=True))
+
+# month-after-range, e.g. 'Jul 8-12'
+_MONTH_AFTER_RANGE = re.compile(
+    rf"""
+    (?P<month1>{_MONTH_NAME_PATTERN})\s+
+    (?P<day1>\d{{1,2}})
+    \s*-\s*
+    (?P<day2>\d{{1,2}})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# month-before-range, e.g. '9-13 July'
+_MONTH_BEFORE_RANGE = re.compile(
+    rf"""
+    (?P<day1>\d{{1,2}})
+    \s*-\s*
+    (?P<day2>\d{{1,2}})
+    \s+
+    (?P<month1>{_MONTH_NAME_PATTERN})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# cross-month range, e.g. '28 December-2 January'
+_CROSS_MONTH_RANGE = re.compile(
+    rf"""
+    (?P<day1>\d{{1,2}})\s+
+    (?P<month1>{_MONTH_NAME_PATTERN})
+    \s*-\s*
+    (?P<day2>\d{{1,2}})\s+
+    (?P<month2>{_MONTH_NAME_PATTERN})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# Status as a parenthesized phrase, e.g. '(proposed)' or '(not confirmed)'.
+_PAREN_STATUS = re.compile(r'\(([^)]+)\)')
 
 
 def get_site(name: str) -> Observatory:
@@ -187,3 +260,171 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
             'reaches the requested threshold (e.g. midnight sun or no astronomical darkness).'
         )
     return crossings[0], crossings[1]
+
+
+@dataclass(frozen=True)
+class ParsedRun:
+    """Structured result of parse_run_line().
+
+    Attributes:
+        telescope: resolved SITES key (e.g. 'NTT').
+        instrument: instrument name as it appears in the run line (may be
+            hyphenated, e.g. 'Proto-Lightspeed').
+        status: lowercase status word/phrase, e.g. 'allocation', 'proposed',
+            'not confirmed'. Defaults to 'allocation' if absent (D-05).
+        year: four-digit year. Defaults to the current year (PARSE-03), or
+            current year + 1 for a run that starts in December and ends in
+            January (year roll-over).
+        month: month number (1-12) of day1 (the start of the run).
+        day1: first day of the run (inclusive).
+        day2: last day of the run (inclusive).
+    """
+
+    telescope: str
+    instrument: str
+    status: str
+    year: int
+    month: int
+    day1: int
+    day2: int
+
+
+def _resolve_telescope(token: str) -> str:
+    """Resolves a telescope token to a SITES key by prefix match (D-01).
+
+    Args:
+        token: the first whitespace-delimited token of a run line.
+
+    Returns:
+        str: the resolved SITES key.
+
+    Raises:
+        ValueError: if token is a prefix of zero or 2+ SITES keys.
+    """
+    if token in SITES:
+        return token
+    candidates = [key for key in SITES if key.startswith(token)]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise ValueError(
+            f'Ambiguous telescope {token!r}: matches multiple SITES keys {candidates}; '
+            'use a more specific telescope name (e.g. "Magellan-Clay" or "Magellan-Baade").'
+        )
+    raise ValueError(f'Unknown telescope {token!r}: does not match any SITES key {list(SITES)}')
+
+
+def _resolve_status(line: str) -> tuple[str, str]:
+    """Extracts and validates the status word/phrase from a run line (D-04/05/06).
+
+    Args:
+        line: the full run line (including any parenthesized status).
+
+    Returns:
+        tuple[str, str]: (status, remainder) where status is the lowercase
+            KNOWN_STATUSES member (defaulting to 'allocation' if absent) and
+            remainder is the line with the status token(s) removed.
+
+    Raises:
+        ValueError: if a parenthesized phrase or trailing status-shaped word
+            is present but not in KNOWN_STATUSES.
+    """
+    paren_match = _PAREN_STATUS.search(line)
+    if paren_match:
+        candidate = paren_match.group(1).strip().lower()
+        if candidate not in KNOWN_STATUSES:
+            raise ValueError(
+                f'Unrecognized status {candidate!r} in {line!r}; known statuses are {sorted(KNOWN_STATUSES)}'
+            )
+        remainder = line[: paren_match.start()] + line[paren_match.end() :]
+        return candidate, remainder
+
+    # Multi-word statuses (e.g. 'not confirmed') checked before single words.
+    for status in sorted(KNOWN_STATUSES, key=len, reverse=True):
+        match = re.search(rf'(?<!\S){re.escape(status)}(?!\S)', line, re.IGNORECASE)
+        if match:
+            remainder = line[: match.start()] + line[match.end() :]
+            return status, remainder
+
+    return 'allocation', line
+
+
+def parse_run_line(line: str) -> ParsedRun:
+    """Parses a free-text classical-schedule run line into structured fields.
+
+    Expected format (per docs/design/telescope_runs_calendar.rst "Classical
+    Run Input Format"): ``telescope instrument [status] daterange [(status)]``,
+    e.g. 'NTT EFOSC2 allocation 9-13 July' or 'Magellan Proto-Lightspeed Jul
+    8-12 (proposed)'. The date range may have the month name before or after
+    the day range, and no year is given (year defaults per PARSE-03).
+
+    Args:
+        line: a single run-line string.
+
+    Returns:
+        ParsedRun: the parsed telescope, instrument, status, year, month,
+            day1, day2.
+
+    Raises:
+        ValueError: if line is empty, the telescope token does not resolve to
+            exactly one SITES key (D-01), the status is unrecognized (D-06),
+            or no date range can be found.
+    """
+    stripped = line.strip()
+    if not stripped:
+        raise ValueError('parse_run_line() received an empty line')
+
+    status, remainder = _resolve_status(stripped)
+
+    # Date range: try month-after-range ('Jul 8-12'), cross-month
+    # ('28 December-2 January'), then month-before-range ('9-13 July').
+    match = _MONTH_AFTER_RANGE.search(remainder)
+    if match:
+        day1 = int(match.group('day1'))
+        day2 = int(match.group('day2'))
+        month = _MONTH_NAMES[match.group('month1').lower()]
+    else:
+        match = _CROSS_MONTH_RANGE.search(remainder)
+        if match:
+            day1 = int(match.group('day1'))
+            day2 = int(match.group('day2'))
+            month = _MONTH_NAMES[match.group('month1').lower()]
+        else:
+            match = _MONTH_BEFORE_RANGE.search(remainder)
+            if not match:
+                raise ValueError(f'Could not find a date range (e.g. "9-13 July" or "Jul 8-12") in {line!r}')
+            day1 = int(match.group('day1'))
+            day2 = int(match.group('day2'))
+            month = _MONTH_NAMES[match.group('month1').lower()]
+
+    # Year (PARSE-03): default to current year; roll over to next year if the
+    # run starts in December and ends in January (cross-year range).
+    year = date_cls.today().year
+    if month == 12 and day2 < day1:
+        year += 1
+
+    # Telescope (token 0) and instrument (token 1, possibly hyphenated).
+    before_range = remainder[: match.start()]
+    tokens = before_range.split()
+    if len(tokens) < 2:
+        raise ValueError(f'Could not find telescope and instrument tokens in {line!r}')
+    telescope_token, instrument = tokens[0], tokens[1]
+
+    # D-06: any remaining word(s) between instrument and the date range are a
+    # status-shaped token that must be in KNOWN_STATUSES (already checked and
+    # consumed by _resolve_status if recognized).
+    leftover = ' '.join(tokens[2:]).strip()
+    if leftover:
+        raise ValueError(f'Unrecognized status {leftover!r} in {line!r}; known statuses are {sorted(KNOWN_STATUSES)}')
+
+    telescope = _resolve_telescope(telescope_token)
+
+    return ParsedRun(
+        telescope=telescope,
+        instrument=instrument,
+        status=status,
+        year=year,
+        month=month,
+        day1=day1,
+        day2=day2,
+    )
