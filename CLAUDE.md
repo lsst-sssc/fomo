@@ -24,10 +24,10 @@ ephemerides for non-sidereal targets and ingests minor-body orbits from JPL.
 ./manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
 ./manage.py fetch_jplsbdb_objects --orbit_class IEO
 
-# Tests — there are TWO independent test suites (see "Testing" below):
-python -m pytest                          # pytest suite: tests/, src/, docs/ only
+# Tests — use the Django test runner for new tests (see "Testing" below):
 ./manage.py test                          # Django app tests (solsys_code et al.)
 ./manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
+python -m pytest                          # legacy pytest suite: tests/, src/, docs/ only
 
 # Lint / format (also enforced by pre-commit). Single quotes, 120-col line length.
 ruff check . --fix
@@ -79,10 +79,15 @@ target-detail buttons are injected via the app-config integration hooks (`nav_it
 
 ## Testing
 
-`pyproject.toml` sets `testpaths = ["tests", "src", "docs"]`, so **`python -m pytest` does NOT collect
-the Django app tests** under `solsys_code/`. Those use `django.test.TestCase` and run under the Django
-test runner (`./manage.py test`). When adding tests, put pure-Python/packaging tests under `tests/` and
-Django/DB-dependent tests under the relevant app's `tests/` package.
+This is a Django project, so **new tests should be written for and run with the Django test runner**
+(`./manage.py test`), under the relevant app's `tests/` package (e.g. `solsys_code/tests/`), using
+`django.test.TestCase` / `SimpleTestCase`. Prefer this even for pure-Python logic with no DB
+dependency — use `SimpleTestCase` and loops with `self.subTest(...)` in place of
+`pytest.mark.parametrize`.
+
+A legacy pytest suite still exists under `tests/`, `src/`, and `docs/` (`pyproject.toml`
+`testpaths`), which `python -m pytest` collects and **does not** include the Django app tests under
+`solsys_code/`. Don't add new tests there; it's kept only for the existing packaging/doctest checks.
 
 ## Conventions
 
