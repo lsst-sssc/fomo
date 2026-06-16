@@ -29,7 +29,7 @@ def _iter_run_nights(parsed: ParsedRun) -> list[date]:
 
 
 class Command(BaseCommand):
-    """Load classical telescope run lines from a file and upsert CalendarEvents."""
+    """Load classical telescope run lines from a file and create or update CalendarEvents."""
 
     help = 'Load classical telescope run lines from a file and create/update CalendarEvents'
 
@@ -43,7 +43,11 @@ class Command(BaseCommand):
         # No return statement — BaseCommand.add_arguments() returns None
 
     def handle(self, *args: Any, **options: Any) -> str | None:
-        """Load classical schedule lines and upsert CalendarEvents.
+        """Load classical schedule lines and create or update CalendarEvents.
+
+        For each observing night derived from a run line: create a new CalendarEvent
+        if one does not exist, or update the existing event if any fields have changed,
+        or leave it untouched if nothing has changed.
 
         Returns:
             str | None: None on completion.
