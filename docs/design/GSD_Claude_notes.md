@@ -125,3 +125,8 @@
    █████▋                                             11% used
    $4.50 / $40.00 spent · Resets Jul 1 (America/Los_Angeles)
    
+
+   ### Fixing up issues after phase 3
+   Run:
+   /gsd-code-review 03 --fix
+   
