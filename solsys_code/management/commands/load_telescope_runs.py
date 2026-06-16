@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 from tom_calendar.models import CalendarEvent
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -55,58 +55,61 @@ class Command(BaseCommand):
         skipped_count = 0
         lines_processed = 0
 
-        with open(filepath) as f:
-            for line_num, line in enumerate(f, start=1):
-                if not line.strip():
-                    continue
-                lines_processed += 1
-                try:
-                    parsed = parse_run_line(line)
-                    site = get_site(parsed.telescope)
-                    nights = _iter_run_nights(parsed)
-                    for d in nights:
-                        sunset, sunrise = sun_event(site, d, 'sun')
-                        dark_start, dark_end = sun_event(site, d, 'dark')
-                        start_time = sunset.to_datetime(timezone=dt_timezone.utc)
-                        end_time = sunrise.to_datetime(timezone=dt_timezone.utc)
-                        dark_start_dt = dark_start.to_datetime(timezone=dt_timezone.utc)
-                        dark_end_dt = dark_end.to_datetime(timezone=dt_timezone.utc)
+        try:
+            with open(filepath, encoding='utf-8') as f:
+                file_lines = list(f)
+        except OSError as exc:
+            raise CommandError(f'Cannot open schedule file {filepath!r}: {exc}') from exc
 
-                        title = f'{parsed.telescope} {parsed.instrument}'
-                        description = (
-                            f'Dark window (-15 deg, UTC): {dark_start_dt.isoformat()} to {dark_end_dt.isoformat()}\n'
-                            f'Status: {parsed.status}\n'
-                            f'Source line: {line.strip()}'
-                        )
+        for line_num, line in enumerate(file_lines, start=1):
+            if not line.strip():
+                continue
+            lines_processed += 1
+            try:
+                parsed = parse_run_line(line)
+                site = get_site(parsed.telescope)
+                nights = _iter_run_nights(parsed)
+                for d in nights:
+                    sunset, sunrise = sun_event(site, d, 'sun')
+                    dark_start, dark_end = sun_event(site, d, 'dark')
+                    start_time = sunset.to_datetime(timezone=dt_timezone.utc)
+                    end_time = sunrise.to_datetime(timezone=dt_timezone.utc)
+                    dark_start_dt = dark_start.to_datetime(timezone=dt_timezone.utc)
+                    dark_end_dt = dark_end.to_datetime(timezone=dt_timezone.utc)
 
-                        event, created = CalendarEvent.objects.get_or_create(
-                            telescope=parsed.telescope,
-                            instrument=parsed.instrument,
-                            start_time=start_time,
-                            defaults={
-                                'end_time': end_time,
-                                'title': title,
-                                'description': description,
-                            },
-                        )
-                        if created:
-                            created_count += 1
+                    title = f'{parsed.telescope} {parsed.instrument}'
+                    description = (
+                        f'Dark window (-15 deg, UTC): {dark_start_dt.isoformat()} to {dark_end_dt.isoformat()}\n'
+                        f'Status: {parsed.status}\n'
+                        f'Source line: {line.strip()}'
+                    )
+
+                    event, created = CalendarEvent.objects.get_or_create(
+                        telescope=parsed.telescope,
+                        instrument=parsed.instrument,
+                        start_time=start_time,
+                        defaults={
+                            'end_time': end_time,
+                            'title': title,
+                            'description': description,
+                        },
+                    )
+                    if created:
+                        created_count += 1
+                    else:
+                        changed = event.end_time != end_time or event.title != title or event.description != description
+                        if changed:
+                            event.end_time = end_time
+                            event.title = title
+                            event.description = description
+                            event.save()
+                            updated_count += 1
                         else:
-                            changed = (
-                                event.end_time != end_time or event.title != title or event.description != description
-                            )
-                            if changed:
-                                event.end_time = end_time
-                                event.title = title
-                                event.description = description
-                                event.save()
-                                updated_count += 1
-                            else:
-                                unchanged_count += 1
-                except (ValueError, Observatory.DoesNotExist) as exc:
-                    self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
-                    skipped_count += 1
-                    continue
+                            unchanged_count += 1
+            except (ValueError, Observatory.DoesNotExist) as exc:
+                self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
+                skipped_count += 1
+                continue
 
         self.stdout.write(
             f'Done. lines processed: {lines_processed}, '
