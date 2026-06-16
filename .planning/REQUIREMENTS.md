@@ -13,9 +13,9 @@
 
 ### Classical Ingest
 
-- [ ] **INGEST-01**: `load_telescope_runs` management command expands a parsed run `S..E` into `E - S + 1` nightly `CalendarEvent`s (one per evening date `d`, `start_time = sunset(d)`, `end_time = sunrise(d+1)`), using `telescope_runs.get_site()`/`sun_event()`
-- [ ] **INGEST-02**: Each created event sets `telescope`/`instrument` from the parsed line, with a glanceable `title` and a `description` containing the -15° dark window times plus the original run line text
-- [ ] **INGEST-03**: Running the command twice on the same input file does not create duplicate `CalendarEvent`s (idempotent)
+- [x] **INGEST-01**: `load_telescope_runs` management command expands a parsed run `S..E` into `E - S + 1` nightly `CalendarEvent`s (one per evening date `d`, `start_time = sunset(d)`, `end_time = sunrise(d+1)`), using `telescope_runs.get_site()`/`sun_event()`
+- [x] **INGEST-02**: Each created event sets `telescope`/`instrument` from the parsed line, with a glanceable `title` and a `description` containing the -15° dark window times plus the original run line text
+- [x] **INGEST-03**: Running the command twice on the same input file does not create duplicate `CalendarEvent`s (idempotent)
 
 ## v2 Requirements
 
@@ -40,6 +40,6 @@ Scope below; they would form a future milestone if Stage 2 succeeds.
 | PARSE-01 | Phase 2 | Complete |
 | PARSE-02 | Phase 2 | Complete |
 | PARSE-03 | Phase 2 | Complete |
-| INGEST-01 | Phase 3 | Pending |
-| INGEST-02 | Phase 3 | Pending |
-| INGEST-03 | Phase 3 | Pending |
+| INGEST-01 | Phase 3 | Complete (03-01, 2026-06-16) |
+| INGEST-02 | Phase 3 | Complete (03-01, 2026-06-16) |
+| INGEST-03 | Phase 3 | Complete (03-01, 2026-06-16) |

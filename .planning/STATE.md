@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Classical Run Ingest
-status: Phase 3 planned (03-01 and 03-02 ready); execute 03-01 next
-stopped_at: context exhaustion at 79% (2026-06-14)
-last_updated: "2026-06-14T05:02:28.058Z"
-last_activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
+status: executing
+stopped_at: completed 03-01 (2026-06-16)
+last_updated: "2026-06-16T15:55:00Z"
+last_activity: 2026-06-16 -- Phase 03 plan 01 completed (load_telescope_runs command + 6 tests)
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** A `load_telescope_runs` management command turns classical-schedule run lines into accurate, idempotent `tom_calendar.CalendarEvent`s — one per observing night — using Stage 1's `telescope_runs.SITES`/`get_site()`/`sun_event()` for sunset/sunrise times.
-**Current focus:** Phase 2 (Run Line Parsing) — roadmap created, ready for `/gsd-plan-phase 2`
+**Current focus:** Phase 03 — classical-calendar-ingest
 
 ## Current Position
 
-Phase: 2 - Run Line Parsing
-Plan: 01 - complete
-Status: Plan 02-01 executed; ready for next plan or phase transition
-Last activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
+Phase: 03 (classical-calendar-ingest) — EXECUTING
+Plan: 2 of 2 (03-01 complete; 03-02 next)
+Status: Executing Phase 03
+Last activity: 2026-06-16 -- Phase 03 plan 01 completed (load_telescope_runs command + 6 tests)
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Last activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
 |-------|-------|-------|----------|
 | 01 | 2 | - | - |
 | 02 | 1 | ~35 min | ~35 min |
+| 03 | 1/2 | ~7 min (03-01) | ~7 min |
 
 **Recent Trend:**
 
@@ -64,6 +65,8 @@ Recent decisions affecting current work:
 - Phase split: Phase 2 (parsing) is a prerequisite for Phase 3 (calendar ingest) — parser output tuples are the contract between them
 - Testing: `Observatory`-backed `SITES`/`sun_event()` tests go in `solsys_code/tests/` (Django suite, DB access); pure-parsing logic (Phase 2) may be unit-testable under `tests/` (pytest) if it has no DB dependency
 - Phase 2 (02-01): telescope resolution by prefix match against `SITES.keys()`; ambiguous prefixes (e.g. `'Magellan'`) raise `ValueError` listing all candidates rather than guessing
+- Phase 3 (03-01): `Observatory.DoesNotExist` caught alongside `ValueError` in per-line handler (log+skip, not abort)
+- Phase 3 (03-01): cross-month runs (`day2 < day1`) raise `ValueError` in `_iter_run_nights` and are reported+skipped — fails loudly
 
 ### Pending Todos
 
@@ -90,10 +93,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-14T05:02:28.051Z
-Stopped at: context exhaustion at 79% (2026-06-14)
-Resume file: .planning/phases/03-classical-calendar-ingest/03-CONTEXT.md
+Last session: 2026-06-16T15:55:00Z
+Stopped at: completed 03-01 (load_telescope_runs command)
+Resume file: .planning/phases/03-classical-calendar-ingest/03-02-PLAN.md
 
 ## Operator Next Steps
 
-- Phase 3 (Classical Calendar Ingest) plans 03-01 and 03-02 are ready — run `/gsd-execute-phase` to execute 03-01 (load_telescope_runs command + tests)
+- Phase 3 plan 03-01 complete. Run `/gsd-execute-phase` to execute 03-02 (integration test / demo notebook)
