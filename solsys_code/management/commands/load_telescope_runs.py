@@ -1,0 +1,118 @@
+from datetime import date, timedelta
+from datetime import timezone as dt_timezone
+from typing import Any
+
+from django.core.management.base import BaseCommand, CommandParser
+from tom_calendar.models import CalendarEvent
+
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import ParsedRun, get_site, parse_run_line, sun_event
+
+
+def _iter_run_nights(parsed: ParsedRun) -> list[date]:
+    """Returns one evening date per observing night (E - S + 1 nights, INGEST-01).
+
+    Args:
+        parsed: a ParsedRun from parse_run_line().
+
+    Returns:
+        list[date]: evening dates for each night of the run.
+
+    Raises:
+        ValueError: if day2 < day1 (cross-month ranges are not supported in Phase 3).
+    """
+    if parsed.day2 < parsed.day1:
+        raise ValueError(f'Cross-month run ranges not yet supported in Phase 3: {parsed!r}')
+    first_night = date(parsed.year, parsed.month, parsed.day1)
+    n_nights = parsed.day2 - parsed.day1 + 1
+    return [first_night + timedelta(days=i) for i in range(n_nights)]
+
+
+class Command(BaseCommand):
+    """Load classical telescope run lines from a file and upsert CalendarEvents."""
+
+    help = 'Load classical telescope run lines from a file and create/update CalendarEvents'
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Parse command line arguments."""
+        parser.add_argument(
+            'filepath',
+            type=str,
+            help='Path to a text file of classical run lines (one per line)',
+        )
+        return super().add_arguments(parser)
+
+    def handle(self, *args: Any, **options: Any) -> str | None:
+        """Load classical schedule lines and upsert CalendarEvents.
+
+        Returns:
+            str | None: None on completion.
+        """
+        filepath = options['filepath']
+        created_count = 0
+        updated_count = 0
+        unchanged_count = 0
+        skipped_count = 0
+        lines_processed = 0
+
+        with open(filepath) as f:
+            for line_num, line in enumerate(f, start=1):
+                if not line.strip():
+                    continue
+                lines_processed += 1
+                try:
+                    parsed = parse_run_line(line)
+                    site = get_site(parsed.telescope)
+                    nights = _iter_run_nights(parsed)
+                    for d in nights:
+                        sunset, sunrise = sun_event(site, d, 'sun')
+                        dark_start, dark_end = sun_event(site, d, 'dark')
+                        start_time = sunset.to_datetime(timezone=dt_timezone.utc)
+                        end_time = sunrise.to_datetime(timezone=dt_timezone.utc)
+                        dark_start_dt = dark_start.to_datetime(timezone=dt_timezone.utc)
+                        dark_end_dt = dark_end.to_datetime(timezone=dt_timezone.utc)
+
+                        title = f'{parsed.telescope} {parsed.instrument}'
+                        description = (
+                            f'Dark window (-15 deg, UTC): {dark_start_dt.isoformat()} to {dark_end_dt.isoformat()}\n'
+                            f'Status: {parsed.status}\n'
+                            f'Source line: {line.strip()}'
+                        )
+
+                        event, created = CalendarEvent.objects.get_or_create(
+                            telescope=parsed.telescope,
+                            instrument=parsed.instrument,
+                            start_time=start_time,
+                            defaults={
+                                'end_time': end_time,
+                                'title': title,
+                                'description': description,
+                            },
+                        )
+                        if created:
+                            created_count += 1
+                        else:
+                            changed = (
+                                event.end_time != end_time or event.title != title or event.description != description
+                            )
+                            if changed:
+                                event.end_time = end_time
+                                event.title = title
+                                event.description = description
+                                event.save()
+                                updated_count += 1
+                            else:
+                                unchanged_count += 1
+                except (ValueError, Observatory.DoesNotExist) as exc:
+                    self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
+                    skipped_count += 1
+                    continue
+
+        self.stdout.write(
+            f'Done. lines processed: {lines_processed}, '
+            f'created: {created_count}, '
+            f'updated: {updated_count}, '
+            f'unchanged: {unchanged_count}, '
+            f'skipped: {skipped_count}'
+        )
+        return
