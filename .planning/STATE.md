@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Classical Run Ingest
-status: complete
-stopped_at: milestone close (2026-06-16)
-last_updated: "2026-06-16T19:00:00.000Z"
+milestone: v1.2
+milestone_name: LCO Queue Calendar Sync
+status: planning
+last_updated: "2026-06-16T23:34:49.431Z"
 last_activity: 2026-06-16
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: —
+Phase: Not started (defining requirements)
 Plan: —
-Status: v1.1 milestone shipped 2026-06-16
-Last activity: 2026-06-16
+Status: Defining requirements
+Last activity: 2026-06-16 — Milestone v1.2 started
 
 ## Performance Metrics
 

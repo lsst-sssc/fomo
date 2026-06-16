@@ -1,19 +1,23 @@
-# Telescope Runs Calendar — Stage 1 & 2
+# Telescope Runs Calendar — Stages 1, 2 & 3
 
 ## What This Is
 
-A helper module and management command for FOMO that:
+A helper module and management commands for FOMO that:
 
 1. (`solsys_code/telescope_runs.py`) resolves a telescope name to its observing site (via the `Observatory` model, by MPC obscode) and computes dip-corrected UTC sunset, sunrise, and -15° dark-window crossing times for a given date — Stage 1.
 2. (`solsys_code/management/commands/load_telescope_runs.py`) parses classical-schedule run lines and idempotently creates one `tom_calendar.CalendarEvent` per observing night, populated with sunset/sunrise times and the -15° dark window — Stage 2.
+3. (`solsys_code/management/commands/sync_lco_observation_calendar.py`) syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar as unified CalendarEvents — starting as a scheduling-window banner and updating in place to the placed block once the LCO scheduler acts — Stage 3 (in progress).
 
-This is a Stage 2-complete implementation of the "telescope runs on the calendar" feature (issue #37). Stages 3-4 (FTS queue banners, observation-record sync) remain deferred.
+This is a Stage 3-in-progress implementation of the "telescope runs on the calendar" feature (issue #37). Stage 4 (full observation-record sync for all facilities) remains future work.
 
 ## Current State
 
 **Shipped:**
 - ✅ v1.0 "Site/Ephemeris Helper" — 2026-06-14 (Phase 1)
 - ✅ v1.1 "Classical Run Ingest" — 2026-06-16 (Phases 2-3)
+
+**In progress:**
+- 🔄 v1.2 "LCO Queue Calendar Sync" — Phase 4 (planning)
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
@@ -29,6 +33,20 @@ This is a Stage 2-complete implementation of the "telescope runs on the calendar
 Stage 1 (v1.0): Sun-event times accurate to within 2 minutes of the Las Campanas skycalc reference tool — the foundation that Stages 2-4 build on. Also: validated the GSD discuss→plan→execute→verify loop end-to-end on this codebase.
 
 Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-schedule run lines into accurate, idempotent `tom_calendar.CalendarEvent`s — one per observing night — using Stage 1's `SITES`/`get_site()`/`sun_event()` for sunset/sunrise times.
+
+Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
+
+## Current Milestone: v1.2 LCO Queue Calendar Sync
+
+**Goal:** Sync FTS/MuSCAT4 LCO queue ObservationRecords to the FOMO calendar as a unified CalendarEvent per record — window banner when unscheduled, placed block once the LCO scheduler acts, updating in place on rescheduling.
+
+**Target features:**
+- `sync_lco_observation_calendar` management command queries `ObservationRecord(facility='LCO')` for FTS/MuSCAT4 records
+- One CalendarEvent per record, keyed on the LCO portal URL (`url` field) for idempotency and click-through
+- Banner phase: times from `parameters['start']`/`parameters['end']` when `scheduled_start` is `None`
+- Placed-block phase: times from `scheduled_start`/`scheduled_end` when populated
+- Updating in place on rescheduling (no duplicate events)
+- Terminal-state handling: WINDOW_EXPIRED, CANCELED, etc. → event removed or marked
 
 ## Requirements
 
@@ -53,13 +71,16 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 ### Active
 
-_(none — all Stage 1 and Stage 2 requirements validated)_
+- **SYNC-01**: `sync_lco_observation_calendar` command upserts one `CalendarEvent` per `ObservationRecord(facility='LCO')` matching FTS/MuSCAT4, keyed on LCO portal URL in the `url` field — v1.2
+- **SYNC-02**: When `scheduled_start` is `None`, event times come from `parameters['start']`/`parameters['end']` (window banner); `title` indicates queue/unscheduled status — v1.2
+- **SYNC-03**: When `scheduled_start`/`scheduled_end` are populated, event times are updated to those values in the existing event (placed block replaces banner) — v1.2
+- **SYNC-04**: Re-running the command after rescheduling updates the existing event's times without creating a duplicate — v1.2
+- **SYNC-05**: Records in terminal states (WINDOW_EXPIRED, CANCELED, FAILURE_LIMIT_REACHED, NOT_ATTEMPTED) result in the CalendarEvent being removed or visibly marked — v1.2
 
 ### Out of Scope
 
-- Stage 3 (FTS/MuSCAT4 queue window banners) — deferred; FTS queue input format still an open item from the design doc
-- Stage 4 (observation-record sync to calendar) — deferred; depends on Stages 1-3
-- Any `tom_calendar` UI/template changes — not needed for Stages 1-2
+- Stage 4 full sync (all LCO facilities, not just FTS/MuSCAT4) — deferred after v1.2 validates the approach
+- Any `tom_calendar` UI/template changes — not needed for Stages 1-3
 - Reworking `tom_observations`' existing astroplan-based visibility/airmass plots — separate, not touched by this feature
 - Distinguishing Magellan Baade vs Clay in `telescope` field — open item; bare `'Magellan'` is deliberately ambiguous (both at Las Campanas, same ephemeris)
 - Replacing `SITES`'s hardcoded telescope-name → obscode mapping with a data-driven `Observatory.short_name` lookup — Stage 2+ consideration, not required for Stage 2 success criteria
@@ -139,4 +160,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-16 after v1.1 milestone*
+*Last updated: 2026-06-16 — v1.2 milestone started*
