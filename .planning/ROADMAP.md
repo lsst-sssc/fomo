@@ -65,4 +65,4 @@ Plans:
 |-------|-----------|-----------------|--------|-----------|
 | 1. Site & Ephemeris Helper | v1.0 | 2/2 | Complete | 2026-06-12 |
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete   | 2026-06-14 |
-| 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete   | 2026-06-16 |
+| 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete    | 2026-06-16 |
