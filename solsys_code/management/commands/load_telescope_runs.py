@@ -76,10 +76,10 @@ class Command(BaseCommand):
                 for d in nights:
                     sunset, sunrise = sun_event(site, d, 'sun')
                     dark_start, dark_end = sun_event(site, d, 'dark')
-                    start_time = sunset.to_datetime(timezone=dt_timezone.utc)
-                    end_time = sunrise.to_datetime(timezone=dt_timezone.utc)
-                    dark_start_dt = dark_start.to_datetime(timezone=dt_timezone.utc)
-                    dark_end_dt = dark_end.to_datetime(timezone=dt_timezone.utc)
+                    start_time = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+                    end_time = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+                    dark_start_dt = dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+                    dark_end_dt = dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
 
                     title = f'{parsed.telescope} {parsed.instrument}'
                     description = (
