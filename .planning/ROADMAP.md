@@ -17,7 +17,7 @@
 ### v1.1 Classical Run Ingest
 
 - [x] **Phase 2: Run Line Parsing** - Parse classical-schedule run lines into structured (telescope, instrument, status, year, month, day1, day2) tuples (completed 2026-06-14)
-- [ ] **Phase 3: Classical Calendar Ingest** - `load_telescope_runs` management command expands parsed runs into idempotent nightly CalendarEvents
+- [x] **Phase 3: Classical Calendar Ingest** - `load_telescope_runs` management command expands parsed runs into idempotent nightly CalendarEvents (completed 2026-06-16)
 
 ## Phase Details
 
@@ -57,7 +57,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — Phase 03 demo notebook (pre_executed) showing the ingest command and resulting CalendarEvents (Definition of Done)
+- [x] 03-02-PLAN.md — Phase 03 demo notebook (pre_executed) showing the ingest command and resulting CalendarEvents (Definition of Done)
 
 ## Progress
 
@@ -65,4 +65,4 @@ Plans:
 |-------|-----------|-----------------|--------|-----------|
 | 1. Site & Ephemeris Helper | v1.0 | 2/2 | Complete | 2026-06-12 |
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete   | 2026-06-14 |
-| 3. Classical Calendar Ingest | v1.1 | 1/2 | Executing | - |
+| 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete   | 2026-06-16 |

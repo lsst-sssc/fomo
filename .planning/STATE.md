@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Classical Run Ingest
-status: executing
-stopped_at: completed 03-01 (2026-06-16)
-last_updated: "2026-06-16T15:55:00Z"
+status: verifying
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-06-16T16:09:19.682Z"
 last_activity: 2026-06-16 -- Phase 03 plan 01 completed (load_telescope_runs command + 6 tests)
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 Phase: 03 (classical-calendar-ingest) — EXECUTING
 Plan: 2 of 2 (03-01 complete; 03-02 next)
-Status: Executing Phase 03
+Status: Phase complete — ready for verification
 Last activity: 2026-06-16 -- Phase 03 plan 01 completed (load_telescope_runs command + 6 tests)
 
 ## Performance Metrics
@@ -52,6 +52,7 @@ Last activity: 2026-06-16 -- Phase 03 plan 01 completed (load_telescope_runs com
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 03 P02 | 404 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,7 @@ Recent decisions affecting current work:
 - Phase 2 (02-01): telescope resolution by prefix match against `SITES.keys()`; ambiguous prefixes (e.g. `'Magellan'`) raise `ValueError` listing all candidates rather than guessing
 - Phase 3 (03-01): `Observatory.DoesNotExist` caught alongside `ValueError` in per-line handler (log+skip, not abort)
 - Phase 3 (03-01): cross-month runs (`day2 < day1`) raise `ValueError` in `_iter_run_nights` and are reported+skipped — fails loudly
+- [Phase ?]: Notebook outputs cleared by pre-commit hook for all .ipynb files (consistent with project convention)
 
 ### Pending Todos
 
@@ -93,9 +95,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T15:55:00Z
-Stopped at: completed 03-01 (load_telescope_runs command)
-Resume file: .planning/phases/03-classical-calendar-ingest/03-02-PLAN.md
+Last session: 2026-06-16T16:09:19.672Z
+Stopped at: Completed 03-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
