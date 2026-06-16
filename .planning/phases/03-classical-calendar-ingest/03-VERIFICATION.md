@@ -1,15 +1,17 @@
 ---
 phase: 03-classical-calendar-ingest
 verified: 2026-06-16T14:30:00Z
-status: human_needed
-score: 4/5 must-haves verified
+updated: 2026-06-16T19:00:00Z
+status: complete
+score: 6/6 verified (5 automated + 1 human)
 overrides_applied: 0
 gaps:
 deferred:
 human_verification:
   - test: "Execute the demo notebook end-to-end and confirm CalendarEvent rows display with title, start_time, end_time, and description"
-    expected: "Notebook runs without error; 8 CalendarEvent rows are displayed with non-empty descriptions containing dark-window times, Status, and Source line text"
-    why_human: "Notebook output cells are cleared by the pre-commit hook (exclude pattern ^docs/pre_executed does not match docs/notebooks/pre_executed/) so committed output cells cannot be read programmatically. The notebook executes cleanly per 03-02-SUMMARY, but the verifier cannot confirm live output without running it."
+    result: CONFIRMED
+    notes: "jupyter nbconvert --to notebook --execute exits 0. Output cells show: (a) 4 Observatory records updated/unchanged, (b) 3-line schedule written, (c) created: 3 + unchanged: 5 + skipped: 1 (Magellan ambiguous), (d) 8 CalendarEvent rows with title, start_time (no microseconds), end_time, 3-line description. Second run: unchanged: 8 — idempotent confirmed."
+    confirmed_by: "human (2026-06-16)"
 ---
 
 # Phase 03: Classical Calendar Ingest — Verification Report
@@ -37,7 +39,7 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 6 | Demo notebook shows load_telescope_runs ingesting a sample schedule file and resulting CalendarEvents, with executed output cells | UNCERTAIN — NEEDS HUMAN | Notebook file exists at `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`. References `load_telescope_runs` 8 times. Does NOT import `ephem_utils` or `solsys_code.views`. However, the pre-commit hook (`exclude: ^docs/pre_executed`) clears all `.ipynb` outputs before commit; 0 output cells are present in the committed file. This matches Phase 01's demo notebook (also 0 output cells). Manual execution is required to confirm the notebook runs and displays CalendarEvent rows. |
+| 6 | Demo notebook shows load_telescope_runs ingesting a sample schedule file and resulting CalendarEvents, with executed output cells | VERIFIED (human) | `jupyter nbconvert --to notebook --execute` exits 0. Output: 4 Observatory records seeded, 8 CalendarEvents created (3 new + 5 unchanged from UAT run), all with `title`, `start_time` (no microseconds), `end_time`, and 3-line description. Idempotency re-run shows `unchanged: 8`. |
 
 ### Required Artifacts
 
@@ -45,7 +47,7 @@ human_verification:
 |----------|----------|--------|---------|
 | `solsys_code/management/commands/load_telescope_runs.py` | load_telescope_runs BaseCommand + `_iter_run_nights` helper | VERIFIED | File exists, 119 lines. Contains `class Command(BaseCommand)`, `_iter_run_nights(parsed)` using `timedelta` arithmetic, `add_arguments` with positional `filepath`, `handle` with per-line try/except, `get_or_create` + conditional save. No `update_or_create`. |
 | `solsys_code/tests/test_load_telescope_runs.py` | Django TestCase with 6 named test methods | VERIFIED | File exists, 159 lines. Contains `class TestLoadTelescopeRuns(TestCase)` with all 6 exactly-named test methods. `setUpTestData` seeds all 4 Observatory rows (268, 269, 809, E10). |
-| `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb` | Executed demo notebook | UNCERTAIN | File exists. Contains 6 code cells and 5 markdown cells. References `load_telescope_runs`. No output cells due to pre-commit hook — requires manual execution to confirm. |
+| `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb` | Executed demo notebook | VERIFIED (human) | File exists. Executes cleanly via `jupyter nbconvert --to notebook --execute`. Output cells confirm 8 CalendarEvents with correct fields. No output cells committed (pre-commit hook clears all notebooks — consistent with project convention). |
 
 ### Key Link Verification
 
@@ -100,9 +102,7 @@ Pre-existing warnings in `solsys_code/tests/test_views.py` (SIM905) and `solsys_
 
 ### Gaps Summary
 
-No blocking gaps. All 5 core observable truths are verified by passing tests.
-
-The only unresolved item is the demo notebook's committed output state — a consequence of the project's pre-commit hook configuration that clears all notebook outputs regardless of directory. The SUMMARY documents this as a known deviation consistent with the Phase 01 demo notebook behavior. The notebook's functional correctness (does it execute? does it display CalendarEvents?) requires human confirmation.
+No gaps. All 6 verification items satisfied: 5 automated (passing TestCase tests) + 1 human (notebook execution confirmed 2026-06-16).
 
 ---
 

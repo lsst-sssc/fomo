@@ -1,5 +1,18 @@
 # Milestones
 
+## v1.1 Classical Run Ingest (Shipped: 2026-06-16)
+
+**Phases completed:** 2 phases, 3 plans, 5 tasks
+
+**Key accomplishments:**
+
+- `ParsedRun` dataclass + `parse_run_line()` parser handles all 3 classical-schedule date-range formats (month-before/after-range, cross-month), hyphenated instruments, year defaulting, and telescope prefix-match resolution with descriptive ValueError for ambiguous names.
+- `load_telescope_runs` Django management command expands parsed run date ranges into idempotent nightly `CalendarEvent`s using `sun_event()` for accurate UTC sunset/sunrise — upsert via `get_or_create` keyed on `(telescope, instrument, start_time)` with conditional save.
+- 6-test `TestLoadTelescopeRuns` suite covers INGEST-01/02/03 plus per-line error handling and no-churn idempotency; all 95 `./manage.py test solsys_code` tests pass.
+- 6/6 UAT scenarios confirmed live on dev DB; demo notebook `load_telescope_runs_demo.ipynb` confirmed executable end-to-end.
+
+---
+
 ## 1.0 Site/Ephemeris Helper (Shipped: 2026-06-14)
 
 **Phases completed:** 1 phases, 2 plans, 4 tasks

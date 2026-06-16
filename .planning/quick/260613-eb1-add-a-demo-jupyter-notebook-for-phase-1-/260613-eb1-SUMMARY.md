@@ -1,6 +1,7 @@
 ---
 phase: quick-260613-eb1
 plan: 01
+status: complete
 subsystem: docs
 tags: [jupyter, notebook, telescope_runs, django, documentation-convention]
 

@@ -1,5 +1,6 @@
 ---
 quick_task: 260613-f7d
+status: complete
 title: Modify docs/notebooks ESO How-to-download notebook to write into data/
 date: 2026-06-13
 requirements: [QUICK-260613-f7d]
