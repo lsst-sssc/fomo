@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Classical Run Ingest
-status: Plan 02-01 executed; ready for next plan or phase transition
-stopped_at: Phase 3 context gathered
-last_updated: "2026-06-14T04:59:10.722Z"
+status: Phase 3 planned (03-01 and 03-02 ready); execute 03-01 next
+stopped_at: context exhaustion at 79% (2026-06-14)
+last_updated: "2026-06-14T05:02:28.058Z"
 last_activity: 2026-06-13 — Executed 02-01 (ParsedRun/parse_run_line)
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 1
+  total_plans: 3
   completed_plans: 1
-  percent: 50
+  percent: 33
 ---
 
 # Project State
@@ -90,10 +90,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-14T04:35:30.509Z
-Stopped at: Phase 3 context gathered
+Last session: 2026-06-14T05:02:28.051Z
+Stopped at: context exhaustion at 79% (2026-06-14)
 Resume file: .planning/phases/03-classical-calendar-ingest/03-CONTEXT.md
 
 ## Operator Next Steps
 
-- Phase 2 (Run Line Parsing) plan 02-01 complete — proceed to Phase 3 (Classical Calendar Ingest) planning
+- Phase 3 (Classical Calendar Ingest) plans 03-01 and 03-02 are ready — run `/gsd-execute-phase` to execute 03-01 (load_telescope_runs command + tests)
