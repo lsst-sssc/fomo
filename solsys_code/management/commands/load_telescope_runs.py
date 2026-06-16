@@ -40,7 +40,7 @@ class Command(BaseCommand):
             type=str,
             help='Path to a text file of classical run lines (one per line)',
         )
-        return super().add_arguments(parser)
+        # No return statement — BaseCommand.add_arguments() returns None
 
     def handle(self, *args: Any, **options: Any) -> str | None:
         """Load classical schedule lines and upsert CalendarEvents.
