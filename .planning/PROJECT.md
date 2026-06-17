@@ -15,18 +15,18 @@ This is a Stage 3-in-progress implementation of the "telescope runs on the calen
 **Shipped:**
 - ✅ v1.0 "Site/Ephemeris Helper" — 2026-06-14 (Phase 1)
 - ✅ v1.1 "Classical Run Ingest" — 2026-06-16 (Phases 2-3)
-
-**In progress:**
-- 🔄 v1.2 "LCO Queue Calendar Sync" — Phase 4 (planning)
+- ✅ v1.2 "LCO Queue Calendar Sync" — 2026-06-17 (Phase 4)
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
 - `solsys_code/management/commands/load_telescope_runs.py`: `load_telescope_runs` BaseCommand
+- `solsys_code/management/commands/sync_lco_observation_calendar.py`: `sync_lco_observation_calendar` BaseCommand, `SITE_TELESCOPE_MAP`
 - `solsys_code/tests/test_telescope_runs.py`: 26 tests (16 site/ephem + 10 parser)
 - `solsys_code/tests/test_load_telescope_runs.py`: 6 tests (ingest + idempotency + error paths)
+- `solsys_code/tests/test_sync_lco_observation_calendar.py`: 15 tests (selection, banner/placed sync, no-churn, terminal-state prefixes, error paths)
 - `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`: Stage 1 demo
 - `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`: Stage 2 demo
-- **All 95 `./manage.py test solsys_code` tests pass.**
+- **All 110 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
 
@@ -68,14 +68,17 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ **INGEST-01**: `load_telescope_runs` expands `S..E` into `E - S + 1` nightly CalendarEvents (`start_time = sunset(d)`, `end_time = sunrise(d+1)`) — v1.1 (Phase 3)
 - ✓ **INGEST-02**: Each event sets `telescope`/`instrument`/`title` and `description` with -15° dark window, status, and original run line text — v1.1 (Phase 3)
 - ✓ **INGEST-03**: Running the command twice on the same file creates no duplicate CalendarEvents — v1.1 (Phase 3)
+- ✓ **SELECT-01**: `sync_lco_observation_calendar --proposal <code>` syncs all `ObservationRecord(facility='LCO')` matching `parameters['proposal']` — v1.2 (Phase 4)
+- ✓ **SYNC-01**: One `CalendarEvent` per matching record, keyed on `url` = `LCOFacility().get_observation_url(observation_id)` — v1.2 (Phase 4)
+- ✓ **SYNC-02**: When `scheduled_start` is `None`, event times come from `parameters['start']`/`parameters['end']` (window banner); title is `[QUEUED]`-prefixed — v1.2 (Phase 4)
+- ✓ **SYNC-03**: When `scheduled_start`/`scheduled_end` are populated, event times are set from those values (placed block replaces banner) — v1.2 (Phase 4)
+- ✓ **SYNC-04**: Re-running after rescheduling updates the existing event in place, no duplicates, no `modified` churn on unchanged records — v1.2 (Phase 4)
+- ✓ **SYNC-05**: `telescope`, `instrument`, `proposal` on `CalendarEvent` are populated from the record — v1.2 (Phase 4)
+- ✓ **TERM-01**: Terminal-failure states (WINDOW_EXPIRED/CANCELED/FAILURE_LIMIT_REACHED/NOT_ATTEMPTED) get a `[EXPIRED]`/`[CANCELLED]`/`[FAILED]` title prefix; event is retained; `COMPLETED` gets a clean title — v1.2 (Phase 4)
 
 ### Active
 
-- **SYNC-01**: `sync_lco_observation_calendar` command upserts one `CalendarEvent` per `ObservationRecord(facility='LCO')` matching FTS/MuSCAT4, keyed on LCO portal URL in the `url` field — v1.2
-- **SYNC-02**: When `scheduled_start` is `None`, event times come from `parameters['start']`/`parameters['end']` (window banner); `title` indicates queue/unscheduled status — v1.2
-- **SYNC-03**: When `scheduled_start`/`scheduled_end` are populated, event times are updated to those values in the existing event (placed block replaces banner) — v1.2
-- **SYNC-04**: Re-running the command after rescheduling updates the existing event's times without creating a duplicate — v1.2
-- **SYNC-05**: Records in terminal states (WINDOW_EXPIRED, CANCELED, FAILURE_LIMIT_REACHED, NOT_ATTEMPTED) result in the CalendarEvent being removed or visibly marked — v1.2
+_None — all v1.2 requirements validated. Stage 4 (full LCO facility sync) is Out of Scope for v1.2._
 
 ### Out of Scope
 
@@ -160,4 +163,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-16 — v1.2 milestone started*
+*Last updated: 2026-06-17 — Phase 4 complete, v1.2 milestone requirements validated*
