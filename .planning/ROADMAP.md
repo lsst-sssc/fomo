@@ -39,7 +39,13 @@
   3. After the LCO scheduler places the block (populating `scheduled_start`/`scheduled_end`), re-running the command updates the existing CalendarEvent's times to the placed values — no new event is created and `modified` is not updated for records whose data has not changed
   4. For a record in a terminal state (WINDOW_EXPIRED, CANCELED, FAILURE_LIMIT_REACHED, NOT_ATTEMPTED), the CalendarEvent title is prefixed with `[EXPIRED]`, `[CANCELLED]`, or `[FAILED]` and the event is retained (not deleted)
   5. All `./manage.py test solsys_code` tests pass (including new tests for SYNC-01 through SYNC-05 and TERM-01) and `ruff check .` / `ruff format --check .` are clean
-**Plans**: TBD
+
+> **Planning note (D-01):** Success criterion 1's literal `url` format `https://observe.lco.global/requestgroups/<id>/` is corrected by CONTEXT.md D-01 — the real `LCOFacility().get_observation_url()` returns `https://observe.lco.global/requests/<id>` (no trailing slash, `/requests/`). The upsert-by-`url` behavior is unchanged; only the concrete string differs.
+
+> **Planning note (D-06, research correction):** `get_terminal_observing_states()` returns 5 states (the 4 failure states + `COMPLETED`). TERM-01's prefix table only covers the 4 failure states. Locked decision: use `get_failed_observing_states()` as the prefix trigger; `COMPLETED` records get a clean (no-prefix) title.
+
+**Plans**: 1 plan
+- [ ] 04-01-PLAN.md — `sync_lco_observation_calendar` command: `--proposal` selection, banner→placed CalendarEvent upsert keyed on `url`, terminal-state title prefixes, no-churn idempotency
 
 ## Progress
 
@@ -48,4 +54,4 @@
 | 1. Site & Ephemeris Helper | v1.0 | 2/2 | Complete | 2026-06-12 |
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete | 2026-06-14 |
 | 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete | 2026-06-16 |
-| 4. LCO Queue Sync Command | v1.2 | 0/? | Not started | - |
+| 4. LCO Queue Sync Command | v1.2 | 0/1 | Not started | - |
