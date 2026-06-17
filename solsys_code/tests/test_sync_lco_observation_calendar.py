@@ -226,6 +226,8 @@ class TestSyncLcoObservationCalendar(TestCase):
             '700005',
             proposal='MATCHCODE',
             status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 1, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 0, 0, tzinfo=dt_timezone.utc),
             site='coj',
             instrument_type='2M0-SCICAM-MUSCAT',
         )
