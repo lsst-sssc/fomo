@@ -25,7 +25,7 @@
 
 ### v1.2 LCO Queue Calendar Sync
 
-- [ ] **Phase 4: LCO Queue Sync Command** - Management command syncs FTS/MuSCAT4 ObservationRecords to CalendarEvents with banner, placed-block, and terminal-state handling
+- [x] **Phase 4: LCO Queue Sync Command** - Management command syncs FTS/MuSCAT4 ObservationRecords to CalendarEvents with banner, placed-block, and terminal-state handling (completed 2026-06-17)
 
 ## Phase Details
 
@@ -47,7 +47,7 @@
 > **Planning note (D-06, research correction):** `get_terminal_observing_states()` returns 5 states (the 4 failure states + `COMPLETED`). TERM-01's prefix table only covers the 4 failure states. Locked decision: use `get_failed_observing_states()` as the prefix trigger; `COMPLETED` records get a clean (no-prefix) title.
 **Plans**: 1 plan
 
-- [ ] 04-01-PLAN.md — `sync_lco_observation_calendar` command: `--proposal` selection, banner→placed CalendarEvent upsert keyed on `url`, terminal-state title prefixes, no-churn idempotency
+- [x] 04-01-PLAN.md — `sync_lco_observation_calendar` command: `--proposal` selection, banner→placed CalendarEvent upsert keyed on `url`, terminal-state title prefixes, no-churn idempotency
 
 ## Progress
 
@@ -56,4 +56,4 @@
 | 1. Site & Ephemeris Helper | v1.0 | 2/2 | Complete | 2026-06-12 |
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete | 2026-06-14 |
 | 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete | 2026-06-16 |
-| 4. LCO Queue Sync Command | v1.2 | 0/1 | Not started | - |
+| 4. LCO Queue Sync Command | v1.2 | 1/1 | Complete   | 2026-06-17 |
