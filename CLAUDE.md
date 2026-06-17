@@ -93,6 +93,11 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
 - pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, builds Sphinx
   docs, and runs the pytest suite. CI (`.github/workflows/`) tests Python 3.10–3.12.
+- **Planning-doc terminology:** in CONTEXT.md/RESEARCH.md/PLAN.md/PATTERNS.md and other
+  `.planning/` artifacts, prefer plain English over DB jargon. Write "create or update" /
+  "find-or-create" / "create the record if missing, otherwise update it in place" instead of
+  "upsert". This applies to every GSD subagent (discuss-phase, researcher, planner, checker) —
+  they all read this file before producing planning docs.
 
 <!-- GSD:project-start source:PROJECT.md -->
 
