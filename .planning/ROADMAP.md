@@ -30,10 +30,12 @@
 ## Phase Details
 
 ### Phase 4: LCO Queue Sync Command
+
 **Goal**: Users can run `sync_lco_observation_calendar --proposal <code>` to sync FTS/MuSCAT4 queue records to the FOMO calendar, with each ObservationRecord represented as a CalendarEvent that transitions from an unscheduled banner to a placed block as the LCO scheduler acts, and is marked with a status prefix on reaching a terminal state
 **Depends on**: Phase 3 (CalendarEvent model and DB infrastructure established)
 **Requirements**: SELECT-01, SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, TERM-01
 **Success Criteria** (what must be TRUE):
+
   1. Running the command with `--proposal PROPOSAL2025A-001` produces one CalendarEvent per matching LCO ObservationRecord, with `url` set to `https://observe.lco.global/requestgroups/<id>/`, `telescope` and `instrument` populated from parameters, and no CalendarEvent created for non-matching records
   2. For an unscheduled record (`scheduled_start` is None), the CalendarEvent's `start_time`/`end_time` match `parameters['start']`/`parameters['end']` and the title indicates queue/unscheduled status
   3. After the LCO scheduler places the block (populating `scheduled_start`/`scheduled_end`), re-running the command updates the existing CalendarEvent's times to the placed values — no new event is created and `modified` is not updated for records whose data has not changed
@@ -43,8 +45,8 @@
 > **Planning note (D-01):** Success criterion 1's literal `url` format `https://observe.lco.global/requestgroups/<id>/` is corrected by CONTEXT.md D-01 — the real `LCOFacility().get_observation_url()` returns `https://observe.lco.global/requests/<id>` (no trailing slash, `/requests/`). The upsert-by-`url` behavior is unchanged; only the concrete string differs.
 
 > **Planning note (D-06, research correction):** `get_terminal_observing_states()` returns 5 states (the 4 failure states + `COMPLETED`). TERM-01's prefix table only covers the 4 failure states. Locked decision: use `get_failed_observing_states()` as the prefix trigger; `COMPLETED` records get a clean (no-prefix) title.
-
 **Plans**: 1 plan
+
 - [ ] 04-01-PLAN.md — `sync_lco_observation_calendar` command: `--proposal` selection, banner→placed CalendarEvent upsert keyed on `url`, terminal-state title prefixes, no-churn idempotency
 
 ## Progress
