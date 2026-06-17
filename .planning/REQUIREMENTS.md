@@ -7,19 +7,19 @@
 
 ### Record Selection
 
-- [ ] **SELECT-01**: Command accepts `--proposal <code>` and syncs all `ObservationRecord(facility='LCO')` where `parameters['proposal']` matches the supplied code
+- [x] **SELECT-01**: Command accepts `--proposal <code>` and syncs all `ObservationRecord(facility='LCO')` where `parameters['proposal']` matches the supplied code
 
 ### Calendar Sync
 
-- [ ] **SYNC-01**: Command creates or updates one `CalendarEvent` per matching record, keyed on `url` = LCO portal URL (`https://observe.lco.global/requestgroups/<observation_id>/`) — idempotency key and click-through
-- [ ] **SYNC-02**: When `scheduled_start` is `None`, `start_time`/`end_time` come from `parameters['start']`/`parameters['end']`; title indicates unscheduled queue status
-- [ ] **SYNC-03**: When `scheduled_start`/`scheduled_end` are populated, event times are set from those values in the existing event (placed block replaces banner times)
-- [ ] **SYNC-04**: Re-running after rescheduling updates existing event times without creating a duplicate and without touching `modified` on unchanged events
-- [ ] **SYNC-05**: `instrument`, `proposal`, `telescope` on `CalendarEvent` are populated from the record's parameters
+- [x] **SYNC-01**: Command creates or updates one `CalendarEvent` per matching record, keyed on `url` = LCO portal URL (`https://observe.lco.global/requestgroups/<observation_id>/`) — idempotency key and click-through
+- [x] **SYNC-02**: When `scheduled_start` is `None`, `start_time`/`end_time` come from `parameters['start']`/`parameters['end']`; title indicates unscheduled queue status
+- [x] **SYNC-03**: When `scheduled_start`/`scheduled_end` are populated, event times are set from those values in the existing event (placed block replaces banner times)
+- [x] **SYNC-04**: Re-running after rescheduling updates existing event times without creating a duplicate and without touching `modified` on unchanged events
+- [x] **SYNC-05**: `instrument`, `proposal`, `telescope` on `CalendarEvent` are populated from the record's parameters
 
 ### Terminal States
 
-- [ ] **TERM-01**: Records in terminal states (WINDOW_EXPIRED, CANCELED, FAILURE_LIMIT_REACHED, NOT_ATTEMPTED) have their `CalendarEvent` title prefixed with a status marker (`[EXPIRED]`, `[CANCELLED]`, `[FAILED]`); event is kept for audit trail
+- [x] **TERM-01**: Records in terminal states (WINDOW_EXPIRED, CANCELED, FAILURE_LIMIT_REACHED, NOT_ATTEMPTED) have their `CalendarEvent` title prefixed with a status marker (`[EXPIRED]`, `[CANCELLED]`, `[FAILED]`); event is kept for audit trail
 
 ## Future Requirements
 
@@ -40,15 +40,16 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SELECT-01 | Phase 4 | Pending |
-| SYNC-01 | Phase 4 | Pending |
-| SYNC-02 | Phase 4 | Pending |
-| SYNC-03 | Phase 4 | Pending |
-| SYNC-04 | Phase 4 | Pending |
-| SYNC-05 | Phase 4 | Pending |
-| TERM-01 | Phase 4 | Pending |
+| SELECT-01 | Phase 4 | Complete |
+| SYNC-01 | Phase 4 | Complete |
+| SYNC-02 | Phase 4 | Complete |
+| SYNC-03 | Phase 4 | Complete |
+| SYNC-04 | Phase 4 | Complete |
+| SYNC-05 | Phase 4 | Complete |
+| TERM-01 | Phase 4 | Complete |
 
 **Coverage:**
+
 - v1.2 requirements: 7 total
 - Mapped to phases: 7 (Phase 4)
 - Unmapped: 0 ✓
