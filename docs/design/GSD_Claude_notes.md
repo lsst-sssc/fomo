@@ -1,3 +1,31 @@
+
+## Initial setup of Serena etc
+
+* Ensure `uv` is install from Astral
+* Run `uv tool install -p 3.11 serena-agent`
+* Run `serena init`
+* Edit '~/.serena/serena_config.yml' and ensure large files e.g. FITS, HDF5 etc are excluded:
+```
+ignored_paths:
+- "*.fits"
+- "*.fits.*"
+- "*.bsp"
+- "*.ecsv"
+- "*.bin"
+- "*.pt"
+- "*.7z"
+- "*.zip"
+- "*.db"
+- "*.hdf5"
+```
+* Run `serena setup claude-code`
+* To add to the global configuration to use for all probjects:
+claude mcp add --scope user serena -- serena start-mcp-server --context claude-code --project-from-cwd
+* Created an alias:
+alias ccs='claude --system-prompt="$(serena prompts print-cc-system-prompt-override)"'
+to launch Claude Code with Serena and get it, particulary Opus models, to use it per [Serena Claude Code docs][https://oraios.github.io/serena/02-usage/030_clients.html#claude-code]
+
+
   ▶ Next Up
   
   Execute Phase 1 — run both plans (Wave 1 then Wave 2)
