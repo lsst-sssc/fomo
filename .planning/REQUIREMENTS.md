@@ -40,19 +40,19 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SELECT-01 | — | Pending |
-| SYNC-01 | — | Pending |
-| SYNC-02 | — | Pending |
-| SYNC-03 | — | Pending |
-| SYNC-04 | — | Pending |
-| SYNC-05 | — | Pending |
-| TERM-01 | — | Pending |
+| SELECT-01 | Phase 4 | Pending |
+| SYNC-01 | Phase 4 | Pending |
+| SYNC-02 | Phase 4 | Pending |
+| SYNC-03 | Phase 4 | Pending |
+| SYNC-04 | Phase 4 | Pending |
+| SYNC-05 | Phase 4 | Pending |
+| TERM-01 | Phase 4 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 7 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 7 ⚠️
+- Mapped to phases: 7 (Phase 4)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-16*
-*Last updated: 2026-06-16 after initial definition*
+*Last updated: 2026-06-16 — traceability added (Phase 4)*

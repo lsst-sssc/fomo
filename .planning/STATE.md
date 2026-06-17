@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: LCO Queue Calendar Sync
 status: planning
-last_updated: "2026-06-16T23:34:49.431Z"
+last_updated: "2026-06-16"
 last_activity: 2026-06-16
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,21 +19,25 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-06-16)
 
-**Core value:** Stage 1: `sun_event()` computes dip-corrected UTC sunset/sunrise accurate to ≤ 2 min of Las Campanas skycalc. Stage 2: `load_telescope_runs` command turns classical run lines into idempotent nightly CalendarEvents.
-**Current focus:** v1.1 complete — ready for `/gsd-new-milestone` to plan Stages 3-4
+**Core value:** A `sync_lco_observation_calendar` management command syncs FTS/MuSCAT4 LCO queue ObservationRecords to the FOMO calendar as unified CalendarEvents — window banner when unscheduled, placed block once the LCO scheduler acts, updating in place on rescheduling, and marked with a status prefix on terminal states.
+**Current focus:** Phase 4 — LCO Queue Sync Command (roadmap defined, planning next)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 4 (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-16 — Milestone v1.2 started
+Status: Roadmap defined — ready for /gsd-plan-phase 4
+Last activity: 2026-06-16 — v1.2 roadmap created
+
+```
+[░░░░░░░░░░░░░░░░░░░░] 0% — Phase 4 of 4 (v1.2)
+```
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 5
+- Total plans completed: 5 (across v1.0 and v1.1)
 - Average duration: ~35 min (Phase 2) + 7-8 min/plan (Phase 3)
 - Total execution time: ~3-4 sessions
 
@@ -44,6 +48,7 @@ Last activity: 2026-06-16 — Milestone v1.2 started
 | 01 | 2 | - | - |
 | 02 | 1 | ~35 min | ~35 min |
 | 03 | 2 | - | - |
+| 04 | TBD | - | - |
 
 ## Accumulated Context
 
@@ -58,6 +63,17 @@ None.
 ### Blockers/Concerns
 
 None. Environment blocker (tom_catalogs) resolved 2026-06-11 (PR #38 merged to main).
+
+### Key Technical Notes (Phase 4)
+
+- `parameters` on `ObservationRecord` is a `TextField` containing JSON (not a JSONField). Filtering by proposal code requires fetching `ObservationRecord.objects.filter(facility='LCO')` and parsing in Python — no DB-level JSON filtering.
+- CalendarEvent upsert keyed on `url` field (`https://observe.lco.global/requestgroups/<observation_id>/`).
+- Two time-source branches: `parameters['start']`/`parameters['end']` when `scheduled_start is None` (banner); `scheduled_start`/`scheduled_end` when populated (placed block).
+- Terminal state constants: WINDOW_EXPIRED → `[EXPIRED]`, CANCELED → `[CANCELLED]`, FAILURE_LIMIT_REACHED / NOT_ATTEMPTED → `[FAILED]`.
+- No-churn idempotency: only call `event.save()` when fields have actually changed (avoids `modified` timestamp churn on unchanged events — same pattern as Phase 3 load_telescope_runs).
+- `astropy Time.to_datetime()` produces microseconds — strip with `.replace(microsecond=0)` before DB save (established pattern from Phase 3 fix, commit 437aa53).
+- DB-dependent tests go in `solsys_code/tests/test_sync_lco_observation_calendar.py`, run with `./manage.py test solsys_code`.
+- `ObservationRecord` lives in `tom_observations.models`; `CalendarEvent` in `tom_calendar.models`.
 
 ### Quick Tasks Completed
 
@@ -76,10 +92,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T19:00:00Z
-Stopped at: milestone close
+Last session: 2026-06-16
+Stopped at: roadmap creation
 Resume file: None
 
 ## Operator Next Steps
 
-- v1.1 milestone complete. Run `/gsd-new-milestone` to plan the next milestone (Stage 3: FTS queue banners, or Stage 4: observation-record sync, or other direction).
+- Run `/gsd-plan-phase 4` to decompose Phase 4 into executable plans.
