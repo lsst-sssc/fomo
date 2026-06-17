@@ -26,6 +26,7 @@ This is a Stage 3-in-progress implementation of the "telescope runs on the calen
 - `solsys_code/tests/test_sync_lco_observation_calendar.py`: 15 tests (selection, banner/placed sync, no-churn, terminal-state prefixes, error paths)
 - `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`: Stage 1 demo
 - `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`: Stage 2 demo
+- `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb`: Stage 3 demo
 - **All 110 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
