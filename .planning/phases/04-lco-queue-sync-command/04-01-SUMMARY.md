@@ -141,3 +141,13 @@ None. All three threat-register items disposed `mitigate` in the plan's `<threat
 ---
 *Phase: 04-lco-queue-sync-command*
 *Completed: 2026-06-17*
+
+## Self-Check: PASSED
+
+- FOUND: solsys_code/management/commands/sync_lco_observation_calendar.py
+- FOUND: solsys_code/tests/test_sync_lco_observation_calendar.py
+- FOUND: .planning/phases/04-lco-queue-sync-command/04-01-SUMMARY.md
+- FOUND commit: c3b74cb (test)
+- FOUND commit: 1b49957 (feat)
+- FOUND commit: 2af4792 (chore)
+- FOUND commit: 85b46ad (docs)
