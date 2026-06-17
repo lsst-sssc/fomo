@@ -1,4 +1,3 @@
-
 ## Initial setup of Serena etc
 
 * Ensure `uv` is install from Astral
@@ -26,6 +25,15 @@ alias ccs='claude --system-prompt="$(serena prompts print-cc-system-prompt-overr
 to launch Claude Code with Serena and get it, particulary Opus models, to use it per [Serena Claude Code docs][https://oraios.github.io/serena/02-usage/030_clients.html#claude-code]
 
 
+# Notes on using GSD in Claude for issue37 branch
+
+## Phase 1
+
+### Planning
+
+No notes.
+
+### Middle of Phase 1 (Start of execution)
   ▶ Next Up
   
   Execute Phase 1 — run both plans (Wave 1 then Wave 2)
@@ -46,6 +54,8 @@ to launch Claude Code with Serena and get it, particulary Opus models, to use it
   Note for execute-phase: the project's default node is v14, which is too old for gsd-tools.cjs (needs ES2021 ||=). Use
   /home/tlister/.nvm/versions/node/v20.20.2/bin/node when invoking the tool, or prepend it to PATH.
   
+
+### Security gate questions 
 ❯ Great. I didn't understand the choice about the security gate; explain further
 
   Read 1 file, ran 1 shell command 
@@ -89,7 +99,7 @@ to launch Claude Code with Serena and get it, particulary Opus models, to use it
   given what we've already covered in code review (WR-02/03 input-validation gaps, now fixed), I'd expect it to come back clean or with only
   "accepted risk" items.
 
-## Usage (at end of day/session)
+### Usage (at end of day/session)
 
    Settings  Status   Config   Usage   Stats
   
@@ -154,7 +164,33 @@ to launch Claude Code with Serena and get it, particulary Opus models, to use it
    $4.50 / $40.00 spent · Resets Jul 1 (America/Los_Angeles)
    
 
-   ### Fixing up issues after phase 3
-   Run:
-   /gsd-code-review 03 --fix
-   
+## Fixing up issues after phase 3
+Run:
+/gsd-code-review 03 --fix
+
+After that, plus an additional fix to truncate microseconds and change the example Magellan instrument from LDSS3 
+● Both phases of v1.1 are complete and all code review fixes have been applied. The STATE.md is slightly stale (it still
+says "verifying"), but in practice the branch is ready. Your options:
+
+1. Create a PR now — everything is in good shape; the verification was already done before the code review, and the
+fixes were all polish (error handling, temp-dir leak, encoding, microseconds). Run /gsd-pr-branch or just gh pr
+create.
+2. Re-verify first (/gsd-verify-work) — if you want a formal second pass on the verification artifact now that CR-01
+and the microseconds fix have changed behavior. Low stakes since none of the fixes changed correctness of the
+astronomy or the idempotency logic.
+3. Close the milestone (/gsd-complete-milestone) — archives the v1.1 planning artifacts and sets up for the next
+milestone (Stage 3 queue-window banners, or Stage 4 observation-record sync, depending on what you want to tackle
+next).
+
+
+## Phase 4
+
+▶ Next Up — Telescope Runs Calendar
+
+Phase 4: LCO Queue Sync Command — sync_lco_observation_calendar --proposal <code> syncs LCO ObservationRecords to CalendarEvents with banner → placed-block → terminal-state lifecycle
+
+/clear then:
+
+/gsd-discuss-phase 4 — gather context and clarify approach before planning
+
+Also: /gsd-plan-phase 4 — skip discussion, plan directly
