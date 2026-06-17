@@ -21,9 +21,10 @@ SITE_TELESCOPE_MAP = {
 # absent here (D-06 research correction) — it is terminal per
 # LCOFacility().get_terminal_observing_states() (5 states) but is NOT one of the 4
 # failure states returned by LCOFacility().get_failed_observing_states(), so it gets
-# a clean title, same as a normally-placed record. Built from the library's own
-# failure-state list (not re-typed) so a future library update is picked up
-# automatically (RESEARCH.md "Don't Hand-Roll").
+# a clean title, same as a normally-placed record. This is a hand-typed snapshot of
+# the library's current 4 failure states, not auto-derived — if LCOFacility ever adds
+# a new failure state, update this dict too (the fallback below still tags it
+# '[FAILED]' so a sync never silently skips a real failure state).
 _FAILURE_PREFIX_BY_STATUS = {
     'WINDOW_EXPIRED': '[EXPIRED]',
     'CANCELED': '[CANCELLED]',
@@ -45,7 +46,7 @@ def _failure_prefix(status: str, facility: LCOFacility) -> str | None:
     """
     if status not in set(facility.get_failed_observing_states()):
         return None
-    return _FAILURE_PREFIX_BY_STATUS[status]
+    return _FAILURE_PREFIX_BY_STATUS.get(status, '[FAILED]')
 
 
 def _derive_telescope(site_code: str) -> str:
@@ -60,7 +61,10 @@ def _derive_telescope(site_code: str) -> str:
     Raises:
         KeyError: if site_code is not in SITE_TELESCOPE_MAP.
     """
-    return SITE_TELESCOPE_MAP[site_code]
+    try:
+        return SITE_TELESCOPE_MAP[site_code]
+    except KeyError:
+        raise KeyError(f'Unmapped LCO site code {site_code!r}; add it to SITE_TELESCOPE_MAP') from None
 
 
 def _title_for(record: ObservationRecord, telescope: str, instrument: str, facility: LCOFacility) -> str:
@@ -95,16 +99,23 @@ def _time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
 
     Raises:
         KeyError: if scheduled_start is None and parameters lacks 'start'/'end'.
-        ValueError: if parameters['start']/['end'] are not valid ISO datetime strings.
+        ValueError: if parameters['start']/['end'] are not valid ISO datetime strings,
+            or if scheduled_start/scheduled_end are inconsistently populated (one set,
+            the other None) — a state CalendarEvent's non-nullable times cannot accept.
     """
-    if record.scheduled_start is None:
+    if record.scheduled_start is None and record.scheduled_end is None:
         # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
         # explicitly since LCO request-submission times are conventionally UTC.
         start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
         end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
-    else:
+    elif record.scheduled_start is not None and record.scheduled_end is not None:
         start_time = record.scheduled_start
         end_time = record.scheduled_end
+    else:
+        raise ValueError(
+            f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
+            f'scheduled_end={record.scheduled_end!r}'
+        )
     return start_time, end_time
 
 

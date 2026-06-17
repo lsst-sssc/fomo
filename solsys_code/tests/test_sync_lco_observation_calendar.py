@@ -328,6 +328,28 @@ class TestSyncLcoObservationCalendar(TestCase):
         err = stderr_buf.getvalue()
         self.assertIn('990001', err)
 
+    def test_skip_path_inconsistent_scheduled_times_logged_and_skipped(self):
+        """A record with only one of scheduled_start/scheduled_end set is skipped, not crashed on."""
+        self._create_record(
+            '990003',
+            proposal='MATCHCODE2',
+            scheduled_start=datetime(2026, 8, 1, tzinfo=dt_timezone.utc),
+            scheduled_end=None,
+        )
+        self._create_record('990004', proposal='MATCHCODE2', site='coj')
+
+        stderr_buf = io.StringIO()
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'MATCHCODE2',
+            stdout=io.StringIO(),
+            stderr=stderr_buf,
+        )
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+        err = stderr_buf.getvalue()
+        self.assertIn('990003', err)
+
     def test_zero_match_reports_created_zero_no_command_error(self):
         """Zero matching records creates zero events and reports 'created: 0' (no CommandError)."""
         self._create_record('111222', proposal='SOMEOTHERCODE')
