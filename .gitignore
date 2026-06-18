@@ -159,5 +159,8 @@ _html/
 
 docs/notebooks/data/**
 
+# Django MEDIA_ROOT — downloaded DataProduct files (src/fomo/settings.py)
+src/data/
+
 # Claude Code / GSD tooling (local install + machine-specific config)
 .claude/
