@@ -83,6 +83,7 @@ None. Environment blocker (tom_catalogs) resolved 2026-06-11 (PR #38 merged to m
 | 260613-eb1 | Add a demo Jupyter notebook for Phase 1 (telescope_runs.py) under docs/notebooks/pre_executed/, and add a convention to .planning/PROJECT.md | 2026-06-13 | 1a36914 | [260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-](./quick/260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-/) |
 | 260613-f7d | Modify docs/notebooks/ESO_How_to_download_data.ipynb to write downloaded files into a git-ignored docs/notebooks/data/ subdirectory | 2026-06-13 | ef1f9b3 | [260613-f7d-modify-docs-notebooks-eso-how-to-downloa](./quick/260613-f7d-modify-docs-notebooks-eso-how-to-downloa/) |
 | 260617-mlr | Backfill Phase 04's missing demo notebook and enforce the convention going forward | 2026-06-17 | a2f8eea | [260617-mlr-backfill-phase-04-s-missing-demo-noteboo](./quick/260617-mlr-backfill-phase-04-s-missing-demo-noteboo/) |
+| 260618-h97 | Add src/data/ to .gitignore (Django MEDIA_ROOT resolves inside the git checkout; stopgap until MEDIA_ROOT is relocated outside the repo for dockerized deployment) | 2026-06-18 | d3f3727 | [260618-h97-add-src-data-to-gitignore-this-directory](./quick/260618-h97-add-src-data-to-gitignore-this-directory/) |
 
 ## Deferred Items
 
@@ -97,7 +98,7 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-06-17T20:51:13.159Z
 Stopped at: Phase 4 context gathered
 Resume file: .planning/phases/04-lco-queue-sync-command/04-CONTEXT.md
-Last activity: 2026-06-17 - Completed quick task 260617-mlr: Backfill Phase 04's missing demo notebook and enforce the convention going forward
+Last activity: 2026-06-18 - Completed quick task 260618-h97: Add src/data/ to .gitignore
 
 ## Operator Next Steps
 
