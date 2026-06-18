@@ -8,7 +8,7 @@ from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.models import ObservationRecord
-from tom_targets.tests.factories import SiderealTargetFactory
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
 
 def _parameters(
@@ -45,7 +45,7 @@ class TestSyncLcoObservationCalendar(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:
         cls.user = get_user_model().objects.create(username='sync-test-user')
-        cls.target = SiderealTargetFactory.create()
+        cls.target = NonSiderealTargetFactory.create()
 
     def _create_record(
         self,

@@ -89,6 +89,11 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
 - Database is local SQLite (`src/fomo_db.sqlite3`); `DEBUG=True` and the secret key in `settings.py` are
   dev defaults — production overrides belong in a `local_settings.py` (imported at the end of `settings.py`).
 - Targets are `NON_SIDEREAL`; default target permission is `OPEN` and `AUTH_STRATEGY='READ_ONLY'`.
+- **Target test factories:** when fixturing a `Target` in tests or notebooks, always use
+  `tom_targets.tests.factories.NonSiderealTargetFactory`, never `SiderealTargetFactory` — FOMO is
+  exclusively for Solar System / non-sidereal targets, so a sidereal fixture misrepresents what the
+  code actually handles. This applies to every GSD subagent (planner, executor, code-reviewer) that
+  writes or reviews test/demo code touching `Target`.
 - ruff config (`pyproject.toml`) follows Rubin DM style: many `N8xx` naming rules are intentionally
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
 - pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, builds Sphinx
