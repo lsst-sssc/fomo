@@ -6,9 +6,9 @@ A helper module and management commands for FOMO that:
 
 1. (`solsys_code/telescope_runs.py`) resolves a telescope name to its observing site (via the `Observatory` model, by MPC obscode) and computes dip-corrected UTC sunset, sunrise, and -15° dark-window crossing times for a given date — Stage 1.
 2. (`solsys_code/management/commands/load_telescope_runs.py`) parses classical-schedule run lines and idempotently creates one `tom_calendar.CalendarEvent` per observing night, populated with sunset/sunrise times and the -15° dark window — Stage 2.
-3. (`solsys_code/management/commands/sync_lco_observation_calendar.py`) syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar as unified CalendarEvents — starting as a scheduling-window banner and updating in place to the placed block once the LCO scheduler acts — Stage 3 (in progress).
+3. (`solsys_code/management/commands/sync_lco_observation_calendar.py`) syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar as unified CalendarEvents — starting as a scheduling-window banner and updating in place to the placed block once the LCO scheduler acts — Stage 3.
 
-This is a Stage 3-in-progress implementation of the "telescope runs on the calendar" feature (issue #37). Stage 4 (full observation-record sync for all facilities) remains future work.
+This is a Stages-1-through-3-complete implementation of the "telescope runs on the calendar" feature (issue #37). Stage 4 (full observation-record sync for all facilities) remains future work.
 
 ## Current State
 
@@ -37,17 +37,9 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: v1.2 LCO Queue Calendar Sync
+## Milestone Status
 
-**Goal:** Sync FTS/MuSCAT4 LCO queue ObservationRecords to the FOMO calendar as a unified CalendarEvent per record — window banner when unscheduled, placed block once the LCO scheduler acts, updating in place on rescheduling.
-
-**Target features:**
-- `sync_lco_observation_calendar` management command queries `ObservationRecord(facility='LCO')` for FTS/MuSCAT4 records
-- One CalendarEvent per record, keyed on the LCO portal URL (`url` field) for idempotency and click-through
-- Banner phase: times from `parameters['start']`/`parameters['end']` when `scheduled_start` is `None`
-- Placed-block phase: times from `scheduled_start`/`scheduled_end` when populated
-- Updating in place on rescheduling (no duplicate events)
-- Terminal-state handling: WINDOW_EXPIRED, CANCELED, etc. → event removed or marked
+v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). No next milestone defined yet — run `/gsd-new-milestone` to scope Stage 4 (full LCO facility sync) or the deferred status-aware calendar coloring work.
 
 ## Requirements
 
@@ -79,12 +71,13 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 
 ### Active
 
-_None — all v1.2 requirements validated. Stage 4 (full LCO facility sync) is Out of Scope for v1.2._
+_None — all v1.2 requirements validated. No milestone currently in progress; candidates for the next milestone are Stage 4 (full LCO facility sync) and the deferred status-aware calendar coloring work below._
 
 ### Out of Scope
 
 - Stage 4 full sync (all LCO facilities, not just FTS/MuSCAT4) — deferred after v1.2 validates the approach
-- Any `tom_calendar` UI/template changes — not needed for Stages 1-3
+- Status-aware `CalendarEvent` coloring (telescope/proposal-keyed hash, opacity by `[QUEUED]`/terminal-prefix status) — explicitly deferred during v1.2 close; see `.planning/todos/pending/2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md`; requires a project-level `tom_calendar` template override since the upstream model's `color` property isn't separately overridable
+- Any `tom_calendar` UI/template changes beyond the v1.2-shipped `[QUEUED]` de-emphasis style — not needed for Stages 1-3
 - Reworking `tom_observations`' existing astroplan-based visibility/airmass plots — separate, not touched by this feature
 - Distinguishing Magellan Baade vs Clay in `telescope` field — open item; bare `'Magellan'` is deliberately ambiguous (both at Las Campanas, same ephemeris)
 - Replacing `SITES`'s hardcoded telescope-name → obscode mapping with a data-driven `Observatory.short_name` lookup — Stage 2+ consideration, not required for Stage 2 success criteria
@@ -98,6 +91,8 @@ _None — all v1.2 requirements validated. Stage 4 (full LCO facility sync) is O
 - **Two-test-suite split**: `solsys_code/` Django app tests run via `./manage.py test solsys_code`; pure-Python helpers under `tests/` run via `python -m pytest`.
 - **SPICE kernel side effect**: `telescope_runs.py` avoids importing `solsys_code.ephem_utils` (triggers ~1.6 GB SPICE kernel download).
 - **Environment**: `tomtoolkit==3.0a9`/`tom_catalogs` mismatch (v1.0 blocker) resolved by PR #38 (merged 2026-06-11).
+- **Current codebase state (as of v1.2 close)**: ~4,735 LOC across `solsys_code/`; 110 tests passing under `./manage.py test solsys_code` (26 site/ephem+parser, 6 ingest, 15 sync); `ruff check .` clean repo-wide; `ruff format --check .` clean for all GSD-touched files (two pre-existing files — `src/fomo/settings.py`, `load_telescope_runs_demo.ipynb` — are flagged but untouched by any phase, tracked in `.planning/phases/04-lco-queue-sync-command/deferred-items.md`).
+- **Known technical debt**: status-aware `CalendarEvent` coloring not implemented (see Out of Scope); `[QUEUED]` de-emphasis style required a same-day contrast-regression follow-up fix (260618-lw4 → 260618-mck).
 
 ## Constraints
 
@@ -145,6 +140,10 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | CalendarEvent upsert keyed on `(telescope, instrument, start_time)` via `get_or_create` + conditional save | Idempotent re-run; no `modified`-timestamp churn on unchanged events (D-04) | Implemented in Phase 03; INGEST-03 validated by test and UAT |
 | `astropy Time.to_datetime()` microsecond-strip | `to_datetime()` produces sub-second precision that breaks `get_or_create` key matching on re-run | Fixed in Phase 03 code review (commit `437aa53`); `.replace(microsecond=0)` before DB save |
 | Per-line `(ValueError, Observatory.DoesNotExist)` handler (log+skip) | Both are data/setup issues for that line; abort would discard all subsequent valid lines | Implemented in Phase 03 (D-02); skipped lines reported with line number + original text |
+| `CalendarEvent.url` keyed on `LCOFacility().get_observation_url(observation_id)`, not the literal `requestgroups/<id>/` string from the original ROADMAP wording | Real method returns `/requests/<id>` (no trailing slash); using the wrong literal would silently break find-or-create matching against real LCO data (D-01) | Implemented in Phase 04; confirmed live via `LCOFacility().get_observation_url('12345')`; `grep -c requestgroups` on source = 0 |
+| Terminal-state title prefix trigger uses `get_failed_observing_states()` (4 states), not `get_terminal_observing_states()` (5 states = those 4 + `COMPLETED`) | Research correction (D-06): the wrong helper would wrongly prefix `COMPLETED` records, which should get a clean title | Implemented in Phase 04; verified live (4-vs-5 state sets) plus a dedicated COMPLETED-gets-clean-title test |
+| No-churn create-or-update compares all 7 changeable fields before `.save()` | Avoids `modified`-timestamp churn on unchanged records, same pattern as Phase 03's `load_telescope_runs` | Implemented in Phase 04 (SYNC-04); verified by a test asserting bit-for-bit-identical `modified` on an unchanged re-run |
+| Status-aware `CalendarEvent` coloring deferred rather than built alongside the narrower `[QUEUED]` de-emphasis fix | Visual-design decision (telescope/proposal-keyed hash + status opacity), not just engineering; user wanted to explore "striping" as an alternative before committing | Narrower de-emphasis fix shipped (260618-lw4/mck); fuller scheme captured as a pending todo for a future milestone |
 
 ## Evolution
 
@@ -164,4 +163,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 — Phase 4 complete, v1.2 milestone requirements validated*
+*Last updated: 2026-06-18 — v1.2 "LCO Queue Calendar Sync" milestone closed and archived*

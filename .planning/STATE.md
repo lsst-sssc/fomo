@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: LCO Queue Calendar Sync
-status: executing
+status: Awaiting next milestone
 stopped_at: Phase 4 context gathered
-last_updated: "2026-06-17T22:07:16.165Z"
-last_activity: 2026-06-17
+last_updated: "2026-06-18T23:22:46.164Z"
+last_activity: 2026-06-18 — Milestone v1.2 completed and archived
 progress:
   total_phases: 1
   completed_phases: 1
@@ -25,14 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
-Status: Executing Phase 04
-Last activity: 2026-06-17
-
-```
-[░░░░░░░░░░░░░░░░░░░░] 0% — Phase 4 of 4 (v1.2)
-```
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-18 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -89,6 +85,16 @@ None. Environment blocker (tom_catalogs) resolved 2026-06-11 (PR #38 merged to m
 
 ## Deferred Items
 
+Items acknowledged and deferred at milestone close on 2026-06-18:
+
+| Category | Item | Status |
+|----------|------|--------|
+| quick_task | 260617-mlr-backfill-phase-04-s-missing-demo-noteboo | unknown (has SUMMARY.md; recorded complete in STATE.md, commit a2f8eea) |
+| quick_task | 260618-h97-add-src-data-to-gitignore-this-directory | unknown (has SUMMARY.md; recorded complete in STATE.md, commit d3f3727) |
+| quick_task | 260618-lw4-de-emphasize-queued-calendar-events-so-t | unknown (has SUMMARY.md; recorded complete in STATE.md, commit 517e8bc) |
+| quick_task | 260618-mck-fix-insufficient-contrast-in-queued-cale | unknown (has SUMMARY.md; recorded complete in STATE.md, commit 5ee2dd0) |
+| todo | 2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md | pending (deliberately deferred future work, out of v1.2 scope) |
+
 Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
@@ -104,4 +110,4 @@ Last activity: 2026-06-18 - Completed quick task 260618-mck: Fix insufficient co
 
 ## Operator Next Steps
 
-- Run `/gsd-plan-phase 4` to decompose Phase 4 into executable plans.
+- Start the next milestone with /gsd-new-milestone

@@ -1,5 +1,15 @@
 # Milestones
 
+## v1.2 LCO Queue Calendar Sync (Shipped: 2026-06-18)
+
+**Phases completed:** 1 phases, 1 plans, 3 tasks
+
+**Key accomplishments:**
+
+- `sync_lco_observation_calendar` management command syncs LCO ObservationRecords to CalendarEvents via TDD, keyed on the real `LCOFacility().get_observation_url()` portal URL, with no-churn create-or-update and a terminal-failure title prefix system that correctly excludes COMPLETED (D-06 research correction).
+
+---
+
 ## v1.1 Classical Run Ingest (Shipped: 2026-06-16)
 
 **Phases completed:** 2 phases, 3 plans, 5 tasks
