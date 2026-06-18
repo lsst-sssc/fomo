@@ -85,6 +85,7 @@ None. Environment blocker (tom_catalogs) resolved 2026-06-11 (PR #38 merged to m
 | 260617-mlr | Backfill Phase 04's missing demo notebook and enforce the convention going forward | 2026-06-17 | a2f8eea | [260617-mlr-backfill-phase-04-s-missing-demo-noteboo](./quick/260617-mlr-backfill-phase-04-s-missing-demo-noteboo/) |
 | 260618-h97 | Add src/data/ to .gitignore (Django MEDIA_ROOT resolves inside the git checkout; stopgap until MEDIA_ROOT is relocated outside the repo for dockerized deployment) | 2026-06-18 | d3f3727 | [260618-h97-add-src-data-to-gitignore-this-directory](./quick/260618-h97-add-src-data-to-gitignore-this-directory/) |
 | 260618-lw4 | De-emphasize [QUEUED] calendar events so they never look more visually prominent than confirmed/placed events (project-level tom_calendar template override) | 2026-06-18 | 517e8bc | [260618-lw4-de-emphasize-queued-calendar-events-so-t](./quick/260618-lw4-de-emphasize-queued-calendar-events-so-t/) |
+| 260618-mck | Fix insufficient contrast in [QUEUED] calendar event de-emphasis style (follow-up to 260618-lw4; forced-white event-title text was nearly invisible against the near-transparent fill, especially on the #f8f9fa other-month overflow cell) | 2026-06-18 | 5ee2dd0 | [260618-mck-fix-insufficient-contrast-in-queued-cale](./quick/260618-mck-fix-insufficient-contrast-in-queued-cale/) |
 
 ## Deferred Items
 
@@ -99,7 +100,7 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-06-17T20:51:13.159Z
 Stopped at: Phase 4 context gathered
 Resume file: .planning/phases/04-lco-queue-sync-command/04-CONTEXT.md
-Last activity: 2026-06-18 - Completed quick task 260618-lw4: De-emphasize [QUEUED] calendar events
+Last activity: 2026-06-18 - Completed quick task 260618-mck: Fix insufficient contrast in [QUEUED] calendar event style
 
 ## Operator Next Steps
 
