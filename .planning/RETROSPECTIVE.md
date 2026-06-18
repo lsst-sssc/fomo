@@ -77,6 +77,45 @@
 
 ---
 
+## Milestone: v1.2 — LCO Queue Calendar Sync
+
+**Shipped:** 2026-06-18
+**Phases:** 1 | **Plans:** 1 | **Sessions:** ~2
+
+### What Was Built
+- `sync_lco_observation_calendar` management command: `--proposal <code>` selection via `ObservationRecord.objects.filter(facility='LCO', parameters__proposal=code)`, one `CalendarEvent` per record keyed on `LCOFacility().get_observation_url(observation_id)` (the real `/requests/<id>` path, correcting the literal ROADMAP wording per D-01).
+- Two time-source branches (`_time_window`): `parameters['start']`/`['end']` banner when `scheduled_start is None`, `scheduled_start`/`scheduled_end` placed block once the LCO scheduler acts — same record, same event, no duplicate.
+- Terminal-state title prefixes (`_failure_prefix`) driven by `LCOFacility().get_failed_observing_states()` membership (4 states), deliberately excluding `COMPLETED` per D-06's research correction (`get_terminal_observing_states()` returns those 4 + `COMPLETED` = 5 — using the wrong helper would have wrongly prefixed completed observations).
+- No-churn create-or-update: all 7 changeable fields compared before `.save()`, verified by a test asserting `modified` is untouched across two runs on an unchanged record.
+- 14 new Django tests (110 total in `solsys_code` suite); demo notebook `sync_lco_observation_calendar_demo.ipynb`.
+- Two follow-up quick tasks during the milestone window de-emphasized `[QUEUED]` event styling and then fixed a contrast regression introduced by the first fix — both outside the phase plan but inside the v1.2 close window.
+
+### What Worked
+- TDD RED→GREEN again was clean: Task 1 wrote 14 failing tests against a stub command, Task 2 made them all pass.
+- The plan's locked D-06 decision (use `get_failed_observing_states()`, not `get_terminal_observing_states()`) was verified two independent ways — a live Django-shell call confirming the 4-vs-5 state sets, and a `grep -c get_terminal_observing_states` check on the source — leaving no ambiguity at verification time.
+- Code review caught one real bug (CR-01: an inconsistent-scheduled-times case that would have raised `IntegrityError` via a `None` `end_time`) before milestone close, with a regression test added and independently reproduced by the verifier.
+- Verification scored 7/7 truths and reproduced the full 110/110 test run and clean `ruff check`/`ruff format --check` independently rather than trusting the executor's self-report.
+
+### What Was Inefficient
+- The `[QUEUED]` calendar-event de-emphasis fix (quick task `260618-lw4`) shipped with a contrast bug (white text on near-transparent fill) that needed an immediate follow-up fix (`260618-mck`) — a quick visual check against both the white and `#f8f9fa` overflow-cell backgrounds before committing would have caught it in one pass.
+- A demo notebook for Phase 4 was initially missed and had to be backfilled by a separate quick task (`260617-mlr`) after the phase closed, the same gap pattern noted in v1.0's retrospective — the "ship a demo notebook per phase" convention exists in PROJECT.md but phase plans don't always include it as an explicit task.
+- The pre-close artifact audit flagged 4 completed quick tasks as `status: unknown` purely because their SUMMARY.md frontmatter doesn't set a field the audit tool checks — no actual gap, but it cost a manual cross-check against STATE.md's Quick Tasks Completed table to confirm.
+
+### Patterns Established
+- `_failure_prefix(status, facility)` pattern: derive prefix-trigger membership from a live facility helper call (`get_failed_observing_states()`) rather than hardcoding the same strings, so a future upstream change to the failure-state set is picked up automatically.
+- Visual/style quick tasks (CSS, template overrides) should be checked against every background variant the element can appear on (e.g. both in-month white and `#f8f9fa` other-month overflow cells) before considering the task done.
+
+### Key Lessons
+1. When a plan's success criteria depend on a library helper returning a specific set (e.g. "4 failure states, not 5 terminal states"), verify the live return value during both planning and verification — don't trust documentation or memory of the API.
+2. Add "ship the demo notebook" as an explicit task in the phase plan itself (not just a PROJECT.md convention) — it has now been missed and backfilled in two consecutive milestones (v1.0, v1.2).
+3. A quick task that touches visual/CSS state should include a checklist of the backgrounds/contexts it must remain legible against, to catch contrast regressions before they ship.
+
+### Cost Observations
+- Sessions: ~2 (phase execution 2026-06-17; quick-task polish + milestone close 2026-06-18)
+- Notable: single-plan phase with TDD RED→GREEN, one code-review bug found and fixed pre-close, zero replanning.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -85,6 +124,7 @@
 |-----------|----------|--------|------------|
 | v1.0 | 1 | 1 | First GSD run on this repo; validated discuss→plan→execute→verify loop end-to-end |
 | v1.1 | ~4 | 2 | First milestone with DB-dependent tests under real Django test runner from day 1; TDD RED→GREEN on management command |
+| v1.2 | ~2 | 1 | Single-plan phase; code review caught a real pre-close bug (CR-01); two same-day quick-task follow-ups (style fix + contrast regression fix) |
 
 ### Cumulative Quality
 
@@ -92,9 +132,11 @@
 |-----------|-------|----------|-------------------|
 | v1.0 | +12 (Django, unconfirmed by `./manage.py test` due to env blocker) | - | 0 |
 | v1.1 | +16 (10 parser + 6 ingest; all 95 under `./manage.py test solsys_code`) | - | 0 |
+| v1.2 | +14 (sync command; all 110 under `./manage.py test solsys_code`) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Fix environment/dependency blockers before they compound across milestones — the `tomtoolkit`/`tom_catalogs` mismatch surfaced in v1.0 and was resolved before v1.1. ✓ Validated.
 2. Write a test for the exact DB field precision you need (astropy→Django datetime conversion produces microseconds; assert `.microsecond == 0` in tests that use `astropy Time.to_datetime()`).
 3. UAT generated by `/gsd-verify-work` is only useful if it's run — fold scenarios into `TestCase` methods at plan time rather than generating a separate checklist.
+4. "Ship a demo notebook per phase" needs to be an explicit phase-plan task, not just a PROJECT.md convention — missed and backfilled after the fact in both v1.0 and v1.2.
