@@ -65,26 +65,26 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SELECT-02 | TBD | Pending |
-| SELECT-03 | TBD | Pending |
-| SELECT-04 | TBD | Pending |
-| SELECT-05 | TBD | Pending |
-| EXTRACT-01 | TBD | Pending |
-| EXTRACT-02 | TBD | Pending |
-| TELESCOPE-01 | TBD | Pending |
-| TELESCOPE-02 | TBD | Pending |
-| TELESCOPE-03 | TBD | Pending |
-| TELESCOPE-04 | TBD | Pending |
-| SYNC-06 | TBD | Pending |
-| SYNC-07 | TBD | Pending |
-| SYNC-08 | TBD | Pending |
-| SYNC-09 | TBD | Pending |
+| SELECT-02 | Phase 5 | Pending |
+| SELECT-03 | Phase 5 | Pending |
+| SELECT-04 | Phase 5 | Pending |
+| SELECT-05 | Phase 5 | Pending |
+| EXTRACT-01 | Phase 6 | Pending |
+| EXTRACT-02 | Phase 6 | Pending |
+| TELESCOPE-01 | Phase 7 | Pending |
+| TELESCOPE-02 | Phase 7 | Pending |
+| TELESCOPE-03 | Phase 7 | Pending |
+| TELESCOPE-04 | Phase 7 | Pending |
+| SYNC-06 | Phase 7 | Pending |
+| SYNC-07 | Phase 7 | Pending |
+| SYNC-08 | Phase 7 | Pending |
+| SYNC-09 | Phase 7 | Pending |
 
 **Coverage:**
 - v1 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14 ⚠️ (roadmap creation pending)
+- Mapped to phases: 14
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-19*
-*Last updated: 2026-06-19 after initial v1.3 definition*
+*Last updated: 2026-06-19 after v1.3 ROADMAP.md creation (Phases 5-7)*

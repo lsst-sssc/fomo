@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
 status: planning
-last_updated: "2026-06-19T04:48:04.395Z"
+last_updated: "2026-06-19T00:00:00.000Z"
 last_activity: 2026-06-19
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,23 +17,25 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-16)
+See: .planning/PROJECT.md (updated 2026-06-19)
 
-**Core value:** A `sync_lco_observation_calendar` management command syncs FTS/MuSCAT4 LCO queue ObservationRecords to the FOMO calendar as unified CalendarEvents — window banner when unscheduled, placed block once the LCO scheduler acts, updating in place on rescheduling, and marked with a status prefix on terminal states.
-**Current focus:** Phase 04 — lco-queue-sync-command
+**Core value:** Generalize `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals, fixing the parameter-shape bugs found in v1.2 against real data.
+**Current focus:** Phase 5 — Multi-Proposal & Multi-Facility Selection
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-06-19 — Milestone v1.3 started
+Phase: 5 of 7 (Multi-Proposal & Multi-Facility Selection)
+Plan: — (not yet planned)
+Status: Roadmap created, ready to plan Phase 5
+Last activity: 2026-06-19 — v1.3 ROADMAP.md created (Phases 5-7), 14/14 requirements mapped
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 6 (across v1.0 and v1.1)
+- Total plans completed: 6 (across v1.0-v1.2)
 - Average duration: ~35 min (Phase 2) + 7-8 min/plan (Phase 3)
 - Total execution time: ~3-4 sessions
 
@@ -45,12 +47,18 @@ Last activity: 2026-06-19 — Milestone v1.3 started
 | 02 | 1 | ~35 min | ~35 min |
 | 03 | 2 | - | - |
 | 04 | 1 | - | - |
+| 05 | TBD | - | - |
+| 06 | TBD | - | - |
+| 07 | TBD | - | - |
 
 ## Accumulated Context
 
 ### Decisions
 
-All decisions logged in PROJECT.md Key Decisions table.
+All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecting v1.3:
+
+- Phase ordering follows research's dependency chain: query generalization (Phase 5, pure/zero-I/O) before instrument extraction (Phase 6, fallback label needs correct instrument data) before telescope-label API+fallback (Phase 7, highest-risk new I/O).
+- SYNC-06..09 (partial-failure counters/reporting) folded into Phase 7 rather than a standalone phase — that's the only phase introducing the new API-failure axis they report on.
 
 ### Pending Todos
 
@@ -58,55 +66,34 @@ All decisions logged in PROJECT.md Key Decisions table.
 
 ### Blockers/Concerns
 
-None. Environment blocker (tom_catalogs) resolved 2026-06-11 (PR #38 merged to main).
+- Research gap (Phase 7): exact JSON key names in `/api/requests/<id>/observations/` block responses are inferred by analogy, not confirmed against a live response — confirm against a real `observation_id` before finalizing parsing.
+- Research gap (Phase 7): whether `FACILITIES['SOAR']` needs an explicit settings.py entry vs. relying on `SOARSettings` defaults — decide during Phase 5 planning.
+- Research gap (Phase 7): `tlv` (Wise Observatory) appears in the webpage-sourced 8-site table but not confirmed in installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()` — verify before shipping the static mapping dict.
 
-### Key Technical Notes (Phase 4)
+### Key Technical Notes (carried from Phase 4 / v1.2)
 
-- `parameters` on `ObservationRecord` is a `TextField` containing JSON (not a JSONField). Filtering by proposal code requires fetching `ObservationRecord.objects.filter(facility='LCO')` and parsing in Python — no DB-level JSON filtering.
-- CalendarEvent upsert keyed on `url` field (`https://observe.lco.global/requestgroups/<observation_id>/`).
-- Two time-source branches: `parameters['start']`/`parameters['end']` when `scheduled_start is None` (banner); `scheduled_start`/`scheduled_end` when populated (placed block).
-- Terminal state constants: WINDOW_EXPIRED → `[EXPIRED]`, CANCELED → `[CANCELLED]`, FAILURE_LIMIT_REACHED / NOT_ATTEMPTED → `[FAILED]`.
-- No-churn idempotency: only call `event.save()` when fields have actually changed (avoids `modified` timestamp churn on unchanged events — same pattern as Phase 3 load_telescope_runs).
-- `astropy Time.to_datetime()` produces microseconds — strip with `.replace(microsecond=0)` before DB save (established pattern from Phase 3 fix, commit 437aa53).
+- `parameters` on `ObservationRecord` is a `TextField` containing JSON (not a JSONField) — filtering requires fetching then parsing in Python, no DB-level JSON filtering assumed safe without re-verification for `__in` queries.
+- CalendarEvent upsert keyed on `url` (`LCOFacility().get_observation_url(observation_id)`, confirmed `/requests/<id>` no trailing slash).
+- No-churn idempotency: only call `.save()` when fields actually changed.
+- `astropy Time.to_datetime()` produces microseconds — strip with `.replace(microsecond=0)` before DB save.
 - DB-dependent tests go in `solsys_code/tests/test_sync_lco_observation_calendar.py`, run with `./manage.py test solsys_code`.
-- `ObservationRecord` lives in `tom_observations.models`; `CalendarEvent` in `tom_calendar.models`.
-
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260613-eb1 | Add a demo Jupyter notebook for Phase 1 (telescope_runs.py) under docs/notebooks/pre_executed/, and add a convention to .planning/PROJECT.md | 2026-06-13 | 1a36914 | [260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-](./quick/260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-/) |
-| 260613-f7d | Modify docs/notebooks/ESO_How_to_download_data.ipynb to write downloaded files into a git-ignored docs/notebooks/data/ subdirectory | 2026-06-13 | ef1f9b3 | [260613-f7d-modify-docs-notebooks-eso-how-to-downloa](./quick/260613-f7d-modify-docs-notebooks-eso-how-to-downloa/) |
-| 260617-mlr | Backfill Phase 04's missing demo notebook and enforce the convention going forward | 2026-06-17 | a2f8eea | [260617-mlr-backfill-phase-04-s-missing-demo-noteboo](./quick/260617-mlr-backfill-phase-04-s-missing-demo-noteboo/) |
-| 260618-h97 | Add src/data/ to .gitignore (Django MEDIA_ROOT resolves inside the git checkout; stopgap until MEDIA_ROOT is relocated outside the repo for dockerized deployment) | 2026-06-18 | d3f3727 | [260618-h97-add-src-data-to-gitignore-this-directory](./quick/260618-h97-add-src-data-to-gitignore-this-directory/) |
-| 260618-lw4 | De-emphasize [QUEUED] calendar events so they never look more visually prominent than confirmed/placed events (project-level tom_calendar template override) | 2026-06-18 | 517e8bc | [260618-lw4-de-emphasize-queued-calendar-events-so-t](./quick/260618-lw4-de-emphasize-queued-calendar-events-so-t/) |
-| 260618-mck | Fix insufficient contrast in [QUEUED] calendar event de-emphasis style (follow-up to 260618-lw4; forced-white event-title text was nearly invisible against the near-transparent fill, especially on the #f8f9fa other-month overflow cell) | 2026-06-18 | 5ee2dd0 | [260618-mck-fix-insufficient-contrast-in-queued-cale](./quick/260618-mck-fix-insufficient-contrast-in-queued-cale/) |
+- v1.2 real-data bug (drives v1.3): real records have no flat `instrument_type` or `site` key in `parameters`; multi-config `c_1..c_5_instrument_type` shape only, and `SITE_TELESCOPE_MAP` was a 2-entry unverified guess.
 
 ## Deferred Items
-
-Items acknowledged and deferred at milestone close on 2026-06-18:
-
-| Category | Item | Status |
-|----------|------|--------|
-| quick_task | 260617-mlr-backfill-phase-04-s-missing-demo-noteboo | unknown (has SUMMARY.md; recorded complete in STATE.md, commit a2f8eea) |
-| quick_task | 260618-h97-add-src-data-to-gitignore-this-directory | unknown (has SUMMARY.md; recorded complete in STATE.md, commit d3f3727) |
-| quick_task | 260618-lw4-de-emphasize-queued-calendar-events-so-t | unknown (has SUMMARY.md; recorded complete in STATE.md, commit 517e8bc) |
-| quick_task | 260618-mck-fix-insufficient-contrast-in-queued-cale | unknown (has SUMMARY.md; recorded complete in STATE.md, commit 5ee2dd0) |
-| todo | 2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md | pending (deliberately deferred future work, out of v1.2 scope) |
 
 Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| todo | 2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md | pending (deliberately deferred future work) | v1.2 close |
 
 ## Session Continuity
 
-Last session: 2026-06-17T20:51:13.159Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-lco-queue-sync-command/04-CONTEXT.md
-Last activity: 2026-06-18 - Completed quick task 260618-mck: Fix insufficient contrast in [QUEUED] calendar event style
+Last session: 2026-06-19T00:00:00.000Z
+Stopped at: v1.3 ROADMAP.md created (Phases 5-7), REQUIREMENTS.md traceability updated
+Resume file: None
+Last activity: 2026-06-19 — Roadmap created for v1.3 Full LCO Facility Sync
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Run `/gsd-plan-phase 5` to plan Multi-Proposal & Multi-Facility Selection
