@@ -39,7 +39,18 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 
 ## Milestone Status
 
-v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). No next milestone defined yet — run `/gsd-new-milestone` to scope Stage 4 (full LCO facility sync) or the deferred status-aware calendar coloring work.
+v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Facility Sync" started 2026-06-18.
+
+## Current Milestone: v1.3 Full LCO Facility Sync
+
+**Goal:** Generalize `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals, fixing the parameter-shape bugs found in v1.2 against real data.
+
+**Target features:**
+- `--proposal` accepts a comma-separated list or `ALL` (sync every LCO-family record regardless of proposal)
+- Facility scope: LCO + SOAR only; Gemini and ESO explicitly deferred
+- Instrument-type extraction scans `c_1..c_5` configs for the one with a populated `exposure_time`, instead of assuming a flat `instrument_type` key
+- Telescope label: try an LCO API call per record for the real site/enclosure/telescope, map through the verified fully-qualified-code dict (`siteid-enclid-telid` -> MPC code -> label); fall back to a coarse instrument-class label (`1m0`/`0m4`/`2m0`) if that call fails
+- Site/telescope mapping is a verified static dict (not `Observatory`-model-tied), covering all 8 real LCO sites
 
 ## Requirements
 
@@ -71,11 +82,16 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). No next milestone d
 
 ### Active
 
-_None — all v1.2 requirements validated. No milestone currently in progress; candidates for the next milestone are Stage 4 (full LCO facility sync) and the deferred status-aware calendar coloring work below._
+- [ ] `--proposal` accepts a comma-separated list of proposal codes, or `ALL`
+- [ ] Facility scope generalized to LCO + SOAR (both share `LCOFacility`'s OCS API/parameters shape)
+- [ ] Instrument-type extraction scans `c_1..c_5_instrument_type` configs for the meaningful one (populated `exposure_time`), replacing the broken flat-key assumption
+- [ ] Telescope label resolved via per-record LCO API call (`/api/requests/<id>/observations/`) mapped through the verified fully-qualified-code dict, with a coarse instrument-class fallback (`1m0`/`0m4`/`2m0`) if the call fails
+- [ ] Verified static site/telescope mapping dict covering all 8 real LCO sites (replaces the 2-site `[ASSUMED]` `SITE_TELESCOPE_MAP`)
 
 ### Out of Scope
 
-- Stage 4 full sync (all LCO facilities, not just FTS/MuSCAT4) — deferred after v1.2 validates the approach
+- Gemini facility support — different base class (`BaseRoboticObservationFacility`), stub `get_observation_url()` (no portal URL to key the idempotent sync on), different parameter keys and terminal-states vocabulary than LCO
+- ESO/NTT facility support — classically scheduled, already handled by Stage 2 (`load_telescope_runs`); never goes through `ObservationRecord`/queue sync
 - Status-aware `CalendarEvent` coloring (telescope/proposal-keyed hash, opacity by `[QUEUED]`/terminal-prefix status) — explicitly deferred during v1.2 close; see `.planning/todos/pending/2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md`; requires a project-level `tom_calendar` template override since the upstream model's `color` property isn't separately overridable
 - Any `tom_calendar` UI/template changes beyond the v1.2-shipped `[QUEUED]` de-emphasis style — not needed for Stages 1-3
 - Reworking `tom_observations`' existing astroplan-based visibility/airmass plots — separate, not touched by this feature
@@ -93,6 +109,8 @@ _None — all v1.2 requirements validated. No milestone currently in progress; c
 - **Environment**: `tomtoolkit==3.0a9`/`tom_catalogs` mismatch (v1.0 blocker) resolved by PR #38 (merged 2026-06-11).
 - **Current codebase state (as of v1.2 close)**: ~4,735 LOC across `solsys_code/`; 110 tests passing under `./manage.py test solsys_code` (26 site/ephem+parser, 6 ingest, 15 sync); `ruff check .` clean repo-wide; `ruff format --check .` clean for all GSD-touched files (two pre-existing files — `src/fomo/settings.py`, `load_telescope_runs_demo.ipynb` — are flagged but untouched by any phase, tracked in `.planning/phases/04-lco-queue-sync-command/deferred-items.md`).
 - **Known technical debt**: status-aware `CalendarEvent` coloring not implemented (see Out of Scope); `[QUEUED]` de-emphasis style required a same-day contrast-regression follow-up fix (260618-lw4 → 260618-mck).
+- **v1.2 correctness bug found against real data (drives v1.3)**: checked real `ObservationRecord` rows in this dev DB (pk=1 obs_id=3780553 PENDING, pk=2 obs_id=3781325 COMPLETED, both proposal `LTP2025A-004`). Neither has a `site` key in `parameters`, and neither has a flat `instrument_type` key — real LCO submissions use multi-configuration cadence requests (`c_1_instrument_type`..`c_5_instrument_type`, each with `c_N_ic_1..5_*` exposure settings); only the configuration(s) with a populated `exposure_time` are "meaningful" (in both records checked, only `c_1` was populated). `SITE_TELESCOPE_MAP`'s 2-entry `coj`/`ogg` dict was also `[ASSUMED]`/web-search-only, never confirmed against real data. v1.2's shipped command would silently `KeyError`/skip every real record in this database.
+- **LCO site -> MPC code reference table** (from https://lco.global/observatory/sites/mpccodes/), basis for the v1.3 verified mapping dict: ogg/Haleakala (F65,T04,T03), elp/McDonald (V37,V39,V38,V45,V47), lsc/Cerro Tololo (W85,W86,W87,W89,W79), cpt/Sutherland (K91,K92,K93,L09), coj/Siding Spring (Q58,Q59,Q63,Q64,E10), tfn/Tenerife (Z31,Z24,Z21,Z17), tlv/Wise Observatory (097), sor/SOAR Cerro Pachon (I33). A bare 3-letter site code is 1-to-many against MPC codes; the fully-qualified `siteid-enclid-telid` code (e.g. `coj-clma-2m0a` -> `E10` -> "FTS") is 1-to-1.
 
 ## Constraints
 
@@ -163,4 +181,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-18 — v1.2 "LCO Queue Calendar Sync" milestone closed and archived*
+*Last updated: 2026-06-18 — v1.3 "Full LCO Facility Sync" milestone started*
