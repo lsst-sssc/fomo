@@ -48,7 +48,8 @@
   2. Running with `--proposal ALL` syncs every LCO-family (`LCO` + `SOAR`) `ObservationRecord` regardless of its proposal code
   3. A single run produces correct `CalendarEvent`s for both `facility='LCO'` and `facility='SOAR'` records together, without requiring two separate invocations
   4. A SOAR record is processed using a `SOARFacility`/SOAR-credentialed instance, never a reused `LCOFacility()` instance — verified by a test asserting the per-facility instance dict dispatches by each record's own `facility` value
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 05-01-PLAN.md — Generalize sync_lco_observation_calendar to multi-proposal (comma-list/ALL) + multi-facility (LCO+SOAR) per-record dispatch
 
 ### Phase 6: Correct Instrument-Type Extraction
 **Goal**: The command always identifies the scientifically meaningful instrument configuration for a record, regardless of which LCO-family facility submitted it
@@ -82,6 +83,6 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete | 2026-06-14 |
 | 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete | 2026-06-16 |
 | 4. LCO Queue Sync Command | v1.2 | 1/1 | Complete | 2026-06-17 |
-| 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 0/TBD | Not started | - |
+| 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 0/1 | Planned | - |
 | 6. Correct Instrument-Type Extraction | v1.3 | 0/TBD | Not started | - |
 | 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 0/TBD | Not started | - |
