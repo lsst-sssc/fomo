@@ -16,18 +16,19 @@ This is a Stages-1-through-3-complete implementation of the "telescope runs on t
 - ✅ v1.0 "Site/Ephemeris Helper" — 2026-06-14 (Phase 1)
 - ✅ v1.1 "Classical Run Ingest" — 2026-06-16 (Phases 2-3)
 - ✅ v1.2 "LCO Queue Calendar Sync" — 2026-06-17 (Phase 4)
+- ◆ v1.3 "Full LCO Facility Sync" in progress — Phase 5 (multi-proposal-multi-facility-selection) complete 2026-06-19; Phases 6-7 remaining
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
 - `solsys_code/management/commands/load_telescope_runs.py`: `load_telescope_runs` BaseCommand
-- `solsys_code/management/commands/sync_lco_observation_calendar.py`: `sync_lco_observation_calendar` BaseCommand, `SITE_TELESCOPE_MAP`
+- `solsys_code/management/commands/sync_lco_observation_calendar.py`: `sync_lco_observation_calendar` BaseCommand (now multi-proposal/multi-facility — `_parse_proposal_arg`, per-facility dispatch dict, per-facility counters), `SITE_TELESCOPE_MAP`
 - `solsys_code/tests/test_telescope_runs.py`: 26 tests (16 site/ephem + 10 parser)
 - `solsys_code/tests/test_load_telescope_runs.py`: 6 tests (ingest + idempotency + error paths)
-- `solsys_code/tests/test_sync_lco_observation_calendar.py`: 15 tests (selection, banner/placed sync, no-churn, terminal-state prefixes, error paths)
+- `solsys_code/tests/test_sync_lco_observation_calendar.py`: 19 tests (selection incl. SELECT-02/03/04/05, banner/placed sync, no-churn, terminal-state prefixes, error paths)
 - `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`: Stage 1 demo
 - `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`: Stage 2 demo
 - `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb`: Stage 3 demo
-- **All 110 `./manage.py test solsys_code` tests pass.**
+- **All 114 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
 
@@ -79,11 +80,13 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Faci
 - ✓ **SYNC-04**: Re-running after rescheduling updates the existing event in place, no duplicates, no `modified` churn on unchanged records — v1.2 (Phase 4)
 - ✓ **SYNC-05**: `telescope`, `instrument`, `proposal` on `CalendarEvent` are populated from the record — v1.2 (Phase 4)
 - ✓ **TERM-01**: Terminal-failure states (WINDOW_EXPIRED/CANCELED/FAILURE_LIMIT_REACHED/NOT_ATTEMPTED) get a `[EXPIRED]`/`[CANCELLED]`/`[FAILED]` title prefix; event is retained; `COMPLETED` gets a clean title — v1.2 (Phase 4)
+- ✓ **SELECT-02**: `--proposal A,B,C` syncs records matching exactly A/B/C with no substring leakage (e.g. no match on `AB`) — v1.3 (Phase 5)
+- ✓ **SELECT-03**: `--proposal ALL` (any casing) syncs every LCO + SOAR record regardless of proposal — v1.3 (Phase 5)
+- ✓ **SELECT-04**: A single run produces correct CalendarEvents for both LCO and SOAR records, dispatched via an eager `{'LCO': LCOFacility(), 'SOAR': SOARFacility()}` dict — v1.3 (Phase 5)
+- ✓ **SELECT-05**: SOAR records are dispatched through a `SOARFacility` instance, never a reused `LCOFacility` instance, proven by a discriminating spy test — v1.3 (Phase 5)
 
 ### Active
 
-- [ ] `--proposal` accepts a comma-separated list of proposal codes, or `ALL`
-- [ ] Facility scope generalized to LCO + SOAR (both share `LCOFacility`'s OCS API/parameters shape)
 - [ ] Instrument-type extraction scans `c_1..c_5_instrument_type` configs for the meaningful one (populated `exposure_time`), replacing the broken flat-key assumption
 - [ ] Telescope label resolved via per-record LCO API call (`/api/requests/<id>/observations/`) mapped through the verified fully-qualified-code dict, with a coarse instrument-class fallback (`1m0`/`0m4`/`2m0`) if the call fails
 - [ ] Verified static site/telescope mapping dict covering all 8 real LCO sites (replaces the 2-site `[ASSUMED]` `SITE_TELESCOPE_MAP`)
@@ -162,6 +165,8 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | Terminal-state title prefix trigger uses `get_failed_observing_states()` (4 states), not `get_terminal_observing_states()` (5 states = those 4 + `COMPLETED`) | Research correction (D-06): the wrong helper would wrongly prefix `COMPLETED` records, which should get a clean title | Implemented in Phase 04; verified live (4-vs-5 state sets) plus a dedicated COMPLETED-gets-clean-title test |
 | No-churn create-or-update compares all 7 changeable fields before `.save()` | Avoids `modified`-timestamp churn on unchanged records, same pattern as Phase 03's `load_telescope_runs` | Implemented in Phase 04 (SYNC-04); verified by a test asserting bit-for-bit-identical `modified` on an unchanged re-run |
 | Status-aware `CalendarEvent` coloring deferred rather than built alongside the narrower `[QUEUED]` de-emphasis fix | Visual-design decision (telescope/proposal-keyed hash + status opacity), not just engineering; user wanted to explore "striping" as an alternative before committing | Narrower de-emphasis fix shipped (260618-lw4/mck); fuller scheme captured as a pending todo for a future milestone |
+| `FACILITIES['SOAR']` mirrors `FACILITIES['LCO']` literally (same hardcoded `api_key`/`portal_url`), not a new env-var-backed entry | D-04/D-05: SOAR authenticates against the same LCO Observation Portal; narrower reading avoids migrating `LCO`'s existing credential handling within this phase's query/selection/dispatch scope | Implemented in Phase 05; `FACILITIES['LCO']` byte-for-byte unchanged, verified live |
+| Eager `{'LCO': LCOFacility(), 'SOAR': SOARFacility()}` dispatch dict built once per run, not lazily per record | Fixes the SELECT-05 bug (one `LCOFacility()` reused for every record); avoids per-record instantiation cost; both keys always present (D-06) | Implemented in Phase 05; proven by a discriminating spy test (SOAR spy called, LCO spy not called for a SOAR record) |
 
 ## Evolution
 
@@ -181,4 +186,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-18 — v1.3 "Full LCO Facility Sync" milestone started*
+*Last updated: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) complete*
