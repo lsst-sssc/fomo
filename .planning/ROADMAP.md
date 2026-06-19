@@ -90,6 +90,6 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete | 2026-06-14 |
 | 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete | 2026-06-16 |
 | 4. LCO Queue Sync Command | v1.2 | 1/1 | Complete | 2026-06-17 |
-| 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete   | 2026-06-19 |
+| 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete    | 2026-06-19 |
 | 6. Correct Instrument-Type Extraction | v1.3 | 0/TBD | Not started | - |
 | 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 0/TBD | Not started | - |

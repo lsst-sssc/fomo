@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
 status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-06-19T16:47:16.547Z"
-last_activity: 2026-06-19 -- Phase 05 execution started
+stopped_at: Phase 05 complete; Phase 6 not started
+last_updated: "2026-06-19T17:31:33.991Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 1
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19)
 
 ## Current Position
 
-Phase: 05 (multi-proposal-multi-facility-selection) — EXECUTING
-Plan: 1 of 1
-Status: Executing Phase 05
-Last activity: 2026-06-19 -- Phase 05 execution started
+Phase: 6
+Plan: Not started
+Status: Phase 05 complete; Phase 06 pending
+Last activity: 2026-06-19
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -36,7 +36,7 @@ Progress: [░░░░░░░░░░] 0%
 
 **Velocity:**
 
-- Total plans completed: 6 (across v1.0-v1.2)
+- Total plans completed: 7 (across v1.0-v1.2)
 - Average duration: ~35 min (Phase 2) + 7-8 min/plan (Phase 3)
 - Total execution time: ~3-4 sessions
 
@@ -48,7 +48,7 @@ Progress: [░░░░░░░░░░] 0%
 | 02 | 1 | ~35 min | ~35 min |
 | 03 | 2 | - | - |
 | 04 | 1 | - | - |
-| 05 | TBD | - | - |
+| 05 | 1 | - | - |
 | 06 | TBD | - | - |
 | 07 | TBD | - | - |
 
@@ -90,11 +90,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T05:59:18.170Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-multi-proposal-multi-facility-selection/05-CONTEXT.md
-Last activity: 2026-06-19 — Roadmap created for v1.3 Full LCO Facility Sync
+Last session: 2026-06-19T17:31:33.991Z
+Stopped at: Phase 05 complete; Phase 6 not started
+Resume file: .planning/phases/06-correct-instrument-type-extraction/06-CONTEXT.md (if present)
+Last activity: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) executed and verified
 
 ## Operator Next Steps
 
-- Run `/gsd-plan-phase 5` to plan Multi-Proposal & Multi-Facility Selection
+- Run `/gsd-discuss-phase 6` to start Phase 6 (correct-instrument-type-extraction)

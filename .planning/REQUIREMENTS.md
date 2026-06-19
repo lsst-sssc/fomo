@@ -9,10 +9,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Proposal & Facility Selection
 
-- [ ] **SELECT-02**: `--proposal` accepts a comma-separated list of proposal codes (e.g. `--proposal A,B,C`), syncing records matching any of them
-- [ ] **SELECT-03**: `--proposal ALL` syncs every LCO-family `ObservationRecord` regardless of proposal code
-- [ ] **SELECT-04**: Sync covers both `facility='LCO'` and `facility='SOAR'` records in a single run
-- [ ] **SELECT-05**: Each record is processed using the facility instance/credentials matching its own `facility` value (LCO vs SOAR), never a single shared facility instance reused across both
+- [x] **SELECT-02**: `--proposal` accepts a comma-separated list of proposal codes (e.g. `--proposal A,B,C`), syncing records matching any of them
+- [x] **SELECT-03**: `--proposal ALL` syncs every LCO-family `ObservationRecord` regardless of proposal code
+- [x] **SELECT-04**: Sync covers both `facility='LCO'` and `facility='SOAR'` records in a single run
+- [x] **SELECT-05**: Each record is processed using the facility instance/credentials matching its own `facility` value (LCO vs SOAR), never a single shared facility instance reused across both
 
 ### Instrument Extraction
 
@@ -65,10 +65,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SELECT-02 | Phase 5 | Pending |
-| SELECT-03 | Phase 5 | Pending |
-| SELECT-04 | Phase 5 | Pending |
-| SELECT-05 | Phase 5 | Pending |
+| SELECT-02 | Phase 5 | Complete |
+| SELECT-03 | Phase 5 | Complete |
+| SELECT-04 | Phase 5 | Complete |
+| SELECT-05 | Phase 5 | Complete |
 | EXTRACT-01 | Phase 6 | Pending |
 | EXTRACT-02 | Phase 6 | Pending |
 | TELESCOPE-01 | Phase 7 | Pending |
@@ -81,6 +81,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SYNC-09 | Phase 7 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 14 total
 - Mapped to phases: 14
 - Unmapped: 0 ✓
