@@ -216,6 +216,14 @@ FACILITIES = {
         'portal_url': 'https://observe.lco.global',
         'api_key': '',
     },
+    # SOAR authenticates against the same LCO Observation Portal credentials (D-05),
+    # so this entry mirrors 'LCO' exactly. It exists so SOARSettings('SOAR') resolves
+    # a real 'api_key' key (D-04); 'portal_url' already resolves via LCOSettings'
+    # inherited default even without this entry.
+    'SOAR': {
+        'portal_url': 'https://observe.lco.global',
+        'api_key': '',
+    },
     'GEM': {
         'portal_url': {
             'GS': 'https://139.229.34.15:8443',
