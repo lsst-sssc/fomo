@@ -158,6 +158,7 @@ _html/
 .serena/
 
 docs/notebooks/data/**
+docs/notebooks/eso_programmatic.py
 
 # Django MEDIA_ROOT — downloaded DataProduct files (src/fomo/settings.py)
 src/data/
