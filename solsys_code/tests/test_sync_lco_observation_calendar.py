@@ -53,13 +53,14 @@ class TestSyncLcoObservationCalendar(TestCase):
         status: str = 'PENDING',
         scheduled_start: datetime | None = None,
         scheduled_end: datetime | None = None,
+        facility: str = 'LCO',
         **parameter_overrides,
     ) -> ObservationRecord:
         """Create an ObservationRecord fixture sharing the class-level target/user."""
         return ObservationRecord.objects.create(
             target=self.target,
             user=self.user,
-            facility='LCO',
+            facility=facility,
             observation_id=observation_id,
             status=status,
             scheduled_start=scheduled_start,
