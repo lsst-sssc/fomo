@@ -148,7 +148,7 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
     description = (
         f'Proposal: {proposal}\n'
         f'Status: {record.status}\n'
-        f'Window (UTC): {start_time.isoformat()} to {end_time.isoformat()}'
+        f'Window (UTC): {start_time.strftime("%Y-%m-%dT%H:%M:%S")} to {end_time.strftime("%Y-%m-%dT%H:%M:%S")}'
     )
     return {
         'url': url,
