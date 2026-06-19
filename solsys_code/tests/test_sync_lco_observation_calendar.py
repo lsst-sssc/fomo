@@ -1,12 +1,14 @@
 import io
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.facilities.lco import LCOFacility
+from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
@@ -364,3 +366,104 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         self.assertEqual(CalendarEvent.objects.count(), 0)
         self.assertIn('created: 0', stdout_buf.getvalue())
+
+    def test_select_02_comma_list_matches_any_no_substring_leakage(self):
+        """SELECT-02: --proposal A,B,C matches exactly A/B/C; no substring match on decoy 'AB'."""
+        self._create_record('600001', proposal='A')
+        self._create_record('600002', proposal='B')
+        self._create_record('600003', proposal='C')
+        self._create_record('600004', proposal='AB')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'A,B,C',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        self.assertEqual(CalendarEvent.objects.count(), 3)
+        decoy_url = LCOFacility().get_observation_url('600004')
+        self.assertFalse(CalendarEvent.objects.filter(url=decoy_url).exists())
+        for observation_id in ('600001', '600002', '600003'):
+            url = LCOFacility().get_observation_url(observation_id)
+            self.assertTrue(CalendarEvent.objects.filter(url=url).exists())
+
+    def test_select_03_all_token_case_insensitive_syncs_everything(self):
+        """SELECT-03/D-02: --proposal all (lowercase) syncs every record, regardless of proposal/facility."""
+        self._create_record('610001', proposal='PROPA')
+        self._create_record('610002', proposal='PROPB')
+        self._create_record('610003', proposal='PROPC', facility='SOAR')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'all',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        self.assertEqual(CalendarEvent.objects.count(), 3)
+        for observation_id in ('610001', '610002', '610003'):
+            url = LCOFacility().get_observation_url(observation_id)
+            self.assertTrue(CalendarEvent.objects.filter(url=url).exists())
+
+    def test_select_04_single_run_covers_both_facilities(self):
+        """SELECT-04: a single run produces CalendarEvents for both an LCO and a SOAR record."""
+        self._create_record('620001', proposal='SHARED', facility='LCO')
+        soar_record = self._create_record('620002', proposal='SHARED', facility='SOAR')
+
+        # Pitfall 4 guard: confirm the fixture actually persisted facility='SOAR'.
+        self.assertEqual(ObservationRecord.objects.get(observation_id='620002').facility, 'SOAR')
+        self.assertEqual(soar_record.facility, 'SOAR')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'SHARED',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        lco_url = LCOFacility().get_observation_url('620001')
+        soar_url = LCOFacility().get_observation_url('620002')
+        self.assertTrue(CalendarEvent.objects.filter(url=lco_url).exists())
+        self.assertTrue(CalendarEvent.objects.filter(url=soar_url).exists())
+
+    def test_select_05_soar_record_uses_soar_facility_instance(self):
+        """SELECT-05: a SOAR record is dispatched via SOARFacility, never a reused LCOFacility instance.
+
+        Discriminating spy (Pitfall 3): SOARFacility.get_observation_url and
+        LCOFacility.get_observation_url return byte-identical strings, so a black-box
+        url-equality check cannot prove which class was actually used. Patch both
+        methods as imported in the command module and assert the SOAR spy was called
+        while the LCO spy was not.
+        """
+        self._create_record('630001', proposal='SOARCODE', facility='SOAR')
+
+        real_get_observation_url = LCOFacility.get_observation_url
+
+        with (
+            patch.object(
+                SOARFacility,
+                'get_observation_url',
+                autospec=True,
+                side_effect=real_get_observation_url,
+            ) as soar_spy,
+            patch.object(
+                LCOFacility,
+                'get_observation_url',
+                autospec=True,
+                side_effect=real_get_observation_url,
+            ) as lco_spy,
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'SOARCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            soar_spy.assert_called_once()
+            lco_spy.assert_not_called()
