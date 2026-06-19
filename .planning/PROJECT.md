@@ -124,6 +124,26 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Faci
 - **DB precision**: `astropy Time.to_datetime()` produces microseconds — strip with `.replace(microsecond=0)` before any DB key lookup.
 - **Testing**: DB-dependent tests in `solsys_code/tests/`, run with `./manage.py test solsys_code`. Quality gates: `ruff check .` and `ruff format --check .`.
 
+### Stage vs Phase numbering
+
+This project tracks progress with two intentionally different numbering schemes,
+and they do not line up one-to-one:
+
+- **Stage** is the issue #37 feature-stage grouping, used in notebook headers and
+  the "What This Is" list above: Stage 1 = site/ephemeris helper; Stage 2 =
+  classical run ingest; Stage 3 = LCO queue sync, now being generalized to
+  LCO + SOAR across v1.3's Phases 5-7; Stage 4 = future full observation-record
+  sync for all facilities.
+- **Phase** is the GSD execution-phase count — the `NN-name` directories under
+  `.planning/phases/`.
+
+The two schemes are different granularities on purpose: Stage 2 spans GSD
+Phases 2-3 (parsing in Phase 2, ingest in Phase 3), and Stage 3 corresponds to
+Phase 4 and is being extended by Phases 5-7 (multi-proposal/multi-facility
+selection, instrument-type extraction, telescope-label resolution). A notebook
+header that says "Stage N" predates this clarification and is intentionally
+left as-is — it is not meant to imply "Phase N".
+
 ## Demo Notebooks
 
 Each phase ships a demo notebook under `docs/notebooks/pre_executed/`. Notebooks require manual execution to see outputs (pre-commit hook clears all `.ipynb` output cells — consistent project convention). Use the Django setup boilerplate from the Django setup boilerplate section below before importing any model.
@@ -158,7 +178,7 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | DB-dependent tests go in `solsys_code/tests/` (Django suite) | Consistent with existing two-suite split; pure-Python `tests/` suite has no DB access | Implemented in Phase 01 (`test_telescope_runs.py`), Phase 03 (`test_load_telescope_runs.py`) |
 | Telescope token resolved by prefix match against `SITES.keys()` | Exact match wins; 2+ matches raise `ValueError` listing candidates — no silent guessing (D-01) | Implemented in Phase 02; bare `'Magellan'` correctly raises `ValueError` naming both Clay/Baade |
 | Three date-range regex patterns tried in order | month-after-range → cross-month → month-before-range; covers all 3 sample formats | Implemented in Phase 02; all 4 success criteria pass |
-| CalendarEvent upsert keyed on `(telescope, instrument, start_time)` via `get_or_create` + conditional save | Idempotent re-run; no `modified`-timestamp churn on unchanged events (D-04) | Implemented in Phase 03; INGEST-03 validated by test and UAT |
+| CalendarEvent create-or-update keyed on `(telescope, instrument, start_time)` via `get_or_create` + conditional save | Idempotent re-run; no `modified`-timestamp churn on unchanged events (D-04) | Implemented in Phase 03; INGEST-03 validated by test and UAT |
 | `astropy Time.to_datetime()` microsecond-strip | `to_datetime()` produces sub-second precision that breaks `get_or_create` key matching on re-run | Fixed in Phase 03 code review (commit `437aa53`); `.replace(microsecond=0)` before DB save |
 | Per-line `(ValueError, Observatory.DoesNotExist)` handler (log+skip) | Both are data/setup issues for that line; abort would discard all subsequent valid lines | Implemented in Phase 03 (D-02); skipped lines reported with line number + original text |
 | `CalendarEvent.url` keyed on `LCOFacility().get_observation_url(observation_id)`, not the literal `requestgroups/<id>/` string from the original ROADMAP wording | Real method returns `/requests/<id>` (no trailing slash); using the wrong literal would silently break find-or-create matching against real LCO data (D-01) | Implemented in Phase 04; confirmed live via `LCOFacility().get_observation_url('12345')`; `grep -c requestgroups` on source = 0 |
@@ -186,4 +206,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) complete*
+*Last updated: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) complete; added Stage-vs-Phase numbering clarification note*
