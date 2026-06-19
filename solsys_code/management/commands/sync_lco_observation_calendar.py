@@ -9,13 +9,16 @@ from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 
 # Site code -> telescope label, mirroring solsys_code/telescope_runs.py:SITES naming
-# convention (e.g. 'FTS'). Values are [ASSUMED] per RESEARCH.md Assumptions Log A1/A2
-# (web-search only, not yet confirmed against real ObservationRecord.parameters data
-# for this project's LCO proposal) — confirm against real records before relying on
-# this mapping in production.
+# convention (e.g. 'FTS'). The 'coj'/'ogg' LCO entries are [ASSUMED] per RESEARCH.md
+# Assumptions Log A1/A2 (web-search only, not yet confirmed against real
+# ObservationRecord.parameters data for this project's LCO proposal) — confirm against
+# real records before relying on this mapping in production. The 'sor' SOAR entry is
+# confirmed (not [ASSUMED]) against tom_observations.facilities.soar, which hardcodes
+# 'sitecode': 'sor'.
 SITE_TELESCOPE_MAP = {
     'coj': 'FTS',
     'ogg': 'FTN',
+    'sor': 'SOAR',
 }
 
 # TERM-01/D-04: terminal-failure status -> title prefix. COMPLETED is deliberately
@@ -51,10 +54,10 @@ def _failure_prefix(status: str, facility: LCOFacility) -> str | None:
 
 
 def _derive_telescope(site_code: str) -> str:
-    """Map an LCO site code to a telescope label.
+    """Map an LCO/SOAR site code to a telescope label.
 
     Args:
-        site_code: LCO 3-letter site code (e.g. 'coj').
+        site_code: LCO/SOAR 3-letter site code (e.g. 'coj').
 
     Returns:
         str: telescope label (e.g. 'FTS').

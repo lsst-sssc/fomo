@@ -393,7 +393,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         """SELECT-03/D-02: --proposal all (lowercase) syncs every record, regardless of proposal/facility."""
         self._create_record('610001', proposal='PROPA')
         self._create_record('610002', proposal='PROPB')
-        self._create_record('610003', proposal='PROPC', facility='SOAR')
+        self._create_record('610003', proposal='PROPC', facility='SOAR', site='sor', instrument_type='SOAR_GHTS_REDCAM')
 
         call_command(
             'sync_lco_observation_calendar',
@@ -411,7 +411,9 @@ class TestSyncLcoObservationCalendar(TestCase):
     def test_select_04_single_run_covers_both_facilities(self):
         """SELECT-04: a single run produces CalendarEvents for both an LCO and a SOAR record."""
         self._create_record('620001', proposal='SHARED', facility='LCO')
-        soar_record = self._create_record('620002', proposal='SHARED', facility='SOAR')
+        soar_record = self._create_record(
+            '620002', proposal='SHARED', facility='SOAR', site='sor', instrument_type='SOAR_GHTS_REDCAM'
+        )
 
         # Pitfall 4 guard: confirm the fixture actually persisted facility='SOAR'.
         self.assertEqual(ObservationRecord.objects.get(observation_id='620002').facility, 'SOAR')
@@ -440,7 +442,9 @@ class TestSyncLcoObservationCalendar(TestCase):
         methods as imported in the command module and assert the SOAR spy was called
         while the LCO spy was not.
         """
-        self._create_record('630001', proposal='SOARCODE', facility='SOAR')
+        self._create_record(
+            '630001', proposal='SOARCODE', facility='SOAR', site='sor', instrument_type='SOAR_GHTS_REDCAM'
+        )
 
         real_get_observation_url = LCOFacility.get_observation_url
 
