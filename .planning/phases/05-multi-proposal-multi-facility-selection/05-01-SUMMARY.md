@@ -127,3 +127,9 @@ None - no external service configuration required.
 ---
 *Phase: 05-multi-proposal-multi-facility-selection*
 *Completed: 2026-06-19*
+
+## Self-Check: PASSED
+
+All claimed files (`sync_lco_observation_calendar.py`, `test_sync_lco_observation_calendar.py`,
+`settings.py`, this SUMMARY.md) exist on disk. All four task/summary commit hashes
+(`adc5a61`, `81c7cad`, `61a1c80`, `c06116d`) verified present in `git log --oneline --all`.
