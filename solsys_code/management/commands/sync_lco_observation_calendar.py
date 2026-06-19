@@ -5,6 +5,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 from tom_calendar.models import CalendarEvent
 from tom_observations.facilities.lco import LCOFacility
+from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 
 # Site code -> telescope label, mirroring solsys_code/telescope_runs.py:SITES naming
@@ -158,6 +159,31 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
     }
 
 
+def _parse_proposal_arg(raw: str) -> list[str] | None:
+    """Parse the --proposal argument into a deduped code list, or the ALL sentinel.
+
+    Args:
+        raw: the raw --proposal argument value (e.g. 'A,B,C', 'ALL', 'A,A,B,').
+
+    Returns:
+        list[str] | None: None if raw is the case-insensitive 'all' token
+            (SELECT-03/D-02 -- sync every record regardless of proposal). Otherwise
+            a list of proposal codes, comma-split, stripped, with empty segments
+            dropped and duplicates removed while preserving first-seen order
+            (D-03). Codes keep their original casing -- proposal codes are
+            case-SENSITIVE (D-01), so this never .upper()/.lower()s a code.
+    """
+    if raw.strip().lower() == 'all':
+        return None
+    seen: dict[str, None] = {}
+    for segment in raw.split(','):
+        code = segment.strip()
+        if not code:
+            continue
+        seen.setdefault(code, None)
+    return list(seen)
+
+
 class Command(BaseCommand):
     """Sync LCO queue ObservationRecords to the FOMO calendar as CalendarEvents."""
 
@@ -169,57 +195,87 @@ class Command(BaseCommand):
             '--proposal',
             type=str,
             required=True,
-            help='LCO proposal code to filter ObservationRecords by',
+            help=(
+                'LCO/SOAR proposal code(s) to filter ObservationRecords by. Accepts a '
+                "single code, a comma-separated list (e.g. 'A,B,C'), or the case-"
+                "insensitive token 'ALL' to sync every record regardless of proposal."
+            ),
         )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
-        """Sync matching LCO ObservationRecords to CalendarEvents.
+        """Sync matching LCO/SOAR ObservationRecords to CalendarEvents.
 
-        For each ObservationRecord(facility='LCO', parameters__proposal=<code>):
-        create a new CalendarEvent if one does not exist (keyed on url), or update
-        the existing event in place if any fields changed, or leave it untouched
-        if nothing changed (SYNC-04 no-churn idempotency).
+        For each ObservationRecord(facility__in=['LCO', 'SOAR']) matching the
+        --proposal selection (a comma-separated code list, or every record when
+        --proposal is the ALL sentinel): create a new CalendarEvent if one does not
+        exist (keyed on url), or update the existing event in place if any fields
+        changed, or leave it untouched if nothing changed (SYNC-04 no-churn
+        idempotency). Each record is dispatched through the facility instance
+        matching its own `facility` value (SELECT-05) -- never a single shared
+        instance reused across both LCO and SOAR records.
 
         Returns:
             str | None: None on completion.
         """
         proposal = options['proposal']
-        facility = LCOFacility()
+        # Eager dispatch dict, both keys unconditionally (D-06): each record is
+        # processed via the facility instance matching its own `facility` value,
+        # never a single shared instance reused across LCO and SOAR (SELECT-05).
+        facilities = {'LCO': LCOFacility(), 'SOAR': SOARFacility()}
 
-        created_count = 0
-        updated_count = 0
-        unchanged_count = 0
-        skipped_count = 0
+        # Per-facility counters (D-08): every facility's created/updated/unchanged/
+        # skipped counts must be individually visible in the summary line.
+        counters = {
+            'LCO': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0},
+            'SOAR': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0},
+        }
 
-        records = ObservationRecord.objects.filter(facility='LCO', parameters__proposal=proposal)
+        records = ObservationRecord.objects.filter(facility__in=['LCO', 'SOAR'])
+        codes = _parse_proposal_arg(proposal)
+        if codes is not None:
+            records = records.filter(parameters__proposal__in=codes)
 
         for record in records:
+            facility = facilities.get(record.facility)
+            if facility is None:
+                # D-07 defensive path: an unexpected facility value on a row that
+                # otherwise matched facility__in=['LCO', 'SOAR'] shouldn't happen,
+                # but skip-and-log rather than abort the whole run.
+                self.stderr.write(
+                    f'Skipping observation_id={record.observation_id!r}: unrecognized facility {record.facility!r}'
+                )
+                counters.setdefault(record.facility, {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0})
+                counters[record.facility]['skipped'] += 1
+                continue
+
             try:
                 fields = _build_event_fields(record, facility)
             except (KeyError, ValueError) as exc:
                 self.stderr.write(f'Skipping observation_id={record.observation_id!r}: {exc}')
-                skipped_count += 1
+                counters[record.facility]['skipped'] += 1
                 continue
 
             url = fields.pop('url')
             event, created = CalendarEvent.objects.get_or_create(url=url, defaults=fields)
             if created:
-                created_count += 1
+                counters[record.facility]['created'] += 1
             else:
                 changed = any(getattr(event, field_name) != value for field_name, value in fields.items())
                 if changed:
                     for field_name, value in fields.items():
                         setattr(event, field_name, value)
                     event.save()
-                    updated_count += 1
+                    counters[record.facility]['updated'] += 1
                 else:
-                    unchanged_count += 1
+                    counters[record.facility]['unchanged'] += 1
 
-        self.stdout.write(
-            f'Done. proposal: {proposal}, '
-            f'created: {created_count}, '
-            f'updated: {updated_count}, '
-            f'unchanged: {unchanged_count}, '
-            f'skipped: {skipped_count}'
+        # D-08: per-facility breakdown. Each facility's four counts use the same
+        # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' phrasing as
+        # the prior single-facility summary line, kept per-facility for visibility.
+        summary = ' | '.join(
+            f'{facility_name}: created: {counts["created"]}, updated: {counts["updated"]}, '
+            f'unchanged: {counts["unchanged"]}, skipped: {counts["skipped"]}'
+            for facility_name, counts in counters.items()
         )
+        self.stdout.write(f'Done. proposal: {proposal}, {summary}')
         return
