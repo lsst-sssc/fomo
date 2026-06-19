@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-19)
 Phase: 6
 Plan: Not started
 Status: Phase 05 complete; Phase 06 pending
-Last activity: 2026-06-19 - Completed quick task 260619-f7u: Phase 5 notebook gap + Stage/Phase numbering doc
+Last activity: 2026-06-19 - Completed quick task 260619-jpr: Fix SOAR site mapping bug in sync_lco_observation_calendar
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -76,6 +76,7 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260619-f7u | Phase 5 notebook gap: update sync_lco_observation_calendar_demo.ipynb for multi-proposal/multi-facility (SELECT-02/03/04/05); document Stage-vs-Phase numbering mapping in PROJECT.md | 2026-06-19 | 5bef02d | [260619-f7u-phase-5-notebook-gap-update-sync-lco-obs](./quick/260619-f7u-phase-5-notebook-gap-update-sync-lco-obs/) |
+| 260619-jpr | Fix sync_lco_observation_calendar SOAR site mapping bug: add SOAR site code 'sor' to SITE_TELESCOPE_MAP, fix SOAR test fixtures and demo notebook fixtures that incorrectly reused LCO site code 'coj' for SOAR records | 2026-06-19 | caf97bd | [260619-jpr-fix-sync-lco-observation-calendar-soar-s](./quick/260619-jpr-fix-sync-lco-observation-calendar-soar-s/) |
 
 ### Key Technical Notes (carried from Phase 4 / v1.2)
 
