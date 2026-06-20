@@ -2,10 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
+current_phase: 6
 status: executing
-stopped_at: Phase 05 complete; Phase 6 not started
-last_updated: "2026-06-19T17:31:33.991Z"
+stopped_at: Phase 6 context gathered
+last_updated: "2026-06-20T23:31:23.988Z"
 last_activity: 2026-06-19
+last_activity_desc: "Completed quick task 260619-ml8: Fix pre-commit notebook-clear exclude path + redundant UTC offset in calendar description"
 progress:
   total_phases: 3
   completed_phases: 1
@@ -98,9 +100,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T17:31:33.991Z
-Stopped at: Phase 05 complete; Phase 6 not started
-Resume file: .planning/phases/06-correct-instrument-type-extraction/06-CONTEXT.md (if present)
+Last session: 2026-06-20T23:31:23.939Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-correct-instrument-type-extraction/06-CONTEXT.md
 Last activity: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) executed and verified
 
 ## Operator Next Steps
