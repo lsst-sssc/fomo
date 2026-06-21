@@ -103,6 +103,28 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
   "find-or-create" / "create the record if missing, otherwise update it in place" instead of
   "upsert". This applies to every GSD subagent (discuss-phase, researcher, planner, checker) —
   they all read this file before producing planning docs.
+- **Demo notebook companions are part of the deliverable**, not optional polish added after the
+  fact. Each of `solsys_code/telescope_runs.py`,
+  `solsys_code/management/commands/load_telescope_runs.py`, and
+  `solsys_code/management/commands/sync_lco_observation_calendar.py` has a paired demo notebook
+  under `docs/notebooks/pre_executed/` — `telescope_runs_demo.ipynb`,
+  `load_telescope_runs_demo.ipynb`, and `sync_lco_observation_calendar_demo.ipynb` respectively —
+  that must stay in sync with the module's behavior. Any plan whose tasks change one of these
+  modules' behavior (new extraction logic, new parameters, new fixture shapes — not pure
+  refactors or typo fixes) must include its paired notebook in `files_modified` and add or update
+  cells exercising the new behavior with real executed output, regenerated via
+  `jupyter nbconvert --to notebook --execute --inplace` and committed (pre-commit clears notebook
+  output everywhere else, but `pre_executed/` copies are committed with output, per the
+  pre-commit convention noted above). When a new module gets its own demo notebook, extend this
+  list. This gap was hit twice already — Phase 5 (fixed after the fact via quick task
+  `260619-f7u`) and Phase 6 (fixed via quick task `260620-v9x`) — both times because the plan's
+  `files_modified` never scoped the notebook in. This applies to every GSD subagent touching
+  these modules: the planner (scope the paired notebook into `files_modified` and into a task up
+  front, not as a follow-up); the plan-checker (treat this as part of CLAUDE.md Compliance —
+  flag any plan that modifies one of the listed modules' behavior without its paired notebook in
+  `files_modified`); the executor (update the notebook as part of plan execution, not as an
+  afterthought); and the verifier (treat a missing or stale notebook update as a must-have gap,
+  not a nice-to-have, whenever the plan touched one of these modules).
 
 <!-- GSD:project-start source:PROJECT.md -->
 
