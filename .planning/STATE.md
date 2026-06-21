@@ -2,18 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
-current_phase: 6
-status: executing
+current_phase: 06
+current_phase_name: correct-instrument-type-extraction
+status: verifying
 stopped_at: Phase 6 context gathered
-last_updated: "2026-06-21T00:11:49.709Z"
-last_activity: 2026-06-19
-last_activity_desc: "Completed quick task 260619-ml8: Fix pre-commit notebook-clear exclude path + redundant UTC offset in calendar description"
+last_updated: "2026-06-21T01:11:25.836Z"
+last_activity: 2026-06-21
+last_activity_desc: Phase 06 execution started
 progress:
   total_phases: 3
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 33
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -23,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-19)
 
 **Core value:** Generalize `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals, fixing the parameter-shape bugs found in v1.2 against real data.
-**Current focus:** Phase 05 — multi-proposal-multi-facility-selection
+**Current focus:** Phase 06 — correct-instrument-type-extraction
 
 ## Current Position
 
-Phase: 6
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-19 - Completed quick task 260619-ml8: Fix pre-commit notebook-clear exclude path + redundant UTC offset in calendar description
+Phase: 06 (correct-instrument-type-extraction) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-06-21 — Phase 06 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -53,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 | 05 | 1 | - | - |
 | 06 | TBD | - | - |
 | 07 | TBD | - | - |
+| Phase 06 P01 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -62,6 +64,8 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 - Phase ordering follows research's dependency chain: query generalization (Phase 5, pure/zero-I/O) before instrument extraction (Phase 6, fallback label needs correct instrument data) before telescope-label API+fallback (Phase 7, highest-risk new I/O).
 - SYNC-06..09 (partial-failure counters/reporting) folded into Phase 7 rather than a standalone phase — that's the only phase introducing the new API-failure axis they report on.
+- [Phase ?]: Sentinel None + InstrumentExtractionError contract chosen over a bare exception, matching the file's existing 'return None to signal non-match' style
+- [Phase ?]: Added a flat instrument_type fallback tier beyond D-01/D-02 to keep the 19 pre-existing regression tests passing for today's legacy single-config shape
 
 ### Pending Todos
 
@@ -100,7 +104,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-20T23:31:23.939Z
+Last session: 2026-06-21T01:11:06.080Z
 Stopped at: Phase 6 context gathered
 Resume file: .planning/phases/06-correct-instrument-type-extraction/06-CONTEXT.md
 Last activity: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) executed and verified

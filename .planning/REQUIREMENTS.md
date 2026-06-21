@@ -16,8 +16,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Instrument Extraction
 
-- [ ] **EXTRACT-01**: Instrument type is extracted by scanning `c_1_instrument_type`..`c_5_instrument_type` for the configuration with a populated exposure time, replacing the v1.2 flat-key assumption that doesn't exist in real data
-- [ ] **EXTRACT-02**: Extraction is verified against SOAR's multi-configuration shape (e.g. spectrum/arc/lamp-flat) and LCO MUSCAT's per-channel exposure-key shape, not just the single-populated-config shape seen in this DB's 2 real LCO records, so a calibration/non-science config is never mistaken for the meaningful one
+- [x] **EXTRACT-01**: Instrument type is extracted by scanning `c_1_instrument_type`..`c_5_instrument_type` for the configuration with a populated exposure time, replacing the v1.2 flat-key assumption that doesn't exist in real data
+- [x] **EXTRACT-02**: Extraction is verified against SOAR's multi-configuration shape (e.g. spectrum/arc/lamp-flat) and LCO MUSCAT's per-channel exposure-key shape, not just the single-populated-config shape seen in this DB's 2 real LCO records, so a calibration/non-science config is never mistaken for the meaningful one
 
 ### Telescope Label Resolution
 
@@ -69,8 +69,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SELECT-03 | Phase 5 | Complete |
 | SELECT-04 | Phase 5 | Complete |
 | SELECT-05 | Phase 5 | Complete |
-| EXTRACT-01 | Phase 6 | Pending |
-| EXTRACT-02 | Phase 6 | Pending |
+| EXTRACT-01 | Phase 6 | Complete |
+| EXTRACT-02 | Phase 6 | Complete |
 | TELESCOPE-01 | Phase 7 | Pending |
 | TELESCOPE-02 | Phase 7 | Pending |
 | TELESCOPE-03 | Phase 7 | Pending |
