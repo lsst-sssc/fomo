@@ -36,6 +36,21 @@ _FAILURE_PREFIX_BY_STATUS = {
     'NOT_ATTEMPTED': '[FAILED]',
 }
 
+# EXTRACT-01/D-01: configuration_type values that mark a config as the scientifically
+# meaningful one, as opposed to a calibration config (ARC/LAMP_FLAT, SOAR) or an
+# NRES-specific config (never in scope). Confirmed against installed tom_observations:
+# ocs.py:1025-1030/1213 (flat c_{N}_configuration_type key), lco.py:740-743,757-760,998
+# (EXPOSE/REPEAT_EXPOSE/SPECTRUM/REPEAT_SPECTRUM), soar.py:103,118 (SPECTRUM/ARC/
+# LAMP_FLAT), blanco.py:177 (STANDARD -- vocabulary adopted now for forward
+# compatibility per CONTEXT.md D-01; Blanco facility scope itself stays deferred).
+_SCIENCE_CONFIGURATION_TYPES = {'EXPOSE', 'REPEAT_EXPOSE', 'SPECTRUM', 'REPEAT_SPECTRUM', 'STANDARD'}
+
+# D-04: LCO MUSCAT records have no flat c_N_exposure_time, only per-channel
+# c_N_ic_M_exposure_time_{suffix} keys (confirmed lco.py:585-596,
+# LCOMuscatImagingObservationForm). Detect population by ANY of the 4 channels being
+# truthy -- more lenient than the real submission form's all-4-required validation.
+_MUSCAT_CHANNEL_SUFFIXES = ('g', 'r', 'i', 'z')
+
 
 def _failure_prefix(status: str, facility: LCOFacility) -> str | None:
     """Return the terminal-failure title prefix for a status, or None if not a failure state.
@@ -69,6 +84,83 @@ def _derive_telescope(site_code: str) -> str:
         return SITE_TELESCOPE_MAP[site_code]
     except KeyError:
         raise KeyError(f'Unmapped LCO site code {site_code!r}; add it to SITE_TELESCOPE_MAP') from None
+
+
+def _has_muscat_exposure_signal(parameters: dict[str, Any], n: int) -> bool:
+    """Check whether config c_{n} has a populated MUSCAT per-channel exposure key (D-04).
+
+    Args:
+        parameters: the record's parameters dict.
+        n: config index (1-5).
+
+    Returns:
+        bool: True if any of c_{n}_ic_1_exposure_time_{g,r,i,z} is truthy.
+    """
+    return any(parameters.get(f'c_{n}_ic_1_exposure_time_{suffix}') for suffix in _MUSCAT_CHANNEL_SUFFIXES)
+
+
+def _find_science_config(parameters: dict[str, Any]) -> int | None:
+    """Scan c_1..c_5 for the first config whose configuration_type is a science type (D-01).
+
+    Args:
+        parameters: the record's parameters dict.
+
+    Returns:
+        int | None: the config index (1-5) of the first config whose
+            c_{n}_configuration_type is in _SCIENCE_CONFIGURATION_TYPES, or None if no
+            config has a recognized science configuration_type.
+    """
+    for n in range(1, 6):
+        configuration_type = parameters.get(f'c_{n}_configuration_type')
+        if configuration_type in _SCIENCE_CONFIGURATION_TYPES:
+            return n
+    return None
+
+
+def _find_exposure_signal_config(parameters: dict[str, Any]) -> int | None:
+    """Scan c_1..c_5 for the first config with a populated exposure signal (D-02 fallback).
+
+    Args:
+        parameters: the record's parameters dict.
+
+    Returns:
+        int | None: the config index (1-5) of the first config with a truthy flat
+            c_{n}_exposure_time, or (D-04) a populated MUSCAT per-channel exposure key,
+            or None if no config has any exposure signal at all.
+    """
+    for n in range(1, 6):
+        if parameters.get(f'c_{n}_exposure_time') or _has_muscat_exposure_signal(parameters, n):
+            return n
+    return None
+
+
+def _extract_instrument(parameters: dict[str, Any]) -> str | None:
+    """Extract the scientifically meaningful instrument_type from a record's parameters.
+
+    Scans the real c_1..c_5-prefixed multi-configuration shape (D-01..D-06): first by
+    configuration_type whitelist (science vs. SOAR calibration/NRES configs), falling
+    back to the first config with a populated exposure signal (flat or MUSCAT
+    per-channel) if no config has a recognized configuration_type. If no c_N_* config
+    exists at all (today's legacy single-config shape, pre-dating the c_N_* fields),
+    falls back to the flat 'instrument_type' key itself -- D-02's "original EXTRACT-01
+    heuristic" applied to the degenerate single-config case.
+
+    Args:
+        parameters: the record's parameters dict.
+
+    Returns:
+        str | None: the selected config's c_{n}_instrument_type value (D-03, unchanged
+            in format), the flat 'instrument_type' value for the legacy shape, or None
+            if neither signal selects any config and no flat key is present (D-06 total
+            extraction failure -- the caller routes this to a dedicated counter, never
+            the existing 'skipped' counter).
+    """
+    n = _find_science_config(parameters)
+    if n is None:
+        n = _find_exposure_signal_config(parameters)
+    if n is not None:
+        return parameters.get(f'c_{n}_instrument_type')
+    return parameters.get('instrument_type')
 
 
 def _title_for(record: ObservationRecord, telescope: str, instrument: str, facility: LCOFacility) -> str:
@@ -123,6 +215,14 @@ def _time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     return start_time, end_time
 
 
+class InstrumentExtractionError(Exception):
+    """Raised when _extract_instrument finds no usable config (D-06 total extraction failure).
+
+    Caught separately in handle() so a fully-malformed record is routed to the
+    dedicated 'extraction_failed' counter, never silently merged into 'skipped'.
+    """
+
+
 def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dict[str, Any]:
     """Build the full set of CalendarEvent field values for a record.
 
@@ -135,12 +235,18 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
             start_time, end_time, telescope, instrument, proposal).
 
     Raises:
-        KeyError: if a required parameters key (site/instrument_type/proposal/
-            start/end) is missing.
+        KeyError: if a required parameters key (site/proposal/start/end) is missing.
         ValueError: if parameters['start']/['end'] cannot be parsed as datetimes.
+        InstrumentExtractionError: if _extract_instrument (D-01..D-06) finds no
+            science config and no exposure-signal config anywhere in parameters.
     """
     telescope = _derive_telescope(record.parameters['site'])
-    instrument = record.parameters['instrument_type']
+    instrument = _extract_instrument(record.parameters)
+    if instrument is None:
+        raise InstrumentExtractionError(
+            f'No recognized configuration_type or exposure signal found in observation_id='
+            f'{record.observation_id!r} parameters'
+        )
     proposal = record.parameters['proposal']
     url = facility.get_observation_url(record.observation_id)
     start_time, end_time = _time_window(record)
@@ -227,10 +333,12 @@ class Command(BaseCommand):
         facilities = {'LCO': LCOFacility(), 'SOAR': SOARFacility()}
 
         # Per-facility counters (D-08): every facility's created/updated/unchanged/
-        # skipped counts must be individually visible in the summary line.
+        # skipped/extraction_failed counts must be individually visible in the summary
+        # line. 'extraction_failed' (D-06) is a dedicated counter distinct from
+        # 'skipped', for fully-malformed records with no extractable instrument config.
         counters = {
-            'LCO': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0},
-            'SOAR': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0},
+            'LCO': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0, 'extraction_failed': 0},
+            'SOAR': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0, 'extraction_failed': 0},
         }
 
         records = ObservationRecord.objects.filter(facility__in=['LCO', 'SOAR'])
@@ -247,12 +355,21 @@ class Command(BaseCommand):
                 self.stderr.write(
                     f'Skipping observation_id={record.observation_id!r}: unrecognized facility {record.facility!r}'
                 )
-                counters.setdefault(record.facility, {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0})
+                counters.setdefault(
+                    record.facility,
+                    {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0, 'extraction_failed': 0},
+                )
                 counters[record.facility]['skipped'] += 1
                 continue
 
             try:
                 fields = _build_event_fields(record, facility)
+            except InstrumentExtractionError as exc:
+                # D-06: a fully-malformed record (no recognized configuration_type, no
+                # exposure signal anywhere) is counted separately from 'skipped'.
+                self.stderr.write(f'Skipping observation_id={record.observation_id!r}: {exc}')
+                counters[record.facility]['extraction_failed'] += 1
+                continue
             except (KeyError, ValueError) as exc:
                 self.stderr.write(f'Skipping observation_id={record.observation_id!r}: {exc}')
                 counters[record.facility]['skipped'] += 1
@@ -272,12 +389,14 @@ class Command(BaseCommand):
                 else:
                     counters[record.facility]['unchanged'] += 1
 
-        # D-08: per-facility breakdown. Each facility's four counts use the same
-        # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' phrasing as
-        # the prior single-facility summary line, kept per-facility for visibility.
+        # D-08: per-facility breakdown. Each facility's five counts use the same
+        # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' / 'extraction_failed: N'
+        # phrasing as the prior single-facility summary line, kept per-facility for
+        # visibility. extraction_failed (D-06) is distinct from skipped.
         summary = ' | '.join(
             f'{facility_name}: created: {counts["created"]}, updated: {counts["updated"]}, '
-            f'unchanged: {counts["unchanged"]}, skipped: {counts["skipped"]}'
+            f'unchanged: {counts["unchanged"]}, skipped: {counts["skipped"]}, '
+            f'extraction_failed: {counts["extraction_failed"]}'
             for facility_name, counts in counters.items()
         )
         self.stdout.write(f'Done. proposal: {proposal}, {summary}')
