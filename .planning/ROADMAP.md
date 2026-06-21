@@ -63,7 +63,8 @@
   2. For a SOAR-shaped record with multiple populated configs (e.g. spectrum + arc + lamp-flat), the extracted instrument type is the science spectrum config, never the arc or lamp-flat calibration config
   3. For an LCO MUSCAT-shaped record with per-channel (`_g`/`_r`/`_i`/`_z`) exposure keys, the extracted instrument type correctly reflects the populated channel(s) instead of returning nothing or raising
 
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 06-01-PLAN.md — Replace flat-key instrument read with c_1..c_5 multi-config extraction (science vs. calibration, MUSCAT per-channel) + dedicated extraction-failure counter + tests
 
 ### Phase 7: Live Telescope-Label Resolution with Fallback & Failure Reporting
 
@@ -91,5 +92,5 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
 | 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete | 2026-06-16 |
 | 4. LCO Queue Sync Command | v1.2 | 1/1 | Complete | 2026-06-17 |
 | 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete    | 2026-06-19 |
-| 6. Correct Instrument-Type Extraction | v1.3 | 0/TBD | Not started | - |
+| 6. Correct Instrument-Type Extraction | v1.3 | 0/1 | Not started | - |
 | 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 0/TBD | Not started | - |
