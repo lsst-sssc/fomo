@@ -4,11 +4,11 @@ milestone: v1.3
 milestone_name: Full LCO Facility Sync
 current_phase: 7
 current_phase_name: Live Telescope-Label Resolution with Fallback & Failure Reporting
-status: verifying
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-21T01:18:28.782Z"
+status: ready
+stopped_at: Phase 6 complete — UAT'd and security-verified, ready to plan Phase 7
+last_updated: "2026-06-21T21:14:48Z"
 last_activity: 2026-06-21
-last_activity_desc: "Completed quick task 260621-foo: document demo-notebook-companion convention in CLAUDE.md (prevents recurrence of the Phase 5/6 notebook-scoping gap)"
+last_activity_desc: "Phase 06 UAT complete (4/4 passed) and security audit verified (06-SECURITY.md, threats_open: 0)"
 progress:
   total_phases: 3
   completed_phases: 2
@@ -106,11 +106,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-21T01:11:06.080Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-correct-instrument-type-extraction/06-CONTEXT.md
-Last activity: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) executed and verified
+Last session: 2026-06-21T21:14:48Z
+Stopped at: Phase 6 complete — executed, code-reviewed, UAT'd (4/4 passed), and security-verified (threats_open: 0); ready to plan Phase 7
+Resume file: None
+Last activity: 2026-06-21 — Phase 06 UAT complete (4/4 passed) and security audit verified (06-SECURITY.md, threats_open: 0)
 
 ## Operator Next Steps
 
-- Run `/gsd-discuss-phase 6` to start Phase 6 (correct-instrument-type-extraction)
+- Run `/gsd-discuss-phase 7` to start Phase 7 (live-telescope-label-resolution-with-fallback-failure-reporting)
