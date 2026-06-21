@@ -19,6 +19,7 @@ def _parameters(
     end: str = '2026-07-02T00:00:00',
     instrument_type: str = '2M0-SCICAM-MUSCAT',
     site: str | None = 'coj',
+    extra_params: dict | None = None,
 ) -> dict:
     """Build a parameters dict matching the real ObservationRecord.parameters shape.
 
@@ -28,6 +29,10 @@ def _parameters(
         end: ISO end time string (queue window).
         instrument_type: LCO instrument type code.
         site: LCO 3-letter site code, or None to omit the key entirely.
+        extra_params: additional/override keys merged in last (e.g. c_N_configuration_type,
+            c_N_instrument_type, MUSCAT per-channel exposure keys) — used by EXTRACT-02/D-06
+            tests to build the real multi-configuration parameter shape without disturbing
+            the five named params above.
 
     Returns:
         dict: a parameters dict suitable for ObservationRecord.parameters.
@@ -40,6 +45,7 @@ def _parameters(
     }
     if site is not None:
         params['site'] = site
+    params.update(extra_params or {})
     return params
 
 
@@ -471,3 +477,115 @@ class TestSyncLcoObservationCalendar(TestCase):
             )
             soar_spy.assert_called_once()
             lco_spy.assert_not_called()
+
+    def test_extract_02_soar_multi_config_picks_spectrum_not_calibration(self):
+        """EXTRACT-02: a SOAR SPECTRUM+ARC+LAMP_FLAT record extracts the SPECTRUM config's
+        instrument_type, never the ARC/LAMP_FLAT calibration configs."""
+        self._create_record(
+            '710001',
+            proposal='SOAREXTRACT',
+            facility='SOAR',
+            site='sor',
+            instrument_type='NOT-THE-SOURCE',
+            extra_params={
+                'c_1_configuration_type': 'SPECTRUM',
+                'c_1_instrument_type': 'SOAR_GHTS_REDCAM',
+                'c_2_configuration_type': 'ARC',
+                'c_2_instrument_type': 'SOAR_GHTS_REDCAM_ARC',
+                'c_3_configuration_type': 'LAMP_FLAT',
+                'c_3_instrument_type': 'SOAR_GHTS_REDCAM_LAMPFLAT',
+            },
+        )
+        # Baseline good record, proving coexistence.
+        self._create_record('710002', proposal='SOAREXTRACT', site='ogg')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'SOAREXTRACT',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        soar_url = LCOFacility().get_observation_url('710001')
+        event = CalendarEvent.objects.get(url=soar_url)
+        self.assertEqual(event.instrument, 'SOAR_GHTS_REDCAM')
+        self.assertNotEqual(event.instrument, 'SOAR_GHTS_REDCAM_ARC')
+        self.assertNotEqual(event.instrument, 'SOAR_GHTS_REDCAM_LAMPFLAT')
+
+    def test_extract_02_muscat_per_channel_exposure_extracts_instrument(self):
+        """EXTRACT-02/D-04: an LCO MUSCAT record with only per-channel exposure keys
+        (no flat c_N_exposure_time) extracts its instrument_type without raising/empty."""
+        self._create_record(
+            '710003',
+            proposal='MUSCATEXTRACT',
+            site='coj',
+            instrument_type='NOT-THE-SOURCE',
+            extra_params={
+                'c_1_configuration_type': 'EXPOSE',
+                'c_1_instrument_type': '2M0-SCICAM-MUSCAT',
+                'c_1_ic_1_exposure_time_g': 30.0,
+                'c_1_ic_1_exposure_time_r': 30.0,
+                'c_1_ic_1_exposure_time_i': 30.0,
+                'c_1_ic_1_exposure_time_z': 30.0,
+            },
+        )
+        # D-04 leniency: fewer than 4 channels populated still extracts correctly.
+        self._create_record(
+            '710004',
+            proposal='MUSCATEXTRACT',
+            site='ogg',
+            instrument_type='NOT-THE-SOURCE',
+            extra_params={
+                'c_1_configuration_type': 'EXPOSE',
+                'c_1_instrument_type': '2M0-SCICAM-MUSCAT',
+                'c_1_ic_1_exposure_time_g': 30.0,
+            },
+        )
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'MUSCATEXTRACT',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        for observation_id in ('710003', '710004'):
+            url = LCOFacility().get_observation_url(observation_id)
+            event = CalendarEvent.objects.get(url=url)
+            self.assertEqual(event.instrument, '2M0-SCICAM-MUSCAT')
+
+    def test_d06_no_extractable_config_logged_and_counted_separately(self):
+        """D-06: a fully-malformed record (no recognized configuration_type, no exposure
+        signal anywhere) is skipped, logged with its observation_id, and counted in a
+        dedicated counter distinct from 'skipped', visible in the run summary."""
+        self._create_record(
+            '710005',
+            proposal='MALFORMEDEXTRACT',
+            site='coj',
+            instrument_type='NOT-THE-SOURCE',
+            extra_params={
+                'c_1_configuration_type': 'ARC',
+                'c_1_instrument_type': 'SOMETHING',
+                'instrument_type': None,
+            },
+        )
+        # Baseline good record, proving coexistence.
+        self._create_record('710006', proposal='MALFORMEDEXTRACT', site='ogg')
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'MALFORMEDEXTRACT',
+            stdout=stdout_buf,
+            stderr=stderr_buf,
+        )
+
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+        self.assertIn('710005', stderr_buf.getvalue())
+        self.assertIn('extraction_failed: 1', stdout_buf.getvalue())
