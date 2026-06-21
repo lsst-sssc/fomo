@@ -8,7 +8,7 @@ status: verifying
 stopped_at: Phase 6 context gathered
 last_updated: "2026-06-21T01:18:28.782Z"
 last_activity: 2026-06-21
-last_activity_desc: Phase 06 complete, transitioned to Phase 7
+last_activity_desc: "Completed quick task 260620-v9x: Phase 6 notebook gap - update sync_lco_observation_calendar_demo.ipynb for EXTRACT-01/EXTRACT-02"
 progress:
   total_phases: 3
   completed_phases: 2
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-06-19)
 Phase: 7 — Live Telescope-Label Resolution with Fallback & Failure Reporting
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-21 — Phase 06 complete, transitioned to Phase 7
+Last activity: 2026-06-21 — Completed quick task 260620-v9x: Phase 6 notebook gap - update sync_lco_observation_calendar_demo.ipynb for EXTRACT-01/EXTRACT-02
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -84,6 +84,7 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260619-f7u | Phase 5 notebook gap: update sync_lco_observation_calendar_demo.ipynb for multi-proposal/multi-facility (SELECT-02/03/04/05); document Stage-vs-Phase numbering mapping in PROJECT.md | 2026-06-19 | 5bef02d | [260619-f7u-phase-5-notebook-gap-update-sync-lco-obs](./quick/260619-f7u-phase-5-notebook-gap-update-sync-lco-obs/) |
 | 260619-jpr | Fix sync_lco_observation_calendar SOAR site mapping bug: add SOAR site code 'sor' to SITE_TELESCOPE_MAP, fix SOAR test fixtures and demo notebook fixtures that incorrectly reused LCO site code 'coj' for SOAR records | 2026-06-19 | caf97bd | [260619-jpr-fix-sync-lco-observation-calendar-soar-s](./quick/260619-jpr-fix-sync-lco-observation-calendar-soar-s/) |
 | 260619-ml8 | Fix pre-commit jupyter-nb-clear-output exclude path mismatch (docs/pre_executed vs docs/notebooks/pre_executed) and remove redundant +00:00 UTC offset from sync_lco_observation_calendar's CalendarEvent description Window (UTC) string | 2026-06-19 | 6b1d37a | [260619-ml8-fix-pre-commit-jupyter-nb-clear-output-e](./quick/260619-ml8-fix-pre-commit-jupyter-nb-clear-output-e/) |
+| 260620-v9x | Phase 6 notebook gap: update sync_lco_observation_calendar_demo.ipynb to demonstrate EXTRACT-01/EXTRACT-02 (SOAR multi-config, MUSCAT per-channel, malformed/extraction_failed) | 2026-06-21 | d41cdc7 | [260620-v9x-update-docs-notebooks-pre-executed-sync-](./quick/260620-v9x-update-docs-notebooks-pre-executed-sync-/) |
 
 ### Key Technical Notes (carried from Phase 4 / v1.2)
 
