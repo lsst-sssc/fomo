@@ -16,19 +16,19 @@ This is a Stages-1-through-3-complete implementation of the "telescope runs on t
 - ✅ v1.0 "Site/Ephemeris Helper" — 2026-06-14 (Phase 1)
 - ✅ v1.1 "Classical Run Ingest" — 2026-06-16 (Phases 2-3)
 - ✅ v1.2 "LCO Queue Calendar Sync" — 2026-06-17 (Phase 4)
-- ◆ v1.3 "Full LCO Facility Sync" in progress — Phase 5 (multi-proposal-multi-facility-selection) complete 2026-06-19; Phases 6-7 remaining
+- ◆ v1.3 "Full LCO Facility Sync" in progress — Phase 5 (multi-proposal-multi-facility-selection) complete 2026-06-19; Phase 6 (correct-instrument-type-extraction) complete 2026-06-21; Phase 7 remaining
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
 - `solsys_code/management/commands/load_telescope_runs.py`: `load_telescope_runs` BaseCommand
-- `solsys_code/management/commands/sync_lco_observation_calendar.py`: `sync_lco_observation_calendar` BaseCommand (now multi-proposal/multi-facility — `_parse_proposal_arg`, per-facility dispatch dict, per-facility counters), `SITE_TELESCOPE_MAP`
+- `solsys_code/management/commands/sync_lco_observation_calendar.py`: `sync_lco_observation_calendar` BaseCommand (now multi-proposal/multi-facility — `_parse_proposal_arg`, per-facility dispatch dict, per-facility counters), `SITE_TELESCOPE_MAP`, `_extract_instrument` (scans `c_1..c_5` configs, distinct `extraction_failed` counter)
 - `solsys_code/tests/test_telescope_runs.py`: 26 tests (16 site/ephem + 10 parser)
 - `solsys_code/tests/test_load_telescope_runs.py`: 6 tests (ingest + idempotency + error paths)
-- `solsys_code/tests/test_sync_lco_observation_calendar.py`: 19 tests (selection incl. SELECT-02/03/04/05, banner/placed sync, no-churn, terminal-state prefixes, error paths)
+- `solsys_code/tests/test_sync_lco_observation_calendar.py`: 22 tests (selection incl. SELECT-02/03/04/05, banner/placed sync, no-churn, terminal-state prefixes, error paths, SOAR multi-config/MUSCAT/malformed-record extraction)
 - `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`: Stage 1 demo
 - `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`: Stage 2 demo
 - `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb`: Stage 3 demo
-- **All 114 `./manage.py test solsys_code` tests pass.**
+- **All 117 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
 
@@ -84,10 +84,11 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Faci
 - ✓ **SELECT-03**: `--proposal ALL` (any casing) syncs every LCO + SOAR record regardless of proposal — v1.3 (Phase 5)
 - ✓ **SELECT-04**: A single run produces correct CalendarEvents for both LCO and SOAR records, dispatched via an eager `{'LCO': LCOFacility(), 'SOAR': SOARFacility()}` dict — v1.3 (Phase 5)
 - ✓ **SELECT-05**: SOAR records are dispatched through a `SOARFacility` instance, never a reused `LCOFacility` instance, proven by a discriminating spy test — v1.3 (Phase 5)
+- ✓ **EXTRACT-01**: Instrument type is extracted by scanning `c_1_instrument_type`..`c_5_instrument_type` for the configuration with a populated exposure time, replacing the v1.2 flat-key assumption that doesn't exist in real data — v1.3 (Phase 6)
+- ✓ **EXTRACT-02**: Extraction is verified against SOAR's multi-configuration shape (spectrum/arc/lamp-flat) and LCO MUSCAT's per-channel exposure-key shape, never mistaking a calibration/non-science config for the meaningful one — v1.3 (Phase 6)
 
 ### Active
 
-- [ ] Instrument-type extraction scans `c_1..c_5_instrument_type` configs for the meaningful one (populated `exposure_time`), replacing the broken flat-key assumption
 - [ ] Telescope label resolved via per-record LCO API call (`/api/requests/<id>/observations/`) mapped through the verified fully-qualified-code dict, with a coarse instrument-class fallback (`1m0`/`0m4`/`2m0`) if the call fails
 - [ ] Verified static site/telescope mapping dict covering all 8 real LCO sites (replaces the 2-site `[ASSUMED]` `SITE_TELESCOPE_MAP`)
 
@@ -206,4 +207,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-19 — Phase 05 (multi-proposal-multi-facility-selection) complete; added Stage-vs-Phase numbering clarification note*
+*Last updated: 2026-06-21 — Phase 06 (correct-instrument-type-extraction) complete; EXTRACT-01/EXTRACT-02 moved to Validated*
