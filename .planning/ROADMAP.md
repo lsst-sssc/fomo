@@ -81,8 +81,12 @@
   5. No logged error or exception message from a failed API call contains the raw response body or API key/credential content — confirmed by a test asserting the log output for a simulated failure is a fixed, generic message
 
 **Plans**: 2 plans
+**Wave 1**
 
 - [ ] 07-01-PLAN.md — Verified 8-site SITE_TELESCOPE_MAP + live API-resolution helpers (single timeout, no-leak, never-raise) + unit tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 07-02-PLAN.md — Wire fallback decision tree + [UNVERIFIED] prefix + telescope_api_failed counter into the command + integration tests + demo notebook
 
 Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md) (current milestone). Completed-milestone phase detail lives in their respective `milestones/*-ROADMAP.md` files linked above.
