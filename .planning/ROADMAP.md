@@ -80,7 +80,10 @@
   4. The per-record API call uses an explicit timeout and makes a single attempt (no retry loop) — confirmed by a test that mocks a slow/failing response and asserts no second call is made
   5. No logged error or exception message from a failed API call contains the raw response body or API key/credential content — confirmed by a test asserting the log output for a simulated failure is a fixed, generic message
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+- [ ] 07-01-PLAN.md — Verified 8-site SITE_TELESCOPE_MAP + live API-resolution helpers (single timeout, no-leak, never-raise) + unit tests
+- [ ] 07-02-PLAN.md — Wire fallback decision tree + [UNVERIFIED] prefix + telescope_api_failed counter into the command + integration tests + demo notebook
 
 Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md) (current milestone). Completed-milestone phase detail lives in their respective `milestones/*-ROADMAP.md` files linked above.
 
