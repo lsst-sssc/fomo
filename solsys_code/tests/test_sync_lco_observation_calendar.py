@@ -1,16 +1,27 @@
 import io
+import re
 from datetime import datetime
 from datetime import timezone as dt_timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import requests
+from django import forms
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
+from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
+
+from solsys_code.management.commands.sync_lco_observation_calendar import (
+    SITE_TELESCOPE_MAP,
+    _aperture_class_from_telescope_code,
+    _derive_telescope,
+    _resolve_placement_block,
+)
 
 
 def _parameters(
@@ -47,6 +58,29 @@ def _parameters(
         params['site'] = site
     params.update(extra_params or {})
     return params
+
+
+def _observations_block_response(
+    site: str = 'lsc',
+    enclosure: str = 'doma',
+    telescope: str = '1m0a',
+    state: str = 'COMPLETED',
+) -> MagicMock:
+    """Build a mock make_request() response for /api/requests/{id}/observations/.
+
+    Args:
+        site: 3-letter site code for the single returned block.
+        enclosure: 4-char enclosure code for the single returned block.
+        telescope: 4-char telescope code for the single returned block.
+        state: the block's 'state' value (e.g. 'COMPLETED', 'PENDING').
+
+    Returns:
+        MagicMock: a response double whose .json() returns a one-element list
+            containing the block dict built from the given keyword args.
+    """
+    response = MagicMock()
+    response.json.return_value = [{'site': site, 'enclosure': enclosure, 'telescope': telescope, 'state': state}]
+    return response
 
 
 class TestSyncLcoObservationCalendar(TestCase):
@@ -589,3 +623,83 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertEqual(CalendarEvent.objects.count(), 1)
         self.assertIn('710005', stderr_buf.getvalue())
         self.assertIn('extraction_failed: 1', stdout_buf.getvalue())
+
+    def test_telescope_01_verified_dict_covers_all_sites(self):
+        """TELESCOPE-01: verified dict covers all 7 real sites with SITECODE-CLASS labels."""
+        expected_sites = {'ogg', 'elp', 'lsc', 'cpt', 'coj', 'tfn', 'sor'}
+        actual_sites = {site for site, _aperture_class in SITE_TELESCOPE_MAP}
+        self.assertEqual(actual_sites, expected_sites)
+
+        label_pattern = re.compile(r'^[A-Z]{3}-(0m4|1m0|2m0|4m0)$')
+        for label in SITE_TELESCOPE_MAP.values():
+            self.assertRegex(label, label_pattern)
+
+        for migrated_label in ('COJ-2m0', 'OGG-2m0', 'SOR-4m0'):
+            self.assertIn(migrated_label, SITE_TELESCOPE_MAP.values())
+
+    def test_telescope_01_aperture_class_from_telescope_code(self):
+        """TELESCOPE-01: _aperture_class_from_telescope_code parses/rejects telescope codes."""
+        self.assertEqual(_aperture_class_from_telescope_code('1m0a'), '1m0')
+        self.assertEqual(_aperture_class_from_telescope_code('0m4b'), '0m4')
+        self.assertEqual(_aperture_class_from_telescope_code('2m0a'), '2m0')
+        self.assertIsNone(_aperture_class_from_telescope_code('xx'))
+        self.assertIsNone(_aperture_class_from_telescope_code('foo9'))
+
+    def test_telescope_02_placed_record_resolves_via_api(self):
+        """TELESCOPE-02: a successful mocked API response resolves to the verified label."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=_observations_block_response(
+                site='lsc', enclosure='doma', telescope='1m0a', state='COMPLETED'
+            ),
+        ):
+            block = _resolve_placement_block('12345', mock_facility)
+
+        self.assertIsNotNone(block)
+        self.assertEqual(block['site'], 'lsc')
+        self.assertEqual(block['enclosure'], 'doma')
+        self.assertEqual(block['telescope'], '1m0a')
+        self.assertEqual(_derive_telescope(block['site'], block['telescope']), 'LSC-1m0')
+
+    def test_sync_08_single_attempt_no_retry(self):
+        """SYNC-08: a timeout results in exactly one make_request call, no retry loop."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=requests.exceptions.Timeout,
+        ) as mock_make_request:
+            block = _resolve_placement_block('12345', mock_facility)
+
+        self.assertIsNone(block)
+        mock_make_request.assert_called_once()
+
+    def test_sync_09_no_credential_or_body_leak_in_logs(self):
+        """SYNC-09: ImproperCredentialsException/forms.ValidationError are swallowed to None,
+        never raised, and the helper never surfaces anything derived from the caught
+        exception (which may embed response.content / API-key-adjacent diagnostic text)."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        leak_marker = 'SECRET_API_KEY_LEAK_BODY'
+
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=ImproperCredentialsException(f'OCS: {leak_marker}'),
+        ):
+            block = _resolve_placement_block('12345', mock_facility)
+        self.assertIsNone(block)
+
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=forms.ValidationError(f'OCS: {leak_marker}'),
+        ):
+            block = _resolve_placement_block('12345', mock_facility)
+        self.assertIsNone(block)
