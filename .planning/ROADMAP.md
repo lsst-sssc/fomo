@@ -81,9 +81,12 @@
   5. No logged error or exception message from a failed API call contains the raw response body or API key/credential content — confirmed by a test asserting the log output for a simulated failure is a fixed, generic message
 
 **Plans**: 1/2 plans executed
+
+> **Scope correction (Wave 1):** the 8-site inventory below (and in 07-CONTEXT.md/PROJECT.md's MPC-code table) included `tlv` (Wise Observatory), which is confirmed absent from installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()`. At the 07-01 Task 1 checkpoint, the operator (LCO staff) confirmed `tlv` should be dropped rather than shipped as a guess — `SITE_TELESCOPE_MAP` covers the 7 real, installed-library-confirmed sites (`ogg`, `elp`, `lsc`, `cpt`, `coj`, `tfn`, `sor`). See `07-01-SUMMARY.md` Deviations section for full rationale. CONTEXT.md is left as-is (historical record of the discuss-phase session); this note is the reconciled, current scope.
+
 **Wave 1**
 
-- [x] 07-01-PLAN.md — Verified 8-site SITE_TELESCOPE_MAP + live API-resolution helpers (single timeout, no-leak, never-raise) + unit tests
+- [x] 07-01-PLAN.md — Verified 7-site SITE_TELESCOPE_MAP (tlv dropped, operator-confirmed) + live API-resolution helpers (single timeout, no-leak, never-raise) + unit tests
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
