@@ -70,6 +70,7 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 ### Pending Todos
 
 1. Status-aware calendar event coloring (telescope/proposal-keyed, alpha by confidence) — `.planning/todos/pending/2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md`
+2. Extract site/telescope mapping and instrument extraction into own module (revisit after Phase 7 ships) — `.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`
 
 ### Blockers/Concerns
 
