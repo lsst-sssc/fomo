@@ -141,7 +141,11 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertNotIn('requestgroups', event.url)
 
     def test_sync_02_d03_unscheduled_uses_parameters_times_and_queued_title(self):
-        """SYNC-02/D-03: scheduled_start=None -> times from parameters, '[QUEUED] ...' title."""
+        """SYNC-02/D-03: scheduled_start=None -> times from parameters, '[QUEUED] ...' title.
+
+        D-01: a banner-stage record makes no API call and gets the coarse fallback
+        label ('2m0', derived from the instrument_type), not a SITECODE-CLASS label.
+        """
         self._create_record(
             '444444',
             proposal='MATCHCODE',
@@ -160,10 +164,14 @@ class TestSyncLcoObservationCalendar(TestCase):
         event = CalendarEvent.objects.get()
         self.assertEqual(event.start_time, datetime(2026, 7, 1, 0, 0, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(event.end_time, datetime(2026, 7, 2, 0, 0, 0, tzinfo=dt_timezone.utc))
-        self.assertEqual(event.title, '[QUEUED] COJ-2m0 2M0-SCICAM-MUSCAT')
+        self.assertEqual(event.title, '[QUEUED] 2m0 2M0-SCICAM-MUSCAT')
 
     def test_sync_03_d03_placed_uses_scheduled_times_and_clean_title(self):
-        """SYNC-03/D-03: scheduled_start/end populated -> those times, clean title (no [QUEUED])."""
+        """SYNC-03/D-03: scheduled_start/end populated -> those times, clean title (no [QUEUED]).
+
+        TELESCOPE-02: a placed record's label comes from a successful live API
+        resolution (mocked here), not the flat parameters['site'] key.
+        """
         sched_start = datetime(2026, 7, 5, 10, 0, 0, tzinfo=dt_timezone.utc)
         sched_end = datetime(2026, 7, 5, 12, 0, 0, tzinfo=dt_timezone.utc)
         self._create_record(
@@ -174,34 +182,49 @@ class TestSyncLcoObservationCalendar(TestCase):
             site='coj',
             instrument_type='2M0-SCICAM-MUSCAT',
         )
-        call_command(
-            'sync_lco_observation_calendar',
-            '--proposal',
-            'MATCHCODE',
-            stdout=io.StringIO(),
-            stderr=io.StringIO(),
-        )
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'MATCHCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
         event = CalendarEvent.objects.get()
         self.assertEqual(event.start_time, sched_start)
         self.assertEqual(event.end_time, sched_end)
         self.assertEqual(event.title, 'COJ-2m0 2M0-SCICAM-MUSCAT')
         self.assertNotIn('[QUEUED]', event.title)
+        self.assertNotIn('[UNVERIFIED]', event.title)
 
     def test_sync_05_telescope_instrument_proposal_populated(self):
-        """SYNC-05: telescope/instrument/proposal populated from the record."""
+        """SYNC-05: telescope/instrument/proposal populated from the record.
+
+        TELESCOPE-02: a placed record's label comes from a successful live API
+        resolution (mocked here).
+        """
         self._create_record(
             '666666',
             proposal='MATCHCODE',
+            scheduled_start=datetime(2026, 7, 6, 10, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 6, 12, 0, 0, tzinfo=dt_timezone.utc),
             site='ogg',
             instrument_type='2M0-SCICAM-MUSCAT',
         )
-        call_command(
-            'sync_lco_observation_calendar',
-            '--proposal',
-            'MATCHCODE',
-            stdout=io.StringIO(),
-            stderr=io.StringIO(),
-        )
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=_observations_block_response(site='ogg', telescope='2m0a', state='COMPLETED'),
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'MATCHCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
         event = CalendarEvent.objects.get()
         self.assertEqual(event.telescope, 'OGG-2m0')
         self.assertEqual(event.instrument, '2M0-SCICAM-MUSCAT')
@@ -264,7 +287,11 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertEqual(CalendarEvent.objects.count(), 1)
 
     def test_d06_completed_gets_clean_title_no_prefix(self):
-        """D-06 (research correction): COMPLETED status gets a clean title, no terminal prefix."""
+        """D-06 (research correction): COMPLETED status gets a clean title, no terminal prefix.
+
+        TELESCOPE-02: a placed record's label comes from a successful live API
+        resolution (mocked here).
+        """
         self._create_record(
             '700005',
             proposal='MATCHCODE',
@@ -274,16 +301,20 @@ class TestSyncLcoObservationCalendar(TestCase):
             site='coj',
             instrument_type='2M0-SCICAM-MUSCAT',
         )
-        call_command(
-            'sync_lco_observation_calendar',
-            '--proposal',
-            'MATCHCODE',
-            stdout=io.StringIO(),
-            stderr=io.StringIO(),
-        )
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'MATCHCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
         event = CalendarEvent.objects.get()
         self.assertEqual(event.title, 'COJ-2m0 2M0-SCICAM-MUSCAT')
-        for prefix in ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[QUEUED]'):
+        for prefix in ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[QUEUED]', '[UNVERIFIED]'):
             self.assertNotIn(prefix, event.title)
 
     def test_sync_04_rerun_updates_in_place_no_churn_on_unchanged(self):
@@ -354,22 +385,24 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertIn('2026-09-01', desc)
         self.assertIn('2026-09-02', desc)
 
-    def test_skip_path_missing_site_logged_and_skipped(self):
-        """A matching record with no parameters['site'] is logged to stderr and skipped; others still sync."""
+    def test_banner_record_missing_site_still_syncs_with_coarse_label(self):
+        """D-01: a banner-stage record with no parameters['site'] still syncs (no API call,
+        no skip) -- the flat 'site' key is no longer read at all in _build_event_fields."""
         self._create_record('990001', proposal='MATCHCODE', site=None)
         self._create_record('990002', proposal='MATCHCODE', site='coj')
 
-        stderr_buf = io.StringIO()
         call_command(
             'sync_lco_observation_calendar',
             '--proposal',
             'MATCHCODE',
             stdout=io.StringIO(),
-            stderr=stderr_buf,
+            stderr=io.StringIO(),
         )
-        self.assertEqual(CalendarEvent.objects.count(), 1)
-        err = stderr_buf.getvalue()
-        self.assertIn('990001', err)
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        no_site_url = LCOFacility().get_observation_url('990001')
+        event = CalendarEvent.objects.get(url=no_site_url)
+        self.assertTrue(event.title.startswith('[QUEUED]'))
+        self.assertNotIn('[UNVERIFIED]', event.title)
 
     def test_skip_path_inconsistent_scheduled_times_logged_and_skipped(self):
         """A record with only one of scheduled_start/scheduled_end set is skipped, not crashed on."""
@@ -703,3 +736,218 @@ class TestSyncLcoObservationCalendar(TestCase):
         ):
             block = _resolve_placement_block('12345', mock_facility)
         self.assertIsNone(block)
+
+    def test_telescope_03_api_failure_falls_back_not_skipped(self):
+        """TELESCOPE-03: a placed record whose API call times out still gets a CalendarEvent
+        (not skipped), telescope = coarse fallback label, skipped count stays 0."""
+        self._create_record(
+            '800101',
+            proposal='FALLBACKCODE',
+            scheduled_start=datetime(2026, 7, 15, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 15, 2, 0, 0, tzinfo=dt_timezone.utc),
+            site='coj',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+
+        stdout_buf = io.StringIO()
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=requests.exceptions.Timeout,
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'FALLBACKCODE',
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.telescope, '1m0')
+        self.assertIn('skipped: 0', stdout_buf.getvalue())
+
+    def test_telescope_04_fallback_label_visibly_distinguishable(self):
+        """TELESCOPE-04: a fallback event has an [UNVERIFIED] title, coarse telescope token,
+        and a description failure note; a subsequent successful run flips the label
+        visibly (event updates, [UNVERIFIED] drops, telescope becomes the verified label)."""
+        sched_start = datetime(2026, 7, 16, 0, 0, 0, tzinfo=dt_timezone.utc)
+        sched_end = datetime(2026, 7, 16, 2, 0, 0, tzinfo=dt_timezone.utc)
+        self._create_record(
+            '800102',
+            proposal='FLIPCODE',
+            scheduled_start=sched_start,
+            scheduled_end=sched_end,
+            site='lsc',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=requests.exceptions.Timeout,
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'FLIPCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        event = CalendarEvent.objects.get()
+        self.assertTrue(event.title.startswith('[UNVERIFIED]'))
+        self.assertEqual(event.telescope, '1m0')
+        self.assertIn('unverified', event.description.lower())
+        modified_before = event.modified
+
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=_observations_block_response(site='lsc', telescope='1m0a', state='COMPLETED'),
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'FLIPCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        event.refresh_from_db()
+        self.assertNotIn('[UNVERIFIED]', event.title)
+        self.assertEqual(event.telescope, 'LSC-1m0')
+        self.assertNotEqual(event.modified, modified_before)
+
+    def test_sync_06_fallback_counter_distinct_from_skipped(self):
+        """SYNC-06: telescope_api_failed increments for a placed+failed record while
+        skipped stays 0, and the summary line shows 'telescope_api_failed: 1'."""
+        self._create_record(
+            '800103',
+            proposal='COUNTERCODE',
+            scheduled_start=datetime(2026, 7, 17, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 17, 2, 0, 0, tzinfo=dt_timezone.utc),
+            site='coj',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+
+        stdout_buf = io.StringIO()
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=requests.exceptions.Timeout,
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'COUNTERCODE',
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        summary = stdout_buf.getvalue()
+        self.assertIn('telescope_api_failed: 1', summary)
+        self.assertIn('skipped: 0', summary)
+
+    def test_sync_07_api_failure_does_not_abort_run(self):
+        """SYNC-07: the first-processed of two placed records raises on the API call;
+        both still produce CalendarEvents and no exception propagates out of
+        call_command. ObservationRecord's default ordering is '-created', so the
+        record created SECOND is processed FIRST -- the side_effect list below is
+        ordered to match that actual processing order, not creation order."""
+        self._create_record(
+            '800104',
+            proposal='NOABORTCODE',
+            scheduled_start=datetime(2026, 7, 18, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 18, 2, 0, 0, tzinfo=dt_timezone.utc),
+            site='coj',
+            instrument_type='2M0-SCICAM-MUSCAT',
+        )
+        self._create_record(
+            '800105',
+            proposal='NOABORTCODE',
+            scheduled_start=datetime(2026, 7, 19, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 19, 2, 0, 0, tzinfo=dt_timezone.utc),
+            site='lsc',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+
+        # '-created' default ordering -> 800105 (created last) is processed first.
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=[
+                requests.exceptions.Timeout,
+                _observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            ],
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'NOABORTCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        first_processed_event = CalendarEvent.objects.get(url=LCOFacility().get_observation_url('800105'))
+        second_processed_event = CalendarEvent.objects.get(url=LCOFacility().get_observation_url('800104'))
+        self.assertTrue(first_processed_event.title.startswith('[UNVERIFIED]'))
+        self.assertEqual(second_processed_event.telescope, 'COJ-2m0')
+
+    def test_sync_09_log_line_is_fixed_generic_message(self):
+        """SYNC-09: a placed record whose make_request raises an exception embedding a
+        leak marker logs the fixed generic message + observation_id, never the leak
+        marker token."""
+        leak_marker = 'LEAK_MARKER_apikey_body'
+        self._create_record(
+            '800106',
+            proposal='LEAKCODE',
+            scheduled_start=datetime(2026, 7, 20, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 20, 2, 0, 0, tzinfo=dt_timezone.utc),
+            site='coj',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+
+        stderr_buf = io.StringIO()
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=ImproperCredentialsException(f'OCS: {leak_marker}'),
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'LEAKCODE',
+                stdout=io.StringIO(),
+                stderr=stderr_buf,
+            )
+
+        err = stderr_buf.getvalue()
+        self.assertNotIn(leak_marker, err)
+        self.assertIn('800106', err)
+        self.assertIn('fallback', err.lower())
+
+    def test_d01_banner_record_no_api_call_no_unverified_prefix(self):
+        """D-01: a banner-stage record makes no API call, keeps '[QUEUED]', never gets
+        '[UNVERIFIED]', telescope_api_failed stays 0."""
+        self._create_record(
+            '800107',
+            proposal='BANNERCODE',
+            site='coj',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+
+        stdout_buf = io.StringIO()
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+        ) as mock_make_request:
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'BANNERCODE',
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        mock_make_request.assert_not_called()
+        event = CalendarEvent.objects.get()
+        self.assertTrue(event.title.startswith('[QUEUED]'))
+        self.assertNotIn('[UNVERIFIED]', event.title)
+        self.assertEqual(event.telescope, '1m0')
+        self.assertIn('telescope_api_failed: 0', stdout_buf.getvalue())
