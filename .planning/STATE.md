@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
-current_phase: 7
-current_phase_name: Live Telescope-Label Resolution with Fallback & Failure Reporting
+current_phase: 07
+current_phase_name: live-telescope-label-resolution-with-fallback-failure-report
 status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-06-22T05:48:31.937Z"
-last_activity: 2026-06-21
-last_activity_desc: "Completed quick task 260621-foo: document demo-notebook-companion convention in CLAUDE.md (prevents recurrence of the Phase 5/6 notebook-scoping gap)"
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-06-23T05:27:53.728Z"
+last_activity: 2026-06-23
+last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 67
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-19)
 
 **Core value:** Generalize `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals, fixing the parameter-shape bugs found in v1.2 against real data.
-**Current focus:** Phase 06 — correct-instrument-type-extraction
+**Current focus:** Phase 07 — live-telescope-label-resolution-with-fallback-failure-report
 
 ## Current Position
 
-Phase: 7 — Live Telescope-Label Resolution with Fallback & Failure Reporting
-Plan: Not started
+Phase: 07 (live-telescope-label-resolution-with-fallback-failure-report) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-21 — Completed quick task 260621-foo: document demo-notebook-companion convention in CLAUDE.md (prevents recurrence of the Phase 5/6 notebook-scoping gap)
+Last activity: 2026-06-23 — Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | 06 | 1 | - | - |
 | 07 | TBD | - | - |
 | Phase 06 P01 | 6min | 2 tasks | 2 files |
+| Phase 07 P01 | 50min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - SYNC-06..09 (partial-failure counters/reporting) folded into Phase 7 rather than a standalone phase — that's the only phase introducing the new API-failure axis they report on.
 - [Phase ?]: Sentinel None + InstrumentExtractionError contract chosen over a bare exception, matching the file's existing 'return None to signal non-match' style
 - [Phase ?]: Added a flat instrument_type fallback tier beyond D-01/D-02 to keep the 19 pre-existing regression tests passing for today's legacy single-config shape
+- [Phase ?]: tlv dropped entirely from SITE_TELESCOPE_MAP (operator decision at 07-01 Task 1 checkpoint) -- confirmed absent from installed LCOSettings/SOARSettings; scope corrected to 7 real sites, not 8
+- [Phase ?]: elp/lsc/cpt/tfn aperture-class inventory confirmed by operator (LCO staff) at the same checkpoint -- both 1m0 and 0m4 entries added per site, no [ASSUMED] tag needed
 
 ### Pending Todos
 
@@ -76,7 +79,7 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 - Research gap (Phase 7): exact JSON key names in `/api/requests/<id>/observations/` block responses are inferred by analogy, not confirmed against a live response — confirm against a real `observation_id` before finalizing parsing.
 - Research gap (Phase 7): whether `FACILITIES['SOAR']` needs an explicit settings.py entry vs. relying on `SOARSettings` defaults — decide during Phase 5 planning.
-- Research gap (Phase 7): `tlv` (Wise Observatory) appears in the webpage-sourced 8-site table but not confirmed in installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()` — verify before shipping the static mapping dict.
+- ~~Research gap (Phase 7): `tlv` (Wise Observatory) appears in the webpage-sourced 8-site table but not confirmed in installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()` — verify before shipping the static mapping dict.~~ Resolved at the 07-01 Task 1 checkpoint: `tlv` dropped entirely (confirmed absent from both installed `get_sites()` implementations); verified dict covers the 7 real sites instead of 8. See 07-01-SUMMARY.md.
 
 ### Quick Tasks Completed
 
@@ -107,11 +110,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T02:07:37.243Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-CONTEXT.md
+Last session: 2026-06-23T05:27:53.692Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None
 Last activity: 2026-06-21 — Phase 06 UAT complete (4/4 passed) and security audit verified (06-SECURITY.md, threats_open: 0)
 
 ## Operator Next Steps
 
-- Run `/gsd-discuss-phase 7` to start Phase 7 (live-telescope-label-resolution-with-fallback-failure-reporting)
+- Plan 07-01 complete (TELESCOPE-01, TELESCOPE-02, SYNC-08, SYNC-09 validated). Plan 07-02 (Wave 2) is ready to execute — it wires the live-API + fallback decision tree into `Command.handle()`/`_build_event_fields`/`_title_for`, adds the `telescope_api_failed` counter, and updates the demo notebook again for the new observable behavior.
+- Note for phase completion: ROADMAP.md/CONTEXT.md's original "8 real LCO-network sites" framing should be reconciled with the operator-approved 7-site correction documented in 07-01-SUMMARY.md.

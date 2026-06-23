@@ -80,10 +80,10 @@
   4. The per-record API call uses an explicit timeout and makes a single attempt (no retry loop) — confirmed by a test that mocks a slow/failing response and asserts no second call is made
   5. No logged error or exception message from a failed API call contains the raw response body or API key/credential content — confirmed by a test asserting the log output for a simulated failure is a fixed, generic message
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 07-01-PLAN.md — Verified 8-site SITE_TELESCOPE_MAP + live API-resolution helpers (single timeout, no-leak, never-raise) + unit tests
+- [x] 07-01-PLAN.md — Verified 8-site SITE_TELESCOPE_MAP + live API-resolution helpers (single timeout, no-leak, never-raise) + unit tests
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -101,4 +101,4 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
 | 4. LCO Queue Sync Command | v1.2 | 1/1 | Complete | 2026-06-17 |
 | 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete    | 2026-06-19 |
 | 6. Correct Instrument-Type Extraction | v1.3 | 1/1 | Complete    | 2026-06-21 |
-| 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 0/TBD | Not started | - |
+| 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 1/2 | In Progress|  |
