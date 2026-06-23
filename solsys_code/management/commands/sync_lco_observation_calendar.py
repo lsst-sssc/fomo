@@ -1,25 +1,47 @@
 from datetime import datetime
 from datetime import timezone as dt_timezone
 from typing import Any
+from urllib.parse import urljoin
 
+import requests
+from django import forms
 from django.core.management.base import BaseCommand, CommandParser
 from tom_calendar.models import CalendarEvent
+from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
+from tom_observations.facilities.ocs import make_request
 from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 
-# Site code -> telescope label, mirroring solsys_code/telescope_runs.py:SITES naming
-# convention (e.g. 'FTS'). The 'coj'/'ogg' LCO entries are [ASSUMED] per RESEARCH.md
-# Assumptions Log A1/A2 (web-search only, not yet confirmed against real
-# ObservationRecord.parameters data for this project's LCO proposal) — confirm against
-# real records before relying on this mapping in production. The 'sor' SOAR entry is
-# confirmed (not [ASSUMED]) against tom_observations.facilities.soar, which hardcodes
-# 'sitecode': 'sor'.
+# (site, aperture_class) -> 'SITECODE-CLASS' telescope label (TELESCOPE-01/D-03/D-04).
+# Verified, real-data-grounded inventory of the 7 real LCO-network sites this
+# codebase's installed LCOSettings/SOARSettings actually confirm (tlv/Wise Observatory
+# is deliberately excluded -- confirmed absent from both installed get_sites()
+# implementations at the 07-01 Task 1 checkpoint; see 07-01-SUMMARY.md Deviations).
+# 'coj'/'ogg'/'sor' migrate the 3 pre-existing entries (D-05) -- 'coj'/'ogg' confirmed
+# 2m0 (FTS/FTN), 'sor' confirmed 4m0 (SOAR, tom_observations.facilities.soar hardcodes
+# 'sitecode': 'sor'). 'elp'/'lsc'/'cpt'/'tfn' confirmed by operator (LCO staff) at the
+# 07-01 Task 1 checkpoint -- see 07-01-SUMMARY.md -- as standard 1m-network sites
+# hosting both 1m0 and 0m4 telescope classes.
 SITE_TELESCOPE_MAP = {
-    'coj': 'FTS',
-    'ogg': 'FTN',
-    'sor': 'SOAR',
+    ('coj', '2m0'): 'COJ-2m0',
+    ('ogg', '2m0'): 'OGG-2m0',
+    ('sor', '4m0'): 'SOR-4m0',
+    ('elp', '1m0'): 'ELP-1m0',
+    ('elp', '0m4'): 'ELP-0m4',
+    ('lsc', '1m0'): 'LSC-1m0',
+    ('lsc', '0m4'): 'LSC-0m4',
+    ('cpt', '1m0'): 'CPT-1m0',
+    ('cpt', '0m4'): 'CPT-0m4',
+    ('tfn', '1m0'): 'TFN-1m0',
+    ('tfn', '0m4'): 'TFN-0m4',
 }
+
+# SYNC-08/D-10: explicit timeout, single attempt, no retry/backoff loop. This is the
+# first explicit HTTP timeout introduced anywhere in solsys_code/ -- there is no
+# existing precedent to follow (JPLSBDBQuery.run_query() calls requests.get() with no
+# timeout at all, a known anti-pattern, not a convention to mirror here).
+_API_TIMEOUT_SECONDS = 10
 
 # TERM-01/D-04: terminal-failure status -> title prefix. COMPLETED is deliberately
 # absent here (D-06 research correction) — it is terminal per
@@ -68,22 +90,91 @@ def _failure_prefix(status: str, facility: LCOFacility) -> str | None:
     return _FAILURE_PREFIX_BY_STATUS.get(status, '[FAILED]')
 
 
-def _derive_telescope(site_code: str) -> str:
-    """Map an LCO/SOAR site code to a telescope label.
+def _aperture_class_from_telescope_code(telescope_code: str) -> str | None:
+    """Extract the aperture-class token (D-04 vocabulary) from a 4-char telescope code.
 
     Args:
-        site_code: LCO/SOAR 3-letter site code (e.g. 'coj').
+        telescope_code: e.g. '0m4b', '1m0a', '2m0a' (from the API response's
+            'telescope' key) -- a 3-char aperture-class token plus a trailing
+            dome-instance letter suffix.
 
     Returns:
-        str: telescope label (e.g. 'FTS').
+        str | None: '0m4'/'1m0'/'2m0'/'4m0' (strips the trailing dome-instance
+            letter), or None if the code doesn't match the expected
+            3-char-class + 1-char-suffix shape (routes the caller to fallback
+            per TELESCOPE-03).
+    """
+    if len(telescope_code) >= 4 and telescope_code[:3] in {'0m4', '1m0', '2m0', '4m0'}:
+        return telescope_code[:3]
+    return None
 
-    Raises:
-        KeyError: if site_code is not in SITE_TELESCOPE_MAP.
+
+def _derive_telescope(site: str, telescope_code: str) -> str | None:
+    """Map a resolved (site, telescope_code) pair to a verified label via SITE_TELESCOPE_MAP.
+
+    Args:
+        site: 3-letter site code from the API response (e.g. 'lsc').
+        telescope_code: 4-char telescope code from the API response (e.g. '1m0a').
+
+    Returns:
+        str | None: the verified label (e.g. 'LSC-1m0'), or None if the
+            (site, class) pair isn't in SITE_TELESCOPE_MAP or telescope_code's
+            aperture class couldn't be parsed -- caller falls back to the
+            coarse instrument-class label (TELESCOPE-03). Never raises.
+    """
+    aperture_class = _aperture_class_from_telescope_code(telescope_code)
+    if aperture_class is None:
+        return None
+    return SITE_TELESCOPE_MAP.get((site, aperture_class))
+
+
+def _resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[str, Any] | None:
+    """Call the LCO Observation Portal API once to resolve a placed record's block.
+
+    Issues a single, timeout-bounded GET to /api/requests/{observation_id}/observations/
+    and selects the same COMPLETED-first-else-PENDING block that
+    OCSFacility.get_observation_status() selects for scheduled_start/scheduled_end, so
+    telescope resolution and timing always come from the same block (Pitfall 3).
+
+    Args:
+        observation_id: the record's LCO observation_id.
+        facility: a shared LCOFacility/SOARFacility instance (for portal_url/api_key
+            settings and auth header construction).
+
+    Returns:
+        dict[str, Any] | None: the matched block dict (with 'site'/'enclosure'/
+            'telescope'/'state' keys) on success, or None if the API call failed,
+            timed out, or returned no usable COMPLETED/PENDING block. Never raises --
+            every failure mode (network error, library auth/validation exception,
+            malformed/non-JSON body, missing 'state' key) is caught and converted to
+            None so the caller always falls through to the coarse fallback (SYNC-07:
+            a per-record failure never aborts the run). The except clause never
+            references, stringifies, or logs the caught exception (SYNC-09/D-11) --
+            ImproperCredentialsException/forms.ValidationError embed response.content
+            directly and must never be logged verbatim.
     """
     try:
-        return SITE_TELESCOPE_MAP[site_code]
-    except KeyError:
-        raise KeyError(f'Unmapped LCO site code {site_code!r}; add it to SITE_TELESCOPE_MAP') from None
+        response = make_request(
+            'GET',
+            urljoin(
+                facility.facility_settings.get_setting('portal_url'),
+                f'/api/requests/{observation_id}/observations/',
+            ),
+            headers=facility._portal_headers(),
+            timeout=_API_TIMEOUT_SECONDS,
+        )
+        blocks = response.json()
+    except (requests.exceptions.RequestException, ImproperCredentialsException, forms.ValidationError, ValueError):
+        return None
+
+    current_block = None
+    for block in blocks:
+        if block.get('state') == 'COMPLETED':
+            current_block = block
+            break
+        elif block.get('state') == 'PENDING':
+            current_block = block
+    return current_block
 
 
 def _has_muscat_exposure_signal(parameters: dict[str, Any], n: int) -> bool:
@@ -240,7 +331,23 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
         InstrumentExtractionError: if _extract_instrument (D-01..D-06) finds no
             science config and no exposure-signal config anywhere in parameters.
     """
-    telescope = _derive_telescope(record.parameters['site'])
+    # NOTE (Plan 01 -> Plan 02 handoff): this single-class flat lookup is an interim
+    # shim, not the live-API resolution path. Plan 01's _derive_telescope(site,
+    # telescope_code) now requires a real 4-char telescope code (from
+    # _resolve_placement_block's API response), which this still-flat
+    # record.parameters['site'] cannot supply. Plan 02 (Wave 2) replaces this call
+    # entirely with the API-call + fallback decision tree per TELESCOPE-02/03/04 --
+    # it is deliberately NOT implemented here (07-01-PLAN.md's objective explicitly
+    # scopes _build_event_fields/Command.handle wiring out of Plan 01). This shim only
+    # exists so the 19 pre-existing regression tests (which only ever use the 3
+    # single-aperture-class legacy sites coj/ogg/sor) keep passing unmodified until
+    # Plan 02 lands.
+    _LEGACY_SINGLE_CLASS_SITES = {'coj': '2m0', 'ogg': '2m0', 'sor': '4m0'}
+    site_code = record.parameters['site']
+    aperture_class = _LEGACY_SINGLE_CLASS_SITES.get(site_code)
+    telescope = SITE_TELESCOPE_MAP.get((site_code, aperture_class)) if aperture_class else None
+    if telescope is None:
+        raise KeyError(f'Unmapped LCO site code {site_code!r}; add it to SITE_TELESCOPE_MAP')
     instrument = _extract_instrument(record.parameters)
     if instrument is None:
         raise InstrumentExtractionError(

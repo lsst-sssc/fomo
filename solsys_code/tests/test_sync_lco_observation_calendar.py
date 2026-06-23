@@ -126,7 +126,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         event = CalendarEvent.objects.get()
         self.assertEqual(event.start_time, datetime(2026, 7, 1, 0, 0, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(event.end_time, datetime(2026, 7, 2, 0, 0, 0, tzinfo=dt_timezone.utc))
-        self.assertEqual(event.title, '[QUEUED] FTS 2M0-SCICAM-MUSCAT')
+        self.assertEqual(event.title, '[QUEUED] COJ-2m0 2M0-SCICAM-MUSCAT')
 
     def test_sync_03_d03_placed_uses_scheduled_times_and_clean_title(self):
         """SYNC-03/D-03: scheduled_start/end populated -> those times, clean title (no [QUEUED])."""
@@ -150,7 +150,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         event = CalendarEvent.objects.get()
         self.assertEqual(event.start_time, sched_start)
         self.assertEqual(event.end_time, sched_end)
-        self.assertEqual(event.title, 'FTS 2M0-SCICAM-MUSCAT')
+        self.assertEqual(event.title, 'COJ-2m0 2M0-SCICAM-MUSCAT')
         self.assertNotIn('[QUEUED]', event.title)
 
     def test_sync_05_telescope_instrument_proposal_populated(self):
@@ -169,7 +169,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             stderr=io.StringIO(),
         )
         event = CalendarEvent.objects.get()
-        self.assertEqual(event.telescope, 'FTN')
+        self.assertEqual(event.telescope, 'OGG-2m0')
         self.assertEqual(event.instrument, '2M0-SCICAM-MUSCAT')
         self.assertEqual(event.proposal, 'MATCHCODE')
 
@@ -248,7 +248,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             stderr=io.StringIO(),
         )
         event = CalendarEvent.objects.get()
-        self.assertEqual(event.title, 'FTS 2M0-SCICAM-MUSCAT')
+        self.assertEqual(event.title, 'COJ-2m0 2M0-SCICAM-MUSCAT')
         for prefix in ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[QUEUED]'):
             self.assertNotIn(prefix, event.title)
 
