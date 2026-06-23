@@ -254,24 +254,63 @@ def _extract_instrument(parameters: dict[str, Any]) -> str | None:
     return parameters.get('instrument_type')
 
 
-def _title_for(record: ObservationRecord, telescope: str, instrument: str, facility: LCOFacility) -> str:
-    """Build the CalendarEvent title for a record (D-03/D-04/D-06).
+def _coarse_telescope_label(instrument_type: str) -> str:
+    """Derive the coarse aperture-class fallback label from a Phase-6 instrument_type string.
+
+    LCO/SOAR instrument type codes are prefixed with the aperture class token
+    (e.g. '1M0-SCICAM-SINISTRO', '0M4-SCICAM-SBIG', '2M0-SPECTRAL-AG' -- confirmed
+    lco.py:792), mirroring the installed library's own
+    `self._get_instruments()[instrument_type]['class']` convention of treating
+    instrument type as implying aperture class.
+
+    Args:
+        instrument_type: the record's extracted instrument_type (D-04 fallback
+            vocabulary source, e.g. '1M0-SCICAM-SINISTRO').
+
+    Returns:
+        str: '0m4'/'1m0'/'2m0' (case-normalized, D-04 vocabulary) if instrument_type
+            has a recognized leading aperture-class prefix; otherwise the raw
+            instrument_type string itself, so the fallback label is never empty and
+            this never raises. This only affects the coarse label's text -- it never
+            decides whether a record syncs (TELESCOPE-03).
+    """
+    if len(instrument_type) >= 3:
+        candidate = instrument_type[:3].lower()
+        if candidate in {'0m4', '1m0', '2m0', '4m0'}:
+            return candidate
+    return instrument_type
+
+
+def _title_for(
+    record: ObservationRecord, telescope: str, instrument: str, facility: LCOFacility, label_was_fallback: bool
+) -> str:
+    """Build the CalendarEvent title for a record (D-03/D-04/D-06/D-09).
 
     Args:
         record: the ObservationRecord being synced.
         telescope: derived telescope label.
         instrument: instrument_type from the record's parameters.
         facility: a shared LCOFacility instance.
+        label_was_fallback: True if telescope is a coarse fallback label for a
+            PLACED record whose live API resolution failed/timed out/returned an
+            unmapped code (D-07) -- never True for a banner-stage record.
 
     Returns:
-        str: the title, with a terminal-failure prefix, '[QUEUED]' prefix, or clean
-            (no prefix) depending on the record's status/scheduling state.
+        str: the title, with a terminal-failure prefix, '[QUEUED]' prefix,
+            '[UNVERIFIED]' prefix, or clean (no prefix), in that priority order
+            (D-09): a terminal-failure prefix always wins, even over
+            '[UNVERIFIED]'; '[QUEUED]' (banner stage) and '[UNVERIFIED]' (placed +
+            fallback) are mutually exclusive by construction since '[UNVERIFIED]'
+            only ever applies to a placed record (D-07); clean (no prefix) is a
+            placed record whose label was resolved via the live API successfully.
     """
     prefix = _failure_prefix(record.status, facility)
     if prefix is not None:
         return f'{prefix} {telescope} {instrument}'
     if record.scheduled_start is None:
         return f'[QUEUED] {telescope} {instrument}'
+    if label_was_fallback:
+        return f'[UNVERIFIED] {telescope} {instrument}'
     return f'{telescope} {instrument}'
 
 
@@ -317,52 +356,72 @@ class InstrumentExtractionError(Exception):
 def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dict[str, Any]:
     """Build the full set of CalendarEvent field values for a record.
 
+    Implements the TELESCOPE-02/03/04 decision tree (D-01/D-02/D-07, Pitfall 4): a
+    banner-stage record (scheduled_start is None) gets the coarse fallback label
+    with no API call (D-01) and is never counted/flagged as a failure (D-02/D-07). A
+    placed record attempts a single live API resolution via
+    _resolve_placement_block; an API failure/timeout AND a successfully-returned but
+    unmapped (site, telescope_code) pair are the SAME fallback bucket (Pitfall 4) --
+    both set label_was_fallback=True, route to the coarse label, and increment the
+    same telescope_api_failed counter.
+
     Args:
         record: the ObservationRecord being synced.
         facility: a shared LCOFacility instance.
 
     Returns:
         dict[str, Any]: keyword args for CalendarEvent (url, title, description,
-            start_time, end_time, telescope, instrument, proposal).
+            start_time, end_time, telescope, instrument, proposal), plus a
+            'telescope_api_failed' bool key that the caller (Command.handle()) pops
+            before constructing CalendarEvent kwargs, exactly like 'url' is already
+            popped.
 
     Raises:
-        KeyError: if a required parameters key (site/proposal/start/end) is missing.
+        KeyError: if a required parameters key (proposal/start/end) is missing.
         ValueError: if parameters['start']/['end'] cannot be parsed as datetimes.
         InstrumentExtractionError: if _extract_instrument (D-01..D-06) finds no
             science config and no exposure-signal config anywhere in parameters.
     """
-    # NOTE (Plan 01 -> Plan 02 handoff): this single-class flat lookup is an interim
-    # shim, not the live-API resolution path. Plan 01's _derive_telescope(site,
-    # telescope_code) now requires a real 4-char telescope code (from
-    # _resolve_placement_block's API response), which this still-flat
-    # record.parameters['site'] cannot supply. Plan 02 (Wave 2) replaces this call
-    # entirely with the API-call + fallback decision tree per TELESCOPE-02/03/04 --
-    # it is deliberately NOT implemented here (07-01-PLAN.md's objective explicitly
-    # scopes _build_event_fields/Command.handle wiring out of Plan 01). This shim only
-    # exists so the 19 pre-existing regression tests (which only ever use the 3
-    # single-aperture-class legacy sites coj/ogg/sor) keep passing unmodified until
-    # Plan 02 lands.
-    _LEGACY_SINGLE_CLASS_SITES = {'coj': '2m0', 'ogg': '2m0', 'sor': '4m0'}
-    site_code = record.parameters['site']
-    aperture_class = _LEGACY_SINGLE_CLASS_SITES.get(site_code)
-    telescope = SITE_TELESCOPE_MAP.get((site_code, aperture_class)) if aperture_class else None
-    if telescope is None:
-        raise KeyError(f'Unmapped LCO site code {site_code!r}; add it to SITE_TELESCOPE_MAP')
     instrument = _extract_instrument(record.parameters)
     if instrument is None:
         raise InstrumentExtractionError(
             f'No recognized configuration_type or exposure signal found in observation_id='
             f'{record.observation_id!r} parameters'
         )
+    coarse = _coarse_telescope_label(instrument)
+
+    if record.scheduled_start is None:
+        # D-01: banner stage -- no API call attempted; D-02/D-07: never counted as a
+        # failure and never gets the [UNVERIFIED] prefix.
+        telescope = coarse
+        label_was_fallback = False
+    else:
+        block = _resolve_placement_block(record.observation_id, facility)
+        resolved = _derive_telescope(block['site'], block['telescope']) if block is not None else None
+        if resolved is None:
+            # Pitfall 4: an API call failure/timeout (block is None) and a
+            # successfully-returned but unmapped (site, telescope_code) pair
+            # (resolved is None) are the SAME fallback bucket.
+            telescope = coarse
+            label_was_fallback = True
+        else:
+            telescope = resolved
+            label_was_fallback = False
+
     proposal = record.parameters['proposal']
     url = facility.get_observation_url(record.observation_id)
     start_time, end_time = _time_window(record)
-    title = _title_for(record, telescope, instrument, facility)
+    title = _title_for(record, telescope, instrument, facility, label_was_fallback)
     description = (
         f'Proposal: {proposal}\n'
         f'Status: {record.status}\n'
         f'Window (UTC): {start_time.strftime("%Y-%m-%dT%H:%M:%S")} to {end_time.strftime("%Y-%m-%dT%H:%M:%S")}'
     )
+    if label_was_fallback:
+        # TELESCOPE-04/SYNC-09: a generic, never-exception-derived note. Not logged
+        # here -- Command.handle() owns the stderr log line (caller-logging
+        # discipline kept in one place).
+        description += '\nTelescope label unverified: live API lookup failed or returned an unmapped code.'
     return {
         'url': url,
         'title': title,
@@ -372,6 +431,10 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
         'telescope': telescope,
         'instrument': instrument,
         'proposal': proposal,
+        # D-02 scope: True only for a PLACED record whose label was a fallback --
+        # never True for a banner-stage record. Popped by handle() before
+        # constructing CalendarEvent kwargs, mirroring 'url'.
+        'telescope_api_failed': record.scheduled_start is not None and label_was_fallback,
     }
 
 
@@ -440,12 +503,27 @@ class Command(BaseCommand):
         facilities = {'LCO': LCOFacility(), 'SOAR': SOARFacility()}
 
         # Per-facility counters (D-08): every facility's created/updated/unchanged/
-        # skipped/extraction_failed counts must be individually visible in the summary
-        # line. 'extraction_failed' (D-06) is a dedicated counter distinct from
-        # 'skipped', for fully-malformed records with no extractable instrument config.
+        # skipped/extraction_failed/telescope_api_failed counts must be individually
+        # visible in the summary line. 'extraction_failed' (D-06) and
+        # 'telescope_api_failed' (SYNC-06/D-02) are dedicated counters distinct from
+        # 'skipped' and from each other.
         counters = {
-            'LCO': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0, 'extraction_failed': 0},
-            'SOAR': {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0, 'extraction_failed': 0},
+            'LCO': {
+                'created': 0,
+                'updated': 0,
+                'unchanged': 0,
+                'skipped': 0,
+                'extraction_failed': 0,
+                'telescope_api_failed': 0,
+            },
+            'SOAR': {
+                'created': 0,
+                'updated': 0,
+                'unchanged': 0,
+                'skipped': 0,
+                'extraction_failed': 0,
+                'telescope_api_failed': 0,
+            },
         }
 
         records = ObservationRecord.objects.filter(facility__in=['LCO', 'SOAR'])
@@ -464,7 +542,14 @@ class Command(BaseCommand):
                 )
                 counters.setdefault(
                     record.facility,
-                    {'created': 0, 'updated': 0, 'unchanged': 0, 'skipped': 0, 'extraction_failed': 0},
+                    {
+                        'created': 0,
+                        'updated': 0,
+                        'unchanged': 0,
+                        'skipped': 0,
+                        'extraction_failed': 0,
+                        'telescope_api_failed': 0,
+                    },
                 )
                 counters[record.facility]['skipped'] += 1
                 continue
@@ -483,6 +568,17 @@ class Command(BaseCommand):
                 continue
 
             url = fields.pop('url')
+            telescope_api_failed = fields.pop('telescope_api_failed')
+            if telescope_api_failed:
+                # SYNC-09/D-11: fixed, generic message -- never interpolates a
+                # caught exception (no {exc}/str(exc)/repr(exc) here). SYNC-07: the
+                # record still gets a CalendarEvent below; the run continues.
+                self.stderr.write(
+                    f'Telescope API lookup failed or returned an unmapped code for '
+                    f'observation_id={record.observation_id!r}; using fallback label.'
+                )
+                counters[record.facility]['telescope_api_failed'] += 1
+
             event, created = CalendarEvent.objects.get_or_create(url=url, defaults=fields)
             if created:
                 counters[record.facility]['created'] += 1
@@ -496,14 +592,17 @@ class Command(BaseCommand):
                 else:
                     counters[record.facility]['unchanged'] += 1
 
-        # D-08: per-facility breakdown. Each facility's five counts use the same
-        # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' / 'extraction_failed: N'
-        # phrasing as the prior single-facility summary line, kept per-facility for
-        # visibility. extraction_failed (D-06) is distinct from skipped.
+        # D-08: per-facility breakdown. Each facility's six counts use the same
+        # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' /
+        # 'extraction_failed: N' / 'telescope_api_failed: N' phrasing as the prior
+        # single-facility summary line, kept per-facility for visibility.
+        # extraction_failed (D-06) and telescope_api_failed (SYNC-06) are each
+        # distinct from skipped and from each other.
         summary = ' | '.join(
             f'{facility_name}: created: {counts["created"]}, updated: {counts["updated"]}, '
             f'unchanged: {counts["unchanged"]}, skipped: {counts["skipped"]}, '
-            f'extraction_failed: {counts["extraction_failed"]}'
+            f'extraction_failed: {counts["extraction_failed"]}, '
+            f'telescope_api_failed: {counts["telescope_api_failed"]}'
             for facility_name, counts in counters.items()
         )
         self.stdout.write(f'Done. proposal: {proposal}, {summary}')
