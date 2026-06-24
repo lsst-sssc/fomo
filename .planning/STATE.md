@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Full LCO Facility Sync
 current_phase: 07
 current_phase_name: live-telescope-label-resolution-with-fallback-failure-report
-status: verifying
+status: executing
 stopped_at: Completed 07-02-PLAN.md (phase 07 complete, ready for verification)
-last_updated: "2026-06-23T14:09:59.651Z"
+last_updated: "2026-06-24T14:10:45.854Z"
 last_activity: 2026-06-23
 last_activity_desc: Phase 07 execution started
 progress:
-  total_phases: 3
-  completed_phases: 2
+  total_phases: 4
+  completed_phases: 3
   total_plans: 4
-  completed_plans: 3
-  percent: 67
+  completed_plans: 4
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-19)
 
 Phase: 07 (live-telescope-label-resolution-with-fallback-failure-report) — EXECUTING
 Plan: 2 of 2
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-06-23 — Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -104,6 +104,10 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - `astropy Time.to_datetime()` produces microseconds — strip with `.replace(microsecond=0)` before DB save.
 - DB-dependent tests go in `solsys_code/tests/test_sync_lco_observation_calendar.py`, run with `./manage.py test solsys_code`.
 - v1.2 real-data bug (drives v1.3): real records have no flat `instrument_type` or `site` key in `parameters`; multi-config `c_1..c_5_instrument_type` shape only, and `SITE_TELESCOPE_MAP` was a 2-entry unverified guess.
+
+### Roadmap Evolution
+
+- Phase 07.1 inserted after Phase 7: Close gap: TELESCOPE-03/04/SYNC-06 — SOAR fallback label is facility-unaware (URGENT)
 
 ## Deferred Items
 
