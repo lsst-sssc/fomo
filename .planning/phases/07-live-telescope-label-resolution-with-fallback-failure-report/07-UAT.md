@@ -5,7 +5,7 @@ source:
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-01-SUMMARY.md
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-02-SUMMARY.md
 started: 2026-06-24T01:33:41.000Z
-updated: 2026-06-24T03:44:17.000Z
+updated: 2026-06-24T03:54:41.000Z
 ---
 
 ## Current Test
@@ -45,6 +45,15 @@ reported: |
   missing '0m4' (Haleakala hosts 2m0/0m4, not just 2m0). elp/lsc/cpt/tfn/sor already
   match the public table exactly.
 severity: major
+resolution: |
+  Fixed via quick task 260623-su3 (commits cd3b17e/5583400/2473aa8): added
+  ('coj','1m0')->'COJ-1m0', ('coj','0m4')->'COJ-0m4', ('ogg','0m4')->'OGG-0m4' to
+  SITE_TELESCOPE_MAP, citing https://lco.global/observatory/sites/mpccodes/ as the
+  confirmation source. Re-verified directly against the same real record
+  (observation_id=4213127): re-running sync_lco_observation_calendar now produces
+  title='COJ-1m0 1M0-SCICAM-SINISTRO', telescope='COJ-1m0', telescope_api_failed: 0
+  -- matches Test 1's original expectation exactly. Full test suite 35/35 green.
+result_after_fix: pass
 
 ### 2. API failure/timeout/unmapped-code falls back, not skipped
 expected: |
@@ -88,15 +97,15 @@ result: [pending]
 ## Summary
 
 total: 6
-passed: 0
-issues: 1
+passed: 1
+issues: 0
 pending: 5
 skipped: 0
 
 ## Gaps
 
 - truth: "A successfully-resolved (site, aperture_class) pair from the live API maps through SITE_TELESCOPE_MAP to the correct verified label, for every real LCO-network site/class combination."
-  status: failed
+  status: resolved
   reason: "User reported: real record observation_id=4213127 resolved to ('coj', '1m0') via a successful live API call, but SITE_TELESCOPE_MAP has no ('coj','1m0') entry (only ('coj','2m0')), so it fell back to [UNVERIFIED] instead of the correct verified label. Cross-referenced https://lco.global/observatory/sites/mpccodes/ : coj is missing '1m0' and '0m4'; ogg is missing '0m4'. elp/lsc/cpt/tfn/sor already complete."
   severity: major
   test: 1
@@ -106,3 +115,4 @@ skipped: 0
     - "('coj', '1m0') -> 'COJ-1m0'"
     - "('coj', '0m4') -> 'COJ-0m4'"
     - "('ogg', '0m4') -> 'OGG-0m4'"
+  resolved_by: "quick task 260623-su3 (commits cd3b17e, 5583400, 2473aa8); re-verified live against observation_id=4213127"
