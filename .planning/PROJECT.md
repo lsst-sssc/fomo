@@ -40,18 +40,7 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 
 ## Milestone Status
 
-v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Facility Sync" started 2026-06-18, completed 2026-06-24 (Phases 5-7 + 07.1 gap-closure).
-
-## Current Milestone: v1.3 Full LCO Facility Sync
-
-**Goal:** Generalize `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals, fixing the parameter-shape bugs found in v1.2 against real data.
-
-**Target features:**
-- `--proposal` accepts a comma-separated list or `ALL` (sync every LCO-family record regardless of proposal)
-- Facility scope: LCO + SOAR only; Gemini and ESO explicitly deferred
-- Instrument-type extraction scans `c_1..c_5` configs for the one with a populated `exposure_time`, instead of assuming a flat `instrument_type` key
-- Telescope label: try an LCO API call per record for the real site/enclosure/telescope, map through the verified fully-qualified-code dict (`siteid-enclid-telid` -> MPC code -> label); fall back to a coarse instrument-class label (`1m0`/`0m4`/`2m0`) if that call fails
-- Site/telescope mapping is a verified static dict (not `Observatory`-model-tied), covering all 8 real LCO sites
+v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Facility Sync" shipped 2026-06-24 (Phases 5-7 + 07.1 gap-closure) — generalized `sync_lco_observation_calendar` to multi-proposal/multi-facility (LCO+SOAR) selection, correct multi-config instrument extraction, and live telescope-label resolution with a facility-aware coarse fallback. Next milestone not yet started; see `.planning/milestones/v1.3-REQUIREMENTS.md` v2 section for deferred candidates (DISPLAY-01/02, FACILITY-01/02).
 
 ## Requirements
 
@@ -91,11 +80,13 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Faci
 - ✓ **TELESCOPE-03**: A failed/timed-out/unmapped per-record API call falls back to a coarse instrument-class label (`1m0`/`0m4`/`2m0`/`4m0`) instead of skipping the record, for both LCO and SOAR facilities — v1.3 (Phase 7; SOAR was facility-unaware until Phase 07.1 closed the v1.3 milestone-audit gap)
 - ✓ **TELESCOPE-04**: A fallback-labeled event is distinguishable from a verified-label event via a clean `[UNVERIFIED] <coarse-label> <instrument>` title, for both LCO and SOAR — v1.3 (Phase 7; SOAR's doubled raw-instrument title fixed in Phase 07.1)
 - ✓ **SYNC-06**: Per-record telescope-API failures are tracked as a distinct `telescope_api_failed` counter, separate from `skipped`, for both LCO and SOAR — v1.3 (Phase 7; SOAR zero-coverage gap closed in Phase 07.1)
+- ✓ **SYNC-07**: A per-record API failure does not abort the run or skip the record — the record still gets a `CalendarEvent` (fallback-labeled), and the rest of the batch continues — v1.3 (Phase 7)
+- ✓ **SYNC-08**: The per-record API call uses an explicit timeout and a single attempt (no retry/backoff loop) — v1.3 (Phase 7)
 - ✓ **SYNC-09**: Error/exception output from a failed API call never includes raw response body or credential content — v1.3 (Phase 7)
 
 ### Active
 
-_(none — all v1.3 requirements validated; see Milestone Status)_
+_(none — v1.3 shipped with all requirements validated; next milestone's requirements to be defined via `/gsd-new-milestone`, drawing from the deferred v2 candidates archived in `.planning/milestones/v1.3-REQUIREMENTS.md` — DISPLAY-01/02, FACILITY-01/02)_
 
 ### Out of Scope
 
@@ -116,8 +107,8 @@ _(none — all v1.3 requirements validated; see Milestone Status)_
 - **Two-test-suite split**: `solsys_code/` Django app tests run via `./manage.py test solsys_code`; pure-Python helpers under `tests/` run via `python -m pytest`.
 - **SPICE kernel side effect**: `telescope_runs.py` avoids importing `solsys_code.ephem_utils` (triggers ~1.6 GB SPICE kernel download).
 - **Environment**: `tomtoolkit==3.0a9`/`tom_catalogs` mismatch (v1.0 blocker) resolved by PR #38 (merged 2026-06-11).
-- **Current codebase state (as of v1.2 close)**: ~4,735 LOC across `solsys_code/`; 110 tests passing under `./manage.py test solsys_code` (26 site/ephem+parser, 6 ingest, 15 sync); `ruff check .` clean repo-wide; `ruff format --check .` clean for all GSD-touched files (two pre-existing files — `src/fomo/settings.py`, `load_telescope_runs_demo.ipynb` — are flagged but untouched by any phase, tracked in `.planning/phases/04-lco-queue-sync-command/deferred-items.md`).
-- **Known technical debt**: status-aware `CalendarEvent` coloring not implemented (see Out of Scope); `[QUEUED]` de-emphasis style required a same-day contrast-regression follow-up fix (260618-lw4 → 260618-mck).
+- **Current codebase state (as of v1.3 close)**: ~6,273 LOC across `solsys_code/`+`src/`; 131 tests passing under `./manage.py test solsys_code` repo-wide, of which `test_sync_lco_observation_calendar.py` carries 36 (incl. SELECT-02..05, EXTRACT-01/02, TELESCOPE-01..04, SYNC-06..09, facility-aware SOAR fallback); `ruff check .` and `ruff format --check .` clean.
+- **Known technical debt**: status-aware `CalendarEvent` coloring not implemented (see Out of Scope, `DISPLAY-01`); a follow-up todo to extract `SITE_TELESCOPE_MAP`/instrument-extraction into their own module is deferred (`.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`); `sync_lco_observation_calendar_demo.ipynb`'s intro cell and one stale output cell still reference an earlier "Stage 3"/"FTS/MuSCAT4" framing predating Phases 5-7 (cosmetic only, noted in `v1.3-MILESTONE-AUDIT.md`).
 - **v1.2 correctness bug found against real data (drives v1.3)**: checked real `ObservationRecord` rows in this dev DB (pk=1 obs_id=3780553 PENDING, pk=2 obs_id=3781325 COMPLETED, both proposal `LTP2025A-004`). Neither has a `site` key in `parameters`, and neither has a flat `instrument_type` key — real LCO submissions use multi-configuration cadence requests (`c_1_instrument_type`..`c_5_instrument_type`, each with `c_N_ic_1..5_*` exposure settings); only the configuration(s) with a populated `exposure_time` are "meaningful" (in both records checked, only `c_1` was populated). `SITE_TELESCOPE_MAP`'s 2-entry `coj`/`ogg` dict was also `[ASSUMED]`/web-search-only, never confirmed against real data. v1.2's shipped command would silently `KeyError`/skip every real record in this database.
 - **LCO site -> MPC code reference table** (from https://lco.global/observatory/sites/mpccodes/), basis for the v1.3 verified mapping dict: ogg/Haleakala (F65,T04,T03), elp/McDonald (V37,V39,V38,V45,V47), lsc/Cerro Tololo (W85,W86,W87,W89,W79), cpt/Sutherland (K91,K92,K93,L09), coj/Siding Spring (Q58,Q59,Q63,Q64,E10), tfn/Tenerife (Z31,Z24,Z21,Z17), tlv/Wise Observatory (097), sor/SOAR Cerro Pachon (I33). A bare 3-letter site code is 1-to-many against MPC codes; the fully-qualified `siteid-enclid-telid` code (e.g. `coj-clma-2m0a` -> `E10` -> "FTS") is 1-to-1.
 
@@ -193,6 +184,14 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | Status-aware `CalendarEvent` coloring deferred rather than built alongside the narrower `[QUEUED]` de-emphasis fix | Visual-design decision (telescope/proposal-keyed hash + status opacity), not just engineering; user wanted to explore "striping" as an alternative before committing | Narrower de-emphasis fix shipped (260618-lw4/mck); fuller scheme captured as a pending todo for a future milestone |
 | `FACILITIES['SOAR']` mirrors `FACILITIES['LCO']` literally (same hardcoded `api_key`/`portal_url`), not a new env-var-backed entry | D-04/D-05: SOAR authenticates against the same LCO Observation Portal; narrower reading avoids migrating `LCO`'s existing credential handling within this phase's query/selection/dispatch scope | Implemented in Phase 05; `FACILITIES['LCO']` byte-for-byte unchanged, verified live |
 | Eager `{'LCO': LCOFacility(), 'SOAR': SOARFacility()}` dispatch dict built once per run, not lazily per record | Fixes the SELECT-05 bug (one `LCOFacility()` reused for every record); avoids per-record instantiation cost; both keys always present (D-06) | Implemented in Phase 05; proven by a discriminating spy test (SOAR spy called, LCO spy not called for a SOAR record) |
+| Sentinel `None` + `InstrumentExtractionError` contract for `_extract_instrument`, not a bare exception | Matches the file's existing "return `None` to signal non-match" style; keeps malformed-record handling consistent with the rest of the command | ✓ Good — implemented in Phase 06; dedicated `extraction_failed` counter, no regression in the 19 pre-existing tests |
+| Kept a flat `instrument_type` fallback tier beyond the `c_1`/`c_2` multi-config scan | Preserves the 19 pre-existing regression tests that exercise today's legacy single-config DB shape | ✓ Good — implemented in Phase 06 |
+| `tlv` (Wise Observatory) dropped entirely from `SITE_TELESCOPE_MAP` | Operator-confirmed at the 07-01 Task 1 checkpoint: absent from both installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()`; shipping a guessed entry was rejected | ✓ Good — implemented in Phase 07; scope corrected to the 7 real, installed-library-confirmed sites |
+| `elp`/`lsc`/`cpt`/`tfn` get both `1m0` and `0m4` aperture-class entries | Operator (LCO staff) confirmed both aperture classes exist at each of those sites — no `[ASSUMED]` tag needed | ✓ Good — implemented in Phase 07 |
+| Live-API failure/timeout AND a successfully-returned-but-unmapped `(site, telescope_code)` pair share the same `telescope_api_failed` counter and `[UNVERIFIED]` prefix | 07-RESEARCH.md Pitfall 4: both are the same user-visible degrade signal; splitting them into two differently-labeled failure classes adds complexity without operator value | ✓ Good — implemented in Phase 07 |
+| D-09: terminal-failure title prefix beats `[UNVERIFIED]`; the two are mutually exclusive | `[UNVERIFIED]` only ever applies to a placed (non-terminal) record, matching Phase 4's existing terminal-prefix-wins precedent — avoids a new combination rule | ✓ Good — implemented in Phase 07 |
+| `_coarse_telescope_label(instrument_type, facility_name)` — 2-arg signature, SOAR detected via `facility_name.upper() == 'SOAR'` (exact match, not substring) | The v1.3 milestone audit found the 1-arg version silently fell through to the raw instrument string for SOAR (`'SOAR_GHTS_REDCAM'[:3]` isn't a recognized aperture prefix); needed the call-site's facility context to special-case SOAR, not pattern-match on the instrument string | ✓ Good — implemented in Phase 07.1; SOAR unconditionally returns `'4m0'`, LCO branch byte-for-byte unchanged |
+| Call site `_build_event_fields` passes `record.facility` (the string) into `_coarse_telescope_label`, not the in-scope `LCOFacility`/`SOARFacility` instance | The function needs the facility *name* to branch on, not a credentialed facility object — passing the instance would be a type mismatch and an unnecessary credential-bearing object threaded through a pure labeling function | ✓ Good — implemented in Phase 07.1; closes the doubled-title defect (`[UNVERIFIED] SOAR_GHTS_REDCAM SOAR_GHTS_REDCAM` → `[UNVERIFIED] 4m0 SOAR_GHTS_REDCAM`) |
 
 ## Evolution
 
@@ -212,4 +211,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-24 — Phase 07.1 (SOAR fallback label gap-closure) complete; TELESCOPE-01/02/03/04 and SYNC-06/09 moved to Validated; v1.3 "Full LCO Facility Sync" milestone complete*
+*Last updated: 2026-06-24 after v1.3 milestone close — full review: SYNC-07/SYNC-08 added to Validated (all 14 v1.3 requirements now validated), Key Decisions backfilled for Phases 06/07/07.1, "Current Milestone" section retired, Context/codebase-state refreshed to v1.3-close numbers*

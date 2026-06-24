@@ -1,6 +1,7 @@
 ---
 phase: quick-260619-ml8
 plan: "01"
+status: complete
 subsystem: infra
 tags: [pre-commit, jupyter, ruff, sync-lco-observation-calendar]
 

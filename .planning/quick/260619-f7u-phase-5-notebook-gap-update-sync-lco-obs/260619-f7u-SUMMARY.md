@@ -1,6 +1,7 @@
 ---
 phase: quick-260619-f7u
 plan: 01
+status: complete
 subsystem: docs
 tags: [jupyter-notebook, sync_lco_observation_calendar, multi-proposal, multi-facility, soar, documentation]
 

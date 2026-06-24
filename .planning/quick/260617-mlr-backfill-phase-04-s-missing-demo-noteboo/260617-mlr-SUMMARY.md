@@ -1,6 +1,7 @@
 ---
 phase: quick
 plan: 260617-mlr
+status: complete
 subsystem: docs
 tags: [jupyter-notebook, django, management-command, tom_calendar, gsd-tooling]
 

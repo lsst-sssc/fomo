@@ -1,5 +1,19 @@
 # Milestones
 
+## v1.3 Full LCO Facility Sync (Shipped: 2026-06-24)
+
+**Phases completed:** 4 phases, 5 plans, 14 tasks
+
+**Key accomplishments:**
+
+- Generalized `sync_lco_observation_calendar` to accept a comma-list/ALL `--proposal` argument and dispatch LCO and SOAR `ObservationRecord`s through their own facility instance, fixing the SELECT-05 single-shared-`LCOFacility()` dispatch bug.
+- Replaced the flat `parameters['instrument_type']` read in `sync_lco_observation_calendar.py` with a `c_1..c_5` multi-config scanner that distinguishes SOAR's SPECTRUM science config from its ARC/LAMP_FLAT calibration configs and detects LCO MUSCAT's per-channel exposure shape, adding a dedicated `extraction_failed` counter for fully-malformed records.
+- Migrated SITE_TELESCOPE_MAP to a verified 7-site (site, aperture_class) dict and added `_resolve_placement_block`/`_aperture_class_from_telescope_code`/2-arg `_derive_telescope` for single-attempt, timeout-bounded, never-leaking LCO Observation Portal API resolution.
+- Replaced the flat `parameters['site']` shim with a live-API + coarse-fallback decision tree, an `[UNVERIFIED]` title prefix with D-09-resolved priority, and a per-facility `telescope_api_failed` counter -- completing Phase 7's user-visible behavior.
+- Made `_coarse_telescope_label` facility-aware so a placed SOAR record's API-failure fallback resolves to `'4m0'` instead of the raw `'SOAR_GHTS_REDCAM'` string, closing the doubled `[UNVERIFIED] SOAR_GHTS_REDCAM SOAR_GHTS_REDCAM` title defect found in the v1.3 milestone audit.
+
+---
+
 ## v1.2 LCO Queue Calendar Sync (Shipped: 2026-06-18)
 
 **Phases completed:** 1 phases, 1 plans, 3 tasks

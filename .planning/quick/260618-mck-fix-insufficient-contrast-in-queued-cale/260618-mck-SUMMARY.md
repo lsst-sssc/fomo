@@ -1,6 +1,7 @@
 ---
 phase: quick-260618-mck
 plan: 01
+status: complete
 subsystem: calendar-ui
 tags: [django-templates, tom_calendar, ui, css]
 provides:

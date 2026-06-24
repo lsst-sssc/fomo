@@ -1,6 +1,7 @@
 ---
 phase: quick-260619-jpr
 plan: 01
+status: complete
 subsystem: testing
 tags: [django, soar, lco, calendar-sync, observation-record]
 

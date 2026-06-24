@@ -5,7 +5,7 @@
 - ✅ **v1.0 Site/Ephemeris Helper** — Phase 1 (shipped 2026-06-14) — see [milestones/1.0-ROADMAP.md](milestones/1.0-ROADMAP.md)
 - ✅ **v1.1 Classical Run Ingest** — Phases 2-3 (shipped 2026-06-16) — see [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 LCO Queue Calendar Sync** — Phase 4 (shipped 2026-06-18) — see [milestones/v1.2-ROADMAP.md](milestones/v1.2-ROADMAP.md)
-- 🔄 **v1.3 Full LCO Facility Sync** — Phases 5-7 (in progress) — see [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
+- ✅ **v1.3 Full LCO Facility Sync** — Phases 5-7, 07.1 (shipped 2026-06-24) — see [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 
 ## Phases
 
@@ -31,68 +31,15 @@
 
 </details>
 
-### v1.3 Full LCO Facility Sync
+<details>
+<summary>✅ v1.3 Full LCO Facility Sync (Phases 5-7, 07.1) — SHIPPED 2026-06-24</summary>
 
-- [x] **Phase 5: Multi-Proposal & Multi-Facility Selection** - `sync_lco_observation_calendar` syncs any combination of proposals (or `ALL`) across both LCO and SOAR records, each authenticated against its own facility instance (completed 2026-06-19)
-- [x] **Phase 6: Correct Instrument-Type Extraction** - The command extracts the real instrument type from multi-configuration parameter shapes, never mistaking a calibration config for the science one (completed 2026-06-21)
-- [x] **Phase 7: Live Telescope-Label Resolution with Fallback & Failure Reporting** - Placed records get a verified site/telescope label via per-record API call, falling back to a coarse instrument-class label (with visible, counted, non-fatal degrade) when that call fails (completed 2026-06-24)
+- [x] Phase 5: Multi-Proposal & Multi-Facility Selection (1/1 plans) — completed 2026-06-19
+- [x] Phase 6: Correct Instrument-Type Extraction (1/1 plans) — completed 2026-06-21
+- [x] Phase 7: Live Telescope-Label Resolution with Fallback & Failure Reporting (2/2 plans) — completed 2026-06-24
+- [x] Phase 07.1: Close gap: TELESCOPE-03/04/SYNC-06 — SOAR fallback label is facility-unaware (INSERTED) (1/1 plans) — completed 2026-06-24
 
-## Phase Details
-
-### Phase 5: Multi-Proposal & Multi-Facility Selection
-
-**Goal**: An operator can run `sync_lco_observation_calendar` against any combination of proposals (or the whole network) across both LCO and SOAR records in one invocation, with each record authenticated against the correct facility
-**Depends on**: Phase 4 (existing single-proposal, LCO-only command)
-**Requirements**: SELECT-02, SELECT-03, SELECT-04, SELECT-05
-**Success Criteria** (what must be TRUE):
-
-  1. Running with `--proposal A,B,C` syncs `ObservationRecord`s matching any of the 3 codes, and does not match on partial/single-character substrings of those codes
-  2. Running with `--proposal ALL` syncs every LCO-family (`LCO` + `SOAR`) `ObservationRecord` regardless of its proposal code
-  3. A single run produces correct `CalendarEvent`s for both `facility='LCO'` and `facility='SOAR'` records together, without requiring two separate invocations
-  4. A SOAR record is processed using a `SOARFacility`/SOAR-credentialed instance, never a reused `LCOFacility()` instance — verified by a test asserting the per-facility instance dict dispatches by each record's own `facility` value**Plans**: 1 plan
-- [x] 05-01-PLAN.md — Generalize sync_lco_observation_calendar to multi-proposal (comma-list/ALL) + multi-facility (LCO+SOAR) per-record dispatch
-
-### Phase 6: Correct Instrument-Type Extraction
-
-**Goal**: The command always identifies the scientifically meaningful instrument configuration for a record, regardless of which LCO-family facility submitted it
-**Depends on**: Phase 5 (queryset already covers LCO + SOAR, so both shapes are exercised together)
-**Requirements**: EXTRACT-01, EXTRACT-02
-**Success Criteria** (what must be TRUE):
-
-  1. For a record with a single populated `c_N_instrument_type`/exposure-time config (today's real LCO data shape), the extracted instrument type matches that config — unchanged from today's correct cases
-  2. For a SOAR-shaped record with multiple populated configs (e.g. spectrum + arc + lamp-flat), the extracted instrument type is the science spectrum config, never the arc or lamp-flat calibration config
-  3. For an LCO MUSCAT-shaped record with per-channel (`_g`/`_r`/`_i`/`_z`) exposure keys, the extracted instrument type correctly reflects the populated channel(s) instead of returning nothing or raising
-
-**Plans**: 1/1 plans complete
-
-- [x] 06-01-PLAN.md — Replace flat-key instrument read with c_1..c_5 multi-config extraction (science vs. calibration, MUSCAT per-channel) + dedicated extraction-failure counter + tests
-
-### Phase 7: Live Telescope-Label Resolution with Fallback & Failure Reporting
-
-**Goal**: Every synced record gets a telescope label — the verified, API-resolved one when possible, a clearly-marked coarse fallback when not — and a degraded API call never aborts the run, hides its own failure, or leaks credentials
-**Depends on**: Phase 6 (fallback label is derived from the now-correct instrument type)
-**Requirements**: TELESCOPE-01, TELESCOPE-02, TELESCOPE-03, TELESCOPE-04, SYNC-06, SYNC-07, SYNC-08, SYNC-09
-**Success Criteria** (what must be TRUE):
-
-  1. For a placed (scheduled) record, the command calls the LCO API for that record's actual site/enclosure/telescope and maps the fully-qualified code through a verified static dict covering all real LCO-network sites, producing the correct telescope label
-  2. When that per-record API call fails, times out, or returns a code absent from the verified dict, the record still gets a `CalendarEvent` — labeled with a coarse instrument-class token (`1m0`/`0m4`/`2m0`) and a description noting the API lookup failed — and the run continues to the next record
-  3. The run's summary line reports a fallback/API-failure count distinct from the existing `skipped_count`, so an operator can see how many records got a degraded label without it being conflated with hard skips
-  4. The per-record API call uses an explicit timeout and makes a single attempt (no retry loop) — confirmed by a test that mocks a slow/failing response and asserts no second call is made
-  5. No logged error or exception message from a failed API call contains the raw response body or API key/credential content — confirmed by a test asserting the log output for a simulated failure is a fixed, generic message
-
-**Plans**: 2/2 plans complete
-
-> **Scope correction (Wave 1):** the 8-site inventory below (and in 07-CONTEXT.md/PROJECT.md's MPC-code table) included `tlv` (Wise Observatory), which is confirmed absent from installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()`. At the 07-01 Task 1 checkpoint, the operator (LCO staff) confirmed `tlv` should be dropped rather than shipped as a guess — `SITE_TELESCOPE_MAP` covers the 7 real, installed-library-confirmed sites (`ogg`, `elp`, `lsc`, `cpt`, `coj`, `tfn`, `sor`). See `07-01-SUMMARY.md` Deviations section for full rationale. CONTEXT.md is left as-is (historical record of the discuss-phase session); this note is the reconciled, current scope.
-
-**Wave 1**
-
-- [x] 07-01-PLAN.md — Verified 7-site SITE_TELESCOPE_MAP (tlv dropped, operator-confirmed) + live API-resolution helpers (single timeout, no-leak, never-raise) + unit tests
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 07-02-PLAN.md — Wire fallback decision tree + [UNVERIFIED] prefix + telescope_api_failed counter into the command + integration tests + demo notebook
-
-Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md) (current milestone). Completed-milestone phase detail lives in their respective `milestones/*-ROADMAP.md` files linked above.
+</details>
 
 ## Progress
 
@@ -102,24 +49,9 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
 | 2. Run Line Parsing | v1.1 | 1/1 | Complete | 2026-06-14 |
 | 3. Classical Calendar Ingest | v1.1 | 2/2 | Complete | 2026-06-16 |
 | 4. LCO Queue Sync Command | v1.2 | 1/1 | Complete | 2026-06-17 |
-| 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete    | 2026-06-19 |
-| 6. Correct Instrument-Type Extraction | v1.3 | 1/1 | Complete    | 2026-06-21 |
-| 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 2/2 | Complete   | 2026-06-24 |
+| 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete | 2026-06-19 |
+| 6. Correct Instrument-Type Extraction | v1.3 | 1/1 | Complete | 2026-06-21 |
+| 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 2/2 | Complete | 2026-06-24 |
+| 07.1. Close gap: SOAR fallback label is facility-unaware | v1.3 | 1/1 | Complete | 2026-06-24 |
 
-### Phase 07.1: Close gap: TELESCOPE-03/04/SYNC-06 — SOAR fallback label is facility-unaware (INSERTED)
-
-**Goal:** Every SOAR record that hits the coarse-label fallback path (live API failure, timeout, or unmapped code) gets a correct, facility-aware `4m0` label and a clean fallback title — not the raw SOAR instrument string duplicated — closing the gap the v1.3 milestone audit found in TELESCOPE-03/04/SYNC-06
-**Requirements**: TELESCOPE-03, TELESCOPE-04, SYNC-06
-**Depends on:** Phase 7
-**Success Criteria** (what must be TRUE):
-
-  1. `_coarse_telescope_label` (or its replacement) returns `4m0` for a SOAR record's instrument type on the fallback path, never the raw instrument string
-  2. A placed `facility='SOAR'` record whose live API call fails produces a clean `[UNVERIFIED] 4m0 <instrument>`-shaped title, not the doubled raw-instrument title the audit found (`[UNVERIFIED] SOAR_GHTS_REDCAM SOAR_GHTS_REDCAM`)
-  3. At least one test drives a placed `facility='SOAR'` record through the API-failure fallback path and asserts the corrected label/title, closing the audit's zero-coverage gap for SOAR+placed+API-failure
-  4. All pre-existing LCO-path tests continue to pass unchanged — the fix must not alter LCO fallback behavior
-
-**Plans:** 1/1 plans complete
-
-Plans:
-
-- [x] 07.1-01-PLAN.md — Facility-aware `_coarse_telescope_label` (SOAR fallback → `4m0`) + placed-SOAR API-failure fallback test + demo notebook update
+Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

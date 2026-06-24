@@ -2,18 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
-current_phase: 07.1
-status: verifying
+status: Awaiting next milestone
 stopped_at: Completed 07.1-01-PLAN.md (phase 07.1 complete, ready for verification)
-last_updated: "2026-06-24T15:27:22.455Z"
-last_activity: 2026-06-24
-last_activity_desc: Phase 07.1 complete
+last_updated: "2026-06-24T17:14:39.424Z"
+last_activity: 2026-06-24 — Milestone v1.3 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 5
   completed_plans: 5
   percent: 100
+current_phase: 07.1
 current_phase_name: close-gap-telescope-03-04-sync-06-soar-fallback-label-is-fac
 ---
 
@@ -28,12 +27,10 @@ See: .planning/PROJECT.md (updated 2026-06-19)
 
 ## Current Position
 
-Phase: 07.1
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-24 — Phase 07.1 complete
-
-Progress: [░░░░░░░░░░] 0%
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-24 — Milestone v1.3 completed and archived
 
 ## Performance Metrics
 
@@ -120,6 +117,7 @@ Items acknowledged and carried forward from previous milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | todo | 2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md | pending (deliberately deferred future work) | v1.2 close |
+| todo | 2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md | pending (deliberately deferred future work) | v1.3 close |
 
 ## Session Continuity
 
@@ -130,5 +128,4 @@ None
 
 ## Operator Next Steps
 
-- Plan 07-01 complete (TELESCOPE-01, TELESCOPE-02, SYNC-08, SYNC-09 validated). Plan 07-02 (Wave 2) is ready to execute — it wires the live-API + fallback decision tree into `Command.handle()`/`_build_event_fields`/`_title_for`, adds the `telescope_api_failed` counter, and updates the demo notebook again for the new observable behavior.
-- Note for phase completion: ROADMAP.md/CONTEXT.md's original "8 real LCO-network sites" framing should be reconciled with the operator-approved 7-site correction documented in 07-01-SUMMARY.md.
+- Start the next milestone with /gsd-new-milestone
