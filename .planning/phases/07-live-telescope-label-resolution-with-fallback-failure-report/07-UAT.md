@@ -1,23 +1,16 @@
 ---
-status: testing
+status: complete
 phase: 07-live-telescope-label-resolution-with-fallback-failure-report
 source:
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-01-SUMMARY.md
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-02-SUMMARY.md
 started: 2026-06-24T01:33:41.000Z
-updated: 2026-06-24T04:21:10.000Z
+updated: 2026-06-24T04:23:04.000Z
 ---
 
 ## Current Test
-<!-- OVERWRITE each test - shows where we are -->
 
-number: 6
-name: No credential or response-body leakage on API failure
-expected: |
-  When a live API call fails, nothing printed to the terminal/log (stderr) or written
-  into any CalendarEvent field contains the raw API response body or the `LCO_APIKEY`
-  value — only a fixed, generic failure message naming the affected `observation_id`.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -99,14 +92,18 @@ expected: |
   When a live API call fails, nothing printed to the terminal/log (stderr) or written
   into any CalendarEvent field contains the raw API response body or the `LCO_APIKEY`
   value — only a fixed, generic failure message naming the affected `observation_id`.
-result: [pending]
+result: pass
+verified: |
+  Already evidenced by Test 2's live auth-failure run: stderr showed only "Telescope
+  API lookup failed or returned an unmapped code for observation_id='4213127'; using
+  fallback label." -- no key/body content. User confirmed pass explicitly.
 
 ## Summary
 
 total: 6
-passed: 5
+passed: 6
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 
 ## Gaps
