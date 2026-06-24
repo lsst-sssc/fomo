@@ -23,13 +23,13 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **TELESCOPE-01**: A verified static site/telescope mapping dict, keyed on the fully-qualified LCO code (`siteid-enclid-telid`), covers all real LCO-network sites — replacing v1.2's 2-site `[ASSUMED]` `SITE_TELESCOPE_MAP`
 - [x] **TELESCOPE-02**: For a record with a placed (scheduled) block, the sync calls the LCO Observation Portal API for that record to resolve the actual site/enclosure/telescope, and maps it to a label via the verified dict
-- [ ] **TELESCOPE-03**: If the per-record API call fails, times out, or returns a code not in the verified dict, the sync falls back to a coarse instrument-class label (`1m0`/`0m4`/`2m0` parsed from the instrument type) instead of skipping the record
-- [ ] **TELESCOPE-04**: A fallback-labeled event is distinguishable from a verified-label event (the coarse class is visible as the telescope token; the description states the API lookup failed) — a label flip between runs is visible information, not silently hidden churn
+- [x] **TELESCOPE-03**: If the per-record API call fails, times out, or returns a code not in the verified dict, the sync falls back to a coarse instrument-class label (`1m0`/`0m4`/`2m0` parsed from the instrument type) instead of skipping the record
+- [x] **TELESCOPE-04**: A fallback-labeled event is distinguishable from a verified-label event (the coarse class is visible as the telescope token; the description states the API lookup failed) — a label flip between runs is visible information, not silently hidden churn
 
 ### Partial-Failure Handling & Reporting
 
-- [ ] **SYNC-06**: Per-record telescope-API failures are tracked as a distinct counter (e.g. fallback count) from `skipped_count`, and reported in the run's summary line
-- [ ] **SYNC-07**: A per-record API failure does not abort the run or skip the record — the record still gets a `CalendarEvent` (with the fallback label), and the rest of the batch continues to sync
+- [x] **SYNC-06**: Per-record telescope-API failures are tracked as a distinct counter (e.g. fallback count) from `skipped_count`, and reported in the run's summary line
+- [x] **SYNC-07**: A per-record API failure does not abort the run or skip the record — the record still gets a `CalendarEvent` (with the fallback label), and the rest of the batch continues to sync
 - [x] **SYNC-08**: The per-record API call uses an explicit timeout and a single attempt (no retry/backoff loop); a failure is allowed to resolve itself on the next scheduled run
 - [x] **SYNC-09**: Error/exception output from a failed API call never includes raw response body or credential content (preventing the LCO API key from leaking into logs)
 
@@ -73,10 +73,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EXTRACT-02 | Phase 6 | Complete |
 | TELESCOPE-01 | Phase 7 | Complete |
 | TELESCOPE-02 | Phase 7 | Complete |
-| TELESCOPE-03 | Phase 7 | Pending |
-| TELESCOPE-04 | Phase 7 | Pending |
-| SYNC-06 | Phase 7 | Pending |
-| SYNC-07 | Phase 7 | Pending |
+| TELESCOPE-03 | Phase 7 | Complete |
+| TELESCOPE-04 | Phase 7 | Complete |
+| SYNC-06 | Phase 7 | Complete |
+| SYNC-07 | Phase 7 | Complete |
 | SYNC-08 | Phase 7 | Complete |
 | SYNC-09 | Phase 7 | Complete |
 

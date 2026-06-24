@@ -4,9 +4,9 @@ milestone: v1.3
 milestone_name: Full LCO Facility Sync
 current_phase: 07
 current_phase_name: live-telescope-label-resolution-with-fallback-failure-report
-status: executing
-stopped_at: Completed 07-01-PLAN.md
-last_updated: "2026-06-23T05:27:53.728Z"
+status: verifying
+stopped_at: Completed 07-02-PLAN.md (phase 07 complete, ready for verification)
+last_updated: "2026-06-23T14:09:59.651Z"
 last_activity: 2026-06-23
 last_activity_desc: Phase 07 execution started
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-19)
 
 Phase: 07 (live-telescope-label-resolution-with-fallback-failure-report) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-23 — Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | 07 | TBD | - | - |
 | Phase 06 P01 | 6min | 2 tasks | 2 files |
 | Phase 07 P01 | 50min | 3 tasks | 3 files |
+| Phase 07 P02 | ~50min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: Added a flat instrument_type fallback tier beyond D-01/D-02 to keep the 19 pre-existing regression tests passing for today's legacy single-config shape
 - [Phase ?]: tlv dropped entirely from SITE_TELESCOPE_MAP (operator decision at 07-01 Task 1 checkpoint) -- confirmed absent from installed LCOSettings/SOARSettings; scope corrected to 7 real sites, not 8
 - [Phase ?]: elp/lsc/cpt/tfn aperture-class inventory confirmed by operator (LCO staff) at the same checkpoint -- both 1m0 and 0m4 entries added per site, no [ASSUMED] tag needed
+- [Phase 07]: telescope_api_failed/[UNVERIFIED] decision tree: API call failure/timeout AND a successfully-returned-but-unmapped (site, telescope_code) pair are treated as the SAME fallback bucket (Pitfall 4) -- same counter, same prefix — 07-RESEARCH.md Pitfall 4 locked this; avoids splitting one user-visible signal into two differently-labeled failure classes
+- [Phase 07]: D-09 resolved: terminal-failure prefix beats [UNVERIFIED]; [QUEUED] and [UNVERIFIED] are mutually exclusive since [UNVERIFIED] only ever applies to a placed record — Matches Phase 4's existing terminal-prefix-wins precedent; avoids a new combination rule
 
 ### Pending Todos
 
@@ -110,9 +113,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-23T05:27:53.692Z
-Stopped at: Completed 07-01-PLAN.md
-Resume file: None
+Last session: 2026-06-23T14:09:59.643Z
+Stopped at: Completed 07-02-PLAN.md (phase 07 complete, ready for verification)
+Resume file: 
 Last activity: 2026-06-21 — Phase 06 UAT complete (4/4 passed) and security audit verified (06-SECURITY.md, threats_open: 0)
 
 ## Operator Next Steps

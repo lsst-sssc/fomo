@@ -35,7 +35,7 @@
 
 - [x] **Phase 5: Multi-Proposal & Multi-Facility Selection** - `sync_lco_observation_calendar` syncs any combination of proposals (or `ALL`) across both LCO and SOAR records, each authenticated against its own facility instance (completed 2026-06-19)
 - [x] **Phase 6: Correct Instrument-Type Extraction** - The command extracts the real instrument type from multi-configuration parameter shapes, never mistaking a calibration config for the science one (completed 2026-06-21)
-- [ ] **Phase 7: Live Telescope-Label Resolution with Fallback & Failure Reporting** - Placed records get a verified site/telescope label via per-record API call, falling back to a coarse instrument-class label (with visible, counted, non-fatal degrade) when that call fails
+- [x] **Phase 7: Live Telescope-Label Resolution with Fallback & Failure Reporting** - Placed records get a verified site/telescope label via per-record API call, falling back to a coarse instrument-class label (with visible, counted, non-fatal degrade) when that call fails (completed 2026-06-24)
 
 ## Phase Details
 
@@ -80,7 +80,7 @@
   4. The per-record API call uses an explicit timeout and makes a single attempt (no retry loop) — confirmed by a test that mocks a slow/failing response and asserts no second call is made
   5. No logged error or exception message from a failed API call contains the raw response body or API key/credential content — confirmed by a test asserting the log output for a simulated failure is a fixed, generic message
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 
 > **Scope correction (Wave 1):** the 8-site inventory below (and in 07-CONTEXT.md/PROJECT.md's MPC-code table) included `tlv` (Wise Observatory), which is confirmed absent from installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()`. At the 07-01 Task 1 checkpoint, the operator (LCO staff) confirmed `tlv` should be dropped rather than shipped as a guess — `SITE_TELESCOPE_MAP` covers the 7 real, installed-library-confirmed sites (`ogg`, `elp`, `lsc`, `cpt`, `coj`, `tfn`, `sor`). See `07-01-SUMMARY.md` Deviations section for full rationale. CONTEXT.md is left as-is (historical record of the discuss-phase session); this note is the reconciled, current scope.
 
@@ -90,7 +90,7 @@
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 07-02-PLAN.md — Wire fallback decision tree + [UNVERIFIED] prefix + telescope_api_failed counter into the command + integration tests + demo notebook
+- [x] 07-02-PLAN.md — Wire fallback decision tree + [UNVERIFIED] prefix + telescope_api_failed counter into the command + integration tests + demo notebook
 
 Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md) (current milestone). Completed-milestone phase detail lives in their respective `milestones/*-ROADMAP.md` files linked above.
 
@@ -104,4 +104,4 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
 | 4. LCO Queue Sync Command | v1.2 | 1/1 | Complete | 2026-06-17 |
 | 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete    | 2026-06-19 |
 | 6. Correct Instrument-Type Extraction | v1.3 | 1/1 | Complete    | 2026-06-21 |
-| 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 1/2 | In Progress|  |
+| 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 2/2 | Complete   | 2026-06-24 |
