@@ -105,3 +105,21 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
 | 5. Multi-Proposal & Multi-Facility Selection | v1.3 | 1/1 | Complete    | 2026-06-19 |
 | 6. Correct Instrument-Type Extraction | v1.3 | 1/1 | Complete    | 2026-06-21 |
 | 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 2/2 | Complete   | 2026-06-24 |
+
+### Phase 07.1: Close gap: TELESCOPE-03/04/SYNC-06 — SOAR fallback label is facility-unaware (INSERTED)
+
+**Goal:** Every SOAR record that hits the coarse-label fallback path (live API failure, timeout, or unmapped code) gets a correct, facility-aware `4m0` label and a clean fallback title — not the raw SOAR instrument string duplicated — closing the gap the v1.3 milestone audit found in TELESCOPE-03/04/SYNC-06
+**Requirements**: TELESCOPE-03, TELESCOPE-04, SYNC-06
+**Depends on:** Phase 7
+**Success Criteria** (what must be TRUE):
+
+  1. `_coarse_telescope_label` (or its replacement) returns `4m0` for a SOAR record's instrument type on the fallback path, never the raw instrument string
+  2. A placed `facility='SOAR'` record whose live API call fails produces a clean `[UNVERIFIED] 4m0 <instrument>`-shaped title, not the doubled raw-instrument title the audit found (`[UNVERIFIED] SOAR_GHTS_REDCAM SOAR_GHTS_REDCAM`)
+  3. At least one test drives a placed `facility='SOAR'` record through the API-failure fallback path and asserts the corrected label/title, closing the audit's zero-coverage gap for SOAR+placed+API-failure
+  4. All pre-existing LCO-path tests continue to pass unchanged — the fix must not alter LCO fallback behavior
+
+**Plans:** 1 plan
+
+Plans:
+
+- [ ] 07.1-01-PLAN.md — Facility-aware `_coarse_telescope_label` (SOAR fallback → `4m0`) + placed-SOAR API-failure fallback test + demo notebook update
