@@ -90,37 +90,44 @@ def _failure_prefix(status: str, facility: LCOFacility) -> str | None:
     return _FAILURE_PREFIX_BY_STATUS.get(status, '[FAILED]')
 
 
-def _aperture_class_from_telescope_code(telescope_code: str) -> str | None:
+def _aperture_class_from_telescope_code(telescope_code: str | None) -> str | None:
     """Extract the aperture-class token (D-04 vocabulary) from a 4-char telescope code.
 
     Args:
         telescope_code: e.g. '0m4b', '1m0a', '2m0a' (from the API response's
             'telescope' key) -- a 3-char aperture-class token plus a trailing
-            dome-instance letter suffix.
+            dome-instance letter suffix. May be None if a malformed/tampered
+            API block omitted the 'telescope' key (T-07-03); routes to fallback.
 
     Returns:
         str | None: '0m4'/'1m0'/'2m0'/'4m0' (strips the trailing dome-instance
-            letter), or None if the code doesn't match the expected
-            3-char-class + 1-char-suffix shape (routes the caller to fallback
-            per TELESCOPE-03).
+            letter), or None if telescope_code is None or doesn't match the
+            expected 3-char-class + 1-char-suffix shape (routes the caller to
+            fallback per TELESCOPE-03). Never raises.
     """
+    if not telescope_code:
+        return None
     if len(telescope_code) >= 4 and telescope_code[:3] in {'0m4', '1m0', '2m0', '4m0'}:
         return telescope_code[:3]
     return None
 
 
-def _derive_telescope(site: str, telescope_code: str) -> str | None:
+def _derive_telescope(site: str | None, telescope_code: str | None) -> str | None:
     """Map a resolved (site, telescope_code) pair to a verified label via SITE_TELESCOPE_MAP.
 
     Args:
-        site: 3-letter site code from the API response (e.g. 'lsc').
-        telescope_code: 4-char telescope code from the API response (e.g. '1m0a').
+        site: 3-letter site code from the API response (e.g. 'lsc'). May be
+            None if a malformed/tampered API block omitted the 'site' key
+            (T-07-03); routes to fallback.
+        telescope_code: 4-char telescope code from the API response (e.g.
+            '1m0a'). May be None for the same reason; routes to fallback.
 
     Returns:
-        str | None: the verified label (e.g. 'LSC-1m0'), or None if the
-            (site, class) pair isn't in SITE_TELESCOPE_MAP or telescope_code's
-            aperture class couldn't be parsed -- caller falls back to the
-            coarse instrument-class label (TELESCOPE-03). Never raises.
+        str | None: the verified label (e.g. 'LSC-1m0'), or None if either
+            site or telescope_code is None, the (site, class) pair isn't in
+            SITE_TELESCOPE_MAP, or telescope_code's aperture class couldn't be
+            parsed -- caller falls back to the coarse instrument-class label
+            (TELESCOPE-03). Never raises.
     """
     aperture_class = _aperture_class_from_telescope_code(telescope_code)
     if aperture_class is None:
@@ -397,7 +404,11 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
         label_was_fallback = False
     else:
         block = _resolve_placement_block(record.observation_id, facility)
-        resolved = _derive_telescope(block['site'], block['telescope']) if block is not None else None
+        # T-07-03: a malformed/tampered API block validates 'state' upstream but never
+        # 'site'/'telescope' -- read via .get() so a missing key yields None and routes
+        # to the same coarse-fallback bucket as an unmapped pair, instead of raising
+        # KeyError into the generic except clause one layer up in handle().
+        resolved = _derive_telescope(block.get('site'), block.get('telescope')) if block is not None else None
         if resolved is None:
             # Pitfall 4: an API call failure/timeout (block is None) and a
             # successfully-returned but unmapped (site, telescope_code) pair
