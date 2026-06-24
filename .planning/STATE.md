@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
 status: Awaiting next milestone
-stopped_at: Completed 07.1-01-PLAN.md (phase 07.1 complete, ready for verification)
+stopped_at: v1.3 milestone closed and archived
 last_updated: "2026-06-24T17:14:39.424Z"
 last_activity: 2026-06-24 — Milestone v1.3 completed and archived
 progress:
@@ -12,18 +12,18 @@ progress:
   total_plans: 5
   completed_plans: 5
   percent: 100
-current_phase: 07.1
-current_phase_name: close-gap-telescope-03-04-sync-06-soar-fallback-label-is-fac
+current_phase: null
+current_phase_name: null
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-19)
+See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close)
 
-**Core value:** Generalize `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals, fixing the parameter-shape bugs found in v1.2 against real data.
-**Current focus:** Phase 07.1 — close-gap-telescope-03-04-sync-06-soar-fallback-label-is-fac
+**Core value:** v1.3 shipped — generalized `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals. Next milestone's core value not yet defined.
+**Current focus:** Planning next milestone (`/gsd-new-milestone`)
 
 ## Current Position
 
@@ -61,18 +61,7 @@ Last activity: 2026-06-24 — Milestone v1.3 completed and archived
 
 ### Decisions
 
-All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecting v1.3:
-
-- Phase ordering follows research's dependency chain: query generalization (Phase 5, pure/zero-I/O) before instrument extraction (Phase 6, fallback label needs correct instrument data) before telescope-label API+fallback (Phase 7, highest-risk new I/O).
-- SYNC-06..09 (partial-failure counters/reporting) folded into Phase 7 rather than a standalone phase — that's the only phase introducing the new API-failure axis they report on.
-- [Phase ?]: Sentinel None + InstrumentExtractionError contract chosen over a bare exception, matching the file's existing 'return None to signal non-match' style
-- [Phase ?]: Added a flat instrument_type fallback tier beyond D-01/D-02 to keep the 19 pre-existing regression tests passing for today's legacy single-config shape
-- [Phase ?]: tlv dropped entirely from SITE_TELESCOPE_MAP (operator decision at 07-01 Task 1 checkpoint) -- confirmed absent from installed LCOSettings/SOARSettings; scope corrected to 7 real sites, not 8
-- [Phase ?]: elp/lsc/cpt/tfn aperture-class inventory confirmed by operator (LCO staff) at the same checkpoint -- both 1m0 and 0m4 entries added per site, no [ASSUMED] tag needed
-- [Phase 07]: telescope_api_failed/[UNVERIFIED] decision tree: API call failure/timeout AND a successfully-returned-but-unmapped (site, telescope_code) pair are treated as the SAME fallback bucket (Pitfall 4) -- same counter, same prefix — 07-RESEARCH.md Pitfall 4 locked this; avoids splitting one user-visible signal into two differently-labeled failure classes
-- [Phase 07]: D-09 resolved: terminal-failure prefix beats [UNVERIFIED]; [QUEUED] and [UNVERIFIED] are mutually exclusive since [UNVERIFIED] only ever applies to a placed record — Matches Phase 4's existing terminal-prefix-wins precedent; avoids a new combination rule
-- [Phase ?]: Final _coarse_telescope_label signature: (instrument_type: str, facility_name: str) -> str; SOAR-detection predicate: facility_name.upper() == 'SOAR' (exact case-insensitive match, not substring)
-- [Phase ?]: Call site _build_event_fields passes record.facility (the string), not the facility parameter (an LCOFacility instance), to _coarse_telescope_label
+All v1.3 decisions logged in PROJECT.md's Key Decisions table (Phases 5-07.1 entries, backfilled at milestone close). Cleared here now that v1.3 is shipped — see PROJECT.md for the durable record.
 
 ### Pending Todos
 
@@ -81,9 +70,7 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Blockers/Concerns
 
-- Research gap (Phase 7): exact JSON key names in `/api/requests/<id>/observations/` block responses are inferred by analogy, not confirmed against a live response — confirm against a real `observation_id` before finalizing parsing.
-- Research gap (Phase 7): whether `FACILITIES['SOAR']` needs an explicit settings.py entry vs. relying on `SOARSettings` defaults — decide during Phase 5 planning.
-- ~~Research gap (Phase 7): `tlv` (Wise Observatory) appears in the webpage-sourced 8-site table but not confirmed in installed `LCOSettings.get_sites()`/`SOARSettings.get_sites()` — verify before shipping the static mapping dict.~~ Resolved at the 07-01 Task 1 checkpoint: `tlv` dropped entirely (confirmed absent from both installed `get_sites()` implementations); verified dict covers the 7 real sites instead of 8. See 07-01-SUMMARY.md.
+None open. All three Phase 7 research gaps (JSON key names in the observations API response, `FACILITIES['SOAR']` settings entry, `tlv` site-table discrepancy) were resolved during Phase 5/7 implementation and verified live — see PROJECT.md Key Decisions and `07-01-SUMMARY.md`/`07-02-SUMMARY.md` for details.
 
 ### Quick Tasks Completed
 
