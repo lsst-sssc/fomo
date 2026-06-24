@@ -5,18 +5,18 @@ source:
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-01-SUMMARY.md
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-02-SUMMARY.md
 started: 2026-06-24T01:33:41.000Z
-updated: 2026-06-24T04:19:14.000Z
+updated: 2026-06-24T04:21:10.000Z
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 5
-name: A per-record API failure never aborts the run
+number: 6
+name: No credential or response-body leakage on API failure
 expected: |
-  If one record's live API call fails (timeout, error, or malformed response), the
-  command does not crash or stop early — every subsequent record in the same run is still
-  processed and synced (with its own success/fallback outcome).
+  When a live API call fails, nothing printed to the terminal/log (stderr) or written
+  into any CalendarEvent field contains the raw API response body or the `LCO_APIKEY`
+  value — only a fixed, generic failure message naming the affected `observation_id`.
 awaiting: user response
 
 ## Tests
@@ -92,7 +92,7 @@ expected: |
   If one record's live API call fails (timeout, error, or malformed response), the
   command does not crash or stop early — every subsequent record in the same run is still
   processed and synced (with its own success/fallback outcome).
-result: [pending]
+result: pass
 
 ### 6. No credential or response-body leakage on API failure
 expected: |
@@ -104,9 +104,9 @@ result: [pending]
 ## Summary
 
 total: 6
-passed: 4
+passed: 5
 issues: 0
-pending: 2
+pending: 1
 skipped: 0
 
 ## Gaps
