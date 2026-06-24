@@ -779,6 +779,42 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertEqual(event.telescope, '1m0')
         self.assertIn('skipped: 0', stdout_buf.getvalue())
 
+    def test_telescope_03_soar_api_failure_fallback_returns_4m0_label(self):
+        """TELESCOPE-03/04/SYNC-06: a placed SOAR record whose API call times out gets the
+        coarse '4m0' fallback label (not the raw 'SOAR_GHTS_REDCAM' instrument string), a
+        clean '[UNVERIFIED] 4m0 ...' title (not the doubled raw-instrument title), and is
+        still counted as a degrade (skipped: 0) -- closes the v1.3 milestone-audit
+        zero-coverage gap for SOAR+placed+API-failure."""
+        self._create_record(
+            '800201',
+            proposal='SOARFALLBACKCODE',
+            scheduled_start=datetime(2026, 7, 17, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 17, 2, 0, 0, tzinfo=dt_timezone.utc),
+            facility='SOAR',
+            site='sor',
+            instrument_type='SOAR_GHTS_REDCAM',
+        )
+
+        stdout_buf = io.StringIO()
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=requests.exceptions.Timeout,
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'SOARFALLBACKCODE',
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.telescope, '4m0')
+        self.assertTrue(event.title.startswith('[UNVERIFIED] 4m0 '))
+        self.assertNotIn('SOAR_GHTS_REDCAM SOAR_GHTS_REDCAM', event.title)
+        self.assertIn('skipped: 0', stdout_buf.getvalue())
+
     def test_telescope_04_fallback_label_visibly_distinguishable(self):
         """TELESCOPE-04: a fallback event has an [UNVERIFIED] title, coarse telescope token,
         and a description failure note; a subsequent successful run flips the label
