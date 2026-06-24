@@ -118,8 +118,8 @@ Full detail also lives in [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.m
   3. At least one test drives a placed `facility='SOAR'` record through the API-failure fallback path and asserts the corrected label/title, closing the audit's zero-coverage gap for SOAR+placed+API-failure
   4. All pre-existing LCO-path tests continue to pass unchanged — the fix must not alter LCO fallback behavior
 
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 
-- [ ] 07.1-01-PLAN.md — Facility-aware `_coarse_telescope_label` (SOAR fallback → `4m0`) + placed-SOAR API-failure fallback test + demo notebook update
+- [x] 07.1-01-PLAN.md — Facility-aware `_coarse_telescope_label` (SOAR fallback → `4m0`) + placed-SOAR API-failure fallback test + demo notebook update

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Full LCO Facility Sync
-current_phase: 07
-current_phase_name: live-telescope-label-resolution-with-fallback-failure-report
-status: executing
-stopped_at: Completed 07-02-PLAN.md (phase 07 complete, ready for verification)
-last_updated: "2026-06-24T14:10:45.854Z"
-last_activity: 2026-06-23
-last_activity_desc: Phase 07 execution started
+current_phase: 07.1
+current_phase_name: close-gap-telescope-03-04-sync-06-soar-fallback-label-is-fac
+status: verifying
+stopped_at: Completed 07.1-01-PLAN.md (phase 07.1 complete, ready for verification)
+last_updated: "2026-06-24T14:34:31.333Z"
+last_activity: 2026-06-24
+last_activity_desc: Phase 07.1 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 4
-  completed_plans: 4
-  percent: 75
+  completed_phases: 4
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-19)
 
 **Core value:** Generalize `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals, fixing the parameter-shape bugs found in v1.2 against real data.
-**Current focus:** Phase 07 — live-telescope-label-resolution-with-fallback-failure-report
+**Current focus:** Phase 07.1 — close-gap-telescope-03-04-sync-06-soar-fallback-label-is-fac
 
 ## Current Position
 
-Phase: 07 (live-telescope-label-resolution-with-fallback-failure-report) — EXECUTING
-Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-06-23 — Phase 07 execution started
+Phase: 07.1 (close-gap-telescope-03-04-sync-06-soar-fallback-label-is-fac) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-06-24 — Phase 07.1 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P01 | 6min | 2 tasks | 2 files |
 | Phase 07 P01 | 50min | 3 tasks | 3 files |
 | Phase 07 P02 | ~50min | 3 tasks | 3 files |
+| Phase 07.1 P01 | 25min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ All decisions logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: elp/lsc/cpt/tfn aperture-class inventory confirmed by operator (LCO staff) at the same checkpoint -- both 1m0 and 0m4 entries added per site, no [ASSUMED] tag needed
 - [Phase 07]: telescope_api_failed/[UNVERIFIED] decision tree: API call failure/timeout AND a successfully-returned-but-unmapped (site, telescope_code) pair are treated as the SAME fallback bucket (Pitfall 4) -- same counter, same prefix — 07-RESEARCH.md Pitfall 4 locked this; avoids splitting one user-visible signal into two differently-labeled failure classes
 - [Phase 07]: D-09 resolved: terminal-failure prefix beats [UNVERIFIED]; [QUEUED] and [UNVERIFIED] are mutually exclusive since [UNVERIFIED] only ever applies to a placed record — Matches Phase 4's existing terminal-prefix-wins precedent; avoids a new combination rule
+- [Phase ?]: Final _coarse_telescope_label signature: (instrument_type: str, facility_name: str) -> str; SOAR-detection predicate: facility_name.upper() == 'SOAR' (exact case-insensitive match, not substring)
+- [Phase ?]: Call site _build_event_fields passes record.facility (the string), not the facility parameter (an LCOFacility instance), to _coarse_telescope_label
 
 ### Pending Todos
 
@@ -119,10 +122,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-23T14:09:59.643Z
-Stopped at: Completed 07-02-PLAN.md (phase 07 complete, ready for verification)
+Last session: 2026-06-24T14:34:31.323Z
+Stopped at: Completed 07.1-01-PLAN.md (phase 07.1 complete, ready for verification)
 Resume file: 
-Last activity: 2026-06-21 — Phase 06 UAT complete (4/4 passed) and security audit verified (06-SECURITY.md, threats_open: 0)
+None
 
 ## Operator Next Steps
 
