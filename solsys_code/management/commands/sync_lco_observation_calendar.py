@@ -271,26 +271,38 @@ def _extract_instrument(parameters: dict[str, Any]) -> str | None:
     return parameters.get('instrument_type')
 
 
-def _coarse_telescope_label(instrument_type: str) -> str:
-    """Derive the coarse aperture-class fallback label from a Phase-6 instrument_type string.
+def _coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
+    """Derive the coarse aperture-class fallback label from instrument_type and facility.
 
-    LCO/SOAR instrument type codes are prefixed with the aperture class token
-    (e.g. '1M0-SCICAM-SINISTRO', '0M4-SCICAM-SBIG', '2M0-SPECTRAL-AG' -- confirmed
+    LCO instrument type codes are prefixed with the aperture class token (e.g.
+    '1M0-SCICAM-SINISTRO', '0M4-SCICAM-SBIG', '2M0-SPECTRAL-AG' -- confirmed
     lco.py:792), mirroring the installed library's own
     `self._get_instruments()[instrument_type]['class']` convention of treating
-    instrument type as implying aperture class.
+    instrument type as implying aperture class. SOAR instrument type codes (e.g.
+    'SOAR_GHTS_REDCAM') do NOT follow this prefix convention, so they never match
+    and previously fell through to the raw, non-coarse string -- closing the
+    v1.3 milestone-audit gap (TELESCOPE-03/TELESCOPE-04/SYNC-06): SOAR has exactly
+    one site and one aperture class per the single `('sor', '4m0')` entry in
+    SITE_TELESCOPE_MAP, so any SOAR record's fallback label is unconditionally
+    '4m0', regardless of its raw instrument_type string.
 
     Args:
         instrument_type: the record's extracted instrument_type (D-04 fallback
-            vocabulary source, e.g. '1M0-SCICAM-SINISTRO').
+            vocabulary source, e.g. '1M0-SCICAM-SINISTRO', 'SOAR_GHTS_REDCAM').
+        facility_name: the record's facility string (`record.facility`, e.g.
+            'LCO'/'SOAR') -- NOT an LCOFacility/SOARFacility instance.
 
     Returns:
-        str: '0m4'/'1m0'/'2m0' (case-normalized, D-04 vocabulary) if instrument_type
-            has a recognized leading aperture-class prefix; otherwise the raw
-            instrument_type string itself, so the fallback label is never empty and
-            this never raises. This only affects the coarse label's text -- it never
-            decides whether a record syncs (TELESCOPE-03).
+        str: '4m0' unconditionally if facility_name is SOAR (case-insensitive);
+            otherwise '0m4'/'1m0'/'2m0' (case-normalized, D-04 vocabulary) if
+            instrument_type has a recognized leading aperture-class prefix, or the
+            raw instrument_type string itself if it doesn't -- so the fallback
+            label is never empty and this never raises. This only affects the
+            coarse label's text -- it never decides whether a record syncs
+            (TELESCOPE-03).
     """
+    if facility_name.upper() == 'SOAR':
+        return '4m0'
     if len(instrument_type) >= 3:
         candidate = instrument_type[:3].lower()
         if candidate in {'0m4', '1m0', '2m0', '4m0'}:
@@ -405,7 +417,7 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
             f'No recognized configuration_type or exposure signal found in observation_id='
             f'{record.observation_id!r} parameters'
         )
-    coarse = _coarse_telescope_label(instrument)
+    coarse = _coarse_telescope_label(instrument, record.facility)
 
     if record.scheduled_start is None:
         # D-01: banner stage -- no API call attempted; D-02/D-07: never counted as a
