@@ -1,10 +1,11 @@
 ---
 phase: 7
 slug: live-telescope-label-resolution-with-fallback-failure-report
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-21
+updated: 2026-06-24
 ---
 
 # Phase 7 — Validation Strategy
@@ -40,43 +41,56 @@ created: 2026-06-21
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | TELESCOPE-01 | — | Verified dict covers all 8 sites with correct (site, class) → label mapping | unit | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_telescope_01_verified_dict_covers_all_sites` (new) | ❌ Wave 0 | ⬜ pending |
-| TBD | TBD | TBD | TELESCOPE-02 | — | Placed record + successful mocked API response resolves to verified label | integration (mocked HTTP) | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_telescope_02_placed_record_resolves_via_api` (new) | ❌ Wave 0 | ⬜ pending |
-| TBD | TBD | TBD | TELESCOPE-03 | — | Placed record + mocked API failure/timeout/unmapped code falls back to coarse label, record still synced | integration (mocked HTTP) | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_telescope_03_api_failure_falls_back_not_skipped` (new) | ❌ Wave 0 | ⬜ pending |
-| TBD | TBD | TBD | TELESCOPE-04 | — | Fallback event has coarse telescope token + description failure note + `[UNVERIFIED]` prefix; re-run with success flips label visibly | unit + integration | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_telescope_04_fallback_label_visibly_distinguishable` (new) | ❌ Wave 0 | ⬜ pending |
-| TBD | TBD | TBD | SYNC-06 | — | `telescope_api_failed` counter increments only for placed+failed records, reported in summary, distinct from `skipped` | integration | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_sync_06_fallback_counter_distinct_from_skipped` (new) | ❌ Wave 0 | ⬜ pending |
-| TBD | TBD | TBD | SYNC-07 | — | A per-record API failure does not abort the run; subsequent records still process | integration | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_sync_07_api_failure_does_not_abort_run` (new) | ❌ Wave 0 | ⬜ pending |
-| TBD | TBD | TBD | SYNC-08 | T-7-01 | Mocked slow/failing response — assert no second call attempted (single-attempt, no retry) | unit (mocked HTTP, call-count assertion) | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_sync_08_single_attempt_no_retry` (new) | ❌ Wave 0 | ⬜ pending |
-| TBD | TBD | TBD | SYNC-09 | T-7-02 | Mocked failure whose exception embeds fake response content/API key — assert logged output is the fixed generic message, never the raw content/key | unit (mocked HTTP, log-content assertion) | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar.TestSyncLcoObservationCalendar.test_sync_09_no_credential_or_body_leak_in_logs` (new) | ❌ Wave 0 | ⬜ pending |
+| 07-01 T2/T3 | 07-01 | 1 | TELESCOPE-01 | T-07-01/02 | Verified dict covers all 7 real sites (tlv dropped, operator-confirmed) with correct (site, class) → label mapping | unit | `test_telescope_01_verified_dict_covers_all_sites`, `test_telescope_01_aperture_class_from_telescope_code` | ✅ | ✅ green |
+| 07-02 T1/T2 | 07-02 | 2 | TELESCOPE-02 | — | Placed record + successful mocked API response resolves to verified label | integration (mocked HTTP) | `test_telescope_02_placed_record_resolves_via_api` | ✅ | ✅ green |
+| 07-02 T1/T2 | 07-02 | 2 | TELESCOPE-03 | T-07-03 | Placed record + mocked API failure/timeout/unmapped code falls back to coarse label, record still synced; malformed block missing site/telescope also falls back, not skipped | integration (mocked HTTP) | `test_telescope_03_api_failure_falls_back_not_skipped`, `test_telescope_03_block_missing_site_or_telescope_falls_back_not_skipped` (added by quick task 260623-ocs closing T-07-03) | ✅ | ✅ green |
+| 07-02 T1/T2 | 07-02 | 2 | TELESCOPE-04 | T-07-04/05 | Fallback event has coarse telescope token + description failure note + `[UNVERIFIED]` prefix; re-run with success flips label visibly | unit + integration | `test_telescope_04_fallback_label_visibly_distinguishable` | ✅ | ✅ green |
+| 07-02 T1/T2 | 07-02 | 2 | SYNC-06 | — | `telescope_api_failed` counter increments only for placed+failed records, reported in summary, distinct from `skipped` | integration | `test_sync_06_fallback_counter_distinct_from_skipped` | ✅ | ✅ green |
+| 07-02 T1/T2 | 07-02 | 2 | SYNC-07 | T-07-06 | A per-record API failure does not abort the run; subsequent records still process | integration | `test_sync_07_api_failure_does_not_abort_run` | ✅ | ✅ green |
+| 07-01 T2/T3 | 07-01 | 1 | SYNC-08 | T-07-02 | Mocked slow/failing response — assert no second call attempted (single-attempt, no retry) | unit (mocked HTTP, call-count assertion) | `test_sync_08_single_attempt_no_retry` | ✅ | ✅ green |
+| 07-01/07-02 | both | 1+2 | SYNC-09 | T-07-01/04 | Mocked failure whose exception embeds fake response content/API key — assert logged output is the fixed generic message, never the raw content/key | unit (mocked HTTP, log-content assertion) | `test_sync_09_no_credential_or_body_leak_in_logs`, `test_sync_09_log_line_is_fixed_generic_message` | ✅ | ✅ green |
+| (D-01 supplemental) | 07-02 | 2 | TELESCOPE-02/03 (D-01) | — | Banner-stage (unscheduled) record gets coarse fallback with NO API call and no `[UNVERIFIED]` prefix | integration | `test_d01_banner_record_no_api_call_no_unverified_prefix` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+**Verified 2026-06-24:** `python manage.py test solsys_code.tests.test_sync_lco_observation_calendar` — 34/34 tests pass. All 8 originally-planned test methods exist (3 added beyond the original Wave 0 plan: `test_telescope_01_aperture_class_from_telescope_code`, `test_d01_banner_record_no_api_call_no_unverified_prefix`, and `test_telescope_03_block_missing_site_or_telescope_falls_back_not_skipped` — the last closing the T-07-03 security gap found during `/gsd-secure-phase 7` and fixed via quick task `260623-ocs`). No gaps found — Nyquist auditor was not needed.
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `solsys_code/tests/test_sync_lco_observation_calendar.py` — add the 8 new test methods listed in the Per-Task Verification Map above; the existing 19 tests cover Phases 4-6 only and must keep passing unmodified
-- [ ] Shared mock-response-builder helper for "successful block", "failed/timeout", and "unmapped code" response shapes (extends the existing `_parameters()`/`_create_record()` fixture pattern already used in this test file)
-- [ ] Timeout-specific test double: `requests.exceptions.Timeout` raised via `side_effect` on the mocked call, to drive the SYNC-08 "single attempt" assertion (`mock.assert_called_once()`)
-- [ ] Decide and document the exact mock patch target (`tom_observations.facilities.ocs.make_request` vs. `requests.request`/`requests.get` at the lowest level the new resolver function calls) once its signature is finalized
+- [x] `solsys_code/tests/test_sync_lco_observation_calendar.py` — all 8 planned test methods added (plus 3 supplemental), 19 pre-existing tests still pass unmodified
+- [x] Shared mock-response-builder helper (`_observations_block_response()`) for "successful block" shapes; "failed/timeout" and "unmapped code"/"missing key" shapes built inline per-test with `MagicMock`/`side_effect`
+- [x] Timeout-specific test double: `requests.exceptions.Timeout` via `side_effect`, driving `test_sync_08_single_attempt_no_retry`'s `assert_called_once()`
+- [x] Mock patch target resolved: `solsys_code.management.commands.sync_lco_observation_calendar.make_request` (import-site patching, matching the file's existing convention)
 
 ---
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Per-site aperture-class assignment for `tlv`, `elp`, `lsc`, `cpt`, `tfn` in the verified `SITE_TELESCOPE_MAP` is factually correct | TELESCOPE-01 | No installed-library default or repo-local data confirms the real aperture-class inventory per site (RESEARCH.md Open Questions #1-2); requires checking LCO's public telescope-specs documentation or a live authenticated API response | Cross-check each site's class assignment against LCO's current site/telescope documentation (or a live `/api/instruments/` response) before treating the dict as final; mark unconfirmed entries `[ASSUMED]` in code comments until verified |
+None remaining. The original entry (per-site aperture-class assignment for `tlv`/`elp`/`lsc`/`cpt`/`tfn`) was resolved during Plan 07-01's Task 1 human-verify checkpoint: `tlv` was dropped entirely (confirmed absent from installed `LCOSettings`/`SOARSettings`, not merely unverified), and `elp`/`lsc`/`cpt`/`tfn` were confirmed by the operator (Tim Lister, LCO staff) as standard 1m-network sites — see `07-01-SUMMARY.md` "Deviations from Plan" for the full decision record. No `[ASSUMED]` entries remain in `SITE_TELESCOPE_MAP`.
 
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-06-24 — 34/34 tests green, no gaps found.
+
+---
+
+## Validation Audit 2026-06-24
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 (none needed) |
+| Escalated | 0 |
+
+All 8 originally-planned Nyquist test requirements are COVERED by passing tests, plus 3 supplemental tests added during execution (D-01 banner-record behavior, aperture-class parsing unit test, and the T-07-03 security-gap regression test from quick task `260623-ocs`). Full suite (`./manage.py test solsys_code.tests.test_sync_lco_observation_calendar`) verified green: 34/34 tests pass. No auditor dispatch was needed — gap analysis found zero MISSING/PARTIAL requirements.
