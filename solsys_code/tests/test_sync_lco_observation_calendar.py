@@ -678,6 +678,18 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertIsNone(_aperture_class_from_telescope_code('xx'))
         self.assertIsNone(_aperture_class_from_telescope_code('foo9'))
 
+    def test_telescope_01_coj_ogg_full_aperture_class_coverage(self):
+        """TELESCOPE-01: coj/ogg's full aperture-class inventory resolves to verified labels.
+
+        Regression for the Phase 7 UAT Test 1 gap (07-UAT.md Gaps section): a real placed
+        record (observation_id=4213127) resolved via the live LCO API to
+        site='coj', telescope='1m0a' (aperture class '1m0'), but SITE_TELESCOPE_MAP had no
+        ('coj', '1m0') entry, so it fell back to the [UNVERIFIED] label instead of COJ-1m0.
+        """
+        self.assertEqual(_derive_telescope('coj', '1m0a'), 'COJ-1m0')
+        self.assertEqual(_derive_telescope('coj', '0m4a'), 'COJ-0m4')
+        self.assertEqual(_derive_telescope('ogg', '0m4b'), 'OGG-0m4')
+
     def test_telescope_02_placed_record_resolves_via_api(self):
         """TELESCOPE-02: a successful mocked API response resolves to the verified label."""
         mock_facility = MagicMock()
