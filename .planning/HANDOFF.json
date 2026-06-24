@@ -1,49 +1,58 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-19T06:06:49.356Z",
-  "phase": "05",
-  "phase_name": "multi-proposal-multi-facility-selection",
-  "phase_dir": ".planning/phases/05-multi-proposal-multi-facility-selection",
+  "timestamp": "2026-06-24T21:26:17.374Z",
+  "phase": null,
+  "phase_name": null,
+  "phase_dir": null,
   "plan": null,
   "task": null,
   "total_tasks": null,
   "status": "paused",
+  "context": "milestone-setup",
+  "workflow": "/gsd:new-milestone",
+  "milestone": "v1.4",
+  "milestone_name": "Calendar Visual Clarity",
   "completed_tasks": [
-    {"id": 1, "name": "Activate Serena / load GSD plan-phase workflow + required reading", "status": "done"},
-    {"id": 2, "name": "Run init.plan-phase 5 and diagnose roadmap.get-phase failure", "status": "done"},
-    {"id": 3, "name": "Fix ROADMAP.md missing ### Phase 5/6/7 detail sections (bug, not scope creep)", "status": "done", "commit": "ed182c0"},
-    {"id": 4, "name": "Re-verify init.plan-phase 5 resolves cleanly (phase_req_ids, MVP_MODE=false)", "status": "done"},
-    {"id": 5, "name": "Load and read 05-CONTEXT.md (fully decided, D-01..D-08)", "status": "done"},
-    {"id": 6, "name": "AI-SPEC gate check (skipped — no AI keywords in phase)", "status": "done"},
-    {"id": 7, "name": "Research decision gate — asked user, recommended Skip research", "status": "in_progress", "progress": "Question was asked via AskUserQuestion but the user's reply was 'almost out of tokens, save checkpoint here' instead of an actual answer to the research question. The research question itself is UNANSWERED."}
+    {"id": 1, "name": "Gather milestone goals via questioning (DISPLAY-01 proposal-keyed color, DISPLAY-02 fallback-label field)", "status": "done"},
+    {"id": 2, "name": "Determine version v1.4 'Calendar Visual Clarity', confirm milestone summary", "status": "done"},
+    {"id": 3, "name": "Update PROJECT.md (Current Milestone section, Active requirements, footer)", "status": "done", "commit": "d42c136"},
+    {"id": 4, "name": "Reset STATE.md via gsd_run state.milestone-switch", "status": "done", "commit": "d42c136"},
+    {"id": 5, "name": "Archive v1.0-v1.3 phase directories to .planning/phases-archive/", "status": "done", "commit": "83b3727"},
+    {"id": 6, "name": "Run 4 parallel project-research agents (Stack/Features/Architecture/Pitfalls) for DISPLAY-01/02", "status": "done", "commit": "6fa75d5"},
+    {"id": 7, "name": "Synthesize research into SUMMARY.md", "status": "done", "commit": "5ac5879"},
+    {"id": 8, "name": "Resolve 3 research-flagged scope gaps via AskUserQuestion", "status": "done", "progress": "N+1 mitigation: accept as-is this milestone (no batching tag). Timed events: get proposal coloring too (both all-day and timed branches). Empty proposal: dedicated neutral palette slot, not raw hash of empty string."},
+    {"id": 9, "name": "Step 9: Define Requirements — present DISPLAY-01/02 scoping question", "status": "in_progress", "progress": "AskUserQuestion was presented (proposed REQUIREMENTS.md categories: DISPLAY-02 sidecar field, DISPLAY-01 color, DISPLAY-01 status treatment) but the user rejected the tool call to clarify something first, then said 'suspend in this terminal, will pick up in a new one' instead of clarifying. The clarification itself is UNKNOWN — never captured."}
   ],
   "remaining_tasks": [
-    {"id": 8, "name": "Re-ask or resolve the research-skip-vs-research-first decision (step 5.1 of plan-phase.md)", "status": "not_started"},
-    {"id": 9, "name": "If skip: proceed to step 6 (check existing plans, none exist) then step 7 (load context paths)", "status": "not_started"},
-    {"id": 10, "name": "Step 5.5/5.55/5.6/5.7 gates (Nyquist validation strategy, security threat model, UI gate, schema-push gate) — none of these are expected to fire for this phase (pure backend management-command change, no UI, no schema files) but must still be walked through", "status": "not_started"},
-    {"id": 11, "name": "Step 7.8 — spawn gsd-pattern-mapper (optional, config workflow.pattern_mapper not yet checked)", "status": "not_started"},
-    {"id": 12, "name": "Step 8 — spawn gsd-planner Agent with phase_req_ids SELECT-02,03,04,05 and full planning_context block", "status": "not_started"},
-    {"id": 13, "name": "Step 10 — spawn gsd-plan-checker Agent", "status": "not_started"},
-    {"id": 14, "name": "Step 12 — revision loop if checker finds issues (max 3 iterations)", "status": "not_started"},
-    {"id": 15, "name": "Step 13/13a — Requirements Coverage Gate and Decision Coverage Gate", "status": "not_started"},
-    {"id": 16, "name": "Step 13b/13c/13d — record planning completion in STATE.md, annotate ROADMAP wave deps, commit PLAN.md files", "status": "not_started"},
-    {"id": 17, "name": "Present final status / Next Up block", "status": "not_started"}
+    {"id": 10, "name": "Ask user what they wanted to clarify about the DISPLAY-01/02 requirements-scoping question before re-presenting it", "status": "not_started"},
+    {"id": 11, "name": "Write REQUIREMENTS.md (REQ-IDs under DISPLAY category) per template, present full list for confirmation", "status": "not_started"},
+    {"id": 12, "name": "Commit REQUIREMENTS.md", "status": "not_started"},
+    {"id": 13, "name": "Spawn gsd-roadmapper for v1.4 (phase order per research: DISPLAY-02 first, DISPLAY-01 second; continue phase numbering from v1.3's last phase, i.e. start at Phase 8 since v1.0-v1.3 used phases 1-7.1 — no --reset-phase-numbers flag was passed)", "status": "not_started"},
+    {"id": 14, "name": "Present roadmap for approval, commit ROADMAP.md/STATE.md/REQUIREMENTS.md", "status": "not_started"},
+    {"id": 15, "name": "Step 10.5: scan/link pending todos to new roadmap phases", "status": "not_started"},
+    {"id": 16, "name": "Step 11: Done — present Next Up block pointing to /gsd:discuss-phase or /gsd:plan-phase for the first new phase", "status": "not_started"}
   ],
-  "blockers": [
-    {"description": "Node v14 is the default `node` on PATH; gsd-tools.cjs requires Node 20 (uses `||=` syntax) and throws SyntaxError under v14.", "type": "technical", "workaround": "Run `source ~/.nvm/nvm.sh && nvm use 20` before every gsd-tools.cjs invocation in this session/shell."},
-    {"description": "`gsd_run query commit ...` (the gsd-tools.cjs wrapper around git commit + pre-commit) silently failed/truncated mid pre-commit hook output (stopped right after 'Run unit tests....' with no Passed/Failed) on two attempts, even with a 540s Bash timeout.", "type": "technical", "workaround": "Ran `pre-commit run --files <path>` directly first to confirm hooks actually pass (12s, all green including unit tests), then committed with a plain `git commit -m ...` heredoc instead of the gsd_run wrapper. Worked cleanly. If this recurs, prefer plain `git commit` over `gsd_run query commit` for this repo."}
-  ],
+  "blockers": [],
   "human_actions_pending": [
-    {"action": "Answer the research-decision question for Phase 5: skip research (recommended) or research first.", "context": "AskUserQuestion was presented but the user's reply was a context/token warning, not a selection. Re-present this question on resume, or accept a direct instruction to skip research and proceed straight to planner spawn.", "blocking": true}
+    {"action": "Tell the resuming session what you wanted to clarify about the DISPLAY-01/02 requirements-scoping AskUserQuestion before it re-presents that question.", "context": "You rejected the tool call specifically to clarify something, but then asked to suspend instead of explaining what. Nothing was lost structurally — just re-state the clarification when you resume.", "blocking": true}
   ],
   "decisions": [
-    {"decision": "Inlined ### Phase 5/6/7 detail sections directly into .planning/ROADMAP.md (previously only in milestones/v1.3-ROADMAP.md)", "rationale": "Matches the established convention confirmed via git history (commit ce7de9e did the same for Phase 4/v1.2 while that milestone was active); gsd-tools roadmap.get-phase requires the inline section and was returning found:false / malformed_roadmap without it. This blocked multiple downstream plan-phase steps (PHASE_SECTION reads in 5.6/5.7, planner's roadmap_path read, etc.).", "phase": "05"},
-    {"decision": "Recommended 'Skip research' as the default answer to the step-5.1 research gate", "rationale": "05-CONTEXT.md already pins exact existing-code file/line locations (sync_lco_observation_calendar.py:187), exact helper signatures, the SOARFacility(LCOFacility) subclass relationship, and all 8 implementation decisions (D-01..D-08) with rationale. This is a well-understood extension of existing Phase 4 code, not new architecture — the kind of phase discuss-phase's own context already de-risks.", "phase": "05"}
+    {"decision": "Milestone v1.4 'Calendar Visual Clarity' picks up DISPLAY-01 and DISPLAY-02 from the v1.3-deferred v2 candidates list", "rationale": "User explicitly chose to complete both in this milestone rather than deferring DISPLAY-02 further (its original deferral condition was 'only if operators report confusion' — user decided to build it now anyway since the surrounding color work is already happening)", "phase": null},
+    {"decision": "Color is keyed on proposal, not telescope", "rationale": "User: an LCO proposal can span 2m0/1m0/0m4 telescopes/instruments and should render as one consistent color for the shared science theme, regardless of which telescope a block lands on; non-LCO proposals already bind ~1:1 to a telescope so proposal-keying subsumes that case too", "phase": null},
+    {"decision": "Status visual treatment (opacity/border vs. striping) deferred to a /gsd:sketch session during phase planning, not decided now", "rationale": "User explicitly wants a visual comparison before committing — this is a design call, not just engineering; research (FEATURES.md) pre-vetted options (border-style favored, accessibility-checked) as sketch-session input", "phase": null},
+    {"decision": "Phase order: DISPLAY-02 (sidecar model + migration) before DISPLAY-01 (template-only color/status)", "rationale": "ARCHITECTURE.md research: DISPLAY-02 is solsys_code's first-ever migration/cross-app model extension — the riskier, more novel piece — isolating it first keeps DISPLAY-01's purely-additive template work from being entangled with schema risk", "phase": null},
+    {"decision": "N+1 query risk on DISPLAY-02's sidecar reverse-accessor: accept as-is this milestone, no batching template tag", "rationale": "User confirmed current calendar-event volume doesn't justify the extra scope; documented as a known, bounded cost in research, not silently ignored", "phase": null},
+    {"decision": "DISPLAY-01 proposal coloring applies to both all-day and timed calendar-event branches", "rationale": "User confirmed scope should match the goal (proposal identity visible regardless of render branch) rather than match today's narrower all-day-only behavior", "phase": null},
+    {"decision": "Empty-proposal events (classical schedule, load_telescope_runs never sets proposal) get a dedicated neutral palette slot", "rationale": "User confirmed — avoids an empty string's hash coincidentally colliding with a real proposal's color", "phase": null}
   ],
   "uncommitted_files": [
-    "src/fomo/settings.py (pre-existing modification from before this session, unrelated to phase 5 work — left untouched)",
-    "docs/notebooks/eso_programmatic.py (pre-existing untracked file from before this session, unrelated to phase 5 work — left untouched)"
+    "src/fomo/settings.py (pre-existing local dev modification from before this session — ALLOWED_HOSTS + a live LCO api_key value. Contains what looks like a real secret. Do NOT commit this. Leave untouched.)",
+    "docs/design/design.rst (pre-existing modification from before this session, adds tom_calendar_vs_yse_pz_calendar to the toctree — unrelated to this session's commits, left as the user's own in-progress edit)"
   ],
-  "next_action": "Re-run /gsd:plan-phase 5 (or resume this session). First action: resolve the research decision (ask the user again, or proceed with 'skip research' if the user simply wants the default applied), then continue plan-phase.md from step 5.1's 'skip to step 6' branch through to spawning gsd-planner (step 8) with phase_req_ids='SELECT-02, SELECT-03, SELECT-04, SELECT-05' and context_path='.planning/phases/05-multi-proposal-multi-facility-selection/05-CONTEXT.md'.",
-  "context_notes": "This was a clean /gsd:plan-phase 5 run with one real infra fix needed along the way (ROADMAP.md detail sections). No planner/checker agents have been spawned yet — all work so far is orchestrator-level setup and one docs-bugfix commit. The actual planning work (gsd-planner, gsd-plan-checker) has not started. Phase 5 is a backend-only Django management-command refactor (multi-proposal + multi-facility dispatch on sync_lco_observation_calendar) — no UI, no schema migrations, no AI/LLM component, so several plan-phase gates (UI gate, schema-push gate, AI-SPEC gate) are expected to no-op when reached."
+  "blocking_constraints": [
+    {"name": "Parallel research agents can silently fail without erroring", "description": "2 of 4 parallel gsd-project-researcher agents (Architecture, Pitfalls) hit a session/usage limit mid-run and returned a 'completed' task-notification with near-zero token usage, but had NOT actually written their output file — the stale file from the PRIOR milestone's research was left in place with no error surfaced. Only caught by checking file mtimes after the notification, not by trusting the notification text alone.", "severity": "blocking", "mitigation": "After spawning parallel research/synthesis agents, always verify output file mtimes are fresh (today, not a stale prior date) before treating the step as done — do not rely solely on the 'completed' task-notification status. If stale, re-spawn that specific agent with an explicit note that a prior attempt failed and left stale content, telling it to overwrite."},
+    {"name": "gsd-research-synthesizer's Write tool can be hard-blocked", "description": "The synthesizer subagent's Write tool call failed with 'Subagents should return findings as text, not write report files' even though writing SUMMARY.md to disk is its designated job per its own prompt. It worked around this via a Bash heredoc-to-scratchpad-then-cp pattern, but took ~9 minutes and the orchestrator ended up writing the file directly anyway (with content read from the agent's transcript) rather than waiting further.", "severity": "advisory", "mitigation": "If a synthesizer/writer-role subagent stalls after a Write-tool rejection, it's faster for the orchestrator to extract the already-produced content from the agent's own transcript/result and write it directly than to wait for the agent's Bash-workaround to land."}
+  ],
+  "next_action": "Resume /gsd:new-milestone for v1.4. First action: ask the user what they wanted to clarify about the DISPLAY-01/02 requirements-scoping question (they rejected the AskUserQuestion call specifically to clarify, then asked to suspend before explaining what). Once clarified, re-present the requirements scoping (DISPLAY-02 sidecar field, DISPLAY-01 color, DISPLAY-01 status treatment categories), write REQUIREMENTS.md, commit, then spawn gsd-roadmapper.",
+  "context_notes": "This is mid-milestone-setup, not mid-phase-execution — no phase directory exists yet for v1.4 (.planning/phases/ was just cleared/archived in this session). All research (STACK/FEATURES/ARCHITECTURE/PITFALLS/SUMMARY.md) is fresh, complete, and committed. PROJECT.md and STATE.md already reflect v1.4 as the current milestone. The only remaining gap before requirements can be written is the unresolved user clarification on the scoping question."
 }
