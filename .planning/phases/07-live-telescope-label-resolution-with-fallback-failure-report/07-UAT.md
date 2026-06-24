@@ -5,20 +5,19 @@ source:
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-01-SUMMARY.md
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-02-SUMMARY.md
 started: 2026-06-24T01:33:41.000Z
-updated: 2026-06-24T03:54:41.000Z
+updated: 2026-06-24T04:15:11.000Z
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 2
-name: API failure/timeout/unmapped-code falls back, not skipped
+number: 3
+name: Banner-stage (unscheduled) record never calls the API
 expected: |
-  For a placed record whose live API call fails, times out, or returns a code not in
-  `SITE_TELESCOPE_MAP`, the record still gets a CalendarEvent (it is not dropped/skipped).
-  The event's telescope label is a coarse instrument-class token (`1m0`/`0m4`/`2m0`/`4m0`),
-  the title is prefixed `[UNVERIFIED]`, and the description notes the lookup failed or was
-  unverified.
+  For a record with no `scheduled_start` (not yet placed/queued), no live API call is
+  made at all. The event gets the coarse fallback label and a `[QUEUED]` title prefix
+  (never `[UNVERIFIED]` — that prefix is reserved for placed records whose API call
+  failed).
 awaiting: user response
 
 ## Tests
@@ -62,7 +61,16 @@ expected: |
   The event's telescope label is a coarse instrument-class token (`1m0`/`0m4`/`2m0`/`4m0`),
   the title is prefixed `[UNVERIFIED]`, and the description notes the lookup failed or was
   unverified.
-result: [pending]
+result: pass
+verified: |
+  Live test (not mocked): user temporarily swapped in an invalid LCO_APIKEY in
+  local_settings.py and re-ran sync_lco_observation_calendar against observation_id=
+  4213127, producing a genuine auth failure from the real LCO API. Result: record was
+  `updated` (not skipped), telescope='1m0' (coarse), title='[UNVERIFIED] 1m0
+  1M0-SCICAM-SINISTRO', description notes "Telescope label unverified: live API
+  lookup failed or returned an unmapped code." Summary line showed
+  telescope_api_failed: 1, skipped: 0. Stderr log line was the fixed generic message
+  naming only the observation_id -- no leaked key/body (also evidences Test 6).
 
 ### 3. Banner-stage (unscheduled) record never calls the API
 expected: |
@@ -97,9 +105,9 @@ result: [pending]
 ## Summary
 
 total: 6
-passed: 1
+passed: 2
 issues: 0
-pending: 5
+pending: 4
 skipped: 0
 
 ## Gaps
