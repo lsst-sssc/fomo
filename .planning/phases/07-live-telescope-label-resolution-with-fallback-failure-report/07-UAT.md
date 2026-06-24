@@ -5,19 +5,19 @@ source:
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-01-SUMMARY.md
   - .planning/phases/07-live-telescope-label-resolution-with-fallback-failure-report/07-02-SUMMARY.md
 started: 2026-06-24T01:33:41.000Z
-updated: 2026-06-24T04:15:11.000Z
+updated: 2026-06-24T04:17:12.000Z
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 3
-name: Banner-stage (unscheduled) record never calls the API
+number: 4
+name: Summary line separates telescope_api_failed from skipped
 expected: |
-  For a record with no `scheduled_start` (not yet placed/queued), no live API call is
-  made at all. The event gets the coarse fallback label and a `[QUEUED]` title prefix
-  (never `[UNVERIFIED]` — that prefix is reserved for placed records whose API call
-  failed).
+  The command's final summary line (e.g. `Done. proposal: X, LCO: created: N, updated: N,
+  unchanged: N, skipped: N, extraction_failed: N, telescope_api_failed: N | SOAR: ...`)
+  reports `telescope_api_failed` as its own count, distinct from `skipped` — a degraded
+  (fallback) label is never counted as a hard skip.
 awaiting: user response
 
 ## Tests
@@ -78,7 +78,7 @@ expected: |
   made at all. The event gets the coarse fallback label and a `[QUEUED]` title prefix
   (never `[UNVERIFIED]` — that prefix is reserved for placed records whose API call
   failed).
-result: [pending]
+result: pass
 
 ### 4. Summary line separates telescope_api_failed from skipped
 expected: |
@@ -105,9 +105,9 @@ result: [pending]
 ## Summary
 
 total: 6
-passed: 2
+passed: 3
 issues: 0
-pending: 4
+pending: 3
 skipped: 0
 
 ## Gaps
