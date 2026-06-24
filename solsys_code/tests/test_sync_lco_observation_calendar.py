@@ -951,3 +951,42 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertNotIn('[UNVERIFIED]', event.title)
         self.assertEqual(event.telescope, '1m0')
         self.assertIn('telescope_api_failed: 0', stdout_buf.getvalue())
+
+    def test_telescope_03_block_missing_site_or_telescope_falls_back_not_skipped(self):
+        """T-07-03: a COMPLETED block returned by the API but missing the 'site' key
+        (a malformed/tampered response shape -- only 'state' is validated upstream)
+        still produces a coarse-fallback CalendarEvent, not a skipped record. The
+        existing _observations_block_response() helper always populates all four
+        keys together, so the malformed block is built inline here instead."""
+        self._create_record(
+            '800108',
+            proposal='MISSINGKEYCODE',
+            scheduled_start=datetime(2026, 7, 21, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 21, 2, 0, 0, tzinfo=dt_timezone.utc),
+            site='lsc',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+
+        malformed_response = MagicMock()
+        malformed_response.json.return_value = [{'state': 'COMPLETED', 'telescope': '1m0a'}]
+
+        stdout_buf = io.StringIO()
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=malformed_response,
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'MISSINGKEYCODE',
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.telescope, '1m0')
+        self.assertTrue(event.title.startswith('[UNVERIFIED]'))
+        summary = stdout_buf.getvalue()
+        self.assertIn('telescope_api_failed: 1', summary)
+        self.assertIn('skipped: 0', summary)
