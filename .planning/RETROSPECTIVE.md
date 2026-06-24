@@ -116,6 +116,47 @@
 
 ---
 
+## Milestone: v1.3 — Full LCO Facility Sync
+
+**Shipped:** 2026-06-24
+**Phases:** 4 (5, 6, 7, 07.1) | **Plans:** 5 | **Sessions:** ~6
+
+### What Was Built
+- Generalized `sync_lco_observation_calendar` to accept a comma-list/`ALL` `--proposal` argument and dispatch LCO and SOAR `ObservationRecord`s through an eager `{'LCO': LCOFacility(), 'SOAR': SOARFacility()}` dict, fixing the SELECT-05 single-shared-`LCOFacility()` dispatch bug.
+- Replaced the flat `parameters['instrument_type']` read with a `c_1..c_5` multi-config scanner distinguishing SOAR's SPECTRUM science config from ARC/LAMP_FLAT calibration configs and LCO MUSCAT's per-channel exposure shape, plus a dedicated `extraction_failed` counter.
+- Migrated `SITE_TELESCOPE_MAP` to a verified 7-site dict (`tlv` dropped — confirmed absent from installed library code) and added single-attempt, timeout-bounded, never-leaking live LCO Observation Portal API resolution with a coarse-label fallback, `[UNVERIFIED]` title prefix, and a `telescope_api_failed` counter distinct from `skipped`.
+- Phase 07.1 closed a milestone-audit gap: `_coarse_telescope_label` made facility-aware so a SOAR record's API-failure fallback resolves to `'4m0'` instead of the raw `'SOAR_GHTS_REDCAM'` string (which had produced a doubled, non-coarse title).
+- 21 new/changed tests across the milestone (110 → 131 total in `solsys_code` suite); demo notebook updated at every phase boundary (Phase 5, 6, 7, and 07.1 each added or updated cells with real executed output).
+
+### What Worked
+- The phase ordering locked in research (query generalization → instrument extraction → telescope-label API/fallback) meant each phase's fixture shapes were already correct by the time the next phase needed them — Phase 6's SOAR-shape extraction work, Phase 7's fallback labeling.
+- Two real production-data gaps were caught by live UAT against real DB records (not just unit tests) and fixed same-day via quick tasks: missing `SITE_TELESCOPE_MAP` coverage for `coj`/`ogg` aperture classes (`260623-su3`) and a `.get()` vs bracket-indexing security gap in `_build_event_fields` (`260623-ocs`).
+- Operator (LCO staff) checkpoints during Phase 7 planning resolved two real ambiguities cheaply — dropping `tlv` entirely and confirming the `elp`/`lsc`/`cpt`/`tfn` aperture-class inventory — rather than shipping `[ASSUMED]` guesses that would have needed a later fix.
+- The milestone-level audit (`/gsd-audit-milestone`) did exactly what it's for: caught a real, shipped defect (SOAR fallback label) that was structurally invisible to all three phases' own LCO-centered verification, tests, and UAT. Phase 07.1 closed it same-day with a 4-line fix plus a regression test.
+
+### What Was Inefficient
+- Phase 7's `verify_phase_goal` step was skipped during original execution and had to be backfilled retroactively during the milestone audit (`07-VERIFICATION.md` is explicitly a retroactive backfill). This is exactly the kind of single-phase verification gap that let the SOAR fallback defect ship — a missed verification step on the highest-risk phase (new I/O, live API) compounded into a milestone-level gap.
+- The pre-close artifact audit again flagged completed quick tasks as `status: unknown` — 7 this time (vs. 4 at v1.2 close), purely because their `SUMMARY.md` frontmatter omits a `status` field the audit tool checks. v1.2's retrospective already named this as a no-actual-gap friction point; it recurred and grew rather than getting fixed at the source.
+- Every one of Phases 5, 6, and 7 needed its own SOAR- or production-data-shape gap closed via a same-day or near-term quick task (`260619-jpr` SOAR site mapping, `260620-v9x` notebook update, `260623-su3`/`260623-ocs`), suggesting SOAR fixture coverage should be a standing checklist item in phase planning for this command, not a per-phase discovery.
+
+### Patterns Established
+- `_coarse_telescope_label(instrument_type, facility_name)` — pass the facility *name* (string) into a labeling function that needs to branch by facility, not the credentialed facility instance in scope; keeps pure-labeling functions free of credential-bearing objects.
+- Live external-API calls inside a sync command: single attempt, explicit timeout, generic fixed-message logging on failure (never raw response body or credentials), and a distinct failure counter separate from existing skip/error counters — established in Phase 7, reused as-is in Phase 07.1's fix.
+- When a milestone-level audit finds an integration gap a phase's own LCO-only (or otherwise single-shape) verification couldn't see, scope the fix as an inserted decimal phase (07.1) rather than reopening the original phase — keeps the audit finding, the fix, and its dedicated regression test traceable as one unit.
+- Quick-task `SUMMARY.md` frontmatter should always set `status: complete` — established as a fix-at-milestone-close convention twice now (v1.2, v1.3); worth promoting to the quick-task template itself so it stops recurring.
+
+### Key Lessons
+1. `verify_phase_goal` must run for every phase before milestone close, especially the highest-risk one (new I/O / external API) — skipping it on Phase 7 is exactly how the SOAR fallback defect reached a "35/35 tests green, UAT passed" state while still being broken for one real facility.
+2. A phase whose tests, fixtures, and demo notebook are all scoped to one facility/shape (here: LCO-only) needs an explicit cross-facility/cross-shape check before being called done, not just before milestone audit — the milestone audit is reliable but later and more expensive than catching it in-phase.
+3. Fix recurring metadata gaps at the template level once they're seen twice. The `status: complete` frontmatter gap cost manual cross-checking at both v1.2 and v1.3 close; the third occurrence should not happen.
+
+### Cost Observations
+- Sessions: ~6 across 6 days (2026-06-18 → 2026-06-24)
+- Model mix: not tracked this milestone
+- Notable: Phase 7 (highest-risk, new I/O) took the longest per-plan time (~50min/plan vs. 6-25min for the others) and was also the phase whose verification got skipped — the two are likely related; budget extra verification time, not less, on the riskiest phase.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -125,6 +166,7 @@
 | v1.0 | 1 | 1 | First GSD run on this repo; validated discuss→plan→execute→verify loop end-to-end |
 | v1.1 | ~4 | 2 | First milestone with DB-dependent tests under real Django test runner from day 1; TDD RED→GREEN on management command |
 | v1.2 | ~2 | 1 | Single-plan phase; code review caught a real pre-close bug (CR-01); two same-day quick-task follow-ups (style fix + contrast regression fix) |
+| v1.3 | ~6 | 4 (incl. inserted 07.1) | First milestone with a dedicated milestone-level audit (`/gsd-audit-milestone`) finding a real shipped defect; first decimal gap-closure phase (07.1) inserted post-audit; first retroactive `verify_phase_goal` backfill (Phase 7) |
 
 ### Cumulative Quality
 
@@ -133,6 +175,7 @@
 | v1.0 | +12 (Django, unconfirmed by `./manage.py test` due to env blocker) | - | 0 |
 | v1.1 | +16 (10 parser + 6 ingest; all 95 under `./manage.py test solsys_code`) | - | 0 |
 | v1.2 | +14 (sync command; all 110 under `./manage.py test solsys_code`) | - | 0 |
+| v1.3 | +21 (multi-proposal/facility, multi-config extraction, telescope-label + fallback; all 131 under `./manage.py test solsys_code`) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -140,3 +183,5 @@
 2. Write a test for the exact DB field precision you need (astropy→Django datetime conversion produces microseconds; assert `.microsecond == 0` in tests that use `astropy Time.to_datetime()`).
 3. UAT generated by `/gsd-verify-work` is only useful if it's run — fold scenarios into `TestCase` methods at plan time rather than generating a separate checklist.
 4. "Ship a demo notebook per phase" needs to be an explicit phase-plan task, not just a PROJECT.md convention — missed and backfilled after the fact in both v1.0 and v1.2.
+5. A phase's own verification is only as broad as its fixtures — a single-facility/single-shape test+UAT+notebook can all pass while a defect ships for an untested shape (v1.3 Phase 7's LCO-only verification missed a SOAR-only defect). Milestone-level audits exist precisely to catch this, but catching it in-phase is cheaper.
+6. Quick-task `SUMMARY.md` frontmatter missing a `status` field has now cost manual cross-checking at two consecutive milestone closes (v1.2: 4 tasks, v1.3: 7 tasks) — fix at the template level, not at close time.
