@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Calendar Visual Clarity
 status: planning
-last_updated: "2026-06-24T17:39:30.360Z"
+last_updated: "2026-06-24T18:00:00.000Z"
 last_activity: 2026-06-24
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,25 +17,25 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close)
+See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close, "Current Milestone" section added for v1.4)
 
-**Core value:** v1.3 shipped — generalized `sync_lco_observation_calendar` to correctly sync all LCO-family facilities (LCO + SOAR) for all real site codes and any combination of proposals. Next milestone's core value not yet defined.
-**Current focus:** Planning next milestone (`/gsd-new-milestone`)
+**Core value:** Make `CalendarEvent` color and status convey real meaning (proposal identity, queued/placed/failed state) and add a dedicated field for fallback-resolved telescope labels.
+**Current focus:** Roadmap created for v1.4 (Phases 8-9). Next: `/gsd-plan-phase 8`
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 8 (Telescope Label Verification Sidecar) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-24 — Milestone v1.4 started
+Status: Roadmap created, ready for phase planning
+Last activity: 2026-06-24 — ROADMAP.md created for v1.4 (Phases 8-9), REQUIREMENTS.md traceability updated
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 9 (across v1.0-v1.2)
-- Average duration: ~35 min (Phase 2) + 7-8 min/plan (Phase 3)
-- Total execution time: ~3-4 sessions
+- Total plans completed: 9 (v1.0-v1.2) + 5 (v1.3, incl. 07.1) = 14
+- Average duration: ~35 min (Phase 2) + 7-8 min/plan (Phase 3); Phase 7 plans ~50 min each
+- Total execution time: ~3-4 sessions (v1.0-v1.2) + several sessions (v1.3)
 
 **By Phase:**
 
@@ -46,28 +46,32 @@ Last activity: 2026-06-24 — Milestone v1.4 started
 | 03 | 2 | - | - |
 | 04 | 1 | - | - |
 | 05 | 1 | - | - |
-| 06 | 1 | - | - |
-| 07 | TBD | - | - |
-| Phase 06 P01 | 6min | 2 tasks | 2 files |
-| Phase 07 P01 | 50min | 3 tasks | 3 files |
-| Phase 07 P02 | ~50min | 3 tasks | 3 files |
-| Phase 07.1 P01 | 25min | 3 tasks | 3 files |
-| 07.1 | 1 | - | - |
+| 06 | 1 (6 min, 2 tasks, 2 files) | - | - |
+| 07 P01 | 1 (50 min, 3 tasks, 3 files) | - | - |
+| 07 P02 | 1 (~50 min, 3 tasks, 3 files) | - | - |
+| 07.1 P01 | 1 (25 min, 3 tasks, 3 files) | - | - |
+| 08 | TBD | - | - |
+| 09 | TBD | - | - |
 
 ## Accumulated Context
 
 ### Decisions
 
-All v1.3 decisions logged in PROJECT.md's Key Decisions table (Phases 5-07.1 entries, backfilled at milestone close). Cleared here now that v1.3 is shipped — see PROJECT.md for the durable record.
+All v1.0-v1.3 decisions logged in PROJECT.md's Key Decisions table (backfilled at each milestone close). v1.4-specific decisions will accumulate here during Phase 8/9 execution and be backfilled to PROJECT.md at v1.4 close.
+
+**Roadmap-time decisions for v1.4 (this roadmapping pass):**
+- Phase order: Phase 8 (DISPLAY-02/03/01 sidecar) before Phase 9 (DISPLAY-04/05/06/07 color/status) — research-recommended ordering, isolates the riskier first-ever-migration/cross-app-OneToOneField work from the purely-additive template work in Phase 9.
+- DISPLAY-06's open design decision (status visual treatment mechanism: border/opacity/stripe) is resolved via `/gsd:sketch` during Phase 9 planning, not pre-decided by roadmap — kept inside Phase 9 rather than split into its own phase, since "coarse" granularity and its tight coupling to DISPLAY-05's `[QUEUED]` fix and DISPLAY-07's legend (same template, same render pass) don't warrant a third phase.
+- N+1 mitigation (batching template tag for the sidecar's reverse O2O reverse accessor) is a Phase 8 planning-time scope call, not decided here — research flags both "accept as-is" and "bulk-prefetch tag" as legitimate options for current calendar-event volume.
 
 ### Pending Todos
 
-1. Status-aware calendar event coloring (telescope/proposal-keyed, alpha by confidence) — `.planning/todos/pending/2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md`
+1. Status-aware calendar event coloring (telescope/proposal-keyed, alpha by confidence) — `.planning/todos/pending/2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md` — **being addressed by v1.4 Phase 9**
 2. Extract site/telescope mapping and instrument extraction into own module (revisit after Phase 7 ships) — `.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`
 
 ### Blockers/Concerns
 
-None open. All three Phase 7 research gaps (JSON key names in the observations API response, `FACILITIES['SOAR']` settings entry, `tlv` site-table discrepancy) were resolved during Phase 5/7 implementation and verified live — see PROJECT.md Key Decisions and `07-01-SUMMARY.md`/`07-02-SUMMARY.md` for details.
+None open. v1.3's Phase 7 research gaps were all resolved and verified live (see PROJECT.md Key Decisions). v1.4 Phase 8/9 each carry one explicit open scope/design decision to make during planning (N+1 mitigation scope for Phase 8; status-treatment mechanism via `/gsd:sketch` for Phase 9) — both already flagged in ROADMAP.md and research docs, not blockers.
 
 ### Quick Tasks Completed
 
@@ -81,18 +85,23 @@ None open. All three Phase 7 research gaps (JSON key names in the observations A
 | 260623-ocs | Fix T-07-03 security spec gap in sync_lco_observation_calendar: read resolved API block via .get() instead of bracket indexing in _build_event_fields, None-guard _aperture_class_from_telescope_code, add regression test for a block missing 'site'/'telescope' falling back (not skipped) | 2026-06-24 | 2fa0300 | [260623-ocs-fix-t-07-03-security-spec-gap-in-sync-lc](./quick/260623-ocs-fix-t-07-03-security-spec-gap-in-sync-lc/) |
 | 260623-su3 | Fix SITE_TELESCOPE_MAP completeness gap from Phase 7 UAT Test 1: add missing ('coj','1m0'), ('coj','0m4'), ('ogg','0m4') entries confirmed against https://lco.global/observatory/sites/mpccodes/, add regression test for the 3 newly-mapped pairs | 2026-06-24 | 5583400 | [260623-su3-fix-site-telescope-map-completeness-gap-](./quick/260623-su3-fix-site-telescope-map-completeness-gap-/) |
 
-### Key Technical Notes (carried from Phase 4 / v1.2)
+### Key Technical Notes (carried from Phase 4-7 / v1.2-v1.3, still relevant to v1.4)
 
-- `parameters` on `ObservationRecord` is a `TextField` containing JSON (not a JSONField) — filtering requires fetching then parsing in Python, no DB-level JSON filtering assumed safe without re-verification for `__in` queries.
-- CalendarEvent upsert keyed on `url` (`LCOFacility().get_observation_url(observation_id)`, confirmed `/requests/<id>` no trailing slash).
-- No-churn idempotency: only call `.save()` when fields actually changed.
+- `parameters` on `ObservationRecord` is a `TextField` containing JSON (not a JSONField) — filtering requires fetching then parsing in Python.
+- `CalendarEvent` upsert keyed on `url` (`LCOFacility().get_observation_url(observation_id)`, confirmed `/requests/<id>` no trailing slash).
+- No-churn idempotency: only call `.save()` when fields actually changed — Phase 8's new sidecar write must not be folded into this diff/`fields` comparison (keep it a separate `update_or_create` statement, per ARCHITECTURE.md Pitfall 4).
 - `astropy Time.to_datetime()` produces microseconds — strip with `.replace(microsecond=0)` before DB save.
-- DB-dependent tests go in `solsys_code/tests/test_sync_lco_observation_calendar.py`, run with `./manage.py test solsys_code`.
-- v1.2 real-data bug (drives v1.3): real records have no flat `instrument_type` or `site` key in `parameters`; multi-config `c_1..c_5_instrument_type` shape only, and `SITE_TELESCOPE_MAP` was a 2-entry unverified guess.
+- DB-dependent tests go in `solsys_code/tests/`, run with `./manage.py test solsys_code`.
+- `sync_lco_observation_calendar.py` already computes `telescope_api_failed` (in `_build_event_fields`) and pops it from `fields` before the existing `CalendarEvent.objects.get_or_create()` call — Phase 8's sidecar write goes immediately after that call site, in the same loop iteration, using the already-in-scope `telescope_api_failed` value.
+- `load_telescope_runs.py` needs zero code change for Phase 8 — confirmed by direct read, no API call, no fallback concept exists in that command.
+- `render_calendar()` (installed `tom_calendar` view) has no `extra_context`/`get_queryset()` hook — any Phase 8/9 read-side fix (N+1 mitigation, color/status logic) must live in the `calendar.html` template-override layer, not the view.
+- `calendar.html`'s existing `[QUEUED]` grey override (lines ~158-161) currently discards `event.color` entirely — Phase 9 must fix this in the same task that adds proposal coloring, or the new color signal is invisible for queued events.
+- Never use Python's built-in `hash()` for proposal->color mapping (per-process salted, non-deterministic across restarts) — use `hashlib.sha256` per STACK.md.
 
 ### Roadmap Evolution
 
-- Phase 07.1 inserted after Phase 7: Close gap: TELESCOPE-03/04/SYNC-06 — SOAR fallback label is facility-unaware (URGENT)
+- Phase 07.1 inserted after Phase 7 (v1.3): Close gap: TELESCOPE-03/04/SYNC-06 — SOAR fallback label is facility-unaware (URGENT)
+- v1.4 roadmap created 2026-06-24: Phase 8 (Telescope Label Verification Sidecar — DISPLAY-01/02/03) and Phase 9 (Proposal Color & Status Visual Treatment — DISPLAY-04/05/06/07), continuing phase numbering from v1.3's Phase 7/07.1.
 
 ## Deferred Items
 
@@ -100,16 +109,18 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| todo | 2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md | pending (deliberately deferred future work) | v1.2 close |
+| todo | 2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md | being addressed by v1.4 Phase 9 | v1.2 close |
 | todo | 2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md | pending (deliberately deferred future work) | v1.3 close |
+| requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | deferred to v2 | v1.4 requirements definition |
+| requirement | DISPLAY-09 (batching template tag for sidecar N+1) | deferred to v2 (also a Phase 8 in-phase scope call — see Decisions) | v1.4 requirements definition |
 
 ## Session Continuity
 
-Last session: 2026-06-24T14:34:31.323Z
-Stopped at: Completed 07.1-01-PLAN.md (phase 07.1 complete, ready for verification)
-Resume file: 
-None
+Last session: 2026-06-24T18:00:00.000Z
+Stopped at: ROADMAP.md and STATE.md written for v1.4 (Phases 8-9), REQUIREMENTS.md traceability updated
+Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Review and approve the v1.4 roadmap (Phases 8-9).
+- Start Phase 8 with `/gsd-plan-phase 8`.

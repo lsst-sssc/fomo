@@ -48,19 +48,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DISPLAY-01 | TBD | Pending |
-| DISPLAY-02 | TBD | Pending |
-| DISPLAY-03 | TBD | Pending |
-| DISPLAY-04 | TBD | Pending |
-| DISPLAY-05 | TBD | Pending |
-| DISPLAY-06 | TBD | Pending |
-| DISPLAY-07 | TBD | Pending |
+| DISPLAY-01 | Phase 8 | Pending |
+| DISPLAY-02 | Phase 8 | Pending |
+| DISPLAY-03 | Phase 8 | Pending |
+| DISPLAY-04 | Phase 9 | Pending |
+| DISPLAY-05 | Phase 9 | Pending |
+| DISPLAY-06 | Phase 9 | Pending |
+| DISPLAY-07 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 7 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 7 ⚠️ (resolved by `/gsd-roadmapper`)
+- Mapped to phases: 7/7 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-24*
-*Last updated: 2026-06-24 after initial v1.4 definition*
+*Last updated: 2026-06-24 after v1.4 roadmap creation (Phase 8: DISPLAY-01/02/03 sidecar; Phase 9: DISPLAY-04/05/06/07 color/status)*
