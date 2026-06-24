@@ -2,6 +2,7 @@
 created: 2026-06-18T22:44:44.098Z
 title: Status-aware calendar event coloring (telescope/proposal-keyed, alpha by confidence)
 area: ui
+resolves_phase: 9
 files:
   - tom_calendar/models.py (CalendarEvent.color property, third-party/bundled in tomtoolkit)
   - tom_calendar/utils.py (BOOTSTRAP_COLORS)
