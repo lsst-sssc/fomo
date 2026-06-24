@@ -38,9 +38,17 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
+## Current Milestone: v1.4 Calendar Visual Clarity
+
+**Goal:** Make `CalendarEvent` color and status convey real meaning (proposal identity, queued/placed/failed state) and add a dedicated field for fallback-resolved telescope labels.
+
+**Target features:**
+- DISPLAY-01: Proposal-keyed `CalendarEvent` color via a local `tom_calendar` template override — same proposal renders the same color regardless of which LCO telescope/site it lands on, since an LCO proposal can span 2m0/1m0/0m4. Status (queued/placed/terminal-failure) is shown via opacity/border or striping — visual treatment decided via `/gsd:sketch` during phase planning.
+- DISPLAY-02: Dedicated field distinguishing a fallback-resolved telescope label from a verified one, beyond title/description text — built now rather than left deferred.
+
 ## Milestone Status
 
-v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Facility Sync" shipped 2026-06-24 (Phases 5-7 + 07.1 gap-closure) — generalized `sync_lco_observation_calendar` to multi-proposal/multi-facility (LCO+SOAR) selection, correct multi-config instrument extraction, and live telescope-label resolution with a facility-aware coarse fallback. Next milestone not yet started; see `.planning/milestones/v1.3-REQUIREMENTS.md` v2 section for deferred candidates (DISPLAY-01/02, FACILITY-01/02).
+v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Facility Sync" shipped 2026-06-24 (Phases 5-7 + 07.1 gap-closure) — generalized `sync_lco_observation_calendar` to multi-proposal/multi-facility (LCO+SOAR) selection, correct multi-config instrument extraction, and live telescope-label resolution with a facility-aware coarse fallback. v1.4 "Calendar Visual Clarity" started 2026-06-24, picking up the DISPLAY-01/02 candidates deferred at v1.3 close (`.planning/milestones/v1.3-REQUIREMENTS.md` v2 section).
 
 ## Requirements
 
@@ -86,7 +94,8 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Faci
 
 ### Active
 
-_(none — v1.3 shipped with all requirements validated; next milestone's requirements to be defined via `/gsd-new-milestone`, drawing from the deferred v2 candidates archived in `.planning/milestones/v1.3-REQUIREMENTS.md` — DISPLAY-01/02, FACILITY-01/02)_
+- [ ] DISPLAY-01: Proposal-keyed `CalendarEvent` color + status-driven visual treatment (opacity/border or striping)
+- [ ] DISPLAY-02: Dedicated field distinguishing fallback-resolved vs verified telescope label
 
 ### Out of Scope
 
@@ -211,4 +220,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-24 after v1.3 milestone close — full review: SYNC-07/SYNC-08 added to Validated (all 14 v1.3 requirements now validated), Key Decisions backfilled for Phases 06/07/07.1, "Current Milestone" section retired, Context/codebase-state refreshed to v1.3-close numbers*
+*Last updated: 2026-06-24 after starting v1.4 milestone — added "Current Milestone" section (Calendar Visual Clarity: DISPLAY-01/02), Active requirements populated, Milestone Status updated*
