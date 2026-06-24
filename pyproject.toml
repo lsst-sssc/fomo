@@ -17,7 +17,7 @@ classifiers = [
 dynamic = ["version"]
 requires-python = ">=3.10"
 dependencies = [
-    "tomtoolkit>=3.0.0a9",  # pre-release specifier opts into the 3.0 alpha required by tom_jpl/tom_fink
+    "tomtoolkit==3.0.0a9",  # pre-release specifier opts into the 3.0 alpha required by tom_jpl/tom_fink
     "tom_alertstreams>=1.2.1",
     "tom_fink>=1.0.0",
     "tom-registration>=1.0.5",
