@@ -1,165 +1,160 @@
 # Feature Research
 
-**Domain:** Astronomical follow-up scheduling — queue-network (OCS/LCO-family) telescope-time sync into a shared calendar
-**Researched:** 2026-06-19
-**Confidence:** MEDIUM (codebase/API facts HIGH from direct inspection of v1.2 code + PROJECT.md; general batch/UX best-practice claims LOW — generic websearch, no domain-specific authoritative source found for this niche)
+**Domain:** Calendar/scheduling UI visual encoding (color-by-category + status/confidence visual language) for a Django/htmx/Bootstrap4 TOM calendar
+**Researched:** 2026-06-24
+**Confidence:** MEDIUM-HIGH (general calendar/accessibility conventions are well-documented and cross-checked across multiple independent sources; astronomy-domain-specific precedent is thinner — most telescope schedulers don't publish their color semantics)
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist once a sync tool claims to handle "all LCO-family proposals/facilities." Missing these makes the v1.3 generalization feel half-done relative to what v1.2 already promised.
+Features users assume exist once a calendar uses color at all. Missing these makes the new coloring feel arbitrary or actively misleading — worse than today's meaningless `pk`-based color, which at least nobody trusts.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Multi-proposal selection (`--proposal a,b,c` and `--proposal ALL`) | A single hard-coded proposal code (v1.2) doesn't scale once more than one science program uses the calendar; "ALL" is the natural endpoint once you support a list | LOW | Pure queryset-filter change (`parameters__proposal__in=[...]`, or drop the filter entirely for `ALL`); no new external calls. Depends on existing `SELECT-01` filter logic. |
-| Facility scope covers every facility that shares the OCS request/observation shape (LCO + SOAR) | Once the command is "generalized," users expect it to mean "every queue facility we have," not "still just LCO" | LOW–MEDIUM | `facility__in=['LCO', 'SOAR']` plus confirming SOAR's `ObservationRecord.parameters` shape matches LCO's (same OCS backend) — verify this assumption against real SOAR records before shipping, same caution v1.2 learned the hard way for `instrument_type`/`site`. |
-| Correct instrument-type extraction from multi-configuration requests | v1.2 shipped with a `KeyError`/silent-skip bug against 100% of real records in this DB; this is a baseline correctness bar, not a stretch feature | MEDIUM | Scan `c_1_instrument_type`..`c_5_instrument_type`, pick the one whose matching `c_N_ic_*_exposure_time` is populated. Needs a defined behavior for the (rare/invalid) case where 0 or >1 configs look "populated" — see Pitfalls/Anti-Features below. |
-| Run summary counts (created/updated/unchanged/skipped) printed at command end | Already shipped in v1.2 (`self.stdout.write(...)` summary line) — must be preserved and extended with the new failure-mode counts (e.g. API-call-failed-fell-back-to-coarse-label) | LOW | Direct extension of existing pattern; add a counter, don't replace it. |
-| Per-record skip-and-continue on data errors, with the offending record identified in stderr | Already shipped in v1.2 (`except (KeyError, ValueError) as exc: self.stderr.write(...)`) — this is the existing convention for *data* problems and must extend cleanly to the new *API-call* failure mode | LOW (reuse), MEDIUM (extending to a new failure axis) | This existing pattern is the right model for partial failure (see dedicated section below) — don't introduce a second, inconsistent error-handling style for the new per-record API call. |
-| No-churn idempotent create-or-update | Already shipped (v1.2 SYNC-04); must keep holding once telescope label resolution adds a new field that could vary between API-success and API-fallback runs | MEDIUM | Risk: if a record's telescope label flips between "FTS" (API succeeded) and "1m0" (API failed, fallback) across re-runs, that's churn that looks like a real schedule change. Needs an explicit decision (see Pitfalls). |
-| Verified (not assumed) site/telescope mapping for every site actually in use | v1.2's `SITE_TELESCOPE_MAP` was `[ASSUMED]`/web-search-only and only covered 2 of 8 real sites — this was flagged as a known gap, not a nice-to-have | LOW (data entry) once the mapping table is verified | PROJECT.md already supplies the verified 8-site MPC-code table; this is transcription + lookup-by-fully-qualified-code, not new research. |
+| Deterministic color per logical group (proposal) | Once color claims to mean something, the same proposal must render identically every time, on every page load, for every telescope it spans — otherwise users learn to distrust it within a day, same failure mode as today's `pk`-keyed color | LOW | Hash `proposal` string -> fixed palette index or HSL hue. Pure function, no DB state, no migration. See Differentiators for the palette-vs-hash choice. |
+| Non-color redundant signal for status | WCAG 2.1 SC 1.4.1 requires status not be conveyed by color alone; also directly serves the colorblind-accessibility requirement called out in the question — since color is being spent entirely on proposal identity, status needs an orthogonal channel | LOW-MEDIUM | Already partially true: title prefixes (`[QUEUED]`, `[UNVERIFIED]`, `[EXPIRED]` etc.) already exist as the non-color channel. DISPLAY-01 needs a *visual* (not just textual) echo of that, but the text fallback already satisfies the strict WCAG letter — the visual layer is about scannability, not the only compliance path. |
+| Legible text on top of arbitrary background colors | A proposal-keyed palette is unpredictable in lightness; white-on-light-yellow or black-on-dark-purple both happen | LOW | `tom_calendar`'s existing `.cal-event-all-day` template hardcodes `color: #fff !important` — fine for a curated 9-color Bootstrap palette, breaks for an open-ended hash space. Needs either: (a) stick to a small curated palette (sidesteps this entirely), or (b) compute per-color text contrast (WCAG contrast ratio) and switch white/black. (a) is far cheaper. |
+| Stable color across whole-grid re-renders and pagination | htmx swaps the month partial on every Prev/Next/Today click; if color depended on row order or query-result position rather than the `proposal` value itself, it would visibly flicker between colors per request | LOW | Must hash on `proposal` field value, never on queryset position/pk — this is the exact bug being fixed, so it's also the exact bug to not reintroduce. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that go beyond "sync works" into "sync is trustworthy and informative" — these align with the project's actual differentiator: a *unified* calendar across heterogeneous facility data without per-facility custom UI.
+Features that go beyond "color means something" into "this calendar is genuinely easier to scan than the LCO portal or a spreadsheet."
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Per-record live API enrichment for the *real* placed site/enclosure/telescope (not just the submission-time guess) | Submission-time `parameters` don't carry final placement for multi-site-eligible proposals (OCS scheduler can place a request at any site offering the right instrument class); a live API call to the observation's own endpoint is the only way to know the *actual* assigned site once scheduled | MEDIUM–HIGH | This is the most valuable new capability in v1.3 — turns "probably FTS" into "confirmed FTS, telescope `coj-clma-2m0a`". Must be opportunistic only (skip the call/use fallback for QUEUED/banner records that have no placement yet — there's nothing to fetch). |
-| Graceful instrument-class fallback label (`1m0`/`0m4`/`2m0`) when the API call fails | Keeps the calendar useful (a one-line "something will run on a 1m at some point") even when the network/API is flaky, instead of erroring the whole record out of the calendar | MEDIUM | This is the new, riskiest UX surface — see dedicated section below for how it should read. |
-| `ALL` proposal mode as an operator/admin "what's on the whole network" view, distinct from per-PI proposal views | Lets an observer or TAC see the full picture across proposals without re-running the command per code | LOW once multi-proposal works | Natural extension, not separate engineering. |
+| Curated fixed palette, hash-selected (not raw HSL-from-hash) | A small (8-12 color) curated, pre-vetted-for-contrast-and-colorblind-distinguishability palette beats raw `hash(proposal) -> HSL` because an unconstrained hash can produce two visually similar hues for two different proposals (hash collisions in *perceptual* space, not just numeric space), and can produce muddy/illegible colors. `tom_calendar.utils.BOOTSTRAP_COLORS` (9 entries, already used for `target_list_color`) is sitting right there as a precedent to extend, not replace. | LOW | Reuse the existing `BOOTSTRAP_COLORS` pattern: `BOOTSTRAP_COLORS[hash(proposal) % len(BOOTSTRAP_COLORS)]` — same shape as the existing `target_list_color()` helper, just keyed on `proposal` string hash instead of `pk`. With ~9-12 active proposals expected at once, an 8-12 entry palette gives low collision *frequency*, and any collision just means two proposals share a color on a given month view (graceful degradation), not a crash. |
+| Colorblind-safe palette curation | The question's framing is explicit: color is the *primary* signal for proposal identity here (unlike status, which already has a text-prefix fallback), so the palette itself must be chosen for protanopia/deuteranopia/tritanopia distinguishability, not just "looks nice" | LOW-MEDIUM | Don't assume Bootstrap's default `--red`/`--green`/`--teal`/`--orange` etc. are mutually distinguishable for deuteranopia (red/green confusion is the most common form) — red and green adjacent in a palette is the classic failure. Needs an explicit check (e.g. against a known colorblind-safe set like ColorBrewer's "qualitative" schemes, or a CVD simulator) before finalizing which Bootstrap CSS vars to include/exclude/reorder. This is a vetting task, not new code. |
+| Status as a structural CSS treatment (opacity / border / stripe), applied orthogonally to the color | Lets color answer "whose program is this" and the structural treatment answer "what state is it in" independently — two questions, two channels, no entanglement. This is the core ask of DISPLAY-01's second half. | MEDIUM | See dedicated comparison below — this is the one the user explicitly wants framed as sketch-session options, not decided here. |
+| Dedicated `telescope_label_verified` boolean (or enum) field, separate from `telescope`/title text | Makes "was this label live-resolved or did the API fail" a queryable, testable fact instead of a string-parsing problem (`title.startswith('[UNVERIFIED]')`). Directly what DISPLAY-02 asks for. | LOW | Straightforward Django model field (`BooleanField` or `CharField` choices `verified`/`fallback`) — but `CalendarEvent` is an upstream `tom_calendar` model, so adding a field to it directly means a migration against a third-party app's table. Flag for roadmap/architecture research whether that's via a FOMO-local migration against the vendored model, a sibling one-to-one FOMO model, or a `description`-adjacent structured field. Not resolved here — it's an architecture decision, not a feature-landscape one. |
+| Visual badge/icon for the verified/fallback distinction on the grid | A small inline glyph (e.g. a dotted-outline icon, a "?"/"~" prefix glyph, or a distinct border-style) lets the eye catch "this label might be wrong" without reading text | LOW | Precedent: dashed/dotted outlines are an established low-cost UI vocabulary for "provisional/estimated/unconfirmed" data (vs. solid for confirmed) — same semantic shape as DISPLAY-02's verified/fallback distinction, can reuse the *same visual primitive* DISPLAY-01 uses for queued/placed if convergent, see Dependency note below. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|------------------|-------------|
-| Abort the whole sync run on first per-record error (fail-fast) | Feels "safer" — surfaces problems loudly | One bad/malformed record (the next "v1.2-style" data surprise) would block every other valid record from syncing, recreating exactly the all-or-nothing failure the original `instrument_type` bug caused. v1.2's own design already rejected this (skip-and-continue, SELECT-01/SYNC-04 pattern) | Keep per-record isolation; reserve hard-abort for *systemic* failures only (DB unreachable, can't construct `LCOFacility()`, malformed `--proposal` argument) — i.e. failures that mean *no* record could possibly succeed. |
-| Retry-with-backoff loop around the per-record LCO API call | Looks more "robust" against transient network blips | Adds real complexity (timeout tuning, retry budget, risk of a single slow/down facility blocking the whole batch for minutes) for a feature whose correctness need is "best-effort label," not "guaranteed eventual accuracy" — the next scheduled cron run will naturally retry | Single attempt with a short timeout; let the *next* sync run's API call succeed once the network/API recovers. Document this explicitly so it isn't mistaken for a bug. |
-| Treating an API-call failure as a data error that skips the record entirely (same bucket as a `KeyError` on missing `site`) | Reuses the existing skip-and-continue exception handling with minimal new code | A transient API failure is recoverable info-loss (we *can* still show something useful — instrument class — and the record's schedule window/instrument/proposal are still valid), unlike a malformed-data `KeyError` where nothing trustworthy can be shown at all. Conflating the two buckets would make the calendar silently drop records that are actually fine, just temporarily under-labeled | Keep "API call failed" as its own non-fatal path that still produces a `CalendarEvent` (with the coarse fallback label), distinct from "record data unusable" which is still a skip. |
-| Caching/memoizing per-record API results to "speed up" the sync | Seems like an obvious efficiency win once the command runs on every proposal/facility | Adds a cache-invalidation problem (what site a request *will be* observed at can change between scheduler runs) for a script whose main cost is small (cron-frequency batch, not a hot path) — premature optimization that risks staleness bugs worse than the latency it saves | Recompute per run; only optimize if real run-time becomes a measured problem. |
-| Silently re-labeling a record from the verified site name back to the coarse fallback (or vice versa) without any visual distinction in the calendar | Minimal-code path — just write whatever the current run resolved | A user reading the calendar across days would see telescope labels flicker between "FTS" and "2m0" with no indication *why*, eroding trust in the data and looking like real schedule churn | Make the fallback state visually/textually distinguishable (see dedicated section) so a flip reads as "we lost confidence in placement," not "the schedule changed." |
+| Raw hash-to-HSL color generation (e.g. `hash(proposal) % 360` for hue) | Feels elegant — "infinite" proposals, no palette to maintain, no collisions in numeric space | Two different proposal codes can hash to adjacent/visually-confusable hues (e.g. hue 118 vs hue 124, both "green" to most eyes, *worse* for colorblind users); no control over saturation/lightness means some hashes produce muddy, low-contrast, or eye-straining colors; defeats the explicit colorblind-safety requirement because nothing curates the output space | Hash into a small **curated, vetted palette** (extend `BOOTSTRAP_COLORS`), not into the full color wheel |
+| Telescope-keyed color (reverting to what YSE_PZ does, or hashing on `telescope` instead of `proposal`) | Telescope is already a populated field, simpler hash key, matches YSE_PZ's documented precedent | Explicitly rejected per milestone context — one LCO proposal spans 2m0/1m0/0m4 across telescopes, and the user wants "this is one science program" to read as one color regardless of which telescope it lands on; telescope-keyed color would fragment a single proposal's nights into 2-3 different colors, the opposite of the goal | Hash on `proposal`, already decided |
+| Striping/hatching used for *both* signals (color-as-stripe-pattern for proposal AND status) | Tempting to get two-dimensional information density (color hue x stripe density) onto one block | Stacking two encoded visual dimensions on a block that's already ~16-18 truncated characters wide in the month grid (`truncatechars:16`/`18` in the existing template) overloads a tiny target; also stripe-pattern-as-primary-identity-signal has far weaker established precedent than solid-color-as-identity, while stripe-as-status-overlay (Outlook tentative convention) is well precedented | Color stays solely the proposal-identity channel (solid fill); status gets a *structural* treatment (opacity/border/overlay-stripe) layered *on top of*, not *instead of*, that fill — see status comparison below |
+| Per-event custom inline color picker / user-assignable colors | Feels empowering, lets users "fix" a color they don't like | Reintroduces the exact problem being solved — color becomes per-user/per-edit arbitrary instead of deterministic-and-meaningful; breaks "same proposal = same color regardless of who's looking" | Deterministic hash-from-proposal is the whole point; if a specific collision is genuinely bad, fix the curated palette, not give users an escape hatch |
+| Replacing free-text `telescope`/`proposal` `CharField`s with FK models (YSE_PZ's `Telescope` model) as a side effect of this work | The sibling-TOM comparison doc already surfaces this as "the one idea worth borrowing" from YSE_PZ, so it's tempting to fold into this milestone | Already explicitly out of scope per `tom_calendar_vs_yse_pz_calendar.rst`'s conclusion (keep the generic model) and per `PROJECT.md`'s Out of Scope ("Replacing `SITES`'s hardcoded telescope-name -> obscode mapping... not required"); DISPLAY-01/02 need the *string value* of `proposal`, not a relational identity — a hash works fine on a `CharField` | Hash directly on the existing `proposal: CharField` value; defer any FK-ification to a separate, explicitly-scoped future decision |
+
+## Status Visual Language: Options for the `/gsd:sketch` Session
+
+This is the open design question the downstream consumer flagged explicitly — framed as **options to bring into sketch**, not a final pick.
+
+| Option | What it looks like | Accessibility (colorblind-safety) | Complexity | Fit with existing code |
+|--------|--------------------|-----------------------------------|------------|--------------------------|
+| **Opacity reduction** (queued = translucent, placed = full, terminal-failure = ?) | `opacity: 0.5` or `rgba()` alpha on the same proposal hue | Colorblind-neutral — opacity doesn't depend on hue perception at all, so it's *safer* than any color-based status signal. Tradeoff: opacity reduces contrast for *everyone*, can make small calendar-grid text harder to read at a glance, especially combined with the white-text-on-color convention already in the template | LOW — this exact mechanism is already shipped for `[QUEUED]` today (`rgba(0,0,0,0.45)`), just needs generalizing to preserve `event.color` underneath instead of overriding it with grey | Direct extension of existing `[QUEUED]` override block in `src/templates/tom_calendar/partials/calendar.html:158-161` — **but today's shipped code replaces `event.color` with a flat grey/black instead of dimming it**, which would erase the proposal-color signal for every queued event. This is a concrete bug DISPLAY-01 must fix, not just extend. |
+| **Border style** (solid border = placed/confirmed, dashed border = queued/tentative, thick/double border = terminal-failure) | CSS `border: 1px dashed ...` vs `border: 1px solid ...` | Colorblind-neutral — border style is a shape/pattern cue, fully independent of hue. Established precedent (Outlook's tentative-vs-confirmed border treatment; the general dashed-outline-for-provisional-data convention). Best precedent match for DISPLAY-02's verified/fallback distinction. | LOW — pure CSS, one extra class/conditional in the template, no JS, no extra markup beyond a conditional class string | Cleanly orthogonal to `event.color` (border != background-fill), so color and status never compete for the same pixels. Easiest "redundant non-color channel" to implement well. |
+| **Diagonal stripe / hatching overlay** (e.g. `repeating-linear-gradient` over the solid fill for queued/tentative) | CSS `background-image: repeating-linear-gradient(45deg, ...)` layered over the solid proposal-color fill | Colorblind-neutral — a geometric pattern, not a hue. Strong, well-established real-world precedent specifically for *this exact* tentative-vs-confirmed distinction (Outlook free/busy striping, multiple resource-scheduling tools). Tradeoff: at the month-grid's small event-block size (~16-18 char width, ~1 line tall) a diagonal stripe pattern may visually compress into noise or just look "smudged" rather than a clean stripe — needs a real visual check at actual rendered size, not just a mock at full scale. | MEDIUM — `repeating-linear-gradient` is GPU-accelerated, no extra images, but tuning stripe width/angle for legibility inside a tiny block takes iteration, and combining it with the white event-text color needs a contrast check | No existing precedent in this codebase to extend (unlike opacity); would be wholly new CSS. Most "visually rich" option but highest tuning cost relative to payoff at this block size. |
+| **Icon/glyph badge** (e.g. a small clock icon for queued, checkmark for placed, X/warning for terminal-failure) | A `<span>` glyph prepended/appended inside the event block, alongside the title text | Colorblind-neutral — shape-based. But adds a second tiny element competing for the same ~16-18 character width that's already truncating titles; on an all-day month-grid block this is the tightest real estate in the whole UI | MEDIUM — needs icon assets or a unicode/emoji set (the calendar already uses an emoji for moon phase, so there's a precedent for emoji-as-glyph in this exact template), plus truncation-width accounting | Has a loose precedent in-template (`day.moon.emoji`) but that's a per-day icon outside the cramped event block, not inside it — fitting a badge into the already-truncated `cal-event-title`/`cal-event-all-day` would likely force shortening the visible title text further, a real tradeoff against legibility of the *other* primary signal (which proposal/program this is, via title text as a secondary check on color). |
+| **Text-prefix only (status quo)** | `[QUEUED]`/`[UNVERIFIED]`/`[EXPIRED]` etc., already shipped | Fully colorblind-safe (it's literally text), and already exists | LOW (already done) | Already shipped; satisfies WCAG 1.4.1's letter but not DISPLAY-01's ask for a *visual* (scannable-without-reading) status language — keeping this is necessary as the fallback/tooltip layer regardless of which visual treatment is chosen, but isn't sufficient on its own per the milestone's intent |
+
+**Working recommendation to carry into the sketch session** (per the downstream consumer's framing — bring options, not a final decision):
+
+- **Border style is the strongest single option to lead with**: lowest complexity, cleanest orthogonality to the color channel, real precedent (Outlook), and no risk of visually fighting with the proposal-color fill the way opacity (dims the very color you're trying to make legible) or stripes (visually busy at small size) can.
+- **Opacity is the cheapest to ship** because it's a one-line generalization of code already in production (the `[QUEUED]` override) — but the *existing* implementation needs fixing regardless of which option wins, because it currently destroys the color signal it's supposed to coexist with. That fix is in scope for DISPLAY-01 either way.
+- **Stripe/hatching is the most "designed" but the riskiest at this UI's actual block size** — worth a quick low-fidelity mockup at real pixel dimensions in the sketch session before committing, not ruling out, just flagging the size risk found in research.
+- **Icon badges are the weakest fit** given how cramped `cal-event-title`/`cal-event-all-day` already are (`truncatechars:16`/`18`); would likely need to drop characters from the title to make room, trading one kind of legibility for another.
+- Consider: **border-style for DISPLAY-01's status states (queued/placed/terminal-failure) AND for DISPLAY-02's verified/fallback distinction**, using two different border *properties* (e.g. solid-vs-dashed for verified/fallback, color-of-border or thickness for queued/placed/failed) so the two independent facts (program identity via fill color, schedule-state via border style, label-confidence via border weight/dash) each get their own channel without needing four-way visual combinations to be individually legible. This convergence is exactly the kind of cross-cutting call worth making explicit in the sketch session rather than deciding by default here.
 
 ## Feature Dependencies
 
 ```
-Multi-proposal / ALL support
-    └──independent of──> Facility scope generalization (LCO+SOAR)
-                              └──requires (shared assumption)──> SOAR ObservationRecord.parameters shape verified == LCO's
-                                                                      (same risk class as v1.2's unverified instrument_type/site assumptions)
+DISPLAY-01 (proposal-keyed color)
+    └──requires──> proposal field already populated on CalendarEvent (SYNC-05, validated v1.2)
+    └──requires──> a curated, colorblind-vetted palette (extends tom_calendar.utils.BOOTSTRAP_COLORS or a FOMO-local equivalent)
+    └──requires──> fixing the existing [QUEUED] template override that currently destroys event.color (src/templates/tom_calendar/partials/calendar.html:158-161)
 
-Correct instrument-type extraction (c_1..c_5 scan)
-    └──blocks──> Telescope label resolution
-                    (need a real instrument_type string before it's worth resolving/displaying a telescope label at all)
+DISPLAY-01 status visual treatment
+    └──requires──> DISPLAY-01's color layer (status treatment is applied ON TOP OF / ORTHOGONAL TO color, not instead of it)
+    └──enhances──> existing title-prefix convention ([QUEUED]/[UNVERIFIED]/terminal prefixes) — visual layer is additive, text stays as accessible fallback/tooltip
 
-Verified static site/telescope mapping (8 sites)
-    └──required by──> Per-record LCO API call enrichment
-                          (the API returns a fully-qualified siteid-enclid-telid code; without the verified
-                           dict there is nothing correct to map it to)
-    └──required by──> Coarse instrument-class fallback
-                          (fallback needs its own mapping, e.g. instrument_type prefix -> '1m0'/'0m4'/'2m0',
-                           independent of the per-site dict but same "verified, not assumed" requirement)
+DISPLAY-02 (verified vs fallback field)
+    └──requires──> a new persisted field (boolean/enum), distinct from the existing TELESCOPE-03/04 fallback-label logic in sync_lco_observation_calendar.py
+    └──enhances──> the existing [UNVERIFIED] title prefix (becomes queryable/testable, not just string-parseable)
 
-Per-record LCO API call enrichment ──enhances──> No-churn create-or-update
-    (must not introduce spurious churn when a record flips between API-success and fallback across runs —
-     see Pitfalls; this is a conflict to actively design around, not a clean enhancement)
-
-Multi-proposal/ALL + facility scope ──amplifies──> partial-failure handling
-    (more records per run = higher probability that *some* record in the run will hit a data error or an
-     API-call failure; the existing skip-and-continue pattern must scale, not just "still technically work")
+DISPLAY-02 visual badge/border
+    └──shares-visual-primitive-with──> DISPLAY-01's status border-style option (both are "is this fact about the event fully trustworthy" signals — dashed/dotted-for-uncertain is a natural shared vocabulary)
 ```
 
 ### Dependency Notes
 
-- **Correct instrument-type extraction blocks telescope label resolution:** there's no point building the API-enrichment/fallback machinery before the instrument string itself is reliably populated — extraction should land first (or in the same phase, sequenced first) so it can be tested independently of the new network-call logic.
-- **Verified static mapping is a hard prerequisite for both the API path and the fallback path:** these are two different lookup tables (fully-qualified site/enclosure/telescope code -> label; instrument_type -> coarse class) but both must be "verified against real data," repeating the exact mistake category from v1.2 (`[ASSUMED]` 2-site dict). Do not ship either lookup table without grounding it in PROJECT.md's confirmed 8-site MPC-code table or equivalent real-API output.
-- **API enrichment enhances (and complicates) no-churn:** this is the one place where a new feature pulls against an existing, validated guarantee (SYNC-04). It needs an explicit design decision before being built, not an incidental side effect discovered in code review.
-- **Multi-proposal/facility scope amplifies partial-failure risk:** this isn't a new dependency so much as a reason the partial-failure design (already adequate for v1.2's single-proposal scope) needs to be revisited at v1.3's larger blast radius — see below.
-
-## Partial-Failure Handling — Detailed Recommendation
-
-This is explicitly the riskiest new behavior in v1.3 (per the question's framing), so it gets its own section rather than a single table row.
-
-**The existing v1.2 pattern is the right foundation and should be extended, not replaced.** v1.2 already established: try to build the record's fields; on `(KeyError, ValueError)`, write a one-line message to `stderr` naming the `observation_id`, increment a `skipped_count`, and `continue` to the next record. The run never aborts because one record's data is bad. This matches the general batch-processing best practice found in the broader engineering literature (AWS Lambda partial-batch-response guidance, Mulesoft/Spring Batch "continue on error with summary reporting", ETL "skip-and-quarantine, don't halt the whole load" pattern) — isolate failures at the smallest unit (one record), keep processing everything else, and report a clear summary at the end. Reserve a full-run abort for *systemic* failures (e.g., the DB is unreachable, `LCOFacility()` itself can't be constructed, the `--proposal` argument is malformed) — not for per-record problems, where failing the whole batch destroys the value of every other record that was otherwise fine.
-
-**For v1.3, the per-record LCO API call introduces a failure mode that is categorically different from v1.2's existing `(KeyError, ValueError)` data-shape failures, and it should be handled differently:**
-
-1. **A failed API call is not a skip — it's a graceful degrade.** Unlike a missing `site` key or a malformed timestamp (where nothing trustworthy can be shown), a failed per-record API call still leaves you with a perfectly good instrument_type, proposal, schedule window, and status. The *only* thing lost is the fine-grained telescope label. The record should still get a `CalendarEvent`, just with the coarse fallback label substituted for the verified one — not added to `skipped_count`.
-2. **Catch network/API failures narrowly and locally**, around just the API call itself (e.g. `requests.RequestException`, timeout, non-200 response, or unexpected response shape) — not by widening the existing `except (KeyError, ValueError)` around the whole `_build_event_fields` call, which would conflate "API down" with "data malformed" into one bucket and one count. Use a short request timeout (a few seconds) and a single attempt — no retry/backoff loop inside the sync run (see Anti-Features); the next scheduled run is the natural retry.
-3. **Track it as its own counter** (e.g. `telescope_fallback_count`) distinct from `skipped_count`, and report it in the final summary line alongside created/updated/unchanged/skipped — extending the existing summary-line pattern rather than introducing a new reporting mechanism.
-4. **Log which records fell back**, the same way v1.2 already logs which records were skipped (`stderr`, one line per record, naming the `observation_id`) — an operator should be able to see "N records used the coarse fallback this run" and know which ones, without needing to dig through the calendar UI.
-5. **Decide explicitly how fallback interacts with no-churn** (this is the one open design question, flagged for the planner): if a record's resolved telescope label can legitimately flip between a verified label (API succeeded) and a coarse label (API failed) across successive runs, is that a "real" field change that should trigger an update + `modified` timestamp bump, or should the no-churn comparison ignore a fallback-vs-verified flip to avoid spurious churn? Recommend treating it as a real, visible change (update fires) **because the fallback label itself should be visually distinguishable** (see below) — a user seeing the label change should be able to tell "we briefly lost the fine-grained placement," which is true and useful information, not noise to suppress.
-
-## Fallback-State UX Representation
-
-No astronomy-domain-specific authoritative convention was found for "unknown specific site, known instrument class" labeling (this sub-question returned only generic UX guidance, confidence LOW). Falling back to the project's own established conventions plus general "graceful degradation should be visible, not invisible" UX principle:
-
-- **Use the same bracketed-prefix convention v1.2 already established** for `[QUEUED]`/`[EXPIRED]`/`[CANCELLED]`/`[FAILED]` title prefixes — this is a convention the calendar's users are already trained to read. A natural extension is a similar marker for the fallback state, e.g. a title built from the coarse class directly (`'1m0 <instrument>'` instead of `'FTS <instrument>'`) rather than inventing a new bracket tag — the coarse label *is* the visible signal that finer placement wasn't available, no extra decoration needed.
-- **Do not silently present the coarse fallback as if it were a confirmed site/telescope.** The whole point of the verified per-site mapping work in v1.3 is to be trustworthy; a fallback that looks identical to a real resolved label would undermine that for every record it touches.
-- **Put the "why" in the description field, not just the title** — v1.2 already populates `CalendarEvent.description` with proposal/status/window text; append a line such as `'Telescope: coarse class only (API lookup failed)'` when in fallback mode, mirroring the existing description-as-detail-surface pattern rather than overloading the title with explanation text.
-- **This is a UX/data-trust decision, not a hard engineering blocker** — flag it to the user/planner as a place where a short product decision (exact wording, whether to add a calendar-event field vs. reuse title/description) is worth 5 minutes of discussion before implementation, rather than researching further; there is no deeper domain consensus to discover here.
+- **DISPLAY-01's color layer requires fixing the existing `[QUEUED]` override before/alongside adding it:** the current shipped code (`src/templates/tom_calendar/partials/calendar.html:158-161`) already special-cases queued events with a hardcoded grey fill that *replaces* `event.color` entirely. Any new proposal-color hash will be invisible on every queued event until this is generalized to dim/border/stripe *around* the proposal color rather than over it. This is a concrete, code-located gap research surfaced — flag for the phase that implements DISPLAY-01.
+- **DISPLAY-01's status treatment enhances rather than replaces the text-prefix convention:** keep `[QUEUED]`/`[UNVERIFIED]`/terminal prefixes in the title regardless of which visual treatment ships — they're the existing, already-tested, fully-accessible fallback channel (screen readers, colorblind users, anyone before the new CSS lands). The new visual treatment is for faster at-a-glance scanning, not a replacement.
+- **DISPLAY-02 shares its visual vocabulary with DISPLAY-01's status treatment if border-style is chosen for both:** a dashed border for "fallback-resolved telescope label" and a dashed border for "queued/tentative schedule state" are semantically similar ("this fact may not be fully reliable yet") — worth deciding in the sketch session whether they should look identical (simpler, reinforces one mental model: dashed = provisional) or be visually distinguished (avoids conflating two different kinds of uncertainty: schedule-state uncertainty vs. label-resolution uncertainty).
+- **DISPLAY-02's new field location is an architecture question, not resolved here:** `CalendarEvent` is an upstream `tom_calendar` model. Adding a field to it means either (a) a FOMO-local migration against the vendored third-party table, (b) a separate FOMO model in a one-to-one relationship, or (c) packing the fact into an existing free-text field (`description`) with a parsed convention — weakest option, repeats the very string-parsing problem DISPLAY-02 exists to avoid. Flag this explicitly for ARCHITECTURE.md / roadmap phase planning.
 
 ## MVP Definition
 
-### Launch With (v1.3)
+### Launch With (v1 — this milestone, DISPLAY-01/02)
 
-Minimum viable product for this milestone — all five target features are interdependent enough that a partial v1.3 would leave the command broken against real data again (same failure mode as v1.2).
+- [ ] Deterministic, curated-palette, colorblind-vetted color hashed from `proposal` — replaces `pk % 9` — essential because it's the explicit headline ask and the cheapest, lowest-risk piece
+- [ ] Fix the existing `[QUEUED]` override so it dims/borders the proposal color rather than discarding it — essential, otherwise the new color signal is invisible for every queued event, defeating the point
+- [ ] One status-visual-treatment option, chosen in the sketch session (border-style is the research-favored starting point) — essential to DISPLAY-01's stated scope, but the *specific* mechanism is explicitly deferred to sketch
+- [ ] Dedicated `telescope_label_verified`-equivalent field on the relevant model, populated from the existing fallback/verified logic in `sync_lco_observation_calendar.py` (TELESCOPE-03/04) — essential, this is DISPLAY-02's literal ask
+- [ ] A minimal visual cue for the verified/fallback distinction (even just reusing the chosen status border-style vocabulary) — essential for DISPLAY-02 to be visually discoverable, not just stored
 
-- [ ] Multi-proposal/`ALL` `--proposal` support — trivial relative to the rest, but required for the stated scope
-- [ ] Facility scope LCO+SOAR (with the SOAR-parameters-shape assumption explicitly verified against at least one real SOAR record before shipping, not assumed)
-- [ ] Correct `c_1..c_5_instrument_type` extraction — this fixes the bug that made v1.2 non-functional against real data; non-negotiable
-- [ ] Verified static 8-site mapping dict (already supplied by PROJECT.md's MPC-code table — transcription, not research)
-- [ ] Per-record API call + coarse-instrument-class fallback, with fallback handled as a distinct non-fatal degrade path (own counter, own log line, visually distinguishable label) — per the detailed recommendation above
+### Add After Validation (v1.x)
 
-### Add After Validation (v1.3.x or later)
+- [ ] Tooltip/title-attribute surfacing the verification field on hover, beyond the visual cue — add once the basic field + visual cue round-trip is confirmed useful in practice
+- [ ] A small on-page legend/key mapping colors to proposals (since an open-ended hash space means users can't memorize "blue = LTP2025A-004" the way a tiny fixed set might allow) — add if user feedback says color alone isn't enough to identify a proposal without hovering/clicking into the event
 
-- [ ] Status-aware `CalendarEvent` coloring (already explicitly deferred per PROJECT.md's pending todo) — natural pairing with the fallback-state visual distinction problem above; revisit together
-- [ ] Distinguishing the fallback-label flip from a real schedule change more explicitly than title text (e.g. a dedicated boolean/field on `CalendarEvent` if the project's `tom_calendar` model allows extension) — only worth it if operators report confusion from the title-text-only approach
+### Future Consideration (v2+)
 
-### Future Consideration (v2+ / Stage 4)
-
-- [ ] Gemini facility support — explicitly out of scope per PROJECT.md (different base class, no usable portal URL to key idempotent sync on)
-- [ ] Retry/backoff for the per-record API call — only worth revisiting if real operational experience shows the single-attempt-then-fallback approach causes a persistently high fallback rate that isn't actually due to genuine API/network failures
+- [ ] WCAG contrast-ratio-aware text color switching (white vs black per background) if/when the palette grows past what's manually contrast-checked — defer until palette size or proposal count makes manual curation unwieldy
+- [ ] FK-backed `Telescope`/`Proposal` models (YSE_PZ-style) instead of free-text `CharField`s — already explicitly deferred per the sibling-TOM comparison doc and `PROJECT.md`'s Out of Scope; revisit only if a future milestone needs relational integrity (e.g. per-proposal metadata beyond a color)
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Correct `c_1..c_5_instrument_type` extraction | HIGH | MEDIUM | P1 |
-| Verified 8-site mapping dict | HIGH | LOW | P1 |
-| Multi-proposal/`ALL` support | MEDIUM | LOW | P1 |
-| Facility scope LCO+SOAR | MEDIUM | LOW–MEDIUM (verification risk) | P1 |
-| Per-record API enrichment + fallback (with distinct non-fatal handling) | HIGH | MEDIUM–HIGH | P1 |
-| Fallback-state visual distinction in title/description | MEDIUM | LOW | P1 (bundled with the above — shipping fallback without it is the anti-feature flagged above) |
-| Status-aware CalendarEvent coloring | MEDIUM | MEDIUM | P3 (already deferred) |
-| Retry/backoff on API calls | LOW | MEDIUM | P3 (anti-feature unless evidence emerges) |
+| Proposal-keyed deterministic color (curated palette) | HIGH | LOW | P1 |
+| Fix `[QUEUED]` override to preserve color signal | HIGH | LOW | P1 |
+| Status visual treatment (border-style favored) | HIGH | LOW-MEDIUM | P1 |
+| Colorblind-safety palette vetting | HIGH (explicit requirement) | LOW | P1 |
+| `telescope_label_verified` field | HIGH | LOW | P1 |
+| Verified/fallback visual cue | MEDIUM-HIGH | LOW | P1 |
+| Tooltip surfacing verification detail | MEDIUM | LOW | P2 |
+| On-page color legend | MEDIUM | LOW-MEDIUM | P2 |
+| Contrast-aware text color switching | LOW (only matters if palette grows) | MEDIUM | P3 |
+| FK-backed Telescope/Proposal models | LOW (not requested, explicitly deferred twice already) | HIGH | P3 |
 
 **Priority key:**
-- P1: Must have for v1.3 launch
+- P1: Must have for this milestone (DISPLAY-01/02)
 - P2: Should have, add when possible
-- P3: Nice to have, future consideration / explicitly deferred
+- P3: Nice to have, future consideration / explicitly out of scope for now
 
-## Competitor Feature Analysis
+## Competitor / Precedent Feature Analysis
 
-No direct competitor product was identified for "unified follow-up calendar across heterogeneous OCS-family queue facilities" — this appears to be a bespoke internal tool rather than a category with established commercial competitors. The closest comparison points are general patterns from adjacent domains, not competing products:
-
-| Feature | General batch-sync tooling (AWS/ETL/Spring Batch) | LCO's own Observation Portal UI | Our Approach |
-|---------|----------------------------------------------------|----------------------------------|--------------|
-| Partial failure handling | Per-record isolation, continue, summarize at end; full-batch abort reserved for systemic errors | N/A (LCO portal shows its own data directly, no sync/aggregation step) | Extend v1.2's existing skip-and-continue convention; new API-failure path treated as non-fatal degrade, not skip |
-| Unknown/partial data display | Generic guidance: design explicitly for partial/stale/failed states, show awareness rather than hiding gaps | N/A | Coarse instrument-class label as the visible signal; description field carries the "why" |
-| Multi-source aggregation | ETL "quarantine bad rows, load the rest" pattern | N/A (single source) | Multi-proposal/multi-facility queryset filter, same record-level isolation extended across both axes |
+| Concern | Google Calendar | Outlook (free/busy) | YSE_PZ (sibling TOM, already documented) | FOMO's planned approach |
+|---------|------------------|----------------------|--------------------------------------------|---------------------------|
+| Color-by-category | User-assignable calendar colors, ~5-7 recommended categories, no enforced colorblind vetting | Calendar-level colors, not status-level | Computed per-view in Python, fixed palette cycled by user or telescope (no colorblind vetting documented) | Deterministic hash from `proposal` into a small curated, colorblind-vetted palette — same *mechanism* as YSE_PZ (palette cycling) but keyed on proposal not telescope, and with explicit accessibility vetting neither precedent documents doing |
+| Tentative/uncertain status | Not really a first-class concept (events are either on the calendar or not) | Diagonal-stripe/hash-mark border for tentative vs. solid for confirmed — direct, well-established precedent | No documented equivalent (read-only renders, no booking-confidence concept) | Recommend border-style (precedented by Outlook) as the lead sketch-session option, layered on top of (not replacing) the proposal color |
+| Verified vs unverified label | N/A | N/A | N/A — no equivalent concept | Novel within this domain; closest general precedent is the dashed-outline-for-provisional-data UI convention, not a calendar-specific one |
 
 ## Sources
 
-- Direct inspection: `/home/tlister/git/fomo_devel/solsys_code/management/commands/sync_lco_observation_calendar.py` (v1.2 shipped code — HIGH confidence, primary basis for partial-failure recommendation)
-- `/home/tlister/git/fomo_devel/.planning/PROJECT.md` (v1.3 milestone scope, verified MPC-code/site table, v1.2 real-data bug findings — HIGH confidence, project-internal source of record)
-- [Best practices for implementing partial batch responses - AWS Prescriptive Guidance](https://docs.aws.amazon.com/prescriptive-guidance/latest/lambda-event-filtering-partial-batch-responses-for-sqs/best-practices-partial-batch-responses.html) — LOW confidence (generic web search), corroborates skip-and-report-don't-abort pattern
-- [Handling Errors During Batch Jobs | MuleSoft Documentation](https://docs.mulesoft.com/mule-runtime/4.3/batch-error-handling-faq) — LOW confidence, corroborates continue-on-error with max-failure circuit breaker pattern
-- [ETL Error Handling - Tim Mitchell](https://www.timmitchell.net/post/2016/12/28/etl-error-handling/) — LOW confidence, corroborates skip-and-quarantine vs. fail-entire-batch tradeoff framing
-- [Observation Portal | Observatory Control System](https://observatorycontrolsystem.github.io/components/observation_portal/) — LOW confidence (web search summary, not direct doc read), describes `/api/observations/` as carrying final site/enclosure placement distinct from request-time parameters
-- [Observatory Control System | Open source software for an API-driven observatory](https://observatorycontrolsystem.github.io/) — LOW confidence, general OCS architecture context (Configuration Database models site/enclosure/telescope hierarchy)
-- General UX fallback-state guidance ("Error handling - UX design patterns" and related search results) — LOW confidence, no domain-specific authoritative source found for astronomy-scheduling fallback labeling; recommendation in this document leans primarily on the project's own existing `[QUEUED]`/`[EXPIRED]` bracket-prefix convention rather than this external search result
+- [eventColor - Docs | FullCalendar](https://fullcalendar.io/docs/eventColor) — MEDIUM confidence (vendor docs via web search summary)
+- [Event color customization - Demos | FullCalendar](https://fullcalendar.io/docs/event-colors-demo) — MEDIUM confidence
+- [How to apply multiple colors for events based on type of events - Issue #137, fullcalendar-angular](https://github.com/fullcalendar/fullcalendar-angular/issues/137) — MEDIUM confidence (community discussion)
+- [How to Color Code Google Calendar (Events, Calendars, and Categories)](https://www.usecarly.com/blog/how-to-color-code-google-calendar/) — MEDIUM confidence
+- [I have a colleague who is color blind... - Google Calendar Community](https://support.google.com/calendar/thread/254793017/) — MEDIUM confidence (real user-reported colorblind pain point, corroborates the milestone's stated concern)
+- [colorhash on PyPI](https://pypi.org/project/colorhash/) and [GitHub - dimostenis/color-hash-python](https://github.com/dimostenis/color-hash-python) — MEDIUM confidence, basis for the hash-to-HSL approach and its tradeoffs (used to support the anti-feature recommendation against raw hash-to-hue)
+- [Colorblind-Friendly Data Visualization | Colorblind](https://colorblind.io/guides/data-visualization) — MEDIUM confidence
+- [Designing for Color Blindness: A Complete Guide | Colorblind](https://colorblind.io/guides/designing-for-color-blindness) — MEDIUM confidence
+- [Making data visualizations accessible - TPGi (Vispero)](https://www.tpgi.com/making-data-visualizations-accessible/) — HIGH confidence (TPGi is a recognized accessibility consultancy; cites WCAG 2.1 SC 1.4.1 directly)
+- [Understanding Outlook's Calendar patchwork colors - Slipstick Systems](https://www.slipstick.com/outlook/calendar/understanding-outlooks-calendar-patchwork-colors/) — MEDIUM confidence
+- [Free/Busy shows slashed lines in Scheduling Assistant - Microsoft Support](https://support.microsoft.com/en-us/topic/free-busy-shows-slashed-lines-in-scheduling-assistant-da1383a8-54fa-4e89-a2d2-214ae7d82615) — HIGH confidence (official Microsoft support doc, confirms the diagonal-stripe-for-tentative convention directly)
+- [Visualize Booking Status: Three Ways to Distinguish Tentative and Confirmed Bookings - Teamup.com](https://www.teamup.com/learn/manage-availability/three-ways-to-visualize-booking-status/) — MEDIUM confidence
+- [Stripes in CSS - CSS-Tricks](https://css-tricks.com/stripes-css/) — HIGH confidence (CSS-Tricks is an authoritative front-end reference) — basis for the `repeating-linear-gradient` feasibility/performance notes
+- [About - Scheduler Visualization - Las Cumbres Observatory](https://schedule.lco.global/help/) — HIGH confidence (LCO's own published documentation of their scheduler visualization tool, directly relevant domain precedent)
+- `docs/design/tom_calendar_vs_yse_pz_calendar.rst` (in-repo, already-completed sibling-TOM comparison) — HIGH confidence, primary internal source for YSE_PZ's per-view Python color-cycling approach
+- `tom_calendar` installed package source (`models.py`, `utils.py`, `templates/tom_calendar/partials/calendar.html`) — HIGH confidence, direct inspection confirming `CalendarEvent.color` is a read-only `pk`-keyed property and the `BOOTSTRAP_COLORS`/`target_list_color()` precedent
+- `src/templates/tom_calendar/partials/calendar.html` (FOMO project-level template override) — HIGH confidence, direct inspection confirming the existing `[QUEUED]` block currently discards `event.color`
+- `solsys_code/management/commands/sync_lco_observation_calendar.py` — HIGH confidence, direct inspection confirming the existing `[UNVERIFIED]`/terminal-prefix title-string convention DISPLAY-01/02 build on
 
 ---
-*Feature research for: astronomical follow-up scheduling — LCO-family OCS queue sync*
-*Researched: 2026-06-19*
+*Feature research for: calendar/scheduling UI color-by-category and status/confidence visual language, for FOMO v1.4 "Calendar Visual Clarity" (DISPLAY-01/02)*
+*Researched: 2026-06-24*
