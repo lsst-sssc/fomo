@@ -22,10 +22,20 @@ from tom_observations.models import ObservationRecord
 # 2m0 (FTS/FTN), 'sor' confirmed 4m0 (SOAR, tom_observations.facilities.soar hardcodes
 # 'sitecode': 'sor'). 'elp'/'lsc'/'cpt'/'tfn' confirmed by operator (LCO staff) at the
 # 07-01 Task 1 checkpoint -- see 07-01-SUMMARY.md -- as standard 1m-network sites
-# hosting both 1m0 and 0m4 telescope classes.
+# hosting both 1m0 and 0m4 telescope classes. 'coj' (Siding Spring) and 'ogg' (Haleakala)
+# additionally host 0m4/1m0 (coj) and 0m4 (ogg) -- CONFIRMED (not [ASSUMED]) against the
+# authoritative public source https://lco.global/observatory/sites/mpccodes/ (SITEID
+# column combined with the first 3 chars of TELID, deduped across all rows); this is
+# stronger evidence than the operator-confirmation basis for the original Plan 07-01
+# entries above. Closes the SITE_TELESCOPE_MAP completeness gap found in Phase 7 UAT
+# Test 1 (07-UAT.md Gaps section), where a real placed record (observation_id=4213127)
+# resolved to ('coj', '1m0') but fell back to [UNVERIFIED] for lack of this entry.
 SITE_TELESCOPE_MAP = {
     ('coj', '2m0'): 'COJ-2m0',
+    ('coj', '1m0'): 'COJ-1m0',
+    ('coj', '0m4'): 'COJ-0m4',
     ('ogg', '2m0'): 'OGG-2m0',
+    ('ogg', '0m4'): 'OGG-0m4',
     ('sor', '4m0'): 'SOR-4m0',
     ('elp', '1m0'): 'ELP-1m0',
     ('elp', '0m4'): 'ELP-0m4',
