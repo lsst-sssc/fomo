@@ -84,6 +84,7 @@
   2. A `[QUEUED]` event still shows its proposal color (dimmed/bordered as appropriate), instead of today's flat grey that discards it.
   3. Queued, placed, and terminal-failure events are visually distinguishable from each other via a status treatment (mechanism chosen via `/gsd:sketch` during phase planning) layered on top of proposal color, for both all-day and timed events; the existing `[QUEUED]`/`[UNVERIFIED]`/terminal-prefix text remains as an accessible fallback.
   4. A viewer can look at an on-page legend and match a rendered color to its proposal code without hovering or clicking into any event.
+  5. Clicking a legend entry highlights that proposal's events and dims the rest of the calendar grid, client-side with no page reload; clicking again clears the highlight. (Scope added during Phase 9 discussion, 2026-06-25 — see DISPLAY-07 in REQUIREMENTS.md.)
 
 **Plans**: TBD
 **UI hint**: yes

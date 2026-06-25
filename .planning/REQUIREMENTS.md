@@ -18,7 +18,7 @@ Requirements for milestone v1.4. Each maps to roadmap phases.
 - [ ] **DISPLAY-04**: `CalendarEvent` color is hashed deterministically from a normalized (`.strip().upper()`) `proposal` string into a small, curated, colorblind-vetted palette (extending the `BOOTSTRAP_COLORS` precedent), replacing today's meaningless `pk`-based color. The same proposal renders identically across telescopes, htmx month-grid re-renders, and process restarts. Applies to both the all-day and timed-event render branches. Events with an empty `proposal` (classical schedule) get a dedicated neutral palette slot, not a raw hash of the empty string.
 - [ ] **DISPLAY-05**: The existing `[QUEUED]` template override (`calendar.html:158-161`), which currently replaces `event.color` with flat grey, is fixed so the proposal color survives under a status modifier (dimmed/bordered, not discarded).
 - [ ] **DISPLAY-06**: A status visual treatment — mechanism (border-style/opacity/stripe) decided via a `/gsd:sketch` session during phase planning, research favors border-style — is layered orthogonally on top of (not instead of) the proposal color, distinguishing queued/placed/terminal-failure states for both all-day and timed events. The existing `[QUEUED]`/`[UNVERIFIED]`/terminal-prefix text convention remains as the accessible fallback channel.
-- [ ] **DISPLAY-07**: A small on-page legend/key maps proposal codes to their rendered colors, so a proposal's color can be identified without hovering or clicking into an event.
+- [ ] **DISPLAY-07**: A small on-page legend/key maps proposal codes to their rendered colors, so a proposal's color can be identified without hovering or clicking into an event. Scope expanded during Phase 9 discussion (2026-06-25): clicking a legend entry toggles a client-side highlight/dim filter on the calendar grid for that proposal (no page reload, no server round-trip), clicking again clears it. If two or more proposals collide on the same palette color, the legend groups them under one swatch listing all colliding proposal codes, rather than implying more distinct colors than the palette has.
 
 ## v2 Requirements
 
@@ -64,4 +64,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-24*
-*Last updated: 2026-06-24 after v1.4 roadmap creation (Phase 8: DISPLAY-01/02/03 sidecar; Phase 9: DISPLAY-04/05/06/07 color/status)*
+*Last updated: 2026-06-25 after Phase 9 discuss-phase — DISPLAY-07 scope expanded (click-to-filter legend toggle) per user decision*
