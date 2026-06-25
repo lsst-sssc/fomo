@@ -123,3 +123,7 @@ None - no external service configuration required.
 ---
 *Phase: 08-telescope-label-verification-sidecar*
 *Completed: 2026-06-25*
+
+## Self-Check: PASSED
+
+All created/modified files confirmed present on disk; all three commit hashes (`68dd6f4`, `57949b5`, `fc36a65`) confirmed present in `git log --oneline --all`.
