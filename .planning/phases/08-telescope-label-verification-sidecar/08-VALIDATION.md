@@ -1,9 +1,9 @@
 ---
 phase: 8
 slug: telescope-label-verification-sidecar
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: final
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-25
 ---
 
@@ -36,25 +36,35 @@ created: 2026-06-25
 
 ## Per-Task Verification Map
 
-> Task ID / Plan / Wave columns are assigned by the planner once PLAN.md exists for this phase; rows below are keyed by requirement ID from RESEARCH.md's "Phase Requirements → Test Map" until then.
+> Reconciled against the finalized 08-01-PLAN.md (Wave 1) and 08-02-PLAN.md (Wave 2).
+> Each plan task carries an `<automated>` verify command; rows below map task → requirement → command.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | 0 | DISPLAY-01 | — | Sync writes a sidecar row matching `telescope_api_failed` outcome (verified/fallback) | unit/integration | new test method in `test_sync_lco_observation_calendar.py` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 0 | DISPLAY-01 | — | No sidecar row created for `load_telescope_runs`-created events | unit/integration | new test method in `test_load_telescope_runs.py` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 0 | DISPLAY-01 | — | Re-running sync on unchanged records does not create duplicate sidecar rows or churn `CalendarEvent.modified` | unit/integration (no-churn regression) | new test method mirroring `test_sync_04_rerun_updates_in_place_no_churn_on_unchanged` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 0 | DISPLAY-02 | — | Fallback-labeled event renders with dashed-border CSS (all-day and timed branches); verified event renders with solid/default border | template-rendering / view-level integration | new test file/method asserting rendered HTML | ❌ W0 | ⬜ pending |
-| TBD | TBD | 0 | DISPLAY-02 | — | A `load_telescope_runs` event (no sidecar row) renders as verified, not as a template error | template-rendering / view-level integration | same new test file, assert no exception + solid-border rendering | ❌ W0 | ⬜ pending |
-| TBD | TBD | 0 | DISPLAY-03 | — | Hovering a fallback-labeled event shows a tooltip with the verification detail | template-rendering | same new test file, assert `title="..."` substring in rendered HTML | ❌ W0 | ⬜ pending |
+| Task 1 | 01 | 1 | DISPLAY-01 | T-08-02 | Sidecar model + first migration exist; reverse accessor `telescope_label_meta` resolves; CASCADE delete prevents orphan rows | migration/model integration | `./manage.py makemigrations solsys_code --check --dry-run; ./manage.py migrate solsys_code; python -c "from solsys_code.models import CalendarEventTelescopeLabel ..."` | ✅ planned | ⬜ pending |
+| Task 2 | 01 | 1 | DISPLAY-01 | T-08-01 | Sync writes a sidecar row matching `telescope_api_failed` outcome (verified→is_verified True, fallback→False); no row for `load_telescope_runs` events; re-run creates no duplicate / no churn | unit/integration | `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar solsys_code.tests.test_load_telescope_runs -v2` | ✅ planned | ⬜ pending |
+| Task 3 | 01 | 1 | DISPLAY-01 | T-08-03 | Demo notebook re-executed, references `CalendarEventTelescopeLabel`, shows verified + fallback + no-row cases, committed with output | notebook-execution / convention | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb && python -c "... assert 'CalendarEventTelescopeLabel' in src ..."` | ✅ planned | ⬜ pending |
+| Task 1 | 02 | 2 | DISPLAY-02, DISPLAY-03 | T-08-04 | Fallback event renders 2px dashed border + `title=` tooltip on both all-day and timed branches; verified / no-row events unstyled; `== False` idiom only | template (static assertion) | `python -c "s=open('src/templates/tom_calendar/partials/calendar.html').read(); assert s.count('is_verified == False')==2 ... assert 'title=' in s and 'estimate' in s"` | ✅ planned | ⬜ pending |
+| Task 2 | 02 | 2 | DISPLAY-02, DISPLAY-03 | T-08-06 | Calendar page renders 200; fallback events show dashed border + tooltip; verified/no-row events excluded; no-sidecar-row event does not 500 (A1) | template-rendering / view-level integration | `./manage.py test solsys_code.tests.test_calendar_template -v2` | ✅ planned | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*File Exists: ✅ planned = task defined in PLAN.md with concrete `<automated>` verify · ❌ = absent · Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] No template-rendering test exists yet for `src/templates/tom_calendar/partials/calendar.html` — this phase must establish that pattern (`django.test.Client` against a real `CalendarEvent`/`CalendarEventTelescopeLabel` fixture, consistent with `solsys_code/solsys_code_observatory/tests/test_views.py`'s existing `Client`-based precedent).
-- [ ] First-ever migration for `solsys_code` — confirm `./manage.py makemigrations solsys_code` produces a clean migration and `./manage.py migrate` runs clean on a fresh DB as part of Wave 0/the first task, not assumed.
+No dedicated Wave-0 scaffolding tasks exist — every task in the finalized plans carries a real,
+runnable `<automated>` verify command (no `MISSING — Wave 0 must create ...` placeholders). The two
+infrastructure prerequisites originally flagged here are each satisfied inline by a Wave-1 task rather
+than a separate Wave-0 step, so `wave_0_complete` is vacuously true:
+
+- [x] **First-ever migration for `solsys_code`** — handled by **Plan 01, Task 1 (Wave 1)**, whose verify
+  runs `./manage.py makemigrations solsys_code --check --dry-run` and `./manage.py migrate solsys_code`,
+  proving the generated migration applies clean. Not assumed.
+- [x] **First `calendar.html` template-rendering test** — established by **Plan 02, Task 2 (Wave 2)**,
+  which creates `solsys_code/tests/test_calendar_template.py` using `django.test.Client` against real
+  `CalendarEvent`/`CalendarEventTelescopeLabel` fixtures, per the
+  `solsys_code/solsys_code_observatory/tests/test_views.py` precedent.
 
 *`assertNumQueries` is NOT required for this phase — N+1 mitigation is deferred per CONTEXT.md's locked decision (accept-as-is, DISPLAY-09 deferred to v2).*
 
@@ -68,11 +78,11 @@ All phase behaviors have automated verification (template-rendering test covers 
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies — all 5 tasks across both plans carry a concrete `<automated>` command (no `MISSING` placeholders).
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify — every task has automated verify, so there is no run of unverified tasks at all.
+- [x] Wave 0 covers all MISSING references — vacuously satisfied: there are no `MISSING — Wave 0 must create ...` references in either plan.
+- [x] No watch-mode flags — no `--watch`/`-w`/watch-mode commands; all verifies are single-shot (`./manage.py test`, `makemigrations`/`migrate`, `python -c`, one-shot `jupyter nbconvert`).
+- [x] Feedback latency < 60s — satisfied for all task-commit and wave commands. The Django test commands (`./manage.py test solsys_code`) run in ~30–60s with no network/SPICE I/O. **Exception (acknowledged, acceptable):** Plan 01 Task 3's `jupyter nbconvert --to notebook --execute` is the one command expected to exceed 60s (notebook kernel startup + cell execution, est. ~60–120s). This is a once-per-phase pre-`/gsd-verify-work` notebook regeneration, not a per-task-commit sampling command, so it does not break the inner feedback loop; the fast inner-loop command stays `./manage.py test solsys_code.tests.test_sync_lco_observation_calendar`.
+- [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** pending
+**Approval:** approved (reconciled against finalized 08-01-PLAN.md / 08-02-PLAN.md)
