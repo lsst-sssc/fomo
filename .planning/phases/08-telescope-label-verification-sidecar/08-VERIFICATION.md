@@ -1,14 +1,16 @@
 ---
 phase: 08-telescope-label-verification-sidecar
 verified: 2026-06-25T13:44:25Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Open /calendar/ in a browser with at least one fallback-labeled event present (e.g. seed one via the demo notebook's fallback fixture, or run sync_lco_observation_calendar against a record that times out) and look at the calendar grid."
     expected: "The fallback event's block shows a visibly dashed border distinct from neighboring solid-bordered events, at normal viewing zoom, without needing to open the event or read its title."
     why_human: "Automated tests assert the exact CSS string '2px dashed rgba(0, 0, 0, 0.65)' and the tooltip substring 'estimate' are present in the rendered HTML — they prove the markup exists and is scoped correctly, but they cannot judge whether the dashed border is subjectively perceptible as a visual cue distinguishable from the existing [QUEUED] solid border treatment and the default solid/borderless verified style, side by side on an actual rendered page."
+
   - test: "Hover over the same fallback-labeled event block in the browser."
     expected: "The browser's native title tooltip appears within ~1 second, showing the plain-language sentence explaining the label is an unverified, coarse fallback (not the LCO API outcome itself)."
     why_human: "The test suite asserts the title= attribute's substring is present in the HTML response; it does not (and cannot, without a browser automation tool) confirm the native tooltip actually renders on hover in a real browser."
