@@ -5,8 +5,8 @@ milestone_name: Calendar Visual Clarity
 current_phase: 8
 current_phase_name: Telescope Label Verification Sidecar
 status: planning
-stopped_at: Phase 8 context gathered
-last_updated: "2026-06-25T01:55:23.285Z"
+stopped_at: Phase 8 UI-SPEC approved
+last_updated: "2026-06-25T02:31:34.249Z"
 last_activity: 2026-06-24
 last_activity_desc: ROADMAP.md created for v1.4 (Phases 8-9), REQUIREMENTS.md traceability updated
 progress:
@@ -121,9 +121,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T01:55:23.272Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-telescope-label-verification-sidecar/08-CONTEXT.md
+Last session: 2026-06-25T02:31:34.234Z
+Stopped at: Phase 8 UI-SPEC approved
+Resume file: .planning/phases/08-telescope-label-verification-sidecar/08-UI-SPEC.md
 
 ## Operator Next Steps
 
