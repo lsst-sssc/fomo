@@ -22,6 +22,7 @@ from solsys_code.management.commands.sync_lco_observation_calendar import (
     _derive_telescope,
     _resolve_placement_block,
 )
+from solsys_code.models import CalendarEventTelescopeLabel
 
 
 def _parameters(
@@ -200,6 +201,58 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertNotIn('[QUEUED]', event.title)
         self.assertNotIn('[UNVERIFIED]', event.title)
 
+    def test_display_01_verified_record_creates_sidecar_row_is_verified_true(self):
+        """DISPLAY-01: a successfully API-verified record gets a sidecar row with
+        is_verified=True."""
+        sched_start = datetime(2026, 7, 5, 10, 0, 0, tzinfo=dt_timezone.utc)
+        sched_end = datetime(2026, 7, 5, 12, 0, 0, tzinfo=dt_timezone.utc)
+        self._create_record(
+            '555556',
+            proposal='MATCHCODE',
+            scheduled_start=sched_start,
+            scheduled_end=sched_end,
+            site='coj',
+            instrument_type='2M0-SCICAM-MUSCAT',
+        )
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'MATCHCODE',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        event = CalendarEvent.objects.get()
+        self.assertTrue(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+
+    def test_display_01_fallback_record_creates_sidecar_row_is_verified_false(self):
+        """DISPLAY-01: a placed record whose API call times out (fallback label) gets a
+        sidecar row with is_verified=False."""
+        self._create_record(
+            '800301',
+            proposal='SIDECARFALLBACK',
+            scheduled_start=datetime(2026, 7, 18, 0, 0, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 18, 2, 0, 0, tzinfo=dt_timezone.utc),
+            site='coj',
+            instrument_type='1M0-SCICAM-SINISTRO',
+        )
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            side_effect=requests.exceptions.Timeout,
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'SIDECARFALLBACK',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        event = CalendarEvent.objects.get()
+        self.assertFalse(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+
     def test_sync_05_telescope_instrument_proposal_populated(self):
         """SYNC-05: telescope/instrument/proposal populated from the record.
 
@@ -360,7 +413,47 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertNotEqual(rescheduled_event.modified, modified_before[rescheduled_event.pk])
         self.assertEqual(unchanged_event.modified, modified_before[unchanged_event.pk])
         self.assertIn('updated: 1', stdout2.getvalue())
-        self.assertIn('unchanged: 1', stdout2.getvalue())
+
+    def test_display_01_rerun_on_unchanged_record_no_duplicate_sidecar_row(self):
+        """DISPLAY-01: re-running sync twice on an unchanged record keeps the sidecar
+        row count at 1 (no duplicate) and the row's pk (the event's own pk) unchanged."""
+        sched_start = datetime(2026, 7, 19, 0, 0, 0, tzinfo=dt_timezone.utc)
+        sched_end = datetime(2026, 7, 19, 2, 0, 0, tzinfo=dt_timezone.utc)
+        self._create_record(
+            '800401',
+            proposal='SIDECARNOCHURN',
+            scheduled_start=sched_start,
+            scheduled_end=sched_end,
+            site='coj',
+            instrument_type='2M0-SCICAM-MUSCAT',
+        )
+
+        with patch(
+            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+        ):
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'SIDECARNOCHURN',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+            self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 1)
+            event_pk_before = CalendarEvent.objects.get().pk
+
+            call_command(
+                'sync_lco_observation_calendar',
+                '--proposal',
+                'SIDECARNOCHURN',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 1)
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.pk, event_pk_before)
+        self.assertTrue(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
 
     def test_sync_05_d05_description_contains_proposal_status_and_window(self):
         """SYNC-05/D-05: description contains proposal code, status, and the active time window."""

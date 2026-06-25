@@ -13,6 +13,8 @@ from tom_observations.facilities.ocs import make_request
 from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 
+from solsys_code.models import CalendarEventTelescopeLabel
+
 # (site, aperture_class) -> 'SITECODE-CLASS' telescope label (TELESCOPE-01/D-03/D-04).
 # Verified, real-data-grounded inventory of the 7 real LCO-network sites this
 # codebase's installed LCOSettings/SOARSettings actually confirm (tlv/Wise Observatory
@@ -624,6 +626,15 @@ class Command(BaseCommand):
                     counters[record.facility]['updated'] += 1
                 else:
                     counters[record.facility]['unchanged'] += 1
+
+            # Phase 8 / DISPLAY-01: always reconcile the sidecar row to the current
+            # telescope_api_failed signal, regardless of whether CalendarEvent's own
+            # fields changed -- kept as a separate statement, never folded into
+            # `fields` or `changed`. is_verified reflects the outcome of the most
+            # recent sync run that included this record, not real-time state.
+            CalendarEventTelescopeLabel.objects.update_or_create(
+                event=event, defaults={'is_verified': not telescope_api_failed}
+            )
 
         # D-08: per-facility breakdown. Each facility's six counts use the same
         # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' /

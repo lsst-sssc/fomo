@@ -6,6 +6,7 @@ from django.core.management import call_command
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 
+from solsys_code.models import CalendarEventTelescopeLabel
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
@@ -133,6 +134,18 @@ class TestLoadTelescopeRuns(TestCase):
             # Second run summary should report updated: 0
             summary = stdout2.getvalue()
             self.assertIn('updated: 0', summary)
+
+    def test_display_01_no_sidecar_row_for_classically_scheduled_event(self):
+        """DISPLAY-01: load_telescope_runs never resolves a telescope label via the LCO
+        API, so events it creates have no CalendarEventTelescopeLabel row at all."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 0)
+        event = CalendarEvent.objects.first()
+        with self.assertRaises(CalendarEventTelescopeLabel.DoesNotExist):
+            _ = event.telescope_label_meta
 
     def test_unparseable_line_logged_and_skipped(self):
         """D-02: an ambiguous 'Magellan ...' line is logged to stderr with line number; valid lines still process."""
