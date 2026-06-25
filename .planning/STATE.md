@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Calendar Visual Clarity
-current_phase: 08
-current_phase_name: telescope-label-verification-sidecar
-status: verifying
-stopped_at: Completed 08-02-PLAN.md (Phase 8 complete, ready for verification)
-last_updated: "2026-06-25T06:34:13.212Z"
+current_phase: 9
+current_phase_name: Proposal Color & Status Visual Treatment
+status: ready
+stopped_at: Phase 8 complete — UAT'd and security-verified, ready to plan Phase 9
+last_updated: "2026-06-25T14:26:05.101Z"
 last_activity: 2026-06-25
-last_activity_desc: Phase 08 execution started
+last_activity_desc: Phase 08 complete (UAT passed, security verified), transitioned to Phase 9
 progress:
   total_phases: 2
   completed_phases: 1
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close, "Current Milestone" section added for v1.4)
 
 **Core value:** Make `CalendarEvent` color and status convey real meaning (proposal identity, queued/placed/failed state) and add a dedicated field for fallback-resolved telescope labels.
-**Current focus:** Phase 08 — telescope-label-verification-sidecar
+**Current focus:** Phase 9 — Proposal Color & Status Visual Treatment
 
 ## Current Position
 
-Phase: 08 (telescope-label-verification-sidecar) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-06-25 — Phase 08 execution started
+Phase: 9 — Proposal Color & Status Visual Treatment
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-25 — Phase 08 complete (UAT passed, security verified), transitioned to Phase 9
 
 ## Performance Metrics
 
@@ -54,7 +54,7 @@ Last activity: 2026-06-25 — Phase 08 execution started
 | 07 P01 | 1 (50 min, 3 tasks, 3 files) | - | - |
 | 07 P02 | 1 (~50 min, 3 tasks, 3 files) | - | - |
 | 07.1 P01 | 1 (25 min, 3 tasks, 3 files) | - | - |
-| 08 | TBD | - | - |
+| 08 | 2 | - | - |
 | 09 | TBD | - | - |
 | Phase 08 P01 | 24min | 3 tasks | 6 files |
 | Phase 08 P02 | 11min | 2 tasks | 2 files |
@@ -80,7 +80,7 @@ All v1.0-v1.3 decisions logged in PROJECT.md's Key Decisions table (backfilled a
 
 ### Blockers/Concerns
 
-None open. v1.3's Phase 7 research gaps were all resolved and verified live (see PROJECT.md Key Decisions). v1.4 Phase 8/9 each carry one explicit open scope/design decision to make during planning (N+1 mitigation scope for Phase 8; status-treatment mechanism via `/gsd:sketch` for Phase 9) — both already flagged in ROADMAP.md and research docs, not blockers.
+None open. v1.3's Phase 7 research gaps were all resolved and verified live (see PROJECT.md Key Decisions). Phase 8's N+1 mitigation scope call resolved during planning (accepted as-is, per-event reverse-accessor read; batching deferred to v2 as DISPLAY-09 — see T-08-05 in 08-SECURITY.md). v1.4 Phase 9 still carries one explicit open design decision to make during planning (status-treatment mechanism via `/gsd:sketch`) — already flagged in ROADMAP.md and research docs, not a blocker.
 
 ### Quick Tasks Completed
 
@@ -125,11 +125,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T06:34:13.188Z
-Stopped at: Completed 08-02-PLAN.md (Phase 8 complete, ready for verification)
+Last session: 2026-06-25T14:30:00Z
+Stopped at: Phase 8 complete, ready to plan Phase 9
 Resume file: None
 
 ## Operator Next Steps
 
-- Review and approve the v1.4 roadmap (Phases 8-9).
-- Start Phase 8 with `/gsd-plan-phase 8`.
+- Phase 8 complete (UAT'd, security-verified). Start Phase 9 with `/gsd-discuss-phase 9` or `/gsd-plan-phase 9`.

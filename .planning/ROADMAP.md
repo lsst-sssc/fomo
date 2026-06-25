@@ -100,7 +100,7 @@
 | 6. Correct Instrument-Type Extraction | v1.3 | 1/1 | Complete | 2026-06-21 |
 | 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 2/2 | Complete | 2026-06-24 |
 | 07.1. Close gap: SOAR fallback label is facility-unaware | v1.3 | 1/1 | Complete | 2026-06-24 |
-| 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete   | 2026-06-25 |
+| 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 0/TBD | Not started | - |
 
 Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
