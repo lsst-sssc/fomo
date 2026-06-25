@@ -9,7 +9,7 @@ Requirements for milestone v1.4. Each maps to roadmap phases.
 
 ### Telescope Label Verification (DISPLAY-02)
 
-- [ ] **DISPLAY-01**: A new `CalendarEventTelescopeLabel` sidecar model (`OneToOneField(primary_key=True)` on `CalendarEvent`) records whether a record's telescope label was live-resolved or fallback-guessed; `sync_lco_observation_calendar.py` writes it via `update_or_create` immediately after the existing `CalendarEvent.objects.get_or_create(...)` block, populated from the existing TELESCOPE-03/04 fallback-vs-verified logic. No sidecar row is created for classically-scheduled events (`load_telescope_runs.py` unchanged); the template treats a missing row as "verified" by documented default.
+- [x] **DISPLAY-01**: A new `CalendarEventTelescopeLabel` sidecar model (`OneToOneField(primary_key=True)` on `CalendarEvent`) records whether a record's telescope label was live-resolved or fallback-guessed; `sync_lco_observation_calendar.py` writes it via `update_or_create` immediately after the existing `CalendarEvent.objects.get_or_create(...)` block, populated from the existing TELESCOPE-03/04 fallback-vs-verified logic. No sidecar row is created for classically-scheduled events (`load_telescope_runs.py` unchanged); the template treats a missing row as "verified" by documented default.
 - [ ] **DISPLAY-02**: The calendar UI shows a visual cue (border/badge style, sharing the same visual vocabulary as the status-treatment border style where convergent) distinguishing a fallback-resolved label from a verified one — discoverable without reading the title text.
 - [ ] **DISPLAY-03**: Hovering a fallback-labeled event shows a tooltip (title attribute) with the verification detail, beyond the visual cue alone.
 
@@ -48,7 +48,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DISPLAY-01 | Phase 8 | Pending |
+| DISPLAY-01 | Phase 8 | Complete |
 | DISPLAY-02 | Phase 8 | Pending |
 | DISPLAY-03 | Phase 8 | Pending |
 | DISPLAY-04 | Phase 9 | Pending |
@@ -57,6 +57,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DISPLAY-07 | Phase 9 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 7 total
 - Mapped to phases: 7/7 ✓
 - Unmapped: 0

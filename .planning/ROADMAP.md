@@ -62,10 +62,10 @@
   4. Hovering a fallback-labeled event shows a tooltip with the verification detail (not just the visual cue alone).
   5. Re-running the sync command on unchanged records does not create duplicate sidecar rows and does not churn `CalendarEvent.modified` (existing no-churn contract preserved).
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — Sidecar model + first migration + sync_lco_observation_calendar write + tests + demo notebook (DISPLAY-01)
+- [x] 08-01-PLAN.md — Sidecar model + first migration + sync_lco_observation_calendar write + tests + demo notebook (DISPLAY-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -100,7 +100,7 @@
 | 6. Correct Instrument-Type Extraction | v1.3 | 1/1 | Complete | 2026-06-21 |
 | 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 2/2 | Complete | 2026-06-24 |
 | 07.1. Close gap: SOAR fallback label is facility-unaware | v1.3 | 1/1 | Complete | 2026-06-24 |
-| 8. Telescope Label Verification Sidecar | v1.4 | 0/2 | Not started | - |
+| 8. Telescope Label Verification Sidecar | v1.4 | 1/2 | In Progress|  |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 0/TBD | Not started | - |
 
 Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Calendar Visual Clarity
-current_phase: 8
-current_phase_name: Telescope Label Verification Sidecar
-status: planning
+current_phase: 08
+current_phase_name: telescope-label-verification-sidecar
+status: executing
 stopped_at: Phase 8 UI-SPEC approved
-last_updated: "2026-06-25T02:31:34.249Z"
-last_activity: 2026-06-24
-last_activity_desc: ROADMAP.md created for v1.4 (Phases 8-9), REQUIREMENTS.md traceability updated
+last_updated: "2026-06-25T05:57:50.498Z"
+last_activity: 2026-06-25
+last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 2
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close, "Current Milestone" section added for v1.4)
 
 **Core value:** Make `CalendarEvent` color and status convey real meaning (proposal identity, queued/placed/failed state) and add a dedicated field for fallback-resolved telescope labels.
-**Current focus:** Roadmap created for v1.4 (Phases 8-9). Next: `/gsd-plan-phase 8`
+**Current focus:** Phase 08 — telescope-label-verification-sidecar
 
 ## Current Position
 
-Phase: 8 (Telescope Label Verification Sidecar) — not started
-Plan: —
-Status: Roadmap created, ready for phase planning
-Last activity: 2026-06-24 — ROADMAP.md created for v1.4 (Phases 8-9), REQUIREMENTS.md traceability updated
+Phase: 08 (telescope-label-verification-sidecar) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-06-25 — Phase 08 execution started
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Last activity: 2026-06-24 — ROADMAP.md created for v1.4 (Phases 8-9), REQUIREM
 | 07.1 P01 | 1 (25 min, 3 tasks, 3 files) | - | - |
 | 08 | TBD | - | - |
 | 09 | TBD | - | - |
+| Phase 08 P01 | 24min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,7 @@ All v1.0-v1.3 decisions logged in PROJECT.md's Key Decisions table (backfilled a
 - Phase order: Phase 8 (DISPLAY-02/03/01 sidecar) before Phase 9 (DISPLAY-04/05/06/07 color/status) — research-recommended ordering, isolates the riskier first-ever-migration/cross-app-OneToOneField work from the purely-additive template work in Phase 9.
 - DISPLAY-06's open design decision (status visual treatment mechanism: border/opacity/stripe) is resolved via `/gsd:sketch` during Phase 9 planning, not pre-decided by roadmap — kept inside Phase 9 rather than split into its own phase, since "coarse" granularity and its tight coupling to DISPLAY-05's `[QUEUED]` fix and DISPLAY-07's legend (same template, same render pass) don't warrant a third phase.
 - N+1 mitigation (batching template tag for the sidecar's reverse O2O reverse accessor) is a Phase 8 planning-time scope call, not decided here — research flags both "accept as-is" and "bulk-prefetch tag" as legitimate options for current calendar-event volume.
+- [Phase 08]: Migration generated with explicit --name calendareventtelescopelabel flag to match the plan's must_haves artifact filename; content stays deterministic/unedited
 
 ### Pending Todos
 
@@ -121,7 +123,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T02:31:34.234Z
+Last session: 2026-06-25T05:57:15.671Z
 Stopped at: Phase 8 UI-SPEC approved
 Resume file: .planning/phases/08-telescope-label-verification-sidecar/08-UI-SPEC.md
 
