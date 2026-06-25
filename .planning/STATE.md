@@ -4,17 +4,17 @@ milestone: v1.4
 milestone_name: Calendar Visual Clarity
 current_phase: 08
 current_phase_name: telescope-label-verification-sidecar
-status: executing
-stopped_at: Phase 8 UI-SPEC approved
-last_updated: "2026-06-25T05:57:50.498Z"
+status: verifying
+stopped_at: Completed 08-02-PLAN.md (Phase 8 complete, ready for verification)
+last_updated: "2026-06-25T06:34:13.212Z"
 last_activity: 2026-06-25
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 2
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close, "Curre
 
 Phase: 08 (telescope-label-verification-sidecar) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-25 — Phase 08 execution started
 
 ## Performance Metrics
@@ -57,6 +57,7 @@ Last activity: 2026-06-25 — Phase 08 execution started
 | 08 | TBD | - | - |
 | 09 | TBD | - | - |
 | Phase 08 P01 | 24min | 3 tasks | 6 files |
+| Phase 08 P02 | 11min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,7 @@ All v1.0-v1.3 decisions logged in PROJECT.md's Key Decisions table (backfilled a
 - DISPLAY-06's open design decision (status visual treatment mechanism: border/opacity/stripe) is resolved via `/gsd:sketch` during Phase 9 planning, not pre-decided by roadmap — kept inside Phase 9 rather than split into its own phase, since "coarse" granularity and its tight coupling to DISPLAY-05's `[QUEUED]` fix and DISPLAY-07's legend (same template, same render pass) don't warrant a third phase.
 - N+1 mitigation (batching template tag for the sidecar's reverse O2O reverse accessor) is a Phase 8 planning-time scope call, not decided here — research flags both "accept as-is" and "bulk-prefetch tag" as legitimate options for current calendar-event volume.
 - [Phase 08]: Migration generated with explicit --name calendareventtelescopelabel flag to match the plan's must_haves artifact filename; content stays deterministic/unedited
+- [Phase 08]: Test expectation for the dashed-border marker count expressed as day-cell occurrences (not event count) because tom_calendar's render_calendar() buckets a multi-day all-day event once per day cell it spans
 
 ### Pending Todos
 
@@ -123,9 +125,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T05:57:15.671Z
-Stopped at: Phase 8 UI-SPEC approved
-Resume file: .planning/phases/08-telescope-label-verification-sidecar/08-UI-SPEC.md
+Last session: 2026-06-25T06:34:13.188Z
+Stopped at: Completed 08-02-PLAN.md (Phase 8 complete, ready for verification)
+Resume file: None
 
 ## Operator Next Steps
 
