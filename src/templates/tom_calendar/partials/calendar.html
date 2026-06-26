@@ -99,9 +99,12 @@
   .cal-legend-swatch {
     cursor: pointer;
     user-select: none;
-    font-size: 0.7rem;
+    font-size: 1rem;
     line-height: 1;
     transition: opacity 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
   }
   .cal-legend-swatch.is-active {
     font-weight: 700;
@@ -235,8 +238,10 @@
       {% endfor %}
       {% visible_proposals weeks as proposal_legend %}
       {% for entry in proposal_legend %}
-        <span class="cal-legend-swatch mr-2" role="button" aria-pressed="false" data-proposal="{{ entry.color }}" style="color: {{ entry.color }};">▌</span>
-        <small class="text-secondary mr-2">{{ entry.label }}</small>
+        <span class="cal-legend-swatch mr-3" role="button" aria-pressed="false" data-proposal="{{ entry.color }}">
+          <span style="color: {{ entry.color }};">▌</span>
+          <small class="text-secondary">{{ entry.label }}</small>
+        </span>
       {% endfor %}
     </div>
     <select name="utc_offset"
