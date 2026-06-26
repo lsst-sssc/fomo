@@ -1,5 +1,18 @@
 # Milestones
 
+## v1.4 Calendar Visual Clarity (Shipped: 2026-06-26)
+
+**Phases completed:** 2 phases, 4 plans, 5 tasks
+
+**Key accomplishments:**
+
+- Added `CalendarEventTelescopeLabel` OneToOneField sidecar model (solsys_code's first real model/migration) and a standalone `update_or_create` write in `sync_lco_observation_calendar.py` that persists the live-verified-vs-fallback telescope-label outcome per `CalendarEvent`.
+- Added a dashed-border + native-tooltip render branch to both the all-day and timed event loops in `calendar.html`, plus the first `calendar.html` view-level rendering test in this codebase, proving fallback-labeled events are visually distinguishable and verified/no-row events are unaffected.
+- New `calendar_display_extras` template-tag library with `proposal_color` (sha256 → 8-color colorblind-vetted palette), `status_border_css` (locked CSS literals), and `visible_proposals` (collision-grouped legend aggregation) — replacing the pk-based color system.
+- Rewrote `calendar.html` event branches: proposal-keyed color, fixed `[QUEUED]` grey-override, status box-shadow rings composed with Phase 8 dashed border, footer legend with click-to-filter JS IIFE surviving htmx month swaps.
+
+---
+
 ## v1.3 Full LCO Facility Sync (Shipped: 2026-06-24)
 
 **Phases completed:** 4 phases, 5 plans, 14 tasks

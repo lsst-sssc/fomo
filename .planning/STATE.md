@@ -2,18 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Calendar Visual Clarity
-current_phase: 09
-status: verifying
+status: Awaiting next milestone
 stopped_at: context exhaustion at 76% (2026-06-26)
-last_updated: "2026-06-26T14:51:16.976Z"
-last_activity: 2026-06-26
-last_activity_desc: Phase 09 complete
+last_updated: "2026-06-26T17:10:42.337Z"
+last_activity: 2026-06-26 — Milestone v1.4 completed and archived
 progress:
   total_phases: 2
   completed_phases: 2
   total_plans: 4
   completed_plans: 4
   percent: 100
+current_phase: 09
 current_phase_name: proposal-color-status-visual-treatment
 ---
 
@@ -28,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close, "Curre
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-26 — Phase 09 complete
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-26 — Milestone v1.4 completed and archived
 
 ## Performance Metrics
 
@@ -79,12 +78,19 @@ All v1.0-v1.3 decisions logged in PROJECT.md's Key Decisions table (backfilled a
 
 ### Pending Todos
 
-1. Status-aware calendar event coloring (telescope/proposal-keyed, alpha by confidence) — `.planning/todos/pending/2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md` — **being addressed by v1.4 Phase 9**
-2. Extract site/telescope mapping and instrument extraction into own module (revisit after Phase 7 ships) — `.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`
+1. Extract site/telescope mapping and instrument extraction into own module — deferred again at v1.4 close; single consumer today; revisit if a second consumer appears — `.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-06-26:
+
+| Category | Item | Status |
+|----------|------|--------|
+| todo | extract-site-telescope-mapping-and-instrument-extraction-int | deferred — single consumer, no second consumer yet |
 
 ### Blockers/Concerns
 
-None open. v1.3's Phase 7 research gaps were all resolved and verified live (see PROJECT.md Key Decisions). Phase 8's N+1 mitigation scope call resolved during planning (accepted as-is, per-event reverse-accessor read; batching deferred to v2 as DISPLAY-09 — see T-08-05 in 08-SECURITY.md). v1.4 Phase 9 still carries one explicit open design decision to make during planning (status-treatment mechanism via `/gsd:sketch`) — already flagged in ROADMAP.md and research docs, not a blocker.
+None open.
 
 ### Quick Tasks Completed
 
@@ -135,4 +141,4 @@ Resume file: .planning/phases/09-proposal-color-status-visual-treatment/09-UI-SP
 
 ## Operator Next Steps
 
-- Phase 8 complete (UAT'd, security-verified). Start Phase 9 with `/gsd-discuss-phase 9` or `/gsd-plan-phase 9`.
+- Start the next milestone with /gsd-new-milestone

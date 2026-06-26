@@ -7,8 +7,9 @@ A helper module and management commands for FOMO that:
 1. (`solsys_code/telescope_runs.py`) resolves a telescope name to its observing site (via the `Observatory` model, by MPC obscode) and computes dip-corrected UTC sunset, sunrise, and -15° dark-window crossing times for a given date — Stage 1.
 2. (`solsys_code/management/commands/load_telescope_runs.py`) parses classical-schedule run lines and idempotently creates one `tom_calendar.CalendarEvent` per observing night, populated with sunset/sunrise times and the -15° dark window — Stage 2.
 3. (`solsys_code/management/commands/sync_lco_observation_calendar.py`) syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar as unified CalendarEvents — starting as a scheduling-window banner and updating in place to the placed block once the LCO scheduler acts — Stage 3.
+4. A visual clarity layer (v1.4): `CalendarEventTelescopeLabel` sidecar model records live-verified vs. fallback telescope-label resolution; `calendar_display_extras` template-tag library provides proposal-keyed color (sha256 → 8-color colorblind-vetted palette), status box-shadow rings, and a click-to-filter legend.
 
-This is a Stages-1-through-3-complete implementation of the "telescope runs on the calendar" feature (issue #37). Stage 4 (full observation-record sync for all facilities) remains future work.
+This is a Stages-1-through-3-complete implementation of the "telescope runs on the calendar" feature (issue #37), with a calendar visual clarity layer added in v1.4. Stage 4 (full observation-record sync for all facilities) remains future work.
 
 ## Current State
 
@@ -16,19 +17,25 @@ This is a Stages-1-through-3-complete implementation of the "telescope runs on t
 - ✅ v1.0 "Site/Ephemeris Helper" — 2026-06-14 (Phase 1)
 - ✅ v1.1 "Classical Run Ingest" — 2026-06-16 (Phases 2-3)
 - ✅ v1.2 "LCO Queue Calendar Sync" — 2026-06-17 (Phase 4)
-- ✅ v1.3 "Full LCO Facility Sync" complete 2026-06-24 — Phase 5 (multi-proposal-multi-facility-selection) complete 2026-06-19; Phase 6 (correct-instrument-type-extraction) complete 2026-06-21; Phase 7 (live-telescope-label-resolution-with-fallback-failure-report) complete 2026-06-24 (UAT 6/6); Phase 07.1 gap-closure (SOAR fallback label facility-awareness, v1.3 milestone audit finding) complete 2026-06-24
+- ✅ v1.3 "Full LCO Facility Sync" — 2026-06-24 (Phases 5-7, 07.1) — multi-proposal/multi-facility, correct instrument extraction, live telescope-label resolution + facility-aware coarse fallback
+- ✅ v1.4 "Calendar Visual Clarity" — 2026-06-26 (Phases 8-9) — `CalendarEventTelescopeLabel` sidecar model, dashed-border + tooltip for fallback labels, proposal-keyed color palette, status box-shadow rings, `[QUEUED]` override fix, click-to-filter legend
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
 - `solsys_code/management/commands/load_telescope_runs.py`: `load_telescope_runs` BaseCommand
-- `solsys_code/management/commands/sync_lco_observation_calendar.py`: `sync_lco_observation_calendar` BaseCommand (now multi-proposal/multi-facility — `_parse_proposal_arg`, per-facility dispatch dict, per-facility counters), `SITE_TELESCOPE_MAP`, `_extract_instrument` (scans `c_1..c_5` configs, distinct `extraction_failed` counter)
-- `solsys_code/tests/test_telescope_runs.py`: 26 tests (16 site/ephem + 10 parser)
-- `solsys_code/tests/test_load_telescope_runs.py`: 6 tests (ingest + idempotency + error paths)
-- `solsys_code/tests/test_sync_lco_observation_calendar.py`: 36 tests (selection incl. SELECT-02/03/04/05, banner/placed sync, no-churn, terminal-state prefixes, error paths, SOAR multi-config/MUSCAT/malformed-record extraction, live telescope-label resolution + coarse fallback incl. facility-aware SOAR fallback)
+- `solsys_code/management/commands/sync_lco_observation_calendar.py`: `sync_lco_observation_calendar` BaseCommand (multi-proposal/multi-facility), `SITE_TELESCOPE_MAP`, `_extract_instrument` (c_1..c_5 multi-config)
+- `solsys_code/models.py`: `CalendarEventTelescopeLabel` (OneToOneField sidecar on `tom_calendar.CalendarEvent`)
+- `solsys_code/migrations/0001_calendareventtelescopelabel.py`: first real solsys_code migration
+- `solsys_code/templatetags/calendar_display_extras.py`: `proposal_color`, `status_border_css`, `visible_proposals` template tags; `PROPOSAL_PALETTE`, `NEUTRAL_SLOT_COLOR`, `CLASSICAL_SCHEDULE_LABEL` constants
+- `solsys_code/tests/test_telescope_runs.py`: 26 tests
+- `solsys_code/tests/test_load_telescope_runs.py`: 6 tests
+- `solsys_code/tests/test_sync_lco_observation_calendar.py`: 49 tests (incl. sidecar write, verified/fallback/no-churn)
+- `solsys_code/tests/test_calendar_display_extras.py`: 23 tests (ProposalColorTest, StatusBorderCssTest, VisibleProposalsTest)
+- `solsys_code/tests/test_calendar_template.py`: 13 tests (DISPLAY-04/05/06/07 + Phase 8 dashed-border)
 - `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`: Stage 1 demo
 - `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`: Stage 2 demo
-- `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb`: Stage 3 demo
-- **All 131 `./manage.py test solsys_code` tests pass.**
+- `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb`: Stage 3 demo (updated through v1.4)
+- **All 171 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
 
@@ -38,17 +45,9 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: v1.4 Calendar Visual Clarity
-
-**Goal:** Make `CalendarEvent` color and status convey real meaning (proposal identity, queued/placed/failed state) and add a dedicated field for fallback-resolved telescope labels.
-
-**Target features:**
-- DISPLAY-01: Proposal-keyed `CalendarEvent` color via a local `tom_calendar` template override — same proposal renders the same color regardless of which LCO telescope/site it lands on, since an LCO proposal can span 2m0/1m0/0m4. Status (queued/placed/terminal-failure) is shown via opacity/border or striping — visual treatment decided via `/gsd:sketch` during phase planning.
-- DISPLAY-02: Dedicated field distinguishing a fallback-resolved telescope label from a verified one, beyond title/description text — built now rather than left deferred.
-
 ## Milestone Status
 
-v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Facility Sync" shipped 2026-06-24 (Phases 5-7 + 07.1 gap-closure) — generalized `sync_lco_observation_calendar` to multi-proposal/multi-facility (LCO+SOAR) selection, correct multi-config instrument extraction, and live telescope-label resolution with a facility-aware coarse fallback. v1.4 "Calendar Visual Clarity" started 2026-06-24, picking up the DISPLAY-01/02 candidates deferred at v1.3 close (`.planning/milestones/v1.3-REQUIREMENTS.md` v2 section).
+All milestones through v1.4 complete. Next milestone TBD — run `/gsd:new-milestone` to start the next cycle.
 
 ## Requirements
 
@@ -91,18 +90,24 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Faci
 - ✓ **SYNC-07**: A per-record API failure does not abort the run or skip the record — the record still gets a `CalendarEvent` (fallback-labeled), and the rest of the batch continues — v1.3 (Phase 7)
 - ✓ **SYNC-08**: The per-record API call uses an explicit timeout and a single attempt (no retry/backoff loop) — v1.3 (Phase 7)
 - ✓ **SYNC-09**: Error/exception output from a failed API call never includes raw response body or credential content — v1.3 (Phase 7)
+- ✓ **DISPLAY-01**: `CalendarEventTelescopeLabel` sidecar model (OneToOneField PK on `tom_calendar.CalendarEvent`) records live-verified vs. fallback telescope-label outcome; `sync_lco_observation_calendar` writes it via `update_or_create`; classical-schedule events have no row (template treats missing row as "verified") — v1.4 (Phase 8)
+- ✓ **DISPLAY-02**: Dashed-border + native-tooltip visual cue in `calendar.html` distinguishes fallback-labeled events from verified ones, discoverable without reading title text — v1.4 (Phase 8)
+- ✓ **DISPLAY-03**: Hovering a fallback-labeled event shows a tooltip with verification detail — v1.4 (Phase 8)
+- ✓ **DISPLAY-04**: `CalendarEvent` color hashed deterministically from normalized proposal into a curated 8-color colorblind-vetted palette; same proposal renders identically across telescopes, restarts, and htmx re-renders; empty proposal gets dedicated neutral slot — v1.4 (Phase 9)
+- ✓ **DISPLAY-05**: `[QUEUED]` template override that discarded proposal color with flat grey removed; queued events retain proposal-keyed background — v1.4 (Phase 9)
+- ✓ **DISPLAY-06**: Status box-shadow rings (queued 2px, terminal-failure 3px) layered orthogonally on top of proposal color, composed with Phase 8 dashed border without collision — v1.4 (Phase 9)
+- ✓ **DISPLAY-07**: Footer legend maps proposal codes to rendered colors with collision grouping; click-to-filter JS IIFE toggles highlight/dim on the calendar grid client-side, survives htmx month swaps — v1.4 (Phase 9)
 
 ### Active
 
-- [ ] DISPLAY-01: Proposal-keyed `CalendarEvent` color + status-driven visual treatment (opacity/border or striping)
-- [ ] DISPLAY-02: Dedicated field distinguishing fallback-resolved vs verified telescope label
+(None — all shipped through v1.4.)
 
 ### Out of Scope
 
 - Gemini facility support — different base class (`BaseRoboticObservationFacility`), stub `get_observation_url()` (no portal URL to key the idempotent sync on), different parameter keys and terminal-states vocabulary than LCO
 - ESO/NTT facility support — classically scheduled, already handled by Stage 2 (`load_telescope_runs`); never goes through `ObservationRecord`/queue sync
-- Status-aware `CalendarEvent` coloring (telescope/proposal-keyed hash, opacity by `[QUEUED]`/terminal-prefix status) — explicitly deferred during v1.2 close; see `.planning/todos/pending/2026-06-18-status-aware-calendar-event-coloring-telescope-proposal-keye.md`; requires a project-level `tom_calendar` template override since the upstream model's `color` property isn't separately overridable
-- Any `tom_calendar` UI/template changes beyond the v1.2-shipped `[QUEUED]` de-emphasis style — not needed for Stages 1-3
+- WCAG contrast-ratio-aware text color switching (white vs. black per palette background) — deferred until palette size or proposal count makes manual contrast-checking unwieldy (DISPLAY-08)
+- Batching template tag to eliminate N+1 query from `CalendarEventTelescopeLabel` reverse O2O accessor per event — current calendar-event volume doesn't justify the added scope; revisit if volume grows (DISPLAY-09)
 - Reworking `tom_observations`' existing astroplan-based visibility/airmass plots — separate, not touched by this feature
 - Distinguishing Magellan Baade vs Clay in `telescope` field — open item; bare `'Magellan'` is deliberately ambiguous (both at Las Campanas, same ephemeris)
 - Replacing `SITES`'s hardcoded telescope-name → obscode mapping with a data-driven `Observatory.short_name` lookup — Stage 2+ consideration, not required for Stage 2 success criteria
@@ -116,8 +121,8 @@ v1.2 "LCO Queue Calendar Sync" shipped 2026-06-18 (Phase 4). v1.3 "Full LCO Faci
 - **Two-test-suite split**: `solsys_code/` Django app tests run via `./manage.py test solsys_code`; pure-Python helpers under `tests/` run via `python -m pytest`.
 - **SPICE kernel side effect**: `telescope_runs.py` avoids importing `solsys_code.ephem_utils` (triggers ~1.6 GB SPICE kernel download).
 - **Environment**: `tomtoolkit==3.0a9`/`tom_catalogs` mismatch (v1.0 blocker) resolved by PR #38 (merged 2026-06-11).
-- **Current codebase state (as of v1.3 close)**: ~6,273 LOC across `solsys_code/`+`src/`; 131 tests passing under `./manage.py test solsys_code` repo-wide, of which `test_sync_lco_observation_calendar.py` carries 36 (incl. SELECT-02..05, EXTRACT-01/02, TELESCOPE-01..04, SYNC-06..09, facility-aware SOAR fallback); `ruff check .` and `ruff format --check .` clean.
-- **Known technical debt**: status-aware `CalendarEvent` coloring not implemented (see Out of Scope, `DISPLAY-01`); a follow-up todo to extract `SITE_TELESCOPE_MAP`/instrument-extraction into their own module is deferred (`.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`); `sync_lco_observation_calendar_demo.ipynb`'s intro cell and one stale output cell still reference an earlier "Stage 3"/"FTS/MuSCAT4" framing predating Phases 5-7 (cosmetic only, noted in `v1.3-MILESTONE-AUDIT.md`).
+- **Current codebase state (as of v1.4 close)**: 171 tests passing under `./manage.py test solsys_code`; `ruff check .` and `ruff format --check .` clean. New in v1.4: `solsys_code/models.py` (`CalendarEventTelescopeLabel`), `solsys_code/migrations/0001_calendareventtelescopelabel.py` (first real solsys_code migration), `solsys_code/templatetags/` package (`calendar_display_extras.py`), `src/templates/tom_calendar/partials/calendar.html` (rewritten event branches + footer legend).
+- **Known technical debt**: extracting `SITE_TELESCOPE_MAP`/instrument-extraction from the management command into its own module — deferred, single consumer today (`.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`).
 - **v1.2 correctness bug found against real data (drives v1.3)**: checked real `ObservationRecord` rows in this dev DB (pk=1 obs_id=3780553 PENDING, pk=2 obs_id=3781325 COMPLETED, both proposal `LTP2025A-004`). Neither has a `site` key in `parameters`, and neither has a flat `instrument_type` key — real LCO submissions use multi-configuration cadence requests (`c_1_instrument_type`..`c_5_instrument_type`, each with `c_N_ic_1..5_*` exposure settings); only the configuration(s) with a populated `exposure_time` are "meaningful" (in both records checked, only `c_1` was populated). `SITE_TELESCOPE_MAP`'s 2-entry `coj`/`ogg` dict was also `[ASSUMED]`/web-search-only, never confirmed against real data. v1.2's shipped command would silently `KeyError`/skip every real record in this database.
 - **LCO site -> MPC code reference table** (from https://lco.global/observatory/sites/mpccodes/), basis for the v1.3 verified mapping dict: ogg/Haleakala (F65,T04,T03), elp/McDonald (V37,V39,V38,V45,V47), lsc/Cerro Tololo (W85,W86,W87,W89,W79), cpt/Sutherland (K91,K92,K93,L09), coj/Siding Spring (Q58,Q59,Q63,Q64,E10), tfn/Tenerife (Z31,Z24,Z21,Z17), tlv/Wise Observatory (097), sor/SOAR Cerro Pachon (I33). A bare 3-letter site code is 1-to-many against MPC codes; the fully-qualified `siteid-enclid-telid` code (e.g. `coj-clma-2m0a` -> `E10` -> "FTS") is 1-to-1.
 
@@ -201,6 +206,14 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | D-09: terminal-failure title prefix beats `[UNVERIFIED]`; the two are mutually exclusive | `[UNVERIFIED]` only ever applies to a placed (non-terminal) record, matching Phase 4's existing terminal-prefix-wins precedent — avoids a new combination rule | ✓ Good — implemented in Phase 07 |
 | `_coarse_telescope_label(instrument_type, facility_name)` — 2-arg signature, SOAR detected via `facility_name.upper() == 'SOAR'` (exact match, not substring) | The v1.3 milestone audit found the 1-arg version silently fell through to the raw instrument string for SOAR (`'SOAR_GHTS_REDCAM'[:3]` isn't a recognized aperture prefix); needed the call-site's facility context to special-case SOAR, not pattern-match on the instrument string | ✓ Good — implemented in Phase 07.1; SOAR unconditionally returns `'4m0'`, LCO branch byte-for-byte unchanged |
 | Call site `_build_event_fields` passes `record.facility` (the string) into `_coarse_telescope_label`, not the in-scope `LCOFacility`/`SOARFacility` instance | The function needs the facility *name* to branch on, not a credentialed facility object — passing the instance would be a type mismatch and an unnecessary credential-bearing object threaded through a pure labeling function | ✓ Good — implemented in Phase 07.1; closes the doubled-title defect (`[UNVERIFIED] SOAR_GHTS_REDCAM SOAR_GHTS_REDCAM` → `[UNVERIFIED] 4m0 SOAR_GHTS_REDCAM`) |
+| `CalendarEventTelescopeLabel` uses `OneToOneField(primary_key=True)` — sidecar shares the FK as its PK | Extends `tom_calendar.CalendarEvent` (a third-party model) without touching its migrations or schema; reverse accessor `event.telescope_label_meta` is a single-row read, not a queryset | ✓ Good — implemented in Phase 08; solsys_code's first real migration |
+| Sidecar `update_or_create` kept as a standalone statement, never merged into the existing `CalendarEvent` fields dict | Folds into the no-churn comparison pipeline would require comparing and diffing an extra model; standalone keeps the no-churn discipline isolated | ✓ Good — implemented in Phase 08; existing `CalendarEvent` no-churn test unchanged |
+| Template treats missing sidecar row as "verified" by documented default | `load_telescope_runs` events have no sidecar; defaulting to verified (not fallback) avoids misleading the operator about classically-scheduled events | ✓ Good — implemented in Phase 08; documented in template comment |
+| `proposal_color` uses sha256 (not Python's built-in `hash()`) + `.strip().upper()` normalization | Built-in `hash()` is process-salted in CPython 3.3+ — different colors on every restart. sha256 is deterministic across restarts, hosts, and Python versions | ✓ Good — implemented in Phase 09; `grep -c 'hash(' calendar_display_extras.py` = 0 |
+| `PROPOSAL_PALETTE` order locked verbatim from 09-UI-SPEC.md (8 colorblind-vetted, white-text-AA hex values) | Palette order determines which proposal gets which color; changing it after deployment recolors all existing events; lock it early | ✓ Good — implemented in Phase 09; order is a named constant, not derived |
+| `visible_proposals` groups by resolved color hex, not by raw proposal string | Two proposals that hash to the same palette slot (collision) share one swatch; keying on the string would create two identical-color swatches — misleading | ✓ Good — implemented in Phase 09; D-04 collision-grouping design decision |
+| Status box-shadow rings (queued/terminal) composed as a prefix to the existing inline style, not replacing the Phase 8 dashed border | D-09: the two visual signals are orthogonal (label verification vs. event status); composing avoids the `{status_border} border: 2px dashed...` ordering problem by always appending | ✓ Good — implemented in Phase 09; Pitfall 3 composition test green |
+| Click-to-filter JS IIFE placed inside the `#calendar-partial` fragment (before its closing `</div>`), not in the page `<head>` | Pitfall 5: htmx `outerHTML` swap replaces the fragment including any `<script>` inside it — the IIFE re-executes on each month swap and resets `activeProposal` to null, preventing stale filter state | ✓ Good — implemented in Phase 09; documented in template comment; human-verified in UAT |
 
 ## Evolution
 
@@ -220,4 +233,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-24 after starting v1.4 milestone — added "Current Milestone" section (Calendar Visual Clarity: DISPLAY-01/02), Active requirements populated, Milestone Status updated*
+*Last updated: 2026-06-26 after v1.4 milestone close — "What This Is" updated to include v1.4 visual clarity layer; v1.4 requirements (DISPLAY-01..07) moved to Validated; Out of Scope updated; Context reflects 171 tests; Phase 8/9 Key Decisions added; "Current Milestone" section removed (next milestone TBD)*
