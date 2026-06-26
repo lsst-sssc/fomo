@@ -157,6 +157,47 @@
 
 ---
 
+## Milestone: v1.4 — Calendar Visual Clarity
+
+**Shipped:** 2026-06-26
+**Phases:** 2 (08, 09) | **Plans:** 4 | **Sessions:** ~2 (2026-06-24 → 2026-06-26)
+
+### What Was Built
+- Phase 8: `CalendarEventTelescopeLabel` OneToOneField sidecar model (solsys_code's first real model + migration `0001`); `sync_lco_observation_calendar` writes it via `update_or_create` after the existing `CalendarEvent` create-or-update; dashed-border + native-tooltip visual cue in `calendar.html` for fallback-labeled events; first `calendar.html` view-level rendering test.
+- Phase 9: `solsys_code/templatetags/calendar_display_extras.py` with `proposal_color` (sha256 normalize → 8-color colorblind-vetted palette), `status_border_css` (locked CSS literals for queued/terminal box-shadow rings), and `visible_proposals` (collision-grouped legend aggregation); rewrote `calendar.html` event branches to use all three tags; fixed the `[QUEUED]` flat-grey override; added footer legend with click-to-filter JS IIFE surviving htmx month swaps.
+- 40 new tests (131 → 171 total): 49-test sync suite, 23-test `calendar_display_extras` unit suite, 13-test calendar template integration suite. 3/3 human UAT items passed (CVD colorblind check deferred by user at close).
+
+### What Worked
+- Phase execution was fast: 9 min (09-01), 18 min (09-02), 24 min (08-01), 11 min (08-02) — no context overruns during plan execution.
+- The `/gsd:sketch` session during Phase 9 planning resolved the status-treatment design decision (border vs. opacity vs. striping) without a dedicated research phase — the pre-vetted border-style recommendation from research translated cleanly into a visual spec, then into locked CSS literals in the tag library.
+- Composing the Phase 8 dashed border and Phase 9 status box-shadow as orthogonal CSS properties (no collision, each on a separate property) was specified in 09-UI-SPEC.md before implementation and confirmed with a Pitfall 3 integration test — zero rework on the composition.
+- Click-to-filter IIFE placement inside the htmx-swapped `#calendar-partial` fragment (before closing `</div>`) was identified as a pitfall in research (Pitfall 5) and baked into the implementation from the start — UAT confirmed it survived month swaps on first try.
+- The `data-proposal` attribute keyed on the resolved color hex (not the raw proposal string) for legend ↔ event matching was a D-04 decision made during 09-01 planning, avoiding a separate deduplication pass in the JS that would have been needed if keyed on the string.
+
+### What Was Inefficient
+- The gsd-tools.cjs `summary-extract` tool picked up bug-report lines from a Phase 09 SUMMARY (code-review findings embedded in SUMMARY frontmatter as `one_liner` entries) and injected them into MILESTONES.md as accomplishments — required manual fix at close. The CLI can't distinguish "plan accomplishment" from "bug found during review" if both land in the same frontmatter field.
+- Phase 09 ran into a context-exhaustion event at 76% through the verify step (2026-06-26), requiring a resume-and-finish cycle. The session had accumulated research, planning, execution, and verification context for both phases without a `/clear` between phases — a mid-milestone `/clear then /gsd:resume-work` after Phase 8 closed would have preserved more headroom.
+- The STATE.md frontmatter still said `status: verifying` at session resume despite the last commit message saying "UAT passed, phase marked complete" — the state update and the commit description diverged during the context-exhausted close; resumption needed to read both to reconstruct what had actually happened.
+
+### Patterns Established
+- sha256-normalize-then-modulo palette-index for deterministic, cross-restart color assignment — never Python's built-in `hash()` (process-salted in CPython 3.3+). Enforce via `grep -c 'hash(' <templatetag_file>` = 0 in verification.
+- Sidecar model using `OneToOneField(primary_key=True)` to extend a third-party model: no extra PK column, reverse accessor is a clean single-row attribute, third-party migrations untouched. Suitable when the parent model is owned by an installed app you can't edit.
+- Template treats a missing sidecar row as the "default" state (here: verified, no dashed border) rather than requiring the sidecar to always be present — keeps classical-schedule events (no sidecar) safe without a special code path.
+- JS IIFE placed inside the htmx-swapped fragment, not in the page `<head>`, for event-delegation state that needs to reset on each month swap — the IIFE re-executes, `activeProposal` resets to null, stale filter state is impossible.
+- `/gsd:sketch` during phase planning (not as a separate pre-phase) is the right granularity for a single visual-design decision that would block plan writing — keeps the decision visible in the phase's CONTEXT/UI-SPEC history without adding a whole discuss-phase cycle.
+
+### Key Lessons
+1. Clear context between phases, not just between milestones. Accumulating research+planning+execution+verification for two phases in one session risks running out of context during the last verification step — a cheap `/clear then /gsd:resume-work` after Phase 8 close would have preserved Phase 9 headroom.
+2. The gsd-tools.cjs `summary-extract` one-liner field captures the first "accomplishment"-style item it finds in a SUMMARY — if a plan's SUMMARY mixes deliverable descriptions and code-review bug entries in the same frontmatter namespace, the tool can grab a bug description as the one-liner. Fix at the SUMMARY authoring step: keep accomplishments and bug-findings in separate frontmatter keys.
+3. When context exhaustion forces a mid-verification close, write the commit message AND the STATE.md `status` field to the same truth ("complete", not "verifying") — divergence between the two costs extra reconstruction time on the next resume.
+
+### Cost Observations
+- Sessions: ~2 (2026-06-24 → 2026-06-26, one context-exhaustion event mid-Phase 9 verification)
+- Model mix: not tracked this milestone
+- Notable: v1.4 was the fastest milestone per-plan in this project (avg ~15 min/plan vs. ~35 min/plan for v1.1 and ~50 min/plan for the highest-risk plans in v1.3) — the purely additive nature of the work (new sidecar model, new template tag library, template rewrite with no Django model changes beyond Phase 8) kept execution focused.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -167,6 +208,7 @@
 | v1.1 | ~4 | 2 | First milestone with DB-dependent tests under real Django test runner from day 1; TDD RED→GREEN on management command |
 | v1.2 | ~2 | 1 | Single-plan phase; code review caught a real pre-close bug (CR-01); two same-day quick-task follow-ups (style fix + contrast regression fix) |
 | v1.3 | ~6 | 4 (incl. inserted 07.1) | First milestone with a dedicated milestone-level audit (`/gsd-audit-milestone`) finding a real shipped defect; first decimal gap-closure phase (07.1) inserted post-audit; first retroactive `verify_phase_goal` backfill (Phase 7) |
+| v1.4 | ~2 | 2 | Fastest milestone per-plan (~15 min/plan avg); `/gsd:sketch` for single visual-design decision during planning; first Django template-tag library + first real solsys_code migration; context-exhaustion event mid-verification |
 
 ### Cumulative Quality
 
@@ -176,6 +218,7 @@
 | v1.1 | +16 (10 parser + 6 ingest; all 95 under `./manage.py test solsys_code`) | - | 0 |
 | v1.2 | +14 (sync command; all 110 under `./manage.py test solsys_code`) | - | 0 |
 | v1.3 | +21 (multi-proposal/facility, multi-config extraction, telescope-label + fallback; all 131 under `./manage.py test solsys_code`) | - | 0 |
+| v1.4 | +40 (sidecar write + rendering + template tag unit + integration; all 171 under `./manage.py test solsys_code`) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
