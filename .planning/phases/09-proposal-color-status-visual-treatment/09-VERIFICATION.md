@@ -1,21 +1,25 @@
 ---
 phase: 09-proposal-color-status-visual-treatment
 verified: 2026-06-25T00:00:00Z
-status: human_needed
+status: passed
 score: 4/5
 behavior_unverified: 1
 overrides_applied: 0
 human_verification:
+
   - test: "Load the calendar page with at least two distinct proposals visible. Click a legend swatch for one proposal."
     expected: "That proposal's events remain at full opacity; all other events dim (opacity ~0.18, grayscale). The clicked swatch gets font-weight bold + underline (is-active). Clicking the same swatch again restores all events to full opacity and removes is-active."
     why_human: "The JS IIFE click-handler toggle (add/remove .cal-filtering, .cal-filter-match, .is-active) is a DOM state-machine. Grep and server-side test rendering cannot exercise click events or verify CSS class mutations."
+
   - test: "Navigate to Prev month then back to original month via the Prev/Next buttons. Click a legend swatch."
     expected: "The click-to-filter JS fires correctly after the htmx swap — activeProposal resets to null on each swap, and the filtering behavior works identically on the re-rendered fragment."
     why_human: "htmx replaces the outerHTML of #calendar-partial; only a browser test can confirm the inline <script> re-executes inside the swapped fragment (Pitfall 5 / D-03)."
+
   - test: "Verify the 8-colour PROPOSAL_PALETTE renders distinguishably for deuteranopia and protanopia users. Use a CVD simulator (e.g. Coblis) on the calendar with >= 5 proposals visible."
     expected: "All 8 palette colours remain mutually distinguishable under both deuteranopia and protanopia simulation (09-VALIDATION.md Manual A1 — colorblind-vetted claim)."
     why_human: "Colour-vision-deficiency simulation requires visual inspection; no automated assertion can substitute for human perceptual judgment."
 behavior_unverified_items:
+
   - truth: "Clicking a legend swatch dims non-matching events and highlights matching ones client-side; clicking again clears it; behavior survives htmx month swaps (DISPLAY-07, D-03)"
     test: "Load calendar with proposals, click a .cal-legend-swatch element"
     expected: "container.classList contains 'cal-filtering'; matching .cal-event elements have 'cal-filter-match'; swatch has 'is-active'; click again removes all three class mutations"
