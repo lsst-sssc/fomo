@@ -96,9 +96,31 @@
   .cal-event-all-day a:hover {
     text-decoration: underline;
   }
+  .cal-legend-swatch {
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.7rem;
+    line-height: 1;
+    transition: opacity 0.15s;
+  }
+  .cal-legend-swatch.is-active {
+    font-weight: 700;
+    text-decoration: underline;
+  }
+  .cal-event {
+    transition: opacity 0.2s, filter 0.2s;
+  }
+  #calendar-partial.cal-filtering .cal-event {
+    opacity: 0.18;
+    filter: grayscale(50%);
+  }
+  #calendar-partial.cal-filtering .cal-event.cal-filter-match {
+    opacity: 1;
+    filter: none;
+  }
 </style>
 
-{% load tz calendar_tags %}
+{% load tz calendar_tags calendar_display_extras %}
 
 <div id="calendar-partial"
      data-url="{% url 'calendar:calendar' %}?month={{ month }}&year={{ year }}">
@@ -151,17 +173,18 @@
                hx-on::after-request="$('#cal-modal').modal('show');"
                hx-on:click="event.stopPropagation()">
             {% for event in day.all_day_events %}
+              {% proposal_color event.proposal as bg_color %}
+              {% status_border_css event.title as status_border %}
               <div class="cal-event cal-event-all-day-row"
+                   data-proposal="{{ bg_color }}"
                    hx-get="{% url 'calendar:update-event' event.id %}"
               >
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
-                {% if event.title|slice:":9" == "[QUEUED] " %}
-                <div class="cal-event-all-day" style="background-color: rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 0, 0, 0.55);">
-                {% elif event.telescope_label_meta.is_verified == False %}
-                <div class="cal-event-all-day" style="background-color: {{ event.color }}; border: 2px dashed rgba(0, 0, 0, 0.65);"
+                {% if event.telescope_label_meta.is_verified == False %}
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
                      title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
                 {% else %}
-                <div class="cal-event-all-day" style="background-color: {{ event.color }};">
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; {{ status_border }}">
                 {% endif %}
                   {{ event.title|truncatechars:18 }}
                   {% if event.active_todos.count %}
@@ -171,16 +194,23 @@
               </div>
             {% endfor %}
             {% for event in day.events %}
+              {% proposal_color event.proposal as bg_color %}
+              {% status_border_css event.title as status_border %}
               {% if event.telescope_label_meta.is_verified == False %}
-              <div class="cal-event cal-event-timed" style="border: 2px dashed rgba(0, 0, 0, 0.65);"
+              <div class="cal-event cal-event-timed"
+                   data-proposal="{{ bg_color }}"
+                   style="{{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
                    hx-get="{% url 'calendar:update-event' event.id %}"
                    title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
               {% else %}
               <div class="cal-event cal-event-timed"
+                   data-proposal="{{ bg_color }}"
+                   style="{{ status_border }}"
                    hx-get="{% url 'calendar:update-event' event.id %}"
               >
               {% endif %}
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
+                <span class="cal-event-bullet" style="color: {{ bg_color }};">▌</span>
                 <span class="cal-event-title">
                   {{ event.title|truncatechars:16 }}
                   {% if event.active_todos.count %}
@@ -203,6 +233,11 @@
             <small>{{ target_list.name }}</small>
         </a>
       {% endfor %}
+      {% visible_proposals weeks as proposal_legend %}
+      {% for entry in proposal_legend %}
+        <span class="cal-legend-swatch mr-2" role="button" aria-pressed="false" data-proposal="{{ entry.color }}" style="color: {{ entry.color }};">▌</span>
+        <small class="text-secondary mr-2">{{ entry.label }}</small>
+      {% endfor %}
     </div>
     <select name="utc_offset"
             hx-get="{% url 'calendar:calendar' %}"
@@ -215,4 +250,31 @@
       {% endfor %}
     </select>
   </div>
+  <script>
+  (function () {
+    var container = document.getElementById('calendar-partial');
+    if (!container) return;
+    var activeProposal = null;
+    container.addEventListener('click', function (e) {
+      var swatch = e.target.closest('.cal-legend-swatch');
+      if (!swatch) return;
+      var proposal = swatch.dataset.proposal;
+      if (activeProposal === proposal) {
+        activeProposal = null;
+        container.classList.remove('cal-filtering');
+        container.querySelectorAll('.cal-event').forEach(function (el) { el.classList.remove('cal-filter-match'); });
+        container.querySelectorAll('.cal-legend-swatch').forEach(function (el) { el.classList.remove('is-active'); });
+      } else {
+        activeProposal = proposal;
+        container.classList.add('cal-filtering');
+        container.querySelectorAll('.cal-event').forEach(function (el) {
+          el.classList.toggle('cal-filter-match', (el.dataset.proposal || '') === proposal);
+        });
+        container.querySelectorAll('.cal-legend-swatch').forEach(function (el) {
+          el.classList.toggle('is-active', (el.dataset.proposal || '') === proposal);
+        });
+      }
+    });
+  }());
+  </script>
 </div>

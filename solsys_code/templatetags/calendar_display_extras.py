@@ -122,7 +122,7 @@ def visible_proposals(weeks) -> list[dict]:
     by_color: dict[str, set[str]] = defaultdict(set)
     for week in weeks:
         for day in week:
-            for event in list(day.all_day_events) + list(day.events):
+            for event in list(day['all_day_events']) + list(day['events']):
                 normalized = (event.proposal or '').strip().upper()
                 color = proposal_color(event.proposal)
                 label = normalized if normalized else CLASSICAL_SCHEDULE_LABEL
