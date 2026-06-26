@@ -555,7 +555,7 @@ DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'  # Phase 8's existing ma
 implementation-detail-level, and explicitly flagged for verification/decision at plan or sketch time
 rather than presented as settled fact.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact colorblind-safe hex palette values**
    - What we know: A small (~8-9 entry) curated palette is the right *shape* (confirmed by both this
@@ -567,6 +567,9 @@ rather than presented as settled fact.
      substitute a known colorblind-safe qualitative palette (e.g. a Color Brewer "Set2"/"Dark2"-style
      8-color set) directly — this is a small, bounded task that doesn't need a `/gsd:sketch` session, just
      a deliberate check before finalizing the literal list in code.
+   - **RESOLVED** → 09-UI-SPEC.md Color section: 8-color colorblind-vetted palette finalized
+     (#005f9e, #a34000, #5b2080, #006b4e, #9e1c1c, #006b6b, #6b2060, #7a4500); CVD vetting gate
+     noted as an implementation-time check before committing the literal values.
 
 2. **DISPLAY-06's exact status-treatment CSS mechanism**
    - What we know: Border-style (non-dashed) is the research-favored option; D-09 excludes dashed.
@@ -576,6 +579,9 @@ rather than presented as settled fact.
      session per D-08, not a research gap.
    - Recommendation: Bring the condensed Status Visual Language table (below) into the sketch session as
      the option set, already narrowed by D-09 to exclude dash-style.
+   - **RESOLVED** → 09-UI-SPEC.md Status Treatment section: box-shadow ring chosen (composes cleanly
+     with Phase 8's `border: 2px dashed`). Queued: `box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);`;
+     terminal-failure: `box-shadow: 0 0 0 3px rgba(160, 0, 0, 0.55);`; placed: no modifier.
 
 ## Environment Availability
 
