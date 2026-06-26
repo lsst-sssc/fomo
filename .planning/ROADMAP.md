@@ -45,7 +45,7 @@
 ### v1.4 Calendar Visual Clarity (Phases 8-9) — IN PROGRESS
 
 - [x] **Phase 8: Telescope Label Verification Sidecar** - Add a `CalendarEventTelescopeLabel` sidecar model recording fallback-vs-verified telescope-label resolution, with a visual cue and tooltip in the calendar UI. (completed 2026-06-25)
-- [ ] **Phase 9: Proposal Color & Status Visual Treatment** - Replace `pk`-based `CalendarEvent` color with a deterministic proposal-keyed palette, fix the `[QUEUED]` grey override, layer a status visual treatment on top, and add an on-page legend.
+- [x] **Phase 9: Proposal Color & Status Visual Treatment** - Replace `pk`-based `CalendarEvent` color with a deterministic proposal-keyed palette, fix the `[QUEUED]` grey override, layer a status visual treatment on top, and add an on-page legend. (completed 2026-06-26)
 
 ## Phase Details
 
@@ -86,14 +86,14 @@
   4. A viewer can look at an on-page legend and match a rendered color to its proposal code without hovering or clicking into any event.
   5. Clicking a legend entry highlights that proposal's events and dims the rest of the calendar grid, client-side with no page reload; clicking again clears the highlight. (Scope added during Phase 9 discussion, 2026-06-25 — see DISPLAY-07 in REQUIREMENTS.md.)
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 **Wave 1**
 
 - [x] 09-01-PLAN.md — calendar_display_extras template-tag module (proposal_color/status_border_css/visible_proposals) + Wave 0 unit tests (DISPLAY-04, DISPLAY-06, DISPLAY-07)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 09-02-PLAN.md — calendar.html rewrite: proposal color + box-shadow status + [QUEUED] fix, footer legend + click-to-filter, integration tests (DISPLAY-04, DISPLAY-05, DISPLAY-06, DISPLAY-07)
+- [x] 09-02-PLAN.md — calendar.html rewrite: proposal color + box-shadow status + [QUEUED] fix, footer legend + click-to-filter, integration tests (DISPLAY-04, DISPLAY-05, DISPLAY-06, DISPLAY-07)
 
 **UI hint**: yes
 
@@ -110,6 +110,6 @@
 | 7. Live Telescope-Label Resolution with Fallback & Failure Reporting | v1.3 | 2/2 | Complete | 2026-06-24 |
 | 07.1. Close gap: SOAR fallback label is facility-unaware | v1.3 | 1/1 | Complete | 2026-06-24 |
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
-| 9. Proposal Color & Status Visual Treatment | v1.4 | 1/2 | In Progress|  |
+| 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete   | 2026-06-26 |
 
 Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
