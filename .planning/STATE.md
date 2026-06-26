@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Calendar Visual Clarity
-current_phase: 9
-current_phase_name: Proposal Color & Status Visual Treatment
+current_phase: 09
+current_phase_name: proposal-color-status-visual-treatment
 status: executing
 stopped_at: Phase 9 UI-SPEC approved
-last_updated: "2026-06-26T01:21:37.832Z"
-last_activity: 2026-06-25
-last_activity_desc: Phase 08 complete (UAT passed, security verified), transitioned to Phase 9
+last_updated: "2026-06-26T01:47:02.488Z"
+last_activity: 2026-06-26
+last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 50
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close, "Current Milestone" section added for v1.4)
 
 **Core value:** Make `CalendarEvent` color and status convey real meaning (proposal identity, queued/placed/failed state) and add a dedicated field for fallback-resolved telescope labels.
-**Current focus:** Phase 9 — Proposal Color & Status Visual Treatment
+**Current focus:** Phase 09 — proposal-color-status-visual-treatment
 
 ## Current Position
 
-Phase: 9 — Proposal Color & Status Visual Treatment
-Plan: Not started
+Phase: 09 (proposal-color-status-visual-treatment) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-25 — Phase 08 complete (UAT passed, security verified), transitioned to Phase 9
+Last activity: 2026-06-26 — Phase 09 execution started
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Last activity: 2026-06-25 — Phase 08 complete (UAT passed, security verified),
 | 09 | TBD | - | - |
 | Phase 08 P01 | 24min | 3 tasks | 6 files |
 | Phase 08 P02 | 11min | 2 tasks | 2 files |
+| Phase 09 P01 | 9 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ All v1.0-v1.3 decisions logged in PROJECT.md's Key Decisions table (backfilled a
 - N+1 mitigation (batching template tag for the sidecar's reverse O2O reverse accessor) is a Phase 8 planning-time scope call, not decided here — research flags both "accept as-is" and "bulk-prefetch tag" as legitimate options for current calendar-event volume.
 - [Phase 08]: Migration generated with explicit --name calendareventtelescopelabel flag to match the plan's must_haves artifact filename; content stays deterministic/unedited
 - [Phase 08]: Test expectation for the dashed-border marker count expressed as day-cell occurrences (not event count) because tom_calendar's render_calendar() buckets a multi-day all-day event once per day cell it spans
+- [Phase ?]: proposal_color uses sha256-normalize-then-modulo palette index; PROPOSAL_PALETTE order locked verbatim from 09-UI-SPEC.md
+- [Phase ?]: visible_proposals forces NEUTRAL_SLOT_COLOR entry last via two-pass return to satisfy D-06 / 09-UI-SPEC Legend Layout
 
 ### Pending Todos
 
@@ -125,7 +128,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-26T00:49:38.049Z
+Last session: 2026-06-26T01:46:43.861Z
 Stopped at: Phase 9 UI-SPEC approved
 Resume file: .planning/phases/09-proposal-color-status-visual-treatment/09-UI-SPEC.md
 
