@@ -122,7 +122,15 @@ def visible_proposals(weeks) -> list[dict]:
     by_color: dict[str, set[str]] = defaultdict(set)
     for week in weeks:
         for day in week:
-            for event in list(day['all_day_events']) + list(day['events']):
+            # Support both dict-based days (tom_calendar view) and attribute-based
+            # stubs (unit tests using SimpleNamespace or similar objects).
+            if isinstance(day, dict):
+                all_day = day['all_day_events']
+                timed = day['events']
+            else:
+                all_day = day.all_day_events
+                timed = day.events
+            for event in list(all_day) + list(timed):
                 normalized = (event.proposal or '').strip().upper()
                 color = proposal_color(event.proposal)
                 label = normalized if normalized else CLASSICAL_SCHEDULE_LABEL
