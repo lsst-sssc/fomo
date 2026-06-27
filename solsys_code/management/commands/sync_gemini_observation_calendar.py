@@ -7,8 +7,9 @@ from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
-from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
+
+from solsys_code.calendar_utils import insert_or_create_calendar_event
 
 logger = logging.getLogger(__name__)
 
@@ -157,20 +158,10 @@ class Command(BaseCommand):
                     'proposal': prog,
                 }
 
-                # GEM-NOCHURN-01: get_or_create on the url key, then compare each field
-                # to detect changes; only call save when something actually changed.
-                event, created_flag = CalendarEvent.objects.get_or_create(url=url, defaults=fields)
-                if created_flag:
-                    counters[site_key]['created'] += 1
-                else:
-                    changed = [f for f, v in fields.items() if getattr(event, f) != v]
-                    if changed:
-                        for f, v in fields.items():
-                            setattr(event, f, v)
-                        event.save(update_fields=changed)
-                        counters[site_key]['updated'] += 1
-                    else:
-                        counters[site_key]['unchanged'] += 1
+                # GEM-NOCHURN-01: delegate create-or-update to the shared helper;
+                # only saves when something actually changed.
+                _event, action = insert_or_create_calendar_event({'url': url}, fields)
+                counters[site_key][action] += 1
 
             except (KeyError, ValueError) as exc:
                 # Never interpolate safe_params or record.parameters into this message (GEM-SECURE-01).
