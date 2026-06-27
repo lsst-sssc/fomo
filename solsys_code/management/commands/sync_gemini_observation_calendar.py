@@ -63,6 +63,13 @@ class Command(BaseCommand):
             try:
                 # D-03: use first obsid entry; warn when multiple are present.
                 obsid_list = safe_params['obsid']
+                if not isinstance(obsid_list, list):
+                    self.stderr.write(
+                        f'ObservationRecord pk={record.pk}: obsid must be a list, '
+                        f'got {type(obsid_list).__name__!r} — skipping'
+                    )
+                    counters[site_key]['skipped'] += 1
+                    continue
                 if not obsid_list:
                     logger.warning(
                         'ObservationRecord pk=%s has empty obsid list — skipping',
