@@ -194,5 +194,8 @@ class Command(BaseCommand):
             f'unchanged: {counters["GN"]["unchanged"]}, '
             f'skipped: {counters["GN"]["skipped"]}'
         )
+        unknown_skipped = counters.get('UNKNOWN', {}).get('skipped', 0)
+        if unknown_skipped:
+            self.stdout.write(f'Unknown prefix: skipped: {unknown_skipped}')
         self.stdout.write('Done.')
         return None
