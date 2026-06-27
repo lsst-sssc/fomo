@@ -1,27 +1,21 @@
 ---
-status: testing
+status: complete
 phase: 10-gemini-calendar-sync-command
 source: 10-01-SUMMARY.md, 10-02-SUMMARY.md
 started: 2026-06-27T14:34:00Z
-updated: 2026-06-27T14:34:00Z
+updated: 2026-06-27T15:10:00Z
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 1
-name: Command is discoverable
-expected: |
-  Running `python manage.py help sync_gemini_observation_calendar` exits 0 and prints
-  usage information (description + optional arguments). The command appears in the
-  management command list under `solsys_code`.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Command is discoverable
 expected: Running `python manage.py help sync_gemini_observation_calendar` exits 0 and prints usage information (description + optional arguments). The command appears in the management command list under `solsys_code`.
-result: [pending]
+result: pass
 
 ### 2. Test suite passes (all 10 GEM-* requirements)
 expected: |
@@ -29,7 +23,7 @@ expected: |
   shows 15/15 tests pass and 0 errors. Tests cover GEM-SELECT-01, GEM-WINDOW-01/02,
   GEM-KEY-01, GEM-TELE-01, GEM-INSTR-01, GEM-PROP-01, GEM-STATUS-01, GEM-NOCHURN-01,
   GEM-SECURE-01.
-result: [pending]
+result: pass
 
 ### 3. GEM-SECURE-01 — password never appears in command output
 expected: |
@@ -38,7 +32,7 @@ expected: |
   contain no occurrence of the literal string `password`. The CalendarEvent created by
   the command has no field that holds the password value. This is verifiable by
   inspecting the test `test_gem_secure_01_password_not_in_output` in the test file.
-result: [pending]
+result: pass
 
 ### 4. GEM-NOCHURN-01 — idempotent re-run
 expected: |
@@ -48,14 +42,14 @@ expected: |
   CalendarEvent rows are not re-saved on the second run (no spurious `updated` timestamp
   bump). This is verifiable by running the demo notebook's Scenario 4 cell or
   `test_gem_nochurn_01_no_duplicate_events`.
-result: [pending]
+result: pass
 
 ### 5. GEM-STATUS-01 — ON_HOLD title prefix
 expected: |
   A GEM ObservationRecord with `ready='false'` (or `ready=False`) in its `parameters`
   produces a CalendarEvent whose `title` starts with `[ON_HOLD] `. Verifiable via
   `test_gem_status_01_on_hold_prefix` or the Scenario 4 notebook cell.
-result: [pending]
+result: pass
 
 ### 6. Demo notebook re-executes cleanly
 expected: |
@@ -64,7 +58,7 @@ expected: |
   exits 0. The resulting notebook shows executed output for all four D-06 scenarios
   (explicit window, Rap: derived window, Std: derived window, ON_HOLD + idempotent
   re-run). No cell output contains the literal string `password`.
-result: [pending]
+result: pass
 
 ### 7. CLAUDE.md companion-notebook list updated
 expected: |
@@ -74,14 +68,14 @@ expected: |
   present and unmodified. The new entry pairs
   `solsys_code/management/commands/sync_gemini_observation_calendar.py` with
   `sync_gemini_observation_calendar_demo.ipynb`.
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 7
-passed: 0
+passed: 7
 issues: 0
-pending: 7
+pending: 0
 skipped: 0
 blocked: 0
 
