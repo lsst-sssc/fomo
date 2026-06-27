@@ -3,8 +3,8 @@ from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from tom_calendar.models import CalendarEvent
 
+from solsys_code.calendar_utils import insert_or_create_calendar_event
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import ParsedRun, get_site, parse_run_line, sun_event
 
@@ -88,28 +88,16 @@ class Command(BaseCommand):
                         f'Source line: {line.strip()}'
                     )
 
-                    event, created = CalendarEvent.objects.get_or_create(
-                        telescope=parsed.telescope,
-                        instrument=parsed.instrument,
-                        start_time=start_time,
-                        defaults={
-                            'end_time': end_time,
-                            'title': title,
-                            'description': description,
-                        },
+                    event, action = insert_or_create_calendar_event(
+                        {'telescope': parsed.telescope, 'instrument': parsed.instrument, 'start_time': start_time},
+                        {'end_time': end_time, 'title': title, 'description': description},
                     )
-                    if created:
+                    if action == 'created':
                         created_count += 1
+                    elif action == 'updated':
+                        updated_count += 1
                     else:
-                        changed = event.end_time != end_time or event.title != title or event.description != description
-                        if changed:
-                            event.end_time = end_time
-                            event.title = title
-                            event.description = description
-                            event.save()
-                            updated_count += 1
-                        else:
-                            unchanged_count += 1
+                        unchanged_count += 1
             except (ValueError, Observatory.DoesNotExist) as exc:
                 self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
                 skipped_count += 1
