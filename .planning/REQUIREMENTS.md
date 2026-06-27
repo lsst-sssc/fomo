@@ -43,22 +43,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GEM-SELECT-01 | — | Pending |
-| GEM-WINDOW-01 | — | Pending |
-| GEM-WINDOW-02 | — | Pending |
-| GEM-KEY-01 | — | Pending |
-| GEM-TELE-01 | — | Pending |
-| GEM-INSTR-01 | — | Pending |
-| GEM-PROP-01 | — | Pending |
-| GEM-STATUS-01 | — | Pending |
-| GEM-NOCHURN-01 | — | Pending |
-| GEM-SECURE-01 | — | Pending |
+| GEM-SELECT-01 | Phase 10 | Pending |
+| GEM-WINDOW-01 | Phase 10 | Pending |
+| GEM-WINDOW-02 | Phase 10 | Pending |
+| GEM-KEY-01 | Phase 10 | Pending |
+| GEM-TELE-01 | Phase 10 | Pending |
+| GEM-INSTR-01 | Phase 10 | Pending |
+| GEM-PROP-01 | Phase 10 | Pending |
+| GEM-STATUS-01 | Phase 10 | Pending |
+| GEM-NOCHURN-01 | Phase 10 | Pending |
+| GEM-SECURE-01 | Phase 10 | Pending |
 
 **Coverage:**
 - v1.5 requirements: 10 total
-- Mapped to phases: 0
-- Unmapped: 10 ⚠️
+- Mapped to phases: 10
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-26*
-*Last updated: 2026-06-26 after initial definition*
+*Last updated: 2026-06-26 — traceability updated after roadmap creation (all 10 mapped to Phase 10)*

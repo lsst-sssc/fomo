@@ -7,6 +7,7 @@
 - ✅ **v1.2 LCO Queue Calendar Sync** — Phase 4 (shipped 2026-06-18) — see [milestones/v1.2-ROADMAP.md](milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Full LCO Facility Sync** — Phases 5-7, 07.1 (shipped 2026-06-24) — see [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 Calendar Visual Clarity** — Phases 8-9 (shipped 2026-06-26) — see [milestones/v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
+- 🚧 **v1.5 Gemini Calendar Sync** — Phase 10 (in progress)
 
 ## Phases
 
@@ -49,6 +50,12 @@
 - [x] Phase 9: Proposal Color & Status Visual Treatment (2/2 plans) — completed 2026-06-26
 
 </details>
+
+### 🚧 v1.5 Gemini Calendar Sync (In Progress)
+
+**Milestone Goal:** Add `sync_gemini_observation_calendar` — a new management command that syncs submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners, with idempotent find-or-create behavior and no credential exposure.
+
+- [ ] **Phase 10: Gemini Calendar Sync Command** - Implement `sync_gemini_observation_calendar`, tests, and demo notebook
 
 ## Phase Details
 
@@ -100,6 +107,21 @@
 
 **UI hint**: yes
 
+### Phase 10: Gemini Calendar Sync Command
+
+**Goal**: Operators can sync submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners with a single management command — idempotent, credential-safe, and exercised by a runnable demo notebook.
+**Depends on**: Phase 9 (shares `CalendarEvent` model, no-churn idempotency pattern, and management-command conventions established through Phases 3-9)
+**Requirements**: GEM-SELECT-01, GEM-WINDOW-01, GEM-WINDOW-02, GEM-KEY-01, GEM-TELE-01, GEM-INSTR-01, GEM-PROP-01, GEM-STATUS-01, GEM-NOCHURN-01, GEM-SECURE-01
+**Success Criteria** (what must be TRUE):
+
+  1. `./manage.py sync_gemini_observation_calendar` exits cleanly and creates one `CalendarEvent` per `ObservationRecord(facility='GEM')`, with `CalendarEvent.url` set to `GEM:{prog}/{observation_id}` and `proposal` set from `params['prog']`.
+  2. Events with `windowDate`/`windowTime`/`windowDuration` parameters have `start_time`/`end_time` from those values; events without use ToO-type-derived windows (`Rap:` → `[created, created+24h]`, `Std:` → `[created+24h, created+7d]`); records with neither an explicit window nor a resolvable ToO type appear in the `skipped` counter and produce no `CalendarEvent`.
+  3. `telescope` is `'Gemini South'` for `GS-*` programs and `'Gemini North'` for `GN-*`; `instrument` strips any `Std:`/`Rap:` prefix from the obs-code settings description (falling back to raw obs code); records with `params['ready'] == 'false'` get a `[ON_HOLD]` title prefix, all others get a clean title.
+  4. Re-running the command on the same set of records produces no duplicate `CalendarEvent` rows and leaves `CalendarEvent.modified` unchanged on every record that had no field change.
+  5. The `password` key from `parameters` is absent from all log output, exception tracebacks, and `CalendarEvent` fields; the demo notebook `docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb` executes end-to-end without error using synthetic fixtures.
+
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -114,5 +136,6 @@
 | 07.1. Close gap: SOAR fallback label is facility-unaware | v1.3 | 1/1 | Complete | 2026-06-24 |
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
+| 10. Gemini Calendar Sync Command | v1.5 | 0/TBD | Not started | - |
 
 Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
