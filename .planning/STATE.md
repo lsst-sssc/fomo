@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
 status: executing
-stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-06-27T23:17:54.923Z"
-last_activity: 2026-06-27 -- Phase 11 execution started
+stopped_at: Completed Phase 11 (verified)
+last_updated: "2026-06-27T23:45:00.000Z"
+last_activity: 2026-06-27 -- Phase 11 verified; Phase 12 pending
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 2
   completed_plans: 2
-  percent: 20
+  percent: 40
 ---
 
 # Project State
@@ -21,16 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone complete)
 
 **Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked.
-**Current focus:** Phase 11 — code-refactoring
+**Current focus:** Phase 12 — display-polish (next)
 
 ## Current Position
 
-Phase: 11 (code-refactoring) — EXECUTING
-Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-06-27 -- Phase 11 execution started
+Phase: 11 (code-refactoring) — COMPLETE (verified 2026-06-27)
+Next: Phase 12 (display-polish)
+Status: Ready to plan Phase 12
 
-Progress: [░░░░░░░░░░] 0% (0/2 phases)
+Progress: [██░░░░░░░░] 40% (2/5 phases)
 
 ## Performance Metrics
 
@@ -49,7 +48,7 @@ Progress: [░░░░░░░░░░] 0% (0/2 phases)
 | 09 P01 | 1 | 9 min | 9 min |
 | 09 P02 | 1 | 18 min | 18 min |
 | 10 | 2 | - | - |
-| Phase 11-code-refactoring P02 | 15 | 3 tasks | 4 files |
+| 11 | 2 | ~15 min | ~8 min |
 
 ## Accumulated Context
 
@@ -63,11 +62,15 @@ All v1.0-v1.5 decisions logged in PROJECT.md Key Decisions table.
 - `site_key`/`telescope` determination placed before the `try/except` block to avoid `NameError` in the except handler.
 - `update_fields=changed` no-churn save pattern (same as load_telescope_runs / sync_lco) — prevents `modified` churn on unchanged GEM events (GEM-NOCHURN-01).
 - No `CalendarEventTelescopeLabel` sidecar for GEM events: telescope is deterministic from program prefix; missing-row = "verified" by Phase 8 convention.
-- [Phase ?]: REFAC-02 complete: all three calendar commands delegate CalendarEvent create-or-update to insert_or_create_calendar_event
+
+**Phase 11 key decisions:**
+
+- `insert_or_create_calendar_event` uses `event.save(update_fields=list(fields.keys()) + ['modified'])` (not bare `event.save()`) to ensure `auto_now` field (`modified`) always updates on write, avoiding the `update_fields` omission bug caught in 11-01 fix commit 3fb5ad7.
+- Absolute import style (`from solsys_code.calendar_utils import ...`) used consistently across all three commands (Plan 11-01 originally specified relative import; Plan 11-02 explicitly accepts absolute; functional behavior identical).
 
 ### Pending Todos
 
-1. Extract site/telescope mapping and instrument extraction into own module — addressed by REFAC-01 in Phase 11 — `.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`
+1. Extract site/telescope mapping and instrument extraction into own module — RESOLVED by REFAC-01 in Phase 11.
 
 ### Blockers/Concerns
 
@@ -82,6 +85,6 @@ None open.
 
 ## Session Continuity
 
-Last session: 2026-06-27T23:17:54.912Z
-Stopped at: Completed 11-02-PLAN.md
+Last session: 2026-06-27T23:45:00.000Z
+Stopped at: Phase 11 verification complete
 Resume file: None
