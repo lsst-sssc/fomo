@@ -34,16 +34,16 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REFAC-01 | — | Pending |
-| REFAC-02 | — | Pending |
-| DISPLAY-08 | — | Pending |
-| DISPLAY-09 | — | Pending |
+| REFAC-01 | Phase 11 | Pending |
+| REFAC-02 | Phase 11 | Pending |
+| DISPLAY-08 | Phase 12 | Pending |
+| DISPLAY-09 | Phase 12 | Pending |
 
 **Coverage:**
 - v1.6 requirements: 4 total
-- Mapped to phases: 0
-- Unmapped: 4 ⚠️
+- Mapped to phases: 4
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-27*
-*Last updated: 2026-06-27 after initial definition*
+*Last updated: 2026-06-27 — Phase assignments added (Phase 11: REFAC-01, REFAC-02; Phase 12: DISPLAY-08, DISPLAY-09)*

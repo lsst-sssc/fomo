@@ -8,6 +8,7 @@
 - ✅ **v1.3 Full LCO Facility Sync** — Phases 5-7, 07.1 (shipped 2026-06-24) — see [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 Calendar Visual Clarity** — Phases 8-9 (shipped 2026-06-26) — see [milestones/v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
 - ✅ **v1.5 Gemini Calendar Sync** — Phase 10 (shipped 2026-06-27) — see [milestones/v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
+- 🚧 **v1.6 Tech Debt & Display Polish** — Phases 11-12 (in progress)
 
 ## Phases
 
@@ -57,6 +58,13 @@
 - [x] Phase 10: Gemini Calendar Sync Command (2/2 plans) — completed 2026-06-27
 
 </details>
+
+### 🚧 v1.6 Tech Debt & Display Polish (In Progress)
+
+**Milestone Goal:** Clear all deferred technical debt and display polish items accumulated across v1.3–v1.5, leaving the codebase clean before Stage 4.
+
+- [ ] **Phase 11: Code Refactoring** - Extract shared telescope-mapping and calendar-event utility code into standalone modules; update all three commands to use them; remove "upsert" from live docs
+- [ ] **Phase 12: Display Polish** - WCAG-AA-compliant text color per palette background; batch-load telescope-label data to eliminate N+1 query in calendar template
 
 ## Phase Details
 
@@ -133,6 +141,31 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 
 - [x] 10-02-PLAN.md — pre-executed demo notebook covering the four D-06 scenarios (GEM-WINDOW-01/02, GEM-STATUS-01, GEM-NOCHURN-01, GEM-SECURE-01)
 
+### Phase 11: Code Refactoring
+
+**Goal**: Shared telescope-mapping and calendar-event creation logic is extracted into importable utility modules that all three management commands use, with no duplicated implementation and no "upsert" jargon remaining in live docs or comments.
+**Depends on**: Phase 10
+**Requirements**: REFAC-01, REFAC-02
+**Success Criteria** (what must be TRUE):
+  1. `SITE_TELESCOPE_MAP`, `_extract_instrument`, and related LCO/SOAR helpers are importable from a new standalone `solsys_code/` module without importing the management command file
+  2. All three management commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) delegate their CalendarEvent create-or-update logic to `insert_or_create_calendar_event()`; the prior duplicated code blocks are absent from each command file
+  3. The word "upsert" does not appear in `docs/design/telescope_runs_calendar.rst` or `.planning/MILESTONES.md` (replaced with plain English or the function name)
+  4. All `./manage.py test solsys_code` tests pass with no behavior change — the refactor is behavior-neutral
+**Plans**: TBD
+
+### Phase 12: Display Polish
+
+**Goal**: Calendar event text is WCAG-AA-compliant against every palette background, and the calendar template loads telescope-label data without an N+1 query per event.
+**Depends on**: Phase 11
+**Requirements**: DISPLAY-08, DISPLAY-09
+**Success Criteria** (what must be TRUE):
+  1. Every calendar event's title text renders in white or black — whichever achieves WCAG AA 4.5:1 contrast against its proposal palette background — with the choice computed from relative luminance, not hardcoded per palette entry
+  2. All 8 colors in `PROPOSAL_PALETTE` pass WCAG AA 4.5:1 contrast when paired with their computed text color, verifiable by the test suite
+  3. `CalendarEventTelescopeLabel` data for all visible calendar events is loaded in a single prefetch query rather than one query per event, regardless of how many events are on the calendar
+  4. The full test suite passes with all existing tests preserved and new behavior covered
+**Plans**: TBD
+**UI hint**: yes
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -148,5 +181,7 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
+| 11. Code Refactoring | v1.6 | 0/TBD | Not started | - |
+| 12. Display Polish | v1.6 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

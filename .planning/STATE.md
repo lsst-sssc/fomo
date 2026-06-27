@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
-status: planning
+status: in_progress
 last_updated: "2026-06-27T16:13:49.629Z"
 last_activity: 2026-06-27
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone complete)
 
 **Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked.
-**Current focus:** v1.5 archived 2026-06-27. Run `/gsd:new-milestone` to plan next milestone.
+**Current focus:** v1.6 Tech Debt & Display Polish — Phase 11: Code Refactoring
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 11 — Code Refactoring
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-27 — Milestone v1.6 started
+Status: Not started
+Last activity: 2026-06-27 — Roadmap created for v1.6 (Phases 11-12)
+
+Progress: [░░░░░░░░░░] 0% (0/2 phases)
 
 ## Performance Metrics
 
@@ -62,7 +64,7 @@ All v1.0-v1.5 decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-1. Extract site/telescope mapping and instrument extraction into own module — deferred again at v1.4 close; single consumer today — `.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`
+1. Extract site/telescope mapping and instrument extraction into own module — addressed by REFAC-01 in Phase 11 — `.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`
 
 ### Blockers/Concerns
 
@@ -72,12 +74,11 @@ None open.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| todo | extract-site-telescope-mapping-and-instrument-extraction-int | pending — single consumer | v1.3 close, re-deferred at v1.5 close |
-| requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | deferred to v2 | v1.4 close |
-| requirement | DISPLAY-09 (batching template tag for sidecar N+1) | deferred to v2 | v1.4 close |
+| requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | now active in v1.6 Phase 12 | v1.4 close → promoted to v1.6 |
+| requirement | DISPLAY-09 (batching template tag for sidecar N+1) | now active in v1.6 Phase 12 | v1.4 close → promoted to v1.6 |
 
 ## Session Continuity
 
 Last session: 2026-06-27T15:45:00Z
-Stopped at: Phase 10 complete — v1.5 milestone done, ready for /gsd:complete-milestone v1.5
+Stopped at: v1.6 roadmap created — ready to plan Phase 11
 Resume file: None
