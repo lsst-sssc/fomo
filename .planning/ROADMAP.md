@@ -151,7 +151,15 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
   2. All three management commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) delegate their CalendarEvent create-or-update logic to `insert_or_create_calendar_event()`; the prior duplicated code blocks are absent from each command file
   3. The word "upsert" does not appear in `docs/design/telescope_runs_calendar.rst` or `.planning/MILESTONES.md` (replaced with plain English or the function name)
   4. All `./manage.py test solsys_code` tests pass with no behavior change — the refactor is behavior-neutral
-**Plans**: TBD
+**Plans**: 2 plans
+
+**Wave 1**
+
+- [ ] 11-01-PLAN.md — Create `solsys_code/calendar_utils.py` (REFAC-01 telescope-mapping extractions + `insert_or_create_calendar_event`); refactor `sync_lco_observation_calendar` to use it (REFAC-01, REFAC-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 11-02-PLAN.md — Refactor `load_telescope_runs` + `sync_gemini_observation_calendar` to use `insert_or_create_calendar_event`; replace "upsert" in `.rst` and `MILESTONES.md` (REFAC-02)
 
 ### Phase 12: Display Polish
 
@@ -181,7 +189,7 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
-| 11. Code Refactoring | v1.6 | 0/TBD | Not started | - |
+| 11. Code Refactoring | v1.6 | 0/2 | Not started | - |
 | 12. Display Polish | v1.6 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

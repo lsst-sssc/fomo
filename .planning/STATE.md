@@ -4,7 +4,7 @@ milestone: v1.6
 milestone_name: Tech Debt & Display Polish
 status: Not started
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-27T16:43:05.681Z"
+last_updated: "2026-06-27T17:20:08.614Z"
 last_activity: 2026-06-27 — Roadmap created for v1.6 (Phases 11-12)
 progress:
   total_phases: 5
