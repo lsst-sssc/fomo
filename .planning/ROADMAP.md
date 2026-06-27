@@ -55,7 +55,7 @@
 
 **Milestone Goal:** Add `sync_gemini_observation_calendar` — a new management command that syncs submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners, with idempotent find-or-create behavior and no credential exposure.
 
-- [ ] **Phase 10: Gemini Calendar Sync Command** - Implement `sync_gemini_observation_calendar`, tests, and demo notebook
+- [x] **Phase 10: Gemini Calendar Sync Command** - Implement `sync_gemini_observation_calendar`, tests, and demo notebook (completed 2026-06-27)
 
 ## Phase Details
 
@@ -128,7 +128,7 @@
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 10-02-PLAN.md — pre-executed demo notebook covering the four D-06 scenarios (GEM-WINDOW-01/02, GEM-STATUS-01, GEM-NOCHURN-01, GEM-SECURE-01)
+- [x] 10-02-PLAN.md — pre-executed demo notebook covering the four D-06 scenarios (GEM-WINDOW-01/02, GEM-STATUS-01, GEM-NOCHURN-01, GEM-SECURE-01)
 
 ## Progress
 
@@ -144,6 +144,6 @@
 | 07.1. Close gap: SOAR fallback label is facility-unaware | v1.3 | 1/1 | Complete | 2026-06-24 |
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
-| 10. Gemini Calendar Sync Command | v1.5 | 1/2 | In Progress|  |
+| 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete   | 2026-06-27 |
 
 Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
