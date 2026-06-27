@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
-status: Not started
+status: executing
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-27T17:20:08.614Z"
-last_activity: 2026-06-27 — Roadmap created for v1.6 (Phases 11-12)
+last_updated: "2026-06-27T17:52:52.417Z"
+last_activity: 2026-06-27 -- Phase 11 execution started
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone complete)
 
 **Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked.
-**Current focus:** v1.6 Tech Debt & Display Polish — Phase 11: Code Refactoring
+**Current focus:** Phase 11 — code-refactoring
 
 ## Current Position
 
-Phase: 11 — Code Refactoring
-Plan: —
-Status: Not started
-Last activity: 2026-06-27 — Roadmap created for v1.6 (Phases 11-12)
+Phase: 11 (code-refactoring) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 11
+Last activity: 2026-06-27 -- Phase 11 execution started
 
 Progress: [░░░░░░░░░░] 0% (0/2 phases)
 

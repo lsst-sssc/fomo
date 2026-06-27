@@ -147,15 +147,17 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 **Depends on**: Phase 10
 **Requirements**: REFAC-01, REFAC-02
 **Success Criteria** (what must be TRUE):
+
   1. `SITE_TELESCOPE_MAP`, `_extract_instrument`, and related LCO/SOAR helpers are importable from a new standalone `solsys_code/` module without importing the management command file
   2. All three management commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) delegate their CalendarEvent create-or-update logic to `insert_or_create_calendar_event()`; the prior duplicated code blocks are absent from each command file
   3. The word "upsert" does not appear in `docs/design/telescope_runs_calendar.rst` or `.planning/MILESTONES.md` (replaced with plain English or the function name)
   4. All `./manage.py test solsys_code` tests pass with no behavior change — the refactor is behavior-neutral
+
 **Plans**: 2 plans
 
 **Wave 1**
 
-- [ ] 11-01-PLAN.md — Create `solsys_code/calendar_utils.py` (REFAC-01 telescope-mapping extractions + `insert_or_create_calendar_event`); refactor `sync_lco_observation_calendar` to use it (REFAC-01, REFAC-02)
+- [x] 11-01-PLAN.md — Create `solsys_code/calendar_utils.py` (REFAC-01 telescope-mapping extractions + `insert_or_create_calendar_event`); refactor `sync_lco_observation_calendar` to use it (REFAC-01, REFAC-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -167,10 +169,12 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 **Depends on**: Phase 11
 **Requirements**: DISPLAY-08, DISPLAY-09
 **Success Criteria** (what must be TRUE):
+
   1. Every calendar event's title text renders in white or black — whichever achieves WCAG AA 4.5:1 contrast against its proposal palette background — with the choice computed from relative luminance, not hardcoded per palette entry
   2. All 8 colors in `PROPOSAL_PALETTE` pass WCAG AA 4.5:1 contrast when paired with their computed text color, verifiable by the test suite
   3. `CalendarEventTelescopeLabel` data for all visible calendar events is loaded in a single prefetch query rather than one query per event, regardless of how many events are on the calendar
   4. The full test suite passes with all existing tests preserved and new behavior covered
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -189,7 +193,7 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
-| 11. Code Refactoring | v1.6 | 0/2 | Not started | - |
+| 11. Code Refactoring | v1.6 | 1/2 | In Progress|  |
 | 12. Display Polish | v1.6 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
