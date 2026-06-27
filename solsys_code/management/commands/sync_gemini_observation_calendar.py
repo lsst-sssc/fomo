@@ -174,7 +174,10 @@ class Command(BaseCommand):
 
             except (KeyError, ValueError) as exc:
                 # Never interpolate safe_params or record.parameters into this message (GEM-SECURE-01).
-                self.stderr.write(f'Skipping observation_id={record.observation_id!r}: {exc}')
+                # Emit only the exception class name on stderr; strptime errors embed the offending
+                # input value in their message, which could expose parameter content via {exc}.
+                self.stderr.write(f'Skipping observation_id={record.observation_id!r}: {type(exc).__name__}')
+                logger.debug('Full exception for ObservationRecord %s: %s', record.pk, exc)
                 counters[site_key]['skipped'] += 1
                 continue
 
