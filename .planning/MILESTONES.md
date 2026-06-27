@@ -1,5 +1,18 @@
 # Milestones
 
+## v1.5 Gemini Calendar Sync (Shipped: 2026-06-27)
+
+**Phases completed:** 1 phase (Phase 10), 2 plans
+
+**Key accomplishments:**
+
+- `sync_gemini_observation_calendar` management command syncing GEM ObservationRecords to CalendarEvents with per-record password scrubbing, ToO-type window derivation from `FACILITIES['GEM']['programs']`, and no-churn `get_or_create(url=) + save(update_fields=changed)` idiom — 15/15 tests passing.
+- Pre-executed demo notebook confirming all four D-06 scenarios (explicit window, Rap: derived, Std: derived, ON_HOLD + idempotent re-run) with no credential leakage; CLAUDE.md companion-notebook list extended to four entries.
+
+Known deferred items at close: 1 (see STATE.md Deferred Items — site/telescope extraction refactor, pending since v1.3)
+
+---
+
 ## v1.4 Calendar Visual Clarity (Shipped: 2026-06-26)
 
 **Phases completed:** 2 phases, 4 plans, 5 tasks

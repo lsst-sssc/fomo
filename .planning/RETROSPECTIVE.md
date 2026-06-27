@@ -198,6 +198,51 @@
 
 ---
 
+## Milestone: v1.5 — Gemini Calendar Sync
+
+**Shipped:** 2026-06-27
+**Phases:** 1 (Phase 10) | **Plans:** 2 | **Sessions:** ~2 (2026-06-26 → 2026-06-27)
+
+### What Was Built
+
+- `sync_gemini_observation_calendar` Django management command syncing all `ObservationRecord(facility='GEM')` rows to `CalendarEvent` window banners; keyed on `GEM:{prog}/{obsid}` for idempotency; `get_or_create(url=) + save(update_fields=changed)` no-churn pattern (same as Phases 3 and 4).
+- Explicit-window path (`windowDate`/`windowTime`/`windowDuration` → `start_time`/`end_time`) and ToO-type-derived fallback path (`Rap:` → +24 h, `Std:` → +24 h to +7 d); records with neither → `skipped` counter.
+- Per-record `safe_params` password-strip as the first statement in each loop iteration, before any logging or exception path (GEM-SECURE-01); `site_key`/`telescope` determination placed before the `try/except` block to avoid `NameError` in the except clause.
+- 15-test suite covering all 10 GEM-* requirements; 4 WR-01/02/03/04 code-review fixes applied atomically as separate commits.
+- Pre-executed demo notebook (`sync_gemini_observation_calendar_demo.ipynb`) covering all 4 D-06 scenarios; CLAUDE.md companion-notebook list extended to 4 entries.
+
+### What Worked
+
+- TDD-first approach (10-01): RED suite committed (`e69dc6b`), command implemented GREEN (`55a2e48`), demo notebook added as CLAUDE.md-mandated deviation (`1e8f5a0`) — three clear, atomic commits. 15/15 tests passed on first GREEN run with no debugging cycles.
+- Code review (10-REVIEW.md → 10-REVIEW-FIX.md) caught 6 real issues (CR-01/02: None-guard for `parameters`, WR-01/02/03/04: boolean `ready`, list validation, stderr sanitization, UNKNOWN counter) — all fixed as atomic commits with clear traceability before UAT.
+- Security threat verification (`10-SECURITY.md`) explicitly confirmed that password scrubbing was first-in-loop before any exception path — the explicit placement rule (before `try`, not inside it) was added as an Implementation Refinement deviation in SUMMARY.
+- 10-02 was genuinely a single-task plan: re-execute notebook + extend CLAUDE.md. Took ~20 min with zero rework. Separating notebook confirmation into its own plan (rather than absorbing it into 10-01) kept Plan 01 focused and gave the notebook a clean execution environment.
+
+### What Was Inefficient
+
+- The `gsd-tools.cjs query milestone.complete` CLI refused to archive the milestone with `--force` because Phases 8 and 9 (already in `milestones/v1.4-phases/`) still appeared in ROADMAP.md's Phase Details section without on-disk directories. Manual archival was required — an extra step with no content value.
+- The worktree for 10-02 had an empty database (the Plan 01 worktree had been merged and removed), requiring `./manage.py migrate` before notebook re-execution. This is a predictable worktree lifecycle issue that could be documented as a standard worktree-setup step in the `execute-phase` checklist.
+
+### Patterns Established
+
+- Per-record credential scrubbing must be the **first** statement in the loop body, before any logging or `try/except` block — placing it inside `try` risks a `NameError` in the except clause referencing a variable set after the strip.
+- `site_key`/`telescope` determination (any variable referenced in the `except` clause) must be placed **before** the `try` block, not inside it — `except` clauses that increment `counters[site_key]` will `NameError` if a `KeyError` fires before `site_key` is bound.
+- New management command → CLAUDE.md companion-notebook list extended in the same plan that confirms the notebook is re-runnable, not as a follow-up — prevents the "missed notebook" pattern from v1.0/v1.2.
+
+### Key Lessons
+
+1. When a new command follows an established no-churn idiom exactly (`get_or_create + update_fields=changed`, same as Phases 3 and 4), the test suite for the no-churn contract is nearly identical — copy it at plan time, not as a surprise during execution. This milestone had zero debugging cycles on the no-churn path because the test was written before the command.
+2. Code review with 4-6 findings is the right scope for a 1-phase milestone — enough to catch real edge cases (None-guard, list validation, stderr sanitization) without requiring a full repair phase. The atomic-commit-per-fix pattern (`fix(10): CR-01...`) makes cherry-pick and regression analysis trivial.
+3. The `milestone.complete` CLI needs a reliable `--force` path (or awareness of archived phase directories) before it can be used at future milestone closes where previous milestones' phases are already archived. As a workaround, archive manually; the output is identical.
+
+### Cost Observations
+
+- Sessions: ~2 (2026-06-26 → 2026-06-27)
+- Model mix: not tracked this milestone
+- Notable: Smallest milestone by phases (1 phase, 2 plans) but touched the most requirements in a single phase (10 GEM-* requirements, all confirmed 15/15 by the test suite). Per-plan duration was moderate (~45 min Plan 01, ~20 min Plan 02), in line with v1.4 execution speed.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -209,6 +254,7 @@
 | v1.2 | ~2 | 1 | Single-plan phase; code review caught a real pre-close bug (CR-01); two same-day quick-task follow-ups (style fix + contrast regression fix) |
 | v1.3 | ~6 | 4 (incl. inserted 07.1) | First milestone with a dedicated milestone-level audit (`/gsd-audit-milestone`) finding a real shipped defect; first decimal gap-closure phase (07.1) inserted post-audit; first retroactive `verify_phase_goal` backfill (Phase 7) |
 | v1.4 | ~2 | 2 | Fastest milestone per-plan (~15 min/plan avg); `/gsd:sketch` for single visual-design decision during planning; first Django template-tag library + first real solsys_code migration; context-exhaustion event mid-verification |
+| v1.5 | ~2 | 1 | Smallest milestone (1 phase, 2 plans); TDD-first with 15 tests covering all 10 requirements; 6 code-review fixes pre-UAT; `milestone.complete` CLI required manual workaround (archived phases not recognized) |
 
 ### Cumulative Quality
 
@@ -219,6 +265,7 @@
 | v1.2 | +14 (sync command; all 110 under `./manage.py test solsys_code`) | - | 0 |
 | v1.3 | +21 (multi-proposal/facility, multi-config extraction, telescope-label + fallback; all 131 under `./manage.py test solsys_code`) | - | 0 |
 | v1.4 | +40 (sidecar write + rendering + template tag unit + integration; all 171 under `./manage.py test solsys_code`) | - | 0 |
+| v1.5 | +15 (GEM sync command, all 10 GEM-* requirements; all 186 under `./manage.py test solsys_code`) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -227,4 +274,5 @@
 3. UAT generated by `/gsd-verify-work` is only useful if it's run — fold scenarios into `TestCase` methods at plan time rather than generating a separate checklist.
 4. "Ship a demo notebook per phase" needs to be an explicit phase-plan task, not just a PROJECT.md convention — missed and backfilled after the fact in both v1.0 and v1.2.
 5. A phase's own verification is only as broad as its fixtures — a single-facility/single-shape test+UAT+notebook can all pass while a defect ships for an untested shape (v1.3 Phase 7's LCO-only verification missed a SOAR-only defect). Milestone-level audits exist precisely to catch this, but catching it in-phase is cheaper.
+6. When a new management command follows an established idiomatic pattern (no-churn `get_or_create + update_fields=changed`), write the idiomatic test at RED time — the no-churn path requires zero debugging when the test was written before the command (v1.5 Phase 10).
 6. Quick-task `SUMMARY.md` frontmatter missing a `status` field has now cost manual cross-checking at two consecutive milestone closes (v1.2: 4 tasks, v1.3: 7 tasks) — fix at the template level, not at close time.

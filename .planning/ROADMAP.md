@@ -7,7 +7,7 @@
 - ✅ **v1.2 LCO Queue Calendar Sync** — Phase 4 (shipped 2026-06-18) — see [milestones/v1.2-ROADMAP.md](milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Full LCO Facility Sync** — Phases 5-7, 07.1 (shipped 2026-06-24) — see [milestones/v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 Calendar Visual Clarity** — Phases 8-9 (shipped 2026-06-26) — see [milestones/v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
-- 🚧 **v1.5 Gemini Calendar Sync** — Phase 10 (in progress)
+- ✅ **v1.5 Gemini Calendar Sync** — Phase 10 (shipped 2026-06-27) — see [milestones/v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
 
 ## Phases
 
@@ -51,13 +51,16 @@
 
 </details>
 
-### 🚧 v1.5 Gemini Calendar Sync (In Progress)
+<details>
+<summary>✅ v1.5 Gemini Calendar Sync (Phase 10) — SHIPPED 2026-06-27</summary>
 
-**Milestone Goal:** Add `sync_gemini_observation_calendar` — a new management command that syncs submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners, with idempotent find-or-create behavior and no credential exposure.
+- [x] Phase 10: Gemini Calendar Sync Command (2/2 plans) — completed 2026-06-27
 
-- [x] **Phase 10: Gemini Calendar Sync Command** - Implement `sync_gemini_observation_calendar`, tests, and demo notebook (completed 2026-06-27)
+</details>
 
 ## Phase Details
+
+Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in their respective milestone archive files linked in the Milestones section above.
 
 ### Phase 8: Telescope Label Verification Sidecar
 
@@ -146,4 +149,4 @@
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
 
-Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
+Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Gemini Calendar Sync
-status: milestone_complete
-stopped_at: Phase 10 complete — v1.5 milestone done
-last_updated: "2026-06-27T15:45:00.000Z"
+status: archived
+stopped_at: v1.5 milestone archived — ready for /gsd:new-milestone
+last_updated: "2026-06-27T16:30:00.000Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 3
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone complete)
 
 **Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked.
-**Current focus:** v1.5 milestone complete. Run `/gsd:complete-milestone v1.5` to archive.
+**Current focus:** v1.5 archived 2026-06-27. Run `/gsd:new-milestone` to plan next milestone.
 
 ## Current Position
 
@@ -75,7 +75,7 @@ None open.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| todo | extract-site-telescope-mapping-and-instrument-extraction-int | pending — single consumer | v1.3 close |
+| todo | extract-site-telescope-mapping-and-instrument-extraction-int | pending — single consumer | v1.3 close, re-deferred at v1.5 close |
 | requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | deferred to v2 | v1.4 close |
 | requirement | DISPLAY-09 (batching template tag for sidecar N+1) | deferred to v2 | v1.4 close |
 
