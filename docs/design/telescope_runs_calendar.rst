@@ -219,7 +219,7 @@ block and reports status from the vocabulary ``PENDING``, ``COMPLETED`` and the
 terminal states ``WINDOW_EXPIRED`` / ``CANCELED`` / ``FAILURE_LIMIT_REACHED`` /
 ``NOT_ATTEMPTED``.
 
-For each LCO record with scheduled times present, the sync **upserts** a
+For each LCO record with scheduled times present, the sync **creates or updates** a
 ``CalendarEvent`` at the real block time.  The idempotency key is the ``url``
 field set to the canonical portal URL
 ``https://observe.lco.global/requestgroups/<observation_id>/`` — unique per
@@ -251,7 +251,7 @@ queue run.
 **Stage 4 — observation-record sync (#3).**  ``sync_lco_observation_calendar``
 (management command, or a ``post_save`` signal on ``ObservationRecord`` in
 ``solsys_code`` since FOMO owns that code), run after
-``update_all_observation_statuses``; upsert ``CalendarEvent`` rows keyed on the
+``update_all_observation_statuses``; create or update ``CalendarEvent`` rows keyed on the
 portal ``url``.
 
 Success Criteria
