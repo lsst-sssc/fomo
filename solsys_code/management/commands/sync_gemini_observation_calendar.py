@@ -133,8 +133,9 @@ class Command(BaseCommand):
                         continue
 
                 # GEM-STATUS-01: prefix title with [ON_HOLD] when ready == 'false'.
+                # Use str().lower() to handle both boolean False and string 'false' from the JSONField.
                 ready = safe_params.get('ready', 'true')
-                title_prefix = '[ON_HOLD] ' if ready == 'false' else ''
+                title_prefix = '[ON_HOLD] ' if str(ready).lower() == 'false' else ''
                 title = f'{title_prefix}{telescope} {instrument} ToO'
 
                 # GEM-KEY-01: stable, human-readable URL key.
