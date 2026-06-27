@@ -50,18 +50,15 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Milestone v1.5 Gemini Calendar Sync — Complete
+## Current Milestone: v1.6 Tech Debt & Display Polish
 
-**Goal:** Add a `sync_gemini_observation_calendar` management command that syncs submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners, using explicit submission windows when present and ToO-type-derived defaults when not.
+**Goal:** Clear all deferred technical debt and display polish items accumulated across v1.3–v1.5, leaving the codebase clean before Stage 4.
 
-**Delivered (Phase 10, 2026-06-27):**
-- `sync_gemini_observation_calendar` management command (separate from the LCO one)
-- Idempotent window-banner creation keyed on `GEM:{prog}/{obs_id}`
-- Window from `windowDate`/`windowTime`/`windowDuration` when present; ToO-type-derived when not
-- Telescope from program prefix, instrument from settings description with obs-code fallback
-- `[ON_HOLD]` title prefix when `ready=false`
-- `password` field stripped before any logging path
-- 15/15 tests; pre-executed demo notebook with all four D-06 scenarios
+**Target features:**
+- Extract `SITE_TELESCOPE_MAP` and instrument-extraction logic from `sync_lco_observation_calendar.py` into a dedicated shared module
+- Extract the shared no-churn CalendarEvent create-or-update pattern as `insert_or_create_calendar_event()` in `solsys_code/`; update all three commands to use it; replace "upsert" references in live docs/comments with the function name or plain English
+- DISPLAY-08: WCAG contrast-ratio-aware text color switching (white vs. black) per palette background for AA compliance
+- DISPLAY-09: Batch the `CalendarEventTelescopeLabel` reverse accessor to eliminate the N+1 query per event in the calendar template
 
 ## Requirements
 
@@ -124,7 +121,12 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 
 ### Active
 
-(none — all v1.5 requirements validated)
+<!-- v1.6 Tech Debt & Display Polish -->
+
+- [ ] Extract `SITE_TELESCOPE_MAP` + instrument-extraction into a shared module
+- [ ] Extract `insert_or_create_calendar_event()` utility; update all three commands; replace "upsert" in live docs/comments
+- [ ] DISPLAY-08: WCAG contrast-ratio-aware text color (white vs. black) per palette background
+- [ ] DISPLAY-09: Batch `CalendarEventTelescopeLabel` reverse accessor (eliminate N+1 in calendar template)
 
 ### Out of Scope
 
@@ -261,4 +263,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-27 after Phase 10 — v1.5 milestone complete; GEM-* requirements moved to Validated; Key Decisions updated with Phase 10 patterns; working code list updated; test count updated to 186*
+*Last updated: 2026-06-27 after v1.5 milestone archived — v1.6 Tech Debt & Display Polish started*

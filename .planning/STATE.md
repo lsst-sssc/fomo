@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: Gemini Calendar Sync
-status: archived
-stopped_at: v1.5 milestone archived — ready for /gsd:new-milestone
-last_updated: "2026-06-27T16:30:00.000Z"
+milestone: v1.6
+milestone_name: Tech Debt & Display Polish
+status: planning
+last_updated: "2026-06-27T16:13:49.629Z"
 last_activity: 2026-06-27
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone 
 
 ## Current Position
 
-Phase: 10 (gemini-calendar-sync-command) — COMPLETE
-Plan: 2 of 2
-Status: Milestone complete — all phases done
-Last activity: 2026-06-27 — Phase 10 UAT complete (7/7 passed), v1.5 milestone verified
-
-Progress: [████████████████████] 2/2 plans (100%)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-27 — Milestone v1.6 started
 
 ## Performance Metrics
 
