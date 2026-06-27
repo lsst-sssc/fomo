@@ -124,7 +124,7 @@
 
 **Wave 1**
 
-- [ ] 10-01-PLAN.md — `sync_gemini_observation_calendar` command + full Django test suite (all 10 GEM-* requirements)
+- [x] 10-01-PLAN.md — `sync_gemini_observation_calendar` command + full Django test suite (all 10 GEM-* requirements)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -144,6 +144,6 @@
 | 07.1. Close gap: SOAR fallback label is facility-unaware | v1.3 | 1/1 | Complete | 2026-06-24 |
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
-| 10. Gemini Calendar Sync Command | v1.5 | 0/2 | In progress | - |
+| 10. Gemini Calendar Sync Command | v1.5 | 1/2 | In Progress|  |
 
 Full phase detail (goals, success criteria, plans) for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
