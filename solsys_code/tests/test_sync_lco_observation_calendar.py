@@ -16,7 +16,7 @@ from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.management.commands.sync_lco_observation_calendar import (
+from solsys_code.calendar_utils import (
     SITE_TELESCOPE_MAP,
     _aperture_class_from_telescope_code,
     _derive_telescope,
@@ -184,7 +184,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             instrument_type='2M0-SCICAM-MUSCAT',
         )
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
@@ -215,7 +215,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             instrument_type='2M0-SCICAM-MUSCAT',
         )
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
@@ -240,7 +240,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             instrument_type='1M0-SCICAM-SINISTRO',
         )
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=requests.exceptions.Timeout,
         ):
             call_command(
@@ -268,7 +268,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             instrument_type='2M0-SCICAM-MUSCAT',
         )
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=_observations_block_response(site='ogg', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
@@ -355,7 +355,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             instrument_type='2M0-SCICAM-MUSCAT',
         )
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
@@ -429,7 +429,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
 
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
@@ -790,7 +790,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         mock_facility._portal_headers.return_value = {}
 
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=_observations_block_response(
                 site='lsc', enclosure='doma', telescope='1m0a', state='COMPLETED'
             ),
@@ -810,7 +810,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         mock_facility._portal_headers.return_value = {}
 
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=requests.exceptions.Timeout,
         ) as mock_make_request:
             block = _resolve_placement_block('12345', mock_facility)
@@ -829,14 +829,14 @@ class TestSyncLcoObservationCalendar(TestCase):
         leak_marker = 'SECRET_API_KEY_LEAK_BODY'
 
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=ImproperCredentialsException(f'OCS: {leak_marker}'),
         ):
             block = _resolve_placement_block('12345', mock_facility)
         self.assertIsNone(block)
 
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=forms.ValidationError(f'OCS: {leak_marker}'),
         ):
             block = _resolve_placement_block('12345', mock_facility)
@@ -856,7 +856,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         stdout_buf = io.StringIO()
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=requests.exceptions.Timeout,
         ):
             call_command(
@@ -890,7 +890,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         stdout_buf = io.StringIO()
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=requests.exceptions.Timeout,
         ):
             call_command(
@@ -924,7 +924,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
 
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=requests.exceptions.Timeout,
         ):
             call_command(
@@ -942,7 +942,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         modified_before = event.modified
 
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=_observations_block_response(site='lsc', telescope='1m0a', state='COMPLETED'),
         ):
             call_command(
@@ -972,7 +972,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         stdout_buf = io.StringIO()
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=requests.exceptions.Timeout,
         ):
             call_command(
@@ -1012,7 +1012,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         # '-created' default ordering -> 800105 (created last) is processed first.
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=[
                 requests.exceptions.Timeout,
                 _observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
@@ -1048,7 +1048,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         stderr_buf = io.StringIO()
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             side_effect=ImproperCredentialsException(f'OCS: {leak_marker}'),
         ):
             call_command(
@@ -1076,7 +1076,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         stdout_buf = io.StringIO()
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
         ) as mock_make_request:
             call_command(
                 'sync_lco_observation_calendar',
@@ -1113,7 +1113,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         stdout_buf = io.StringIO()
         with patch(
-            'solsys_code.management.commands.sync_lco_observation_calendar.make_request',
+            'solsys_code.calendar_utils.make_request',
             return_value=malformed_response,
         ):
             call_command(
