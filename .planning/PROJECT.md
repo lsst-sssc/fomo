@@ -9,7 +9,7 @@ A helper module and management commands for FOMO that:
 3. (`solsys_code/management/commands/sync_lco_observation_calendar.py`) syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar as unified CalendarEvents — starting as a scheduling-window banner and updating in place to the placed block once the LCO scheduler acts — Stage 3.
 4. A visual clarity layer (v1.4): `CalendarEventTelescopeLabel` sidecar model records live-verified vs. fallback telescope-label resolution; `calendar_display_extras` template-tag library provides proposal-keyed color (sha256 → 8-color colorblind-vetted palette), status box-shadow rings, and a click-to-filter legend.
 
-This is a Stages-1-through-3-complete implementation of the "telescope runs on the calendar" feature (issue #37), with a calendar visual clarity layer added in v1.4. Stage 4 (full observation-record sync for all facilities) remains future work.
+This is a Stages-1-through-3-complete implementation of the "telescope runs on the calendar" feature (issue #37), with a calendar visual clarity layer added in v1.4 and Gemini ToO calendar sync added in v1.5. Stage 4 (full observation-record sync for all facilities) remains future work.
 
 ## Current State
 
@@ -19,6 +19,7 @@ This is a Stages-1-through-3-complete implementation of the "telescope runs on t
 - ✅ v1.2 "LCO Queue Calendar Sync" — 2026-06-17 (Phase 4)
 - ✅ v1.3 "Full LCO Facility Sync" — 2026-06-24 (Phases 5-7, 07.1) — multi-proposal/multi-facility, correct instrument extraction, live telescope-label resolution + facility-aware coarse fallback
 - ✅ v1.4 "Calendar Visual Clarity" — 2026-06-26 (Phases 8-9) — `CalendarEventTelescopeLabel` sidecar model, dashed-border + tooltip for fallback labels, proposal-keyed color palette, status box-shadow rings, `[QUEUED]` override fix, click-to-filter legend
+- ✅ v1.5 "Gemini Calendar Sync" — 2026-06-27 (Phase 10) — `sync_gemini_observation_calendar` management command syncing Gemini ToO ObservationRecords to CalendarEvent window banners with per-record password scrubbing, ToO-type window derivation, and no-churn idempotency
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
@@ -35,7 +36,10 @@ This is a Stages-1-through-3-complete implementation of the "telescope runs on t
 - `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`: Stage 1 demo
 - `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`: Stage 2 demo
 - `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb`: Stage 3 demo (updated through v1.4)
-- **All 171 `./manage.py test solsys_code` tests pass.**
+- `solsys_code/management/commands/sync_gemini_observation_calendar.py`: `sync_gemini_observation_calendar` BaseCommand (GEM ToO sync, credential-safe, no-churn)
+- `solsys_code/tests/test_sync_gemini_observation_calendar.py`: 15 tests (all 10 GEM-* requirements)
+- `docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb`: Stage 3b demo (4 D-06 scenarios)
+- **All 186 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
 
@@ -45,19 +49,18 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: v1.5 Gemini Calendar Sync
+## Milestone v1.5 Gemini Calendar Sync — Complete
 
 **Goal:** Add a `sync_gemini_observation_calendar` management command that syncs submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners, using explicit submission windows when present and ToO-type-derived defaults when not.
 
-**Target features:**
-- New `sync_gemini_observation_calendar` management command (separate from the LCO one)
-- Idempotent window-banner creation keyed on a constructed `GEM:{prog}/{obs_id}` identifier
-- Window from `windowDate`/`windowTime`/`windowDuration` when present; else derived from ToO type (`Rap:` → +24 h, `Std:` → +24 h to +7 d) anchored on `ObservationRecord.created`
-- Telescope from program prefix (`GS-*` → Gemini South, `GN-*` → Gemini North)
-- Instrument from settings description (strip `Std:`/`Rap:` prefix), fallback to obs code
-- `[ON_HOLD]` title prefix when `ready=false`; clean title otherwise
-- `password` field never logged or exposed
-- Demo notebook: `docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb`
+**Delivered (Phase 10, 2026-06-27):**
+- `sync_gemini_observation_calendar` management command (separate from the LCO one)
+- Idempotent window-banner creation keyed on `GEM:{prog}/{obs_id}`
+- Window from `windowDate`/`windowTime`/`windowDuration` when present; ToO-type-derived when not
+- Telescope from program prefix, instrument from settings description with obs-code fallback
+- `[ON_HOLD]` title prefix when `ready=false`
+- `password` field stripped before any logging path
+- 15/15 tests; pre-executed demo notebook with all four D-06 scenarios
 
 ## Requirements
 
@@ -107,19 +110,20 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ **DISPLAY-05**: `[QUEUED]` template override that discarded proposal color with flat grey removed; queued events retain proposal-keyed background — v1.4 (Phase 9)
 - ✓ **DISPLAY-06**: Status box-shadow rings (queued 2px, terminal-failure 3px) layered orthogonally on top of proposal color, composed with Phase 8 dashed border without collision — v1.4 (Phase 9)
 - ✓ **DISPLAY-07**: Footer legend maps proposal codes to rendered colors with collision grouping; click-to-filter JS IIFE toggles highlight/dim on the calendar grid client-side, survives htmx month swaps — v1.4 (Phase 9)
+- ✓ **GEM-SELECT-01**: `sync_gemini_observation_calendar` syncs all `ObservationRecord(facility='GEM')` records — v1.5 (Phase 10)
+- ✓ **GEM-WINDOW-01**: Each synced record becomes one `CalendarEvent`; window from `windowDate`/`windowTime`/`windowDuration` when present — v1.5 (Phase 10)
+- ✓ **GEM-WINDOW-02**: Records without explicit window fall back to ToO-type-derived window anchored on `ObservationRecord.created` (`Rap:` → +24 h, `Std:` → +24 h to +7 d); neither → skip with counter — v1.5 (Phase 10)
+- ✓ **GEM-KEY-01**: Idempotency key (`CalendarEvent.url`) constructed as `GEM:{prog}/{observation_id}` — v1.5 (Phase 10)
+- ✓ **GEM-TELE-01**: `telescope` derived from program prefix (`GS-*` → `Gemini South`, `GN-*` → `Gemini North`) — v1.5 (Phase 10)
+- ✓ **GEM-INSTR-01**: `instrument` from settings description (strip `Std:`/`Rap:` prefix), fallback to obs code — v1.5 (Phase 10)
+- ✓ **GEM-PROP-01**: `proposal` set from `params['prog']` — v1.5 (Phase 10)
+- ✓ **GEM-STATUS-01**: `[ON_HOLD]` title prefix when `ready=false`; clean title otherwise — v1.5 (Phase 10)
+- ✓ **GEM-NOCHURN-01**: Re-running creates no duplicates, no `modified` churn on unchanged records — v1.5 (Phase 10)
+- ✓ **GEM-SECURE-01**: `password` field never logged or exposed during sync — v1.5 (Phase 10)
 
 ### Active
 
-- [ ] **GEM-SELECT-01**: `sync_gemini_observation_calendar` syncs all `ObservationRecord(facility='GEM')` records
-- [ ] **GEM-WINDOW-01**: Each synced record becomes one `CalendarEvent`; window from `windowDate`/`windowTime`/`windowDuration` when present
-- [ ] **GEM-WINDOW-02**: Records without explicit window fall back to ToO-type-derived window anchored on `ObservationRecord.created` (`Rap:` → +24 h, `Std:` → +24 h to +7 d); neither → skip with counter
-- [ ] **GEM-KEY-01**: Idempotency key (`CalendarEvent.url`) constructed as `GEM:{prog}/{observation_id}`
-- [ ] **GEM-TELE-01**: `telescope` derived from program prefix (`GS-*` → `Gemini South`, `GN-*` → `Gemini North`)
-- [ ] **GEM-INSTR-01**: `instrument` from settings description (strip `Std:`/`Rap:` prefix), fallback to obs code
-- [ ] **GEM-PROP-01**: `proposal` set from `params['prog']`
-- [ ] **GEM-STATUS-01**: `[ON_HOLD]` title prefix when `ready=false`; clean title otherwise
-- [ ] **GEM-NOCHURN-01**: Re-running creates no duplicates, no `modified` churn on unchanged records
-- [ ] **GEM-SECURE-01**: `password` field never logged or exposed during sync
+(none — all v1.5 requirements validated)
 
 ### Out of Scope
 
@@ -233,6 +237,10 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | `visible_proposals` groups by resolved color hex, not by raw proposal string | Two proposals that hash to the same palette slot (collision) share one swatch; keying on the string would create two identical-color swatches — misleading | ✓ Good — implemented in Phase 09; D-04 collision-grouping design decision |
 | Status box-shadow rings (queued/terminal) composed as a prefix to the existing inline style, not replacing the Phase 8 dashed border | D-09: the two visual signals are orthogonal (label verification vs. event status); composing avoids the `{status_border} border: 2px dashed...` ordering problem by always appending | ✓ Good — implemented in Phase 09; Pitfall 3 composition test green |
 | Click-to-filter JS IIFE placed inside the `#calendar-partial` fragment (before its closing `</div>`), not in the page `<head>` | Pitfall 5: htmx `outerHTML` swap replaces the fragment including any `<script>` inside it — the IIFE re-executes on each month swap and resets `activeProposal` to null, preventing stale filter state | ✓ Good — implemented in Phase 09; documented in template comment; human-verified in UAT |
+| `update_fields=changed` (list of field names) for no-churn save, not unconditional `save()` | Prevents modifying `CalendarEvent.modified` on unchanged fields while satisfying GEM-NOCHURN-01; pattern re-used from Phase 03's `load_telescope_runs` | ✓ Good — implemented in Phase 10; GEM-NOCHURN-01 verified by test |
+| `safe_params` strips `password` key as first statement in each loop iteration, before any logging or exception paths | D-04: ensures no code path can accidentally log or persist the credential, even via an unexpected exception | ✓ Good — implemented in Phase 10; GEM-SECURE-01 verified by 15/15 passing tests |
+| `site_key`/`telescope` determination placed BEFORE the `try/except` block, not inside it | A `KeyError` on `obsid` lookup inside `try` would cause a `NameError` in the `except` clause that references `site_key` in `counters[site_key]['skipped']`; placing it before avoids the undefined-variable trap | ✓ Good — implementation refinement found during Task 2; no regressions |
+| Raw-fallback branch for GEM-INSTR-01: explicit window + unknown obs code → `instrument = obs_code` | D-01 skip path (no window → skip) only applies when no explicit window is present; an explicit window with an unknown obs code still deserves a CalendarEvent, using the raw obs code as a readable fallback | ✓ Good — implemented in Phase 10; covered by test |
 
 ## Evolution
 
@@ -252,4 +260,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 after v1.5 milestone start — "Current Milestone" section added for v1.5 Gemini Calendar Sync; v1.5 requirements added to Active*
+*Last updated: 2026-06-27 after Phase 10 — v1.5 milestone complete; GEM-* requirements moved to Validated; Key Decisions updated with Phase 10 patterns; working code list updated; test count updated to 186*

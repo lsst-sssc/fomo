@@ -2,35 +2,35 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Gemini Calendar Sync
-status: executing
-stopped_at: Phase 10 context gathered
-last_updated: "2026-06-27T03:43:19.216Z"
-last_activity: 2026-06-27 -- Phase 10 execution started
+status: milestone_complete
+stopped_at: Phase 10 complete — v1.5 milestone done
+last_updated: "2026-06-27T15:45:00.000Z"
+last_activity: 2026-06-27
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 3
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-26 — "Current Milestone" section added for v1.5)
+See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone complete)
 
-**Core value:** A `sync_gemini_observation_calendar` command that syncs submitted Gemini ToO ObservationRecords to CalendarEvent window banners, idempotent and credential-safe.
-**Current focus:** Phase 10 — gemini-calendar-sync-command
+**Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked.
+**Current focus:** v1.5 milestone complete. Run `/gsd:complete-milestone v1.5` to archive.
 
 ## Current Position
 
-Phase: 10 (gemini-calendar-sync-command) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 10
-Last activity: 2026-06-27 -- Phase 10 execution started
+Phase: 10 (gemini-calendar-sync-command) — COMPLETE
+Plan: 2 of 2
+Status: Milestone complete — all phases done
+Last activity: 2026-06-27 — Phase 10 UAT complete (7/7 passed), v1.5 milestone verified
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████████████████] 2/2 plans (100%)
 
 ## Performance Metrics
 
@@ -48,20 +48,20 @@ Progress: [░░░░░░░░░░] 0%
 | 08 P02 | 1 | 11 min | 11 min |
 | 09 P01 | 1 | 9 min | 9 min |
 | 09 P02 | 1 | 18 min | 18 min |
-| 10 | TBD | - | - |
+| 10 | 2 | - | - |
 
 ## Accumulated Context
 
 ### Decisions
 
-All v1.0-v1.4 decisions logged in PROJECT.md Key Decisions table.
+All v1.0-v1.5 decisions logged in PROJECT.md Key Decisions table.
 
-**Roadmap-time decisions for v1.5 (this roadmapping pass):**
+**Phase 10 key decisions:**
 
-- Single phase (Phase 10) for all 10 GEM-* requirements: scope is tight (one new management command), all requirements are interdependent, and coarse granularity calls for compression. Analogy: LCO Phase 4 delivered all 7 SELECT/SYNC/TERM requirements in a single phase. No natural delivery boundary separates window logic from field population from security constraints — they must be tested together.
-- Demo notebook scoped into Phase 10 from the start (CLAUDE.md convention — `sync_gemini_observation_calendar` is a new management command that requires a paired `sync_gemini_observation_calendar_demo.ipynb`). Must appear in `files_modified` and be executed via `jupyter nbconvert --to notebook --execute --inplace` before commit.
-- No `CalendarEventTelescopeLabel` sidecar for Gemini events: telescope is deterministic from program prefix — missing-row = "verified" convention from Phase 8 applies without any new model work.
-- All tests use synthetic `ObservationRecord` fixtures (dev DB has zero `facility='GEM'` records); tests go in `solsys_code/tests/test_sync_gemini_observation_calendar.py`.
+- `safe_params` password-strip placed as first statement in each loop iteration, before any logging or exception paths (GEM-SECURE-01).
+- `site_key`/`telescope` determination placed before the `try/except` block to avoid `NameError` in the except handler.
+- `update_fields=changed` no-churn save pattern (same as load_telescope_runs / sync_lco) — prevents `modified` churn on unchanged GEM events (GEM-NOCHURN-01).
+- No `CalendarEventTelescopeLabel` sidecar for GEM events: telescope is deterministic from program prefix; missing-row = "verified" by Phase 8 convention.
 
 ### Pending Todos
 
@@ -81,6 +81,6 @@ None open.
 
 ## Session Continuity
 
-Last session: 2026-06-27T03:17:04.230Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-gemini-calendar-sync-command/10-CONTEXT.md
+Last session: 2026-06-27T15:45:00Z
+Stopped at: Phase 10 complete — v1.5 milestone done, ready for /gsd:complete-milestone v1.5
+Resume file: None
