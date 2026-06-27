@@ -2,6 +2,7 @@
 created: 2026-06-23T04:22:14.003Z
 title: Extract site/telescope mapping and instrument extraction into own module
 area: general
+resolves_phase: 11
 files:
   - solsys_code/management/commands/sync_lco_observation_calendar.py
 ---
