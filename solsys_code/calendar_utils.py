@@ -164,6 +164,9 @@ def _resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict
     except (requests.exceptions.RequestException, ImproperCredentialsException, forms.ValidationError, ValueError):
         return None
 
+    if not isinstance(blocks, list):
+        return None
+
     current_block = None
     for block in blocks:
         if block.get('state') == 'COMPLETED':
@@ -324,6 +327,6 @@ def insert_or_create_calendar_event(
     if changed:
         for f, v in fields.items():
             setattr(event, f, v)
-        event.save()
+        event.save(update_fields=list(fields.keys()) + ['modified'])
         return event, 'updated'
     return event, 'unchanged'

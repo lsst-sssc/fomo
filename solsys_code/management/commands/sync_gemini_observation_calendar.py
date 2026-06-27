@@ -121,7 +121,7 @@ class Command(BaseCommand):
                     start_dt = datetime.strptime(window_date, '%Y-%m-%d').replace(tzinfo=dt_timezone.utc)
                     time_dt = datetime.strptime(window_time_str, '%H:%M')
                     start_time = start_dt.replace(hour=time_dt.hour, minute=time_dt.minute)
-                    end_time = start_time + timedelta(hours=int(window_duration))
+                    end_time = start_time + timedelta(hours=float(window_duration))
                 else:
                     # GEM-WINDOW-02: fall back to ToO-type prefix when no explicit window is present.
                     # description_str is guaranteed non-None here (raw fallback took the explicit-window branch).
