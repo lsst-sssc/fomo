@@ -105,10 +105,12 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
   they all read this file before producing planning docs.
 - **Demo notebook companions are part of the deliverable**, not optional polish added after the
   fact. Each of `solsys_code/telescope_runs.py`,
-  `solsys_code/management/commands/load_telescope_runs.py`, and
-  `solsys_code/management/commands/sync_lco_observation_calendar.py` has a paired demo notebook
+  `solsys_code/management/commands/load_telescope_runs.py`,
+  `solsys_code/management/commands/sync_lco_observation_calendar.py`, and
+  `solsys_code/management/commands/sync_gemini_observation_calendar.py` has a paired demo notebook
   under `docs/notebooks/pre_executed/` — `telescope_runs_demo.ipynb`,
-  `load_telescope_runs_demo.ipynb`, and `sync_lco_observation_calendar_demo.ipynb` respectively —
+  `load_telescope_runs_demo.ipynb`, `sync_lco_observation_calendar_demo.ipynb`, and
+  `sync_gemini_observation_calendar_demo.ipynb` respectively —
   that must stay in sync with the module's behavior. Any plan whose tasks change one of these
   modules' behavior (new extraction logic, new parameters, new fixture shapes — not pure
   refactors or typo fixes) must include its paired notebook in `files_modified` and add or update
