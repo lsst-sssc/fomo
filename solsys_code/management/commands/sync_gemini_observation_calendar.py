@@ -44,7 +44,7 @@ class Command(BaseCommand):
 
         for record in records:
             # D-04: strip password immediately, before any logging or field derivation.
-            safe_params = {k: v for k, v in record.parameters.items() if k != 'password'}
+            safe_params = {k: v for k, v in (record.parameters or {}).items() if k != 'password'}
 
             # GEM-TELE-01: derive site and telescope name from program prefix.
             prog = safe_params.get('prog', '')
