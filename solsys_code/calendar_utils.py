@@ -300,8 +300,7 @@ def insert_or_create_calendar_event(
     commands (sync_lco_observation_calendar, sync_gemini_observation_calendar,
     load_telescope_runs): create a new CalendarEvent if none exists for the given
     lookup key, update it in place if any fields changed, or leave it untouched if
-    nothing changed (SYNC-04 idempotency). Uses save(update_fields=changed) so only
-    the changed fields are written to the database.
+    nothing changed (SYNC-04 idempotency).
 
     Args:
         lookup: keyword-argument mapping used as the unique lookup key for
@@ -325,6 +324,6 @@ def insert_or_create_calendar_event(
     if changed:
         for f, v in fields.items():
             setattr(event, f, v)
-        event.save(update_fields=changed)
+        event.save()
         return event, 'updated'
     return event, 'unchanged'
