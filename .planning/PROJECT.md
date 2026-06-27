@@ -45,9 +45,19 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Milestone Status
+## Current Milestone: v1.5 Gemini Calendar Sync
 
-All milestones through v1.4 complete. Next milestone TBD — run `/gsd:new-milestone` to start the next cycle.
+**Goal:** Add a `sync_gemini_observation_calendar` management command that syncs submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners, using explicit submission windows when present and ToO-type-derived defaults when not.
+
+**Target features:**
+- New `sync_gemini_observation_calendar` management command (separate from the LCO one)
+- Idempotent window-banner creation keyed on a constructed `GEM:{prog}/{obs_id}` identifier
+- Window from `windowDate`/`windowTime`/`windowDuration` when present; else derived from ToO type (`Rap:` → +24 h, `Std:` → +24 h to +7 d) anchored on `ObservationRecord.created`
+- Telescope from program prefix (`GS-*` → Gemini South, `GN-*` → Gemini North)
+- Instrument from settings description (strip `Std:`/`Rap:` prefix), fallback to obs code
+- `[ON_HOLD]` title prefix when `ready=false`; clean title otherwise
+- `password` field never logged or exposed
+- Demo notebook: `docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb`
 
 ## Requirements
 
@@ -100,7 +110,16 @@ All milestones through v1.4 complete. Next milestone TBD — run `/gsd:new-miles
 
 ### Active
 
-(None — all shipped through v1.4.)
+- [ ] **GEM-SELECT-01**: `sync_gemini_observation_calendar` syncs all `ObservationRecord(facility='GEM')` records
+- [ ] **GEM-WINDOW-01**: Each synced record becomes one `CalendarEvent`; window from `windowDate`/`windowTime`/`windowDuration` when present
+- [ ] **GEM-WINDOW-02**: Records without explicit window fall back to ToO-type-derived window anchored on `ObservationRecord.created` (`Rap:` → +24 h, `Std:` → +24 h to +7 d); neither → skip with counter
+- [ ] **GEM-KEY-01**: Idempotency key (`CalendarEvent.url`) constructed as `GEM:{prog}/{observation_id}`
+- [ ] **GEM-TELE-01**: `telescope` derived from program prefix (`GS-*` → `Gemini South`, `GN-*` → `Gemini North`)
+- [ ] **GEM-INSTR-01**: `instrument` from settings description (strip `Std:`/`Rap:` prefix), fallback to obs code
+- [ ] **GEM-PROP-01**: `proposal` set from `params['prog']`
+- [ ] **GEM-STATUS-01**: `[ON_HOLD]` title prefix when `ready=false`; clean title otherwise
+- [ ] **GEM-NOCHURN-01**: Re-running creates no duplicates, no `modified` churn on unchanged records
+- [ ] **GEM-SECURE-01**: `password` field never logged or exposed during sync
 
 ### Out of Scope
 
@@ -233,4 +252,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 after v1.4 milestone close — "What This Is" updated to include v1.4 visual clarity layer; v1.4 requirements (DISPLAY-01..07) moved to Validated; Out of Scope updated; Context reflects 171 tests; Phase 8/9 Key Decisions added; "Current Milestone" section removed (next milestone TBD)*
+*Last updated: 2026-06-26 after v1.5 milestone start — "Current Milestone" section added for v1.5 Gemini Calendar Sync; v1.5 requirements added to Active*

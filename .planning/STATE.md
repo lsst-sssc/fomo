@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Calendar Visual Clarity
-status: Awaiting next milestone
-stopped_at: context exhaustion at 76% (2026-06-26)
-last_updated: "2026-06-26T17:10:42.337Z"
-last_activity: 2026-06-26 — Milestone v1.4 completed and archived
+milestone: v1.5
+milestone_name: Gemini Calendar Sync
+status: planning
+last_updated: "2026-06-27T02:31:41.677Z"
+last_activity: 2026-06-27
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
-current_phase: 09
-current_phase_name: proposal-color-status-visual-treatment
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -27,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-24 after v1.3 milestone close, "Curre
 
 ## Current Position
 
-Phase: Milestone v1.4 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-26 — Milestone v1.4 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-27 — Milestone v1.5 started
 
 ## Performance Metrics
 
