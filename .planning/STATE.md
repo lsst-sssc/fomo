@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
 status: executing
-stopped_at: Phase 11 context gathered
-last_updated: "2026-06-27T17:52:52.417Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-06-27T23:17:54.923Z"
 last_activity: 2026-06-27 -- Phase 11 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone 
 ## Current Position
 
 Phase: 11 (code-refactoring) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 11
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-06-27 -- Phase 11 execution started
 
 Progress: [░░░░░░░░░░] 0% (0/2 phases)
@@ -49,6 +49,7 @@ Progress: [░░░░░░░░░░] 0% (0/2 phases)
 | 09 P01 | 1 | 9 min | 9 min |
 | 09 P02 | 1 | 18 min | 18 min |
 | 10 | 2 | - | - |
+| Phase 11-code-refactoring P02 | 15 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,7 @@ All v1.0-v1.5 decisions logged in PROJECT.md Key Decisions table.
 - `site_key`/`telescope` determination placed before the `try/except` block to avoid `NameError` in the except handler.
 - `update_fields=changed` no-churn save pattern (same as load_telescope_runs / sync_lco) — prevents `modified` churn on unchanged GEM events (GEM-NOCHURN-01).
 - No `CalendarEventTelescopeLabel` sidecar for GEM events: telescope is deterministic from program prefix; missing-row = "verified" by Phase 8 convention.
+- [Phase ?]: REFAC-02 complete: all three calendar commands delegate CalendarEvent create-or-update to insert_or_create_calendar_event
 
 ### Pending Todos
 
@@ -80,6 +82,6 @@ None open.
 
 ## Session Continuity
 
-Last session: 2026-06-27T16:43:05.670Z
-Stopped at: Phase 11 context gathered
-Resume file: .planning/phases/11-code-refactoring/11-CONTEXT.md
+Last session: 2026-06-27T23:17:54.912Z
+Stopped at: Completed 11-02-PLAN.md
+Resume file: None

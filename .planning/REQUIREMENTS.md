@@ -8,7 +8,7 @@
 ### Refactoring
 
 - [ ] **REFAC-01**: `SITE_TELESCOPE_MAP`, `_extract_instrument`, and related LCO/SOAR helpers are importable from a standalone `solsys_code/` module, not from `sync_lco_observation_calendar`
-- [ ] **REFAC-02**: All three management commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) use `insert_or_create_calendar_event()` for their CalendarEvent create-or-update logic; the duplicated pattern is removed from each command; "upsert" in `docs/design/telescope_runs_calendar.rst` and `.planning/MILESTONES.md` replaced with plain English or `insert_or_create_calendar_event`
+- [x] **REFAC-02**: All three management commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) use `insert_or_create_calendar_event()` for their CalendarEvent create-or-update logic; the duplicated pattern is removed from each command; "upsert" in `docs/design/telescope_runs_calendar.rst` and `.planning/MILESTONES.md` replaced with plain English or `insert_or_create_calendar_event`
 
 ### Display
 
@@ -35,11 +35,12 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | REFAC-01 | Phase 11 | Pending |
-| REFAC-02 | Phase 11 | Pending |
+| REFAC-02 | Phase 11 | Complete |
 | DISPLAY-08 | Phase 12 | Pending |
 | DISPLAY-09 | Phase 12 | Pending |
 
 **Coverage:**
+
 - v1.6 requirements: 4 total
 - Mapped to phases: 4
 - Unmapped: 0 ✓

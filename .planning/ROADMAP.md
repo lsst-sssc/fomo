@@ -63,7 +63,7 @@
 
 **Milestone Goal:** Clear all deferred technical debt and display polish items accumulated across v1.3–v1.5, leaving the codebase clean before Stage 4.
 
-- [ ] **Phase 11: Code Refactoring** - Extract shared telescope-mapping and calendar-event utility code into standalone modules; update all three commands to use them; remove "upsert" from live docs
+- [x] **Phase 11: Code Refactoring** - Extract shared telescope-mapping and calendar-event utility code into standalone modules; update all three commands to use them; remove "upsert" from live docs (completed 2026-06-27)
 - [ ] **Phase 12: Display Polish** - WCAG-AA-compliant text color per palette background; batch-load telescope-label data to eliminate N+1 query in calendar template
 
 ## Phase Details
@@ -161,7 +161,7 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11-02-PLAN.md — Refactor `load_telescope_runs` + `sync_gemini_observation_calendar` to use `insert_or_create_calendar_event`; replace "upsert" in `.rst` and `MILESTONES.md` (REFAC-02)
+- [x] 11-02-PLAN.md — Refactor `load_telescope_runs` + `sync_gemini_observation_calendar` to use `insert_or_create_calendar_event`; replace "upsert" in `.rst` and `MILESTONES.md` (REFAC-02)
 
 ### Phase 12: Display Polish
 
@@ -193,7 +193,7 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 | 8. Telescope Label Verification Sidecar | v1.4 | 2/2 | Complete    | 2026-06-25 |
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
-| 11. Code Refactoring | v1.6 | 1/2 | In Progress|  |
+| 11. Code Refactoring | v1.6 | 2/2 | Complete   | 2026-06-27 |
 | 12. Display Polish | v1.6 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
