@@ -40,4 +40,5 @@ Design Notes
    :maxdepth: 1
 
    telescope_runs_calendar
+   tom_calendar_vs_yse_pz_calendar
    gsd_experiment
