@@ -67,15 +67,26 @@ def fomo_render_calendar(request, month=None):
     Returns:
         HttpResponse rendering the calendar template with prefetched event data.
     """
-    utc_offset = int(request.GET.get('utc_offset', 0))
+    try:
+        utc_offset = int(request.GET.get('utc_offset', 0))
+    except ValueError:
+        utc_offset = 0
+    utc_offset = max(-12, min(12, utc_offset))  # clamp to valid TZ range
     offset = timedelta(hours=utc_offset)
     now = dj_timezone.now()
     now_offset = now + offset
     today = now_offset.date()
     if month is None:
-        month = int(request.GET.get('month', now_offset.month))
+        try:
+            month = int(request.GET.get('month', now_offset.month))
+        except ValueError:
+            month = now_offset.month
     month = max(1, min(12, month))
-    year = int(request.GET.get('year', now_offset.year))
+    try:
+        year = int(request.GET.get('year', now_offset.year))
+    except ValueError:
+        year = now_offset.year
+    year = max(1, min(9999, year))  # clamp to Python datetime-safe range
 
     # Sunday is 6 in python calendar for some reason
     calendar = cal_module.Calendar(firstweekday=6)
