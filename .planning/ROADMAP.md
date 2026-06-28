@@ -175,7 +175,12 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
   3. `CalendarEventTelescopeLabel` data for all visible calendar events is loaded in a single prefetch query rather than one query per event, regardless of how many events are on the calendar
   4. The full test suite passes with all existing tests preserved and new behavior covered
 
-**Plans**: TBD
+**Plans**: 1 plan
+
+**Wave 1**
+
+- [ ] 12-01-PLAN.md — `text_color_for_bg` WCAG text-color tag (DISPLAY-08) + FOMO `fomo_render_calendar` wrapper view with prefetch + Count annotation (DISPLAY-09) + calendar.html edits + unit & integration tests
+
 **UI hint**: yes
 
 ## Progress
@@ -194,6 +199,6 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
 | 11. Code Refactoring | v1.6 | 2/2 | Complete   | 2026-06-27 |
-| 12. Display Polish | v1.6 | 0/TBD | Not started | - |
+| 12. Display Polish | v1.6 | 0/1 | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
