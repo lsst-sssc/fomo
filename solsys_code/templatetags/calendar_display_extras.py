@@ -91,6 +91,7 @@ def status_border_css(title: str) -> str:
         'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'.  Returns '' for placed
         events.  The D-09-reserved border style is never emitted by this tag.
     """
+    title = title or ''
     if title.startswith('[QUEUED] '):
         return 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
     if any(title.startswith(p) for p in _TERMINAL_PREFIXES):
