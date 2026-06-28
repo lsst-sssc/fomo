@@ -12,8 +12,8 @@
 
 ### Display
 
-- [ ] **DISPLAY-08**: Calendar event title text renders in white or black based on the relative luminance of the proposal palette background, meeting WCAG AA 4.5:1 contrast ratio against every palette color
-- [ ] **DISPLAY-09**: `CalendarEventTelescopeLabel` data for visible calendar events is loaded in a single prefetch query, not per-event — the N+1 pattern is eliminated from the calendar template
+- [x] **DISPLAY-08**: Calendar event title text renders in white or black based on the relative luminance of the proposal palette background, meeting WCAG AA 4.5:1 contrast ratio against every palette color
+- [x] **DISPLAY-09**: `CalendarEventTelescopeLabel` data for visible calendar events is loaded in a single prefetch query, not per-event — the N+1 pattern is eliminated from the calendar template
 
 ## Future Requirements
 
@@ -36,8 +36,8 @@
 |-------------|-------|--------|
 | REFAC-01 | Phase 11 | Pending |
 | REFAC-02 | Phase 11 | Complete |
-| DISPLAY-08 | Phase 12 | Pending |
-| DISPLAY-09 | Phase 12 | Pending |
+| DISPLAY-08 | Phase 12 | Complete |
+| DISPLAY-09 | Phase 12 | Complete |
 
 **Coverage:**
 

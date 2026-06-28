@@ -199,6 +199,6 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
 | 11. Code Refactoring | v1.6 | 2/2 | Complete   | 2026-06-27 |
-| 12. Display Polish | v1.6 | 1/1 | Complete   | 2026-06-28 |
+| 12. Display Polish | v1.6 | 1/1 | Complete    | 2026-06-28 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
