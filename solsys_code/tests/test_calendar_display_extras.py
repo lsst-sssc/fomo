@@ -15,6 +15,7 @@ from solsys_code.templatetags.calendar_display_extras import (
     PROPOSAL_PALETTE,
     proposal_color,
     status_border_css,
+    text_color_for_bg,
     visible_proposals,
 )
 
@@ -160,3 +161,23 @@ class VisibleProposalsTest(TestCase):
         result = visible_proposals(weeks)
         all_labels = ' '.join(e['label'] for e in result)
         self.assertNotIn('PROP-B', all_labels)
+
+
+class TextColorForBgTest(TestCase):
+    def test_all_palette_colors_return_white(self):
+        # DISPLAY-08: all 8 PROPOSAL_PALETTE entries achieve WCAG AA 4.5:1 with white text.
+        for hex_color in PROPOSAL_PALETTE:
+            with self.subTest(hex_color=hex_color):
+                self.assertEqual(text_color_for_bg(hex_color), '#fff')
+
+    def test_neutral_slot_returns_white(self):
+        # DISPLAY-08: NEUTRAL_SLOT_COLOR (#5a6268) achieves WCAG AA with white text.
+        self.assertEqual(text_color_for_bg(NEUTRAL_SLOT_COLOR), '#fff')
+
+    def test_bright_background_returns_black(self):
+        # DISPLAY-08: formula correctness — pure white background yields black text.
+        self.assertEqual(text_color_for_bg('#ffffff'), '#000')
+
+    def test_pure_black_returns_white(self):
+        # DISPLAY-08: pure black background yields white text (maximum contrast).
+        self.assertEqual(text_color_for_bg('#000000'), '#fff')
