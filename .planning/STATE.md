@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
-status: planning
-stopped_at: Phase 12 planned — ready to execute
-last_updated: "2026-06-28T01:27:20.981Z"
+status: executing
+stopped_at: Phase 12 UI-SPEC approved
+last_updated: "2026-06-28T17:18:01.248Z"
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 2
+  total_plans: 3
   completed_plans: 2
   percent: 20
 ---
@@ -20,13 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone complete)
 
 **Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked.
-**Current focus:** Phase 12 — display-polish (next)
+**Current focus:** Phase 12 — display-polish
 
 ## Current Position
 
-Phase: 12 (display-polish) — PLANNED (1 plan, verified 2026-06-28)
+Phase: 12 (display-polish) — EXECUTING
+Plan: 1 of 1
 Next: Execute Phase 12
-Status: Ready to execute
+Status: Executing Phase 12
 
 Progress: [██░░░░░░░░] 40% (2/5 phases)
 

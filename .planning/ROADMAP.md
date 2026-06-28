@@ -64,7 +64,7 @@
 **Milestone Goal:** Clear all deferred technical debt and display polish items accumulated across v1.3–v1.5, leaving the codebase clean before Stage 4.
 
 - [x] **Phase 11: Code Refactoring** - Extract shared telescope-mapping and calendar-event utility code into standalone modules; update all three commands to use them; remove "upsert" from live docs (completed 2026-06-27)
-- [ ] **Phase 12: Display Polish** - WCAG-AA-compliant text color per palette background; batch-load telescope-label data to eliminate N+1 query in calendar template
+- [x] **Phase 12: Display Polish** - WCAG-AA-compliant text color per palette background; batch-load telescope-label data to eliminate N+1 query in calendar template (completed 2026-06-28)
 
 ## Phase Details
 
@@ -179,7 +179,7 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — `text_color_for_bg` WCAG text-color tag (DISPLAY-08) + FOMO `fomo_render_calendar` wrapper view with prefetch + Count annotation (DISPLAY-09) + calendar.html edits + unit & integration tests
+- [x] 12-01-PLAN.md — `text_color_for_bg` WCAG text-color tag (DISPLAY-08) + FOMO `fomo_render_calendar` wrapper view with prefetch + Count annotation (DISPLAY-09) + calendar.html edits + unit & integration tests
 
 **UI hint**: yes
 
@@ -199,6 +199,6 @@ Full phase detail (goals, success criteria, plans) for Phases 8-10 lives in thei
 | 9. Proposal Color & Status Visual Treatment | v1.4 | 2/2 | Complete    | 2026-06-26 |
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete    | 2026-06-27 |
 | 11. Code Refactoring | v1.6 | 2/2 | Complete   | 2026-06-27 |
-| 12. Display Polish | v1.6 | 0/1 | Not started | - |
+| 12. Display Polish | v1.6 | 1/1 | Complete   | 2026-06-28 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
