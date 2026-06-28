@@ -98,6 +98,37 @@ def status_border_css(title: str) -> str:
     return ''
 
 
+def _relative_luminance(hex_color: str) -> float:
+    """Return relative luminance (0.0–1.0) for a #rrggbb hex color per WCAG 2.1."""
+    h = hex_color.lstrip('#')
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+    def linearize(c: int) -> float:
+        L = c / 255
+        return L / 12.92 if L <= 0.04045 else ((L + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
+
+
+@register.simple_tag
+def text_color_for_bg(hex_color: str) -> str:
+    """Return '#fff' or '#000' — whichever achieves WCAG AA 4.5:1 contrast against hex_color (DISPLAY-08).
+
+    Uses the WCAG 2.1 relative luminance formula. White text achieves 4.5:1 against
+    any background with luminance <= 0.183; all PROPOSAL_PALETTE and NEUTRAL_SLOT_COLOR
+    entries are dark, so '#fff' is returned for all current palette members.
+
+    Args:
+        hex_color: A '#rrggbb' hex color string (e.g. '#005f9e').
+
+    Returns:
+        '#fff' if white text achieves >= 4.5:1 contrast; '#000' otherwise.
+    """
+    lum = _relative_luminance(hex_color)
+    white_contrast = 1.05 / (lum + 0.05)
+    return '#fff' if white_contrast >= 4.5 else '#000'
+
+
 @register.simple_tag
 def visible_proposals(weeks) -> list[dict]:
     """Compute the set of proposals visible in the currently-rendered month (DISPLAY-07).
