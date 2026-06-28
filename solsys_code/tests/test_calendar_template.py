@@ -13,7 +13,9 @@ legend with click-to-filter infrastructure.
 from datetime import datetime
 from datetime import timezone as dt_timezone
 
+from django.db import connection
 from django.test import Client, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
@@ -228,3 +230,54 @@ class CalendarTemplateTest(TestCase):
         response = self._get_calendar()
         content = response.content.decode()
         self.assertIn('Classical schedule', content)
+
+    # --- Phase 12 tests: DISPLAY-08/09 ---
+
+    def test_display08_inline_text_color_present_for_all_day_events(self):
+        """DISPLAY-08: all-day event divs carry an inline computed text color."""
+        # DISPLAY-08: palette colors are dark, so computed text color is #fff.
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn('color: #fff', content)
+
+    def test_display08_important_color_rule_absent(self):
+        """DISPLAY-08: the hardcoded !important color override no longer appears in the page."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertNotIn('color: #fff !important', content)
+
+    def test_display09_query_count_bounded(self):
+        """DISPLAY-09: query count does not grow when additional CalendarEvents are added."""
+        # Baseline: count queries with setUp fixtures already present.
+        with CaptureQueriesContext(connection) as baseline_ctx:
+            self._get_calendar()
+        baseline_count = len(baseline_ctx)
+
+        # Add one more CalendarEvent in the visible month and recount.
+        CalendarEvent.objects.create(
+            title='Extra event for N+1 test',
+            start_time=datetime(2026, 6, 28, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 6, 29, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        with CaptureQueriesContext(connection) as extra_ctx:
+            self._get_calendar()
+
+        # DISPLAY-09: query count must not grow with additional events.
+        self.assertEqual(len(extra_ctx), baseline_count)
+
+    def test_display09_active_todo_count_renders_in_event_title(self):
+        """DISPLAY-09: active_todo_count annotation still shows todo parenthetical."""
+        from tom_calendar.models import EventTodo
+
+        # Create an event with an incomplete todo so the count parenthetical renders.
+        event_with_todo = CalendarEvent.objects.create(
+            title='Event with todo',
+            start_time=datetime(2026, 6, 28, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 6, 29, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        EventTodo.objects.create(event=event_with_todo, description='Test task', is_completed=False)
+
+        response = self._get_calendar()
+        content = response.content.decode()
+        # DISPLAY-09: the todo count parenthetical must appear in the rendered output.
+        self.assertIn('(1)', content)

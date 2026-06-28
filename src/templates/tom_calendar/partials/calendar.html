@@ -82,7 +82,6 @@
     min-width: 0;
     border-radius: 3px;
     padding: 1px 5px;
-    color: #fff !important;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -90,7 +89,7 @@
     cursor: pointer;
   }
   .cal-event-all-day a {
-    color: #fff !important;
+    color: inherit;
     text-decoration: none;
   }
   .cal-event-all-day a:hover {
@@ -178,20 +177,21 @@
             {% for event in day.all_day_events %}
               {% proposal_color event.proposal as bg_color %}
               {% status_border_css event.title as status_border %}
+              {% text_color_for_bg bg_color as text_color %}
               <div class="cal-event cal-event-all-day-row"
                    data-proposal="{{ bg_color }}"
                    hx-get="{% url 'calendar:update-event' event.id %}"
               >
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
                 {% if event.telescope_label_meta.is_verified == False %}
-                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
                      title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
                 {% else %}
-                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; {{ status_border }}">
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}">
                 {% endif %}
                   {{ event.title|truncatechars:18 }}
-                  {% if event.active_todos.count %}
-                  ({{ event.active_todos.count }})
+                  {% if event.active_todo_count %}
+                  ({{ event.active_todo_count }})
                   {% endif %}
                 </div>
               </div>
@@ -216,8 +216,8 @@
                 <span class="cal-event-bullet" style="color: {{ bg_color }};">▌</span>
                 <span class="cal-event-title">
                   {{ event.title|truncatechars:16 }}
-                  {% if event.active_todos.count %}
-                  ({{ event.active_todos.count }})
+                  {% if event.active_todo_count %}
+                  ({{ event.active_todo_count }})
                   {% endif %}
                 </span>
                 <span class="cal-event-time">{{ event.start_time|offset_time:utc_offset|time:"H:i" }}</span>
