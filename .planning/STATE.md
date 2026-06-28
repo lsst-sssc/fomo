@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
 status: planning
-stopped_at: Phase 12 context gathered
-last_updated: "2026-06-28T00:33:20.366Z"
+stopped_at: Phase 12 planned — ready to execute
+last_updated: "2026-06-28T01:27:20.981Z"
 progress:
   total_phases: 5
   completed_phases: 1
@@ -24,9 +24,9 @@ See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone 
 
 ## Current Position
 
-Phase: 11 (code-refactoring) — COMPLETE (verified 2026-06-27)
-Next: Phase 12 (display-polish)
-Status: Ready to plan Phase 12
+Phase: 12 (display-polish) — PLANNED (1 plan, verified 2026-06-28)
+Next: Execute Phase 12
+Status: Ready to execute
 
 Progress: [██░░░░░░░░] 40% (2/5 phases)
 
@@ -84,6 +84,6 @@ None open.
 
 ## Session Continuity
 
-Last session: 2026-06-28T00:33:20.355Z
-Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-display-polish/12-CONTEXT.md
+Last session: 2026-06-28T01:27:20.969Z
+Stopped at: Phase 12 UI-SPEC approved
+Resume file: .planning/phases/12-display-polish/12-UI-SPEC.md
