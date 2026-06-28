@@ -21,6 +21,7 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - ✅ v1.3 "Full LCO Facility Sync" — 2026-06-24 (Phases 5-7, 07.1) — multi-proposal/multi-facility, correct instrument extraction, live telescope-label resolution + facility-aware coarse fallback
 - ✅ v1.4 "Calendar Visual Clarity" — 2026-06-26 (Phases 8-9) — `CalendarEventTelescopeLabel` sidecar model, dashed-border + tooltip for fallback labels, proposal-keyed color palette, status box-shadow rings, `[QUEUED]` override fix, click-to-filter legend
 - ✅ v1.5 "Gemini Calendar Sync" — 2026-06-27 (Phase 10) — `sync_gemini_observation_calendar` management command syncing Gemini ToO ObservationRecords to CalendarEvent window banners with per-record password scrubbing, ToO-type window derivation, and no-churn idempotency
+- ✅ v1.6 "Tech Debt & Display Polish" — 2026-06-28 (Phases 11-12) — `text_color_for_bg` WCAG template tag (DISPLAY-08), `fomo_render_calendar` wrapper view eliminating N+1 query (DISPLAY-09), shared calendar_urls.py, calendar refactoring
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
@@ -32,15 +33,18 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `solsys_code/tests/test_telescope_runs.py`: 26 tests
 - `solsys_code/tests/test_load_telescope_runs.py`: 6 tests
 - `solsys_code/tests/test_sync_lco_observation_calendar.py`: 49 tests (incl. sidecar write, verified/fallback/no-churn)
-- `solsys_code/tests/test_calendar_display_extras.py`: 23 tests (ProposalColorTest, StatusBorderCssTest, VisibleProposalsTest)
-- `solsys_code/tests/test_calendar_template.py`: 13 tests (DISPLAY-04/05/06/07 + Phase 8 dashed-border)
+- `solsys_code/tests/test_calendar_display_extras.py`: 27 tests (ProposalColorTest, StatusBorderCssTest, VisibleProposalsTest, TextColorForBgTest — DISPLAY-08)
+- `solsys_code/tests/test_calendar_template.py`: 17 tests (DISPLAY-04/05/06/07 + Phase 8 dashed-border + DISPLAY-08/09 inline color + N+1 regression)
+- `solsys_code/calendar_urls.py`: FOMO-local calendar URL conf shadowing `tom_calendar.urls` for `/calendar/` — routes root to `fomo_render_calendar`
+- `solsys_code/templatetags/calendar_display_extras.py`: now also `text_color_for_bg`, `_relative_luminance` (WCAG 2.1 formula)
+- `solsys_code/views.py`: now also `fomo_render_calendar` (DISPLAY-09 prefetch + Count annotation)
 - `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`: Stage 1 demo
 - `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`: Stage 2 demo
 - `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb`: Stage 3 demo (updated through v1.4)
 - `solsys_code/management/commands/sync_gemini_observation_calendar.py`: `sync_gemini_observation_calendar` BaseCommand (GEM ToO sync, credential-safe, no-churn)
 - `solsys_code/tests/test_sync_gemini_observation_calendar.py`: 15 tests (all 10 GEM-* requirements)
 - `docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb`: Stage 3b demo (4 D-06 scenarios)
-- **All 186 `./manage.py test solsys_code` tests pass.**
+- **All 194 `./manage.py test solsys_code` tests pass (Phase 12 complete).**
 
 ## Core Value
 
@@ -50,15 +54,14 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: v1.6 Tech Debt & Display Polish
+## Current Milestone: v1.6 Tech Debt & Display Polish — **COMPLETE**
 
 **Goal:** Clear all deferred technical debt and display polish items accumulated across v1.3–v1.5, leaving the codebase clean before Stage 4.
 
-**Target features:**
-- Extract `SITE_TELESCOPE_MAP` and instrument-extraction logic from `sync_lco_observation_calendar.py` into a dedicated shared module
-- Extract the shared no-churn CalendarEvent create-or-update pattern as `insert_or_create_calendar_event()` in `solsys_code/`; update all three commands to use it; replace "upsert" references in live docs/comments with the function name or plain English
-- DISPLAY-08: WCAG contrast-ratio-aware text color switching (white vs. black) per palette background for AA compliance
-- DISPLAY-09: Batch the `CalendarEventTelescopeLabel` reverse accessor to eliminate the N+1 query per event in the calendar template
+**Delivered (Phase 12 complete — 2026-06-28):**
+- ✅ DISPLAY-08: `text_color_for_bg` WCAG 2.1 relative-luminance template tag; all 8 palette entries + NEUTRAL_SLOT_COLOR return `#fff`; `#ffffff` returns `#000`; proven by `TextColorForBgTest`
+- ✅ DISPLAY-09: `fomo_render_calendar` wrapper view with `prefetch_related('telescope_label_meta')` + `Count('todos', filter=Q(is_completed=False))` annotation; `/calendar/` URL shadows upstream; N+1 regression test via `CaptureQueriesContext` green
+- ✅ Phases 11 (code refactoring) also complete — `SITE_TELESCOPE_MAP`/`_extract_instrument` extracted, no-churn helper refactored
 
 ## Requirements
 
