@@ -580,17 +580,19 @@ is the same as WITH one event (linear growth disproves the O(n) pattern).
 
 **If this table were empty:** All claims would be verified — none are here due to Django namespace subtleties that require empirical validation on this specific Django version.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **URL namespace: full replacement or fallthrough?**
    - What we know: Django supports multiple includes with the same namespace (first-match semantics)
    - What's unclear: Whether the specific Django version in this project raises an error at startup when two includes share `namespace='calendar'`
    - Recommendation: Run `python manage.py check` immediately after adding the FOMO calendar path; if it fails, switch to the full-replacement approach (calendar_urls.py re-exports ALL tom_calendar views, eliminating the need for fallthrough)
+   - **RESOLVED:** Full-body shadow approach chosen per Claude's Discretion in CONTEXT.md; `./manage.py check` is included in Task 2 verify step and confirms namespace validity at execution time. If it fails, the full-replacement fallback is the contingency.
 
 2. **`active_todo_count` zero vs None**
    - What we know: `Count` annotation returns 0 when there are no matching related rows; the template condition is `{% if event.active_todos.count %}` (falsy check)
    - What's unclear: whether the annotation returns `0` (falsy) or `None` (also falsy) — both work with `{% if event.active_todo_count %}` condition
    - Recommendation: The plan should note that the template condition works correctly for both 0 and None; no special handling needed.
+   - **RESOLVED:** `Count` annotation returns `0` (falsy integer); `{% if event.active_todo_count %}` works correctly for both 0 and None — no special handling needed.
 
 ## Environment Availability
 
