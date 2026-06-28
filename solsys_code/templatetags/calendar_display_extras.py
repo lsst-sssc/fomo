@@ -101,7 +101,11 @@ def status_border_css(title: str) -> str:
 
 def _relative_luminance(hex_color: str) -> float:
     """Return relative luminance (0.0–1.0) for a #rrggbb hex color per WCAG 2.1."""
+    if not hex_color or not isinstance(hex_color, str):
+        return 0.0  # treat invalid input as black (worst case → white text returned)
     h = hex_color.lstrip('#')
+    if len(h) != 6:
+        return 0.0
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
     def linearize(c: int) -> float:
