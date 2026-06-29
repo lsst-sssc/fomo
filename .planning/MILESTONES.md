@@ -1,5 +1,21 @@
 # Milestones
 
+## v1.6 Tech Debt & Display Polish (Shipped: 2026-06-29)
+
+**Phases completed:** 2 phases (11–12), 3 plans, 44 commits | 39 files | +4,586 / -405 lines
+**Timeline:** 2026-06-27 → 2026-06-29
+**Closeout type:** override_closeout (1 acknowledged todo — site/telescope extraction refactor, delivered by Phase 11 but tracking file not closed; see STATE.md Deferred Items)
+
+**Key accomplishments:**
+
+- `solsys_code/calendar_utils.py` created with 12 extracted symbols (`SITE_TELESCOPE_MAP`, `_extract_instrument`, `_coarse_telescope_label`, `insert_or_create_calendar_event()`, and 8 helpers) — REFAC-01 delivered; all symbols importable independently of any management command.
+- All three management commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) refactored to delegate CalendarEvent create-or-update to shared `insert_or_create_calendar_event()` helper; duplicated logic removed; "upsert" replaced with plain English in design docs and MILESTONES.md — REFAC-02 delivered.
+- `text_color_for_bg` WCAG 2.1 template tag added to `calendar_display_extras.py`: computes white/black text color from relative luminance against any proposal palette background; all 8 `PROPOSAL_PALETTE` entries + `NEUTRAL_SLOT_COLOR` return `#fff`; `#ffffff` → `#000`; TDD RED/GREEN gate enforced — DISPLAY-08 delivered.
+- `fomo_render_calendar` wrapper view with `prefetch_related('telescope_label_meta')` + `Count` annotation eliminates N+1 query per event; `calendar_urls.py` full namespace replacement ensures all `calendar:*` URL reversals resolve; N+1 regression test via `CaptureQueriesContext` — DISPLAY-09 delivered.
+- Full test suite: 194 `./manage.py test solsys_code` tests pass; `ruff check .` and `ruff format --check .` clean.
+
+---
+
 ## v1.5 Gemini Calendar Sync (Shipped: 2026-06-27)
 
 **Phases completed:** 1 phase (Phase 10), 2 plans

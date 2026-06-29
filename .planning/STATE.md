@@ -2,16 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
-current_phase: 12
-status: milestone_complete
+current_phase: 6
+status: Awaiting next milestone
 stopped_at: Phase 12 complete — v1.6 milestone complete, all 5 phases done
-last_updated: "2026-06-29T15:33:52.430Z"
+last_updated: "2026-06-29T15:41:05.202Z"
+last_activity: 2026-06-29
+last_activity_desc: Milestone v1.6 completed and archived
 progress:
   total_phases: 5
-  completed_phases: 5
+  completed_phases: 2
   total_plans: 3
   completed_plans: 3
-  percent: 100
+  percent: 40
 ---
 
 # Project State
@@ -25,12 +27,10 @@ See: .planning/PROJECT.md (updated 2026-06-29 after Phase 12 — v1.6 complete)
 
 ## Current Position
 
-Phase: 12
-Plan: 1/1 complete
-Next: Complete milestone v1.6
-Status: Milestone complete
-
-Progress: [████████████████████] 3/3 plans (100%)
+Phase: Milestone v1.6 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-29 — Milestone v1.6 completed and archived
 
 ## Performance Metrics
 
@@ -85,13 +85,20 @@ None open.
 
 ## Deferred Items
 
+Items acknowledged and deferred at milestone close on 2026-06-29:
+
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | ✓ delivered — Phase 12 | v1.4 close → promoted to v1.6 |
 | requirement | DISPLAY-09 (batching template tag for sidecar N+1) | ✓ delivered — Phase 12 | v1.4 close → promoted to v1.6 |
+| todo | 2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md | ✓ resolved — Phase 11 delivered calendar_utils.py with all extracted symbols | v1.3 → resolved v1.6 |
 
 ## Session Continuity
 
 Last session: 2026-06-29
 Stopped at: Phase 12 complete — v1.6 milestone complete, all 5 phases done
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

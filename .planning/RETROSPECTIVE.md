@@ -243,6 +243,51 @@
 
 ---
 
+## Milestone: v1.6 — Tech Debt & Display Polish
+
+**Shipped:** 2026-06-29
+**Phases:** 2 (11, 12) | **Plans:** 3 | **Sessions:** ~2 (2026-06-27 → 2026-06-29)
+
+### What Was Built
+
+- Phase 11 (`calendar_utils.py`): 12 symbols extracted from `sync_lco_observation_calendar.py` (constants, helpers, exception, `SITE_TELESCOPE_MAP`, `_extract_instrument`, `_coarse_telescope_label`) plus new shared `insert_or_create_calendar_event(lookup, fields) -> (event, action)` returning `'created'`/`'updated'`/`'unchanged'`; all three management commands refactored to use it; "upsert" removed from design docs and MILESTONES.md. REFAC-01/02 delivered. 186 tests pass.
+- Phase 12 (`text_color_for_bg` + N+1 fix): `_relative_luminance` and `text_color_for_bg` added to `calendar_display_extras.py` — WCAG 2.1 formula-driven white/black text choice; all 8 `PROPOSAL_PALETTE` entries + `NEUTRAL_SLOT_COLOR` return `#fff`. `fomo_render_calendar` wrapper view with `prefetch_related('telescope_label_meta')` + `Count` annotation added to `views.py`; `calendar_urls.py` full namespace replacement created; 194 tests pass. DISPLAY-08/09 delivered.
+- Zero new models, migrations, or DB schema changes — purely additive template-tag, view, and URL module additions, plus a behavior-neutral refactor.
+
+### What Worked
+
+- The Phase 11 refactor was genuinely behavior-neutral — 186 tests in, 186 tests out after `calendar_utils.py` extraction; then 194 after Phase 12 additions. No regressions, no debugging cycles on the refactored paths.
+- TDD RED/GREEN for Phase 12 Task 1 (`text_color_for_bg`) was clean: RED commit `d79a734`, GREEN commit `cda8789`, all 27 existing + 4 new tests passing without post-GREEN fixes.
+- The `calendar_urls.py` contingency from RESEARCH.md (Pitfall A2: "If `NoReverseMatch` fires on `calendar:create-event`, full-replacement is needed") was found and documented in research before implementation — when the error occurred in tests, the fix was already specified. No debugging required.
+- Three atomic commits per finding in Phase 11's code-review fix pass (`fix(11): CR-01`, `WR-01`, `WR-02`) maintained the same traceability pattern established in v1.5.
+
+### What Was Inefficient
+
+- Two executor agents were accidentally spawned in parallel during Phase 11 (duplicate UI spawn), both committed to the same git worktree. Both had to be killed; the orchestrator recovered one commit's work inline and merged it. For a pure refactor with no parallel tasks, this was avoidable overhead.
+- `gsd-tools.cjs query summary-extract` again picked up a "Deviations" section header as the Phase 11-01 one-liner (the third milestone in a row where this required manual correction in MILESTONES.md). The issue is structural: the CLI grabs the first "paragraph-level" text in a SUMMARY regardless of which section it's in.
+- The pending todo for site/telescope extraction wasn't marked resolved when Phase 11 delivered it — it appeared as an open item at milestone close, requiring a manual acknowledge step. Closing the todo at the phase boundary would have produced a clean verified_closeout instead of override_closeout.
+- `milestone.complete` CLI again required `--force` because prior-milestone phase directories (Phases 8-10, archived to `milestones/v1.4-phases/`) still appear in ROADMAP.md without on-disk directories. Third consecutive milestone where this was needed.
+
+### Patterns Established
+
+- `insert_or_create_calendar_event()` uses `event.save()` (not `event.save(update_fields=changed)`) on update — `update_fields` silently skips `auto_now` fields, breaking tests that assert `modified` changes on write. Discovered during Phase 11 execution; established as the canonical no-churn helper behavior.
+- Full URL-namespace replacement: when shadowing an upstream Django app's URL namespace, shadow ALL URL names (not just the root) so sub-path reversals (`calendar:create-event`, etc.) still resolve through the FOMO namespace.
+- Close todos at the phase boundary that resolves them, not at milestone close. Mark the file `status: resolved` (or delete it) immediately after the phase that delivers the solution ships.
+
+### Key Lessons
+
+1. Parallel worktree execution on a single-thread refactor is waste, not speed. A single-consumer behavior-neutral refactor (one plan, one set of files) doesn't benefit from parallelism — the collision risk exceeds the time saving. Verify task independence before spawning parallel agents.
+2. `update_fields` silently skips `auto_now` model fields — write an explicit test asserting `event.modified` changes after an `insert_or_create_calendar_event` write. This was caught by the existing test suite, not a new targeted assertion; a targeted assertion would have caught it earlier.
+3. A todo created before a phase runs must be explicitly closed when that phase ships. "Resolved by Phase N" in a comment doesn't close the tracking file — mark `status: resolved` in the frontmatter or delete the file at phase completion.
+4. Fix the `summary-extract` one-liner extraction issue at the source: SUMMARY.md should have a dedicated `one_liner` frontmatter field rather than relying on paragraph parsing. Three consecutive milestones have required manual correction.
+
+### Cost Observations
+
+- Sessions: ~2 (2026-06-27 → 2026-06-29); 44 commits, 39 files, +4,586/-405 lines
+- Notable: First milestone with zero new model/migration changes. Fastest plan-execution rhythm of the project (all three plans executed without context overruns or replanning). The worktree collision was the only unexpected event, and recovery took ~20 min.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -255,6 +300,7 @@
 | v1.3 | ~6 | 4 (incl. inserted 07.1) | First milestone with a dedicated milestone-level audit (`/gsd-audit-milestone`) finding a real shipped defect; first decimal gap-closure phase (07.1) inserted post-audit; first retroactive `verify_phase_goal` backfill (Phase 7) |
 | v1.4 | ~2 | 2 | Fastest milestone per-plan (~15 min/plan avg); `/gsd:sketch` for single visual-design decision during planning; first Django template-tag library + first real solsys_code migration; context-exhaustion event mid-verification |
 | v1.5 | ~2 | 1 | Smallest milestone (1 phase, 2 plans); TDD-first with 15 tests covering all 10 requirements; 6 code-review fixes pre-UAT; `milestone.complete` CLI required manual workaround (archived phases not recognized) |
+| v1.6 | ~2 | 2 | First pure-refactor + polish milestone (zero new models/migrations); `insert_or_create_calendar_event` shared helper; WCAG text color + N+1 prefetch fix; parallel-worktree collision recovered; `summary-extract` one-liner issue recurred (3rd time) |
 
 ### Cumulative Quality
 
@@ -266,6 +312,7 @@
 | v1.3 | +21 (multi-proposal/facility, multi-config extraction, telescope-label + fallback; all 131 under `./manage.py test solsys_code`) | - | 0 |
 | v1.4 | +40 (sidecar write + rendering + template tag unit + integration; all 171 under `./manage.py test solsys_code`) | - | 0 |
 | v1.5 | +15 (GEM sync command, all 10 GEM-* requirements; all 186 under `./manage.py test solsys_code`) | - | 0 |
+| v1.6 | +8 (WCAG text color unit × 4, N+1 regression, integration × 3; all 194 under `./manage.py test solsys_code`) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -275,4 +322,7 @@
 4. "Ship a demo notebook per phase" needs to be an explicit phase-plan task, not just a PROJECT.md convention — missed and backfilled after the fact in both v1.0 and v1.2.
 5. A phase's own verification is only as broad as its fixtures — a single-facility/single-shape test+UAT+notebook can all pass while a defect ships for an untested shape (v1.3 Phase 7's LCO-only verification missed a SOAR-only defect). Milestone-level audits exist precisely to catch this, but catching it in-phase is cheaper.
 6. When a new management command follows an established idiomatic pattern (no-churn `get_or_create + update_fields=changed`), write the idiomatic test at RED time — the no-churn path requires zero debugging when the test was written before the command (v1.5 Phase 10).
-6. Quick-task `SUMMARY.md` frontmatter missing a `status` field has now cost manual cross-checking at two consecutive milestone closes (v1.2: 4 tasks, v1.3: 7 tasks) — fix at the template level, not at close time.
+7. Quick-task `SUMMARY.md` frontmatter missing a `status` field has now cost manual cross-checking at two consecutive milestone closes (v1.2: 4 tasks, v1.3: 7 tasks) — fix at the template level, not at close time.
+8. `event.save(update_fields=changed)` silently skips `auto_now` fields — use `event.save()` in no-churn helpers so `CalendarEvent.modified` updates correctly on every write. Write an explicit assertion for the timestamp change (v1.6 Phase 11 fix commit 3fb5ad7).
+9. Close todos at the phase boundary that resolves them — a todo left open after the delivering phase ships becomes an open-artifact-audit finding at milestone close, forcing an acknowledge step that should have been a clean verified_closeout (v1.6 close).
+10. The `gsd-tools.cjs summary-extract` one-liner field picks up any paragraph-level text in a SUMMARY, not only the plan's accomplishment description. Three consecutive milestones (v1.4, v1.5, v1.6) required manual MILESTONES.md correction — fix at the SUMMARY authoring step by using a dedicated `one_liner:` frontmatter field rather than relying on paragraph parsing.
