@@ -121,22 +121,18 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ **GEM-STATUS-01**: `[ON_HOLD]` title prefix when `ready=false`; clean title otherwise — v1.5 (Phase 10)
 - ✓ **GEM-NOCHURN-01**: Re-running creates no duplicates, no `modified` churn on unchanged records — v1.5 (Phase 10)
 - ✓ **GEM-SECURE-01**: `password` field never logged or exposed during sync — v1.5 (Phase 10)
+- ✓ Extract `SITE_TELESCOPE_MAP` + `_extract_instrument` into `solsys_code/calendar_utils.py`; `insert_or_create_calendar_event()` helper extracted and used by all three sync commands — v1.6 (Phase 11)
+- ✓ **DISPLAY-08**: WCAG 2.1 relative-luminance `text_color_for_bg` template tag; all 8 `PROPOSAL_PALETTE` entries + `NEUTRAL_SLOT_COLOR` return `#fff`; `#ffffff` → `#000` — v1.6 (Phase 12)
+- ✓ **DISPLAY-09**: `fomo_render_calendar` wrapper view with `prefetch_related('telescope_label_meta')` + `Count` annotation; N+1 regression test via `CaptureQueriesContext` green — v1.6 (Phase 12)
 
 ### Active
 
-<!-- v1.6 Tech Debt & Display Polish -->
-
-- [ ] Extract `SITE_TELESCOPE_MAP` + instrument-extraction into a shared module
-- [ ] Extract `insert_or_create_calendar_event()` utility; update all three commands; replace "upsert" in live docs/comments
-- [ ] DISPLAY-08: WCAG contrast-ratio-aware text color (white vs. black) per palette background
-- [ ] DISPLAY-09: Batch `CalendarEventTelescopeLabel` reverse accessor (eliminate N+1 in calendar template)
+<!-- No active requirements — v1.6 milestone complete -->
 
 ### Out of Scope
 
 - Gemini facility support — different base class (`BaseRoboticObservationFacility`), stub `get_observation_url()` (no portal URL to key the idempotent sync on), different parameter keys and terminal-states vocabulary than LCO
 - ESO/NTT facility support — classically scheduled, already handled by Stage 2 (`load_telescope_runs`); never goes through `ObservationRecord`/queue sync
-- WCAG contrast-ratio-aware text color switching (white vs. black per palette background) — deferred until palette size or proposal count makes manual contrast-checking unwieldy (DISPLAY-08)
-- Batching template tag to eliminate N+1 query from `CalendarEventTelescopeLabel` reverse O2O accessor per event — current calendar-event volume doesn't justify the added scope; revisit if volume grows (DISPLAY-09)
 - Reworking `tom_observations`' existing astroplan-based visibility/airmass plots — separate, not touched by this feature
 - Distinguishing Magellan Baade vs Clay in `telescope` field — open item; bare `'Magellan'` is deliberately ambiguous (both at Las Campanas, same ephemeris)
 - Replacing `SITES`'s hardcoded telescope-name → obscode mapping with a data-driven `Observatory.short_name` lookup — Stage 2+ consideration, not required for Stage 2 success criteria
@@ -151,7 +147,7 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - **SPICE kernel side effect**: `telescope_runs.py` avoids importing `solsys_code.ephem_utils` (triggers ~1.6 GB SPICE kernel download).
 - **Environment**: `tomtoolkit==3.0a9`/`tom_catalogs` mismatch (v1.0 blocker) resolved by PR #38 (merged 2026-06-11).
 - **Current codebase state (as of v1.5 close)**: 186 tests passing under `./manage.py test solsys_code`; `ruff check .` and `ruff format --check .` clean. New in v1.4: `solsys_code/models.py` (`CalendarEventTelescopeLabel`), `solsys_code/migrations/0001_calendareventtelescopelabel.py` (first real solsys_code migration), `solsys_code/templatetags/` package (`calendar_display_extras.py`), `src/templates/tom_calendar/partials/calendar.html` (rewritten event branches + footer legend). New in v1.5: `solsys_code/management/commands/sync_gemini_observation_calendar.py`, `solsys_code/tests/test_sync_gemini_observation_calendar.py` (15 tests), `docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb`.
-- **Known technical debt**: extracting `SITE_TELESCOPE_MAP`/instrument-extraction from the management command into its own module — deferred, single consumer today (`.planning/todos/pending/2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md`).
+- **v1.6 complete**: all deferred debt cleared — `SITE_TELESCOPE_MAP`/instrument-extraction extracted to `calendar_utils.py` (Phase 11), `insert_or_create_calendar_event` shared helper (Phase 11), DISPLAY-08 WCAG text color (Phase 12), DISPLAY-09 N+1 elimination (Phase 12). 194 `./manage.py test solsys_code` tests pass.
 - **v1.2 correctness bug found against real data (drives v1.3)**: checked real `ObservationRecord` rows in this dev DB (pk=1 obs_id=3780553 PENDING, pk=2 obs_id=3781325 COMPLETED, both proposal `LTP2025A-004`). Neither has a `site` key in `parameters`, and neither has a flat `instrument_type` key — real LCO submissions use multi-configuration cadence requests (`c_1_instrument_type`..`c_5_instrument_type`, each with `c_N_ic_1..5_*` exposure settings); only the configuration(s) with a populated `exposure_time` are "meaningful" (in both records checked, only `c_1` was populated). `SITE_TELESCOPE_MAP`'s 2-entry `coj`/`ogg` dict was also `[ASSUMED]`/web-search-only, never confirmed against real data. v1.2's shipped command would silently `KeyError`/skip every real record in this database.
 - **LCO site -> MPC code reference table** (from https://lco.global/observatory/sites/mpccodes/), basis for the v1.3 verified mapping dict: ogg/Haleakala (F65,T04,T03), elp/McDonald (V37,V39,V38,V45,V47), lsc/Cerro Tololo (W85,W86,W87,W89,W79), cpt/Sutherland (K91,K92,K93,L09), coj/Siding Spring (Q58,Q59,Q63,Q64,E10), tfn/Tenerife (Z31,Z24,Z21,Z17), tlv/Wise Observatory (097), sor/SOAR Cerro Pachon (I33). A bare 3-letter site code is 1-to-many against MPC codes; the fully-qualified `siteid-enclid-telid` code (e.g. `coj-clma-2m0a` -> `E10` -> "FTS") is 1-to-1.
 
@@ -247,6 +243,8 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | `safe_params` strips `password` key as first statement in each loop iteration, before any logging or exception paths | D-04: ensures no code path can accidentally log or persist the credential, even via an unexpected exception | ✓ Good — implemented in Phase 10; GEM-SECURE-01 verified by 15/15 passing tests |
 | `site_key`/`telescope` determination placed BEFORE the `try/except` block, not inside it | A `KeyError` on `obsid` lookup inside `try` would cause a `NameError` in the `except` clause that references `site_key` in `counters[site_key]['skipped']`; placing it before avoids the undefined-variable trap | ✓ Good — implementation refinement found during Task 2; no regressions |
 | Raw-fallback branch for GEM-INSTR-01: explicit window + unknown obs code → `instrument = obs_code` | D-01 skip path (no window → skip) only applies when no explicit window is present; an explicit window with an unknown obs code still deserves a CalendarEvent, using the raw obs code as a readable fallback | ✓ Good — implemented in Phase 10; covered by test |
+| `calendar_urls.py` is a full replacement of `tom_calendar.urls` (all 6 URL names), not a single-route shadow | When FOMO's namespace only registered the root URL name, all `calendar:create-event` / `calendar:update-event` etc. reversals raised `NoReverseMatch` — Django resolves the first-registered namespace and expects all names to be there | ✓ Good — implemented in Phase 12; W005 warning is expected/harmless; all 6 reversals resolve correctly through FOMO namespace |
+| TDD RED/GREEN gate enforced for Phase 12 Task 1 (`text_color_for_bg`) | Follows the pre-existing DISPLAY-08 research decision to validate the WCAG formula via test before wiring it into the template | ✓ Good — RED commit `d79a734`, GREEN commit `cda8789`; confirmed via git log |
 
 ## Evolution
 
@@ -266,4 +264,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-27 after v1.5 milestone archived — v1.6 Tech Debt & Display Polish started*
+*Last updated: 2026-06-29 after Phase 12 — v1.6 Tech Debt & Display Polish complete*

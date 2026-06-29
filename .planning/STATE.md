@@ -2,34 +2,35 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Tech Debt & Display Polish
-status: executing
-stopped_at: Phase 12 UI-SPEC approved
-last_updated: "2026-06-28T18:36:00.120Z"
+current_phase: 12
+status: milestone_complete
+stopped_at: Phase 12 complete — v1.6 milestone complete, all 5 phases done
+last_updated: "2026-06-29T15:33:52.430Z"
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 5
   total_plans: 3
   completed_plans: 3
-  percent: 40
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-27 after Phase 10 — v1.5 milestone complete)
+See: .planning/PROJECT.md (updated 2026-06-29 after Phase 12 — v1.6 complete)
 
-**Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked.
-**Current focus:** Phase 12 — display-polish
+**Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked. v1.6 cleared all remaining display-polish debt.
+**Current focus:** v1.6 milestone complete — ready for `/gsd-complete-milestone`
 
 ## Current Position
 
 Phase: 12
-Plan: Not started
-Next: Execute Phase 12
-Status: Executing Phase 12
+Plan: 1/1 complete
+Next: Complete milestone v1.6
+Status: Milestone complete
 
-Progress: [██░░░░░░░░] 40% (2/5 phases)
+Progress: [████████████████████] 3/3 plans (100%)
 
 ## Performance Metrics
 
@@ -69,9 +70,14 @@ All v1.0-v1.5 decisions logged in PROJECT.md Key Decisions table.
 - `insert_or_create_calendar_event` uses `event.save(update_fields=list(fields.keys()) + ['modified'])` (not bare `event.save()`) to ensure `auto_now` field (`modified`) always updates on write, avoiding the `update_fields` omission bug caught in 11-01 fix commit 3fb5ad7.
 - Absolute import style (`from solsys_code.calendar_utils import ...`) used consistently across all three commands (Plan 11-01 originally specified relative import; Plan 11-02 explicitly accepts absolute; functional behavior identical).
 
+**Phase 12 key decisions:**
+
+- `calendar_urls.py` is a full replacement of `tom_calendar.urls` (all 6 URL names), not a single-route shadow — needed so all `calendar:*` URL reversals resolve through the FOMO namespace; W005 duplicate-namespace warning is expected/harmless.
+- TDD RED/GREEN gate enforced for Task 1 (`text_color_for_bg` + `_relative_luminance`): RED commit `d79a734`, GREEN commit `cda8789`.
+
 ### Pending Todos
 
-1. Extract site/telescope mapping and instrument extraction into own module — RESOLVED by REFAC-01 in Phase 11.
+None.
 
 ### Blockers/Concerns
 
@@ -81,11 +87,11 @@ None open.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | now active in v1.6 Phase 12 | v1.4 close → promoted to v1.6 |
-| requirement | DISPLAY-09 (batching template tag for sidecar N+1) | now active in v1.6 Phase 12 | v1.4 close → promoted to v1.6 |
+| requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | ✓ delivered — Phase 12 | v1.4 close → promoted to v1.6 |
+| requirement | DISPLAY-09 (batching template tag for sidecar N+1) | ✓ delivered — Phase 12 | v1.4 close → promoted to v1.6 |
 
 ## Session Continuity
 
-Last session: 2026-06-28T01:27:20.969Z
-Stopped at: Phase 12 UI-SPEC approved
-Resume file: .planning/phases/12-display-polish/12-UI-SPEC.md
+Last session: 2026-06-29
+Stopped at: Phase 12 complete — v1.6 milestone complete, all 5 phases done
+Resume file: None
