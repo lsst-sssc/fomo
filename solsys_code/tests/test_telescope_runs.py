@@ -235,7 +235,9 @@ class TestTelescopeRuns(TestCase):
                 year=date.today().year,
                 month=7,
                 day1=9,
+                start_window=None,
                 day2=13,
+                end_window=None,
             ),
         )
 
@@ -253,6 +255,54 @@ class TestTelescopeRuns(TestCase):
         self.assertIn('Magellan-Clay', str(ctx.exception))
         self.assertIn('Magellan-Baade', str(ctx.exception))
 
+    def test_parse_run_line_magellan_first_half(self):
+        """First half of the night parsing"""
+        result = parse_run_line('Magellan-Clay Lightspeed 18-20 July BoN-0626')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='Magellan-Clay',
+                instrument='Lightspeed',
+                status='allocation',
+                year=date.today().year,
+                month=7,
+                day1=18,
+                start_window='BoN',
+                day2=20,
+                end_window='0626',
+            ),
+        )
+
+    def test_parse_run_line_magellan_second_half(self):
+        """Second half of the night parsing"""
+        result = parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-EoN')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='Magellan-Clay',
+                instrument='LDSS3',
+                status='allocation',
+                year=date.today().year,
+                month=7,
+                day1=18,
+                start_window='0646',
+                day2=20,
+                end_window='EoN',
+            ),
+        )
+
+    def test_parse_run_line_second_half_bare_time(self):
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay LDSS3 18-20 July 0646')
+
+    def test_parse_run_line_second_half_missing_EoN(self):
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-')
+
+    def test_parse_run_line_second_half_wrongg_EoN(self):
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-foo')
+
     def test_parse_run_line_proto_lightspeed_hyphenated_instrument(self):
         """ROADMAP SC2 / PARSE-02: hyphenated 'Proto-Lightspeed' parses as one token, month-after-range ordering."""
         result = parse_run_line('NTT Proto-Lightspeed Jul 8-12 (proposed)')
@@ -265,7 +315,9 @@ class TestTelescopeRuns(TestCase):
                 year=date.today().year,
                 month=7,
                 day1=8,
+                start_window=None,
                 day2=12,
+                end_window=None,
             ),
         )
 

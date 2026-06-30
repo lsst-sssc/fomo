@@ -92,6 +92,14 @@ _CROSS_MONTH_RANGE = re.compile(
 # Status as a parenthesized phrase, e.g. '(proposed)' or '(not confirmed)'.
 _PAREN_STATUS = re.compile(r'\(([^)]+)\)')
 
+# Partial nights matcher
+_PARTIAL_NIGHTS = re.compile(
+    r"""
+    (BoN|\d{4})-(EoN|\d{4})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
 
 def get_site(name: str) -> Observatory:
     """Resolves a telescope name to its Observatory record.
@@ -286,7 +294,9 @@ class ParsedRun:
     year: int
     month: int
     day1: int
+    start_window: str | None
     day2: int
+    end_window: str | None
 
 
 def _resolve_telescope(token: str) -> str:
@@ -419,6 +429,19 @@ def parse_run_line(line: str) -> ParsedRun:
 
     telescope = _resolve_telescope(telescope_token)
 
+    # Look after date range for anything remaining which might indicate
+    # partial night range
+    after_range = remainder[match.end() :]
+    tokens = after_range.split()
+    start_window = end_window = None
+    if len(tokens) == 1:
+        match = _PARTIAL_NIGHTS.search(tokens[0])
+        if match:
+            start_window = match.groups()[0]
+            end_window = match.groups()[1]
+        else:
+            raise ValueError(f'Unrecognized partial night {after_range!r} in {line!r}')
+
     return ParsedRun(
         telescope=telescope,
         instrument=instrument,
@@ -426,5 +449,7 @@ def parse_run_line(line: str) -> ParsedRun:
         year=year,
         month=month,
         day1=day1,
+        start_window=start_window,
         day2=day2,
+        end_window=end_window,
     )
