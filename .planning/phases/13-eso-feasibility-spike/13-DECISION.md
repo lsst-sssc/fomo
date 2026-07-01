@@ -1,7 +1,7 @@
 # Phase 13: ESO Feasibility Spike - Decision
 
 **Investigated:** 2026-07-01
-**Status:** Findings recorded (ESO-01/02/03) against real Paranal production credentials; Recommendation (ESO-04) and Future-sync sketch (ESO-05) deferred to Plan 02.
+**Status:** Complete. Findings recorded (ESO-01/02/03) against real Paranal production credentials; Recommendation (ESO-04: Bypass) and Future-sync sketch (ESO-05) completed in Plan 02.
 
 This phase is investigation-only. No `sync_eso_observation_calendar` command, no
 `FACILITIES['ESO']` settings change, and no other application code is shipped
@@ -143,8 +143,159 @@ job is confirmed non-viable.
 
 ## Recommendation (ESO-04)
 
-<!-- completed in Plan 02 -->
+**Bypass — sync straight from `p2api` to `CalendarEvent`, skipping
+`ObservationRecord` for ESO.**
+
+The evidence gathered in ESO-01/02/03 is direct, real-data support for Bypass,
+and offers no support at all for Bridge:
+
+- **ESO-01** confirms Paranal production credentials connect and work
+  end-to-end via `tom_eso.eso_api.ESOAPI(environment='production', username,
+  password)` — but the connection itself, and every subsequent call
+  (`getOB`, `getOBExecutions`, `getNightExecutions`), was made directly
+  against the P2 API. Nothing in the probe touched
+  `ESOFacility.submit_observation()`, `ObservationCreateView.form_valid()`,
+  or any code path that would create an `ObservationRecord(facility='ESO')`
+  row. Bridge is specifically "patch/work around `tom_eso` so it populates
+  real `ObservationRecord` rows" — that patch was never attempted, let alone
+  evidenced, in this spike. Bypass's data path (direct P2 API calls into a
+  synced representation) is exactly what ESO-01 exercised and proved works.
+- **ESO-02** captured real `getOB()` and `getNightExecutions()` shapes —
+  again, both are direct P2-API reads, not `ObservationRecord` fields. The
+  fact that this data is reachable *without* an `ObservationRecord` in the
+  loop is itself evidence that skipping `ObservationRecord` (Bypass) is not
+  just viable but is the natural shape of the data that was actually
+  captured. There is no captured evidence describing what a hand-created
+  `ObservationRecord(facility='ESO')` row would need to contain, because
+  Bridge's premise (working around `submit_observation()`'s empty-list
+  return) was out of scope for this investigation-only phase (per D-08's
+  read-only guardrail: `submit_observation()`/`saveOB`/any write call was
+  never exercised).
+- **ESO-03** confirms the headless credential-sourcing path — a future
+  `sync_eso_observation_calendar` (or equivalent) command can authenticate
+  the same way this probe did, via a `FACILITIES['ESO']` settings entry
+  populated from environment variables, mirroring the LCO/SOAR/GEM
+  facility-config pattern. This headless path is required by *both* Bridge
+  and Bypass equally, so it doesn't discriminate between them — but it does
+  confirm neither option is blocked on credentials, which is why the verdict
+  can be a definitive Bypass rather than "Not Yet Feasible."
+
+Bridge also carries structural cost that this spike's evidence doesn't
+justify paying: it requires teaching a new code path to *create*
+`ObservationRecord` rows by hand (working around
+`ESOFacility.submit_observation()`'s hardcoded empty-list return), then
+running the standard LCO/Gemini downstream pattern on top of those
+hand-created rows — an extra responsibility neither existing sync command
+has, and one this spike deliberately did not attempt per the D-08 read-only
+guardrail. Bypass reaches the same real data (confirmed live in ESO-02)
+through a shorter, already-evidenced path: read OBs directly via `p2api`/
+`ESOAPI`, build `CalendarEvent`s straight from that data, keyed on a
+synthetic identifier. Since the goal is a `CalendarEvent` the astronomer can
+see on the calendar — not an `ObservationRecord` row for its own sake —
+Bypass gets there with less new surface area and is the option this spike's
+real-data evidence actually demonstrates end-to-end.
+
+The La Silla revised finding (ESO-01) reinforces this further: the working
+La Silla path identified is "bypass `tom_eso.eso_api.ESOAPI` entirely and
+construct `p2api.ApiConnection('production_lasilla', ...)` directly" — i.e.
+the same Bypass-shaped strategy already recommended for Paranal, generalizing
+cleanly across both sites without needing site-specific `ObservationRecord`
+plumbing.
 
 ## Future-sync sketch (ESO-05)
 
-<!-- completed in Plan 02 -->
+Since the verdict is feasible (Bypass), this section sketches what "synced"
+could reasonably mean for a **future** `sync_eso_observation_calendar`-style
+command. This is scoped as input to a future milestone's requirements —
+**nothing here is implemented in this phase**, and none of it should be read
+as a v1/simplified/placeholder version of shippable work.
+
+### Reusable landing point
+
+`solsys_code/calendar_utils.py:insert_or_create_calendar_event()` needs no
+changes. It is already facility-agnostic (`lookup`/`fields` dict contract),
+and Gemini already proved the pattern generalizes to a facility with a
+synthetic idempotency key and a single-state (banner-only) window, rather
+than LCO's queued->placed two-state machine. A future ESO command would call
+this helper exactly as-is.
+
+### Synthetic idempotency key
+
+Following the precedent set by `sync_gemini_observation_calendar.py`'s
+`GEM:{prog}/{observation_id}` key (itself needed because Gemini's
+`get_observation_url()` is also unusable as a key), a future ESO command
+would key `CalendarEvent.url` on `ESO:{p2_environment}/{obId}` — e.g.
+`ESO:production/4725578`. This directly matches the real identifiers
+captured in ESO-02 (`obId`, `environment`), so the key can be built from data
+already confirmed to exist in the shape it was captured.
+
+### Banner-only vs. status-aware sync
+
+ESO Service Mode has no advance per-OB schedule — Paranal Science Operations
+chooses which OBs to execute in real time, unlike LCO's queue scheduler which
+publishes `scheduled_start`/`scheduled_end` ahead of time. This rules out
+reusing LCO's queued->placed two-state pattern (SYNC-02/03) for ESO; any
+future sync is at most a single-state banner, the same shape Gemini already
+uses. Two options for what that banner conveys, in increasing order of
+richness:
+
+1. **Banner-only (window banner, no status).** One `CalendarEvent` per OB,
+   window derived from the OB's observing-run/period validity dates (or a
+   PI-set absolute time constraint, if present — rare). Title stays clean;
+   no attempt to reflect execution state. This is the safe floor: every
+   piece of data it needs (`obId`, run period, target) was directly observed
+   in ESO-02's `getOB()` response.
+2. **Status-aware sync.** Layer the OB's `obStatus` (captured live in
+   ESO-02: `'P'` for a never-executed OB, `'M'` for an executed-but-
+   must-repeat OB via `getNightExecutions()`) onto the banner as a title
+   prefix or badge, the same way LCO's terminal-state prefixing works today.
+   This is real-data-supported (ESO-02 captured both a pre-execution and a
+   post-execution shape), but requires deciding **which night(s) to poll**
+   per OB — unlike LCO/Gemini, there is no single "give me the current
+   status" call; `getOBExecutions(obId, night)` and
+   `getNightExecutions(instrument, night)` are both queried per night, so a
+   future command needs an explicit polling-window policy (e.g. "the OB's
+   run period, one call per night") that this spike did not need to resolve
+   for a one-off probe.
+
+Given ESO-02 directly captured both a `'P'` (never-executed) and an `'M'`
+(executed, must-repeat) real response, status-aware sync is evidenced as
+*reachable*, not merely theoretical — but it is meaningfully more complex
+than the banner-only floor, and the "which nights to poll" policy is
+genuinely open. A future milestone should treat banner-only as the MVP and
+status-aware as a should-have layered on top, consistent with the FEATURES.md
+research's original P1/P2 prioritization.
+
+### ESO P2 status vocabulary (if status-aware)
+
+The 12-code `obStatus` vocabulary (from ESO's public Phase 2 status docs,
+cross-checked against the real `'P'`/`'M'` values captured live in ESO-02):
+
+| Code | Meaning | Terminal? |
+|------|---------|-----------|
+| `P` | Partially defined (just created) | No |
+| `D` | Defined (passed certification, ready for review) | No |
+| `-` | Rejected (needs user attention) | No |
+| `R` | Review (under revision by support astronomer) | No |
+| `+` | Accepted (ready to be observed) | No |
+| `C` | Completed (executed successfully, will not repeat) | Yes |
+| `X` | Executed (successfully completed, can repeat — e.g. visitor mode) | Yes (per-execution) |
+| `M` | Must repeat (executed outside constraints, will be requeued) | No (requeues) |
+| `A` | Aborted during execution (will be requeued) | No (requeues) |
+| `F` | Failed (absolute time window expired; read-only, irreversible) | Yes |
+| `K` | Kancelled (support-astronomer set, irreversible) | Yes |
+| `T` | Terminated (run terminated, irreversible) | Yes |
+
+This vocabulary is entirely unrelated to LCO's/Gemini's terminal-state sets —
+a future command must build its own `obStatus`-keyed prefix mapping rather
+than reusing (or extending) LCO's `_FAILURE_PREFIX_BY_STATUS` or Gemini's
+`ready`-flag logic.
+
+### Not included: D-11 effort-sizing
+
+Per D-11, the Bridge effort-sizing estimate (which `tom_eso` methods would
+need real implementations, and whether the change reads as a small patch,
+moderate fork, or larger undertaking) is only required when the verdict is
+Bridge. Since the verdict above is Bypass, that estimate is not applicable
+here — a future Bypass-based command's cost driver is the polling-window
+policy question above, not a `tom_eso` patch.
