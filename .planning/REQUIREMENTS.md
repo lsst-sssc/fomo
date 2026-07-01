@@ -41,8 +41,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ESO-01 | TBD | Pending |
-| ESO-02 | TBD | Pending |
-| ESO-03 | TBD | Pending |
-| ESO-04 | TBD | Pending |
-| ESO-05 | TBD | Pending |
+| ESO-01 | Phase 13 | Pending |
+| ESO-02 | Phase 13 | Pending |
+| ESO-03 | Phase 13 | Pending |
+| ESO-04 | Phase 13 | Pending |
+| ESO-05 | Phase 13 | Pending |

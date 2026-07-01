@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.7
-milestone_name: ESO/VLT Calendar Sync
+milestone_name: ESO/VLT Calendar Sync — Feasibility Spike
 status: planning
-last_updated: "2026-07-01T16:39:00.045Z"
+last_updated: "2026-07-01T18:00:00.000Z"
 last_activity: 2026-07-01
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,60 +17,46 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-29 after Phase 12 — v1.6 complete)
+See: .planning/PROJECT.md (updated 2026-07-01 — v1.7 milestone opened)
 
-**Core value:** Stages 1-3 of issue #37 fully implemented: site/ephemeris helper, classical run ingest, LCO+SOAR queue sync, calendar visual clarity, and Gemini ToO sync — all tested and demo-notebooked. v1.6 cleared all remaining display-polish debt.
-**Current focus:** v1.6 milestone complete — ready for `/gsd-complete-milestone`
+**Core value:** Determine whether/how ESO/VLT observation sync can work at all, given the installed `tom_eso==0.2.4` cannot create `ObservationRecord` rows or report status through the standard TOM facility API. Produce a Bridge/Bypass/Not-Yet-Feasible decision doc against real ESO P2 credentials — no sync command is built this milestone.
+**Current focus:** Phase 13 — ESO Feasibility Spike (roadmap created, ready to plan)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-01 — Milestone v1.7 started
+Phase: 13 of 13 (ESO Feasibility Spike)
+Plan: — (not yet planned)
+Status: Ready to plan
+Last activity: 2026-07-01 — v1.7 roadmap created (single-phase feasibility spike, ESO-01..ESO-05 mapped)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Prior milestone plans completed: 14 (v1.3-v1.4)
-- Average duration: ~20 min/plan (v1.4 range: 9-24 min)
+- Prior milestone plans completed: 14 (v1.3-v1.4); v1.6 added 3 plans across Phases 11-12
+- Average duration: ~15 min/plan (v1.6 range: ~8-24 min)
 - Total execution time: see per-phase breakdown below
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 08 P01 | 1 | 24 min | 24 min |
-| 08 P02 | 1 | 11 min | 11 min |
-| 09 P01 | 1 | 9 min | 9 min |
-| 09 P02 | 1 | 18 min | 18 min |
-| 10 | 2 | - | - |
 | 11 | 2 | ~15 min | ~8 min |
 | 12 | 1 | - | - |
+| 13 | TBD | - | - |
 
 ## Accumulated Context
 
 ### Decisions
 
-All v1.0-v1.5 decisions logged in PROJECT.md Key Decisions table.
+All v1.0-v1.6 decisions logged in PROJECT.md Key Decisions table.
 
-**Phase 10 key decisions:**
+**v1.7 roadmap decisions:**
 
-- `safe_params` password-strip placed as first statement in each loop iteration, before any logging or exception paths (GEM-SECURE-01).
-- `site_key`/`telescope` determination placed before the `try/except` block to avoid `NameError` in the except handler.
-- `update_fields=changed` no-churn save pattern (same as load_telescope_runs / sync_lco) — prevents `modified` churn on unchanged GEM events (GEM-NOCHURN-01).
-- No `CalendarEventTelescopeLabel` sidecar for GEM events: telescope is deterministic from program prefix; missing-row = "verified" by Phase 8 convention.
-
-**Phase 11 key decisions:**
-
-- `insert_or_create_calendar_event` uses `event.save(update_fields=list(fields.keys()) + ['modified'])` (not bare `event.save()`) to ensure `auto_now` field (`modified`) always updates on write, avoiding the `update_fields` omission bug caught in 11-01 fix commit 3fb5ad7.
-- Absolute import style (`from solsys_code.calendar_utils import ...`) used consistently across all three commands (Plan 11-01 originally specified relative import; Plan 11-02 explicitly accepts absolute; functional behavior identical).
-
-**Phase 12 key decisions:**
-
-- `calendar_urls.py` is a full replacement of `tom_calendar.urls` (all 6 URL names), not a single-route shadow — needed so all `calendar:*` URL reversals resolve through the FOMO namespace; W005 duplicate-namespace warning is expected/harmless.
-- TDD RED/GREEN gate enforced for Task 1 (`text_color_for_bg` + `_relative_luminance`): RED commit `d79a734`, GREEN commit `cda8789`.
+- Single-phase structure (Phase 13) chosen for the whole spike: the five requirements form one tightly-coupled investigation loop — ESO-02's real-data capture is gated on ESO-01's credentials, and ESO-04's decision doc synthesizes all of ESO-01..ESO-03 — so credential/access work is not meaningfully separable from data-gathering-and-decision work. `coarse` granularity reinforces folding investigation-only work into one phase.
+- Investigation-only milestone: success criteria are written as documented findings and an explicit decision (not "code implemented"), because no `sync_eso_observation_calendar` command ships this milestone.
 
 ### Pending Todos
 
@@ -78,24 +64,23 @@ None.
 
 ### Blockers/Concerns
 
-None open.
+- **Credential access (ESO-01) is the gating unknown for the whole phase.** Research could not inspect the live P2 API (no active ESO credentials in the dev environment). Phase 13 must resolve whether production, demo/sandbox, or a captured fixture is obtainable before ESO-02's real-data capture is possible. If none is obtainable, that becomes the documented ESO-04 "Not Yet Feasible" blocker.
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-06-29:
+Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| requirement | DISPLAY-08 (WCAG contrast-ratio-aware text color switching) | ✓ delivered — Phase 12 | v1.4 close → promoted to v1.6 |
-| requirement | DISPLAY-09 (batching template tag for sidecar N+1) | ✓ delivered — Phase 12 | v1.4 close → promoted to v1.6 |
-| todo | 2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md | ✓ resolved — Phase 11 delivered calendar_utils.py with all extracted symbols | v1.3 → resolved v1.6 |
+| requirement | ESO-10 (`sync_eso_observation_calendar` command) | v2 — contingent on Phase 13 decision | v1.7 open |
+| requirement | ESO-11 (paired ESO demo notebook) | v2 — contingent on Phase 13 decision | v1.7 open |
 
 ## Session Continuity
 
-Last session: 2026-06-29
-Stopped at: Phase 12 complete — v1.6 milestone complete, all 5 phases done
+Last session: 2026-07-01
+Stopped at: v1.7 ROADMAP.md created — Phase 13 (ESO Feasibility Spike) ready to plan
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 13 with /gsd-plan-phase 13
