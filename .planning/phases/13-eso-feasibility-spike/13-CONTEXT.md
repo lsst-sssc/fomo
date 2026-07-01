@@ -19,12 +19,14 @@ deliverable is evidence and a recommendation, not shipped sync code.
 ## Implementation Decisions
 
 ### Credentials & environment access
-- **D-01:** Tim has real ESO Phase 2 production credentials for **Paranal
-  (VLT)** and is confident they work (last tested ~February 2026).
-- **D-02:** Tim is **not sure whether `tom_eso`/`p2api` has ever been
+- **D-01 [informational]:** Tim has real ESO Phase 2 production credentials for **Paranal
+  (VLT)** and is confident they work (last tested ~February 2026). Background
+  fact underlying D-05 (Paranal first); not a standalone actionable decision.
+- **D-02 [informational]:** Tim is **not sure whether `tom_eso`/`p2api` has ever been
   exercised against La Silla's separate Phase 2 environment** (research
   identified this is likely a distinct `environment` string, e.g.
-  `production_lasilla`, vs. Paranal's `production`).
+  `production_lasilla`, vs. Paranal's `production`). Background fact underlying
+  D-06 (La Silla as stretch goal); not a standalone actionable decision.
 - **D-03:** Credentials for this spike are supplied via environment
   variable(s) or `local_settings.py` only — never committed, never logged.
   No change to `FACILITIES['ESO']` in `src/fomo/settings.py` is required or
