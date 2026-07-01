@@ -124,3 +124,7 @@ Phase 13 (ESO Feasibility Spike) is now complete: both plans (13-01 evidence-gat
 ---
 *Phase: 13-eso-feasibility-spike*
 *Completed: 2026-07-01*
+
+## Self-Check: PASSED
+
+All created/modified files confirmed present on disk; all task commit hashes (`7a52db1`, `9a3c8a3`, `7ea0974`) confirmed present in git history.
