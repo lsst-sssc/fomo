@@ -38,15 +38,41 @@ credential-adjacent fields redacted per D-04 (none were present in this
 diagnostic; it contains only the environment string and error metadata).
 
 Per D-06 this is a valid, documented finding, not a phase blocker: Paranal
-credentials work end-to-end; `'production_lasilla'` is NOT a valid/supported
-P2 environment string for this account via `p2api`/`ESOAPI` as currently
-used. Note the exception surfaced as `P1Error`, not `p2api.p2api.P2Error` —
-a different exception path than the Paranal success case, worth flagging for
-anyone attempting La Silla connectivity in a future phase (it is not simply
-"the same P2Error caught elsewhere," it's a distinct failure mode at
-connection-construction time, before any read-style call is even attempted).
-La Silla remains untested for real OB data as a result — its Phase 2
-environment identifier (if reachable at all) is not what research guessed.
+credentials work end-to-end. Note the exception surfaced as `P1Error`, not
+`p2api.p2api.P2Error` — this is the key diagnostic clue, and root-causing it
+changes the finding materially from "La Silla API access doesn't work" to
+"`tom_eso`'s `ESOAPI` wrapper is broken for La Silla, but the underlying P2
+API itself is very likely fine":
+
+- The operator separately confirmed they can log into the La Silla P2 web
+  portal (`https://www.eso.org/p2ls/home`) with the same credentials —
+  meaning the account genuinely has La Silla P2 access.
+- Reading the installed libraries directly: `tom_eso.eso_api.ESOAPI.__init__`
+  unconditionally constructs **two** connections — `self.api1 =
+  p1api.ApiConnection(environment, ...)` (Phase 1, proposal submission —
+  irrelevant to OB status/execution data) *before* `self.api2 =
+  p2api.ApiConnection(environment, ...)` (Phase 2 — what ESO-02 actually
+  needs).
+- `p1api.p1api.API_URL` only defines `'production'` and `'demo'` — there is
+  no La Silla entry at all — so `p1api.ApiConnection('production_lasilla',
+  ...)` unconditionally raises `P1Error(500, 'POST', 'production_lasilla',
+  'environment not supported')`, and it does this before `self.api2` (the
+  connection we actually need) is ever constructed.
+- `p2api.p2api.API_URL`, by contrast, **does** define
+  `'production_lasilla': 'https://www.eso.org/copls/api/v1'` — so the real
+  Phase 2 API for La Silla is very likely reachable; the failure is entirely
+  an artifact of `ESOAPI`'s wrapper needlessly demanding a Phase 1 connection
+  that doesn't exist for that site.
+
+**Revised finding:** La Silla P2 (Phase 2) access is likely viable for this
+account — not confirmed blocked. The practical workaround is to bypass
+`tom_eso.eso_api.ESOAPI` entirely and construct `p2api.ApiConnection(
+'production_lasilla', username, password)` directly (the probe script already
+calls Phase-2-only methods via `eso.api2.*` for the OB-status/execution
+calls, so this bypass is a small, targeted change, not a rewrite). This
+direct-`p2api` call was not run live during this spike — it remains an
+untested-but-well-evidenced next step, distinct from "this account cannot
+reach La Silla."
 
 ### ESO-02 — Real OB status/execution data shape
 

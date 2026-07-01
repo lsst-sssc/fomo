@@ -77,16 +77,22 @@
 ## Phase Details
 
 ### Phase 13: ESO Feasibility Spike
+
 **Goal**: Answer "can ESO/VLT observation sync work at all, and if so how?" by probing the real ESO P2 API for OB status/execution data and the headless-credential situation, then writing a decision doc recommending Bridge, Bypass, or Not Yet Feasible. No sync command is implemented this milestone; the deliverable is a written, evidence-grounded recommendation that seeds a future milestone's requirements.
 **Depends on**: Phase 12 (v1.6 complete)
 **Requirements**: ESO-01, ESO-02, ESO-03, ESO-04, ESO-05
 **Success Criteria** (what must be TRUE):
+
   1. The decision doc states explicitly whether valid ESO P2 API credentials (production, demo/sandbox, or a captured fixture) were obtainable and usable for this investigation, with the supporting evidence (ESO-01).
   2. At least one real `p2api` response for an OB's status/execution data is captured verbatim in the doc — an actual `obStatus` value and/or a `getOBExecutions()`/`getNightExecutions()` response — documented, not guessed. If credentials proved unobtainable, the doc records that blocker explicitly and captures the closest available reference shape (ESO-02).
   3. The doc states a viable (or explicitly non-viable) credential-sourcing path for a headless Django management command, accounting for ESO's per-user, session-bound, Fernet-encrypted `ESOProfile` auth and the absent `FACILITIES['ESO']` settings fallback (ESO-03).
   4. The decision doc explicitly recommends exactly one of Bridge / Bypass / Not Yet Feasible, with rationale tied directly to the ESO-01 through ESO-03 findings (ESO-04).
   5. If the recommendation is feasible (Bridge or Bypass), the doc sketches what "synced" could reasonably mean for a future ESO sync command (e.g. banner-only window vs. status-aware), scoped as input to a future milestone's requirements rather than implemented here (ESO-05).
-**Plans**: TBD
+
+**Plans**: 1/2 plans executed
+
+- [x] 13-01-PLAN.md
+- [ ] 13-02-PLAN.md
 
 ## Progress
 
@@ -105,6 +111,6 @@
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete | 2026-06-27 |
 | 11. Code Refactoring | v1.6 | 2/2 | Complete | 2026-06-27 |
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
-| 13. ESO Feasibility Spike | v1.7 | 0/TBD | Not started | - |
+| 13. ESO Feasibility Spike | v1.7 | 1/2 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

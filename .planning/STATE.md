@@ -5,16 +5,16 @@ milestone_name: ESO/VLT Calendar Sync — Feasibility Spike
 current_phase: 13
 current_phase_name: ESO Feasibility Spike
 status: executing
-stopped_at: Phase 13 context gathered
-last_updated: "2026-07-01T19:02:21.533Z"
+stopped_at: Plan 13-01 complete — proceeding to Plan 13-02 (decision synthesis)
+last_updated: "2026-07-01T22:23:50.236Z"
 last_activity: 2026-07-01
-last_activity_desc: v1.7 roadmap created (single-phase feasibility spike, ESO-01..ESO-05 mapped)
+last_activity_desc: Plan 13-01 complete (ESO-01/02/03 evidence recorded via live Paranal probe); starting Plan 13-02
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 2
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01 — v1.7 milestone opened)
 
 **Core value:** Determine whether/how ESO/VLT observation sync can work at all, given the installed `tom_eso==0.2.4` cannot create `ObservationRecord` rows or report status through the standard TOM facility API. Produce a Bridge/Bypass/Not-Yet-Feasible decision doc against real ESO P2 credentials — no sync command is built this milestone.
-**Current focus:** Phase 13 — ESO Feasibility Spike (roadmap created, ready to plan)
+**Current focus:** Phase 13 — ESO Feasibility Spike
 
 ## Current Position
 
-Phase: 13 of 13 (ESO Feasibility Spike)
-Plan: — (not yet planned)
-Status: Ready to execute
-Last activity: 2026-07-01 — v1.7 roadmap created (single-phase feasibility spike, ESO-01..ESO-05 mapped)
+Phase: 13 (ESO Feasibility Spike) — EXECUTING
+Plan: 2 of 2 (13-02, decision synthesis)
+Status: Plan 13-01 complete, executing Plan 13-02
+Last activity: 2026-07-01 — Plan 13-01 complete (ESO-01/02/03 evidence recorded via live Paranal probe)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ All v1.0-v1.6 decisions logged in PROJECT.md Key Decisions table.
 
 - Single-phase structure (Phase 13) chosen for the whole spike: the five requirements form one tightly-coupled investigation loop — ESO-02's real-data capture is gated on ESO-01's credentials, and ESO-04's decision doc synthesizes all of ESO-01..ESO-03 — so credential/access work is not meaningfully separable from data-gathering-and-decision work. `coarse` granularity reinforces folding investigation-only work into one phase.
 - Investigation-only milestone: success criteria are written as documented findings and an explicit decision (not "code implemented"), because no `sync_eso_observation_calendar` command ships this milestone.
+- Plan 13-01 (commit `48b800d`): Paranal (VLT) production credentials confirmed obtainable/usable (ESO-01); real `getOB()`/`getNightExecutions()` shapes captured, redacted per D-04 (ESO-02); headless credential-sourcing via env-var-backed `ESOAPI(...)` confirmed viable, bypassing `ESOProfile`/session decryption (ESO-03). La Silla (`production_lasilla`) failed at `tom_eso`'s `ESOAPI` construction with a `P1Error` — root-caused to `p1api`'s `API_URL` lacking a La Silla entry (only `production`/`demo`), while `p2api`'s own `API_URL` does support `production_lasilla`; operator confirmed the La Silla P2 web portal accepts the same credentials, so a direct `p2api.ApiConnection('production_lasilla', ...)` bypassing `ESOAPI`/`p1api` is the untested-but-promising next step, not a hard blocker.
 
 ### Pending Todos
 
@@ -68,7 +69,7 @@ None.
 
 ### Blockers/Concerns
 
-- **Credential access (ESO-01) is the gating unknown for the whole phase.** Research could not inspect the live P2 API (no active ESO credentials in the dev environment). Phase 13 must resolve whether production, demo/sandbox, or a captured fixture is obtainable before ESO-02's real-data capture is possible. If none is obtainable, that becomes the documented ESO-04 "Not Yet Feasible" blocker.
+None open. The former gating unknown (ESO-01 credential access) is now resolved: Paranal production credentials are confirmed obtainable and usable (see Plan 13-01 above). Plan 13-02 will synthesize the ESO-04 recommendation from this evidence.
 
 ## Deferred Items
 
@@ -81,10 +82,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-01T17:31:25.092Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-eso-feasibility-spike/13-CONTEXT.md
+Last session: 2026-07-01T20:54:42.982Z
+Stopped at: Plan 13-01 complete; executing Plan 13-02 (autonomous — no operator action needed)
+Resume file: .planning/phases/13-eso-feasibility-spike/13-02-PLAN.md
 
 ## Operator Next Steps
 
-- Plan Phase 13 with /gsd-plan-phase 13
+None right now — Plan 13-02 is autonomous. Optional follow-up: confirm whether
+`p2api.ApiConnection('production_lasilla', username, password)` (bypassing
+`tom_eso`'s `ESOAPI`/`p1api` wrapper) connects successfully, to firm up the
+La Silla finding from "likely viable, untested directly" to "confirmed."
