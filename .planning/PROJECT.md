@@ -56,7 +56,15 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## All v1.x Milestones Shipped — Next: Stage 4 or `/gsd-new-milestone`
+## Current Milestone: v1.7 ESO/VLT Calendar Sync
+
+**Goal:** Add ESO/VLT ObservationRecord sync to the calendar, closing the last unhandled configured facility (`tom_eso.eso.ESOFacility`) and completing Stage 4 of issue #37.
+
+**Target features:**
+- `sync_eso_observation_calendar` management command following the LCO/Gemini pattern (one `CalendarEvent` per synced record, idempotent no-churn create-or-update)
+- Scope refined by research into what `tom_eso`'s `ESOFacility` actually exposes for OB (Observation Block) execution/status data (Phase 2 status) — this is not yet confirmed and may constrain what "synced" can mean for ESO records
+
+**Prior milestones (v1.0-v1.6):**
 
 **v1.6 Tech Debt & Display Polish — COMPLETE (2026-06-29):**
 - ✅ REFAC-01/02: `calendar_utils.py` created; all three commands use `insert_or_create_calendar_event()`; "upsert" jargon removed from docs
@@ -133,7 +141,7 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 ### Out of Scope
 
 - Gemini facility support — different base class (`BaseRoboticObservationFacility`), stub `get_observation_url()` (no portal URL to key the idempotent sync on), different parameter keys and terminal-states vocabulary than LCO
-- ESO/NTT facility support — classically scheduled, already handled by Stage 2 (`load_telescope_runs`); never goes through `ObservationRecord`/queue sync
+- ESO/NTT *classical* scheduling — already handled by Stage 2 (`load_telescope_runs`); never goes through `ObservationRecord`/queue sync. (ESO/VLT *ObservationRecord*/queue sync is now in scope for v1.7 — see Current Milestone above.)
 - Reworking `tom_observations`' existing astroplan-based visibility/airmass plots — separate, not touched by this feature
 - Distinguishing Magellan Baade vs Clay in `telescope` field — open item; bare `'Magellan'` is deliberately ambiguous (both at Las Campanas, same ephemeris)
 - Replacing `SITES`'s hardcoded telescope-name → obscode mapping with a data-driven `Observatory.short_name` lookup — Stage 2+ consideration, not required for Stage 2 success criteria
