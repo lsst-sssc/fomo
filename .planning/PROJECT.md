@@ -56,13 +56,15 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: v1.7 ESO/VLT Calendar Sync
+## Current Milestone: v1.7 ESO/VLT Calendar Sync — Feasibility Spike
 
-**Goal:** Add ESO/VLT ObservationRecord sync to the calendar, closing the last unhandled configured facility (`tom_eso.eso.ESOFacility`) and completing Stage 4 of issue #37.
+**Goal:** Determine whether/how ESO/VLT observation sync can work at all, given research found the installed `tom_eso==0.2.4` cannot create `ObservationRecord` rows or report status through the standard TOM facility API. Produce a decision doc (Bridge vs. Bypass vs. not-yet-feasible) against real ESO P2 credentials — no sync command is built in this milestone.
 
 **Target features:**
-- `sync_eso_observation_calendar` management command following the LCO/Gemini pattern (one `CalendarEvent` per synced record, idempotent no-churn create-or-update)
-- Scope refined by research into what `tom_eso`'s `ESOFacility` actually exposes for OB (Observation Block) execution/status data (Phase 2 status) — this is not yet confirmed and may constrain what "synced" can mean for ESO records
+- Investigation against the real ESO P2 API (`p2api`, already a `tom_eso` dependency) to confirm: whether OB status/execution data is reachable at all, whether a credential-sourcing path exists for a headless management command, and whether Bridge (patch `tom_eso`/create real `ObservationRecord` rows) or Bypass (sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord`) is viable
+- A written decision/recommendation for a future milestone's implementation phase — this milestone does not ship `sync_eso_observation_calendar`
+
+**Research context (v1.7 pre-work, already complete):** `.planning/research/{STACK,FEATURES,ARCHITECTURE,PITFALLS,SUMMARY}.md` — confirmed via installed-source inspection and live DB query: `ESOFacility.submit_observation()` never populates `created_observation_ids` (DB has zero `ObservationRecord` rows for any facility); `get_observation_status()`/`get_observation_url()`/`data_products()` all raise `NotImplementedError`; no `FACILITIES['ESO']` settings entry exists (credentials are per-user, session-bound, Fernet-encrypted via `ESOProfile`); real ESO Phase 2 OB status is a 12-code vocabulary (P/D/–/R/+/C/X/M/A/F/K/T) unrelated to LCO's/Gemini's.
 
 **Prior milestones (v1.0-v1.6):**
 
