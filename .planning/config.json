@@ -1,5 +1,5 @@
 {
-  "model_profile": "balanced",
+  "model_profile": "adaptive",
   "commit_docs": true,
   "parallelization": true,
   "search_gitignored": false,
@@ -31,11 +31,11 @@
     "tdd_mode": false,
     "human_verify_mode": "end-of-phase",
     "text_mode": false,
-    "research_before_questions": false,
+    "research_before_questions": true,
     "discuss_mode": "discuss",
     "skip_discuss": false,
     "code_review": true,
-    "code_review_depth": "standard",
+    "code_review_depth": "deep",
     "code_review_command": null,
     "pattern_mapper": true,
     "plan_bounce": false,
@@ -46,7 +46,9 @@
     "security_enforcement": true,
     "security_asvs_level": 1,
     "security_block_on": "high",
-    "_auto_chain_active": false
+    "_auto_chain_active": false,
+    "use_worktrees": true,
+    "ui_review": true
   },
   "ship": {
     "pr_body_sections": [
@@ -87,5 +89,12 @@
     "source_grounding_authority": "grep"
   },
   "mode": "yolo",
-  "granularity": "coarse"
+  "granularity": "coarse",
+  "graphify": {
+    "auto_update": false,
+    "enabled": false
+  },
+  "intel": {
+    "enabled": false
+  }
 }
