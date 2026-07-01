@@ -1,13 +1,43 @@
 # Stack Research
 
-**Domain:** Django calendar visual-treatment + cross-app model extension (FOMO v1.4 — DISPLAY-01/02)
-**Researched:** 2026-06-24
-**Confidence:** HIGH
+**Domain:** ESO/VLT `ObservationRecord` calendar sync (extending FOMO's `sync_lco_observation_calendar` / `sync_gemini_observation_calendar` pattern to `tom_eso`)
+**Researched:** 2026-07-01
+**Confidence:** HIGH — every claim below is verified by reading the actual installed source (`tom_eso` 0.2.4, `tom_observations` (via `tomtoolkit`), and `p2api` 1.0.10) on disk at `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/`, not from PyPI README or memory.
 
-This is a narrow, additive milestone on an already-validated stack (Django 5.2.15, `tomtoolkit==3.0.0a9`,
-`tom_calendar` bundled inside it). No new runtime dependency, package, or app is needed for either
-DISPLAY-01 or DISPLAY-02 — both are solved with stdlib (`hashlib`) plus Django patterns already used
-elsewhere in this exact codebase (template tag library, sidecar model via existing `solsys_code` app).
+## Headline Finding (read this before scoping the sync command)
+
+**`tom_eso.eso.ESOFacility` (v0.2.4) does not implement the TOM Toolkit status/URL/data-product interface at all, and its `submit_observation()` never returns an observation ID — meaning the standard TOM UI submission flow cannot create an `ObservationRecord(facility='ESO')` row in the first place.** Concretely, in `tom_eso/eso.py`:
+
+```python
+def data_products(self, observation_id, product_id=None):
+    raise NotImplementedError
+
+def get_observation_status(self, observation_id):
+    raise NotImplementedError
+
+def get_observation_url(self, observation_id):
+    raise NotImplementedError
+
+def get_terminal_observing_states(self):
+    return []
+
+def submit_observation(self, observation_payload):
+    self.submit_new_observation_block(observation_payload)
+    created_observation_ids = []
+    return created_observation_ids
+```
+
+`ObservationCreateView.form_valid()` (`tom_observations/views.py`) does:
+
+```python
+observation_ids = self.facility_instance.submit_observation(form.observation_payload())
+for observation_id in observation_ids:
+    record = ObservationRecord.objects.create(..., observation_id=observation_id)
+```
+
+Since `ESOFacility.submit_observation()` hardcodes `created_observation_ids = []` and never appends to it, this loop never executes for ESO — the standard TOM submission UI creates zero `ObservationRecord` rows for ESO. `ESOObservationForm.button_layout()` also deliberately removes the standard "Submit"/"Validate" buttons, confirming ESO observations are meant to be finished in the external ESO P2 Tool (an iframe), not through TOM's normal create-observation-record flow.
+
+**Implication for the sync command:** before building `sync_eso_observation_calendar`, confirm with the operator how/whether `ObservationRecord(facility='ESO')` rows get created at all in this FOMO instance (e.g. a separate ingestion path, manual creation, or a planned addition). If none exists yet, the "sync" command's job may need to be paired with (or preceded by) a decision about where ESO `ObservationRecord`s come from — this is a scope question for the milestone, not something `tom_eso` answers.
 
 ## Recommended Stack
 
@@ -15,107 +45,128 @@ elsewhere in this exact codebase (template tag library, sidecar model via existi
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| `hashlib` (stdlib) | Python 3.10+ (project floor) | Deterministic string→int hash for DISPLAY-01's proposal-to-color mapping | `hashlib.sha256(proposal.encode()).hexdigest()` is stable across process restarts and across machines — required because the same proposal string must map to the same color on every calendar render, including after a server/worker restart. Verified empirically below: Python's built-in `hash()` is salted per-process and is NOT usable here (see Pitfall). |
-| Django template tag library (`django.template.Library`, `@register.simple_tag`) | Django 5.2.15 (installed; confirmed via `pip show`) | Compute and expose the proposal color (and DISPLAY-02's verified/fallback flag) inside `src/templates/tom_calendar/partials/calendar.html` | This is the exact mechanism `tom_calendar` itself already uses for an equivalent need: `tom_calendar/templatetags/calendar_tags.py` registers `target_list_color` as a `simple_tag` calling `tom_calendar.utils.target_list_color()`. Mirroring this pattern in a project-owned tag library is the most idiomatic, lowest-friction option — no new abstraction introduced, consistent with code already shipped in the very file being overridden. |
-| Django `OneToOneField` sidecar model (`solsys_code/models.py`) | Django 5.2.15 | DISPLAY-02's structured `is_verified` (or equivalent) flag attached to third-party `CalendarEvent` rows | `tom_calendar.models.CalendarEvent` hardcodes `class Meta: app_label = 'tom_calendar'` with no `abstract = True` and ships its own migrations inside the installed `tomtoolkit` package — it cannot be subclassed via Django's normal "extend an abstract base" pattern, and a multi-table-inheritance subclass is blocked by the same `app_label`/migration-ownership problem. A `OneToOneField(CalendarEvent, on_delete=models.CASCADE, primary_key=True)` sidecar model living in the already-installed `solsys_code` app is the standard, documented Django pattern for attaching new fields to a model you don't own (confirmed current for Django 5.2/6.0 — see Sources). |
+| `tom-eso` | 0.2.4 (already installed & in `TOM_FACILITY_CLASSES`) | TOM Toolkit facility plugin exposing ESO Phase 1/2 access (`ESOFacility`, `ESOAPI`, `ESOProfile`) | Already the project's chosen integration point; no alternative ESO TOM plugin exists in the TOMToolkit ecosystem. But treat it as a thin, incomplete wrapper (see Gaps below), not a drop-in replacement for `LCOFacility`/`GEMFacility` |
+| `p2api` | 1.0.10 (transitive dep of `tom-eso`, already installed) | Raw ESO Phase 2 REST client (`getOB`, `getOBExecutions`, `getItems`, `getRuns`, ...) | This is the *actual* source of any OB status/execution data. `tom_eso.eso_api.ESOAPI` only wraps a small slice of it (`observing_run_choices`, `folder_name_choices`, `folder_item_choices`, `folder_ob_choices`, `getOB`, `create_observation_block`) — nothing that surfaces execution/completion status through a documented method |
+| `p1api` | (transitive dep, installed) | ESO Phase 1 proposal-time API client | Irrelevant to Phase 2 OB status/sync; not used by anything in scope here |
+| `tom_observations.models.ObservationRecord` | existing (Django model, unchanged) | Source model for the new sync command, exactly as for LCO/Gemini | No ESO-specific fields exist or are needed on the model itself; everything ESO-specific must come from `record.parameters` and `record.facility == 'ESO'` (`ESOFacility.name = 'ESO'`, confirmed `eso.py:357`) |
+| `solsys_code.calendar_utils.insert_or_create_calendar_event()` | existing (this repo) | Idempotent create-or-update helper shared by all three prior sync commands | Reuse verbatim — same no-churn contract (`created`/`updated`/`unchanged`) the LCO and Gemini commands already rely on; no ESO-specific reason to diverge |
 
 ### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| `zlib.crc32` (stdlib) | Python 3.10+ | Alternative fast deterministic hash, also process-stable | Only if `hashlib.sha256` is judged "too heavy" for a per-render, per-event computation (it isn't — see Stack Patterns below); `crc32` is a 1-line drop-in alternative with the same determinism guarantee, no security properties needed since this isn't a security context. |
-| None — no new third-party color library | n/a | n/a | Do not add `colorhash`, `randomcolor`, or similar PyPI packages. The target palette is a fixed 9-entry Bootstrap4 list already defined in `tom_calendar.utils.BOOTSTRAP_COLORS` (or this project's own literal-hex mirror per the migration-safety constraint below) — picking 1-of-9 deterministically needs nothing beyond `int(hash, 16) % 9`. |
-
-### Development Tools
-
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| `ruff check . --fix` / `ruff format .` | Lint/format the new template-tag module and sidecar model | Same gate already enforced project-wide; no new config needed. |
-| `./manage.py makemigrations solsys_code` / `./manage.py migrate` | Generate/apply the migration for the new sidecar model | Runs against `solsys_code`'s existing (currently `__init__.py`-only) migrations folder — no new app registration, no `INSTALLED_APPS` change. |
-| `./manage.py test solsys_code` | Test the sidecar model and its sync-into hooks | Same Django test runner already used for `test_sync_lco_observation_calendar.py`/`test_load_telescope_runs.py`; DB-dependent, consistent with the two-suite split in CLAUDE.md. |
+| `requests` | already a transitive dep (used inside `p2api`/`calendar_utils`) | HTTP calls, if the sync command needs to call `p2api` directly rather than through `tom_eso.eso_api.ESOAPI` | Only if the milestone decides to bypass `tom_eso`'s thin wrapper to reach `getOB()`/`getOBExecutions()` for OB status — mirrors the existing `_resolve_placement_block()` pattern in `calendar_utils.py` that already calls the LCO API directly for data `LCOFacility` doesn't expose |
+| `tom_eso.eso_api.ESOAPI` | bundled with `tom-eso` 0.2.4 | Thin, credentialed passthrough to `p2api.ApiConnection` (`getOB(ob_id)` returns the raw OB dict including `obStatus`) | If the sync command needs per-OB status, this is the only *supported* entry point already wired to user credentials (`ESOProfile`) — call `ESOAPI(environment, username, password).getOB(ob_id)` and read `ob['obStatus']` yourself; there is no higher-level method that decodes it |
 
 ## Installation
 
-```bash
-# No new packages required for either DISPLAY-01 or DISPLAY-02.
-# hashlib, zlib are stdlib. OneToOneField, template tags are Django (already installed: 5.2.15).
+No installation is needed — `tom-eso==0.2.4`, `p2api==1.0.10`, and `p1api` are already installed in the project venv and `tom_eso` is already in `INSTALLED_APPS` / `TOM_FACILITY_CLASSES` (`src/fomo/settings.py`). This milestone is pure application code (a new management command), not a new dependency.
 
-# After adding the sidecar model to solsys_code/models.py:
-./manage.py makemigrations solsys_code
-./manage.py migrate
-```
+## Answers to the Research Questions
+
+### 1. Does `tom_eso` expose per-OB execution/completion status, or only submission-time metadata?
+
+**Neither, cleanly — and effectively "not even submission-time metadata" given the Headline Finding above.** `ESOFacility.get_observation_status()` (the TOM-standard per-record status method every other facility implements, e.g. `LCOFacility`/`GEMFacility`) is a bare `raise NotImplementedError`. There is no method anywhere in `tom_eso` that calls `p2api`'s `getOBExecutions(obId, night)` (execution-event history) or decodes `obStatus`.
+
+The *only* place raw OB status data is reachable is `ESOAPI.getOB(ob_id)` → `self.api2.getOB(ob_id)` → returns the OB dict as delivered by the real ESO Phase 2 API, which includes an `obStatus` field (confirmed via `p2api/p2api.py` docstrings at `getOB`/`saveOB`/`deleteOB`, e.g. "A CB does not have a target. The properties itemType, obId, obStatus, ipVersion, exposureTime and executionTime cannot be changed."). `tom_eso.eso_api.ESOAPI.folder_item_choices()` even has this in a comment (currently unused): `# folder_item_choices = [(item['obId'], f"{item['name']} : {item['itemType']} : {item['obStatus']}") ...]` — i.e. the author was aware `obStatus` exists per-item but never wired it into a facility-level status method.
+
+The official ESO Phase 2 status codes (from ESO's public documentation, cross-checked against the `p2api` docstrings' status-gated preconditions) are single letters:
+
+| Code | Meaning | Terminal? |
+|------|---------|-----------|
+| `P` | Partially defined (just created) | No |
+| `D` | Defined (passed certification, ready for review) | No |
+| `-` | Rejected (needs user attention) | No |
+| `R` | Review (under revision by support astronomer) | No |
+| `+` | Accepted (ready to be observed) | No |
+| `C` | Completed (executed successfully, will not repeat) | **Yes** |
+| `X` | Executed (successfully completed, can repeat — e.g. visitor mode) | **Yes** (per-execution) |
+| `M` | Must repeat (executed outside constraints, will be requeued) | No (requeues) |
+| `A` | Aborted during execution (will be requeued) | No (requeues) |
+| `F` | Failed (absolute time window expired; read-only, irreversible) | **Yes** |
+| `K` | Kancelled (support-astronomer set, irreversible) | **Yes** |
+| `T` | Terminated (run terminated, irreversible) | **Yes** |
+
+`tom_eso` does not surface, map, or use any of this. If the sync command needs OB status, it must fetch `obStatus` itself via `ESOAPI.getOB(ob_id)['obStatus']` and interpret the single-letter code using a hand-built mapping like the one above — there is no library-provided constant or helper to lean on (contrast with LCO, where `LCOFacility().get_failed_observing_states()`/`get_terminal_observing_states()` already return the vocabulary).
+
+### 2. What does `ESOFacility` provide that's analogous to `LCOFacility.get_observation_url()`, `scheduled_start`/`scheduled_end` population, and status-checking (`update_all_observation_statuses`)?
+
+Verified against `tom_observations/facility.py` (the base class) and `tom_eso/eso.py`:
+
+| LCO/Gemini capability | ESO equivalent | Status |
+|---|---|---|
+| `LCOFacility.get_observation_url(observation_id)` | `ESOFacility.get_observation_url(observation_id)` | Overridden, but `raise NotImplementedError` — no ESO portal/P2-tool deep link comes back from this method. (`ESOFacility.get_p2_tool_url(observation_block_id=...)` exists and *does* build a real `https://www.eso.org/p2[demo]/home/ob/<obId>` URL, but it is a differently-named, differently-shaped method — not the `get_observation_url()` the base class/other sync commands call, and it needs a live, credentialed `ESOProfile` lookup, not just an ID) |
+| `scheduled_start`/`scheduled_end` population via `update_observation_status()` | `BaseRoboticObservationFacility.update_observation_status()` (inherited, not overridden) calls `self.get_observation_status(observation_id)` and expects a dict with `state`/`scheduled_start`/`scheduled_end` keys | Inherited method exists on `ESOFacility`, but since `get_observation_status()` raises `NotImplementedError`, calling `update_observation_status()` on an ESO facility instance always raises. `scheduled_start`/`scheduled_end` can never be populated by any ESO-facility code path today |
+| `LCOFacility.update_all_observation_statuses(target=None)` (from `BaseRoboticObservationFacility`) | Same inherited method | Present (inherited, not overridden), but per above it calls `update_observation_status()` per record, which will raise for every non-terminal ESO record and get caught into `failed_records` — i.e. it "runs" but produces zero real status updates, only a list of failures |
+| `LCOFacility.get_failed_observing_states()` | — | **Does not exist anywhere on `ESOFacility` or its base class.** `get_failed_observing_states()` is defined only in `tom_observations/facilities/ocs.py` (`OCSFacility`, the shared base for LCO/SOAR) — `ESOFacility` inherits directly from `BaseRoboticObservationFacility`, which has no such method. Any `_FAILURE_PREFIX_BY_STATUS`-style dict for ESO must be hand-built from the `obStatus` table above, mirroring `sync_lco_observation_calendar.py`'s existing hand-typed-snapshot approach — there is no library method to call |
+| `LCOFacility().get_observing_sites()` | `ESOFacility.get_observing_sites()` | Implemented, but hardcoded to two dicts (`PARANAL`, `LA_SILLA`) with a comment `"I don't see an API for this info, so it's hardcoded"` — do not use this as the site-coordinate source; per this project's existing convention (`Observatory` model, MPC-obscode lookup, used throughout `telescope_runs.py`/all three prior sync commands) and per PROJECT.md's Out-of-Scope note, ESO classical scheduling already goes through `Observatory`/`SITES`, not through `tom_eso` |
+| `record.parameters['start']`/`['end']` (LCO queue-banner window) | `get_start_end_keywords()` (inherited default `'start'`, `'end'`, not overridden by `ESOFacility`) | The *keys* are inherited, but nothing in `ESOObservationForm`/`submit_new_observation_block()` ever populates `'start'`/`'end'` in the parameters dict — the ESO form only collects `p2_observing_run`, `p2_folder_name`, `observation_blocks`, `observation_block_name`. There is no window-banner data source analogous to LCO's `parameters['start']`/`['end']` or Gemini's `windowDate`/`windowTime`/`windowDuration` |
+
+**Net: every capability the LCO/Gemini sync commands lean on is either unimplemented (`NotImplementedError`), silently absent (no failure-state vocabulary), or structurally different (site coords, URL builder) in `ESOFacility` 0.2.4.**
+
+### 3. ESO-specific terminal/failure states analogous to LCO's `WINDOW_EXPIRED`/`CANCELED`/`FAILURE_LIMIT_REACHED`?
+
+`ESOFacility.get_terminal_observing_states()` is overridden and unconditionally `return []` — i.e. as far as the TOM Toolkit interface is concerned, **ESO has zero terminal states**, which is itself informative: it confirms the library authors never wired OB status into the TOM abstraction at all (an honest "empty" implementation, not a placeholder bug to work around).
+
+The *real* ESO Phase 2 terminal/failure vocabulary (from the official ESO Phase 2 status documentation, not from `tom_eso`) is the `C`/`X`/`F`/`K`/`T` subset of the `obStatus` table in Question 1 above:
+- `C` (Completed) — success, will not repeat — the ESO analogue of LCO's clean/`COMPLETED` title
+- `F` (Failed, absolute time window expired) — direct analogue of LCO's `WINDOW_EXPIRED`
+- `K` (Kancelled) — direct analogue of LCO's `CANCELED`
+- `T` (Terminated, run terminated) — no direct LCO analogue; closest to `FAILURE_LIMIT_REACHED`'s "give up" semantics
+- `X` (Executed, can repeat — visitor mode) — no LCO analogue at all; this is an ESO-only "success but re-runnable" state that doesn't fit the LCO terminal/non-terminal binary cleanly
+- `M` (Must repeat) / `A` (Aborted) — both requeue, so neither is terminal, unlike anything explicit in LCO's failure set
+
+None of this is derivable from `tom_eso` itself — any `_FAILURE_PREFIX_BY_STATUS`-equivalent dict for ESO must be hand-typed against the official ESO documentation (as `sync_lco_observation_calendar.py` already does for LCO's 4 failure states), and the data to populate it (`obStatus`) can only be fetched via `ESOAPI.getOB(ob_id)`, not any status-checking method on `ESOFacility`.
+
+### 4. Prior FOMO/solsys_code investigation of `tom_eso`?
+
+None found beyond incidental references. Searched `docs/design/`, `solsys_code/`, and `.planning/`:
+- `docs/design/telescope_runs_calendar.rst` mentions "NTT / EFOSC2 at ESO La Silla Observatory" only in the context of Stage 2 *classical* scheduling (`load_telescope_runs`), which is explicitly out of scope for `ObservationRecord`/queue sync per PROJECT.md.
+- `.planning/codebase/INTEGRATIONS.md` lists `tom_eso.eso.ESOFacility` as "Configured in `TOM_FACILITY_CLASSES`" with no further detail (a codebase-mapping artifact, not a design decision).
+- The only ESO-named quick task (`260613-f7d-modify-docs-notebooks-eso-how-to-downloa`) is about redirecting a *data-download* demo notebook (`ESO_How_to_download_data.ipynb`) to write FITS files into `data/` — unrelated to Phase 2 OB status or `ObservationRecord` sync; it doesn't touch `tom_eso` or `ESOFacility` at all.
+- No prior `.planning/` phase, design doc, or decision log addresses ESO queue/OB sync, `ESOFacility`, or `p2api` capabilities. This milestone's research is the first investigation of this surface in the repo.
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|--------------------------|
-| `hashlib.sha256(s.encode()).hexdigest()` then `int(..., 16) % 9` | `zlib.crc32(s.encode()) % 9` | If profiling ever shows the SHA-256 computation is a measurable cost at calendar-render scale (it will not be — a few dozen events per month view). `crc32` is marginally faster and equally deterministic; switching is a one-line change, not an architecture decision. |
-| `hashlib.sha256` | Python's built-in `hash()` | Never, for this use case — see Pitfall below. `hash()` is appropriate only for same-process, ephemeral lookups (e.g. dict/set keys within one Django request), never for a value that must be stable across requests/restarts. |
-| `OneToOneField` sidecar model in `solsys_code` | Django `Meta.proxy = True` proxy model | Proxy models change *behavior* (custom manager, different `Meta.ordering`, alternate `__str__`) on the *same* underlying table — they cannot add new *columns*, because a proxy model has no migration of its own (it shares the parent's table exactly). DISPLAY-02 needs a new persisted field, so a proxy model is structurally incapable of solving it. Don't use it here. |
-| `OneToOneField` sidecar model | Multi-table inheritance (`class TelescopeLabelMeta(CalendarEvent): ...`) | Would work mechanically (Django supports MTI against any concrete model) but requires Django to manage a migration that creates a child table for `CalendarEvent`, a model whose `Meta.app_label` and migration history are *owned by the installed `tomtoolkit` package*, not this project. Mixing migration ownership across an installed third-party package and a project app this way is fragile (e.g. breaks if `tomtoolkit` ever ships its own subclass or adds a field with a colliding name) and is not how Django's docs frame "extend a model you don't own." Stick with `OneToOneField`, which only ever touches *this project's* migration history. |
-| `OneToOneField` sidecar model | Django Signals (`post_save` on `CalendarEvent`) auto-creating the sidecar row | Signals are a reasonable *supplementary* mechanism (e.g. for code paths outside the two management commands that might create a `CalendarEvent`, such as the upstream `EventForm`/`create_event` view), but should not be the *primary* write path for the two commands this milestone cares about — see Stack Patterns below for why an explicit `update_or_create` call colocated with the existing `get_or_create`/conditional-`save()` block is preferable for the two known producers. |
-| Literal hex/rgba values for the palette | `tom_calendar.utils.BOOTSTRAP_COLORS` (`var(--red)` etc.) imported directly | Only safe to import directly while pinned to `tomtoolkit==3.0.0a9`. The PROJECT.md constraint already flags that `3.0.0a10` renames these to `var(--bs-red)` (Bootstrap5 migration). Define a small literal-hex/rgba palette of 9 colors locally in the new template-tag module (or copy-pin the *values*, not the *names*) so DISPLAY-01 survives that future upgrade unchanged. |
+| Build `sync_eso_observation_calendar` as a **banner-only** sync (mirrors Gemini's stub-`get_observation_url()` precedent, which PROJECT.md already accepted as Out-of-Scope reasoning for Gemini being a full facility sync) using whatever fields *are* reliably present on `ObservationRecord.parameters` for ESO (created time, folder/OB identifiers) | Attempt full status/placement sync via direct `p2api` calls (`ESOAPI.getOB()` for `obStatus`, or raw `p2api.ApiConnection.getOBExecutions()` for execution history) | Only if the milestone explicitly wants OB-level completion tracking; requires bypassing `tom_eso`'s facility abstraction, hand-building a status-code table (Question 1/3 above), and handling per-record ESO credentials (`ESOProfile`) the same way `_resolve_placement_block()` handles LCO/SOAR credentials in `calendar_utils.py` |
+| Use `Observatory`/`SITES` for La Silla/Paranal site data (existing project convention) | `ESOFacility.get_observing_sites()`'s hardcoded `PARANAL`/`LA_SILLA` dict | Never — this project already sources all site coordinates from the `Observatory` model by MPC obscode (documented convention in PROJECT.md and CLAUDE.md); `tom_eso`'s hardcoded dict has no MPC-obscode linkage and would introduce a second, inconsistent site-data source |
+| Key idempotency (`CalendarEvent.url`) on something derived from the ESO OB/folder identifiers already in `record.parameters` | Key on `ESOFacility.get_observation_url()` | Not usable — that method raises `NotImplementedError`; there is no ESO analogue to `LCOFacility().get_observation_url()` to build a lookup key from |
 
-## What NOT to Use
+## What NOT to Use / What NOT to Assume
 
-| Avoid | Why | Use Instead |
-|-------|-----|--------------|
-| Python's built-in `hash(proposal_string)` | **Confirmed pitfall, empirically verified during this research**: `hash()` on `str` is salted with a per-process random seed (`PYTHONHASHSEED`, randomized by default since Python 3.3 as a hash-DoS mitigation). Three separate subprocess invocations of `hash("LTP2025A-004")` returned three different large negative/positive integers in this exact verification run. Using `hash()` would make a proposal's calendar color change every time the Django dev server or a production worker restarts — directly violating "same proposal string always maps to the same color." | `hashlib.sha256(s.encode()).hexdigest()` (or `zlib.crc32`), both confirmed stable across repeated invocations in the same verification run. |
-| A new Django app (e.g. `calendar_display`) just to hold the sidecar model or template tags | Both DISPLAY-01 and DISPLAY-02 are small, single-purpose additions that belong naturally alongside the two management commands already living in `solsys_code` (which is already in `INSTALLED_APPS`, already has a `migrations/` folder, already has `models.py`). Adding a new app means a new `INSTALLED_APPS` entry, a new `AppConfig`, and a new migrations history to maintain for what is functionally one model and one template-tag module. | Add the sidecar model to `solsys_code/models.py` and the template tag to a new module under `src/templatetags/` (mirroring `fomo_extras.py`/`solsys_code_extras.py`'s existing placement) or to `solsys_code`'s own `templatetags/` package if one is added — either is consistent with existing project layout. |
-| Editing `tom_calendar`'s installed package files directly (`models.py`, `views.py`, `utils.py`, any bundled template) | These live under the venv's `site-packages/tomtoolkit` install and are explicitly called out as not-a-project-app in the milestone context. Any direct edit is silently lost on the next `pip install`/upgrade and is invisible to this repo's version control. | The project-level template override at `src/templates/tom_calendar/partials/calendar.html` (already exists and already demonstrates this pattern for the `[QUEUED]` de-emphasis treatment) plus a project-owned template tag library for computed values (color, verified-flag) that `event.color`/`event.<sidecar>.is_verified` alone cannot express in-template. |
-| A new PyPI color-hashing library (`colorhash`, `randomcolor`, etc.) | Unnecessary dependency for a 9-bucket deterministic mapping that `hashlib` + `%` solves in two lines. Adding a dependency here has no payoff and is explicitly against this milestone's "what NOT to add" guidance. | `hashlib.sha256(...).hexdigest()` → `int(..., 16) % len(PALETTE)`. |
-| Importing `BOOTSTRAP_COLORS` from `tom_calendar.utils` by reference for the new palette | Ties DISPLAY-01's correctness to the upstream `var(--red)`→`var(--bs-red)` rename landing in `tomtoolkit==3.0.0a10`+ (Bootstrap5 migration); this project is pinned below that. | Define a small project-local literal-hex (or `rgba()`) 9-color palette, independent of upstream's CSS-variable-name choices. |
-| Relying on `event.color` (the existing `CalendarEvent.color` Python property) for DISPLAY-01 | It is purely `BOOTSTRAP_COLORS[self.pk % 9]` — PK-keyed, not proposal-keyed, and not overridable per-instance without monkeypatching the installed class (out of bounds per this milestone). The property is also only referenced by the *all-day* event branch of the upstream/overridden template (`day.all_day_events` → `cal-event-all-day` block with `style="background-color: {{ event.color }};"`); the *timed* event branch (`day.events` → `cal-event-timed`) does not call `event.color` at all today. | A template tag (e.g. `{% proposal_color event.proposal %}`) called explicitly in the template, replacing the `{{ event.color }}` reference — and added to the timed-event branch too, since DISPLAY-01's deterministic-by-proposal coloring should presumably apply to both event display modes (confirm scope with the user/roadmap, since today only one branch is colored at all). |
-
-## Stack Patterns by Variant
-
-**For DISPLAY-01 (proposal-keyed color + status treatment):**
-- Use a project template tag library, e.g. `solsys_code/templatetags/calendar_display_extras.py` (new file, `solsys_code` app already exists so this just needs an `__init__.py` + the module — no settings change required since Django auto-discovers `templatetags/` packages of any `INSTALLED_APPS` app), registering:
-  - `proposal_color(proposal: str) -> str` — `@register.simple_tag`, hashes `proposal` via `hashlib.sha256` and indexes into a literal 9-entry hex/rgba palette.
-  - A second tag or filter for the status visual treatment (opacity/border/striping), driven by parsing the same title-prefix vocabulary the two management commands already write (`[QUEUED]`, `[EXPIRED]`/`[CANCELLED]`/`[FAILED]`, `[UNVERIFIED]`) — this can be pure string-prefix logic in the tag, no new model field needed, since the signal already exists in `title`.
-- Load it in `src/templates/tom_calendar/partials/calendar.html` (`{% load tz calendar_tags calendar_display_extras %}`) and call it in place of `{{ event.color }}` in both the all-day and timed-event branches.
-- Because the empty proposal string (`CalendarEvent.proposal` defaults to `''`, not null — confirmed in the installed model) is itself a valid hashable value, classically-scheduled events from `load_telescope_runs` (which never sets `proposal`) will deterministically all land on one shared palette slot. Decide during roadmap/requirements whether that's acceptable (likely yes — they're a different, already-visually-distinct category) or whether they need an explicit "no proposal" palette entry.
-
-**For DISPLAY-02 (verified vs. fallback telescope label field):**
-- Add a sidecar model to `solsys_code/models.py`:
-  ```python
-  class CalendarEventTelescopeLabel(models.Model):
-      event = models.OneToOneField(
-          CalendarEvent, on_delete=models.CASCADE, primary_key=True, related_name='telescope_label_meta'
-      )
-      is_verified = models.BooleanField(default=True)
-  ```
-  Using `primary_key=True` on the `OneToOneField` (rather than a separate auto `id` plus a `unique=True` FK) is the standard "true 1:1 extension" idiom — it guarantees at most one sidecar row per `CalendarEvent`, mirrors the relationship Django's own docs use for the canonical one-to-one example, and means deleting the `CalendarEvent` row (e.g. a future cleanup command) cascades the sidecar away with no orphan risk.
-- **Integration with `sync_lco_observation_calendar.py`:** the command already computes a `telescope_api_failed` boolean per record (the exact DISPLAY-02 signal — "fallback-resolved" already exists as a local variable, it just isn't persisted as a queryable field today) right before the existing `event, created = CalendarEvent.objects.get_or_create(url=url, defaults=fields)` call (`solsys_code/management/commands/sync_lco_observation_calendar.py:604-615`). Add one line immediately after that block:
-  ```python
-  CalendarEventTelescopeLabel.objects.update_or_create(
-      event=event, defaults={'is_verified': not telescope_api_failed}
-  )
-  ```
-  `update_or_create` (not `get_or_create`) is correct here because a re-run with a *changed* resolution outcome (e.g. the API call failed last time, succeeds this time) must flip `is_verified` on the existing sidecar row, not silently keep the first-ever value — same no-stale-data principle the command already applies to `CalendarEvent`'s own fields via its existing diff-then-`save()` block.
-- **Integration with `load_telescope_runs.py`:** classical-schedule runs never go through telescope-label *resolution* at all (no LCO API call, no fallback concept) — they are populated by direct text parsing in Stage 2, with `parsed.telescope` already a 1:1 trusted token. Either (a) skip creating a sidecar row entirely for these events (then `event.telescope_label_meta` raises `CalendarEventTelescopeLabel.DoesNotExist` — `OneToOneField`'s standard "the meta object doesn't exist" behavior, confirmed in Django's official docs), and the template tag treats "no sidecar row" as "verified" (the safe default, since these are deterministically-known, not fallback-guessed); or (b) explicitly create one row with `is_verified=True` for symmetry/queryability. Recommend (a) — fewer writes, and `OneToOneField`'s missing-related-object behavior is exactly the right semantic ("this event was never subject to fallback resolution at all").
-- **Template/display access:** `{{ event.telescope_label_meta.is_verified|default:True }}` works directly in the overridden `calendar.html` without a template tag, since `OneToOneField`'s reverse accessor is a normal attribute lookup — no extra Python glue layer needed for *reading* DISPLAY-02's value (unlike DISPLAY-01's color, which needs real computation and therefore a tag).
+| Don't assume | Why | Do instead |
+|---------------|-----|------------|
+| `ESOFacility.get_observation_status(observation_id)` returns a dict like LCO/Gemini | It unconditionally `raise NotImplementedError` in installed 0.2.4 | Do not call it from the sync command; if OB status is needed, call `ESOAPI(...).getOB(ob_id)` directly and read `ob['obStatus']` yourself |
+| `ESOFacility.get_observation_url(observation_id)` returns a usable portal URL, the way `LCOFacility`'s does (used as the LCO sync command's idempotency key) | Also unconditionally `raise NotImplementedError` | Derive the `CalendarEvent.url` idempotency key from something else already present in `record.parameters` (e.g. folder/OB identifiers), or from `ESOFacility.get_p2_tool_url(observation_block_id=...)` if the OB id is separately available and a live `ESOProfile` is in scope |
+| `record.scheduled_start`/`scheduled_end` will ever be populated for ESO records by any existing code path | `update_observation_status()` (which sets those fields) is only ever reachable via `get_observation_status()`, which raises | Treat every ESO `ObservationRecord` as banner-only (no placed-block stage) unless/until a future `tom_eso` version or custom code populates these fields directly |
+| `get_terminal_observing_states()`/`get_failed_observing_states()` give you an ESO failure vocabulary the way they do for LCO | `get_terminal_observing_states()` returns `[]`; `get_failed_observing_states()` doesn't exist on `ESOFacility` at all (it's OCS-only) | Hand-build an ESO status-code table from the official ESO Phase 2 documentation (see Question 1/3 tables above), the same "hand-typed snapshot, not auto-derived" approach `sync_lco_observation_calendar.py` already uses and documents in its own comments |
+| `ObservationRecord.objects.filter(facility='ESO')` will return real, populated data under normal FOMO usage | `ESOFacility.submit_observation()` always returns an empty ID list, so the standard TOM submission UI never creates one of these rows (Headline Finding) | Confirm with the operator how ESO `ObservationRecord`s actually get created in this instance before writing sync logic against assumed real data — this may need to be resolved as a phase-0/scope question, not discovered mid-implementation the way v1.3's `SITE_TELESCOPE_MAP` gap was (see PROJECT.md's v1.2→v1.3 correctness-bug entry for the cautionary precedent) |
+| ESO's site coordinates should come from `ESOFacility.get_observing_sites()` | Hardcoded, not MPC-obscode-linked, explicitly marked `# TODO: get data for all the ESO sites for production` in the library source | Use the existing `Observatory` model (by MPC obscode), consistent with every other part of this codebase |
 
 ## Version Compatibility
 
-| Package A | Compatible With | Notes |
-|-----------|------------------|-------|
-| `django>=5.2,<5.3` (installed: 5.2.15, pulled in transitively by `tomtoolkit==3.0.0a9`) | `OneToOneField(primary_key=True)`, `update_or_create()`, `@register.simple_tag` | All three APIs confirmed current and unchanged for Django 5.2/6.0 per official docs (see Sources) — no deprecation, no signature change relevant to this milestone. |
-| `tomtoolkit==3.0.0a9` (pinned, per `pyproject.toml`: `"tomtoolkit>=3.0.0a9"` opting into the 3.0 alpha) | This project's `tom_calendar.models.CalendarEvent` shape | Confirmed installed `CalendarEvent` has exactly: `title`, `description`, `start_time`, `end_time`, `url`, `target_list`, `user`, `proposal`, `telescope`, `instrument`, `created`, `modified`, plus the `color` property and `active_todos` property. `Meta.app_label = 'tom_calendar'` is hardcoded, no `abstract`. |
-| `tomtoolkit==3.0.0a9` → future `3.0.0a10`+ | `BOOTSTRAP_COLORS` palette naming | Upstream renames `var(--red)` → `var(--bs-red)` per the existing PROJECT.md constraint. **This research's recommendation (literal hex/rgba palette, not an import of `BOOTSTRAP_COLORS`) is specifically chosen to be unaffected by that future rename.** Re-verify this note if/when the project actually upgrades past `3.0.0a9`. |
-| `tom_calendar`'s `render_calendar()` view function | Custom per-request context injection | Confirmed (read installed `tom_calendar/views.py`) this is a plain function-based view with a fixed context dict and no `extra_context`/class-based-view subclass hook — the only stable customization seam for adding computed values to the calendar page remains the template override, consistent with the milestone context's existing finding. Do not look for a Python-level hook; there isn't one. |
+| Package | Version (installed) | Notes |
+|---------|----------------------|-------|
+| `tom-eso` | 0.2.4 | Depends on `p1api`/`p2api` (ESO's own client libraries) and `tom_common.session_utils.get_encrypted_field`/`tom_common.models.EncryptableModelMixin` for credential storage (`ESOProfile`) — same encrypted-credential pattern as other per-user facility profiles in this TOM Toolkit version |
+| `p2api` | 1.0.10 | The version actually installed; confirmed via `getOB`/`getOBExecutions`/`getOBSchedulingInfo` method presence. No compatibility issue found with `tomtoolkit`/Django versions already pinned in this project |
+| `tomtoolkit` | project-pinned (per CLAUDE.md, `tomtoolkit>=2.31.4`) | `BaseRoboticObservationFacility`/`BaseObservationFacility` (in `tom_observations/facility.py`) define the abstract contract `ESOFacility` only partially implements — this is a `tom_eso` completeness gap, not a version-mismatch issue |
 
 ## Sources
 
-- Installed package inspection (`/home/tlister/venv/fomo311_venv/lib64/python3.11/site-packages/tom_calendar/{models,views,utils,templatetags/calendar_tags}.py`) — HIGH confidence, read directly, matches `tomtoolkit==3.0.0a9` exactly as pinned in this project's `pyproject.toml`.
-- This project's existing override (`/home/tlister/git/fomo_devel/src/templates/tom_calendar/partials/calendar.html`) — HIGH confidence, demonstrates the established title-prefix-branching pattern already shipped for `[QUEUED]` de-emphasis.
-- This project's existing management commands (`solsys_code/management/commands/sync_lco_observation_calendar.py:570-626`, `solsys_code/management/commands/load_telescope_runs.py:60-116`) — HIGH confidence, read directly, identifies exact `get_or_create`/diff/`save()` integration point for the DISPLAY-02 sidecar write.
-- Empirical verification in this session: `hash()` non-determinism across 3 subprocess invocations vs. `hashlib.sha256`/`hashlib.md5`/`zlib.crc32` determinism — HIGH confidence, reproduced directly, not from training memory.
-- [Django Model field reference (5.2)](https://docs.djangoproject.com/en/5.2/ref/models/fields/) — `OneToOneField` semantics, confirmed current.
-- [Django one-to-one relationships example docs](https://docs.djangoproject.com/en/6.0/topics/db/examples/one_to_one/) — confirms reverse-accessor `DoesNotExist` behavior referenced above.
-- [Django QuerySet API reference](https://docs.djangoproject.com/en/6.0/ref/models/querysets/) — `update_or_create()` signature and semantics, confirmed current.
-- GitHub `TOMToolkit/tom_base` commit history for `tom_calendar/models.py` — MEDIUM confidence (web-fetched commit-message summary, not a diff read); confirms `tom_calendar` is an actively maintained, evolving module (instrument/proposal/telescope/user fields and the explicit-`app_label` change are all relatively recent), reinforcing that this project should not assume future tomtoolkit releases preserve today's exact model shape — re-verify `CalendarEvent`'s fields on any future tomtoolkit upgrade.
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/eso.py` (installed v0.2.4) — primary source for all `ESOFacility`/`ESOSettings`/`ESOObservationForm` claims
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/eso_api.py` — `ESOAPI` wrapper methods and their `p2api`/`p1api` passthroughs
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/models.py` — `ESOProfile`/`ESOP2Environment` credential model
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/views.py` — confirms no dedicated ESO `ObservationCreateView` override; standard TOM flow is used
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_observations/facility.py` — `BaseObservationFacility`/`BaseRoboticObservationFacility` abstract contract, `update_observation_status()`/`update_all_observation_statuses()` implementations
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_observations/views.py` (`ObservationCreateView.form_valid`) — confirms the empty-`observation_ids`-list → zero-`ObservationRecord`-created behavior
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_observations/facilities/ocs.py` — confirms `get_failed_observing_states()` is OCS(LCO/SOAR)-only, absent from `BaseRoboticObservationFacility`
+- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/p2api/p2api.py` (installed v1.0.10) — `getOB`/`saveOB`/`deleteOB`/`getOBExecutions` docstrings, confirms `obStatus` field and status-gated preconditions
+- https://www.eso.org/sci/observing/phase2/p2intro/phase-2-status.html — official ESO Phase 2 OB status code definitions (used to build the status tables in Questions 1/3), HIGH confidence (primary/official source)
+- `/home/tlister/git/fomo_devel/solsys_code/calendar_utils.py`, `solsys_code/management/commands/sync_lco_observation_calendar.py` — this repo's existing pattern being extended
+- `/home/tlister/git/fomo_devel/.planning/codebase/INTEGRATIONS.md`, `.planning/PROJECT.md` — confirmed no prior ESO-sync-specific investigation or decision exists
 
 ---
-*Stack research for: FOMO v1.4 Calendar Visual Clarity (DISPLAY-01 proposal-keyed color, DISPLAY-02 verified/fallback telescope label field)*
-*Researched: 2026-06-24*
+*Stack research for: ESO/VLT ObservationRecord calendar sync (v1.7 milestone)*
+*Researched: 2026-07-01*

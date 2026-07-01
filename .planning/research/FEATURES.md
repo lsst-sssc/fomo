@@ -1,160 +1,134 @@
 # Feature Research
 
-**Domain:** Calendar/scheduling UI visual encoding (color-by-category + status/confidence visual language) for a Django/htmx/Bootstrap4 TOM calendar
-**Researched:** 2026-06-24
-**Confidence:** MEDIUM-HIGH (general calendar/accessibility conventions are well-documented and cross-checked across multiple independent sources; astronomy-domain-specific precedent is thinner — most telescope schedulers don't publish their color semantics)
+**Domain:** ESO/VLT ObservationRecord calendar sync (FOMO v1.7, Stage 4 continuation of issue #37)
+**Researched:** 2026-07-01
+**Confidence:** HIGH for "what tom_eso/p2api actually expose" (verified directly against installed package source, `tom-eso==0.2.4`, `p2api==1.0.10`, and this dev DB); MEDIUM for "how ESO OB execution/status conventions work" (ESO Operations Helpdesk / eso.org docs, cross-corroborated across multiple pages but not hands-on verified against a live P2 account)
+
+## Headline Finding (read this first)
+
+**There is currently no path for `ObservationRecord(facility='ESO')` rows to exist in this codebase, and if they did, `tom_eso.eso.ESOFacility` exposes no execution status at all.** Both facts were verified directly, not inferred:
+
+1. `ESOFacility.submit_observation()` calls `submit_new_observation_block()`, which does create a real OB in ESO's P2 tool, but then returns a hardcoded empty list: `created_observation_ids = []` (`tom_eso/eso.py:669-672`). `ObservationCreateView.form_valid()` in `tom_observations/views.py` only creates an `ObservationRecord` for each id in that returned list — so the standard "Submit Observation" UI flow **never creates an ObservationRecord for ESO**, on any FOMO deployment running `tom-eso==0.2.4`. Confirmed empirically: `ObservationRecord.objects.filter(facility='ESO').count()` is `0` in this dev DB (in fact the whole `ObservationRecord` table is currently empty for every facility).
+2. Even setting that aside, `ESOFacility.get_observation_status()`, `get_observation_url()`, and `data_products()` all `raise NotImplementedError`, and `get_terminal_observing_states()` returns `[]` — so `ObservationRecord.terminal` / `.failed` / `.url` (which delegate to these) are unusable for ESO today.
+
+This reframes the whole milestone: **the interesting research question isn't "what does the sync command's window-derivation logic look like" (that part is a straightforward Gemini-style fallback) — it's "what do we do about the fact that there's no live data to sync yet, and no status even if there were."** Recommend surfacing this as an explicit spike/decision task at the start of the v1.7 phase rather than assuming it away.
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist once a calendar uses color at all. Missing these makes the new coloring feel arbitrary or actively misleading — worse than today's meaningless `pk`-based color, which at least nobody trusts.
-
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Deterministic color per logical group (proposal) | Once color claims to mean something, the same proposal must render identically every time, on every page load, for every telescope it spans — otherwise users learn to distrust it within a day, same failure mode as today's `pk`-keyed color | LOW | Hash `proposal` string -> fixed palette index or HSL hue. Pure function, no DB state, no migration. See Differentiators for the palette-vs-hash choice. |
-| Non-color redundant signal for status | WCAG 2.1 SC 1.4.1 requires status not be conveyed by color alone; also directly serves the colorblind-accessibility requirement called out in the question — since color is being spent entirely on proposal identity, status needs an orthogonal channel | LOW-MEDIUM | Already partially true: title prefixes (`[QUEUED]`, `[UNVERIFIED]`, `[EXPIRED]` etc.) already exist as the non-color channel. DISPLAY-01 needs a *visual* (not just textual) echo of that, but the text fallback already satisfies the strict WCAG letter — the visual layer is about scannability, not the only compliance path. |
-| Legible text on top of arbitrary background colors | A proposal-keyed palette is unpredictable in lightness; white-on-light-yellow or black-on-dark-purple both happen | LOW | `tom_calendar`'s existing `.cal-event-all-day` template hardcodes `color: #fff !important` — fine for a curated 9-color Bootstrap palette, breaks for an open-ended hash space. Needs either: (a) stick to a small curated palette (sidesteps this entirely), or (b) compute per-color text contrast (WCAG contrast ratio) and switch white/black. (a) is far cheaper. |
-| Stable color across whole-grid re-renders and pagination | htmx swaps the month partial on every Prev/Next/Today click; if color depended on row order or query-result position rather than the `proposal` value itself, it would visibly flicker between colors per request | LOW | Must hash on `proposal` field value, never on queryset position/pk — this is the exact bug being fixed, so it's also the exact bug to not reintroduce. |
+| `sync_eso_observation_calendar` command, one `CalendarEvent` per `ObservationRecord(facility='ESO')` | Matches the shipped LCO/Gemini pattern exactly (low-surprise for anyone who's used the other two commands) | LOW (mechanical, once the data gap below is resolved) | Reuse `insert_or_create_calendar_event()` from `calendar_utils.py` verbatim — no new create-or-update logic needed |
+| Idempotent no-churn create-or-update keyed on a stable string | Consistency with LCO (`url` = portal URL) and Gemini (`GEM:{prog}/{observation_id}`) — re-running must not duplicate or touch `modified` | LOW | `ESOFacility.get_observation_url()` raises `NotImplementedError`, so the key must be synthetic like Gemini's, e.g. `ESO:{progId}/{obId}`, not derived from the facility |
+| Submission-time window banner (no placed-block state) | ESO Service Mode has no advance `scheduled_start`/`scheduled_end` publication — Paranal Science Operations chooses which OBs to execute in real time based on current conditions, not a queue schedule visible ahead of time (unlike LCO). A Gemini-style "best window we know today" banner is the honest MVP | MEDIUM | Window source is the OB's **observing run/period validity dates** (from `getRun()` — same call `observing_run_choices()` already uses), or a PI-set `getAbsoluteTimeConstraints(obId)` window if present (rare) — never a per-night schedule |
+| Telescope/instrument derived from the OB's run metadata | Already surfaced by `ESOAPI.observing_run_choices()` as `f"{progId} - {telescope} - {instrument}"` — no new API surface needed | LOW | Cheaper than LCO's per-record site-resolution API call; the run-level `telescope`/`instrument` strings are already fetched for the submission form |
+| Data-existence precondition resolved (spike, not code) | Without this, `sync_eso_observation_calendar` is untestable against real data and will always report 0 records | MEDIUM (research/decision, not implementation) | Either (a) patch `submit_new_observation_block`/`submit_observation` upstream in `tom_eso` to actually append the new OB id, (b) seed test `ObservationRecord` rows manually for dev/testing, or (c) explicitly scope this milestone to "command exists and is correct against fixture data; real production data pending an upstream fix" |
 
-### Differentiators (Competitive Advantage)
-
-Features that go beyond "color means something" into "this calendar is genuinely easier to scan than the LCO portal or a spreadsheet."
+### Differentiators (Competitive Advantage — Defer These)
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Curated fixed palette, hash-selected (not raw HSL-from-hash) | A small (8-12 color) curated, pre-vetted-for-contrast-and-colorblind-distinguishability palette beats raw `hash(proposal) -> HSL` because an unconstrained hash can produce two visually similar hues for two different proposals (hash collisions in *perceptual* space, not just numeric space), and can produce muddy/illegible colors. `tom_calendar.utils.BOOTSTRAP_COLORS` (9 entries, already used for `target_list_color`) is sitting right there as a precedent to extend, not replace. | LOW | Reuse the existing `BOOTSTRAP_COLORS` pattern: `BOOTSTRAP_COLORS[hash(proposal) % len(BOOTSTRAP_COLORS)]` — same shape as the existing `target_list_color()` helper, just keyed on `proposal` string hash instead of `pk`. With ~9-12 active proposals expected at once, an 8-12 entry palette gives low collision *frequency*, and any collision just means two proposals share a color on a given month view (graceful degradation), not a crash. |
-| Colorblind-safe palette curation | The question's framing is explicit: color is the *primary* signal for proposal identity here (unlike status, which already has a text-prefix fallback), so the palette itself must be chosen for protanopia/deuteranopia/tritanopia distinguishability, not just "looks nice" | LOW-MEDIUM | Don't assume Bootstrap's default `--red`/`--green`/`--teal`/`--orange` etc. are mutually distinguishable for deuteranopia (red/green confusion is the most common form) — red and green adjacent in a palette is the classic failure. Needs an explicit check (e.g. against a known colorblind-safe set like ColorBrewer's "qualitative" schemes, or a CVD simulator) before finalizing which Bootstrap CSS vars to include/exclude/reorder. This is a vetting task, not new code. |
-| Status as a structural CSS treatment (opacity / border / stripe), applied orthogonally to the color | Lets color answer "whose program is this" and the structural treatment answer "what state is it in" independently — two questions, two channels, no entanglement. This is the core ask of DISPLAY-01's second half. | MEDIUM | See dedicated comparison below — this is the one the user explicitly wants framed as sketch-session options, not decided here. |
-| Dedicated `telescope_label_verified` boolean (or enum) field, separate from `telescope`/title text | Makes "was this label live-resolved or did the API fail" a queryable, testable fact instead of a string-parsing problem (`title.startswith('[UNVERIFIED]')`). Directly what DISPLAY-02 asks for. | LOW | Straightforward Django model field (`BooleanField` or `CharField` choices `verified`/`fallback`) — but `CalendarEvent` is an upstream `tom_calendar` model, so adding a field to it directly means a migration against a third-party app's table. Flag for roadmap/architecture research whether that's via a FOMO-local migration against the vendored model, a sibling one-to-one FOMO model, or a `description`-adjacent structured field. Not resolved here — it's an architecture decision, not a feature-landscape one. |
-| Visual badge/icon for the verified/fallback distinction on the grid | A small inline glyph (e.g. a dotted-outline icon, a "?"/"~" prefix glyph, or a distinct border-style) lets the eye catch "this label might be wrong" without reading text | LOW | Precedent: dashed/dotted outlines are an established low-cost UI vocabulary for "provisional/estimated/unconfirmed" data (vs. solid for confirmed) — same semantic shape as DISPLAY-02's verified/fallback distinction, can reuse the *same visual primitive* DISPLAY-01 uses for queued/placed if convergent, see Dependency note below. |
+| Real per-night execution status prefix (e.g. `[EXECUTED]`/`[MUST REPEAT]`/`[ABORTED]`, mirroring LCO's terminal-state prefixing) | Would give astronomers the same at-a-glance execution signal LCO/Gemini already have | HIGH | The *installed* `p2api` package (already a `tom_eso` dependency) exposes `getOBExecutions(obId, night)` and `getNightExecutions(instrument, night)` — real per-night execution records with grade — but `tom_eso` doesn't wrap either. Bypassing `ESOFacility` to call `p2api` directly is possible but needs (1) a decision on which night(s) to poll per OB (no single "current status" endpoint exists — it's queried per night), and (2) credentials: `ESOProfile` today is per-Django-user only; there is no `settings.FACILITIES['ESO']` service-account entry the way `GEM`/`LCO` have, so a standalone management command has no obvious identity to authenticate as |
+| Deep link to ESO's Run Progress / Night Report page | Lets the astronomer click through to ESO's own execution report instead of FOMO re-implementing it | LOW | These pages are dynamically generated, per-run, web-only (no public API), and gated behind ESO User Portal login — confirmed via ESO Operations Helpdesk docs. A plain hyperlink (no data parsing) is cheap and genuinely useful precisely *because* FOMO can't reliably show the real status itself |
+| Distinguishing VLT UT1-4 (specific unit telescope) vs bare "VLT" | Parity with the existing Magellan Baade/Clay ambiguity decision, but for VLT | MEDIUM (unconfirmed) | Unverified whether `getRun()`'s `telescope` field ever returns a specific UT (e.g. `UT2`) vs just `VLT` generically — needs inspection of a real run response before committing to a scheme; don't guess |
+| Grouping multiple same-night OBs into one visual cluster | Nice-to-have polish, same spirit as the proposal-color legend already shipped in v1.4 | MEDIUM | Depends on real usage patterns (how many concurrent ESO OBs per night is typical) — defer until there's real synced data to observe |
+| Ingesting PI-set absolute time constraints (`getAbsoluteTimeConstraints`) for time-critical OBs | Slightly tighter window than the full run-period fallback for the (rare) OB that has one | LOW-MEDIUM | Small, well-scoped enhancement layered on top of the run-period banner; most OBs won't have one, so it's an optional refinement not a baseline requirement |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|------------------|-------------|
-| Raw hash-to-HSL color generation (e.g. `hash(proposal) % 360` for hue) | Feels elegant — "infinite" proposals, no palette to maintain, no collisions in numeric space | Two different proposal codes can hash to adjacent/visually-confusable hues (e.g. hue 118 vs hue 124, both "green" to most eyes, *worse* for colorblind users); no control over saturation/lightness means some hashes produce muddy, low-contrast, or eye-straining colors; defeats the explicit colorblind-safety requirement because nothing curates the output space | Hash into a small **curated, vetted palette** (extend `BOOTSTRAP_COLORS`), not into the full color wheel |
-| Telescope-keyed color (reverting to what YSE_PZ does, or hashing on `telescope` instead of `proposal`) | Telescope is already a populated field, simpler hash key, matches YSE_PZ's documented precedent | Explicitly rejected per milestone context — one LCO proposal spans 2m0/1m0/0m4 across telescopes, and the user wants "this is one science program" to read as one color regardless of which telescope it lands on; telescope-keyed color would fragment a single proposal's nights into 2-3 different colors, the opposite of the goal | Hash on `proposal`, already decided |
-| Striping/hatching used for *both* signals (color-as-stripe-pattern for proposal AND status) | Tempting to get two-dimensional information density (color hue x stripe density) onto one block | Stacking two encoded visual dimensions on a block that's already ~16-18 truncated characters wide in the month grid (`truncatechars:16`/`18` in the existing template) overloads a tiny target; also stripe-pattern-as-primary-identity-signal has far weaker established precedent than solid-color-as-identity, while stripe-as-status-overlay (Outlook tentative convention) is well precedented | Color stays solely the proposal-identity channel (solid fill); status gets a *structural* treatment (opacity/border/overlay-stripe) layered *on top of*, not *instead of*, that fill — see status comparison below |
-| Per-event custom inline color picker / user-assignable colors | Feels empowering, lets users "fix" a color they don't like | Reintroduces the exact problem being solved — color becomes per-user/per-edit arbitrary instead of deterministic-and-meaningful; breaks "same proposal = same color regardless of who's looking" | Deterministic hash-from-proposal is the whole point; if a specific collision is genuinely bad, fix the curated palette, not give users an escape hatch |
-| Replacing free-text `telescope`/`proposal` `CharField`s with FK models (YSE_PZ's `Telescope` model) as a side effect of this work | The sibling-TOM comparison doc already surfaces this as "the one idea worth borrowing" from YSE_PZ, so it's tempting to fold into this milestone | Already explicitly out of scope per `tom_calendar_vs_yse_pz_calendar.rst`'s conclusion (keep the generic model) and per `PROJECT.md`'s Out of Scope ("Replacing `SITES`'s hardcoded telescope-name -> obscode mapping... not required"); DISPLAY-01/02 need the *string value* of `proposal`, not a relational identity — a hash works fine on a `CharField` | Hash directly on the existing `proposal: CharField` value; defer any FK-ification to a separate, explicitly-scoped future decision |
-
-## Status Visual Language: Options for the `/gsd:sketch` Session
-
-This is the open design question the downstream consumer flagged explicitly — framed as **options to bring into sketch**, not a final pick.
-
-| Option | What it looks like | Accessibility (colorblind-safety) | Complexity | Fit with existing code |
-|--------|--------------------|-----------------------------------|------------|--------------------------|
-| **Opacity reduction** (queued = translucent, placed = full, terminal-failure = ?) | `opacity: 0.5` or `rgba()` alpha on the same proposal hue | Colorblind-neutral — opacity doesn't depend on hue perception at all, so it's *safer* than any color-based status signal. Tradeoff: opacity reduces contrast for *everyone*, can make small calendar-grid text harder to read at a glance, especially combined with the white-text-on-color convention already in the template | LOW — this exact mechanism is already shipped for `[QUEUED]` today (`rgba(0,0,0,0.45)`), just needs generalizing to preserve `event.color` underneath instead of overriding it with grey | Direct extension of existing `[QUEUED]` override block in `src/templates/tom_calendar/partials/calendar.html:158-161` — **but today's shipped code replaces `event.color` with a flat grey/black instead of dimming it**, which would erase the proposal-color signal for every queued event. This is a concrete bug DISPLAY-01 must fix, not just extend. |
-| **Border style** (solid border = placed/confirmed, dashed border = queued/tentative, thick/double border = terminal-failure) | CSS `border: 1px dashed ...` vs `border: 1px solid ...` | Colorblind-neutral — border style is a shape/pattern cue, fully independent of hue. Established precedent (Outlook's tentative-vs-confirmed border treatment; the general dashed-outline-for-provisional-data convention). Best precedent match for DISPLAY-02's verified/fallback distinction. | LOW — pure CSS, one extra class/conditional in the template, no JS, no extra markup beyond a conditional class string | Cleanly orthogonal to `event.color` (border != background-fill), so color and status never compete for the same pixels. Easiest "redundant non-color channel" to implement well. |
-| **Diagonal stripe / hatching overlay** (e.g. `repeating-linear-gradient` over the solid fill for queued/tentative) | CSS `background-image: repeating-linear-gradient(45deg, ...)` layered over the solid proposal-color fill | Colorblind-neutral — a geometric pattern, not a hue. Strong, well-established real-world precedent specifically for *this exact* tentative-vs-confirmed distinction (Outlook free/busy striping, multiple resource-scheduling tools). Tradeoff: at the month-grid's small event-block size (~16-18 char width, ~1 line tall) a diagonal stripe pattern may visually compress into noise or just look "smudged" rather than a clean stripe — needs a real visual check at actual rendered size, not just a mock at full scale. | MEDIUM — `repeating-linear-gradient` is GPU-accelerated, no extra images, but tuning stripe width/angle for legibility inside a tiny block takes iteration, and combining it with the white event-text color needs a contrast check | No existing precedent in this codebase to extend (unlike opacity); would be wholly new CSS. Most "visually rich" option but highest tuning cost relative to payoff at this block size. |
-| **Icon/glyph badge** (e.g. a small clock icon for queued, checkmark for placed, X/warning for terminal-failure) | A `<span>` glyph prepended/appended inside the event block, alongside the title text | Colorblind-neutral — shape-based. But adds a second tiny element competing for the same ~16-18 character width that's already truncating titles; on an all-day month-grid block this is the tightest real estate in the whole UI | MEDIUM — needs icon assets or a unicode/emoji set (the calendar already uses an emoji for moon phase, so there's a precedent for emoji-as-glyph in this exact template), plus truncation-width accounting | Has a loose precedent in-template (`day.moon.emoji`) but that's a per-day icon outside the cramped event block, not inside it — fitting a badge into the already-truncated `cal-event-title`/`cal-event-all-day` would likely force shortening the visible title text further, a real tradeoff against legibility of the *other* primary signal (which proposal/program this is, via title text as a secondary check on color). |
-| **Text-prefix only (status quo)** | `[QUEUED]`/`[UNVERIFIED]`/`[EXPIRED]` etc., already shipped | Fully colorblind-safe (it's literally text), and already exists | LOW (already done) | Already shipped; satisfies WCAG 1.4.1's letter but not DISPLAY-01's ask for a *visual* (scannable-without-reading) status language — keeping this is necessary as the fallback/tooltip layer regardless of which visual treatment is chosen, but isn't sufficient on its own per the milestone's intent |
-
-**Working recommendation to carry into the sketch session** (per the downstream consumer's framing — bring options, not a final decision):
-
-- **Border style is the strongest single option to lead with**: lowest complexity, cleanest orthogonality to the color channel, real precedent (Outlook), and no risk of visually fighting with the proposal-color fill the way opacity (dims the very color you're trying to make legible) or stripes (visually busy at small size) can.
-- **Opacity is the cheapest to ship** because it's a one-line generalization of code already in production (the `[QUEUED]` override) — but the *existing* implementation needs fixing regardless of which option wins, because it currently destroys the color signal it's supposed to coexist with. That fix is in scope for DISPLAY-01 either way.
-- **Stripe/hatching is the most "designed" but the riskiest at this UI's actual block size** — worth a quick low-fidelity mockup at real pixel dimensions in the sketch session before committing, not ruling out, just flagging the size risk found in research.
-- **Icon badges are the weakest fit** given how cramped `cal-event-title`/`cal-event-all-day` already are (`truncatechars:16`/`18`); would likely need to drop characters from the title to make room, trading one kind of legibility for another.
-- Consider: **border-style for DISPLAY-01's status states (queued/placed/terminal-failure) AND for DISPLAY-02's verified/fallback distinction**, using two different border *properties* (e.g. solid-vs-dashed for verified/fallback, color-of-border or thickness for queued/placed/failed) so the two independent facts (program identity via fill color, schedule-state via border style, label-confidence via border weight/dash) each get their own channel without needing four-way visual combinations to be individually legible. This convergence is exactly the kind of cross-cutting call worth making explicit in the sketch session rather than deciding by default here.
+| "Poll ESO for a single live status field per OB" | Mirrors the LCO/Gemini `status` field mental model | No such endpoint exists in the ESO P2 API — status must be reconstructed by querying `getOBExecutions`/`getNightExecutions` night-by-night across a date range, which is expensive and still doesn't capture pre-execution p2 states (Defined/Accepted/Rejected) in the same call | Submission-time window banner (table stakes) + optional deep link to ESO's own Run Progress page (differentiator) for humans who want the real answer |
+| "Fix the ObservationRecord-creation gap as part of this milestone's sync command" | It's the actual root blocker, so it's tempting to just patch it while you're in the area | That's an upstream `tom_eso.eso.ESOFacility.submit_observation()` bug fix — a different code path (OB *submission*) and a different package boundary than "sync existing ObservationRecord rows to CalendarEvents" (this milestone's actual scope per PROJECT.md) | Treat as an explicit blocking dependency/spike to flag to the user, not something the sync command silently works around (e.g., by reading OBs directly from p2 instead of from `ObservationRecord`, which would abandon the LCO/Gemini contract this whole feature line is built on) |
+| "Reuse the LCO queued-banner -> placed-block state machine (SYNC-02/03) verbatim for ESO" | Copy-paste consistency with the existing, well-tested LCO pattern | Factually wrong for ESO: there is no advance per-OB `scheduled_start`/`scheduled_end` publication for Service Mode — every event would permanently render as "queued" and never transition, which is a silent UX bug, not a faithful status representation | A single-state submission-time banner (Gemini's pattern, not LCO's two-state pattern) is the honest model for ESO |
 
 ## Feature Dependencies
 
 ```
-DISPLAY-01 (proposal-keyed color)
-    └──requires──> proposal field already populated on CalendarEvent (SYNC-05, validated v1.2)
-    └──requires──> a curated, colorblind-vetted palette (extends tom_calendar.utils.BOOTSTRAP_COLORS or a FOMO-local equivalent)
-    └──requires──> fixing the existing [QUEUED] template override that currently destroys event.color (src/templates/tom_calendar/partials/calendar.html:158-161)
+[ObservationRecord(facility='ESO') data-gap spike]
+    |--blocks--> [sync_eso_observation_calendar command -- table stakes]
+                       |--requires--> [insert_or_create_calendar_event() -- already shared, calendar_utils.py]
+                       |--requires--> [synthetic idempotency key, e.g. ESO:{progId}/{obId}]
 
-DISPLAY-01 status visual treatment
-    └──requires──> DISPLAY-01's color layer (status treatment is applied ON TOP OF / ORTHOGONAL TO color, not instead of it)
-    └──enhances──> existing title-prefix convention ([QUEUED]/[UNVERIFIED]/terminal prefixes) — visual layer is additive, text stays as accessible fallback/tooltip
+[sync_eso_observation_calendar command] --enhances-with--> [Deep link to ESO Run Progress page]
+[sync_eso_observation_calendar command] --enhances-with--> [Absolute time constraint ingestion]
 
-DISPLAY-02 (verified vs fallback field)
-    └──requires──> a new persisted field (boolean/enum), distinct from the existing TELESCOPE-03/04 fallback-label logic in sync_lco_observation_calendar.py
-    └──enhances──> the existing [UNVERIFIED] title prefix (becomes queryable/testable, not just string-parseable)
+[Real per-night execution status] --requires--> [sync_eso_observation_calendar command]
+[Real per-night execution status] --requires--> [Service-account ESO P2 credential story for management commands]
+                                                     (does not exist today -- ESOProfile is per-Django-user only)
 
-DISPLAY-02 visual badge/border
-    └──shares-visual-primitive-with──> DISPLAY-01's status border-style option (both are "is this fact about the event fully trustworthy" signals — dashed/dotted-for-uncertain is a natural shared vocabulary)
+[VLT UT1-4 disambiguation] --requires--> [confirming getRun()'s telescope field granularity against a real response]
 ```
 
 ### Dependency Notes
 
-- **DISPLAY-01's color layer requires fixing the existing `[QUEUED]` override before/alongside adding it:** the current shipped code (`src/templates/tom_calendar/partials/calendar.html:158-161`) already special-cases queued events with a hardcoded grey fill that *replaces* `event.color` entirely. Any new proposal-color hash will be invisible on every queued event until this is generalized to dim/border/stripe *around* the proposal color rather than over it. This is a concrete, code-located gap research surfaced — flag for the phase that implements DISPLAY-01.
-- **DISPLAY-01's status treatment enhances rather than replaces the text-prefix convention:** keep `[QUEUED]`/`[UNVERIFIED]`/terminal prefixes in the title regardless of which visual treatment ships — they're the existing, already-tested, fully-accessible fallback channel (screen readers, colorblind users, anyone before the new CSS lands). The new visual treatment is for faster at-a-glance scanning, not a replacement.
-- **DISPLAY-02 shares its visual vocabulary with DISPLAY-01's status treatment if border-style is chosen for both:** a dashed border for "fallback-resolved telescope label" and a dashed border for "queued/tentative schedule state" are semantically similar ("this fact may not be fully reliable yet") — worth deciding in the sketch session whether they should look identical (simpler, reinforces one mental model: dashed = provisional) or be visually distinguished (avoids conflating two different kinds of uncertainty: schedule-state uncertainty vs. label-resolution uncertainty).
-- **DISPLAY-02's new field location is an architecture question, not resolved here:** `CalendarEvent` is an upstream `tom_calendar` model. Adding a field to it means either (a) a FOMO-local migration against the vendored third-party table, (b) a separate FOMO model in a one-to-one relationship, or (c) packing the fact into an existing free-text field (`description`) with a parsed convention — weakest option, repeats the very string-parsing problem DISPLAY-02 exists to avoid. Flag this explicitly for ARCHITECTURE.md / roadmap phase planning.
+- **The data-gap spike blocks the sync command in practice, not in principle:** the command can be written and tested against fixture data regardless, but it will process zero real records in this dev DB (and likely any current FOMO deployment) until either `tom_eso` is patched upstream or records are seeded another way. Plan this explicitly rather than discovering it mid-phase the way the LCO `SITE_TELESCOPE_MAP` gap was discovered in v1.3.
+- **Real per-night execution status requires a credential story that doesn't exist yet:** `GEM`/`LCO` both authenticate via a hardcoded `settings.FACILITIES[...]` dict usable by a standalone management command; ESO's only configured credential path (`ESOProfile`) is tied to a Django `User` and isn't wired into `settings.FACILITIES` at all in this codebase. Building this differentiator means solving that credential-context problem first, which is a meaningfully bigger lift than "one more per-record API call" (the LCO Phase 7 pattern).
+- **Deep link and absolute-time-constraint ingestion are both cheap enhancements that don't need the credential-context problem solved** — they layer on top of the table-stakes banner without requiring new authenticated polling infrastructure.
 
 ## MVP Definition
 
-### Launch With (v1 — this milestone, DISPLAY-01/02)
+### Launch With (v1 = v1.7)
 
-- [ ] Deterministic, curated-palette, colorblind-vetted color hashed from `proposal` — replaces `pk % 9` — essential because it's the explicit headline ask and the cheapest, lowest-risk piece
-- [ ] Fix the existing `[QUEUED]` override so it dims/borders the proposal color rather than discarding it — essential, otherwise the new color signal is invisible for every queued event, defeating the point
-- [ ] One status-visual-treatment option, chosen in the sketch session (border-style is the research-favored starting point) — essential to DISPLAY-01's stated scope, but the *specific* mechanism is explicitly deferred to sketch
-- [ ] Dedicated `telescope_label_verified`-equivalent field on the relevant model, populated from the existing fallback/verified logic in `sync_lco_observation_calendar.py` (TELESCOPE-03/04) — essential, this is DISPLAY-02's literal ask
-- [ ] A minimal visual cue for the verified/fallback distinction (even just reusing the chosen status border-style vocabulary) — essential for DISPLAY-02 to be visually discoverable, not just stored
+- [ ] Resolve/confirm the `ObservationRecord(facility='ESO')` creation gap — spike/decision, not code; must happen before or alongside command-writing so the phase isn't built and verified against a dataset that structurally can't exist yet
+- [ ] `sync_eso_observation_calendar` management command: one `CalendarEvent` per record, submission-time window banner (run-period dates, or PI-set absolute time constraint if present), telescope/instrument from run metadata, idempotent no-churn create-or-update keyed on a synthetic `ESO:{progId}/{obId}`-style string
+- [ ] Title/status semantics honestly reflect "no fixed schedule known yet" (a single-state banner, not LCO's queued->placed transition) — essential to avoid shipping a status that silently lies
 
 ### Add After Validation (v1.x)
 
-- [ ] Tooltip/title-attribute surfacing the verification field on hover, beyond the visual cue — add once the basic field + visual cue round-trip is confirmed useful in practice
-- [ ] A small on-page legend/key mapping colors to proposals (since an open-ended hash space means users can't memorize "blue = LTP2025A-004" the way a tiny fixed set might allow) — add if user feedback says color alone isn't enough to identify a proposal without hovering/clicking into the event
+- [ ] Deep link to ESO's Run Progress / Night Report page per synced record — trigger: once the banner ships and real (or seeded) records exist to link from
+- [ ] Absolute time constraint ingestion for the rare time-critical OB — trigger: once a real OB with `getAbsoluteTimeConstraints` data is observed in practice
 
 ### Future Consideration (v2+)
 
-- [ ] WCAG contrast-ratio-aware text color switching (white vs black per background) if/when the palette grows past what's manually contrast-checked — defer until palette size or proposal count makes manual curation unwieldy
-- [ ] FK-backed `Telescope`/`Proposal` models (YSE_PZ-style) instead of free-text `CharField`s — already explicitly deferred per the sibling-TOM comparison doc and `PROJECT.md`'s Out of Scope; revisit only if a future milestone needs relational integrity (e.g. per-proposal metadata beyond a color)
+- [ ] Real per-night execution status via direct `p2api` polling — defer: requires solving the management-command credential-context gap first, plus a per-night polling design; disproportionate to the value until the data-gap spike is resolved and there's a real backlog of records to check
+- [ ] VLT UT1-4 disambiguation — defer: unverified whether the data even distinguishes UTs; needs a real API response inspected first
+- [ ] Multi-OB same-night grouping/visual clustering — defer: needs real usage data on typical concurrent-OB counts per night
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Proposal-keyed deterministic color (curated palette) | HIGH | LOW | P1 |
-| Fix `[QUEUED]` override to preserve color signal | HIGH | LOW | P1 |
-| Status visual treatment (border-style favored) | HIGH | LOW-MEDIUM | P1 |
-| Colorblind-safety palette vetting | HIGH (explicit requirement) | LOW | P1 |
-| `telescope_label_verified` field | HIGH | LOW | P1 |
-| Verified/fallback visual cue | MEDIUM-HIGH | LOW | P1 |
-| Tooltip surfacing verification detail | MEDIUM | LOW | P2 |
-| On-page color legend | MEDIUM | LOW-MEDIUM | P2 |
-| Contrast-aware text color switching | LOW (only matters if palette grows) | MEDIUM | P3 |
-| FK-backed Telescope/Proposal models | LOW (not requested, explicitly deferred twice already) | HIGH | P3 |
+|---------|------------|----------------------|----------|
+| Data-gap spike/decision | HIGH (blocks everything else) | MEDIUM | P1 |
+| `sync_eso_observation_calendar` command (banner, idempotent) | HIGH | LOW-MEDIUM | P1 |
+| Telescope/instrument from run metadata | MEDIUM | LOW | P1 |
+| Deep link to ESO Run Progress page | MEDIUM | LOW | P2 |
+| Absolute time constraint ingestion | LOW-MEDIUM | LOW-MEDIUM | P2 |
+| Real per-night execution status via direct `p2api` polling | HIGH | HIGH | P3 |
+| VLT UT1-4 disambiguation | LOW | MEDIUM (unconfirmed) | P3 |
+| Multi-OB same-night grouping | LOW | MEDIUM | P3 |
 
 **Priority key:**
-- P1: Must have for this milestone (DISPLAY-01/02)
+- P1: Must have for v1.7 launch
 - P2: Should have, add when possible
-- P3: Nice to have, future consideration / explicitly out of scope for now
+- P3: Nice to have, future consideration
 
-## Competitor / Precedent Feature Analysis
+## Comparison: LCO vs Gemini vs ESO Sync Patterns
 
-| Concern | Google Calendar | Outlook (free/busy) | YSE_PZ (sibling TOM, already documented) | FOMO's planned approach |
-|---------|------------------|----------------------|--------------------------------------------|---------------------------|
-| Color-by-category | User-assignable calendar colors, ~5-7 recommended categories, no enforced colorblind vetting | Calendar-level colors, not status-level | Computed per-view in Python, fixed palette cycled by user or telescope (no colorblind vetting documented) | Deterministic hash from `proposal` into a small curated, colorblind-vetted palette — same *mechanism* as YSE_PZ (palette cycling) but keyed on proposal not telescope, and with explicit accessibility vetting neither precedent documents doing |
-| Tentative/uncertain status | Not really a first-class concept (events are either on the calendar or not) | Diagonal-stripe/hash-mark border for tentative vs. solid for confirmed — direct, well-established precedent | No documented equivalent (read-only renders, no booking-confidence concept) | Recommend border-style (precedented by Outlook) as the lead sketch-session option, layered on top of (not replacing) the proposal color |
-| Verified vs unverified label | N/A | N/A | N/A — no equivalent concept | Novel within this domain; closest general precedent is the dashed-outline-for-provisional-data UI convention, not a calendar-specific one |
+| Aspect | LCO (`sync_lco_observation_calendar`) | Gemini (`sync_gemini_observation_calendar`) | ESO (this milestone) |
+|--------|----------------------------------------|-----------------------------------------------|------------------------|
+| Idempotency key | `LCOFacility().get_observation_url(observation_id)` (real portal URL) | Synthetic `GEM:{prog}/{observation_id}` | Must be synthetic — `get_observation_url()` raises `NotImplementedError`; use `ESO:{progId}/{obId}` style |
+| Advance schedule available? | Yes — `scheduled_start`/`scheduled_end` published by the LCO queue scheduler | No — window derived from explicit params or ToO-type default | No — Service Mode has no advance per-OB schedule; run-period fallback is the ceiling of what's knowable ahead of time |
+| Two-state (banner -> placed block)? | Yes (SYNC-02/03) | No — single-state window banner | No — single-state window banner (same shape as Gemini, not LCO) |
+| Terminal/failure status available? | Yes, via `get_failed_observing_states()`/`get_terminal_observing_states()` | Partial — `[ON_HOLD]` prefix from `ready` flag | No — `get_terminal_observing_states()` returns `[]`; `get_observation_status()` raises `NotImplementedError` |
+| Does `ObservationRecord` data exist to sync? | Yes (real rows exist/existed in this dev DB, drove the v1.3 correctness fixes) | Presumably (pattern shipped and tested) | **No** — confirmed empty; standard submission flow doesn't even create rows for ESO today |
+| Credential story for a management command | `settings.FACILITIES['LCO']` (already exists) | `settings.FACILITIES['GEM']['programs']` (already exists) | None configured — `ESOProfile` is per-Django-user only, not wired into `settings.FACILITIES` |
 
 ## Sources
 
-- [eventColor - Docs | FullCalendar](https://fullcalendar.io/docs/eventColor) — MEDIUM confidence (vendor docs via web search summary)
-- [Event color customization - Demos | FullCalendar](https://fullcalendar.io/docs/event-colors-demo) — MEDIUM confidence
-- [How to apply multiple colors for events based on type of events - Issue #137, fullcalendar-angular](https://github.com/fullcalendar/fullcalendar-angular/issues/137) — MEDIUM confidence (community discussion)
-- [How to Color Code Google Calendar (Events, Calendars, and Categories)](https://www.usecarly.com/blog/how-to-color-code-google-calendar/) — MEDIUM confidence
-- [I have a colleague who is color blind... - Google Calendar Community](https://support.google.com/calendar/thread/254793017/) — MEDIUM confidence (real user-reported colorblind pain point, corroborates the milestone's stated concern)
-- [colorhash on PyPI](https://pypi.org/project/colorhash/) and [GitHub - dimostenis/color-hash-python](https://github.com/dimostenis/color-hash-python) — MEDIUM confidence, basis for the hash-to-HSL approach and its tradeoffs (used to support the anti-feature recommendation against raw hash-to-hue)
-- [Colorblind-Friendly Data Visualization | Colorblind](https://colorblind.io/guides/data-visualization) — MEDIUM confidence
-- [Designing for Color Blindness: A Complete Guide | Colorblind](https://colorblind.io/guides/designing-for-color-blindness) — MEDIUM confidence
-- [Making data visualizations accessible - TPGi (Vispero)](https://www.tpgi.com/making-data-visualizations-accessible/) — HIGH confidence (TPGi is a recognized accessibility consultancy; cites WCAG 2.1 SC 1.4.1 directly)
-- [Understanding Outlook's Calendar patchwork colors - Slipstick Systems](https://www.slipstick.com/outlook/calendar/understanding-outlooks-calendar-patchwork-colors/) — MEDIUM confidence
-- [Free/Busy shows slashed lines in Scheduling Assistant - Microsoft Support](https://support.microsoft.com/en-us/topic/free-busy-shows-slashed-lines-in-scheduling-assistant-da1383a8-54fa-4e89-a2d2-214ae7d82615) — HIGH confidence (official Microsoft support doc, confirms the diagonal-stripe-for-tentative convention directly)
-- [Visualize Booking Status: Three Ways to Distinguish Tentative and Confirmed Bookings - Teamup.com](https://www.teamup.com/learn/manage-availability/three-ways-to-visualize-booking-status/) — MEDIUM confidence
-- [Stripes in CSS - CSS-Tricks](https://css-tricks.com/stripes-css/) — HIGH confidence (CSS-Tricks is an authoritative front-end reference) — basis for the `repeating-linear-gradient` feasibility/performance notes
-- [About - Scheduler Visualization - Las Cumbres Observatory](https://schedule.lco.global/help/) — HIGH confidence (LCO's own published documentation of their scheduler visualization tool, directly relevant domain precedent)
-- `docs/design/tom_calendar_vs_yse_pz_calendar.rst` (in-repo, already-completed sibling-TOM comparison) — HIGH confidence, primary internal source for YSE_PZ's per-view Python color-cycling approach
-- `tom_calendar` installed package source (`models.py`, `utils.py`, `templates/tom_calendar/partials/calendar.html`) — HIGH confidence, direct inspection confirming `CalendarEvent.color` is a read-only `pk`-keyed property and the `BOOTSTRAP_COLORS`/`target_list_color()` precedent
-- `src/templates/tom_calendar/partials/calendar.html` (FOMO project-level template override) — HIGH confidence, direct inspection confirming the existing `[QUEUED]` block currently discards `event.color`
-- `solsys_code/management/commands/sync_lco_observation_calendar.py` — HIGH confidence, direct inspection confirming the existing `[UNVERIFIED]`/terminal-prefix title-string convention DISPLAY-01/02 build on
+- `tom_eso/eso.py`, `tom_eso/eso_api.py`, `tom_eso/models.py` (installed `tom-eso==0.2.4` at `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/`) — read directly; source of the `NotImplementedError`/empty-`created_observation_ids` findings
+- `p2api/p2api.py` (installed `p2api==1.0.10`) — read directly; source of `getOBExecutions`, `getNightExecutions`, `getAbsoluteTimeConstraints` method inventory
+- `tom_observations/views.py` (`ObservationCreateView.form_valid`), `tom_observations/models.py` (`ObservationRecord.terminal`/`.failed`/`.url` properties) — read directly; confirms the `ObservationRecord`-creation dependency on `submit_observation()`'s return value
+- Live query against this repo's dev DB: `ObservationRecord.objects.filter(facility='ESO').count()` == 0 (whole table currently empty)
+- `solsys_code/management/commands/sync_gemini_observation_calendar.py` — existing fallback-window pattern this research compares ESO against
+- `.planning/PROJECT.md`, `docs/design/telescope_runs_calendar.rst` — milestone scope and Stage 4 design notes
+- [ESO — Phase 2 status](https://www.eso.org/sci/observing/phase2/p2intro/phase-2-status.html) — OB status code lifecycle (P/D/R/+/-/C/X/M/A/F/K/T)
+- [Program execution status — ESO Operations Helpdesk](https://support.eso.org/en-US/kb/articles/program-execution-status) — how astronomers monitor OB execution (Run Progress pages, night-log email subscription, p2 tool status)
+- [Help for Night Report / Progress Pages](https://www.eso.org/sci/php/phase2/run_progress_legend.html) — confirms Run Progress pages are dynamic, web-only, no public API
+- [After the execution my OBs have status C, A, M — ESO Operations Helpdesk](https://support.eso.org/en-US/kb/articles/after-the-execution-my-obs-have-status-c-or-a-and-m-what-does-it-mean)
+- [How do I choose between Service Mode, Visitor Mode and Designated Visitor Mode — ESO Operations Helpdesk](https://support.eso.org/en-US/kb/articles/how-to-choose-between-service-sm-visitor-vm-and-designated-visitor-dvm-mode) — Service Mode = real-time queue scheduling by Paranal staff; Visitor/Designated-Visitor Mode = pre-arranged dates (already out of scope, handled by Stage 2 classical ingest)
 
 ---
-*Feature research for: calendar/scheduling UI color-by-category and status/confidence visual language, for FOMO v1.4 "Calendar Visual Clarity" (DISPLAY-01/02)*
-*Researched: 2026-06-24*
+*Feature research for: ESO/VLT ObservationRecord calendar sync (FOMO v1.7)*
+*Researched: 2026-07-01*

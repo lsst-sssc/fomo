@@ -1,224 +1,269 @@
 # Pitfalls Research
 
-**Domain:** Django calendar visual treatment + sidecar-model field addition on a third-party model (FOMO v1.4 — DISPLAY-01 proposal-keyed color/status styling, DISPLAY-02 verified/fallback telescope-label field)
-**Researched:** 2026-06-24
-**Confidence:** HIGH (grounded in direct reads of this repo's `sync_lco_observation_calendar.py`, `load_telescope_runs.py`, `src/templates/tom_calendar/partials/calendar.html`, and the installed `tom_calendar.models.CalendarEvent`; consistent with `STACK.md` and `FEATURES.md` written today)
+**Domain:** Adding ESO/VLT `ObservationRecord` calendar sync (`sync_eso_observation_calendar`) to an existing TOM Toolkit-based FOMO sync architecture (v1.7)
+**Researched:** 2026-07-01
+**Confidence:** HIGH for facts read directly from the installed `tom_eso==0.2.4` / `p2api` source and this repo's DB/settings (primary source); MEDIUM for the ESO Phase 2 OB-status vocabulary (single official ESO doc, not cross-verified against a second source)
+
+**Method:** Read `tom_eso/eso.py`, `tom_eso/eso_api.py`, `tom_eso/models.py`, and `tom_common/session_utils.py` from the environment's installed `tom-eso==0.2.4` package (the exact version pinned in this repo's venv and already registered in `settings.py`'s `TOM_FACILITY_CLASSES`). Cross-checked `settings.py` for an `'ESO'` `FACILITIES` entry and queried `src/fomo_db.sqlite3` for existing `ObservationRecord(facility='ESO')` rows. Fetched ESO's official Phase 2 status-code documentation for the real OB status vocabulary.
 
 ## Critical Pitfalls
 
-### Pitfall 1: Hashing the raw `proposal` string without normalizing case/whitespace first
+### Pitfall 1: Assuming `ESOFacility.get_observation_status()` returns OB execution/completion state
 
 **What goes wrong:**
-`CalendarEvent.proposal` is `models.CharField(max_length=200, blank=True, default="")` — free text, populated from `ObservationRecord.parameters['proposal']` by the sync command and left empty (`''`) by `load_telescope_runs`. Nothing in this codebase guarantees one canonical casing/whitespace form for "the same" proposal across records. If `proposal_color()` hashes the literal string (`'LTP2025A-004'` vs `'ltp2025a-004'` vs `'LTP2025A-004 '` with a trailing space, the last from a hand-edited classical schedule file or a copy-pasted proposal code), the same real-world proposal silently gets two different colors on the calendar — defeating DISPLAY-01's entire premise ("same proposal renders the same color regardless of telescope/site").
+Code written by analogy to LCO (`record.status` populated from a working `get_observation_status()`/polling flow) silently assumes ESO records will likewise carry a live, sync-able status. In the actually-installed `tom_eso==0.2.4`, `ESOFacility.get_observation_status(observation_id)` is:
+
+```python
+def get_observation_status(self, observation_id):
+    raise NotImplementedError
+```
+
+There is no working implementation to call, and no periodic status-refresh path exists anywhere in `tom_eso` today. This directly resolves the open question raised in the milestone: **OB execution/completion status is *not* knowable through the `tom_eso` facility API as currently shipped.** The only place real per-OB status data appears at all is the raw ESO P2 API response's `obStatus` key (visible only in a commented-out line in `tom_eso/eso_api.py::folder_item_choices`/`folder_ob_choices`, e.g. `f"{item['name']} : {item['itemType']} : {item['obStatus']}"` — deliberately stripped out of the returned choices tuples).
 
 **Why it happens:**
-The hash function (`hashlib.sha256`) is correctly deterministic per STACK.md, but determinism on the *exact byte string* is not the same as determinism on the *logical proposal identity*. This is a normalization problem, not a hashing problem, and it's easy to ship the hash call without ever looking at what raw values exist in the DB.
+Pattern-matching against LCO/Gemini's working `get_observation_status()`-backed sync loop, without first checking whether the *specific* method actually exists for ESO. This is the same class of mistake as v1.2's flat `instrument_type` assumption — trusting the facility abstraction's shape instead of the concrete installed version's behavior.
 
 **How to avoid:**
-Normalize before hashing: `proposal.strip().upper()` (or `.casefold()` for stricter Unicode correctness, though LCO proposal codes are ASCII) as the very first line of `proposal_color()`, not as a database migration or input-validation fix. Do this in the template tag itself so it's a pure function of the string and doesn't require touching the two management commands' write paths. Spot-check real data first: `CalendarEvent.objects.values_list('proposal', flat=True).distinct()` against the dev DB to confirm there isn't already inconsistent casing in flight (the v1.3 audit found real-data surprises twice already — `EXTRACT-01`/`TELESCOPE-01` — so don't assume the data is clean without checking).
+Before writing any status-mapping code, grep the installed `tom_eso` package (`python -c "import tom_eso; print(tom_eso.__file__)"` then read `eso.py`) for `get_observation_status`. Confirm it raises `NotImplementedError`. Treat "sync OB status" as **out of scope for v1.7** unless a separate, explicit design decision is made to bypass `ESOFacility` entirely and call `ESOAPI.getOB(ob_id)` directly (raw p2api `getOB()` response, which does carry `obStatus`) — this requires its own credentialed API round trip per record, its own vocabulary mapping (see Pitfall 5), and its own error handling, not a reuse of the existing `record.status` field pattern.
 
 **Warning signs:**
-Two calendar events that the user knows belong to the same proposal render in visibly different colors; a quick `Counter(CalendarEvent.objects.values_list('proposal', flat=True))` shows near-duplicate keys differing only in case/whitespace.
+Any plan/task that writes `record.status` derivation logic for ESO records, or that calls `facility.get_observation_status(...)` in the new command, without a preceding research task that confirmed the method's real (non-stub) behavior.
 
 **Phase to address:**
-DISPLAY-01 phase, first task — normalize inside `proposal_color()` before any palette-index logic is written, not as a follow-up fix. This is exactly the kind of "fixed after the fact via quick task" gap CLAUDE.md already flags as having happened twice on this project (Phase 5/6 notebook gaps) — don't repeat the pattern here.
+Phase 1 (scoping/research spike) — must resolve this *before* committing to a design that assumes status sync is possible. If ESO OB status turns out to require a second per-record P2 API call, that should be its own explicitly-scoped phase, not folded silently into the initial sync command.
 
 ---
 
-### Pitfall 2: Shipping the new proposal-color hash without fixing the existing `[QUEUED]` grey override
+### Pitfall 2: Assuming `ESOFacility.get_observation_url()` gives a portal URL to key idempotency on
 
 **What goes wrong:**
-`src/templates/tom_calendar/partials/calendar.html:158-161` already special-cases `[QUEUED]`-prefixed events with a hardcoded flat grey (`rgba(0, 0, 0, 0.45)`), bypassing `{{ event.color }}` entirely for that branch. If DISPLAY-01's new `{% proposal_color event.proposal %}` tag is wired in only on the `{% else %}` branch (mirroring today's structure), every queued event — a large fraction of real calendar traffic, since records spend time queued before being placed — stays invisible to the new proposal coloring. The feature would ship and pass tests for placed/terminal events while being silently broken for the queued state, which is the most common transient state.
+LCO's sync is keyed on `CalendarEvent.url = LCOFacility().get_observation_url(observation_id)` (a real, working method). Gemini has no portal URL either, and v1.5 worked around it with a hand-built `GEM:{prog}/{observation_id}` key. For ESO, `get_observation_url()` is also a stub:
+
+```python
+def get_observation_url(self, observation_id):
+    raise NotImplementedError
+```
+
+Calling it directly (as the LCO command does) will raise at runtime, not silently return an empty/wrong string — so this fails loudly in dev/test, but only if a record with `facility='ESO'` actually gets exercised (see Pitfall 6: none currently exist in this DB, so a naive implementation could pass all existing tests and CI while still being broken against the first real record).
 
 **Why it happens:**
-This is an existing, already-confirmed bug (found by the sibling FEATURES.md research today) that sits directly in the file DISPLAY-01 must edit anyway. It's easy to treat "the new color logic" as additive scope and leave the pre-existing grey override untouched, especially if the task is scoped narrowly as "add a color tag" rather than "make color meaningful across all states."
+Copy-adapting `_build_event_fields`'s `url = facility.get_observation_url(record.observation_id)` line from `sync_lco_observation_calendar.py` without checking that the method is implemented for the target facility.
 
 **How to avoid:**
-Treat fixing the `[QUEUED]` override as in-scope for the DISPLAY-01 phase, not a separate pre-existing-bug ticket. The status-driven visual treatment (opacity/border/striping) should be layered *on top of* the proposal color, not replace it outright — e.g., proposal color as `background-color`, queued state as a `border`/`opacity` modifier on the same element. Write a test (or at minimum a UAT checklist item) that explicitly checks a `[QUEUED]`-titled event still shows its proposal-derived color, not flat grey.
+Build the idempotency key by hand from data that reliably exists on ESO `ObservationRecord.parameters`/fields, the same way Gemini's `GEM:{prog}/{observation_id}` was built — e.g. something like `ESO:{p2_environment}/{ob_id}` (see Pitfall 4 for why `p2_environment` needs to be part of the key, not just `ob_id`). Confirm the exact field names actually present in `ObservationRecord.parameters` for an ESO record before finalizing the key shape (see Pitfall 6).
 
 **Warning signs:**
-All queued events on the rendered calendar look identical regardless of proposal; a manual UAT pass only checks placed/terminal events and never checks the queued state.
+Any call to `facility.get_observation_url(...)` or `facility.get_observation_status(...)` in the new ESO sync module without a `try/except NotImplementedError` or a preceding confirmation the method works.
 
 **Phase to address:**
-DISPLAY-01 phase — same task that introduces `proposal_color()`, since both touch the same template lines (158-161) and an isolated "just add color" change without revisiting this block would be incomplete by construction.
+Phase 1 (design) — the idempotency-key scheme must be settled before any create-or-update logic is written, exactly as it was for GEM-KEY-01 in Phase 10.
 
 ---
 
-### Pitfall 3: Treating the sidecar row write as automatically covered by the existing no-churn comparison
+### Pitfall 3: Reusing LCO's/Gemini's static-credential pattern for ESO's per-user encrypted session-bound password
 
 **What goes wrong:**
-The existing no-churn guarantee in `sync_lco_observation_calendar.py` works by diffing `fields` against the live `CalendarEvent` object's attributes (`changed = any(getattr(event, field_name) != value for field_name, value in fields.items())`) *before* calling `.save()` — and that `fields` dict has nothing to do with the new sidecar model. STACK.md's recommended integration point is `CalendarEventTelescopeLabel.objects.update_or_create(event=event, defaults={'is_verified': not telescope_api_failed})`, called unconditionally for every record on every run. `update_or_create` itself does an internal compare-then-save (Django only writes if the row doesn't exist or a field differs), so the sidecar row's *own* `modified`/`id` won't churn on an unchanged value — but if the model is later given its own `modified`/timestamp field (a natural future addition), this needs the same explicit "compare before write" discipline as `CalendarEvent`'s loop, not an assumption that `update_or_create` alone is equivalent. More subtly: the *parent* `CalendarEvent`'s own no-churn block only ever looks at `fields` (the 7-ish core fields it always compared) — adding the sidecar write doesn't touch `CalendarEvent.modified`, so the parent's no-churn guarantee is actually safe by construction here. The real risk is the opposite mistake: someone "fixing" the sidecar integration by stuffing `is_verified` into the parent `fields` dict (since the sidecar model has no such column) or trying to route it through `CalendarEvent.save()`, which would not work (no such field on `CalendarEvent`) and either errors or is silently dropped.
+LCO/SOAR use a single static `FACILITIES['LCO']['api_key']` string. Gemini uses a static per-site `FACILITIES['GEM']['api_key']` dict. ESO's credential model is fundamentally different and more fragile for a headless management command:
+
+- Primary path: a per-*Django-user* `ESOProfile` model (`tom_eso/models.py`) storing `p2_username`, `p2_environment`, and an **encrypted** `p2_password` (`EncryptedProperty` backed by a `BinaryField`).
+- Decryption (`tom_common.session_utils.get_encrypted_field`) requires an **active Django session** for that user: it looks up `UserSession.objects.filter(user=user).first()`, pulls the Fernet cipher key that was derived from the user's *login password* and stashed in their session at login time, and decrypts with it. If no active session exists for that user (near-certain for a `./manage.py sync_eso_observation_calendar` cron invocation with nobody logged in), `get_encrypted_field` **returns `None` silently** (logged only as a `warning`, no exception raised) — `ESOAPI(environment, username, None)` would then be constructed with a `None` password.
+- Fallback path: `ESOFacility._configure_credentials()` falls back to `self._get_setting_credentials('ESO', ['p2_username', 'p2_password', 'p2_environment'])` reading plaintext values from `settings.FACILITIES['ESO']` — but **this repo's `settings.py` currently has no `'ESO'` key in `FACILITIES` at all** (confirmed by grep; only `LCO`, `SOAR`, `GEM` exist). Out of the box, a headless run has neither a usable session-decrypted password nor a settings fallback, and lands in `CredentialStatus.NOT_INITIALIZED`.
 
 **Why it happens:**
-The codebase's one well-known idiom for "don't churn `modified`" is the inline diff-then-`setattr`-then-`save()` block on `CalendarEvent`. A developer pattern-matching on "no-churn" without reading STACK.md's specific sidecar guidance may try to retrofit the sidecar update into that same loop/dict, or worry that a *separate* `update_or_create` call breaks the "no-churn" contract because it's a second write per record, when in fact it's a logically separate, smaller, independently no-churn write (Django's `update_or_create` already does its own compare against current field values before persisting).
+Assuming "ESO differs from LCO's simple API-key header" means "a different header format," when the actual difference is architectural: ESO credentials are designed around an interactive, logged-in web session (P2 Tool iframe), not a background job. This is a materially bigger gap than the LCO-vs-Gemini credential difference the project has already handled.
 
 **How to avoid:**
-Keep the sidecar write as a separate statement immediately after the existing `get_or_create`/diff/`save()` block (as STACK.md specifies), not merged into the `fields` dict or the `changed` comparison. Confirm via test that re-running the sync command twice with no change in `telescope_api_failed` produces zero `CalendarEventTelescopeLabel.objects.filter(...).count()` change and, if a timestamp field is later added to the sidecar, that it doesn't move either — mirror the existing `test_sync_lco_observation_calendar.py` no-churn test pattern (assert identical `modified`) for the sidecar's own state if/when it gains one.
+1. Add a `'ESO': {'p2_username': ..., 'p2_password': ..., 'p2_environment': ...}` entry to `FACILITIES` in `settings.py` (mirroring the `LCO`/`SOAR`/`GEM` pattern) and use `ESOFacility._get_setting_credentials(...)`/the settings-fallback path explicitly in the management command — never rely on `ESOProfile` + session decryption for a cron-style command.
+2. If a real per-user `ESOProfile` must be used instead (e.g. because credentials are user-scoped for compliance reasons), the command needs to call `facility.set_user(user)` with a real logged-in-adjacent session available, or accept that decryption will return `None` and fail closed — and that failure path must be surfaced loudly (raise/log-and-abort), never silently proceed with a `None` password.
+3. Apply the same credential-scrubbing discipline used for Gemini (GEM-SECURE-01: strip `password` before any logging) to `p2_password`/`p2_username` here — the encrypted-field machinery adds new places (exception messages from `ESOAPI.__init__`, `p2api` connection errors) where a plaintext password could leak into logs if not scrubbed first.
 
 **Warning signs:**
-A code review where the sidecar's `is_verified` value is being assigned via `setattr(event, ...)` or appears as a key inside `fields`; a test that asserts `CalendarEvent.modified` is unchanged but never separately asserts anything about the sidecar row.
+Command runs green in a test using a `--settings`-injected fake facility/API but errors or silently produces zero synced records the first time it's run for real outside an interactive session; `ESOFacility.credential_status == CredentialStatus.NOT_INITIALIZED` in production logs; a `FACILITIES['ESO']` entry absent from `settings.py` at merge time.
 
 **Phase to address:**
-DISPLAY-02 phase — write the no-churn-preserving integration test alongside the sidecar's first `update_or_create` call, in the same task, not as a separate hardening pass.
+Phase 1 (design) for the credential-sourcing decision; a dedicated task/phase for the `FACILITIES['ESO']` settings entry + a `SYNC-09`-equivalent credential-scrubbing requirement, verified the same way GEM-SECURE-01 was (a test asserting the password/username never appear in stdout/stderr/logger output).
 
 ---
 
-### Pitfall 4: The sidecar flag goes stale because nothing re-evaluates it outside the sync command's per-record loop
+### Pitfall 4: Assuming a single fixed ESO site/telescope, missing the VLT's 4 Unit Telescopes and the per-environment site split
 
 **What goes wrong:**
-`is_verified` is only ever set inside `sync_lco_observation_calendar.py`'s per-record loop, driven by that run's `telescope_api_failed` value. If a record was fallback-labeled on run N (API timed out, or returned an unmapped `(site, telescope_code)` pair) and the LCO API becomes reachable/the mapping gets fixed by run N+1, `update_or_create` will correctly flip `is_verified` to `True` *only if the record is included in run N+1's queryset*. But `load_telescope_runs.py`-created events (classical schedule, no sidecar row at all per STACK.md's recommended option (a)) and any `CalendarEvent` created through a path other than these two commands (e.g. the upstream `tom_calendar` `EventForm`/`create_event` view, explicitly named in STACK.md as a code path this milestone doesn't control) will never get a sidecar row created or updated by anything. If a future feature or admin action creates `CalendarEvent` rows through that view and somehow sets a `telescope`/`proposal` value that *looks* like it came from fallback resolution, there's no mechanism to ever mark it verified or unverified — the template's `{{ event.telescope_label_meta.is_verified|default:True }}` will silently default to "verified" for something that was never resolved at all, which is a different (less severe, but real) gap from "stale due to non-rerun."
+`ESOFacility.get_observing_sites()` is hardcoded to exactly two entries:
+
+```python
+return {
+    'PARANAL':  {'sitecode': 'paranal', 'latitude': -24.62733, 'longitude': -70.40417, 'elevation': 2635.43},
+    'LA_SILLA': {'sitecode': 'lasilla', 'latitude': -29.25667, 'longitude': -70.73194, 'elevation': 2400.0},
+}
+```
+with a `# TODO: get data for all the ESO sites for production` comment left in place — it does not model APEX, VISTA, VST, La Silla's other telescopes, or (critically) VLT's 4 separate Unit Telescopes (UT1-4) at all. There is no `telescope` field anywhere in `get_observing_sites()`.
+
+The *only* place a telescope-level string surfaces at all is `run['telescope']` inside the raw p2api `getRuns()` payload, consumed in `ESOAPI.observing_run_choices()` (`f"{run['progId']} - {run['telescope']} - {run['instrument']}"`) — an uncontrolled, un-enumerated string (could be `'UT1'`, `'UT2'`, `'UT3'`, `'UT4'`, `'VISTA'`, `'VST'`, `'NTT'`, etc., depending on the actual observing run).
+
+Additionally, ESO's account model splits Paranal vs. La Silla by **environment/credential set**, not by a field on the OB itself: `ESOP2Environment` has three values — `demo`, `production` (Paranal), `production_lasilla` — so a single set of P2 credentials is scoped to *one* site's environment already. A design that reuses LCO's `SITE_TELESCOPE_MAP` pattern (one static dict, one shared credential set, dispatch purely on data returned per-record) will not work for ESO the same way: syncing both Paranal and La Silla requires two separate `ESOAPI`/credential configurations, not one shared lookup table keyed on a site code found in the record.
 
 **Why it happens:**
-The sidecar's only writer is the sync command's per-record loop; there's no signal-based or periodic re-evaluation, and `--proposal` filtering means a given run may not even touch all previously-synced records (e.g. running with a narrower `--proposal` filter than a prior run). A record outside this run's filtered queryset keeps whatever `is_verified` value it had from its last sync, which is correct behavior (it wasn't re-resolved, so nothing should change) but easy to misdescribe as "stale" if not understood precisely.
+Direct analogy to `sync_lco_observation_calendar`'s `SITE_TELESCOPE_MAP` (a single static dict covering every LCO/SOAR site under one shared credential) without noticing that ESO's site/telescope granularity (UT1-4) and its account/credential scoping (per-environment) are structurally different axes, both unaddressed by the installed library.
 
 **How to avoid:**
-Document the actual contract precisely (and matches STACK.md's framing): `is_verified` reflects the outcome of the *most recent run that included this record*, not "currently verified right now." This is the same staleness semantic the project already accepts for `CalendarEvent.telescope`/`instrument` themselves (also only updated when a record is in-scope for a given run) — DISPLAY-02 isn't introducing a new staleness risk, it's persisting a signal that already had this same lifecycle. Don't try to "fix" staleness with a background re-check job — that's out of scope and unrequested. Do make sure the default for "no sidecar row at all" (`OneToOneField.DoesNotExist`) reads as "verified" in the template per STACK.md's choice (a), and confirm in a test that a record never touched by the sync command (a `load_telescope_runs` event) renders as verified, not as an error or a false "fallback" indicator.
+1. Do not build a `calendar_utils`-style static `SITE_TELESCOPE_MAP` for ESO from `get_observing_sites()` alone — it is known-incomplete (`# TODO`) and has no telescope granularity.
+2. Extract the actual telescope/UT identifier from the real per-record data (`run['telescope']` from the raw P2 payload, or whatever equivalent field ends up on `ObservationRecord.parameters` once real ESO records are examined — see Pitfall 6) rather than assuming a bare `'VLT'` label the way `SITES`'s `'Magellan'` bare-ambiguity was accepted for Baade/Clay.
+3. Decide explicitly (as a D-0x decision, mirroring the SOAR-mirrors-LCO credential decision from Phase 5) whether v1.7 syncs Paranal only, La Silla only, or both — and if both, whether that means two credential configurations dispatched by facility/environment, analogous to the LCO+SOAR eager dispatch dict, but split by `p2_environment` instead of by TOM facility name.
 
 **Warning signs:**
-A user reports "the telescope label says verified but I know that record had an API failure last week" — check whether a later run actually re-included that record before treating it as a bug.
+A `SITE_TELESCOPE_MAP`-equivalent for ESO with only 1-2 entries and no UT granularity; any code that hardcodes `telescope = 'VLT'` for every ESO record; a plan that treats "sync ESO" as single-site without an explicit decision about La Silla/Paranal scope.
 
 **Phase to address:**
-DISPLAY-02 phase — write this contract into the phase's success criteria / a code comment next to the `update_or_create` call (e.g. "`is_verified` reflects the most recent sync run that included this record, not real-time state") so it isn't mis-debugged later as staleness when it's actually correct, narrow-scope behavior.
+Same phase as Pitfall 1/2 research spike — telescope/site extraction design should be informed by real sample OB/`ObservationRecord` data (Pitfall 6), verified the same way the v1.3 `SITE_TELESCOPE_MAP` was operator-confirmed rather than shipped `[ASSUMED]`.
 
 ---
 
-### Pitfall 5: N+1 queries from the sidecar's reverse accessor in the month-grid template loop
+### Pitfall 5: Assuming ESO's terminal/failure-state vocabulary matches LCO's or Gemini's
 
 **What goes wrong:**
-`tom_calendar`'s `render_calendar()` view (confirmed in STACK.md to be a plain function-based view with a fixed context dict, no `extra_context` hook) builds `weeks` → `day.events`/`day.all_day_events` lists of `CalendarEvent` objects without any `select_related`/`prefetch_related` for a reverse `OneToOneField` accessor that doesn't exist yet in the upstream queryset. If the overridden `calendar.html` reads `event.telescope_label_meta.is_verified` per event inside the nested `{% for week %}{% for day %}{% for event %}` loop (as STACK.md's template-access recommendation suggests), each access that isn't already prefetched triggers one extra `SELECT ... FROM solsys_code_calendareventtelescopelabel WHERE event_id = ...` — one query per event rendered, every month view, on every page load. A typical month can have dozens of events (one per night from `load_telescope_runs` runs alone, plus all synced queue/placed events), so this is a real, measurable N+1, not a hypothetical one.
+`ESOFacility.get_terminal_observing_states()` returns `[]` (empty list) — there is no built-in terminal-state vocabulary to borrow, unlike LCO's `get_terminal_observing_states()`/`get_failed_observing_states()` (5-vs-4 states, the basis of `_FAILURE_PREFIX_BY_STATUS` and the D-06 research correction in Phase 4) or Gemini's simple boolean `ready` flag (GEM-STATUS-01).
+
+The real ESO Phase 2 OB status vocabulary (from ESO's official Phase 2 documentation) is a 12-value, single-letter/symbol code set entirely different in shape from both existing facilities:
+
+| Code | Name | Meaning |
+|------|------|---------|
+| P | Partially Defined | just created, fully editable |
+| D | Defined | passed certification, limited editing |
+| – | Rejected | needs user attention, re-editable |
+| R | Review | under revision by support astronomer |
+| + | Accepted | ready to be observed |
+| C | Completed | executed successfully, will not repeat (terminal/success) |
+| X | Executed | executed successfully, can repeat |
+| M | Must Repeat | executed outside constraints, re-queued |
+| A | Aborted | aborted during execution, re-queued |
+| F | Failed | absolute time window expired (irreversible — terminal/failure) |
+| K | Kancelled | support-astronomer-cancelled (terminal/failure) |
+| T | Terminated | run itself was terminated (terminal/failure) |
+
+Reusing `_FAILURE_PREFIX_BY_STATUS`'s LCO string keys (`'WINDOW_EXPIRED'`, `'CANCELED'`, etc.) against this vocabulary would silently never match anything — a fail-*open* bug (every ESO record gets a clean, non-prefixed title even when genuinely terminal/failed), which is worse than a loud crash because it looks correct in casual testing.
 
 **Why it happens:**
-STACK.md correctly notes there is "no Python-level hook" on `render_calendar()` for adding `select_related('telescope_label_meta')` to its queryset — the view function builds and queries `CalendarEvent` itself, upstream, outside this project's control. A template-only fix (reading `event.telescope_label_meta` directly) is the path of least resistance and looks like it "just works" in dev with a handful of test events, hiding the N+1 until a real month's worth of synced data is loaded.
+Pattern-matching Phase 4's `_FAILURE_PREFIX_BY_STATUS` dict/D-06 approach onto a facility whose status vocabulary was never actually looked up, assuming "terminal states" is a universal TOM Toolkit concept with consistent string values across facilities (it explicitly is not — LCO, Gemini, and ESO each define it completely differently, or, for ESO, don't define it via the library at all).
 
 **How to avoid:**
-Since the view itself can't be patched without forking it (out of bounds, same reasoning STACK.md gives for not editing `tom_calendar` directly), the practical mitigation is a custom template tag (consistent with DISPLAY-01's own pattern) that batches the lookup once per render rather than once per event — e.g. a `{% load_telescope_verification day.events day.all_day_events %}` tag, or simpler: a tag called once at the top of the partial that takes the full flattened event-id list visible in `weeks` and returns a `dict[event_id, is_verified]` via one `CalendarEventTelescopeLabel.objects.filter(event_id__in=ids).values_list('event_id', 'is_verified')` query, then template lookups become dict access (`{{ verified_map|get_item:event.id }}` via a small filter) instead of per-event ORM traversal. This keeps the fix entirely in the template-tag layer DISPLAY-01 is already adding, with no upstream view changes. At minimum, if the per-event reverse-accessor approach is kept for simplicity, measure it: run `django.db import connection; len(connection.queries)` before/after rendering a populated month in a test or notebook, and treat anything scaling 1:1 with event count as a regression to fix before shipping, not an acceptable cost.
+Build a dedicated ESO-specific status→prefix mapping keyed on the real single-letter/symbol codes above (e.g. `C`/`X` → clean title; `F`/`K`/`T`/`A`/`M` → some `[..._]` prefix scheme distinct from LCO's), sourced from ESO's own P2 documentation, not derived by calling `get_terminal_observing_states()` (which is unimplemented/empty) or by copying LCO's/Gemini's constants. Treat this as entirely new research, gated on Pitfall 1 first (whether OB status is obtainable at all through this sync path).
 
 **Warning signs:**
-Django Debug Toolbar (if installed) or a query-count assertion in a test shows query count scaling linearly with the number of events in the rendered month; page load on a month with many synced events is noticeably slower than a sparse month.
+Any status-prefix dict for ESO containing LCO string keys (`WINDOW_EXPIRED`, `CANCELED`, `FAILURE_LIMIT_REACHED`, `NOT_ATTEMPTED`) or a Gemini-style boolean `ready` check; `get_terminal_observing_states()` called and trusted without checking it returns `[]` for ESO.
 
 **Phase to address:**
-DISPLAY-02 phase — since this pitfall is specifically about *displaying* the sidecar's flag (the read side), it belongs with whichever phase wires `is_verified` into the template, which per the milestone scope is DISPLAY-02 itself (or a combined DISPLAY-01+02 template-integration task, since both need the same calendar.html edits). Write a query-count regression test (`assertNumQueries`) against a month with multiple synced events as part of this phase's success criteria, not left to manual perception of slowness.
+Same phase as Pitfall 1 (status is knowable at all) — this pitfall only matters once Pitfall 1 is resolved in favor of "yes, we bypass the facility API and pull raw `obStatus`." If Pitfall 1 resolves to "status sync is out of scope for v1.7," this pitfall becomes moot for this milestone and should be documented as deferred, not silently dropped.
 
 ---
 
-### Pitfall 6: Template override silently drifts from upstream `tom_calendar` on a future `tomtoolkit` upgrade
+### Pitfall 6: Fixture/test data not matching the real shape of ESO `ObservationRecord`s — compounded by zero currently existing
 
 **What goes wrong:**
-`src/templates/tom_calendar/partials/calendar.html` is a full copy-and-modify override of the third-party package's bundled template, not an `{% extends %}`/block-based override. STACK.md's own Version Compatibility table already flags that `tomtoolkit==3.0.0a9` → `3.0.0a10`+ renames CSS variables in this exact area (`var(--red)` → `var(--bs-red)`, part of a Bootstrap4→Bootstrap5 migration) and that upstream's `tom_calendar` model/template history is "actively maintained, evolving" (confirmed via the sibling research's GitHub commit-history check). If DISPLAY-01/02 add more logic into this already-forked file and the project later upgrades `tomtoolkit` past `3.0.0a9`, any upstream change to `calendar.html` (new fields rendered, new block structure, a `target_list_block.html` include change, a moon-phase or HTMX-attribute change) is invisible to this project — Django always resolves the project-level override first, so upstream's improved/fixed template is silently never used, and the project's copy can diverge further from what `render_calendar()`'s context dict actually provides on the new version.
+v1.2 shipped assuming a flat `instrument_type` key that doesn't exist in real LCO data; v1.3 found `SITE_TELESCOPE_MAP` had unconfirmed entries. For ESO this risk is worse, not just repeated: **this dev database currently has zero `ObservationRecord` rows with `facility='ESO'`** (confirmed by direct query against `src/fomo_db.sqlite3`), and `ESOFacility.submit_observation()`/`submit_new_observation_block()` **always returns an empty `created_observation_ids` list**:
+
+```python
+def submit_observation(self, observation_payload):
+    self.submit_new_observation_block(observation_payload)
+    created_observation_ids = []
+    return created_observation_ids
+```
+
+This means the *normal* TOM Toolkit "submit an observation through the UI" flow that would populate `tom_observations.ObservationRecord` rows for LCO/Gemini **does not do so for ESO as currently implemented** — OBs are created via the P2 Tool iframe/API directly, outside TOM's standard submission bookkeeping. There is, right now, no confirmed mechanism by which a `ObservationRecord(facility='ESO')` row would ever exist in this app at all, let alone what shape its `.parameters` JSON would take (P2 OBs are JSON documents keyed on things like `obId`, `target`, `constraints`, `obStatus` — nothing resembling LCO's `c_1_instrument_type`/cadence-request shape or Gemini's `windowDate`/`obsid`/`prog` shape).
 
 **Why it happens:**
-Template overrides via app-loader precedence are the standard, often only, customization mechanism for a third-party Django app's UI (confirmed by STACK.md: no `extra_context` hook on `render_calendar()`), but they have no built-in staleness detection — Django doesn't warn when an overridden template's upstream original changes.
+Assuming "sync ObservationRecords for facility X" is a well-posed task by analogy to the two prior facilities, without first confirming (a) that ESO `ObservationRecord`s get created by any path in this app, and (b) if so, by what path and in what shape. Building extraction logic and test fixtures purely from imagination/LCO-shape-copying (exactly what caused the v1.2 rewrite) is far riskier here because there is no real row to check against and no working creation path to inspect.
 
 **How to avoid:**
-This is an accepted, unavoidable cost of the override approach (not a reason to avoid it — there's no alternative customization seam per STACK.md), but make the future-upgrade risk concrete and actionable rather than silent: add a one-line comment at the top of the overridden `calendar.html` noting it is a full fork of `tom_calendar/templates/tom_calendar/partials/calendar.html` as of `tomtoolkit==3.0.0a9`, and that any `tomtoolkit` version bump should include a manual diff of the installed package's original against this file (`diff <(pip show -f tomtoolkit | ...) src/templates/tom_calendar/partials/calendar.html` or simpler: locate the installed copy under `site-packages/tom_calendar/templates/...` and diff directly) before assuming the override still matches upstream's context/structure. This is exactly the kind of cross-cutting risk that belongs in PROJECT.md's Constraints/Context section (it already documents the `var(--red)`/`var(--bs-red)` constraint there) so it survives past this milestone, not just in a code comment.
+1. Before writing any extraction/sync logic, explicitly establish (with the operator, as was done for `SITE_TELESCOPE_MAP` in Phase 07 and the `tlv` site removal) *how* an `ObservationRecord(facility='ESO')` is expected to come to exist in this app — e.g., is it created by a different, not-yet-written import/polling path that reads P2 OBs directly and creates `ObservationRecord` rows manually (bypassing `submit_observation()`), is it out of scope until `tom_eso` matures, or is "sync" actually meant to operate directly against the P2 API rather than against `ObservationRecord` at all?
+2. If real records genuinely don't exist yet, do not invent a plausible-looking `parameters` fixture shape and build against it uncritically — get at least one operator-confirmed real (or realistic, ESO-documentation-sourced) sample OB/record shape, the same discipline that caught the v1.2/v1.3 bugs when it was finally applied.
+3. Explicitly flag in the roadmap/`PROJECT.md` that this milestone's "ObservationRecord sync" scope may need to be redefined (e.g. to "sync OBs from P2 API directly to CalendarEvent," skipping `ObservationRecord` as an intermediate model) once this is confirmed, rather than silently forcing ESO into the LCO/Gemini `ObservationRecord`-centric shape it may not actually use.
 
 **Warning signs:**
-A future `tomtoolkit` upgrade changelog mentions `tom_calendar` template or `CalendarEvent` model changes; the calendar page looks visually broken or missing a feature present in upstream's docs/changelog after an upgrade, with no obvious project-side code change to explain it.
+A plan phase with fixture-only tests (factory-built `ObservationRecord(facility='ESO', parameters={...})` with hand-invented keys) and no task that checks/confirms this shape against anything real or ESO-documented; zero mention in the plan of *how* the ESO ObservationRecord rows the sync is meant to consume actually get created.
 
 **Phase to address:**
-DISPLAY-01 phase (since it's the phase actively expanding this file) — add the upstream-fork comment and a PROJECT.md Constraints note as part of the phase's documentation task, not deferred. Re-verification itself (the actual diff-on-upgrade) is not this milestone's job — it's a standing constraint for whenever `tomtoolkit` is next upgraded, same treatment as the existing Bootstrap4/5 CSS-variable constraint.
+Phase 1 (scoping/research spike) — this is the single highest-leverage question to resolve before any implementation phase, since it can invalidate the entire "sync_eso_observation_calendar operates on ObservationRecord like sync_lco/sync_gemini" premise.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Skip normalizing `proposal` before hashing ("the data looks clean right now") | Saves one `.strip().upper()` line and a data spot-check | Silent color-identity breakage the moment any record has different casing/whitespace — hard to notice visually since it just looks like "two unrelated colors," not an error | Never — the normalization is a 1-line cost; there's no scenario where skipping it is worth the risk |
-| Reuse Python's built-in `hash()` "just to prototype quickly" then forget to swap to `hashlib` | Marginally less code to write during a spike | Color reassignment on every server restart in any environment, including production — already flagged as a confirmed-empirically pitfall in STACK.md | Only acceptable in a throwaway local notebook experiment never merged; never in the shipped template tag |
-| Create a `CalendarEventTelescopeLabel` row unconditionally for every event, including `load_telescope_runs` events, "for symmetry" | Simpler mental model (every event always has a sidecar row) | Extra write per classical-schedule event with no information value (these are never fallback-resolved), and a slightly larger surface for the no-churn discipline to cover for no benefit | Acceptable only if a future requirement needs to *query* "all events that were ever evaluated for verification status" in a single un-joined table scan; not needed for this milestone — STACK.md's recommended option (a), skip the row, is correct here |
-| Combine the status-prefix-parsing logic and the proposal-color logic into one big template tag/function "since they're both about event styling" | Fewer files/tags to register | Couples two independently-evolvable concerns (color palette logic vs. status-prefix vocabulary) — a future change to one (e.g. a new terminal-state prefix) risks an unrelated regression in the other if they share a function body | Acceptable only as two separate `simple_tag`s/filters in the same module file — never as one function handling both concerns |
+|----------|-------------------|-----------------|------------------|
+| Building `sync_eso_observation_calendar` against hand-invented `parameters` fixtures without operator/documentation confirmation | Unblocks writing tests/code immediately | Repeats the exact v1.2 rewrite pattern — likely `KeyError`s or silent skips against the first real record | Never — get at least a documentation-sourced or operator-confirmed shape first (Pitfall 6) |
+| Copying `_FAILURE_PREFIX_BY_STATUS`'s LCO keys as a starting point "to adapt later" | Fast first draft | Fails open (never matches, no failures ever flagged) rather than fails loud | Only as a throwaway spike, never merged without replacing keys with ESO's real P2 codes |
+| Relying on `ESOFacility.get_observing_sites()`'s 2-entry hardcoded dict as the full site list | Avoids extra research | Misses La Silla's other telescopes, APEX, VISTA, VST, and all 4 VLT UTs; the library's own `# TODO` comment flags it incomplete | Never for anything beyond a throwaway spike |
+| Skipping the `FACILITIES['ESO']` settings entry and relying on `ESOProfile` + session decryption for a management command | No settings.py change needed short-term | Command silently gets `p2_password=None` outside an active user session — near-guaranteed for any cron/headless run | Never for a management command; fine only for the interactive web UI flow |
 
 ## Integration Gotchas
 
-Common mistakes when connecting to this codebase's existing sync infrastructure.
-
 | Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| Sidecar write vs. existing `get_or_create`/diff/`save()` block | Folding `is_verified` into the `fields` dict passed to `get_or_create`/compared in `changed = any(...)` | Keep `CalendarEventTelescopeLabel.objects.update_or_create(...)` as a separate statement immediately after the existing block, per STACK.md — `fields` only ever describes `CalendarEvent`'s own columns |
-| `load_telescope_runs.py`'s separate `get_or_create`/`.save()` block (line ~91/109) | Assuming DISPLAY-02 needs symmetric sidecar-creation logic added here too | Per STACK.md option (a): classical-schedule events never go through telescope-label resolution, so no sidecar row, no code change needed in this file at all — confirm this explicitly in the phase scope so nobody "completes the pattern" here unnecessarily |
-| Per-record facility dispatch loop (`facilities.get(record.facility)`) | Assuming `telescope_api_failed` means the same thing identically for LCO and SOAR records when computing `is_verified` | It already does — both facilities funnel through the same `_coarse_telescope_label`/`telescope_api_failed` contract fixed in Phase 07.1; no facility-specific branching needed in the sidecar write itself, only confirm the existing facility-aware fallback labeling (already correct) feeds the same boolean for both |
-| Template tag loading in `calendar.html` | Forgetting `{% load tz calendar_tags %}` needs the new tag library name appended (e.g. `{% load tz calendar_tags calendar_display_extras %}`) | Add the new library to the existing `{% load %}` line at the top of the partial; a missing load produces a clear `TemplateSyntaxError` at render time (fails loudly, not a silent gotcha) but is easy to forget when copy-pasting tag usage from a notebook/test into the template |
+|-------------|-----------------|-------------------|
+| `tom_eso.eso.ESOFacility` | Calling `get_observation_status()`/`get_observation_url()` expecting LCO-like behavior | Both raise `NotImplementedError` in the installed `0.2.4`; confirm with a direct source read before depending on either, and build a hand-rolled idempotency key (Pitfall 2) instead |
+| `tom_eso.models.ESOProfile` / `tom_common.get_encrypted_field` | Assuming decryption works the same for a background job as it does mid-request | Decryption needs an active `UserSession`; a headless command should use the `settings.FACILITIES['ESO']` plaintext-credentials fallback path instead (Pitfall 3) |
+| ESO P2 API (`p2api`) via `ESOAPI` | Treating `p2api.p2api.P2Error` the same as an LCO HTTP error | `eso_api.py` already catches `p2api.p2api.P2Error` in a few call sites (`folder_item_choices`, `folder_ob_choices`) — reuse that exception type, not a generic `requests`/HTTP exception class, when wrapping calls in the new sync command |
+| ESO Phase 2 environments (`demo`/`production`/`production_lasilla`) | Assuming one credential set covers all ESO sites, like LCO's single portal covers all LCO/SOAR sites | Each `p2_environment` is a separate account/API connection scoped to one site; syncing multiple ESO sites needs multiple credential configurations, not one shared static dict (Pitfall 4) |
 
 ## Performance Traps
 
-Patterns that work at small scale but fail as usage grows.
-
 | Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Per-event reverse-accessor (`event.telescope_label_meta`) read in the nested month-grid loop, no batching | Page load time grows with event count; query count in tests scales 1:1 with events rendered | Batch-fetch `is_verified` for all visible event IDs in one query via a template tag, or annotate the queryset upstream if a future hook allows it | Noticeable once a month has more than a handful of synced events — a single busy proposal across LCO+SOAR queue + classical nights can easily produce 20-40+ events in one month view |
-| `hashlib.sha256` computed fresh per-event per-render with no caching | Negligible at current scale (STACK.md correctly notes this) | None needed now; if ever revisited, memoize per-request via a dict keyed on the normalized proposal string | Not expected to break within this project's realistic scale (dozens of events/month) — explicitly not a real risk per STACK.md, listed here only for completeness against the question's prompt |
+|------|----------|------------|-----------------|
+| Per-record live P2 API call for status/telescope resolution (if Pitfall 1/5 end up requiring it) | Slow sync runs, timeouts under load, mirrors Phase 7's per-record LCO API resolution but against an even less mature client library | Apply the same SYNC-08-style discipline already proven for LCO (explicit timeout, single attempt, no retry loop) and the same dedicated failure counter pattern (SYNC-06) rather than inventing new retry logic | Any run syncing more than a handful of OBs, given `p2api`'s connection-per-call overhead is unverified/unbenchmarked in this codebase |
 
 ## Security Mistakes
 
-Domain-specific security issues beyond general web security.
-
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Letting `proposal_color()` or the status-prefix tag interpolate raw `proposal`/`title` text into inline `style="..."` attributes without escaping | Stored-XSS-adjacent risk if a `proposal` string ever contains a quote/angle-bracket from upstream data (low likelihood given LCO proposal-code format, but `CalendarEvent.proposal` is unconstrained free text) | Never echo the raw proposal string into the `style` attribute — only ever interpolate the tag's *computed* hex/rgba output (a value from a fixed internal palette list, never derived from the string itself beyond the hash index), exactly as STACK.md's recommended `int(hash, 16) % len(PALETTE)` approach already does; Django's autoescaping already protects `{{ event.title }}` text content elsewhere in the template, this is specifically about the `style="background-color: ..."` interpolation path |
+| Logging/echoing `p2_password`, `p2_username`, or `ESOAPI` construction/connection exceptions verbatim | ESO P2 credentials (and the derived Fernet session key) leak into logs/stderr, worse than a leaked static LCO API key since it's tied to the user's real login password via key derivation | Scrub `p2_password`/`p2_username` before any logging, mirroring GEM-SECURE-01's `safe_params` pattern; never interpolate raw exception objects from `ESOAPI.__init__`/`p2api` connection errors (which may embed credentials) into stdout/stderr, mirroring the LCO sync's SYNC-09 fixed-message discipline |
+| Assuming `get_encrypted_field`'s silent `None`-on-failure return means "no credentials configured" rather than "decryption failed" | A real, correctly-configured `ESOProfile` could still silently yield `p2_password=None` in a headless context, masking a configuration problem as an unconfigured-facility state | Distinguish "no `ESOProfile` exists" from "an `ESOProfile` exists but session decryption failed" in logging, so operators can tell the difference between "not set up" and "can't run headless" |
 
 ## UX Pitfalls
 
-Common user experience mistakes in this domain.
-
 | Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Picking a palette where two adjacent Bootstrap4-style hues are visually near-identical at small calendar-cell size (9 colors is a real collision-rate constraint: with even ~10 active proposals, birthday-paradox math says a collision is likely) | Two genuinely different proposals look like the same color at a glance, defeating the point of DISPLAY-01 just as badly as a normalization bug would | Accept that some collision is mathematically inevitable with a 9-bucket palette (this is a deliberate STACK.md-confirmed tradeoff, not a bug) but choose 9 colors that are maximally distinguishable from each other (avoid e.g. two similar blues) and pair the color with the existing title-prefix/status treatment so a collision in color alone doesn't fully erase distinguishability — hovering/clicking still reveals the actual proposal via the event's title/detail |
-| Layering status striping in a way that makes the underlying proposal color unreadable (e.g. a busy diagonal-stripe pattern with high color contrast) | Color becomes hard to perceive at the small calendar-cell sizes already in use (`.cal-event-all-day` padding `1px 5px`, `font-size: 0.75rem`) | Prefer opacity or border treatments over full diagonal-stripe CSS gradients for this UI's cell size — a `border` (e.g. `border: 2px dashed` for queued, solid for placed) or `opacity` reduction preserves the base proposal color's hue while still signaling status, whereas a repeating-linear-gradient stripe pattern at this scale tends to either disappear (too fine) or overwhelm the base color (too coarse); if striping is chosen anyway during `/gsd:sketch`, test it at the actual `.cal-event-all-day`/`.cal-event-timed` rendered size, not a mockup at a larger size |
-| Diagonal CSS gradient stripes (`repeating-linear-gradient`) requiring vendor-prefix or rendering quirks | Possible visual inconsistency across browsers, though modern evergreen browsers all support unprefixed `repeating-linear-gradient` now | If striping is chosen, use unprefixed `repeating-linear-gradient(45deg, ...)` (no `-webkit-`/`-moz-` prefixes needed for current Chrome/Firefox/Safari/Edge) rather than reaching for an SVG background-image pattern, which is unnecessary complexity for a CSS-only effect already well-supported; this is a minor concern relative to the cell-size-legibility issue above |
+|---------|-------------|-------------------|
+| Silently producing zero synced ESO events with no diagnostic output, because credentials never resolved (`CredentialStatus.NOT_INITIALIZED`) | Operator believes the sync command ran successfully and there's simply nothing to sync, when actually credentials were never usable | Have the command check and report `facility.credential_status` explicitly (loud, at the top of `handle()`), the same way LCO/Gemini report per-facility counters at the end |
+| Treating an ESO OB in an intermediate P2 status (`P`/`D`/`–`/`R`) the same as a queued/placed LCO record | Calendar shows a banner/block implying the OB is scheduled/executing when it may still be in draft/review and could be rejected before ever running | Map only the P2-genuinely-scheduled-or-later statuses (`+`/`X`/`C`/`M`/`A`/`F`/`K`/`T`) to a CalendarEvent at all, and clearly label draft-stage statuses (`P`/`D`/`–`/`R`) differently or exclude them, once/if status sync is in scope |
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete but are missing critical pieces.
-
-- [ ] **Proposal color hashing:** Often missing normalization — verify `proposal_color('LTP2025A-004')` and `proposal_color('ltp2025a-004 ')` return the *same* color, not just that the function runs without error.
-- [ ] **Queued-event coloring:** Often missing the fix to the pre-existing `[QUEUED]` grey override at `calendar.html:158-161` — verify a `[QUEUED]`-titled event still shows its proposal's color (with a status modifier layered on, not a full color replacement), not flat grey.
-- [ ] **Both event-display branches colored:** Often missing the timed-event (`day.events`/`cal-event-timed`) branch — verify the new color tag is wired into *both* the all-day and timed-event loops, since today only the all-day branch calls `{{ event.color }}` at all (confirmed in STACK.md).
-- [ ] **Empty-proposal events:** Often missing a deliberate decision — verify classical-schedule events (`proposal=''`) render with an intentional, consistent treatment (a shared "no proposal" slot, or visually distinct from a hashed color) rather than an accidental, unremarked-upon palette slot.
-- [ ] **Sidecar no-churn:** Often missing a regression test — verify re-running `sync_lco_observation_calendar` twice with no change in resolution outcome produces zero new/updated `CalendarEventTelescopeLabel` rows (not just zero new `CalendarEvent` rows).
-- [ ] **Sidecar absence handling:** Often missing the "no sidecar row" path — verify a `load_telescope_runs`-created event (no sidecar row at all) renders as "verified" in the template, not as a template error (`RelatedObjectDoesNotExist`) or an incorrect "fallback" indicator.
-- [ ] **N+1 on sidecar read:** Often missing a query-count check — verify rendering a month with multiple synced events doesn't issue one extra query per event for the sidecar lookup (`assertNumQueries` in a test, not just visual perception of speed).
-- [ ] **Migration generated and applied:** Often missing in a "code works in my shell" demo — verify `./manage.py makemigrations solsys_code` actually produced a migration file for the new sidecar model and it's committed, and `./manage.py migrate` runs clean on a fresh DB.
-- [ ] **Demo notebook sync (per CLAUDE.md convention):** Often missing — if DISPLAY-02 changes `sync_lco_observation_calendar.py` behavior (new sidecar write), `docs/notebooks/pre_executed/sync_lco_observation_calendar_demo.ipynb` must be in `files_modified` with a regenerated, re-executed cell exercising the new sidecar behavior — this exact gap has already bitten this project twice (Phase 5/6 quick-task fixes named in CLAUDE.md).
+- [ ] **Idempotency key:** Confirm the command never calls `facility.get_observation_url()`/`get_observation_status()` directly — both raise `NotImplementedError` in the installed `tom_eso==0.2.4`; verify via a test that exercises the real installed `ESOFacility`, not a mock that happens to implement the method.
+- [ ] **Real fixture shape:** Verify test fixtures for `ObservationRecord(facility='ESO', parameters={...})` are backed by an operator-confirmed or ESO-documentation-sourced shape, not an LCO/Gemini-shape guess — check `git log`/plan docs for an explicit confirmation step, the same way `SITE_TELESCOPE_MAP` needed operator sign-off in Phase 07.
+- [ ] **Credential path:** Verify the command uses the `settings.FACILITIES['ESO']` plaintext-credential fallback (or an explicitly designed headless-safe path), not a bare `ESOProfile` + session-decryption call that will silently yield `None` outside an interactive session.
+- [ ] **Site/telescope granularity:** Verify the sync distinguishes at least Paranal vs. La Silla (and ideally VLT UT1-4) rather than a single hardcoded `'VLT'`/`'ESO'` telescope label for every record.
+- [ ] **Status vocabulary:** Verify any status-to-title-prefix mapping is keyed on ESO's real P2 codes (`P`/`D`/`–`/`R`/`+`/`C`/`X`/`M`/`A`/`F`/`K`/`T`), not reused LCO/Gemini constants — check for a dict literal containing any of `WINDOW_EXPIRED`/`CANCELED`/`FAILURE_LIMIT_REACHED`/`NOT_ATTEMPTED` in the new ESO module (that would indicate a copy-paste error).
+- [ ] **Credential scrubbing:** Verify a test asserts `p2_password`/`p2_username` never appear in stdout/stderr/logger output, mirroring the existing `GEM-SECURE-01` test for Gemini.
+- [ ] **Paired demo notebook:** Per this repo's CLAUDE.md convention, any new `solsys_code/management/commands/sync_eso_observation_calendar.py` needs a paired `docs/notebooks/pre_executed/sync_eso_observation_calendar_demo.ipynb`, scoped into `files_modified` from the first plan, not bolted on after the fact (as happened twice already for other modules per CLAUDE.md).
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Un-normalized proposal hashing shipped, discovered post-release (colors don't match for "same" proposal) | LOW | Add `.strip().upper()` (or chosen normalization) to `proposal_color()`; no data migration needed since the function is pure/computed-on-read, not persisted — next render is correct immediately |
-| `[QUEUED]` grey override never fixed, shipped alongside new color logic | LOW | Same file, same block (`calendar.html:158-161`) — replace the flat grey with the proposal color plus a queued-specific border/opacity modifier; no model/migration changes needed, pure template fix |
-| Sidecar model's `OneToOneField` target chosen as a separate `id` PK + `unique=True` FK instead of `primary_key=True` (diverges from STACK.md's recommended idiom) | MEDIUM | Requires a data migration to drop the redundant `id` column and promote the FK to PK, or accept the extra column permanently — cheaper to get right the first time per STACK.md's explicit guidance, but recoverable via a standard Django migration if missed |
-| N+1 discovered late (after a real month of synced data exists) | LOW-MEDIUM | Purely a template/tag-layer fix (batch query via `filter(event_id__in=...)`) — no schema or data change needed, just swap the per-event accessor for the batched-dict lookup in the template |
-| Upstream `tomtoolkit` upgrade breaks the forked `calendar.html` silently (Pitfall 6 materializes) | MEDIUM-HIGH | Diff the new installed package's original `calendar.html` against the project's override, manually re-apply the project's customizations (proposal color tag, status treatment, sidecar read) on top of upstream's new structure — cost scales with how much upstream changed; the upfront fork-comment/PROJECT.md note (Pitfall 6's prevention) doesn't prevent this but makes the diff-and-reapply faster to start |
+|---------|----------------|-----------------|
+| Shipped a status-prefix dict keyed on wrong (LCO/Gemini) vocabulary | LOW | Swap the dict's keys for ESO's real P2 codes; add a regression test asserting the old LCO/Gemini keys are absent from the new module |
+| Shipped assuming `get_observation_url()`/`get_observation_status()` work, discovered `NotImplementedError` in later testing/production | MEDIUM | Same shape as the v1.2→v1.3 recovery: replace the direct facility-method call with a hand-built key/derivation, add a live-call smoke test the way `LCOFacility().get_observation_url('12345')` was confirmed live in Phase 4 |
+| Command runs headless and silently produces `p2_password=None`/no synced records | MEDIUM | Add `settings.FACILITIES['ESO']` plaintext fallback; add a startup check that aborts loudly (not silently) if `facility.credential_status != USING_DEFAULTS/USING_USER_CREDS` |
+| Discovered ESO `ObservationRecord`s never actually get created by any path in this app | HIGH | Requires re-scoping the milestone itself — may need a separate ingest/import command (P2 API → `ObservationRecord` or directly to `CalendarEvent`) before "sync" is even a well-posed operation; treat as a milestone-level scope revision, not a quick task |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these pitfalls.
-
 | Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Un-normalized proposal hashing (Pitfall 1) | DISPLAY-01 phase, first task | Test asserting `proposal_color()` returns identical output for case/whitespace variants of the same proposal string |
-| `[QUEUED]` grey override left unfixed (Pitfall 2) | DISPLAY-01 phase, same task that wires in the color tag | UAT/test checking a `[QUEUED]`-titled event shows proposal color, not flat grey |
-| Sidecar write conflated with `CalendarEvent`'s no-churn diff block (Pitfall 3) | DISPLAY-02 phase | Test asserting an unchanged re-run produces zero sidecar row writes (same pattern as existing `CalendarEvent.modified`-unchanged test) |
-| Sidecar staleness contract undocumented (Pitfall 4) | DISPLAY-02 phase | Code comment + a test confirming a record outside the current run's `--proposal` filter keeps its prior `is_verified` value unchanged (correct behavior, documented as such) |
-| N+1 from per-event sidecar reverse-accessor reads (Pitfall 5) | DISPLAY-02 phase (template/read-side integration task) | `assertNumQueries` test rendering a month with multiple synced events |
-| Template-fork drift on future `tomtoolkit` upgrade (Pitfall 6) | DISPLAY-01 phase (documentation task) | PROJECT.md Constraints section gains a note alongside the existing Bootstrap4/5 CSS-variable constraint; verified by review, not a runtime test |
-| 9-color palette collision rate / striping legibility at small cell size (UX Pitfalls) | DISPLAY-01 phase (visual-treatment task, decided via `/gsd:sketch`) | Manual visual check at actual rendered `.cal-event-all-day`/`.cal-event-timed` size, not a larger mockup |
+|---------|-------------------|----------------|
+| OB status not exposed via `ESOFacility` (Pitfall 1) | Phase 1 (research spike) | A task explicitly reads `tom_eso.eso.ESOFacility.get_observation_status` source and documents its real (stub) behavior before any status-mapping code is written |
+| No portal URL for idempotency key (Pitfall 2) | Phase 1 (design) | A test that a hand-built key (not `get_observation_url()`) is used, mirroring GEM-KEY-01's dedicated test |
+| Session-bound encrypted credentials break headless runs (Pitfall 3) | Phase 1 (design) + a credential-handling task | A test running the command with no active `UserSession` for the relevant user, asserting it still authenticates via `settings.FACILITIES['ESO']` (or fails loudly, never silently with `None`) |
+| Single fixed site/telescope, missing VLT UTs (Pitfall 4) | Phase 1 (research spike), informed by real sample data | Operator confirmation of the site/telescope scope for v1.7 (Paranal only? both? UT granularity?), mirroring the Phase 07 `SITE_TELESCOPE_MAP` sign-off |
+| Wrong terminal-state vocabulary (Pitfall 5) | Same phase as Pitfall 1, once status sync is confirmed in scope | A dedicated ESO status-prefix dict test using the real P2 codes, with an explicit regression test asserting no LCO/Gemini status strings appear |
+| Fixture shape doesn't match real ESO data; zero real records exist today (Pitfall 6) | Phase 1 (research spike) — the gating question for the whole milestone | An explicit checkpoint (like the Phase 07 `tlv`-site removal checkpoint) where the operator confirms how/whether `ObservationRecord(facility='ESO')` rows get created, before any extraction-logic phase begins |
 
 ## Sources
 
-- Direct read: `/home/tlister/git/fomo_devel/src/templates/tom_calendar/partials/calendar.html` (existing `[QUEUED]` grey override at lines 158-161, confirmed `{% load tz calendar_tags %}`, confirmed only the all-day branch references `{{ event.color }}`) — HIGH confidence.
-- Direct read: `/home/tlister/git/fomo_devel/solsys_code/management/commands/sync_lco_observation_calendar.py` (per-record loop structure, `get_or_create`/diff/`save()` no-churn block, `telescope_api_failed` boolean already computed per record, per-facility counters) — HIGH confidence.
-- Direct read: `/home/tlister/git/fomo_devel/solsys_code/management/commands/load_telescope_runs.py` (separate `get_or_create`/`.save()` block, confirms no telescope-label resolution path exists here at all) — HIGH confidence.
-- Direct read: installed `tom_calendar/models.py` (`CalendarEvent.proposal`/`telescope` are blank-default `CharField`s, no normalization or choices constraint) — HIGH confidence.
-- `.planning/research/STACK.md` (this milestone, same date) — sidecar-model recommendation, integration point, `hashlib` vs `hash()` empirical determinism finding, template-tag pattern, "no Python-level hook on `render_calendar()`" finding — HIGH confidence, built on directly, not contradicted.
-- `.planning/research/FEATURES.md` (sibling research, this milestone, same date, referenced but not re-read in full per task instructions) — source of the `[QUEUED]` grey-override bug finding reused here as Pitfall 2.
-- `.planning/PROJECT.md` Key Decisions table — facility-aware `_coarse_telescope_label` history, no-churn pattern rationale, terminal-state-prefix precedent, all used to ground Pitfalls 2-4 in this project's actual prior bug history rather than generic Django advice.
+- `tom_eso/eso.py`, `tom_eso/eso_api.py`, `tom_eso/models.py` — read directly from this repo's installed `tom-eso==0.2.4` package at `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/` (primary source, HIGH confidence)
+- `tom_common/session_utils.py` — read directly from the installed `tom-common` package, same venv (primary source, HIGH confidence)
+- `src/fomo/settings.py` — this repo's `FACILITIES`/`TOM_FACILITY_CLASSES` config, confirming no `'ESO'` `FACILITIES` entry exists (HIGH confidence)
+- `src/fomo_db.sqlite3` — direct query confirming zero `ObservationRecord(facility='ESO')` rows exist in this dev DB (HIGH confidence)
+- `.planning/PROJECT.md` — Key Decisions table documenting the v1.2 flat-`instrument_type` bug, the v1.3 `[ASSUMED]` `SITE_TELESCOPE_MAP` gaps, and the Gemini credential-scrubbing precedent (HIGH confidence, project history)
+- ESO official Phase 2 status documentation, https://www.eso.org/sci/observing/phase2_p114/p2intro/phase-2-status.html — OB status code table (MEDIUM confidence, single official source not cross-verified against a second independent source)
+- ESO Phase 2 API docs, https://www.eso.org/sci/observing/phase2_p115/p2intro/Phase2API.html and https://www.eso.org/sci/observing/phase2/p2intro/Phase2API/api--python-programming-tutorial.html — general P2 API background (MEDIUM confidence, referenced but not deeply read)
 
 ---
-*Pitfalls research for: FOMO v1.4 Calendar Visual Clarity (DISPLAY-01 proposal-keyed color/status treatment, DISPLAY-02 verified/fallback telescope-label sidecar field)*
-*Researched: 2026-06-24*
+*Pitfalls research for: ESO/VLT ObservationRecord calendar sync (v1.7)*
+*Researched: 2026-07-01*
