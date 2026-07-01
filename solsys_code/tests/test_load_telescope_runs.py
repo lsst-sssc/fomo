@@ -164,3 +164,35 @@ class TestLoadTelescopeRuns(TestCase):
             err = stderr_buf.getvalue()
             self.assertIn('2', err, 'Expected line number in stderr error message')
             self.assertIn('Magellan IMACS 13-19 July (proposed)', err)
+
+    def test_partial_night_bon_to_hhmm_sets_end_time(self):
+        """INGEST-WIN-01: a BoN-HHMM window line sets end_time to HHMM UTC on d+1 morning."""
+        path, tmpdir_ctx = self._write_schedule_file(['Magellan-Clay Lightspeed 18-20 July BoN-0626'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            self.assertEqual(CalendarEvent.objects.count(), 3)
+            for event in CalendarEvent.objects.all():
+                # end_time must be clamped to 06:26 UTC (not computed sunrise)
+                self.assertEqual(event.end_time.hour, 6)
+                self.assertEqual(event.end_time.minute, 26)
+                self.assertEqual(event.end_time.second, 0)
+                # start_time is computed sunset — before midnight UTC for Santiago in July
+                self.assertGreater(event.start_time.hour, 12)
+                # duration is shorter than a full night but still at least 6 hours
+                duration_hours = (event.end_time - event.start_time).total_seconds() / 3600
+                self.assertGreaterEqual(duration_hours, 6.0)
+                self.assertLess(duration_hours, 15.0)
+
+    def test_partial_night_hhmm_to_eon_sets_start_time(self):
+        """INGEST-WIN-02: a HHMM-EoN window line sets start_time to HHMM UTC on d+1 morning."""
+        path, tmpdir_ctx = self._write_schedule_file(['Magellan-Clay LDSS3 18-20 July 0646-EoN'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            self.assertEqual(CalendarEvent.objects.count(), 3)
+            for event in CalendarEvent.objects.all():
+                # start_time must be clamped to 06:46 UTC (not computed sunset)
+                self.assertEqual(event.start_time.hour, 6)
+                self.assertEqual(event.start_time.minute, 46)
+                self.assertEqual(event.start_time.second, 0)
+                # end_time is computed sunrise — early morning UTC for Santiago in July
+                self.assertLess(event.end_time.hour, 12)

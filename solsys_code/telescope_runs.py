@@ -286,6 +286,11 @@ class ParsedRun:
         month: month number (1-12) of day1 (the start of the run).
         day1: first day of the run (inclusive).
         day2: last day of the run (inclusive).
+        start_window: optional start-of-window token — 'BoN' (computed sunset)
+            or a 4-digit HHMM UTC string. Times < 1200 are on d+1 morning;
+            times >= 1200 are on d evening. None means full night from sunset.
+        end_window: optional end-of-window token — 'EoN' (computed sunrise)
+            or a 4-digit HHMM UTC string. None means full night to sunrise.
     """
 
     telescope: str
@@ -294,9 +299,9 @@ class ParsedRun:
     year: int
     month: int
     day1: int
-    start_window: str | None
     day2: int
-    end_window: str | None
+    start_window: str | None = None
+    end_window: str | None = None
 
 
 def _resolve_telescope(token: str) -> str:
@@ -368,17 +373,23 @@ def parse_run_line(line: str) -> ParsedRun:
     8-12 (proposed)'. The date range may have the month name before or after
     the day range, and no year is given (year defaults per PARSE-03).
 
+    An optional trailing window token of the form ``(BoN|HHMM)-(EoN|HHMM)``
+    restricts the event to a portion of the night, e.g. 'BoN-0626' or
+    '0646-EoN'. HHMM < 1200 is treated as next-morning UTC; HHMM >= 1200 is
+    same-evening UTC.
+
     Args:
         line: a single run-line string.
 
     Returns:
         ParsedRun: the parsed telescope, instrument, status, year, month,
-            day1, day2.
+            day1, day2, and optional start_window/end_window.
 
     Raises:
         ValueError: if line is empty, the telescope token does not resolve to
             exactly one SITES key (D-01), the status is unrecognized (D-06),
-            or no date range can be found.
+            no date range can be found, or the trailing window token is present
+            but malformed.
     """
     stripped = line.strip()
     if not stripped:
@@ -429,18 +440,20 @@ def parse_run_line(line: str) -> ParsedRun:
 
     telescope = _resolve_telescope(telescope_token)
 
-    # Look after date range for anything remaining which might indicate
-    # partial night range
+    # Optional trailing window token restricts the event to a portion of the
+    # night, e.g. 'BoN-0626' or '0646-EoN'.
     after_range = remainder[match.end() :]
-    tokens = after_range.split()
+    window_tokens = after_range.split()
     start_window = end_window = None
-    if len(tokens) == 1:
-        match = _PARTIAL_NIGHTS.search(tokens[0])
-        if match:
-            start_window = match.groups()[0]
-            end_window = match.groups()[1]
+    if len(window_tokens) == 1:
+        window_match = _PARTIAL_NIGHTS.search(window_tokens[0])
+        if window_match:
+            start_window = window_match.group(1)
+            end_window = window_match.group(2)
         else:
-            raise ValueError(f'Unrecognized partial night {after_range!r} in {line!r}')
+            raise ValueError(f'Unrecognized partial night token {after_range.strip()!r} in {line!r}')
+    elif len(window_tokens) > 1:
+        raise ValueError(f'Unexpected trailing tokens {after_range.strip()!r} in {line!r}')
 
     return ParsedRun(
         telescope=telescope,
@@ -449,7 +462,7 @@ def parse_run_line(line: str) -> ParsedRun:
         year=year,
         month=month,
         day1=day1,
-        start_window=start_window,
         day2=day2,
+        start_window=start_window,
         end_window=end_window,
     )

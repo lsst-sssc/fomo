@@ -299,7 +299,7 @@ class TestTelescopeRuns(TestCase):
         with self.assertRaises(ValueError):
             parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-')
 
-    def test_parse_run_line_second_half_wrongg_EoN(self):
+    def test_parse_run_line_second_half_wrong_EoN(self):
         with self.assertRaises(ValueError):
             parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-foo')
 
