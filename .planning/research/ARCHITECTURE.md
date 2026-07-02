@@ -1,151 +1,239 @@
 # Architecture Research
 
-**Domain:** ESO/VLT `ObservationRecord` calendar sync — integration into an existing Django/TOM Toolkit calendar-sync architecture (FOMO v1.7)
-**Researched:** 2026-07-01
-**Confidence:** HIGH for the "what exists today" findings (verified directly against the installed `tom_eso==0.2.4` source at `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/` and against this repo's live dev DB via `./manage.py shell`) / MEDIUM-LOW for "what to build," because the verified findings materially constrain what's buildable this milestone (see Critical Finding below).
+**Domain:** Campaign coordination for rare/urgent Solar System objects — new feature area on an existing Django + TOM Toolkit app (FOMO v2.0)
+**Researched:** 2026-07-02
 
-This file supersedes the previous contents (dated 2026-06-24, about v1.4's calendar visual-treatment work) — that topic is now shipped and documented elsewhere; this is a full rewrite for the v1.7 ESO milestone.
+This file supersedes the previous contents (dated 2026-07-01, about the v1.7 ESO/VLT feasibility spike) — that topic shipped as an investigation-only decision doc and is now closed; this is a full rewrite for the v2.0 Campaign Coordination milestone.
 
-## Critical Finding (reshapes the whole question)
+## Recommended Architecture
 
-**There is currently no path by which an ESO `ObservationRecord` gets created in this codebase, and the installed `tom_eso` plugin does not implement observation status/URL lookups at all.** This was not assumed — it was verified by reading `tom_eso/eso.py` and by querying the dev DB directly:
+Add one new first-class model (`CampaignRun`) plus a small module family alongside the
+existing `solsys_code/calendar_utils.py` / `calendar_urls.py` / `templatetags/calendar_display_extras.py`
+trio, rather than widening `CalendarEvent` or spinning up a new Django app.
 
-- `ESOFacility.submit_observation()` (`tom_eso/eso.py:659-672`) is hard-coded to `return created_observation_ids = []` unconditionally, even after successfully creating a P2 Observation Block. TOM Toolkit's `ObservationCreateView.form_valid()` (`tom_observations/views.py`) only creates an `ObservationRecord` by iterating the `observation_id`s returned from `submit_observation()` — so for ESO, **that loop is always empty**. No `ObservationRecord(facility='ESO')` row can be produced by the normal TOM submission flow, in this dev environment or in a production deployment running this same plugin version.
-- `ESOFacility.get_observation_status(observation_id)` → `raise NotImplementedError` (`eso.py:601-602`).
-- `ESOFacility.get_observation_url(observation_id)` → `raise NotImplementedError` (`eso.py:604-605`). LCO's sync command keys `CalendarEvent.url` on exactly this method (`facility.get_observation_url(...)`); it does not exist for ESO.
-- `ESOFacility.get_terminal_observing_states()` → `return []` (`eso.py:626-627`). There is no terminal-status vocabulary to drive a TERM-01-style title prefix.
-- Confirmed live: `ObservationRecord.objects.filter(facility='ESO').count()` → `0`; in fact `ObservationRecord.objects.count()` → `0` for **every** facility in this dev DB right now (the dev DB has been reset/reseeded since the v1.3 LCO records referenced in `.planning/PROJECT.md` were inspected — do not assume those rows still exist).
-- `ESOFacility.get_observing_sites()` (`eso.py:607-624`) hardcodes exactly two sites — `PARANAL` (lat -24.62733, lon -70.40417, elev 2635.43 m) and `LA_SILLA` (lat -29.25667, lon -70.73194, elev 2400.0 m) — as a plain dict literal, **not** looked up via MPC obscode or the `Observatory` model. There is no telescope-level (UT1-4/AT) breakdown anywhere in the installed plugin.
-- Existing `Observatory` records in this DB: `268` (Magellan Clay), `269` (Magellan Baade), `809` (ESO La Silla — already used by Stage 1/2's `NTT` classical-schedule key), `E10` (Siding Spring). **No Cerro Paranal record exists** (MPC obscode for Paranal is `309`; it is not in the table).
-- `ESOAPI`/`eso_api.py` wraps ESO's real Phase-2 API (`p2api`) and does carry an OB-level status concept in commented-out code (`item['obStatus']`), and `folder_ob_choices()`/`folder_item_choices()` do walk `api2.getItems()` results — but nothing in the installed plugin surfaces this into `ObservationRecord`, `get_observation_status()`, or any URL. Reaching it would mean calling `ESOAPI`/`p2api` directly, which requires a valid `ESOProfile` (per-user P2 credentials) or `FACILITIES['ESO']` settings defaults — **neither is configured in this repo's `settings.py`** (`FACILITIES` currently only has `LCO`, `SOAR`, `GEM`; no `ESO` key).
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         Target detail page (TOM)                          │
+│  target_detail_buttons() hook → "Campaign Runs" button (NEW, apps.py)     │
+│  nav_items() hook → "Campaigns" navbar item (NEW, apps.py)                │
+└───────────────┬─────────────────────────────┬─────────────────────────────┘
+                │                             │
+                ▼                             ▼
+┌───────────────────────────────┐   ┌───────────────────────────────────────┐
+│ Campaign table view (per-Target)│   │ Submission form + approval queue view  │
+│ campaign_views.py (NEW)         │   │ campaign_views.py (NEW)                │
+│ read path, PII-gated column     │   │ write path, status-gated visibility    │
+└───────────────┬─────────────────┘   └───────────────┬─────────────────────┘
+                │                                     │
+                ▼                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     CampaignRun model (NEW, solsys_code/models.py)        │
+│  FK → tom_targets.Target (required)                                       │
+│  FK/OneToOne → tom_calendar.CalendarEvent (nullable, projection link)     │
+│  status: PENDING_REVIEW / APPROVED / OBSERVED / REDUCED / PUBLISHED /     │
+│          REJECTED                                                         │
+│  contact_person, contact_email (PII), telescope, instrument, site,        │
+│  filters, obs_type, obs_date_start/end, outcome, publication_plans,       │
+│  open_to_collaboration, comments                                          │
+└───────────────┬───────────────────────────┬──────────────────────────────┘
+                │                           │
+                ▼                           ▼
+┌───────────────────────────────┐   ┌───────────────────────────────────────┐
+│ import_campaign_csv command    │   │ On approval + telescope/dates present: │
+│ (NEW, one-off 3I bootstrap)    │   │ insert_or_create_calendar_event()      │
+│ management/commands/           │   │ (REUSED, calendar_utils.py)            │
+└───────────────────────────────┘   └───────────────┬─────────────────────────┘
+                                                     ▼
+                                    ┌───────────────────────────────────────┐
+                                    │ Existing calendar rendering path       │
+                                    │ fomo_render_calendar / calendar.html   │
+                                    │ (REUSED, no changes needed)            │
+                                    └───────────────────────────────────────┘
 
-This is a genuine **MAYBE, not a YES**, on the milestone's premise of "a `sync_eso_observation_calendar` management command following the LCO/Gemini pattern." The LCO/Gemini pattern assumes `ObservationRecord` rows already exist with a real `facility.get_observation_url()`/`get_observation_status()`/terminal-state vocabulary to key off. None of that exists for ESO in the installed plugin version. Question 4 (build order) is answered accordingly: **this must start as a research/spike phase**, not an implementation phase.
-
-## Standard Architecture (of the existing 3-command pattern, for reference)
-
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Coverage-gap view (LAST) — telescope_runs.sun_event()/get_site() (REUSED, │
+│ light) crossed against CampaignRun date ranges per Target/site.           │
+│ MUST NOT import solsys_code.ephem_utils (1.6 GB SPICE download trigger).  │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│  management commands (one per facility)                               │
-│  sync_lco_observation_calendar / sync_gemini_observation_calendar /   │
-│  sync_eso_observation_calendar (NEW)                                  │
-│  - query ObservationRecord.objects.filter(facility=...)               │
-│  - per record: build a `fields` dict (title/desc/times/telescope/...) │
-│  - per-facility counters (created/updated/unchanged/skipped/...)      │
-├───────────────────────────────────────────────────────────────────────┤
-│  solsys_code/calendar_utils.py (shared, facility-agnostic)             │
-│  - insert_or_create_calendar_event(lookup, fields) -- no-churn         │
-│    create-or-update, keyed on an arbitrary `lookup` dict               │
-│  - SITE_TELESCOPE_MAP / _extract_instrument / _coarse_telescope_label  │
-│    (LCO/SOAR-specific vocabulary -- NOT reusable for ESO as-is)        │
-├───────────────────────────────────────────────────────────────────────┤
-│  tom_calendar.models.CalendarEvent (third-party, unmodified)           │
-│  solsys_code/models.py: CalendarEventTelescopeLabel (sidecar,          │
-│    OneToOneField PK, currently LCO/SOAR-only)                          │
-└───────────────────────────────────────────────────────────────────────┘
+
+### Component Boundaries
+
+| Component | Responsibility | Communicates With |
+|-----------|---------------|-------------------|
+| `CampaignRun` (new model, `solsys_code/models.py`) | Source-of-truth record for one observing run: target link, lifecycle status, PII contact fields, outcome/publication metadata | `tom_targets.Target` (FK, required), `tom_calendar.CalendarEvent` (FK/OneToOne, nullable projection link) |
+| `campaign_views.py` (new) | Per-target table view (read), submission form (write, unauthenticated allowed per `AUTH_STRATEGY='READ_ONLY'`), staff-gated approval queue | `CampaignRun`, `campaign_extras` template tags, `calendar_utils.insert_or_create_calendar_event` |
+| `campaign_urls.py` (new, namespaced `campaigns`) | Routes `/campaigns/target/<pk>/`, `/campaigns/submit/`, `/campaigns/review/`, `/campaigns/target/<pk>/coverage/` | Included from `src/fomo/urls.py`, mirrors `calendar_urls.py` inclusion pattern |
+| `templatetags/campaign_extras.py` (new) | PII-visibility gate (`contact_visible`) and status→label/color mapping for table/badge rendering | Templates only; mirrors `calendar_display_extras.py`'s tag-library pattern |
+| `management/commands/import_campaign_csv.py` (new) | One-off CLI ingest of the real 3I/ATLAS sheet CSV export into `CampaignRun` rows | `CampaignRun`, `tom_targets.Target` (lookup by name), `Observatory` (site validation) |
+| `calendar_utils.insert_or_create_calendar_event` (existing, reused) | Projects an approved `CampaignRun` onto the calendar as a `CalendarEvent`, no-churn | Called from `campaign_views.py` on approval transition, not from a periodic sync command |
+| `telescope_runs.sun_event`/`get_site` (existing, reused) | Per-site dark-window times for coverage-gap comparison | `Observatory` model; explicitly does **not** import `ephem_utils` |
+| `apps.py` hooks (modified) | Add a second `target_detail_buttons()` entry ("Campaign Runs") and a new `nav_items()` method ("Campaigns") | TOM Toolkit's hook-running machinery (`run_hook`), same mechanism as the existing "Make Ephemeris" button |
+
+## Key Architecture Decisions
+
+### 1. First-class model, not a `CalendarEvent` sidecar
+
+**Decision:** `CampaignRun` is a standalone model with its own table and a required `ForeignKey` to `Target`, plus an optional `ForeignKey`/`OneToOneField` to `CalendarEvent`.
+
+**Why not the `CalendarEventTelescopeLabel` sidecar pattern:** that pattern (`OneToOneField(primary_key=True)` on a third-party model) exists specifically to attach *derived metadata about an event that is guaranteed to already exist* (verification status of a telescope label) without touching `tom_calendar`'s migrations. Campaign runs are the opposite: they are the **primary submitted record**, most of them (per the real 3I sheet — FTN/MuSCAT3, Palomar P200/NGPS, VLT/MUSE) come from facilities **outside** FOMO's sync commands and will often have no corresponding `CalendarEvent` at all (pending review, calendar-only-optional, or a facility FOMO never syncs). Verified in codebase: `CalendarEvent` (`tom_calendar/models.py`, read directly) has no `Target` FK today — only `target_list` (a `TargetList` FK) — so there is no way to anchor "all runs for object X" through `CalendarEvent` alone, confirming the seed's own observation.
+
+**Confidence:** HIGH — read `tom_calendar/models.py` directly; `CalendarEvent` fields confirmed (`title`, `description`, `start_time`, `end_time`, `url`, `target_list`, `user`, `proposal`, `telescope`, `instrument`, `created`, `modified` — no `target`).
+
+### 2. Calendar surfacing: generate a paired `CalendarEvent`, reuse `insert_or_create_calendar_event`
+
+**Decision:** When a `CampaignRun` passes approval **and** has `telescope` + a date range populated, call the existing `insert_or_create_calendar_event(lookup, fields)` helper to create/update a paired `CalendarEvent`, keyed on a synthetic URL like `CAMPAIGN:{campaign_run.pk}` (same idiom as `GEM:{prog}/{observation_id}` in `sync_gemini_observation_calendar.py`). Store the resulting event's PK back on `CampaignRun.calendar_event` so re-approval/edits update in place through the same no-churn helper, and so the table view can link out to the calendar.
+
+**Why not render independently:** v1.4-v1.6 already built a whole visual language for `CalendarEvent` — proposal-keyed WCAG-AA color hashing (`calendar_display_extras.py`), status box-shadow rings, click-to-filter legend, N+1-safe prefetch (`fomo_render_calendar`). A parallel rendering path for campaign runs would fork that language and immediately drift. Projecting into `CalendarEvent` gets all of that for free.
+
+**Why triggered from the approval view, not a management command:** every existing sync command (`sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) exists because its source of truth is an **external** system polled periodically (LCO/Gemini portals). `CampaignRun` originates **inside** FOMO via the submission form — there is no external system to poll, so a periodic sync command would just be a slower, indirect way of reacting to an in-app state transition. Call `insert_or_create_calendar_event` directly from the approval view's `form_valid()` (or a `CampaignRun` status-transition method). No `@receiver`/signal precedent exists anywhere in `solsys_code/` today (verified — `grep -rn "@receiver\|post_save.connect" solsys_code/` returns zero matches) — stay consistent with that and use an explicit call, not an implicit signal.
+
+**Confidence:** HIGH — `insert_or_create_calendar_event` signature and no-churn contract read directly from `solsys_code/calendar_utils.py`; signal-usage claim verified by direct grep.
+
+### 3. Approval state: a single `status` field, not a separate pending model
+
+**Decision:** `CampaignRun.status` is one `CharField` with choices spanning both the approval gate and the observing lifecycle: `PENDING_REVIEW`, `APPROVED`, `OBSERVED`, `REDUCED`, `PUBLISHED`, `REJECTED`. "Visible on the public table/calendar" is simply `status not in {PENDING_REVIEW, REJECTED}` — no second table, no copy-on-approve step.
+
+**Why not a separate `RunSubmission` staging model** (the seed's original open question): a copy-on-approve design means two schemas to keep in sync and a migration/copy step at approval time — extra surface area for the same information. The seed's own field inventory already frames status as a lifecycle (`planned → observed → data reduced → published`); folding "pending review" and "rejected" into that same enum costs one extra pair of choices, not a new model. External validation: this single-status-field pattern is the common baseline in Django moderation write-ups (see Sources) — dedicated moderation packages exist mainly to generalize across *many* models, which FOMO doesn't need for one campaign-run type.
+
+**Confidence:** MEDIUM — codebase precedent (`[QUEUED]`/`[UNVERIFIED]` title-prefix vocabulary already living as data on `CalendarEvent`, not a parallel table) is suggestive but this is a genuinely new area of the codebase with no direct model precedent to grep for; the general Django-community pattern is corroborating, not codebase-verified.
+
+### 4. PII gating: view-level `is_staff` gate for the queue, template-tag gate for the table
+
+**Decision:** Two different mechanisms for two different problems:
+- **Approval queue view** (`/campaigns/review/`): gate the whole view with Django's built-in `UserPassesTestMixin`/`is_staff` check (or ship it as a Django admin `ModelAdmin` with an "Approve selected" action first, deferring a custom queue UI to a later increment). This is an all-or-nothing per-view gate, not a per-object permission — `django-guardian` (already installed and configured — `guardian.backends.ObjectPermissionBackend` in `AUTHENTICATION_BACKENDS`, used by `tom_targets` for per-object target permissions) is the wrong tool here because there is no "which users own which campaign run" question, only "is this user staff."
+- **Per-target campaign table** (public, `AUTH_STRATEGY='READ_ONLY'` compatible): gate only the `contact_email`/`contact_person` **column**, via a new `campaign_extras.contact_visible(user)` template tag — mirrors the existing `calendar_display_extras.py` tag-library convention (`proposal_color`, `status_border_css`, `text_color_for_bg`) rather than inline `{% if request.user.is_authenticated %}` scattered across the template. Keeps the PII policy in one testable, greppable place.
+
+**Why not row-level guardian permissions:** `solsys_code/` has zero existing `assign_perm`/object-permission calls (verified — guardian is used internally by `tom_targets` for `Target` visibility, but nothing FOMO-authored in `solsys_code` extends that pattern). Introducing it here for a binary "staff can see PII, everyone else can't" rule would be new machinery for a problem `is_staff`/a template tag already solves.
+
+**Confidence:** MEDIUM — `AUTH_STRATEGY='READ_ONLY'`, `TARGET_PERMISSIONS_ONLY=True`, and `guardian` installation/backend registration confirmed directly in `src/fomo/settings.py`; the specific gating mechanism recommendation is an architectural choice informed by, not dictated by, that config — the seed itself flags this as an open question, so confirm the exact policy during phase discussion.
+
+### 5. Coverage-gap analysis: reuse `telescope_runs.py`, do not touch `ephem_utils.py`
+
+**Decision:** Build the coverage-gap view on `telescope_runs.sun_event()`/`get_site()` (dark-window times per site/date, already precise to ≤2 min vs. skycalc) crossed against `CampaignRun.obs_date_start/end` per `(Target, site)`. For v2.0, treat "observable" as "the site is in its −15° dark window on that date and a campaign for this target is otherwise active" rather than computing true target altitude/airmass — the interstellar-object use case is a short, already-known visibility window, so per-site dark-window coverage is a reasonable and cheap first cut.
+
+**Why this must not import `ephem_utils`:** importing `solsys_code.ephem_utils` (transitively, anything importing `solsys_code.views`) triggers `fomo_furnish_spiceypy()` at module load — a ~1.6 GB SPICE kernel download and ASSIST ephemeris build on first use (documented in `CLAUDE.md`, confirmed by the module's own docstring/comment). A campaign coverage-gap **view**, hit on ordinary page loads, must never pay that cost implicitly. True target-altitude filtering (the more accurate version) is exactly the kind of thing that *would* need `ephem_utils`, which is precisely why the milestone context scopes coverage-gap last and allows deferral to v2.1 — flag this as needing its own phase-specific research spike before committing to "true observability" scope; do not silently reach for `ephem_utils` to get there.
+
+**Confidence:** HIGH — the SPICE download trigger and its avoidance are directly documented in `CLAUDE.md` and mirrored by `telescope_runs.py`'s existing design (it already deliberately avoids this import, per `.planning/PROJECT.md`'s Context section: "`telescope_runs.py` avoids importing `solsys_code.ephem_utils`").
+
+### 6. Integration hooks
+
+**Decision:** Extend `solsys_code/apps.py`'s `SolsysCodeConfig`:
+- Add a second entry to the list returned by `target_detail_buttons()` (already a list, currently one entry — the "Make Ephemeris" button) for a "Campaign Runs" button linking to `/campaigns/target/<pk>/`, mirroring the existing `ephem_button.html` partial + `src.templatetags.solsys_code_extras.ephem_button` context pattern.
+- Add a new `nav_items()` method returning `[{'partial': 'solsys_code/partials/campaign_nav_item.html'}]` — this hook exists and is used by `tom_calendar.apps.TomCalendarConfig.nav_items()` (confirmed by reading `tom_calendar/apps.py`: `return [{'partial': 'tom_calendar/partials/navbar_item.html'}]`); `solsys_code/apps.py` does not implement `nav_items()` yet (it only has `target_detail_buttons()` and `data_services()`), so this is a net-new method, not a modification of an existing one.
+
+**Confidence:** HIGH — `target_detail_buttons()` return shape and current `SolsysCodeConfig` contents read directly from `solsys_code/apps.py`; `nav_items()` hook existence and return shape confirmed by reading `tom_calendar/apps.py`.
+
+## Patterns to Follow
+
+### Pattern 1: No-churn create-or-update for the calendar projection
+
+**What:** Reuse `calendar_utils.insert_or_create_calendar_event(lookup, fields)` verbatim for the `CampaignRun` → `CalendarEvent` projection, exactly as `sync_lco_observation_calendar`/`sync_gemini_observation_calendar`/`load_telescope_runs` already do.
+
+**When:** Any time a `CampaignRun`'s calendar-relevant fields (telescope, date range, status) change after approval.
+
+**Example:**
+```python
+event, action = insert_or_create_calendar_event(
+    lookup={'url': f'CAMPAIGN:{campaign_run.pk}'},
+    fields={
+        'title': f'{campaign_run.target.name} — {campaign_run.telescope}',
+        'start_time': campaign_run.obs_date_start,
+        'end_time': campaign_run.obs_date_end,
+        'telescope': campaign_run.telescope,
+        'instrument': campaign_run.instrument,
+        'proposal': campaign_run.proposal_code or '',
+    },
+)
+campaign_run.calendar_event = event
+campaign_run.save(update_fields=['calendar_event'])
 ```
 
-### Component Responsibilities
+### Pattern 2: Template-tag-based cross-cutting display logic
 
-| Component | Responsibility | Reused as-is for ESO? |
-|-----------|-----------------|------------------------|
-| `insert_or_create_calendar_event(lookup, fields)` (`calendar_utils.py:296-332`) | Facility-agnostic no-churn create-or-update on `CalendarEvent`, keyed on caller-supplied `lookup` dict | **Yes, unchanged.** It has no facility knowledge — Gemini already proves this generalizes (`lookup={'url': ...}` there too, different derivation). |
-| `SITE_TELESCOPE_MAP`, `_derive_telescope`, `_resolve_placement_block`, `_coarse_telescope_label`, `_extract_instrument` | LCO/SOAR-specific: site-code+aperture-class table, per-record LCO Observation Portal API call, LCO/SOAR `instrument_type` string parsing | **No.** These are all shaped around LCO's `c_N_*` multi-configuration parameters and LCO Observation Portal REST responses. ESO OBs (if ever reachable) come from `p2api`'s JSON shape, not LCO's — none of this vocabulary transfers. |
-| `CalendarEventTelescopeLabel` sidecar (`solsys_code/models.py`) | Verified-vs-fallback telescope label provenance | **Conceptually reusable, mechanically not yet wired.** The model itself is facility-agnostic (`OneToOneField` to any `CalendarEvent`), but ESO has no live per-record API resolution today to be "verified" against — see below. |
-| Per-command `handle()` (`sync_lco_observation_calendar.py`) | Query `ObservationRecord`, build fields, call `insert_or_create_calendar_event`, track counters | **Pattern reusable; data source is not.** ESO has no `ObservationRecord` rows to query under the installed plugin. |
+**What:** New display concerns (PII visibility, status→badge color) belong in a tag library (`campaign_extras.py`), not inline template conditionals — following `calendar_display_extras.py`'s `proposal_color`/`status_border_css`/`text_color_for_bg` precedent.
 
-## New vs. Reused Components (answering Question 1)
+**When:** Any rendering decision that depends on more than the object being rendered (e.g., current user, WCAG contrast) or that needs a dedicated unit test.
 
-**Reusable as-is (genuinely facility-agnostic):**
-- `insert_or_create_calendar_event()` — no changes needed. Its `lookup`/`fields` contract already generalizes across LCO's `{'url': ...}` key and would work identically for ESO's key (whatever that ends up being — see Question 3).
-- The counters/summary-line pattern, and the "per-record try/except → dedicated counter, never abort the run" discipline from `sync_lco_observation_calendar.handle()`.
-- `CalendarEventTelescopeLabel` as a *model* — no schema change needed to attach it to ESO-sourced events, if ESO ever gets a live/verified vs. fallback distinction worth recording.
+### Pattern 3: CLI-first CSV ingest, validated against real data before UI is built
 
-**New components needed:**
-- `solsys_code/management/commands/sync_eso_observation_calendar.py` — new `BaseCommand`, but its data source is fundamentally different from LCO/Gemini (see Question 2/3). It cannot be "LCO/Gemini pattern, ESO field names" — the input side (where records come from) is a different shape of problem, not just different field names.
-- An ESO-specific helper section in `calendar_utils.py` (or a new `_eso_helpers` module if the ESO-specific logic is large — see Structure Rationale below) analogous to `SITE_TELESCOPE_MAP`/`_extract_instrument`, but built from whatever the spike (build-order step 1) discovers about real OB/P2 JSON shape — this cannot be designed from documentation alone because the installed plugin doesn't expose it.
-- Almost certainly: a `FACILITIES['ESO']` entry in `settings.py` (currently absent) and, if going the direct-P2-API route, either an `ESOProfile` fixture/service-account credential or a documented manual precondition for the command to run at all.
-- Possibly: a `Command`-level Observatory record for Cerro Paranal (obscode `309`), if the command is meant to resolve site coordinates the same way Stage 1/2 do (`get_site()` by MPC obscode) rather than hardcoding lat/lon like `ESOFacility.get_observing_sites()` does. This repo already has a "coordinates come from `Observatory`, not hardcoded constants" convention (Stage 1 constraint) — recommend following it here too rather than copying `ESOFacility`'s hardcoded dict.
-- Almost certainly **not** a new field on `CalendarEvent` itself (see Question 3) — the existing fields (`title`, `description`, `start_time`, `end_time`, `telescope`, `instrument`, `proposal`, `url`) already cover what ESO would need to display, once a value for each is decided.
+**What:** Ship `import_campaign_csv` (a `BaseCommand`, mirroring `load_telescope_runs.py`'s structure: `add_arguments` → per-row parse → per-row `(ValueError, Target.DoesNotExist)` skip-and-log, never abort-on-first-error) and run it against the real 3I/ATLAS sheet export **before** building the table/form views on top of a guessed schema.
 
-## Where ESO-specific data comes from (answering Question 2)
+**When:** This is a deliberate build-order choice (see below), not just a nice-to-have — the codebase's own history (v1.2's `SITE_TELESCOPE_MAP`/`_extract_instrument` shipped against assumed data shapes, requiring the v1.3 follow-up once real `ObservationRecord` rows were checked) shows what happens when schema assumptions aren't validated against real data before building on top of them. Validating `CampaignRun`'s schema against the real sheet early avoids repeating that.
 
-**Site:** Effectively fixed — VLT is at Cerro Paranal, one site, unlike LCO's multi-site network. But there is **no existing source of truth for it in this codebase**: `ESOFacility.get_observing_sites()` hardcodes it inline (not obscode-based); the `Observatory` table has no Paranal row. Recommendation: create a Paranal `Observatory` record (obscode `309`) and resolve it the same way Stage 1's `get_site()` does — reuse the existing convention rather than importing `ESOFacility.get_observing_sites()`'s hardcoded dict, since the latter conflicts with this repo's "Site coordinates come from `Observatory` model records" constraint (`CLAUDE.md`, `.planning/PROJECT.md`).
+## Anti-Patterns to Avoid
 
-**Telescope (UT1-4 / auxiliary telescopes):** **Not exposed anywhere in the installed `tom_eso` plugin.** Unlike LCO where the Observation Portal API returns a `telescope` code per placed block (`_resolve_placement_block`), nothing in `eso.py`/`eso_api.py` surfaces which UT or AT an OB is scheduled on — `get_observing_sites()` stops at the site level, and OB scheduling to a specific unit telescope happens inside ESO's own short-term scheduling system, which this plugin doesn't query. This is a genuine unknown requiring the Question-4 spike: does the real ESO P2 API (`p2api.ApiConnection`) expose a telescope/instrument assignment per OB anywhere in `getOB()`'s response, or only after the night's execution (in a different ESO system entirely, e.g. the Short-Term Schedule or Night Log, which this plugin has no client for at all)?
+### Anti-Pattern 1: Importing `solsys_code.ephem_utils` (or `solsys_code.views`) from any campaign module
 
-**Instrument:** Partially reachable. `ESOAPI.observing_run_choices()` (`eso_api.py:57-77`) parses `run['instrument']` off `api2.getRuns()` — so instrument-per-observing-run is at least visible through the existing `p2api` wrapper, unlike telescope. Per-OB instrument would need `getOB()`'s response inspected directly (not currently done anywhere in the plugin).
+**What happens:** Any module-level or view-level `import` that transitively pulls in `ephem_utils` triggers a ~1.6 GB SPICE kernel download on first use, and loads a module-level Sorcha/ASSIST ephemeris object.
 
-**Bottom line for Question 2:** this is neither "simpler, single fixed site" (site alone is simple; telescope is unresolved) nor "already in `ObservationRecord.parameters`" (there is no `ObservationRecord` at all) nor "requires an API call like LCO's" in the same shape — it requires a wholly different API client (`p2api`/`ESOAPI`, credentialed per-user or via service-account defaults) queried in a fundamentally different way, because the object model on ESO's side (P2 Observation Blocks in folders under observing runs) doesn't map 1:1 onto TOM's `ObservationRecord` the way LCO's request/observation model does.
+**Why bad:** A page load (campaign table view, coverage-gap view) is not an acceptable place to pay a multi-GB one-time download cost; it would also make `./manage.py test solsys_code` slow for every campaign-related test unless carefully isolated.
 
-## Data flow changes (answering Question 3)
+**Instead:** Use `telescope_runs.py`'s `sun_event()`/`get_site()` for anything site/dark-window related; if true target-altitude ephemeris is needed later, isolate it behind an explicit, documented, separately-tested code path (own phase, own research) rather than an incidental import.
 
-`insert_or_create_calendar_event()` and its 7-field no-churn comparison **do not need new fields** — they're already facility-agnostic, and Gemini already proved the pattern generalizes to a facility with a different key derivation (`GEM:{prog}/{observation_id}` vs. LCO's portal URL) and different terminal-state vocabulary (ready/on-hold vs. WINDOW_EXPIRED/CANCELED/...). Whatever ESO's per-event data turns out to be, it plugs into the same `fields` dict shape (`title`, `description`, `start_time`, `end_time`, `telescope`, `instrument`, `proposal`) and the same `lookup` dict contract.
+### Anti-Pattern 2: Widening `CalendarEvent` with campaign-specific fields
 
-What **does** need to change is upstream of that helper — the part LCO/Gemini both take for granted (a queryable, populated `ObservationRecord` table) does not exist for ESO. Two structurally different options, to be decided by the Question-4 spike, not assumed now:
+**What happens:** Adding `contact_email`, `outcome`, `publication_plans`, etc. directly onto `tom_calendar.CalendarEvent` (a third-party model) to avoid a new model.
 
-1. **Bridge option:** teach the command (or a separate small sync step) to call the ESO P2 API directly and *create* `ObservationRecord` rows itself (working around `submit_observation()`'s empty-list bug/limitation), then apply the LCO/Gemini pattern on top of those newly-created rows. This keeps the downstream shape identical to LCO/Gemini but adds a new responsibility (record creation from an external system) that neither existing command has — LCO/Gemini both assume `ObservationRecord` creation already happened elsewhere (the TOM submission flow).
-2. **Bypass option:** have `sync_eso_observation_calendar` read directly from the ESO P2 API (via `ESOAPI`/`p2api`, walking `getRuns()` → `getItems()` → `getOB()`) and build `CalendarEvent`s straight from OB/folder-item data, keyed on `p2_environment` + `obId` (or similar) as the `lookup` dict, never touching `ObservationRecord` for ESO at all. This is a bigger philosophical break from the LCO/Gemini precedent (those two are explicitly "sync `ObservationRecord`s to the calendar"; this would be "sync ESO P2 OBs to the calendar" with no `ObservationRecord` involved) but matches what the installed plugin actually supports today.
+**Why bad:** `CalendarEvent` is shared infrastructure for classical-schedule, LCO/SOAR, and Gemini sync — none of those consumers need or want campaign-specific/PII fields on every row, and it would require patching a third-party model's schema (exactly what the `CalendarEventTelescopeLabel` sidecar was built to avoid doing for a much narrower case).
 
-Either way, no new `CalendarEvent` fields and no new sidecar-model fields are needed — `CalendarEventTelescopeLabel.is_verified` already models exactly the "resolved live vs. fell back" boolean this integration would want, if the per-OB telescope-assignment lookup ever gets built; until then, the sidecar simply isn't written for ESO events (same "no row = verified by documented default" rule the template already uses for `load_telescope_runs` events).
+**Instead:** `CampaignRun` as its own model with an optional link, per Decision 1 above.
 
-## Suggested build order (answering Question 4)
+### Anti-Pattern 3: `django-guardian` object permissions for the PII/approval gate
 
-**Phase 0 — Spike/research (do this before writing any command code):**
-1. Confirm whether this milestone actually has (or can get) valid ESO P2 credentials (`ESOProfile` or `FACILITIES['ESO']` defaults) in a reachable environment (production credentials, ESO demo/sandbox environment, or a recorded fixture from a prior real session) — without this, nothing past "count is currently 0" can be verified live, mirroring exactly how v1.3 was driven by inspecting two real LCO `ObservationRecord` rows before writing extraction logic.
-2. With those credentials (or a captured fixture), call `ESOAPI.observing_run_choices()` → `folder_name_choices()` → `folder_ob_choices()` → `getOB(ob_id)` for at least one real observing run, and record the **actual JSON shape** of a P2 OB: does it carry a schedulable date/night, a telescope/instrument assignment, an execution/observed status distinct from `obStatus` at the P2-authoring level (P, S, D states in ESO's phase-2 status vocabulary) that would map to something like LCO's placed-vs-banner distinction?
-3. Decide, based on step 2's real findings — not assumption — whether "synced" for ESO can mean anything beyond "an OB exists in P2 with a target/window" (i.e., whether true execution/night-of status is reachable at all through this plugin, or only through some other ESO system this plugin doesn't touch). This directly determines whether Stage 4's ESO scope is a full LCO-style placed/banner/terminal-status sync, or a much narrower "OB exists and is scheduled for a run" banner-only sync.
-4. Only after 1-3: decide Bridge vs. Bypass (Question 3) and write the actual `SPEC.md`/`PLAN.md` for the implementation phase(s).
+**What happens:** Reaching for `assign_perm`/per-object guardian permissions to decide who can see `contact_email` or who can approve a run.
 
-**Phase 1 — Implementation (scope depends entirely on Phase 0's findings):**
-- Create the Cerro Paranal `Observatory` record (obscode `309`) if site resolution is to follow the `Observatory`-model convention.
-- Add `FACILITIES['ESO']` to `settings.py` if the command needs its own service-account-style credentials (mirroring how `GEM`'s per-site credential dict was added in v1.5, not LCO/SOAR's single flat dict).
-- Build the new `sync_eso_observation_calendar.py` command and its `calendar_utils.py` (or dedicated `_eso_helpers`) additions, following whichever of the two Question-3 options Phase 0 justified.
-- Reuse `insert_or_create_calendar_event()` unchanged.
-- Only wire `CalendarEventTelescopeLabel` for ESO events if Phase 0 found a genuine live-vs-fallback telescope resolution to record — do not force-fit it if there's nothing to verify against.
-- Paired demo notebook (`docs/notebooks/pre_executed/sync_eso_observation_calendar_demo.ipynb`) per this repo's standing convention — scope it into `files_modified` from the start of the plan, per the CLAUDE.md note about this gap being hit twice before (Phase 5's `260619-f7u`, Phase 6's `260620-v9x`).
+**Why bad:** Guardian solves "which of N users/groups can access this specific object" — there is no such multi-owner requirement here, only a binary staff/non-staff split. It would add a permission-assignment step to every submission/approval flow for no behavioral benefit, and there's no existing `solsys_code`-authored code using it (it's used internally by `tom_targets`, not by any FOMO-authored code).
 
-**Why research-first here is not optional (unlike, say, Gemini's phase in v1.5):** Gemini's `ObservationRecord`s already existed and were queryable when that milestone started — the open questions there were about window-derivation rules, not about whether the data existed at all. Here, the verified absence of any working `submit_observation()`→`ObservationRecord` path, plus two `NotImplementedError` stubs on the exact two methods LCO's command depends on, means the "confirm real ESO `ObservationRecord` shape" step from the milestone context cannot be satisfied by inspecting the dev DB (it's empty and will stay empty under this plugin version) — it has to be satisfied by exercising the real ESO P2 API directly, which is a materially bigger and riskier first step than any prior phase in this project took.
+**Instead:** `is_staff`/`UserPassesTestMixin` for the approval queue view; a template tag for the PII column, per Decision 4.
+
+## Scalability Considerations
+
+Campaign volume is inherently low (one active interstellar-object campaign is a rare, bounded event — the 3I/ATLAS sheet this replaces had on the order of tens of rows), so the usual high-traffic scale tables don't really apply. The one real constraint is per-page-load cost:
+
+| Concern | At current scale (tens of runs) | If it ever grows (hundreds of runs, multiple concurrent campaigns) |
+|---------|----------------------------------|----------------------------------------------------------------------|
+| Per-target table view queries | Single `CampaignRun.objects.filter(target=...)` query, no prefetch needed | Add `select_related('target', 'calendar_event')` if the table starts rendering event links inline (same N+1 lesson already learned in DISPLAY-09/`fomo_render_calendar`) |
+| Coverage-gap computation | Compute on request (small date ranges, single site lookups via `sun_event`) | If it starts scanning many targets × many sites × wide date ranges, memoize per-site dark-window results (they don't depend on the target) rather than recomputing `sun_event` per row |
+| Calendar projection writes | One `insert_or_create_calendar_event` call per approval transition, synchronous | Still fine synchronous at this volume; no queueing/async infra needed for v2.0 |
+
+## Suggested Build Order
+
+1. **`CampaignRun` model + migration** — everything else depends on this; no external consumers yet, so it's the cheapest place to get the schema right and iterate.
+2. **`import_campaign_csv` bootstrap command** — validates the model's field shapes against the *real* 3I/ATLAS sheet data before any UI is built on top of guessed columns (mirrors the lesson already learned in this codebase's own history: shipping against assumed data shapes before checking real records caused a follow-up milestone in v1.2→v1.3). Cheap to build (CLI-only, no auth/PII-display concerns yet) and produces real fixtures for every later phase's tests.
+3. **Per-target campaign table view (read path)** — lowest-risk UI increment; surfaces value immediately (the actual replacement for the spreadsheet), and is a natural place to build/test the PII-gating template tag before the submission form needs the same status vocabulary.
+4. **Submission form + approval queue (write path)** — depends on the model (step 1) and benefits from having something real to look at already (step 3); this is the step where `status` transitions and the staff-gated queue view get built.
+5. **Calendar projection wiring** — depends on approval existing (step 4) since the trigger is "status transitions to approved-and-schedulable"; low risk because it's pure reuse of `insert_or_create_calendar_event`.
+6. **Coverage-gap analysis** — explicitly scoped last per the milestone context ("so it can defer to v2.1 if needed"); depends on steps 1 and 3 for data, and needs its own phase-specific research spike to settle how much of "observability" beyond per-site dark windows is worth building without touching `ephem_utils`.
 
 ## Integration Points
 
 ### External Services
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| ESO Phase 2 API (`p2api`, wrapped by `tom_eso.eso_api.ESOAPI`) | Direct API client call, credentialed per-user (`ESOProfile`) or via `FACILITIES['ESO']` settings defaults | No timeout/retry discipline exists in `ESOAPI` today, unlike LCO's `_resolve_placement_block` (`_API_TIMEOUT_SECONDS = 10`, single attempt) — any new ESO sync code should add the same explicit-timeout, no-retry, never-log-response-body discipline (SYNC-08/SYNC-09 precedent) since `p2api.p2api.P2Error` messages can carry response content, same risk class as LCO's `ImproperCredentialsException`/`forms.ValidationError`. |
-| `Observatory` model (this repo) | ORM lookup by MPC obscode, mirroring `telescope_runs.get_site()` | Needs a new Paranal (`309`) record; La Silla (`809`) already exists and is already used by Stage 1/2's `NTT` classical-schedule path — do not conflate ESO *queue* sync (this milestone) with ESO/NTT *classical* scheduling (`load_telescope_runs`, already out of scope per `.planning/PROJECT.md`). |
+None new. Unlike v1.7's ESO spike, this milestone introduces no new external API dependency — the CSV import is a one-off local file read, and the submission/approval flow is entirely in-app.
 
 ### Internal Boundaries
 
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
-| `sync_eso_observation_calendar.py` ↔ `calendar_utils.insert_or_create_calendar_event()` | Direct function call, `(lookup, fields)` dicts | Unchanged contract — no modification needed to this function for ESO. |
-| `sync_eso_observation_calendar.py` ↔ ESO P2 API or (Bridge option) `ObservationRecord` | Either a direct `ESOAPI` call per run/OB, or an ORM query, depending on Phase 0's outcome | This is the boundary that doesn't exist yet in a working form anywhere in the codebase — it's the actual unknown this milestone must resolve, not a known integration to wire up. |
-| `sync_eso_observation_calendar.py` ↔ `CalendarEventTelescopeLabel` | `update_or_create`, same call shape as LCO's | Only wire this up if Phase 0 finds a genuine verified-vs-fallback telescope resolution for ESO; otherwise leave ESO events with no sidecar row (falls back to "verified" by the template's documented default, same as `load_telescope_runs` events). |
-
-## Anti-Patterns to avoid in this integration
-
-### Anti-Pattern 1: Assuming ESO's `ObservationRecord` shape mirrors LCO's
-
-**What people would do:** copy `sync_lco_observation_calendar.py`, swap `facility='LCO'` for `facility='ESO'`, and assume `record.parameters` has some ESO-flavored equivalent of `c_N_instrument_type`/`proposal`/`start`/`end`.
-**Why it's wrong:** verified directly against the installed plugin — no code path in this codebase or in `tom_eso` ever populates an ESO `ObservationRecord`. There is nothing to copy the pattern onto.
-**Do this instead:** run the Phase-0 spike against the real ESO P2 API first; let its actual JSON shape (not LCO's) drive the field-extraction design, the same way Phase 6 (v1.3) let real LCO `c_N_*` shapes replace the v1.2 flat-key assumption.
-
-### Anti-Pattern 2: Reusing `_coarse_telescope_label`/`SITE_TELESCOPE_MAP` for ESO by adding a third facility branch
-
-**What people would do:** extend `_coarse_telescope_label(instrument_type, facility_name)` with an `if facility_name.upper() == 'ESO': ...` branch, parallel to the existing SOAR special-case.
-**Why it's wrong:** that function's whole design is keyed on LCO's aperture-class-prefixed `instrument_type` strings (`'1M0-SCICAM-SINISTRO'`) and SOAR's single-site/single-class shortcut. ESO instrument codes (UVES/X-shooter/FORS2/etc.) carry no aperture-class prefix and VLT is not a single-aperture-class site (four UTs are the same aperture class, but the plugin doesn't expose which UT anyway) — forcing ESO through this function would produce meaningless labels, not a genuine reuse.
-**Do this instead:** if ESO needs a coarse/fallback label at all, give it its own small ESO-specific helper once Phase 0 clarifies what data is actually available, rather than overloading a function whose docstring and tests are explicitly scoped to LCO/SOAR vocabulary.
+| `campaign_views.py` ↔ `CampaignRun` | Direct ORM (`objects.filter(target=...)`, `objects.create(...)`) | Standard Django CBV pattern, same shape as `MakeEphemerisView`/`CreateObservatory`. |
+| `campaign_views.py` (approval transition) ↔ `calendar_utils.insert_or_create_calendar_event()` | Direct function call, `(lookup, fields)` dicts | Unchanged contract — no modification needed to this function for campaign runs; same reuse pattern already proven across LCO/SOAR/Gemini. |
+| `import_campaign_csv` ↔ `tom_targets.Target` | ORM lookup by name/designation, skip-and-log on `Target.DoesNotExist` | Mirrors `load_telescope_runs.py`'s per-line `(ValueError, Observatory.DoesNotExist)` skip-and-log discipline (D-02 precedent) — a malformed/unmatched CSV row should not abort the whole import. |
+| Coverage-gap view ↔ `telescope_runs.sun_event()`/`get_site()` | Direct function call | Must not transitively import `ephem_utils`/`views.py` — see Anti-Pattern 1. |
 
 ## Sources
 
-- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/eso.py` (installed `tom-eso==0.2.4`) — read directly, HIGH confidence (primary source, this exact installed version).
-- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/eso_api.py` — read directly, HIGH confidence.
-- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_observations/views.py` (`ObservationCreateView.form_valid`) — read directly via `./manage.py shell`, HIGH confidence.
-- Live dev DB queries via `./manage.py shell` (`ObservationRecord.objects.count()`, `Observatory.objects.all()`) — HIGH confidence, but a point-in-time snapshot of this specific dev DB (2026-07-01); do not assume it matches production.
-- `solsys_code/calendar_utils.py`, `solsys_code/management/commands/sync_lco_observation_calendar.py`, `solsys_code/models.py`, `solsys_code/telescope_runs.py` — this repo's existing, shipped implementation (v1.0-v1.6), HIGH confidence.
-- `.planning/PROJECT.md` — project history/decision log, HIGH confidence as a record of this project's own past decisions (note: its "real LCO records pk=1/pk=2" reference no longer matches the current, reset dev DB — flagged above).
+- `tom_calendar/models.py` (installed package, read directly) — confirms `CalendarEvent` has no `Target` FK, only `target_list`
+- `tom_calendar/apps.py` (installed package, read directly) — confirms `nav_items()` hook shape
+- `solsys_code/apps.py`, `solsys_code/models.py`, `solsys_code/calendar_utils.py` (this repo, read directly) — existing integration-hook, sidecar-model, and no-churn-projection patterns
+- `src/fomo/urls.py` (this repo, read directly) — confirms `calendar_urls.py` inclusion pattern to mirror for `campaign_urls.py`
+- `src/fomo/settings.py` (this repo, read directly) — `AUTH_STRATEGY='READ_ONLY'`, `TARGET_PERMISSIONS_ONLY=True`, `TARGET_DEFAULT_PERMISSION='OPEN'`, `guardian` installation and `ObjectPermissionBackend` registration confirmed
+- `solsys_code/management/commands/load_telescope_runs.py` (this repo, read directly) — CLI ingest structure to mirror for `import_campaign_csv`
+- `.planning/PROJECT.md`, `.planning/seeds/target-linked-run-submission-form.md` (this repo) — milestone scope, field inventory from the real 3I/ATLAS sheet, open questions
+- `CLAUDE.md` (this repo) — SPICE kernel download side effect of importing `ephem_utils`
+- [Model Approval Workflow – Django (B2's Tech Blog)](https://b2techblog.wordpress.com/2020/09/08/model-approval-workflow-django/) — general single-status-field moderation pattern, MEDIUM confidence (not project-specific)
+- [django-moderation (PyPI)](https://pypi.org/project/django-moderation/) — corroborates status-field-with-admin-actions as the common baseline; not recommended for adoption here (overkill for one model type)
 
 ---
-*Architecture research for: ESO/VLT ObservationRecord calendar sync integration (FOMO v1.7)*
-*Researched: 2026-07-01*
+*Architecture research for: Campaign coordination for rare/urgent Solar System objects (FOMO v2.0)*
+*Researched: 2026-07-02*

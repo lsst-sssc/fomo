@@ -1,163 +1,165 @@
-# Project Research Summary
+# Research Summary — FOMO v2.0 Campaign Coordination
 
-**Project:** FOMO v1.7 — ESO/VLT ObservationRecord Calendar Sync (Stage 4)
-**Domain:** Django/TOM Toolkit calendar integration with an incomplete ESO facility plugin
-**Researched:** 2026-07-01
-**Confidence:** HIGH for verified facts (code inspection, DB queries); MEDIUM for feasibility (depends on unresolved blockers)
+**Project:** Campaign Coordination for Rare/Urgent Solar System Objects (FOMO v2.0)
+**Domain:** Django + TOM Toolkit web app — adding campaign-coordination data model, community submission, admin approval, and coverage-gap analysis
+**Researched:** 2026-07-02
+**Confidence:** HIGH
 
 ## Executive Summary
 
-ESO/VLT calendar sync appears straightforward on the surface — add `sync_eso_observation_calendar` following the proven LCO/Gemini pattern — but research has uncovered a critical blocker that reshapes the entire milestone: **the installed `tom_eso==0.2.4` plugin does not implement observation creation, status lookups, or URL generation at all, and there is currently no working path for `ObservationRecord(facility='ESO')` rows to exist in this codebase.** This is not a "not yet implemented" gap; it is a hardcoded limitation in the library (`submit_observation()` unconditionally returns an empty ID list, both `get_observation_status()` and `get_observation_url()` raise `NotImplementedError`, and `get_terminal_observing_states()` returns empty). Direct inspection of `tom_eso/eso.py`, queries against this repo's current database (zero ESO records), and verification of `settings.py` (no `FACILITIES['ESO']` entry) confirm this is not an assumption.
+FOMO v2.0 adds campaign coordination to replace an ad-hoc Google Sheet (3I/ATLAS reference) with a proper data model and workflow. A rare interstellar object passes through the inner solar system once; dozens of observatory teams want to observe it; today they coordinate via a link-shared spreadsheet. FOMO's solution: a `CampaignRun` model tracking observing runs per target, a community submission form with admin approval, per-target campaign table view surfacing what's already claimed, and (as a stretch goal) ephemeris-aware coverage-gap analysis showing unobserved nights. The recommended approach reuses already-installed Django tooling (`django-tables2`, `django-crispy-forms`, `pandas`, `astropy`) — no new packages needed — and mirrors established patterns in this codebase (sidecar models, CSV import commands, template-tag display logic, calendar projection). The key risks are two-fold: (1) silent PII exposure on an `AUTH_STRATEGY='READ_ONLY'` public site (must gate contact fields explicitly), and (2) messy real-world CSV data from the sheet (must validate schema against the actual file before building UI on top, echoing a v1.2→v1.3 lesson already learned the hard way).
 
-**Recommended approach:** Restructure this as a two-phase discovery:
-1. **Phase 0 (Spike):** Confirm how/whether ESO `ObservationRecord` rows can be created at all, gather real P2 API data shapes, and decide between "Bridge" (create records from P2 API) vs. "Bypass" (read directly from P2 API, skip `ObservationRecord`). This is prerequisite to meaningful Phase 1 planning.
-2. **Phase 1+ (Implementation):** Build the sync command and supporting infrastructure based on Phase 0's findings about data sources and credential handling.
-
-**Key risks:** Shipping code against imagined fixture shapes that don't match real ESO P2 data (repeating the v1.2 flat-`instrument_type` and v1.3 `SITE_TELESCOPE_MAP` gaps). Assuming credential patterns work the same for headless management commands as for interactive web sessions (they do not — ESO's are session-bound encrypted keys). Assuming terminal/failure status vocabularies transfer across facilities (they do not — ESO's 12-letter codes are completely different from LCO's/Gemini's).
+The milestone is achievable as five moderately-scoped phases: model + import (validation gate), read path (table), write path (form + queue), calendar integration, and gap analysis. The first three are core to launch; gap analysis is explicitly scopable to v2.1 if time runs short, and the research flags this phase as needing its own spike (to clarify whether per-site dark-window gaps or true target-altitude ephemeris is worth the `ephem_utils` import cost).
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new dependencies are required — `tom-eso==0.2.4`, `p2api==1.0.10`, and `tom_observations` are already installed and configured in `INSTALLED_APPS` / `TOM_FACILITY_CLASSES` (`src/fomo/settings.py`). This milestone is pure application code (a new management command and supporting helpers).
+**No new dependencies required.** Every core feature is buildable with Django 5.2, `django-tables2` 3.0, `django-filter` 24.3, `django-crispy-forms` 2.4, `pandas` 2.3, `astropy` 6.1, and standard library—all already installed and proven across this codebase. The one nuance: `coverage-gap analysis` should use `telescope_runs.py`'s lightweight `sun_event()`/`get_site()` helpers, **not** `ephem_utils`, which downloads ~1.6 GB of SPICE kernels at import time and would make the campaign table view unacceptably slow (confirmed in CLAUDE.md; see Pitfalls below).
 
 **Core technologies:**
-- **`tom-eso==0.2.4` and `p2api==1.0.10`** — ESO Phase 2 facility plugin (already installed). `tom_eso.eso_api.ESOAPI` wraps `p2api.ApiConnection` and is the only documented entry point to OB metadata. Note: does NOT implement the standard TOM Toolkit `get_observation_status()` / `get_observation_url()` methods; if OB status/URLs are needed, they must be extracted from raw `p2api` responses directly.
-- **`tom_observations.models.ObservationRecord`** — the model this sync reads from (or should read from, once the creation gap is resolved). Facilities-agnostic; no ESO-specific fields exist.
-- **`solsys_code.calendar_utils.insert_or_create_calendar_event()`** — idempotent no-churn helper, reusable unchanged. Already proven to generalize across LCO and Gemini; Gemini's synthetic key approach (`GEM:{prog}/{observation_id}`) is the precedent for ESO (since `get_observation_url()` raises `NotImplementedError`).
-- **`Observatory` model (this repo)** — site-coordinate source, following this project's established convention. Current database has La Silla (`809`) but **no Cerro Paranal record** (obscode `309` missing). Must be created for site resolution.
+- **Django 5.2 + Django ORM** — `CampaignRun` model (target FK, status field, PII contact columns) and migrations; standard CBV pattern for forms/views
+- **django-tables2 3.0** — per-target campaign table (sortable/paginated, no custom rendering framework needed)
+- **django-crispy-forms 2.4 + crispy-bootstrap4** — community submission form, matching existing ephemeris/observatory form styling
+- **pandas 2.3** — robust CSV parsing for the one-off 3I bootstrap import (handles Sheets export quirks: BOM, blank rows, NaN)
+- **astropy 6.1** — sun-event and dark-window calculations (coverage-gap baseline, already used in `telescope_runs.py`)
 
 ### Expected Features
 
-**Must have for v1.7 launch (table stakes):**
-- `sync_eso_observation_calendar` management command — one `CalendarEvent` per `ObservationRecord(facility='ESO')`, mirroring LCO/Gemini pattern.
-- Idempotent, no-churn create-or-update keyed on a **synthetic string** (e.g., `ESO:{p2_environment}/{obId}`), since `ESOFacility.get_observation_url()` raises `NotImplementedError` and cannot be used as a key.
-- Submission-time window banner (single state, Gemini-style) derived from OB's observing-run validity dates or PI-set absolute-time constraints. ESO Service Mode has no advance per-OB schedule (unlike LCO), so the honest model is "OB exists and is scheduled for this run period," not LCO's "queued→placed→terminal" state machine.
-- **Resolution of the `ObservationRecord(facility='ESO')` creation gap** — explicitly scoped as a Phase 0 spike/decision, not assumed to be auto-solvable by the command itself.
+**Must have (table stakes):**
+- `CampaignRun` data model — target FK, telescope/instrument/site, obs date + UT range, status (planned→observed→reduced→published), contact person/email (PII-guarded), comments, outcome, publication plans
+- One-off CSV bootstrap import of the real 3I/ATLAS sheet — essential to validate schema against real messy data before UI is built
+- Per-target campaign table view — the actual spreadsheet-replacement deliverable (coordinator sees all runs for one target)
+- Community submission form — web form replaces direct sheet editing; Target mandatory, everything else optional/free-text
+- Admin approval gate — submissions invisible until approved; prevents spam/errors polluting public view
 
-**Should have (differentiators, v1.x after validation):**
-- Deep link to ESO's Run Progress page (no FOMO re-implementation; just a hyperlink since Run Progress is web-only and requires ESO login).
-- Absolute-time-constraint ingestion for the rare OB that has one (tighter window than run-period fallback).
-- Telescope/instrument derived from run metadata (already exposed by `ESOAPI.observing_run_choices()`).
+**Should have (competitive differentiators):**
+- Ephemeris-aware coverage-gap analysis — the key value-add over the original sheet; surfaces "observable but unclaimed dates" (reuses `telescope_runs.py`, doesn't touch `ephem_utils`)
+- "Open to collaboration?" flag — filterable in table; lets searchers find runs that want help
+- Admin notification on new submission — prevents queue from silently filling unmonitored
+- Self-service approval bypass for trusted PIs — reduces admin bottleneck for known contributors (requires submitter-trust matching, flagged as open design question)
 
-**Defer (v2+, blocked by unresolved infrastructure):**
-- Real per-night execution status (`[EXECUTED]`/`[MUST REPEAT]`/`[FAILED]` prefixes, mirroring LCO's terminal-state behavior) — requires (a) resolving which night(s) to poll per OB, (b) a service-account credential story for headless commands (doesn't exist for ESO today, only per-user `ESOProfile`), and (c) mapping ESO's 12-letter status codes to a meaningful prefix scheme.
-- VLT UT1-4 disambiguation — unknown whether the P2 API exposes per-unit-telescope assignment at all outside of ESO's internal short-term scheduler (unverified; Phase 0 spike required).
+**Defer to v2.1+ or anti-features:**
+- Full data-file/product upload (ExoFOP-style archive) — turns FOMO into data-storage system; 3I sheet is metadata-only
+- Generic "any facility can push status via bot" layer (TNS-style) — campaign runs are the *non-synced-facility* case
+- Booking/locking coverage gaps as reservable slots — coverage-gap is advisory display, not a reservation system
+- Heavyweight third-party moderation package — single `status` field + Django admin action sufficient
 
 ### Architecture Approach
 
-The existing LCO/Gemini sync-command architecture is fundamentally built on the assumption that `ObservationRecord` rows already exist (created by the normal TOM submission flow) and that the facility provides `get_observation_status()` / `get_observation_url()` as a uniform interface. **For ESO, neither assumption holds.** `ESOFacility.submit_observation()` returns an empty ID list (so no records are ever created by the UI submission flow), and both status/URL methods raise `NotImplementedError`. This forces a choice between two structurally different approaches, both requiring Phase 0 investigation:
+`CampaignRun` is a first-class model (not a sidecar on `CalendarEvent`, which has no `Target` FK) with an optional link to `CalendarEvent` for calendar surfacing. When approved **and** telescope/dates are present, the view calls `insert_or_create_calendar_event()` (reused from LCO/Gemini sync commands) with a namespaced key (`CAMPAIGN:{pk}`) to project the run onto the calendar without risking collisions with synced events. The feature reuses existing Django patterns throughout: sidecar-model precedent from `CalendarEventTelescopeLabel`, template-tag display logic from `calendar_display_extras.py`, CSV ingest structure from `load_telescope_runs`, and PII gating via view-level context filtering + template tags (avoiding `django-guardian`, which is not needed for a binary staff/non-staff split).
 
-1. **Bridge option:** A separate command or initial step that reads from the ESO P2 API directly, creates `ObservationRecord` rows by hand (working around the `submit_observation()` limitation), then runs the standard LCO/Gemini sync pattern on top of those rows. Keeps the downstream pattern identical; adds a new responsibility (record creation from external API) neither existing command has.
-2. **Bypass option:** `sync_eso_observation_calendar` reads directly from the P2 API (via `ESOAPI`/`p2api`, walking `getRuns()` → `getItems()` → `getOB()`), builds `CalendarEvent`s straight from OB data, keyed on P2 identifiers (e.g., `ESO:{p2_environment}/{obId}`), never touching `ObservationRecord` at all. Bigger philosophical break from LCO/Gemini precedent but matches what the plugin actually supports today.
+**Major components:**
+1. `CampaignRun` model — persistent storage, target FK, status lifecycle, PII fields
+2. `campaign_views.py` (CBV + forms) — per-target table (read), submission form + approval queue (write), optional coverage-gap view
+3. `import_campaign_csv` command — one-off CLI ingest, skip-and-log error handling, validates model schema against real data
+4. `campaign_extras.py` (template tags) — PII visibility gate, status→badge rendering
+5. Calendar projection trigger — approval view calls `insert_or_create_calendar_event()` with `CAMPAIGN:` namespace
+6. `apps.py` hooks — target-detail "Campaign Runs" button + navbar "Campaigns" item
 
-**Reusable components (unchanged):**
-- `insert_or_create_calendar_event()` — facility-agnostic, handles the idempotent create-or-update; no modifications needed.
-- `CalendarEventTelescopeLabel` sidecar model — structure is reusable; wiring depends on whether Phase 0 finds a verified-vs-fallback telescope resolution for ESO.
-- Counter/summary-line pattern from `sync_lco_observation_calendar.handle()`.
+### Critical Pitfalls to Avoid
 
-### Critical Pitfalls
+1. **PII in demo-notebook output** — The `import_campaign_csv` command will receive a paired demo notebook per CLAUDE.md convention, but that notebook's output cells will contain real contact names/emails from the 3I sheet. Decide upfront: redact the notebook's displayed output, use a synthetic/fake-data fixture instead, or get explicit exception-to-convention approval. Do not commit real people's emails into git history by default.
 
-1. **`ESOFacility.get_observation_status()` and `get_observation_url()` both raise `NotImplementedError`** — code written assuming these methods work (copying from LCO) will crash at runtime. Avoid by: building idempotency keys by hand (Gemini's `GEM:...` pattern is precedent), confirming via source inspection before relying on either method, never attempting to populate `record.status` from a facility method for ESO.
+2. **PII exposure on the campaign table** — FOMO's `AUTH_STRATEGY='READ_ONLY'` means unauthenticated users can view target pages. Unless contact email/name are explicitly excluded from the view's context for anonymous requests *and* verified by an anonymous-client test, they will be visible to any web crawler. Gating must happen at the view layer, not just in the template.
 
-2. **There is currently no working path for `ObservationRecord(facility='ESO')` rows to exist in this codebase** — `ESOFacility.submit_observation()` unconditionally returns an empty list, so the standard "submit observation via TOM UI" flow never creates a record. This dev DB has zero ESO records. Avoid by: explicitly resolving how/whether ESO records are meant to be created (Bridge, Bypass, or external ingest) before Phase 1 begins, obtaining operator confirmation or ESO-documentation-sourced sample P2 OB shapes before finalizing field-extraction code.
+3. **Collision with existing calendar sync commands** — `insert_or_create_calendar_event()` is shared by LCO, Gemini, and classical-schedule sync commands, each with carefully-chosen lookup keys. If campaign code writes to `CalendarEvent` directly or reuses a key scheme, re-approval or concurrent syncs will create duplicates. Route through the helper with a distinctly-namespaced key (`CAMPAIGN:{pk}`).
 
-3. **ESO credentials are per-user session-bound encrypted keys, not static facility API keys** — `ESOProfile` models require an active Django session for decryption. For headless management commands, decryption fails silently (`get_encrypted_field` returns `None`; no exception raised), and FOMO's `settings.py` currently has no `FACILITIES['ESO']` fallback. Avoid by: adding `FACILITIES['ESO']` plaintext-credential entry to `settings.py`, never relying on `ESOProfile` + session decryption for background jobs, applying credential-scrubbing discipline to prevent password leakage into logs.
+4. **Transitive SPICE import cost** — Importing `solsys_code.ephem_utils` downloads ~1.6 GB of SPICE kernels at module load. Coverage-gap analysis should use `telescope_runs.py` (lightweight, `astropy`-only) for per-site dark windows. If full target-altitude ephemeris becomes unavoidable later, import `ephem_utils` lazily inside the function, not at module scope.
 
-4. **ESO's terminal/failure-state vocabulary is completely different from LCO's and Gemini's** — ESO Phase 2 OB status is a 12-letter code set (`P`/`D`/`–`/`R`/`+`/`C`/`X`/`M`/`A`/`F`/`K`/`T`). Copying LCO's `_FAILURE_PREFIX_BY_STATUS` dict produces a fail-open bug (never matches). Avoid by: building a dedicated ESO status→prefix mapping from real P2 codes, adding regression tests asserting no LCO/Gemini constants appear in ESO code, treating this as entirely new design.
+5. **Messy CSV import schema mismatches** — The real 3I sheet has free-text date formats, status vocab that won't cleanly map to lifecycle states, multi-observer emails comma-separated in one cell, and (typical of Sheets exports) blank header rows or merged cells. Download and inspect the real CSV first; build the importer with per-row try/except that logs and skips on unparseable rows; use `pandas.to_datetime(..., errors='coerce')` for date tolerance.
 
-5. **Single fixed site assumption misses ESO's Paranal/La Silla split and VLT UT1-4 granularity** — `ESOFacility.get_observing_sites()` hardcodes exactly two sites with `# TODO` comment. ESO's credentials also split by environment (`production` for Paranal, `production_lasilla` for La Silla). Avoid by: confirming with operator whether v1.7 syncs Paranal only, La Silla only, or both, extracting actual telescope/UT from real per-record data, not reusing `SITE_TELESCOPE_MAP`'s LCO pattern.
+6. **Approval-queue race conditions** — Two admins double-clicking "approve" on the same pending submission can create duplicates. Use `CampaignRun.objects.filter(pk=pk, status='pending').update(status='approved')` (atomic conditional update) or `select_for_update()` inside `transaction.atomic()`. Write a test that calls approval twice on the same record and asserts the second is a no-op.
+
+7. **Silent rejection + spam exposure** — The public submission form needs at least a honeypot field to deflect cheap spam traffic. Admin notification (a simple email) prevents the queue from silently filling unmonitored. Rejected submitters should get *some* visibility (private status-check link) so they can tell a submission was actually seen.
 
 ## Implications for Roadmap
 
-Research indicates this milestone requires a **three-phase structure** (not the two-phase "plan then execute" normally suggested):
+### Suggested Phase Structure
 
-### Phase 0: Spike — Data Source & Credential Investigation
-**Rationale:** The fundamental question "how do ESO `ObservationRecord` rows come to exist in this codebase, and in what shape?" cannot be answered from documentation alone. The installed plugin actively prevents the normal TOM submission path from creating records.
+**Phase 1: `CampaignRun` Data Model + Bootstrap CSV Import**
+- **Rationale:** Everything downstream depends on the model; CSV import validates schema against real data before any UI is built
+- **Delivers:** `CampaignRun` model with all fields; migration; `import_campaign_csv` management command; real data fixtures from the 3I sheet
+- **Avoids:** Pitfall 5 (messy CSV) — must include explicit real-file inspection + dry-run/skip-and-log reporting
+- **Design decision:** Resolve Pitfall 1 (demo-notebook PII strategy) in phase discussion before code starts
 
-**Delivers:**
-- Confirmed mechanism for ESO `ObservationRecord` creation (or explicit scope decision for Bridge/Bypass).
-- Real sample ESO P2 API response shapes (OB JSON, run JSON) — not guessed patterns.
-- Confirmation of which ESO sites (Paranal, La Silla, both?) are in v1.7 scope.
-- Clarity on whether OB-level telescope/UT assignment is exposed by the P2 API.
+**Phase 2: Per-Target Campaign Table View (Read Path)**
+- **Rationale:** Lowest-risk UI; surfaces value immediately (spreadsheet replacement); good place to test PII-gating template tag before submission form needs it
+- **Delivers:** Per-target campaign table (sortable/paginated, `django-tables2`), linked from target-detail page; contact email gated to staff-only via template tag and view-level context filtering
+- **Avoids:** Pitfall 2 (PII exposure) — contact email must be excluded from view context for anonymous requests and verified by anonymous-client test
+- **Research flags:** None; `django-tables2` established. Verify PII-gating strategy in phase discussion if Pitfall 2 policy not already resolved.
 
-**Avoids pitfalls:** 1 (status access), 2 (idempotency key), 3 (credentials), 6 (fixture shape).
+**Phase 3: Submission Form + Approval Queue (Write Path)**
+- **Rationale:** Depends on model (Phase 1); benefits from having a live table (Phase 2) so admins can see new submissions appear
+- **Delivers:** Community submission form (Target mandatory, rest optional); approval-queue view (staff-only); Django admin action for bulk approve; admin notification email; honeypot field for spam prevention
+- **Avoids:** Pitfall 6 (race conditions) — approval must use conditional update, tested with double-approval; Pitfall 7 (silent rejection + spam) — honeypot + notification must be present in v1
+- **Research flags:** **Moderate** — admin notification and honeypot are straightforward; confirm PII-policy if not settled in Phase 2. Submitter status-check is optional but recommended.
 
-### Phase 1: Design & Setup — Bridge/Bypass Decision, Credential Config, Observatory/Helpers
-**Rationale:** Once Phase 0 answers "what data shape and what credential approach," Phase 1 makes the design-decision tasks and infrastructure changes that Phase 2's implementation depends on.
+**Phase 4: Calendar Projection Wiring**
+- **Rationale:** Depends on approval existing (Phase 3); low risk because it reuses `insert_or_create_calendar_event()` unchanged
+- **Delivers:** When a `CampaignRun` transitions to `APPROVED` **and** has telescope + date range, create/update paired `CalendarEvent` with key `CAMPAIGN:{campaign_run.pk}`
+- **Avoids:** Pitfall 3 (calendar collisions) — no direct `CalendarEvent.objects.create()`; must use shared helper with distinct namespace
+- **Research flags:** None; reuse pattern proven across LCO/Gemini/classical commands. Optional polish if time short.
 
-**Delivers:**
-- `FACILITIES['ESO']` entry in `settings.py` with headless-safe credentials.
-- Cerro Paranal `Observatory` record (obscode `309`).
-- ESO-specific helper functions designed against real P2 data from Phase 0.
-- SPEC.md design document clarifying Bridge vs. Bypass choice.
-- Credential-scrubbing test setup.
-
-**Avoids pitfalls:** 3 (credentials), 4 (site/telescope), 5 (status codes).
-
-### Phase 2: Implementation — `sync_eso_observation_calendar` Command & Tests
-**Rationale:** With Phase 0's data shapes and Phase 1's infrastructure in place, the command is a straightforward adaptation of LCO/Gemini pattern — constrained by real ESO data shapes.
-
-**Delivers:**
-- `sync_eso_observation_calendar.py` management command.
-- Unit/integration tests against fixture ESO data from Phase 0.
-- Paired demo notebook (`docs/notebooks/pre_executed/sync_eso_observation_calendar_demo.ipynb`), scoped into `files_modified` from the start.
-- `CalendarEventTelescopeLabel` wiring (if Phase 0/1 found verified-vs-fallback telescope resolution).
-
-**Avoids pitfalls:** 1 (status access), 2 (idempotency), 6 (fixture shape).
+**Phase 5: Ephemeris-Aware Coverage-Gap Analysis (Stretch Goal / Deferrable to v2.1)**
+- **Rationale:** Scoped last per milestone context ("can defer to v2.1 if needed"); depends on working data model + table view
+- **Delivers:** View showing observable-but-unclaimed dates for a target + site; reuses `telescope_runs.sun_event()`/`get_site()` for dark-window times; cached or explicitly-triggered (not computed inline)
+- **Avoids:** Pitfall 4 (SPICE import) — must **not** import `ephem_utils` at module scope; never compute inline; explicit user action or cached results only
+- **Research flags:** **HIGH — requires dedicated research spike.** Key question: is per-site dark-window coverage sufficient for v2.0, or does the feature need true target-altitude/airmass filtering (which pulls in `ephem_utils`)? This decision gates whether gap analysis ships in v2.0 or defers to v2.1.
 
 ### Phase Ordering Rationale
 
-- **Phase 0 (spike) is mandatory, not optional:** Unlike Gemini's Phase 10 (records already existed), ESO's Phase 0 must answer whether records can be created at all. Installed plugin actively prevents normal creation flow.
-- **Phase 1 (design) before Phase 2 (command):** Bridge vs. Bypass choice, credential strategy, and site/telescope sourcing reshape Phase 2's implementation significantly. Scope separately so they don't block command coding.
-- **Why Phase 2 is straightforward after Phase 0 and Phase 1:** Data shapes confirmed, infrastructure in place, tests grounded in real data (avoids v1.2/v1.3 fixture-shape pitfalls).
+Model + import first (no external consumers, cheap iteration); read path before write path (table is simpler, admins see data working before public form); write path before calendar (approval workflow must exist before projection is triggered); calendar before coverage-gap (gap analysis needs both claimed and observable sides stable). Gap analysis is last and deferrable per scope context.
 
 ### Research Flags
 
-**Phases requiring deeper research during planning:**
-- **Phase 0 (Spike):** MANDATORY. Resolves `ObservationRecord` creation/data-sourcing question through operator confirmation and P2 API exploration. Gating dependency.
-- **Phase 1 (Design):** Moderate research — credential sourcing, site/telescope scope, Bridge vs. Bypass implications. Builds on Phase 0 findings.
-
-**Phases with standard patterns (minimal additional research):**
-- **Phase 2 (Implementation):** Standard pattern once Phase 0/1 prerequisites met. Command closely parallels LCO/Gemini; pitfalls well-documented; minimal new research.
+| Phase | Flag | Reason |
+|-------|------|--------|
+| 1 (Model + Import) | Design decision: Pitfall 1 (demo-notebook PII strategy) | Decide before code starts whether notebook redacts PII, uses synthetic fixture, or gets convention exception |
+| 2 (Table View) | Policy confirmation: Pitfall 2 (PII visibility gate) | Confirm auth-gated vs. opt-in vs. store-never-render approach if not settled in Phase 1 |
+| 3 (Form + Queue) | Best-practice: Pitfalls 6 + 7 (race conditions, spam) | Conditional-update approval + honeypot + notification are straightforward but must be in v1 |
+| 4 (Calendar Integration) | None | Established reuse pattern; no research needed |
+| 5 (Coverage-Gap Analysis) | **HIGH PRIORITY SPIKE:** Pitfall 4 (SPICE cost) | Dark windows only vs. true target-altitude filtering? This settles whether gap analysis is v2.0 or v2.1 scope |
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| **Stack** | **HIGH** | `tom-eso==0.2.4`, `p2api==1.0.10` read directly from installed packages. Limitation verified by source inspection. |
-| **Features** | **MEDIUM** | Table-stakes features clear (sync command, idempotent key, single-state banner). Blocking dependency (ObservationRecord creation) confirmed but unresolved. Differentiators viable but deferred. |
-| **Architecture** | **MEDIUM-HIGH** | Existing LCO/Gemini pattern is HIGH confidence. ESO integration is MEDIUM because data source (Bridge vs. Bypass) is unresolved. Pitfalls well-documented. |
-| **Pitfalls** | **HIGH** | Five critical pitfalls identified with root-cause analysis and avoidance strategies. All verified by source inspection or documented ESO API behavior. |
-
-**Overall confidence: MEDIUM**
-
-Research has successfully identified fundamental blockers and provided clear avoidance strategies. However, Phase 0 (spike) must precede Phase 1 planning. Once Phase 0 confirms data sourcing and credential strategy, roadmap can confidently structure Phase 1 and Phase 2.
+| **Stack** | HIGH | All packages already installed and verified (`pip show` 2026-07-02). No incompatibilities. No new packages needed. |
+| **Features** | MEDIUM-HIGH | Must-have features sourced from real 3I sheet's field inventory (HIGH). Differentiators are solid patterns (MEDIUM) but some are open policy questions needing phase discussion. |
+| **Architecture** | HIGH | Core decisions sourced from direct code inspection. `CalendarEvent` has no `Target` FK confirmed by reading source. No assumptions. |
+| **Pitfalls** | HIGH | Facts sourced from direct code inspection (CLAUDE.md, SPICE cost, OPEN/READ_ONLY settings, calendar patterns, v1.2 CSV history) or established Django best-practices consistent across sources. |
+| **Overall** | **HIGH** | Solid research with clear dependencies. Main unknowns (PII policy, coverage-gap altitude scope) are flagged as phase-discussion decisions, not research gaps. |
 
 ### Gaps to Address
 
-1. **`ObservationRecord(facility='ESO')` creation path:** Currently unresolved. Phase 0 must confirm whether records are created by planned-but-unwritten import, via Bridge/Bypass option, or deferred entirely.
-2. **Real P2 API response shapes:** Research could not inspect live P2 API (no active ESO credentials in dev environment). Phase 0 must obtain real samples.
-3. **Telescope/UT assignment in P2 API:** Unknown whether `getOB()` includes which UT an OB is scheduled on, or if visible only in ESO's internal scheduler. Phase 0 must inspect real response.
-4. **Absolute-time-constraint ingestion:** Rare feature mentioned but not analyzed in depth. Phase 0 should note whether it's worth implementing for v1.7 or v1.x follow-up.
-5. **Multi-site credential sourcing:** If Phase 0 confirms both Paranal + La Silla should be synced, Phase 1 must design two-credential-configuration dispatch (split by `p2_environment`).
+1. **PII-display policy** — Exact approach for contact email/name visibility. Should be resolved in Phase 1 or Phase 2 planning. Recommend default: auth-gated (staff only), with opt-in checkbox on submission form as future enhancement.
+
+2. **Submitter-trust criteria for PI approval bypass** — If self-service approval is scoped into v2.0, what matches a submitter to their credentials? Only needed if this optional feature is in scope.
+
+3. **Coverage-gap altitude scope** — Is per-site dark-window coverage sufficient for v2.0, or does the feature require true target RA/Dec + airmass filtering? Phase 5's research spike settles this.
+
+4. **Demo-notebook redaction strategy** — Before bootstrap-import phase is coded, resolve whether notebook will redact/synthesize PII columns, use synthetic fixtures, or get convention exception documented in CLAUDE.md.
 
 ## Sources
 
-### Primary (HIGH confidence — read directly from source)
-- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/tom_eso/eso.py` (installed `tom-eso==0.2.4`)
-- `/home/tlister/venv/fomo_venv/lib/python3.12/site-packages/p2api/p2api.py` (installed `p2api==1.0.10`)
-- `src/fomo/settings.py` (this repo) — confirmed `FACILITIES` lacks `'ESO'` key
-- Direct dev DB query — `ObservationRecord.objects.count()` = 0; no Paranal `Observatory` record
-- Existing sync commands (`sync_lco_observation_calendar.py`, `sync_gemini_observation_calendar.py`) — shipped reference implementation
+### Primary (HIGH confidence)
 
-### Secondary (MEDIUM confidence — official docs)
-- [ESO Phase 2 Status](https://www.eso.org/sci/observing/phase2/p2intro/phase-2-status.html) — OB status code definitions
-- [ESO Phase 2 API Documentation](https://www.eso.org/sci/observing/phase2/p2intro/Phase2API.html) — schema reference
-- `.planning/PROJECT.md`, `.planning/codebase/INTEGRATIONS.md`, `CLAUDE.md` (this repo) — project history and conventions
+- `.planning/PROJECT.md` — Milestone scope, v1.2→v1.3 CSV lesson, existing `insert_or_create_calendar_event` pattern, `CalendarEventTelescopeLabel` sidecar precedent
+- `.planning/seeds/target-linked-run-submission-form.md` — Enriched seed with real 3I/ATLAS field inventory, PII framing, submission/approval shape
+- `CLAUDE.md` — Demo-notebook convention and Pitfall 1 enforcement gaps, `AUTH_STRATEGY='READ_ONLY'`/PII risk, SPICE cost, telescope_runs.py avoidance of `ephem_utils`
+- `.planning/codebase/CONCERNS.md` — SQLite concurrency risk, `MakeEphemerisView` blocking cost, calendar-sync visual patterns
+- Installed package inventory (`pip show`, 2026-07-02) — All core technologies present and version-compatible
+- Direct code inspection: `tom_calendar/models.py` (no `Target` FK), `solsys_code/calendar_utils.py`, `solsys_code/apps.py`, `src/fomo/settings.py`
+
+### Secondary (MEDIUM confidence)
+
+- Competitor analysis: IAWN, ExoFOP-TESS, TNS, YSE-PZ — corroborates "no existing system does exactly this" and feature-combination from multiple reference systems
+- Django community best-practices — conditional-update/race-condition handling, honeypot fields, CSV/date parsing tolerances
+- [Django Packages: Moderation grid](https://djangopackages.org/grids/g/moderation/) — corroborates avoiding heavyweight moderation packages for single-model use case
 
 ---
 
-*Research completed: 2026-07-01*
-*Researched by: 4-agent parallel research (STACK, FEATURES, ARCHITECTURE, PITFALLS)*
-*Ready for roadmap: Conditional — Phase 0 (spike) must precede Phase 1 planning. Once Phase 0 confirms data sourcing and credential strategy, roadmap can confidently structure Phase 1 (design) and Phase 2 (implementation).*
+*Research completed: 2026-07-02*
+*All research files (STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md) synthesized*
+*Ready for roadmap creation*
