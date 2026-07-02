@@ -38,15 +38,17 @@ created: 2026-07-02
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | CAMP-01 | — | `CampaignRun` stores full field inventory + required `campaign` FK | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | CAMP-02 | — | Optional `target`; single-target campaign auto-resolves (D-07) without manual setting | unit | `./manage.py test solsys_code.tests.test_import_campaign_csv.TestImportCampaignCsv.test_auto_resolves_single_target_campaign` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | CAMP-03 | — | Two independent status fields, 8 `run_status` values, correct defaults | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | CAMP-04 | T-14-01 | Command reports created/updated/skipped; skip-and-log on natural-key failure; non-key failures null just that field; idempotent re-run | integration | `./manage.py test solsys_code.tests.test_import_campaign_csv` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | CAMP-05 | T-14-02 | Demo notebook executes end-to-end with no live network call, against the synthetic fixture only | manual/notebook-execution | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` | ❌ W0 | ⬜ pending |
+| 14-01-T3 | 14-01 | 1 | CAMP-01 | T-14-05 | `CampaignRun` stores full field inventory + required `campaign` FK | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 | ⬜ pending |
+| 14-02-T3 | 14-02 | 2 | CAMP-02 | — | Optional `target`; single-target campaign auto-resolves (D-07) without manual setting | unit | `./manage.py test solsys_code.tests.test_import_campaign_csv.TestImportCampaignCsv.test_auto_resolves_single_target_campaign` | ❌ W0 | ⬜ pending |
+| 14-01-T3 | 14-01 | 1 | CAMP-03 | — | Two independent status fields, 8 `run_status` values, correct defaults | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 | ⬜ pending |
+| 14-02-T3 | 14-02 | 2 | CAMP-04 | T-14-01 | Command reports created/updated/skipped; skip-and-log on natural-key failure; non-key failures null just that field; idempotent re-run | integration | `./manage.py test solsys_code.tests.test_import_campaign_csv` | ❌ W0 | ⬜ pending |
+| 14-03-T2 | 14-03 | 3 | CAMP-05 | T-14-02 | Demo notebook executes end-to-end with no live network call, against the synthetic fixture only | manual/notebook-execution | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
-*Task IDs, plan IDs, and wave numbers are TBD until the planner assigns them — the planner MUST update this table (or the executor MUST cross-reference it) once PLAN.md files exist.*
+*Task IDs are `{phase}-{plan}-T{n}` (the task that owns the requirement's automated verify). Wave 0
+test scaffolds are created within the owning plan's task, not a separate wave — this phase's tests
+are part of each plan's deliverable (model tests in 14-01, import tests in 14-02, notebook in 14-03).*
 
 ---
 

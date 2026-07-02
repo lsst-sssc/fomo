@@ -98,7 +98,10 @@ linked in the Milestones section above._
   2. A single-target campaign works without ever setting the optional observed `Target`.
   3. Operator can run a management command that imports the real 3I/ATLAS sheet CSV, reporting a created/updated/skipped summary; unparseable rows are skipped and logged without aborting the run.
   4. The import command's paired demo notebook runs end-to-end against a synthetic/redacted fixture with no real PII committed to git history.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 14-01-PLAN.md — CampaignRun model + migration + model tests (CAMP-01/02/03)
+- [ ] 14-02-PLAN.md — campaign_utils helpers + import_campaign_csv command + tests (CAMP-02/04)
+- [ ] 14-03-PLAN.md — synthetic PII-free fixture + paired demo notebook (CAMP-05)
 
 ### Phase 15: Per-Campaign Table View (Read Path)
 **Goal**: A coordinator can see every run for a campaign in one sortable, filterable table that replaces the shared spreadsheet — with contact details visible only to staff.
