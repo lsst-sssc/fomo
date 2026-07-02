@@ -8,7 +8,11 @@ Phase 2 (P2) API with production Paranal credentials, captured live OB
 status/execution data, and confirmed a headless credential-sourcing path for
 a future management command. No sync command was built during this spike —
 the deliverable is this decision record and its full-detail companion,
-``.planning/phases/13-eso-feasibility-spike/13-DECISION.md``.
+``13-DECISION.md`` (originally at
+``.planning/phases/13-eso-feasibility-spike/13-DECISION.md``; this project's
+milestone-archival workflow moves completed phase directories to
+``.planning/phases-archive/`` once their milestone closes, so check there
+first if the original path no longer resolves).
 
 Background
 ----------
@@ -38,8 +42,8 @@ so, how.
 Key finding
 -----------
 
-**Bypass — sync straight from the ESO P2 API (** ``p2api`` **) to**
-``CalendarEvent``, **skipping** ``ObservationRecord`` **for ESO entirely.**
+**Bypass:** sync straight from the ESO P2 API (``p2api``) to
+``CalendarEvent``, skipping ``ObservationRecord`` for ESO entirely.
 Real Paranal production credentials connect and return real OB data through
 direct P2 API calls (``getOB()``, ``getOBExecutions()``,
 ``getNightExecutions()``); a headless credential-sourcing path (a
@@ -151,8 +155,8 @@ distinct from LCO's or Gemini's terminal-state sets:
 Future scope
 ------------
 
-See ``.planning/phases/13-eso-feasibility-spike/13-DECISION.md`` for the full
-recommendation rationale and future-sync sketch. In brief, a future
+See ``13-DECISION.md`` (path note above) for the full recommendation
+rationale and future-sync sketch. In brief, a future
 ``sync_eso_observation_calendar``-style command (not built in this
 milestone) would:
 
