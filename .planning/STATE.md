@@ -76,7 +76,13 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-None new for v2.0. Carried-forward items in Deferred Items below.
+- `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename
+  `calendar_utils.py`'s cross-module-consumed underscore-prefixed helpers
+  (`_derive_telescope`, `_extract_instrument`, `_resolve_placement_block`,
+  `_coarse_telescope_label`, `_aperture_class_from_telescope_code`) to reflect that the
+  module is now a real shared API (3 consumers); low-priority style cleanup found while
+  verifying the 2026-06-23 extraction todo was complete.
+- Carried-forward items in Deferred Items below.
 
 ### Blockers/Concerns
 
