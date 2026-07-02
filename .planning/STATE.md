@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: ESO/VLT Calendar Sync — Feasibility Spike
-current_phase: 13
-status: verifying
+current_phase: 7
+status: Awaiting next milestone
 stopped_at: Phase 13 execution complete (both plans); ready for phase-goal verification
-last_updated: "2026-07-02T09:22:17.663Z"
+last_updated: "2026-07-02T14:29:01.387Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 13 complete
+last_activity_desc: Milestone v1.7 completed and archived
 progress:
   total_phases: 1
   completed_phases: 1
@@ -28,12 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-01 — v1.7 milestone opened)
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Ready for phase-goal verification
-Last activity: 2026-07-02 — Phase 13 complete
-
-Progress: [██████████] 100%
+Phase: Milestone v1.7 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-02 — Milestone v1.7 completed and archived
 
 ## Performance Metrics
 
@@ -78,8 +76,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| requirement | ESO-10 (`sync_eso_observation_calendar` command) | v2 — contingent on Phase 13 decision | v1.7 open |
-| requirement | ESO-11 (paired ESO demo notebook) | v2 — contingent on Phase 13 decision | v1.7 open |
+| requirement | ESO-10 (`sync_eso_observation_calendar` command) | v2 — now unblocked by Phase 13's Bypass verdict | v1.7 close |
+| requirement | ESO-11 (paired ESO demo notebook) | v2 — now unblocked by Phase 13's Bypass verdict | v1.7 close |
+| todo | `2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md` — extract site/telescope mapping and instrument extraction into own module | Deliberately deferred; no second consumer yet | v1.7 close |
+| seed | SEED-001 — file upstream `tom_eso` feature requests | Dormant; trigger is TOM Toolkit maintainer bandwidth or v2 ESO milestone start | v1.7 close |
 
 ## Session Continuity
 
@@ -89,12 +89,4 @@ Resume file: .planning/phases/13-eso-feasibility-spike/13-DECISION.md
 
 ## Operator Next Steps
 
-- Run phase-goal verification for Phase 13 (`gsd-verifier` via
-  `/gsd-execute-phase 13`) to confirm the 5 ROADMAP success criteria are met
-  and close out the phase.
-
-- Optional future follow-up (not blocking): determine whether the account
-  genuinely has La-Silla-sourced OBs/runs distinct from Paranal — the direct
-  `p2api.ApiConnection('production_lasilla', ...)` bypass connects
-  successfully, but the one run it returned was a Paranal-instrument
-  (`UT1`/`FORS2`) run already seen under `production`.
+- Start the next milestone with /gsd-new-milestone

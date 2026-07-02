@@ -1,5 +1,16 @@
 # Milestones
 
+## v1.7 ESO/VLT Calendar Sync — Feasibility Spike (Shipped: 2026-07-02)
+
+**Phases completed:** 1 phases, 2 plans, 5 tasks
+
+**Key accomplishments:**
+
+- Live Paranal (VLT) production P2 API investigation confirms credentials work, real OB status/execution shapes are captured, and headless credential-sourcing via env-var-backed ESOAPI is a viable path — while La Silla's production_lasilla environment fails via tom_eso's ESOAPI wrapper specifically (root-caused to a p1api gap, not genuine API inaccessibility).
+- Recommends Bypass (sync straight from p2api to CalendarEvent, skipping ObservationRecord) for a future ESO/VLT calendar sync, grounded directly in Plan 01's real Paranal P2 API evidence, with a durable docs/design/eso_feasibility_spike.rst summary for future milestones.
+
+---
+
 ## v1.6 Tech Debt & Display Polish (Shipped: 2026-06-29)
 
 **Phases completed:** 2 phases (11–12), 3 plans, 44 commits | 39 files | +4,586 / -405 lines
