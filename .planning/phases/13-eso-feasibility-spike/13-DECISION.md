@@ -110,6 +110,10 @@ phase attempting La Silla sync should not assume this test alone proves
 La Silla OB data is reachable — it proves the connection path is open, using
 the same bypass strategy already recommended for Paranal.
 
+Filed upstream: [TOMToolkit/tom_eso#55](https://github.com/TOMToolkit/tom_eso/issues/55)
+— `ESOAPI.__init__`'s unconditional `p1api` connection requirement, with this
+spike's root-cause diagnosis and confirmed workaround.
+
 ### ESO-02 — Real OB status/execution data shape
 
 Live, redacted verbatim responses were captured against Paranal production.

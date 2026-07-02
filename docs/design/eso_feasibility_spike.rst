@@ -72,7 +72,8 @@ Investigation summary
      - Fails at ``ESOAPI.__init__`` because it unconditionally constructs a
        Phase-1 (``p1api``) connection first, and ``p1api``'s ``API_URL`` has
        no ``production_lasilla`` entry. ``p2api``'s own ``API_URL`` *does*
-       support ``production_lasilla``.
+       support ``production_lasilla``. Filed upstream as
+       `TOMToolkit/tom_eso#55 <https://github.com/TOMToolkit/tom_eso/issues/55>`_.
    * - La Silla (NTT) P2 connection via direct ``p2api`` bypass
      - Connects; La Silla-specific data unconfirmed
      - ``p2api.ApiConnection('production_lasilla', ...)`` (bypassing
