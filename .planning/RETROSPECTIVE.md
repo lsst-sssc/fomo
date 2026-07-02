@@ -288,6 +288,49 @@
 
 ---
 
+## Milestone: v1.7 — ESO/VLT Calendar Sync — Feasibility Spike
+
+**Shipped:** 2026-07-02
+**Phases:** 1 (13) | **Plans:** 2 | **Sessions:** ~1 (2026-06-29 → 2026-07-02)
+
+### What Was Built
+
+- Phase 13-01: Live investigation against the real ESO P2 API (Paranal/VLT production). Confirmed production credentials obtainable/usable (ESO-01); captured verbatim `getOB()`/`getNightExecutions()` response shapes, redacted per D-04 (ESO-02); confirmed a viable headless credential-sourcing path via direct env-var-backed `ESOAPI(...)` construction, bypassing `ESOProfile`'s session-bound Fernet-encrypted auth (ESO-03). Root-caused a separate La Silla (`production_lasilla`) failure to a `tom_eso`/`p1api` wrapper gap (not genuine account/API inaccessibility) and filed it upstream as `tom_eso#55`.
+- Phase 13-02: Decision doc recommending exactly one of Bridge/Bypass/Not Yet Feasible — landed on **Bypass** (sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord` for ESO entirely), rationale traced directly to each of ESO-01/02/03 (ESO-04). Sketched the future-sync shape: reuse `insert_or_create_calendar_event()` unchanged, synthetic key `ESO:{p2_environment}/{obId}`, banner-only as MVP floor with status-aware (12-code `obStatus` vocabulary) as a should-have (ESO-05). Durable summary committed to `docs/design/eso_feasibility_spike.rst`.
+- Zero production code shipped — this was an investigation-only milestone by design (no `sync_eso_observation_calendar` command). The only code artifact was a throwaway, git-excluded probe script (`eso_p2_probe.py`), never committed.
+- Four additional upstream `tom_eso` gaps (missing OB-ID return from `submit_observation()`, stubbed `get_observation_status()`/`get_observation_url()`/`data_products()`, missing `getOBExecutions`/`getNightExecutions` passthrough, no terminal-state vocabulary) diagnosed and parked as SEED-001 for filing once TOM Toolkit maintainer bandwidth returns.
+
+### What Worked
+
+- Investigation-only milestone scoping (success criteria written as "documented findings and an explicit decision", not "code implemented") kept the phase honest — no pressure to prematurely build a sync command before the Bridge-vs-Bypass question was actually answered.
+- `coarse` phase granularity for a five-requirement, tightly-coupled investigation loop (ESO-02 gated on ESO-01, ESO-04 synthesizing ESO-01..03) avoided an artificial phase split that would have added coordination overhead for no benefit.
+- A documented read-only guardrail (D-08) plus keeping the probe script throwaway/git-excluded (D-09) meant the investigation never risked mutating real ESO P2 state while still producing verbatim-captured evidence.
+- Root-causing the La Silla failure (rather than accepting "La Silla doesn't work") turned a would-be blocker into a scoped upstream bug report with a confirmed workaround — higher-value output than a vague "partially works" note.
+
+### What Was Inefficient
+
+- STATE.md's `status: verifying` field went stale after Phase 13's verification actually passed — the authoritative `gsd-tools query init.progress` showed `verification_status: passed` while STATE.md still asked for a verification step days later. Caught only when `/gsd-progress` was run independently of the execute-phase flow.
+- Two open artifacts (a pending todo and a dormant seed) were still unresolved at milestone close, requiring an acknowledge step — consistent with the pattern flagged in v1.6's retrospective (todos/seeds not closed at the boundary that would naturally resolve them, since neither was actually resolvable within this milestone's investigation-only scope).
+
+### Patterns Established
+
+- Investigation-only milestones get success criteria phrased as documented findings + an explicit recommendation, never as shipped code — keeps `/gsd-verify-work` and `/gsd-complete-milestone` checks meaningful for spikes.
+- When a decision doc's verdict is "Bypass" (skip an existing framework abstraction entirely), explicitly state that any effort-sizing decisions scoped for the alternative ("Bridge") are not applicable, rather than leaving them silently unaddressed (D-11 in `13-DECISION.md`).
+- Upstream library gaps found during investigation get filed as GitHub issues immediately if they're blocking (e.g. `tom_eso#55`), or parked as a dormant seed with an explicit trigger condition if they're not currently actionable (SEED-001) — never left as unstructured notes.
+
+### Key Lessons
+
+1. Run `/gsd-progress` (or equivalent authoritative-state check) after execute-phase completes, rather than trusting STATE.md's `status` field in isolation — it can silently go stale relative to `gsd-tools query init.progress`'s live verification status.
+2. For investigation/spike milestones, define "done" as an explicit decision output, not code — this was decided correctly at roadmap time (v1.7 roadmap decisions) and paid off by keeping Phase 13 from scope-creeping into premature implementation.
+3. When an investigation surfaces genuine upstream-library bugs, separate "blocking, file now" from "diagnosed but not currently actionable, park with a trigger condition" — both `tom_eso#55` (filed) and SEED-001 (dormant, 4 items) followed this split cleanly.
+
+### Cost Observations
+
+- Sessions: ~1 (2026-06-29 → 2026-07-02); 24 commits, 50 files, +3,696/-1,001 lines (includes two out-of-band commits for partial-night window support, not part of Phase 13 itself)
+- Notable: Zero new models/migrations/tests — the only "delivered code" is documentation (decision doc + durable `.rst` summary). Smallest-footprint milestone of the project by LOC-of-shipped-functionality, appropriate for an investigation-only spike.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -301,6 +344,7 @@
 | v1.4 | ~2 | 2 | Fastest milestone per-plan (~15 min/plan avg); `/gsd:sketch` for single visual-design decision during planning; first Django template-tag library + first real solsys_code migration; context-exhaustion event mid-verification |
 | v1.5 | ~2 | 1 | Smallest milestone (1 phase, 2 plans); TDD-first with 15 tests covering all 10 requirements; 6 code-review fixes pre-UAT; `milestone.complete` CLI required manual workaround (archived phases not recognized) |
 | v1.6 | ~2 | 2 | First pure-refactor + polish milestone (zero new models/migrations); `insert_or_create_calendar_event` shared helper; WCAG text color + N+1 prefetch fix; parallel-worktree collision recovered; `summary-extract` one-liner issue recurred (3rd time) |
+| v1.7 | ~1 | 1 | First investigation-only milestone (no sync command shipped); live production ESO P2 API probe; decision doc verdict (Bypass) grounded in captured real-API evidence; upstream `tom_eso` bug filed (`#55`) + 4 more parked as a dormant seed; STATE.md `status` field found stale relative to authoritative verification data |
 
 ### Cumulative Quality
 
@@ -313,6 +357,7 @@
 | v1.4 | +40 (sidecar write + rendering + template tag unit + integration; all 171 under `./manage.py test solsys_code`) | - | 0 |
 | v1.5 | +15 (GEM sync command, all 10 GEM-* requirements; all 186 under `./manage.py test solsys_code`) | - | 0 |
 | v1.6 | +8 (WCAG text color unit × 4, N+1 regression, integration × 3; all 194 under `./manage.py test solsys_code`) | - | 0 |
+| v1.7 | +0 (investigation-only; no code/tests shipped — deliverable is a decision doc) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -326,3 +371,5 @@
 8. `event.save(update_fields=changed)` silently skips `auto_now` fields — use `event.save()` in no-churn helpers so `CalendarEvent.modified` updates correctly on every write. Write an explicit assertion for the timestamp change (v1.6 Phase 11 fix commit 3fb5ad7).
 9. Close todos at the phase boundary that resolves them — a todo left open after the delivering phase ships becomes an open-artifact-audit finding at milestone close, forcing an acknowledge step that should have been a clean verified_closeout (v1.6 close).
 10. The `gsd-tools.cjs summary-extract` one-liner field picks up any paragraph-level text in a SUMMARY, not only the plan's accomplishment description. Three consecutive milestones (v1.4, v1.5, v1.6) required manual MILESTONES.md correction — fix at the SUMMARY authoring step by using a dedicated `one_liner:` frontmatter field rather than relying on paragraph parsing.
+11. STATE.md's `status` field can go stale relative to the authoritative `gsd-tools query init.progress`/`init.manager` verification data — a phase can be fully executed and verified while STATE.md still says `status: verifying` and points at a stale "next step". Cross-check with `/gsd-progress` before trusting STATE.md's status in isolation (v1.7 close).
+12. Investigation-only/spike milestones should define success criteria as documented findings + an explicit recommendation, never as shipped code — this framing (established at v1.7's roadmap stage) kept the phase from scope-creeping into premature implementation before the Bridge-vs-Bypass question was answered.
