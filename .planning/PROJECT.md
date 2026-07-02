@@ -23,6 +23,7 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - ✅ v1.4 "Calendar Visual Clarity" — 2026-06-26 (Phases 8-9) — `CalendarEventTelescopeLabel` sidecar model, dashed-border + tooltip for fallback labels, proposal-keyed color palette, status box-shadow rings, `[QUEUED]` override fix, click-to-filter legend
 - ✅ v1.5 "Gemini Calendar Sync" — 2026-06-27 (Phase 10) — `sync_gemini_observation_calendar` management command syncing Gemini ToO ObservationRecords to CalendarEvent window banners with per-record password scrubbing, ToO-type window derivation, and no-churn idempotency
 - ✅ v1.6 "Tech Debt & Display Polish" — 2026-06-29 (Phases 11-12) — `calendar_utils.py` shared utility module with `SITE_TELESCOPE_MAP`/`_extract_instrument`/`insert_or_create_calendar_event` (REFAC-01/02); `text_color_for_bg` WCAG template tag (DISPLAY-08); `fomo_render_calendar` wrapper view eliminating N+1 query (DISPLAY-09)
+- ✅ v1.7 "ESO/VLT Calendar Sync — Feasibility Spike" — 2026-07-02 (Phase 13) — investigation-only: live Paranal (VLT) P2 API probe confirmed credentials obtainable/usable (ESO-01), captured real `getOB()`/`getNightExecutions()` shapes (ESO-02), confirmed a headless `FACILITIES['ESO']`-style credential path bypassing `ESOProfile`/session decryption (ESO-03); decision doc recommends **Bypass** — sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord` for ESO (ESO-04) — with a future-sync sketch (ESO-05) in `.planning/phases/13-eso-feasibility-spike/13-DECISION.md` and `docs/design/eso_feasibility_spike.rst`. No sync command shipped; La Silla P2 connectivity confirmed reachable via a direct `p2api` bypass of `tom_eso`'s broken `ESOAPI`/`p1api` wrapper, though La-Silla-sourced OB data remains unconfirmed.
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
@@ -56,17 +57,21 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: v1.7 ESO/VLT Calendar Sync — Feasibility Spike
+## Current Milestone: none open
 
-**Goal:** Determine whether/how ESO/VLT observation sync can work at all, given research found the installed `tom_eso==0.2.4` cannot create `ObservationRecord` rows or report status through the standard TOM facility API. Produce a decision doc (Bridge vs. Bypass vs. not-yet-feasible) against real ESO P2 credentials — no sync command is built in this milestone.
+v1.7 shipped 2026-07-02 (see below). No new milestone has been opened yet —
+run `/gsd-new-milestone` to start one. ESO-10/ESO-11 (v2, deferred pending
+v1.7's decision) are the natural candidate for the next milestone, now that
+ESO-04 has concluded **Bypass**.
 
-**Target features:**
-- Investigation against the real ESO P2 API (`p2api`, already a `tom_eso` dependency) to confirm: whether OB status/execution data is reachable at all, whether a credential-sourcing path exists for a headless management command, and whether Bridge (patch `tom_eso`/create real `ObservationRecord` rows) or Bypass (sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord`) is viable
-- A written decision/recommendation for a future milestone's implementation phase — this milestone does not ship `sync_eso_observation_calendar`
+**Prior milestones (v1.0-v1.7):**
 
-**Research context (v1.7 pre-work, already complete):** `.planning/research/{STACK,FEATURES,ARCHITECTURE,PITFALLS,SUMMARY}.md` — confirmed via installed-source inspection and live DB query: `ESOFacility.submit_observation()` never populates `created_observation_ids` (DB has zero `ObservationRecord` rows for any facility); `get_observation_status()`/`get_observation_url()`/`data_products()` all raise `NotImplementedError`; no `FACILITIES['ESO']` settings entry exists (credentials are per-user, session-bound, Fernet-encrypted via `ESOProfile`); real ESO Phase 2 OB status is a 12-code vocabulary (P/D/–/R/+/C/X/M/A/F/K/T) unrelated to LCO's/Gemini's.
-
-**Prior milestones (v1.0-v1.6):**
+**v1.7 ESO/VLT Calendar Sync — Feasibility Spike — COMPLETE (2026-07-02):**
+- ✅ ESO-01/02/03: real Paranal P2 API investigation confirmed credentials obtainable/usable, captured verbatim `getOB()`/`getNightExecutions()` response shapes, confirmed a viable headless `FACILITIES['ESO']`-style credential path
+- ✅ ESO-04: decision doc recommends **Bypass** (sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord` for ESO), rationale tied directly to ESO-01/02/03
+- ✅ ESO-05: future-sync sketch (synthetic `ESO:{p2_environment}/{obId}` key, banner-only vs. status-aware options, 12-code `obStatus` vocabulary) scoped as input to a future implementation milestone
+- No sync command shipped (investigation-only, per milestone scope); `eso_p2_probe.py` was a throwaway, git-excluded, never-committed script (D-09)
+- Bonus finding: La Silla P2 connectivity is reachable via a direct `p2api.ApiConnection('production_lasilla', ...)` bypass of `tom_eso`'s `ESOAPI`/`p1api` wrapper (which unconditionally — and incorrectly for La Silla — requires a Phase-1 connection); La-Silla-sourced OB data itself remains unconfirmed (the one live test returned a Paranal-instrument run)
 
 **v1.6 Tech Debt & Display Polish — COMPLETE (2026-06-29):**
 - ✅ REFAC-01/02: `calendar_utils.py` created; all three commands use `insert_or_create_calendar_event()`; "upsert" jargon removed from docs
@@ -135,10 +140,15 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ Extract `SITE_TELESCOPE_MAP` + `_extract_instrument` into `solsys_code/calendar_utils.py`; `insert_or_create_calendar_event()` helper extracted and used by all three sync commands — v1.6 (Phase 11)
 - ✓ **DISPLAY-08**: WCAG 2.1 relative-luminance `text_color_for_bg` template tag; all 8 `PROPOSAL_PALETTE` entries + `NEUTRAL_SLOT_COLOR` return `#fff`; `#ffffff` → `#000` — v1.6 (Phase 12)
 - ✓ **DISPLAY-09**: `fomo_render_calendar` wrapper view with `prefetch_related('telescope_label_meta')` + `Count` annotation; N+1 regression test via `CaptureQueriesContext` green — v1.6 (Phase 12)
+- ✓ **ESO-01**: Confirmed valid ESO P2 API production credentials (Paranal/VLT) are obtainable and usable, with connection evidence — v1.7 (Phase 13)
+- ✓ **ESO-02**: Captured real `getOB()`/`getNightExecutions()` response shapes verbatim (`obStatus='P'` and `'M'` cases), redacted per D-04 — v1.7 (Phase 13)
+- ✓ **ESO-03**: Confirmed a viable headless credential-sourcing path (direct `ESOAPI(...)` construction from env-var-supplied credentials, bypassing `ESOProfile`/session decryption) — v1.7 (Phase 13)
+- ✓ **ESO-04**: Decision doc recommends exactly one option — **Bypass** — with rationale tied directly to ESO-01/02/03 — v1.7 (Phase 13)
+- ✓ **ESO-05**: Future-sync sketch (synthetic key, banner-only vs. status-aware, 12-code `obStatus` vocabulary) scoped as input to a future milestone — v1.7 (Phase 13)
 
 ### Active
 
-<!-- No active requirements — v1.6 milestone complete -->
+<!-- No active requirements — v1.7 milestone complete; ESO-10/ESO-11 (v2 Requirements below) are candidates for the next milestone -->
 
 ### Out of Scope
 
@@ -257,6 +267,9 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | Absolute import style (`from solsys_code.calendar_utils import ...`) throughout all three commands | Plan 11-01 originally specified relative imports; Plan 11-02 explicitly accepted absolute; functional behavior identical — consistency chosen over plan wording | ✓ Good — Phase 11; all three commands use absolute imports uniformly |
 | `calendar_urls.py` is a full replacement of `tom_calendar.urls` (all 6 URL names), not a single-route shadow | When FOMO's namespace only registered the root URL name, all `calendar:create-event` / `calendar:update-event` etc. reversals raised `NoReverseMatch` — Django resolves the first-registered namespace and expects all names to be there | ✓ Good — implemented in Phase 12; W005 warning is expected/harmless; all 6 reversals resolve correctly through FOMO namespace |
 | TDD RED/GREEN gate enforced for Phase 12 Task 1 (`text_color_for_bg`) | Follows the pre-existing DISPLAY-08 research decision to validate the WCAG formula via test before wiring it into the template | ✓ Good — RED commit `d79a734`, GREEN commit `cda8789`; confirmed via git log |
+| ESO-04 verdict is Bypass, not Bridge | All Plan 01 evidence came from direct `p2api`/`ESOAPI` reads (`getOB`, `getOBExecutions`, `getNightExecutions`); Bridge's premise — patching `tom_eso` to hand-create `ObservationRecord` rows — was never exercised, per the phase's D-08 read-only guardrail | ✓ Good — implemented in Phase 13; rationale traces each of ESO-01/02/03 explicitly in `13-DECISION.md` |
+| `eso_p2_probe.py` kept as a throwaway, git-excluded script, never a committed deliverable | D-09: the investigation itself is exploratory (scratch script/shell session), not a shippable module — only the decision docs are committed | ✓ Good — implemented in Phase 13; registered in `.git/info/exclude`, zero write-style `p2api` calls, never staged |
+| La Silla `production_lasilla` failure root-caused to `tom_eso.eso_api.ESOAPI` unconditionally requiring a `p1api` connection (whose `API_URL` lacks a La Silla entry), not genuine account/API inaccessibility | Live follow-up test (`p2api.ApiConnection('production_lasilla', ...)` bypassing `ESOAPI`/`p1api`) connected without error, confirming the wrapper-bug diagnosis; the operator also confirmed working La Silla web-portal access with the same credentials | ✓ Good — documented in Phase 13's `13-DECISION.md`; La-Silla-sourced OB data itself remains unconfirmed (the one live test returned a Paranal-instrument run) |
 
 ## Evolution
 
@@ -276,4 +289,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-29 after Phase 12 — v1.6 Tech Debt & Display Polish complete*
+*Last updated: 2026-07-02 after Phase 13 — v1.7 ESO/VLT Calendar Sync Feasibility Spike complete*
