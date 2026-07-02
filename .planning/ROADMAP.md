@@ -90,52 +90,72 @@ shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive f
 linked in the Milestones section above._
 
 ### Phase 14: Campaign Data Model & Bootstrap Import
+
 **Goal**: A `CampaignRun` model exists — linked to a campaign `TargetList`, carrying the full 3I-sheet field inventory and a combined lifecycle/approval status — and the real 3I/ATLAS coordination sheet can be imported into it.
 **Depends on**: Nothing (first phase of milestone)
 **Requirements**: CAMP-01, CAMP-02, CAMP-03, CAMP-04, CAMP-05
 **Success Criteria** (what must be TRUE):
+
   1. A `CampaignRun` record stores its campaign `TargetList`, an optional observed `Target`, a single controlled-vocabulary lifecycle/approval status, and the full 3I field inventory (telescope/instrument, site, obs date + UT range, filters/bandpass, observation details, weather, outcome, publication plans, collaboration flag, comments, contact person/email).
   2. A single-target campaign works without ever setting the optional observed `Target`.
   3. Operator can run a management command that imports the real 3I/ATLAS sheet CSV, reporting a created/updated/skipped summary; unparseable rows are skipped and logged without aborting the run.
   4. The import command's paired demo notebook runs end-to-end against a synthetic/redacted fixture with no real PII committed to git history.
+
 **Plans**: 3 plans
+**Wave 1**
+
 - [ ] 14-01-PLAN.md — CampaignRun model + migration + model tests (CAMP-01/02/03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 14-02-PLAN.md — campaign_utils helpers + import_campaign_csv command + tests (CAMP-02/04)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 14-03-PLAN.md — synthetic PII-free fixture + paired demo notebook (CAMP-05)
 
 ### Phase 15: Per-Campaign Table View (Read Path)
+
 **Goal**: A coordinator can see every run for a campaign in one sortable, filterable table that replaces the shared spreadsheet — with contact details visible only to staff.
 **Depends on**: Phase 14
 **Requirements**: VIEW-01, VIEW-02, VIEW-03, VIEW-04
 **Success Criteria** (what must be TRUE):
+
   1. User can view a per-campaign table listing all of its runs, sortable and paginated.
   2. User can reach a campaign's table from the relevant target-detail page, and a navbar entry exposes campaigns.
   3. Contact person/email are excluded from view context for anonymous requests (proven by an anonymous-client test) and shown only to authenticated staff.
   4. User can filter the table by lifecycle status and by the open-to-collaboration flag.
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)
+
 **Goal**: Community members (PIs and external observers) can submit runs that stay hidden until a staff member approves them, and an approved run with a telescope and date range appears on the shared calendar.
 **Depends on**: Phase 15
 **Requirements**: SUBMIT-01, SUBMIT-02, SUBMIT-03, SUBMIT-04, SUBMIT-05, CAL-01, CAL-02, CAL-03
 **Success Criteria** (what must be TRUE):
+
   1. A community member can submit a run via a web form with campaign (`TargetList`) mandatory and every other field optional.
   2. A new submission is pending and invisible on public views until a staff member approves it.
   3. Staff can approve or reject pending runs, and approval is atomic — a double-approve is a proven no-op.
   4. Honeypot bot submissions are dropped without processing, and staff receive an email notification when a genuine submission lands.
   5. Approving a run that has a telescope + date range creates or updates a paired `CalendarEvent` (keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event()`, `target_list` set to the campaign's list) with no duplicate events and no `modified` churn on re-approval or unchanged edits.
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)
+
 **Goal**: A user can see which observable nights for a campaign target and site are not yet claimed by any run — FOMO's differentiator over any spreadsheet. **This phase is explicitly deferrable to v2.1 if the milestone runs long**; it is ordered last so it can be cut without disturbing the launch-critical Phases 14-16. GAP-01 is a phase-time research spike that gates GAP-02's implementation approach.
 **Depends on**: Phase 16 (needs both the claimed-runs data and the campaign table stable)
 **Requirements**: GAP-01, GAP-02
 **Success Criteria** (what must be TRUE):
+
   1. A phase-time research spike produces an explicit decision — dark-window-only vs. target-altitude filtering — settling the `ephem_utils`/SPICE-cost tradeoff before any implementation begins.
   2. User can view observable-but-unclaimed dates for a campaign target + site, computed on explicit request or from a cache.
   3. The gap computation never runs inline in the table view and never imports `ephem_utils` at module scope (lightweight `telescope_runs.py` helpers or a lazy import only).
+
 **Plans**: TBD
 **UI hint**: yes
 

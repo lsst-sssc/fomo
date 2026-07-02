@@ -4,14 +4,14 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 14
 status: planning
-stopped_at: Phase 14 context gathered
-last_updated: "2026-07-02T19:30:38.513Z"
+stopped_at: Phase 14 planned (3 plans, 3 waves) - ready to execute
+last_updated: "2026-07-02T20:45:00.000Z"
 last_activity: 2026-07-02
-last_activity_desc: v2.0 roadmap created (Phases 14-17)
+last_activity_desc: Phase 14 planned (3 plans across 3 waves); ready to execute
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 3
   completed_plans: 0
   percent: 0
 ---
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 **Core value:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
-**Current focus:** Phase 14 — Campaign Data Model & Bootstrap Import (roadmap created, planning pending)
+**Current focus:** Phase 14 — Campaign Data Model & Bootstrap Import (planned, 3 plans across 3 waves, ready to execute)
 
 ## Current Position
 
-Phase: 14 — Campaign Data Model & Bootstrap Import (not started)
-Plan: —
-Status: Roadmap created; ready to plan Phase 14
-Last activity: 2026-07-02 — v2.0 roadmap created (Phases 14-17)
+Phase: 14 — Campaign Data Model & Bootstrap Import (planned, not yet executed)
+Plan: 3 plans (14-01, 14-02, 14-03) across 3 waves — see .planning/phases/14-campaign-data-model-bootstrap-import/
+Status: Planning complete (research + pattern-mapping + plan-checker all passed); ready to execute Phase 14
+Last activity: 2026-07-02 — Phase 14 planned (CampaignRun model, import command, demo notebook)
 Progress: [░░░░░░░░░░] 0/4 phases
 
 ## Roadmap Summary (v2.0)
