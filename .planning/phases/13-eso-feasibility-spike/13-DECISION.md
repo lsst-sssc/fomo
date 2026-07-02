@@ -69,10 +69,46 @@ account — not confirmed blocked. The practical workaround is to bypass
 `tom_eso.eso_api.ESOAPI` entirely and construct `p2api.ApiConnection(
 'production_lasilla', username, password)` directly (the probe script already
 calls Phase-2-only methods via `eso.api2.*` for the OB-status/execution
-calls, so this bypass is a small, targeted change, not a rewrite). This
-direct-`p2api` call was not run live during this spike — it remains an
-untested-but-well-evidenced next step, distinct from "this account cannot
-reach La Silla."
+calls, so this bypass is a small, targeted change, not a rewrite).
+
+**Direct-`p2api` bypass test (follow-up, run live during this spike):** the
+operator ran the bypass directly in a shell session:
+
+```
+p2api.ApiConnection('production_lasilla', username, password).getRuns()
+```
+
+credential-adjacent fields redacted per D-04 (none were present in this
+response). This call succeeded — no `P1Error`, no `P2Error` — and returned:
+
+```
+([{'runId': 116232900, 'progId': '116.28N5.001', 'title': 'Characterising newly discovered distant comets to prepare for the ESA Comet Interceptor mission', 'period': 116, 'scheduledPeriod': 116, 'mode': 'SM', 'instrument': 'FORS2', 'telescope': 'UT1', 'ipVersion': 116.07, 'isToO': False, 'owned': False, 'delegated': True, 'itemCount': 0, 'containerId': 1000562023, 'validFrom': '2025-10-01T16:00:00Z', 'validTo': '2026-05-01T16:00:00Z', 'pi': {...}, 'observingConstraints': {'fli': 'n', 'seeing': 0.8, 'skyTransparency': 'Clear'}}], None)
+```
+
+This confirms the wrapper diagnosis directly: bypassing `ESOAPI`/`p1api` and
+calling `p2api.ApiConnection('production_lasilla', ...)` directly connects
+without error. **However, the single run returned is the same run
+(`runId=116232900`) already captured under Paranal `production` above** —
+same `progId`, and `telescope='UT1'` is a Paranal VLT unit telescope, not a
+La Silla/NTT instrument. This is a genuinely ambiguous result, not a clean
+confirmation of distinct La Silla content:
+
+- It confirms the *connection mechanism* works — `production_lasilla` is a
+  valid, reachable `p2api` environment for this account once `ESOAPI`'s
+  `p1api` requirement is bypassed.
+- It does NOT confirm the account has any *La-Silla-specific* runs/OBs
+  visible through this environment — the one query performed returned a
+  Paranal-instrument run, which is either evidence that `getRuns()` isn't
+  scoped strictly by the queried environment for this account, or (more
+  likely) that this operator's account simply has no dedicated La Silla
+  runs to return, and the API surfaced the one run it could find.
+
+**Net La Silla finding:** connectivity is confirmed working via the
+`p2api` bypass (not merely "likely viable" as first suspected); genuine
+La-Silla-sourced OB/execution data remains uncaptured in this spike. A future
+phase attempting La Silla sync should not assume this test alone proves
+La Silla OB data is reachable — it proves the connection path is open, using
+the same bypass strategy already recommended for Paranal.
 
 ### ESO-02 — Real OB status/execution data shape
 
@@ -200,7 +236,12 @@ La Silla path identified is "bypass `tom_eso.eso_api.ESOAPI` entirely and
 construct `p2api.ApiConnection('production_lasilla', ...)` directly" — i.e.
 the same Bypass-shaped strategy already recommended for Paranal, generalizing
 cleanly across both sites without needing site-specific `ObservationRecord`
-plumbing.
+plumbing. A live follow-up test confirmed this bypass connects successfully
+(no error) — though the one run it returned was a Paranal-instrument run
+already seen under `production`, so genuine La-Silla-sourced OB data remains
+unconfirmed. Either way, the connection mechanism a future Bypass-based
+command would use for La Silla is now proven reachable, not merely
+theorized.
 
 ## Future-sync sketch (ESO-05)
 

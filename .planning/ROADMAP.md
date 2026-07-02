@@ -72,7 +72,7 @@
 
 **Milestone Goal:** Determine whether/how ESO/VLT observation sync can work at all, given that the installed `tom_eso==0.2.4` cannot create `ObservationRecord` rows or report status through the standard TOM facility API. Produce a written Bridge / Bypass / Not-Yet-Feasible decision doc grounded in the real ESO P2 API. This is investigation-only — no `sync_eso_observation_calendar` command is built in this milestone.
 
-- [ ] **Phase 13: ESO Feasibility Spike** - Investigate ESO P2 credentials + real API data shapes and produce a Bridge/Bypass/Not-Yet-Feasible decision doc
+- [x] **Phase 13: ESO Feasibility Spike** - Investigate ESO P2 credentials + real API data shapes and produce a Bridge/Bypass/Not-Yet-Feasible decision doc (completed 2026-07-02)
 
 ## Phase Details
 
@@ -89,10 +89,10 @@
   4. The decision doc explicitly recommends exactly one of Bridge / Bypass / Not Yet Feasible, with rationale tied directly to the ESO-01 through ESO-03 findings (ESO-04).
   5. If the recommendation is feasible (Bridge or Bypass), the doc sketches what "synced" could reasonably mean for a future ESO sync command (e.g. banner-only window vs. status-aware), scoped as input to a future milestone's requirements rather than implemented here (ESO-05).
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 
 - [x] 13-01-PLAN.md
-- [ ] 13-02-PLAN.md
+- [x] 13-02-PLAN.md
 
 ## Progress
 
@@ -111,6 +111,6 @@
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete | 2026-06-27 |
 | 11. Code Refactoring | v1.6 | 2/2 | Complete | 2026-06-27 |
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
-| 13. ESO Feasibility Spike | v1.7 | 1/2 | In Progress|  |
+| 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete   | 2026-07-02 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

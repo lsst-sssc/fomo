@@ -68,10 +68,15 @@ Investigation summary
      - Fails at ``ESOAPI.__init__`` because it unconditionally constructs a
        Phase-1 (``p1api``) connection first, and ``p1api``'s ``API_URL`` has
        no ``production_lasilla`` entry. ``p2api``'s own ``API_URL`` *does*
-       support ``production_lasilla``, and the operator confirmed working
-       La Silla web-portal access with the same credentials — a direct
-       ``p2api.ApiConnection('production_lasilla', ...)`` bypassing
-       ``ESOAPI``/``p1api`` is the untested-but-well-evidenced next step.
+       support ``production_lasilla``.
+   * - La Silla (NTT) P2 connection via direct ``p2api`` bypass
+     - Connects; La Silla-specific data unconfirmed
+     - ``p2api.ApiConnection('production_lasilla', ...)`` (bypassing
+       ``ESOAPI``/``p1api``) connects without error and returns real data —
+       confirming the wrapper-bug diagnosis. The one run returned was a
+       Paranal-instrument run already seen under ``production``, so this
+       proves the connection path is open but does not yet confirm distinct
+       La-Silla-sourced OB data is reachable for this account.
    * - ``get_observation_status()`` / ``get_observation_url()`` /
        ``data_products()`` (``tom_eso``-level)
      - Not usable; unimplemented in ``tom_eso``
