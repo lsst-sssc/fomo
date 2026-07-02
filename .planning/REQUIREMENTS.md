@@ -77,31 +77,31 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CAMP-01 | — | Pending |
-| CAMP-02 | — | Pending |
-| CAMP-03 | — | Pending |
-| CAMP-04 | — | Pending |
-| CAMP-05 | — | Pending |
-| VIEW-01 | — | Pending |
-| VIEW-02 | — | Pending |
-| VIEW-03 | — | Pending |
-| VIEW-04 | — | Pending |
-| SUBMIT-01 | — | Pending |
-| SUBMIT-02 | — | Pending |
-| SUBMIT-03 | — | Pending |
-| SUBMIT-04 | — | Pending |
-| SUBMIT-05 | — | Pending |
-| CAL-01 | — | Pending |
-| CAL-02 | — | Pending |
-| CAL-03 | — | Pending |
-| GAP-01 | — | Pending |
-| GAP-02 | — | Pending |
+| CAMP-01 | Phase 14 | Pending |
+| CAMP-02 | Phase 14 | Pending |
+| CAMP-03 | Phase 14 | Pending |
+| CAMP-04 | Phase 14 | Pending |
+| CAMP-05 | Phase 14 | Pending |
+| VIEW-01 | Phase 15 | Pending |
+| VIEW-02 | Phase 15 | Pending |
+| VIEW-03 | Phase 15 | Pending |
+| VIEW-04 | Phase 15 | Pending |
+| SUBMIT-01 | Phase 16 | Pending |
+| SUBMIT-02 | Phase 16 | Pending |
+| SUBMIT-03 | Phase 16 | Pending |
+| SUBMIT-04 | Phase 16 | Pending |
+| SUBMIT-05 | Phase 16 | Pending |
+| CAL-01 | Phase 16 | Pending |
+| CAL-02 | Phase 16 | Pending |
+| CAL-03 | Phase 16 | Pending |
+| GAP-01 | Phase 17 | Pending |
+| GAP-02 | Phase 17 | Pending |
 
 **Coverage:**
 - v1 requirements: 19 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 19 ⚠️ (expected — roadmap not yet created)
+- Mapped to phases: 19 ✓ (Phases 14-17)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-07-02*
-*Last updated: 2026-07-02 after initial definition (TargetList-anchor decision incorporated)*
+*Last updated: 2026-07-02 after roadmap creation (Phases 14-17 mapped; 19/19 coverage)*

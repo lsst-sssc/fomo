@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 status: planning
-last_updated: "2026-07-02T16:47:40.671Z"
+last_updated: "2026-07-02T17:10:00.000Z"
 last_activity: 2026-07-02
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,54 +17,67 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-01 — v1.7 milestone opened)
+See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
-**Core value:** Determine whether/how ESO/VLT observation sync can work at all, given the installed `tom_eso==0.2.4` cannot create `ObservationRecord` rows or report status through the standard TOM facility API. Produce a Bridge/Bypass/Not-Yet-Feasible decision doc against real ESO P2 credentials — no sync command is built this milestone.
-**Current focus:** Phase 13 — ESO Feasibility Spike
+**Core value:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
+**Current focus:** Phase 14 — Campaign Data Model & Bootstrap Import (roadmap created, planning pending)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 14 — Campaign Data Model & Bootstrap Import (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-02 — Milestone v2.0 started
+Status: Roadmap created; ready to plan Phase 14
+Last activity: 2026-07-02 — v2.0 roadmap created (Phases 14-17)
+Progress: [░░░░░░░░░░] 0/4 phases
+
+## Roadmap Summary (v2.0)
+
+| Phase | Goal | Requirements | Deferrable |
+|-------|------|--------------|------------|
+| 14. Campaign Data Model & Bootstrap Import | `CampaignRun` model + 3I/ATLAS CSV import validated against real data | CAMP-01..05 | No |
+| 15. Per-Campaign Table View (Read Path) | Spreadsheet-replacement table of all runs for a campaign, PII-gated | VIEW-01..04 | No |
+| 16. Submission Form, Approval Queue & Calendar Projection | Community intake + staff approval gate; approved runs project onto the calendar | SUBMIT-01..05, CAL-01..03 | No |
+| 17. Coverage-Gap Analysis | Ephemeris-aware observable-but-unclaimed dates | GAP-01, GAP-02 | **Yes — to v2.1** |
+
+Coverage: 19/19 v1 requirements mapped, no orphans.
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Prior milestone plans completed: 14 (v1.3-v1.4); v1.6 added 3 plans across Phases 11-12
+- Prior milestone plans completed: 14 (v1.3-v1.4); v1.6 added 3 plans across Phases 11-12; v1.7 shipped Phase 13 (2 plans)
 - Average duration: ~15 min/plan (v1.6 range: ~8-24 min)
-- Total execution time: see per-phase breakdown below
+- Total execution time: see per-phase breakdown in shipped milestone archives
 
-**By Phase:**
+**By Phase (v2.0):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 11 | 2 | ~15 min | ~8 min |
-| 12 | 1 | - | - |
-| 13 | 2 | - | - |
+| 14 | TBD | - | - |
+| 15 | TBD | - | - |
+| 16 | TBD | - | - |
+| 17 | TBD | - | - |
 
 ## Accumulated Context
 
 ### Decisions
 
-All v1.0-v1.6 decisions logged in PROJECT.md Key Decisions table.
+All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 
-**v1.7 roadmap decisions:**
+**v2.0 roadmap decisions:**
 
-- Single-phase structure (Phase 13) chosen for the whole spike: the five requirements form one tightly-coupled investigation loop — ESO-02's real-data capture is gated on ESO-01's credentials, and ESO-04's decision doc synthesizes all of ESO-01..ESO-03 — so credential/access work is not meaningfully separable from data-gathering-and-decision work. `coarse` granularity reinforces folding investigation-only work into one phase.
-- Investigation-only milestone: success criteria are written as documented findings and an explicit decision (not "code implemented"), because no `sync_eso_observation_calendar` command ships this milestone.
-- Plan 13-01 (commit `48b800d`, corrected `7594910`): Paranal (VLT) production credentials confirmed obtainable/usable (ESO-01); real `getOB()`/`getNightExecutions()` shapes captured, redacted per D-04 (ESO-02); headless credential-sourcing via env-var-backed `ESOAPI(...)` confirmed viable, bypassing `ESOProfile`/session decryption (ESO-03). La Silla (`production_lasilla`) fails via `tom_eso`'s `ESOAPI` wrapper (`P1Error`) — root-caused to `p1api`'s `API_URL` lacking a La Silla entry, while `p2api`'s own `API_URL` does support it; a direct `p2api.ApiConnection('production_lasilla', ...)` bypass (confirmed live, see below) connects successfully, though the run it returned was a Paranal-instrument run already captured under `production` — connectivity confirmed, La-Silla-sourced OB data not yet confirmed.
-- Plan 13-02 (commits `7a52db1`/`9a3c8a3`/`7ea0974`/`63cd325`): **ESO-04 verdict is Bypass** — sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord` for ESO entirely — grounded directly in Plan 01's evidence (all captured data came from direct P2 API reads, never from `ObservationRecord` creation, so Bridge's premise was never exercised). ESO-05 future-sync sketch: reuse `insert_or_create_calendar_event()` unchanged; synthetic key `ESO:{p2_environment}/{obId}`; banner-only sync recommended as MVP floor, status-aware (using the captured 12-code `obStatus` vocabulary) as a should-have. D-11 Bridge effort-sizing explicitly not applicable (verdict is Bypass). Durable summary written to `docs/design/eso_feasibility_spike.rst`.
+- Four-phase structure (14-17) for the 19 v1 requirements, aligned with `coarse` granularity. Research suggested a 5-phase split (model+import → table → form+approval → calendar projection → gap); calendar projection (CAL-01..03) was folded into the form+approval phase (Phase 16) because the projection is triggered by the approval action itself and reuses `insert_or_create_calendar_event()` unchanged — it is not a separable deliverable.
+- Phase ordering: model+import first (validates schema against real messy CSV before any UI, echoing the v1.2→v1.3 lesson), read path (table) before write path (form) so staff see data working before the public form goes live, calendar projection triggered inside the approval phase, coverage-gap last.
+- Phase 17 (coverage-gap, GAP-01/02) ordered last and explicitly deferrable to v2.1 per milestone scope. GAP-01 is a phase-time research spike (dark-window-only vs. target-altitude filtering) that gates GAP-02's approach and the `ephem_utils`/SPICE-cost decision.
+- PII policy (contact person/email gated to authenticated staff, verified by anonymous-client test) and demo-notebook PII strategy (synthetic/redacted fixture, CAMP-05) are carried as phase-discussion decisions flagged by research; VIEW-03 and CAMP-05 encode them as hard requirements.
 
 ### Pending Todos
 
-None.
+None new for v2.0. Carried-forward items in Deferred Items below.
 
 ### Blockers/Concerns
 
-None. Phase 13 execution is complete pending phase-goal verification (`/gsd-execute-phase 13` verify step / `gsd-verifier`).
+None. Roadmap created; Phase 14 ready to plan via `/gsd-plan-phase 14`.
 
 ## Deferred Items
 
@@ -72,17 +85,18 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| requirement | ESO-10 (`sync_eso_observation_calendar` command) | v2 — now unblocked by Phase 13's Bypass verdict | v1.7 close |
-| requirement | ESO-11 (paired ESO demo notebook) | v2 — now unblocked by Phase 13's Bypass verdict | v1.7 close |
+| requirement | ESO-10 (`sync_eso_observation_calendar` command) | v2 — unblocked by Phase 13's Bypass verdict; out of scope for v2.0 (unrelated to campaign coordination) | v1.7 close |
+| requirement | ESO-11 (paired ESO demo notebook) | v2 — unblocked by Phase 13's Bypass verdict; out of scope for v2.0 | v1.7 close |
 | todo | `2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md` — extract site/telescope mapping and instrument extraction into own module | Deliberately deferred; no second consumer yet | v1.7 close |
-| seed | SEED-001 — file upstream `tom_eso` feature requests | Dormant; trigger is TOM Toolkit maintainer bandwidth or v2 ESO milestone start | v1.7 close |
+| seed | SEED-001 — file upstream `tom_eso` feature requests | Dormant; trigger is TOM Toolkit maintainer bandwidth or a future ESO milestone start | v1.7 close |
+| seed | SEED-002 — ESO ObservationRecord-centric future intent | Dormant; unrelated to v2.0 campaign-coordination scope | v1.7 close |
 
 ## Session Continuity
 
-Last session: 2026-07-01T22:37:31.518Z
-Stopped at: Phase 13 execution complete (both plans); ready for phase-goal verification
-Resume file: .planning/phases/13-eso-feasibility-spike/13-DECISION.md
+Last session: 2026-07-02T17:10:00.000Z
+Stopped at: v2.0 roadmap created (Phases 14-17); requirements traceability updated
+Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first phase with `/gsd-plan-phase 14`
