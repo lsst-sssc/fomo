@@ -154,11 +154,12 @@ _html/
 # Project initialization script
 .initialize_new_project.sh
 
-# Serena MCP
-.serena/
-
 docs/notebooks/data/**
 docs/notebooks/eso_programmatic.py
+Didymos_runs
+
+# Serena MCP
+.serena/
 
 # Django MEDIA_ROOT — downloaded DataProduct files (src/fomo/settings.py)
 src/data/
