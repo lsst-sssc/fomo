@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: ESO/VLT Calendar Sync — Feasibility Spike
 current_phase: 13
-current_phase_name: ESO Feasibility Spike
-status: executed
-stopped_at: Phase 13 execution complete — both plans done, ESO-04 verdict is Bypass; ready for phase-goal verification
-last_updated: "2026-07-01T22:37:31.533Z"
-last_activity: 2026-07-01
-last_activity_desc: Plan 13-02 complete (ESO-04 Bypass recommendation + ESO-05 future-sync sketch + docs/design/eso_feasibility_spike.rst); La Silla direct-p2api bypass confirmed connecting
+status: verifying
+stopped_at: Phase 13 execution complete (both plans); ready for phase-goal verification
+last_updated: "2026-07-02T09:22:17.663Z"
+last_activity: 2026-07-02
+last_activity_desc: Phase 13 complete
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
+current_phase_name: ESO Feasibility Spike
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-01 — v1.7 milestone opened)
 
 ## Current Position
 
-Phase: 13 (ESO Feasibility Spike) — EXECUTED (both plans complete, awaiting phase-goal verification)
-Plan: 2 of 2 (both complete)
+Phase: 13
+Plan: Not started
 Status: Ready for phase-goal verification
-Last activity: 2026-07-01 — Plan 13-02 complete (ESO-04 verdict: Bypass; ESO-05 future-sync sketch; durable .rst summary)
+Last activity: 2026-07-02 — Phase 13 complete
 
 Progress: [██████████] 100%
 
@@ -49,7 +49,7 @@ Progress: [██████████] 100%
 |-------|-------|-------|----------|
 | 11 | 2 | ~15 min | ~8 min |
 | 12 | 1 | - | - |
-| 13 | TBD | - | - |
+| 13 | 2 | - | - |
 
 ## Accumulated Context
 
@@ -92,6 +92,7 @@ Resume file: .planning/phases/13-eso-feasibility-spike/13-DECISION.md
 - Run phase-goal verification for Phase 13 (`gsd-verifier` via
   `/gsd-execute-phase 13`) to confirm the 5 ROADMAP success criteria are met
   and close out the phase.
+
 - Optional future follow-up (not blocking): determine whether the account
   genuinely has La-Silla-sourced OBs/runs distinct from Paranal — the direct
   `p2api.ApiConnection('production_lasilla', ...)` bypass connects

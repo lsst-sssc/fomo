@@ -9,11 +9,11 @@ Requirements for milestone v1.7 (ESO/VLT Calendar Sync — Feasibility Spike).
 
 ### ESO Feasibility
 
-- [ ] **ESO-01**: Confirm whether valid ESO P2 API credentials (production, demo/sandbox, or a captured fixture) are actually obtainable and usable for this investigation
-- [ ] **ESO-02**: Using the real `p2api` client (already a `tom_eso` dependency), capture an actual OB's status/execution data shape — `obStatus` value(s) and/or a `getOBExecutions()`/`getNightExecutions()` response — documented verbatim, not guessed
-- [ ] **ESO-03**: Determine a viable credential-sourcing path for a headless Django management command, given ESO auth today is per-user, session-bound, and Fernet-encrypted (`ESOProfile`) with no `FACILITIES['ESO']` settings fallback
-- [ ] **ESO-04**: Produce a written decision doc recommending one of: Bridge (patch/work around `tom_eso` so it populates real `ObservationRecord` rows, then sync as usual), Bypass (sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord` for ESO), or Not Yet Feasible (with the specific blocker) — with rationale tied to ESO-01 through ESO-03's findings
-- [ ] **ESO-05**: If ESO-04 concludes feasible, sketch what "synced" could reasonably mean for a future ESO sync command (e.g. banner-only window vs. status-aware), scoped as input to a future milestone's requirements — not implemented here
+- [x] **ESO-01**: Confirm whether valid ESO P2 API credentials (production, demo/sandbox, or a captured fixture) are actually obtainable and usable for this investigation
+- [x] **ESO-02**: Using the real `p2api` client (already a `tom_eso` dependency), capture an actual OB's status/execution data shape — `obStatus` value(s) and/or a `getOBExecutions()`/`getNightExecutions()` response — documented verbatim, not guessed
+- [x] **ESO-03**: Determine a viable credential-sourcing path for a headless Django management command, given ESO auth today is per-user, session-bound, and Fernet-encrypted (`ESOProfile`) with no `FACILITIES['ESO']` settings fallback
+- [x] **ESO-04**: Produce a written decision doc recommending one of: Bridge (patch/work around `tom_eso` so it populates real `ObservationRecord` rows, then sync as usual), Bypass (sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord` for ESO), or Not Yet Feasible (with the specific blocker) — with rationale tied to ESO-01 through ESO-03's findings
+- [x] **ESO-05**: If ESO-04 concludes feasible, sketch what "synced" could reasonably mean for a future ESO sync command (e.g. banner-only window vs. status-aware), scoped as input to a future milestone's requirements — not implemented here
 
 ## v2 Requirements
 
@@ -41,8 +41,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ESO-01 | Phase 13 | Pending |
-| ESO-02 | Phase 13 | Pending |
-| ESO-03 | Phase 13 | Pending |
-| ESO-04 | Phase 13 | Pending |
-| ESO-05 | Phase 13 | Pending |
+| ESO-01 | Phase 13 | Complete |
+| ESO-02 | Phase 13 | Complete |
+| ESO-03 | Phase 13 | Complete |
+| ESO-04 | Phase 13 | Complete |
+| ESO-05 | Phase 13 | Complete |

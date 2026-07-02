@@ -111,6 +111,6 @@
 | 10. Gemini Calendar Sync Command | v1.5 | 2/2 | Complete | 2026-06-27 |
 | 11. Code Refactoring | v1.6 | 2/2 | Complete | 2026-06-27 |
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
-| 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete   | 2026-07-02 |
+| 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete    | 2026-07-02 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
