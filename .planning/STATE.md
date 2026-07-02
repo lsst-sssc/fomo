@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: ESO/VLT Calendar Sync — Feasibility Spike
-current_phase: 7
-status: Awaiting next milestone
-stopped_at: Phase 13 execution complete (both plans); ready for phase-goal verification
-last_updated: "2026-07-02T14:29:01.387Z"
+milestone: v2.0
+milestone_name: Campaign Coordination for Rare/Urgent Objects
+status: planning
+last_updated: "2026-07-02T16:47:40.671Z"
 last_activity: 2026-07-02
-last_activity_desc: Milestone v1.7 completed and archived
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
-current_phase_name: ESO Feasibility Spike
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-01 — v1.7 milestone opened)
 
 ## Current Position
 
-Phase: Milestone v1.7 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-02 — Milestone v1.7 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-02 — Milestone v2.0 started
 
 ## Performance Metrics
 

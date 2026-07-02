@@ -57,12 +57,20 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: none open
+## Current Milestone: v2.0 Campaign Coordination for Rare/Urgent Objects
 
-v1.7 shipped 2026-07-02 (see below). No new milestone has been opened yet —
-run `/gsd-new-milestone` to start one. ESO-10/ESO-11 (v2, deferred pending
-v1.7's decision) are the natural candidate for the next milestone, now that
-ESO-04 has concluded **Bypass**.
+**Goal:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
+
+**Target features:**
+- Campaign-run data model + 3I bootstrap import — target-linked run records with lifecycle status (planned → observed → reduced → published), filters/bandpass, outcome, publication plans, collaboration flag, contact info (PII-guarded); validated by a one-off CSV import of the real 3I/ATLAS coordination sheet
+- Per-target campaign table view — the spreadsheet-replacement display: all campaign runs for an object in one table, linked from the target page / calendar
+- Submission form + approval queue — community-facing intake (PIs + external observers) with admin review before runs go public (per seed `target-linked-run-submission-form.md`)
+- Coverage-gap analysis — ephemeris-aware view of observable-but-unclaimed dates; FOMO's differentiator over any spreadsheet; scoped last so it can defer to v2.1 if needed
+
+**Key context:**
+- Reference model: the real 3I/ATLAS campaign Google Sheet (field inventory captured in the enriched seed)
+- Contact emails stored but auth-gated for display (FOMO is `OPEN` targets / `AUTH_STRATEGY='READ_ONLY'`) — exact policy settled during phase discussion
+- ESO seeds (SEED-001/SEED-002) do not match this scope and stay dormant; ESO-10/ESO-11 remain deferred
 
 **Prior milestones (v1.0-v1.7):**
 
@@ -148,7 +156,13 @@ ESO-04 has concluded **Bypass**.
 
 ### Active
 
-<!-- No active requirements — v1.7 milestone complete; ESO-10/ESO-11 (v2 Requirements below) are candidates for the next milestone -->
+<!-- v2.0 Campaign Coordination — requirement IDs defined in .planning/REQUIREMENTS.md -->
+
+- Campaign-run data model (target-linked, lifecycle status, PII-guarded contact fields)
+- One-off CSV bootstrap import of the 3I/ATLAS coordination sheet
+- Per-target campaign table view
+- Community submission form with admin approval queue
+- Ephemeris-aware coverage-gap analysis
 
 ### Out of Scope
 
@@ -289,4 +303,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-02 after Phase 13 — v1.7 ESO/VLT Calendar Sync Feasibility Spike complete*
+*Last updated: 2026-07-02 — v2.0 Campaign Coordination for Rare/Urgent Objects milestone opened*
