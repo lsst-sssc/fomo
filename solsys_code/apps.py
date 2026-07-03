@@ -13,6 +13,22 @@ class SolsysCodeConfig(AppConfig):
             {
                 'partial': f'{self.name}/partials/ephem_button.html',
                 'context': 'src.templatetags.solsys_code_extras.ephem_button',
+            },
+            {
+                'partial': f'{self.name}/partials/campaign_links.html',
+                'context': 'src.templatetags.solsys_code_extras.campaign_links',
+            },
+        ]
+
+    def nav_items(self):
+        """
+        Integration point for adding entries to the navbar (VIEW-02/D-03).
+        """
+        return [
+            {
+                'partial': f'{self.name}/partials/campaigns_nav_link.html',
+                'context': 'src.templatetags.solsys_code_extras.campaigns_nav_link',
+                'position': 'left',
             }
         ]
 
