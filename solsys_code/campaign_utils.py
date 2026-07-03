@@ -1,0 +1,220 @@
+"""Shared helpers for the campaign-coordination CSV bootstrap import.
+
+Provides the D-08 3-tier site resolver, best-effort UT-time-window parsing, the
+Observation-Status translation table, and the no-churn CampaignRun create-or-update
+helper used by the ``import_campaign_csv`` management command. Mirrors
+``calendar_utils.py``'s role for the three CalendarEvent sync commands: every function
+here is structured as "never raise for expected messy data; return a usable value plus
+an explicit flag" per the ``_derive_telescope_class`` precedent in ``calendar_utils.py``.
+"""
+
+import re
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
+from typing import Any
+
+from django.db.utils import IntegrityError
+from tom_dataservices.dataservices import MissingDataException
+
+from solsys_code.models import CampaignRun
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
+
+# D-08 Pitfall 2: Observatory.obscode is CharField(max_length=4). Computed from the
+# field itself (not hardcoded) so a future schema change can't silently desync this guard.
+_MAX_OBSCODE_LEN = Observatory._meta.get_field('obscode').max_length
+
+# UT Time Range formats confirmed against the real 3I/ATLAS sheet export (RESEARCH.md
+# "Real 3I/ATLAS Sheet -- Verified Shape"): 'HH:MM - HH:MM' (tolerant of a ';' typo in
+# place of ':'), a tilde-prefixed approximate hour ('~1 am', '~7:00:00 AM'), and a bare
+# hour with an explicit 'UTC' marker ('5 UTC', '1 UTC'). Deliberately NOT a permissive
+# general-purpose date/time parser (RESEARCH.md Anti-Patterns) -- each pattern requires
+# an unambiguous marker (colon/semicolon range, leading '~', or trailing 'UTC') so a
+# stray date-range or free-text garbage cell never "succeeds" into a wrong-but-plausible
+# time.
+_HHMM_RANGE = re.compile(r'(\d{1,2})[:;](\d{2})\s*(?:am|pm)?\s*-\s*(\d{1,2})[:;](\d{2})', re.IGNORECASE)
+_APPROX_HOUR = re.compile(r'~\s*(\d{1,2})(?::\d{2})?(?::\d{2})?\s*(?:am|pm)?', re.IGNORECASE)
+_BARE_HOUR_UTC = re.compile(r'(\d{1,2})\s*UTC\b', re.IGNORECASE)
+
+# Observation Status -> RunStatus translation (Pitfall 3): case-insensitive substring
+# match, most-specific first, conservative REQUESTED default for anything unrecognized
+# (a non-key field per D-05 -- an imprecise default must never block the row).
+_STATUS_MAP = [
+    ('cancel', CampaignRun.RunStatus.CANCELLED),
+    ('not awarded', CampaignRun.RunStatus.NOT_AWARDED),
+    ('weather', CampaignRun.RunStatus.WEATHER_TECH_FAILURE),
+    ('technical', CampaignRun.RunStatus.WEATHER_TECH_FAILURE),
+    ('publish', CampaignRun.RunStatus.PUBLISHED),
+    ('reduc', CampaignRun.RunStatus.REDUCED),
+    ('complet', CampaignRun.RunStatus.OBSERVED),
+    ('observ', CampaignRun.RunStatus.OBSERVED),
+    ('upcoming', CampaignRun.RunStatus.PLANNED),
+    ('planned', CampaignRun.RunStatus.PLANNED),
+]
+
+
+def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
+    """Resolve a raw Site Code string to an Observatory (D-08 3-tier resolution).
+
+    Tier 1: match against an existing ``Observatory`` record. Tier 2: query the MPC
+    Obscodes API via ``MPCObscodeFetcher`` and create an ``Observatory`` row if found.
+    Tier 3: create a placeholder ``Observatory`` row, flagged for manual review. A blank
+    or oversized (> ``Observatory.obscode``'s max length) code never reaches tier 1/2/3 at
+    all -- it is flagged immediately with no Observatory row created, so a code that can't
+    possibly be a real MPC obscode (e.g. JWST's 8-character spacecraft-style
+    ``'500@-170'``) is never truncated or fabricated (D-09/Pitfall 2).
+
+    Args:
+        site_code_raw: the CSV row's raw ``Site Code`` cell value (may be blank, ``None``,
+            or contain leading/trailing whitespace).
+
+    Returns:
+        tuple[Observatory | None, bool]: ``(observatory_or_none, needs_review)``. Never
+            raises for expected messy-data cases.
+    """
+    code = (site_code_raw or '').strip()
+    if not code:
+        return None, True  # no code at all -- flag, no placeholder possible
+
+    if len(code) > _MAX_OBSCODE_LEN:
+        # e.g. JWST's '500@-170' -- can't fit Observatory.obscode; don't fabricate a
+        # truncated/wrong site. Flag for manual review instead (Pitfall 2).
+        return None, True
+
+    # Tier 1: existing Observatory record.
+    try:
+        return Observatory.objects.get(obscode=code), False
+    except Observatory.DoesNotExist:
+        pass
+
+    # Tier 2: MPC Obscodes API (same call CreateObservatory.form_valid makes). The
+    # `errors` return value is intentionally unused beyond triggering the
+    # MissingDataException path below -- MPCObscodeFetcher.query() already logs the API
+    # error internally; don't double-log.
+    fetcher = MPCObscodeFetcher()
+    fetcher.query(code)
+    try:
+        return fetcher.to_observatory(), False
+    except MissingDataException:
+        pass  # no such obscode at MPC either -- fall through to tier 3
+    except IntegrityError:
+        # Race: another row in this same import (or a concurrent process) already
+        # created it -- re-fetch instead of losing the row.
+        return Observatory.objects.get(obscode=code), False
+
+    # Tier 3: placeholder, flagged for review (D-09 -- flag, don't silently guess).
+    placeholder = Observatory.objects.create(
+        obscode=code,
+        name=f'NEEDS REVIEW: {code}',
+        short_name=code,
+    )
+    return placeholder, True
+
+
+def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, datetime, datetime | None]:
+    """Best-effort parse of the sheet's Obs. Date + UT Time Range columns (Pitfall 1).
+
+    ``obs_date_raw`` must parse as ``%Y-%m-%d`` or the row is a true natural-key failure
+    (D-05) and this raises. ``ut_range_raw`` is always best-effort: an unparseable or
+    blank time range never raises -- it falls back to ``obs_date`` at 00:00:00 UTC, so a
+    malformed non-key field never skips the row (D-05/D-09 discipline extended to time
+    parsing).
+
+    Args:
+        obs_date_raw: the CSV row's raw ``Obs. Date`` cell value, expected ``YYYY-MM-DD``.
+        ut_range_raw: the CSV row's raw ``UT Time Range`` cell value -- highly variable
+            free text in the real sheet (HH:MM ranges, semicolon typos, approximate
+            hours, bare-hour-plus-UTC shorthand, blank, or unparseable prose).
+
+    Returns:
+        tuple[date, datetime, datetime | None]: ``(obs_date, ut_start, ut_end)``, both
+            datetimes tz-aware UTC. ``ut_end`` is ``None`` whenever only a start time (or
+            no time at all) could be determined.
+
+    Raises:
+        ValueError: if ``obs_date_raw`` itself can't be parsed to a date (true
+            natural-key failure per D-05) -- a bad/missing ``ut_range_raw`` never raises.
+    """
+    obs_date = datetime.strptime((obs_date_raw or '').strip(), '%Y-%m-%d').date()  # ValueError propagates
+
+    match = _HHMM_RANGE.search(ut_range_raw or '')
+    if match:
+        h1, m1, h2, m2 = (int(x) for x in match.groups())
+        start = datetime(obs_date.year, obs_date.month, obs_date.day, h1, m1, tzinfo=dt_timezone.utc)
+        end = datetime(obs_date.year, obs_date.month, obs_date.day, h2, m2, tzinfo=dt_timezone.utc)
+        return obs_date, start, end
+
+    match = _APPROX_HOUR.search(ut_range_raw or '')
+    if match:
+        h = int(match.group(1))
+        start = datetime(obs_date.year, obs_date.month, obs_date.day, h, 0, tzinfo=dt_timezone.utc)
+        return obs_date, start, None
+
+    match = _BARE_HOUR_UTC.search(ut_range_raw or '')
+    if match:
+        h = int(match.group(1))
+        start = datetime(obs_date.year, obs_date.month, obs_date.day, h, 0, tzinfo=dt_timezone.utc)
+        return obs_date, start, None
+
+    # Fallback: obs_date is valid but UT range isn't parseable at all (blank, garbage
+    # text, or a misplaced date-range) -- use midnight UTC (Pitfall 1), never skip here.
+    start = datetime(obs_date.year, obs_date.month, obs_date.day, 0, 0, tzinfo=dt_timezone.utc)
+    return obs_date, start, None
+
+
+def map_observation_status(raw: str) -> str:
+    """Translate the sheet's free-text Observation Status into a RunStatus value (Pitfall 3).
+
+    Case-insensitive substring match against a small, ordered translation table. Any
+    unrecognized string (including blank) falls back to the conservative
+    ``RunStatus.REQUESTED`` default rather than raising or guessing at a more specific
+    status -- ``run_status`` is a non-key field (D-05), so an imprecise default must
+    never block the row.
+
+    Args:
+        raw: the CSV row's raw ``Observation Status`` cell value.
+
+    Returns:
+        str: one of ``CampaignRun.RunStatus``'s values. Never raises.
+    """
+    normalized = (raw or '').strip().lower()
+    for needle, status in _STATUS_MAP:
+        if needle in normalized:
+            return status
+    return CampaignRun.RunStatus.REQUESTED
+
+
+def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]) -> tuple[CampaignRun, str]:
+    """Create or update a CampaignRun, or leave it unchanged if no fields differ.
+
+    Mirrors ``calendar_utils.insert_or_create_calendar_event()``'s no-churn
+    create-or-update contract: create a new ``CampaignRun`` if none exists for the given
+    lookup key (D-04's natural key), update it in place if any fields changed, or leave
+    it untouched if nothing changed (idempotent re-run, no spurious writes).
+    ``CampaignRun`` has no ``modified``/auto-now field, so an update issues
+    ``save(update_fields=list(fields))`` only -- unlike ``CalendarEvent``, there is no
+    timestamp field to include.
+
+    Args:
+        lookup: keyword-argument mapping used as the unique lookup key for
+            ``CampaignRun.objects.get_or_create`` (D-04: campaign, telescope_instrument,
+            ut_start).
+        fields: field-value mapping of ``CampaignRun`` attributes to set when creating or
+            updating. Not merged with `lookup`; the caller is responsible for ensuring
+            the combined key+fields set is complete.
+
+    Returns:
+        tuple[CampaignRun, str]: ``(run, action)`` where action is one of ``'created'``
+            (new record written), ``'updated'`` (existing record changed and saved), or
+            ``'unchanged'`` (existing record matched all fields; no save issued).
+    """
+    run, created = CampaignRun.objects.get_or_create(**lookup, defaults=fields)
+    if created:
+        return run, 'created'
+    changed = [f for f, v in fields.items() if getattr(run, f) != v]
+    if changed:
+        for f, v in fields.items():
+            setattr(run, f, v)
+        run.save(update_fields=list(fields.keys()))
+        return run, 'updated'
+    return run, 'unchanged'
