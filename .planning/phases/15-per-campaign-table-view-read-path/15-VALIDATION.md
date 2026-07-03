@@ -1,10 +1,11 @@
 ---
 phase: 15
 slug: per-campaign-table-view-read-path
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: verified
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-03
+updated: 2026-07-03
 ---
 
 # Phase 15 — Validation Strategy
@@ -38,22 +39,23 @@ created: 2026-07-03
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD (assigned by planner) | TBD | TBD | VIEW-01 | — | Table lists all runs for a campaign, sortable/paginated (25/page, D-11) | integration (Django `Client`) | `./manage.py test solsys_code.tests.test_campaign_views.TestCampaignRunTableView.test_lists_all_runs_paginated` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | VIEW-02 | — | Target-detail page shows one link per matching campaign; navbar shows "Campaigns" entry | integration (Django `Client`) | `./manage.py test solsys_code.tests.test_campaign_views.TestCampaignDetailIntegration` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | VIEW-03 | PII disclosure — see Security Domain below | Anonymous client never sees `contact_person`/`contact_email` (context AND content); staff client does | integration (anonymous `Client()` vs. `is_staff=True` `Client()`) | `./manage.py test solsys_code.tests.test_campaign_views.TestContactFieldGating` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | VIEW-04 | Tampering (unvalidated GET params) — see Security Domain below | `run_status` multi-select filter narrows rows (OR semantics); `open_to_collaboration` filter narrows rows; default (no filter) shows everything (D-07) | integration (Django `Client`, GET with query params) | `./manage.py test solsys_code.tests.test_campaign_views.TestCampaignRunFilterSet` | ❌ W0 | ⬜ pending |
+| 15-01/T1-T3 | 15-01 | 1 | VIEW-01 | — | Table lists all runs for a campaign, sortable/paginated (25/page, default `-obs_date`) | integration (Django `Client`) | `python manage.py test solsys_code.tests.test_campaign_views.TestCampaignRunTableView` | ✅ | ✅ green (4/4) |
+| 15-02/T1-T3 | 15-02 | 2 | VIEW-02 | — | Target-detail page shows one link per matching campaign; navbar shows "Campaigns" entry | integration (Django `Client`) | `python manage.py test solsys_code.tests.test_campaign_views.TestCampaignDetailIntegration` | ✅ | ✅ green (3/3) |
+| 15-01/T1-T3 | 15-01 | 1 | VIEW-03 | T-15-01 (see `15-SECURITY.md`) | Anonymous client never sees `contact_person`/`contact_email` (context AND content); staff client does | integration (anonymous `Client()` vs. `is_staff=True` `Client()`) | `python manage.py test solsys_code.tests.test_campaign_views.TestContactFieldGating` | ✅ | ✅ green (4/4) |
+| 15-01/T1-T3 | 15-01 | 1 | VIEW-04 | T-15-02 (see `15-SECURITY.md`) | `run_status` multi-select filter narrows rows (OR semantics); `open_to_collaboration` filter narrows rows; default (no filter) shows everything | integration (Django `Client`, GET with query params) | `python manage.py test solsys_code.tests.test_campaign_views.TestCampaignRunFilterSet` | ✅ | ✅ green (3/3) |
+| 15-01/T3 | 15-01 | 1 | D-03 (campaigns list, not a numbered requirement) | — | `GET /campaigns/` lists only `TargetList`s with ≥1 `CampaignRun` | integration (Django `Client`) | `python manage.py test solsys_code.tests.test_campaign_views.TestCampaignListView` | ✅ | ✅ green (2/2) |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
-Task ID/Plan/Wave columns are placeholders — the planner assigns concrete task IDs when creating PLAN.md files and must update this table (or the plan's own `must_haves`) accordingly.
+Audited post-execution (2026-07-03) via `/gsd-validate-phase`: re-ran `python manage.py test solsys_code.tests.test_campaign_views` fresh (not read from a log) — 16/16 tests pass, matching `15-VERIFICATION.md`'s independent re-run. Every VIEW-01..04 requirement is COVERED by a real, currently-green automated test; no MISSING or PARTIAL gaps found.
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `solsys_code/tests/test_campaign_views.py` — new test module covering VIEW-01..04 (does not exist yet; no prior view tests for `CampaignRun` exist — `test_campaign_models.py` from Phase 14 only covers the model, not views)
-- [ ] Fixture data: reuse `NonSiderealTargetFactory` (CLAUDE.md convention — never `SiderealTargetFactory`) + `TargetList` + `CampaignRun.objects.create(...)` rows spanning multiple `run_status`/`approval_status` values, and at least one row with `contact_person`/`contact_email` populated, following the pattern already established in `solsys_code/tests/test_campaign_models.py`
-- [ ] A `User(is_staff=True)` test fixture/helper for the staff-vs-anonymous `Client` split in `TestContactFieldGating` — no existing precedent for staff-user test fixtures in this codebase (grep for `is_staff` across `solsys_code/`/`src/` returned no hits), so this is a genuinely new fixture pattern for the test suite
+- [x] `solsys_code/tests/test_campaign_views.py` — new test module covering VIEW-01..04, created in 15-01/Task 1 (`d4c9f84`), extended in 15-02/Task 3 (`b205c09`) — 16 tests total, all green
+- [x] Fixture data: `NonSiderealTargetFactory` (CLAUDE.md convention honored — no `SiderealTargetFactory` usage anywhere in the module) + `TargetList` + `CampaignRun.objects.create(...)` rows spanning multiple `run_status`/`approval_status` values, plus seeded `contact_person`/`contact_email` for the PII-gating tests
+- [x] `User(is_staff=True)` test fixture (`staff_user = User.objects.create_user(..., is_staff=True)`, `test_campaign_views.py:54`) for the staff-vs-anonymous `Client` split in `TestContactFieldGating` — new fixture pattern, confirmed in use and passing
 
 ---
 
@@ -65,13 +67,25 @@ Task ID/Plan/Wave columns are placeholders — the planner assigns concrete task
 
 ---
 
+## Validation Audit 2026-07-03
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 (none needed — all requirements were already COVERED by real, passing tests) |
+| Escalated | 0 |
+
+Both plans executed with TDD (15-01 Task 1 is `tdd="true"` in PLAN.md; RED commit `d4c9f84` precedes GREEN commits `73afcfe`/`5229a7c`). Cross-checked against `15-VERIFICATION.md` (independently re-ran the same suite, same 16/16 result) and `15-SECURITY.md` (T-15-01/T-15-02 threat mitigations map 1:1 onto `TestContactFieldGating`/`TestCampaignRunFilterSet`).
+
+---
+
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (none remained — all three Wave 0 items were satisfied during execution)
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s (16-test module runs in ~5.6s)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** verified 2026-07-03
