@@ -16,6 +16,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.models import CampaignRun
 
@@ -204,3 +205,34 @@ class TestCampaignListView(CampaignViewTestBase):
     def test_does_not_list_campaign_with_zero_runs(self):
         response = self.client.get(self.list_url())
         self.assertNotContains(response, self.empty_campaign.name)
+
+
+class TestCampaignDetailIntegration(CampaignViewTestBase):
+    """VIEW-02: target-detail page shows one campaign link per matching campaign (D-01/D-02),
+    discovered via TargetList membership; the navbar exposes a "Campaigns" entry (D-03)."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        # cls.campaign (base fixture) already carries 30 CampaignRun rows, so it qualifies as
+        # a campaign. Add a member Target via TargetList membership (D-01 -- never via
+        # CampaignRun's optional target FK) and a second, unrelated Target in no campaign.
+        cls.member_target = NonSiderealTargetFactory.create()
+        cls.campaign.targets.add(cls.member_target)
+        cls.other_target = NonSiderealTargetFactory.create()
+
+    def test_target_detail_shows_campaign_link(self):
+        response = self.client.get(reverse('tom_targets:detail', kwargs={'pk': self.member_target.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.table_url())
+        self.assertContains(response, f'View {self.campaign.name} Runs')
+
+    def test_target_detail_no_campaign_for_unrelated_target(self):
+        response = self.client.get(reverse('tom_targets:detail', kwargs={'pk': self.other_target.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, self.table_url())
+
+    def test_navbar_shows_campaigns_entry(self):
+        response = self.client.get(self.list_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'<a class="nav-link" href="{self.list_url()}">Campaigns</a>')
