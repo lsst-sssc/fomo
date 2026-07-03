@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 14
 current_phase_name: campaign-data-model-bootstrap-import
-status: executing
-stopped_at: Phase 14 planned (3 plans, 3 waves) - ready to execute
-last_updated: "2026-07-03T06:30:39.551Z"
+status: verifying
+stopped_at: Completed 14-03-PLAN.md (CAMP-05 demo notebook + fixture)
+last_updated: "2026-07-03T07:43:55.177Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 14 execution started
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 Phase: 14 (campaign-data-model-bootstrap-import) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-02 — Phase 14 execution started
 Progress: [░░░░░░░░░░] 0/4 phases
 
@@ -63,6 +63,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 17 | TBD | - | - |
 | Phase 14 P01 | 24min | 3 tasks | 3 files |
 | Phase 14 P02 | 6min | 3 tasks | 3 files |
+| Phase 14 P03 | 25min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 14]: resolve_site length-checks and blank-checks the raw Site Code before any tier attempt, so an oversized/blank code is flagged for review with site=None rather than truncated or fabricated (D-08/D-09/Pitfall 2)
 - [Phase 14]: parse_obs_window uses three narrowly-scoped regexes (not a permissive general date parser) so a stray date-range or garbage UT Time Range cell never succeeds into a wrong-but-plausible time
 - [Phase 14]: insert_or_create_campaign_run omits 'modified' from update_fields since CampaignRun has no auto-now timestamp field, unlike insert_or_create_calendar_event
+- [Phase 14]: Demo notebook seeds real MPC obscodes (F65/309/705) locally via update_or_create so import_campaign_csv's site resolution never makes a live MPC API call, matching load_telescope_runs_demo.ipynb's established seeding convention
+- [Phase 14]: Approval-lifecycle demo cell constructs CampaignRun rows directly via .objects.create() (not the CSV import, which always writes approved per D-03) to exercise pending_review -> approved/rejected
 
 ### Pending Todos
 
@@ -112,9 +115,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-03T06:27:54.055Z
-Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-campaign-data-model-bootstrap-import/14-CONTEXT.md
+Last session: 2026-07-03T07:43:55.168Z
+Stopped at: Completed 14-03-PLAN.md (CAMP-05 demo notebook + fixture)
+Resume file: None
 
 ## Operator Next Steps
 

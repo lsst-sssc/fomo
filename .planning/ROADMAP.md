@@ -78,7 +78,7 @@
 
 ### 🚧 v2.0 Campaign Coordination for Rare/Urgent Objects (Phases 14-17) — IN PROGRESS
 
-- [ ] **Phase 14: Campaign Data Model & Bootstrap Import** - `CampaignRun` model + one-off 3I/ATLAS CSV import validated against real data
+- [x] **Phase 14: Campaign Data Model & Bootstrap Import** - `CampaignRun` model + one-off 3I/ATLAS CSV import validated against real data (completed 2026-07-03)
 - [ ] **Phase 15: Per-Campaign Table View (Read Path)** - Spreadsheet-replacement table of all runs for a campaign, PII-gated
 - [ ] **Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)** - Community intake with staff approval gate; approved runs project onto the calendar
 - [ ] **Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)** - Ephemeris-aware observable-but-unclaimed dates; the differentiator over any spreadsheet
@@ -101,7 +101,7 @@ linked in the Milestones section above._
   3. Operator can run a management command that imports the real 3I/ATLAS sheet CSV, reporting a created/updated/skipped summary; unparseable rows are skipped and logged without aborting the run.
   4. The import command's paired demo notebook runs end-to-end against a synthetic/redacted fixture with no real PII committed to git history.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **Wave 1**
 
 - [x] 14-01-PLAN.md — CampaignRun model + migration + model tests (CAMP-01/02/03)
@@ -112,7 +112,7 @@ linked in the Milestones section above._
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 14-03-PLAN.md — synthetic PII-free fixture + paired demo notebook (CAMP-05)
+- [x] 14-03-PLAN.md — synthetic PII-free fixture + paired demo notebook (CAMP-05)
 
 ### Phase 15: Per-Campaign Table View (Read Path)
 
@@ -177,7 +177,7 @@ linked in the Milestones section above._
 | 11. Code Refactoring | v1.6 | 2/2 | Complete | 2026-06-27 |
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
-| 14. Campaign Data Model & Bootstrap Import | v2.0 | 2/3 | In Progress|  |
+| 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete   | 2026-07-03 |
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 0/? | Not started | - |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 0/? | Not started | - |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 0/? | Not started | - |
