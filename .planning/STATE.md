@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
-current_phase: 15
-current_phase_name: per-campaign-table-view-read-path
+current_phase: 16
+current_phase_name: Write Path
 status: verifying
 stopped_at: Phase 15 Plan 02 complete
-last_updated: "2026-07-03T16:21:22.233Z"
+last_updated: "2026-07-03T18:50:39.899Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 15 execution started
+last_activity_desc: Phase 15 complete, transitioned to Phase 16
 progress:
   total_phases: 4
   completed_phases: 2
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 ## Current Position
 
-Phase: 15 (per-campaign-table-view-read-path) — EXECUTING
-Plan: 2 of 2
+Phase: 16 — Submission Form, Approval Queue & Calendar Projection (Write Path)
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-03 — Phase 15 execution started
+Last activity: 2026-07-03 — Phase 15 complete, transitioned to Phase 16
 Progress: [░░░░░░░░░░] 0/4 phases
 
 ## Roadmap Summary (v2.0)
@@ -58,7 +58,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 14 | 3 | - | - |
-| 15 | TBD | - | - |
+| 15 | 2 | - | - |
 | 16 | TBD | - | - |
 | 17 | TBD | - | - |
 | Phase 14 P01 | 24min | 3 tasks | 3 files |
