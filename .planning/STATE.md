@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 15
-current_phase_name: Read Path
+current_phase_name: per-campaign-table-view-read-path
 status: executing
-stopped_at: Phase 15 UI-SPEC approved
-last_updated: "2026-07-03T15:33:46.468Z"
+stopped_at: Phase 15 Plan 01 complete
+last_updated: "2026-07-03T16:02:39.546Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 14 complete, transitioned to Phase 15
+last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 5
+  completed_plans: 4
   percent: 25
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 **Core value:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
-**Current focus:** Phase 14 — campaign-data-model-bootstrap-import
+**Current focus:** Phase 15 — per-campaign-table-view-read-path
 
 ## Current Position
 
-Phase: 15 — Per-Campaign Table View (Read Path)
-Plan: Not started
+Phase: 15 (per-campaign-table-view-read-path) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-07-03 — Phase 14 complete, transitioned to Phase 15
+Last activity: 2026-07-03 — Phase 15 execution started
 Progress: [░░░░░░░░░░] 0/4 phases
 
 ## Roadmap Summary (v2.0)
@@ -64,6 +64,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 14 P01 | 24min | 3 tasks | 3 files |
 | Phase 14 P02 | 6min | 3 tasks | 3 files |
 | Phase 14 P03 | 25min | 2 tasks | 2 files |
+| Phase 15 P01 | 25min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 14]: insert_or_create_campaign_run omits 'modified' from update_fields since CampaignRun has no auto-now timestamp field, unlike insert_or_create_calendar_event
 - [Phase 14]: Demo notebook seeds real MPC obscodes (F65/309/705) locally via update_or_create so import_campaign_csv's site resolution never makes a live MPC API call, matching load_telescope_runs_demo.ipynb's established seeding convention
 - [Phase 14]: Approval-lifecycle demo cell constructs CampaignRun rows directly via .objects.create() (not the CSV import, which always writes approved per D-03) to exercise pending_review -> approved/rejected
+- [Phase 15]: render_run_status/render_approval_status resolve the raw field value via Accessor(record) rather than trusting django-tables2's value kwarg, since django-tables2 auto-calls get_FOO_display() for model-instance rows before invoking a custom render_ method — django-tables2 handed staff requests an already-humanized label and anonymous requests the raw code, breaking the RunStatus/ApprovalStatus TextChoices lookup for staff -- contradicts 15-RESEARCH.md Pitfall 2's stated assumption
 
 ### Pending Todos
 
@@ -115,9 +117,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-03T14:04:49.671Z
-Stopped at: Phase 15 UI-SPEC approved
-Resume file: .planning/phases/15-per-campaign-table-view-read-path/15-UI-SPEC.md
+Last session: 2026-07-03T16:02:39.525Z
+Stopped at: Phase 15 Plan 01 complete
+Resume file: None
 
 ## Operator Next Steps
 

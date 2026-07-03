@@ -169,3 +169,5 @@ None - no external service configuration required.
 ---
 *Phase: 15-per-campaign-table-view-read-path*
 *Completed: 2026-07-03*
+
+## Self-Check: PASSED

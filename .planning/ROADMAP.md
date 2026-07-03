@@ -126,12 +126,12 @@ linked in the Milestones section above._
   3. Contact person/email are excluded from view context for anonymous requests (proven by an anonymous-client test) and shown only to authenticated staff.
   4. User can filter the table by lifecycle status and by the open-to-collaboration flag.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **UI hint**: yes
 
 **Wave 1**
 
-- [ ] 15-01-PLAN.md — per-campaign table read path: CampaignRunTable + FilterSet + views + urls + templates + tests (VIEW-01/03/04)
+- [x] 15-01-PLAN.md — per-campaign table read path: CampaignRunTable + FilterSet + views + urls + templates + tests (VIEW-01/03/04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -186,7 +186,7 @@ linked in the Milestones section above._
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
 | 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
-| 15. Per-Campaign Table View (Read Path) | v2.0 | 0/? | Not started | - |
+| 15. Per-Campaign Table View (Read Path) | v2.0 | 1/2 | In Progress|  |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 0/? | Not started | - |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 0/? | Not started | - |
 
