@@ -12,7 +12,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **CAMP-01**: `CampaignRun` model stores an observing run linked to a campaign `TargetList` (required FK) with the 3I-sheet field inventory: telescope/instrument, site code, obs date + UT range, filters/bandpass, observation details, weather, outcome, publication plans, collaboration flag, comments, contact person/email
 - [x] **CAMP-02**: A `CampaignRun` can optionally record the specific `Target` observed (a member of the campaign's list); single-target campaigns work without setting it
 - [x] **CAMP-03**: `CampaignRun` carries a lifecycle status (planned → observed → data reduced → published) plus an approval state (pending review / approved / rejected) as a single controlled vocabulary
-- [ ] **CAMP-04**: Operator can bootstrap-import the real 3I/ATLAS sheet CSV via a management command with per-row skip-and-log error handling and a summary count (created/updated/skipped)
+- [x] **CAMP-04**: Operator can bootstrap-import the real 3I/ATLAS sheet CSV via a management command with per-row skip-and-log error handling and a summary count (created/updated/skipped)
 - [ ] **CAMP-05**: The import command's paired demo notebook contains no real PII — it runs against a synthetic/redacted fixture (CLAUDE.md convention satisfied without committing real emails to git history)
 
 ### Campaign Display (VIEW)
@@ -80,7 +80,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAMP-01 | Phase 14 | Complete |
 | CAMP-02 | Phase 14 | Complete |
 | CAMP-03 | Phase 14 | Complete |
-| CAMP-04 | Phase 14 | Pending |
+| CAMP-04 | Phase 14 | Complete |
 | CAMP-05 | Phase 14 | Pending |
 | VIEW-01 | Phase 15 | Pending |
 | VIEW-02 | Phase 15 | Pending |

@@ -6,14 +6,14 @@ current_phase: 14
 current_phase_name: campaign-data-model-bootstrap-import
 status: executing
 stopped_at: Phase 14 planned (3 plans, 3 waves) - ready to execute
-last_updated: "2026-07-03T06:11:54.756Z"
+last_updated: "2026-07-03T06:30:39.551Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 14 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 ## Current Position
 
 Phase: 14 (campaign-data-model-bootstrap-import) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-02 — Phase 14 execution started
 Progress: [░░░░░░░░░░] 0/4 phases
@@ -62,6 +62,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 16 | TBD | - | - |
 | 17 | TBD | - | - |
 | Phase 14 P01 | 24min | 3 tasks | 3 files |
+| Phase 14 P02 | 6min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 14]: CampaignRun.campaign FK uses on_delete=PROTECT (not CASCADE/SET_NULL) since it's required (null=False) -- prevents accidental loss of campaign history if a TargetList is ever deleted
 - [Phase 14]: site_raw stored as CharField(max_length=255), not TextField, matching Observatory.name/short_name convention for short strings
 - [Phase 14]: No DB-level UniqueConstraint on the natural key -- follows CalendarEvent precedent of app-level get_or_create only (deferred to Plan 02's import command)
+- [Phase 14]: resolve_site length-checks and blank-checks the raw Site Code before any tier attempt, so an oversized/blank code is flagged for review with site=None rather than truncated or fabricated (D-08/D-09/Pitfall 2)
+- [Phase 14]: parse_obs_window uses three narrowly-scoped regexes (not a permissive general date parser) so a stray date-range or garbage UT Time Range cell never succeeds into a wrong-but-plausible time
+- [Phase 14]: insert_or_create_campaign_run omits 'modified' from update_fields since CampaignRun has no auto-now timestamp field, unlike insert_or_create_calendar_event
 
 ### Pending Todos
 
@@ -108,7 +112,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-03T06:11:30.894Z
+Last session: 2026-07-03T06:27:54.055Z
 Stopped at: Phase 14 context gathered
 Resume file: .planning/phases/14-campaign-data-model-bootstrap-import/14-CONTEXT.md
 
