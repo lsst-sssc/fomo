@@ -96,7 +96,7 @@ linked in the Milestones section above._
 **Requirements**: CAMP-01, CAMP-02, CAMP-03, CAMP-04, CAMP-05
 **Success Criteria** (what must be TRUE):
 
-  1. A `CampaignRun` record stores its campaign `TargetList`, an optional observed `Target`, a single controlled-vocabulary lifecycle/approval status, and the full 3I field inventory (telescope/instrument, site, obs date + UT range, filters/bandpass, observation details, weather, outcome, publication plans, collaboration flag, comments, contact person/email).
+  1. A `CampaignRun` record stores its campaign `TargetList`, an optional observed `Target`, two independent controlled-vocabulary fields for lifecycle/approval status (approval status + run status, per discuss-phase decision D-02), and the full 3I field inventory (telescope/instrument, site, obs date + UT range, filters/bandpass, observation details, weather, outcome, publication plans, collaboration flag, comments, contact person/email).
   2. A single-target campaign works without ever setting the optional observed `Target`.
   3. Operator can run a management command that imports the real 3I/ATLAS sheet CSV, reporting a created/updated/skipped summary; unparseable rows are skipped and logged without aborting the run.
   4. The import command's paired demo notebook runs end-to-end against a synthetic/redacted fixture with no real PII committed to git history.
