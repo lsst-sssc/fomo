@@ -13,6 +13,7 @@ from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from typing import Any
 
+import requests
 from django.db.utils import IntegrityError
 from tom_dataservices.dataservices import MissingDataException
 
@@ -115,15 +116,24 @@ def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
     # MissingDataException path below -- MPCObscodeFetcher.query() already logs the API
     # error internally; don't double-log.
     fetcher = MPCObscodeFetcher()
-    fetcher.query(code)
     try:
-        return fetcher.to_observatory(), False
-    except MissingDataException:
-        pass  # no such obscode at MPC either -- fall through to tier 3
-    except IntegrityError:
-        # Race: another row in this same import (or a concurrent process) already
-        # created it -- re-fetch instead of losing the row.
-        return Observatory.objects.get(obscode=code), False
+        fetcher.query(code, timeout=10)
+    except requests.exceptions.RequestException:
+        # WR-01: the MPC API call hung/failed at the network layer (timeout, DNS,
+        # connection reset, ...) -- import_campaign_csv calls resolve_site once per CSV
+        # row in a synchronous loop, so an unhandled network exception here would crash
+        # the whole batch import. Treat a network failure like an MPC miss and fall
+        # through to tier 3 rather than losing the rest of the import.
+        pass
+    else:
+        try:
+            return fetcher.to_observatory(), False
+        except MissingDataException:
+            pass  # no such obscode at MPC either -- fall through to tier 3
+        except IntegrityError:
+            # Race: another row in this same import (or a concurrent process) already
+            # created it -- re-fetch instead of losing the row.
+            return Observatory.objects.get(obscode=code), False
 
     # Tier 3: placeholder, flagged for review (D-09 -- flag, don't silently guess).
     placeholder = Observatory.objects.create(

@@ -6,6 +6,7 @@ from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
+import requests
 from django.core.management import call_command
 from django.test import TestCase
 from tom_targets.models import TargetList
@@ -129,6 +130,18 @@ class TestCampaignUtils(TestCase):
 
         self.assertEqual(site.obscode, 'E10')
         self.assertFalse(needs_review)
+
+    @patch('requests.get')
+    def test_resolve_site_network_failure_falls_through_to_placeholder(self, mock_get):
+        """WR-01: a network exception from the MPC API must not crash resolve_site."""
+        mock_get.side_effect = requests.exceptions.ConnectionError('connection refused')
+
+        site, needs_review = resolve_site('Z99')
+
+        self.assertIsNotNone(site)
+        self.assertEqual(site.obscode, 'Z99')
+        self.assertIn('NEEDS REVIEW', site.name)
+        self.assertTrue(needs_review)
 
     def test_parse_obs_window_hhmm_range(self):
         obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-04', '08:50 - 11:50')

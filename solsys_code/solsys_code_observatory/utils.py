@@ -29,7 +29,7 @@ class MPCObscodeFetcher:
                 non_field_errors.append(f'{k}: {v}')
         return non_field_errors
 
-    def query(self, obscode: str, dbg: bool = False):
+    def query(self, obscode: str, dbg: bool = False, timeout: float = 10):
         """Query the MPC obscodes API for the specific <obscode>.
         If successful, the JSON response data is stored in self.obs_data.
 
@@ -37,10 +37,16 @@ class MPCObscodeFetcher:
         :type term: str
         :param dbg: Turns on basic print dump of the key-value pairs (or error response)
         :type term: bool
+        :param timeout: request timeout in seconds, passed through to ``requests.get``.
+            Callers that need "never hang" behavior (e.g. a synchronous per-row import
+            loop) should rely on this rather than the default of no timeout at all.
+        :type timeout: float
         """
         self.obs_data = None
 
-        response = requests.get('https://data.minorplanetcenter.net/api/obscodes', json={'obscode': obscode})
+        response = requests.get(
+            'https://data.minorplanetcenter.net/api/obscodes', json={'obscode': obscode}, timeout=timeout
+        )
 
         if response.ok:
             self.obs_data = response.json()

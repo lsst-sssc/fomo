@@ -62,6 +62,30 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertEqual(self.bad_code_resp, result)
         self.assertIsNone(self.fetcher.obs_data)
 
+    @patch('requests.get')
+    def test_query_passes_default_timeout(self, mock_get):
+        """WR-01: query() must pass an explicit timeout through to requests.get by default."""
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = self.fetcher.obs_data
+        mock_get.return_value = mock_response
+
+        self.fetcher.query('E10')
+
+        _, kwargs = mock_get.call_args
+        self.assertIn('timeout', kwargs)
+        self.assertIsNotNone(kwargs['timeout'])
+
+    @patch('requests.get')
+    def test_query_passes_explicit_timeout(self, mock_get):
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = self.fetcher.obs_data
+        mock_get.return_value = mock_response
+
+        self.fetcher.query('E10', timeout=3)
+
+        _, kwargs = mock_get.call_args
+        self.assertEqual(kwargs['timeout'], 3)
+
     def test_to_observatory(self):
         obs = self.fetcher.to_observatory()
 
