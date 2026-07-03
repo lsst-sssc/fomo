@@ -130,6 +130,13 @@ def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
             return fetcher.to_observatory(), False
         except MissingDataException:
             pass  # no such obscode at MPC either -- fall through to tier 3
+        except (KeyError, ValueError, TypeError):
+            # WR-04: to_observatory() reads several dict keys with no `.get()`/default,
+            # so a live MPC API response that's 200 OK but missing/malformed an expected
+            # key (KeyError) or has a value that fails a `float(...)`/similar conversion
+            # (ValueError/TypeError) would otherwise crash the whole import. Treat a
+            # malformed-but-"ok" response like an MPC miss and fall through to tier 3.
+            pass
         except IntegrityError:
             # Race: another row in this same import (or a concurrent process) already
             # created it -- re-fetch instead of losing the row.

@@ -194,6 +194,22 @@ class TestCampaignUtils(TestCase):
         self.assertEqual(site, existing)
         self.assertTrue(needs_review)
 
+    @patch('requests.get')
+    def test_resolve_site_malformed_mpc_response_falls_through_to_placeholder(self, mock_get):
+        """WR-04: a live MPC API response that's 200 OK but missing an expected key
+        (e.g. 'short_name') must not crash resolve_site with an uncaught KeyError.
+        """
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = {'obscode': 'Z99', 'name_utf8': 'Test'}  # missing short_name etc.
+        mock_get.return_value = mock_response
+
+        site, needs_review = resolve_site('Z99')
+
+        self.assertIsNotNone(site)
+        self.assertEqual(site.obscode, 'Z99')
+        self.assertIn('NEEDS REVIEW', site.name)
+        self.assertTrue(needs_review)
+
     def test_parse_obs_window_hhmm_range(self):
         obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-04', '08:50 - 11:50')
         self.assertEqual(obs_date, date(2025, 7, 4))
