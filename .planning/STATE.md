@@ -4,9 +4,9 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 15
 current_phase_name: Read Path
-status: verifying
-stopped_at: Phase 15 context gathered
-last_updated: "2026-07-03T09:31:14.765Z"
+status: executing
+stopped_at: Phase 15 UI-SPEC approved
+last_updated: "2026-07-03T15:33:46.468Z"
 last_activity: 2026-07-03
 last_activity_desc: Phase 14 complete, transitioned to Phase 15
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 Phase: 15 — Per-Campaign Table View (Read Path)
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-03 — Phase 14 complete, transitioned to Phase 15
 Progress: [░░░░░░░░░░] 0/4 phases
 
@@ -115,9 +115,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-03T09:31:14.737Z
-Stopped at: Phase 15 context gathered
-Resume file: .planning/phases/15-per-campaign-table-view-read-path/15-CONTEXT.md
+Last session: 2026-07-03T14:04:49.671Z
+Stopped at: Phase 15 UI-SPEC approved
+Resume file: .planning/phases/15-per-campaign-table-view-read-path/15-UI-SPEC.md
 
 ## Operator Next Steps
 
