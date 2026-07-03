@@ -13,6 +13,11 @@ from solsys_code.campaign_utils import (
 )
 from solsys_code.models import CampaignRun
 
+# WR-09: the D-05 natural-key columns. If the CSV's header doesn't include these exactly
+# (e.g. a renamed column in a future sheet export), every row would otherwise be silently
+# skipped one-by-one with no single top-level diagnostic that the header shape is wrong.
+_REQUIRED_HEADERS = ('Telescope / Instrument', 'Obs. Date', 'UT Time Range')
+
 
 class Command(BaseCommand):
     """Bootstrap-import a campaign coordination CSV (e.g. the 3I/ATLAS sheet) into CampaignRun rows."""
@@ -78,7 +83,16 @@ class Command(BaseCommand):
 
         try:
             with open(filepath, encoding='utf-8', newline='') as f:
-                rows = list(csv.DictReader(f))
+                reader = csv.DictReader(f)
+                # WR-09: fail fast on the header shape itself rather than silently
+                # skipping every row one-by-one if a required column is missing/renamed.
+                missing_headers = [h for h in _REQUIRED_HEADERS if h not in (reader.fieldnames or [])]
+                if missing_headers:
+                    raise CommandError(
+                        f'Campaign CSV {filepath!r} is missing required column(s): {missing_headers!r}. '
+                        f'Found columns: {reader.fieldnames!r}'
+                    )
+                rows = list(reader)
         except OSError as exc:
             raise CommandError(f'Cannot open campaign CSV {filepath!r}: {exc}') from exc
 

@@ -7,7 +7,7 @@ from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
 import requests
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.db.utils import IntegrityError
 from django.test import TestCase
 from tom_targets.models import TargetList
@@ -538,3 +538,31 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(first_count, 1)
         self.assertEqual(second_count, 1)
         self.assertIn('created: 0', stdout2.getvalue())
+
+    def test_missing_required_header_raises_command_error(self):
+        """WR-09: a CSV whose header is missing a required (natural-key) column must fail
+        fast with a single clear diagnostic, not silently skip every row one-by-one.
+        """
+        tmpdir_ctx = tempfile.TemporaryDirectory()
+        path = pathlib.Path(tmpdir_ctx.name) / 'campaign.csv'
+        # Renamed 'Telescope / Instrument' -> 'Telescope' -- simulates a sheet export
+        # header change.
+        bad_headers = [h if h != 'Telescope / Instrument' else 'Telescope' for h in _HEADERS]
+        with path.open('w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=bad_headers)
+            writer.writeheader()
+            writer.writerow(dict.fromkeys(bad_headers, ''))
+
+        with tmpdir_ctx:
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    'import_campaign_csv',
+                    '--campaign',
+                    'Test Campaign',
+                    str(path),
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+
+        self.assertIn('Telescope / Instrument', str(ctx.exception))
+        self.assertEqual(CampaignRun.objects.count(), 0)
