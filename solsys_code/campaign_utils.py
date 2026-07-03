@@ -32,9 +32,32 @@ _MAX_OBSCODE_LEN = Observatory._meta.get_field('obscode').max_length
 # an unambiguous marker (colon/semicolon range, leading '~', or trailing 'UTC') so a
 # stray date-range or free-text garbage cell never "succeeds" into a wrong-but-plausible
 # time.
-_HHMM_RANGE = re.compile(r'(\d{1,2})[:;](\d{2})\s*(?:am|pm)?\s*-\s*(\d{1,2})[:;](\d{2})', re.IGNORECASE)
-_APPROX_HOUR = re.compile(r'~\s*(\d{1,2})(?::\d{2})?(?::\d{2})?\s*(?:am|pm)?', re.IGNORECASE)
+_HHMM_RANGE = re.compile(r'(\d{1,2})[:;](\d{2})\s*(am|pm)?\s*-\s*(\d{1,2})[:;](\d{2})\s*(am|pm)?', re.IGNORECASE)
+_APPROX_HOUR = re.compile(r'~\s*(\d{1,2})(?::\d{2})?(?::\d{2})?\s*(am|pm)?', re.IGNORECASE)
 _BARE_HOUR_UTC = re.compile(r'(\d{1,2})\s*UTC\b', re.IGNORECASE)
+
+
+def _to_24h(hour: int, meridiem: str | None) -> int:
+    """Apply an optional am/pm marker to an hour parsed from a 12-hour-ish UT time cell.
+
+    CR-01: the sheet's UT Time Range cells sometimes carry an explicit am/pm marker
+    (e.g. ``'~7:00:00 PM'``); the marker must be applied rather than silently discarded,
+    or a PM time parses as if it were AM (12 hours wrong, with no error and no flag).
+
+    Args:
+        hour: the hour digits as parsed (1-12 for am/pm-marked input, 0-23 otherwise).
+        meridiem: ``'am'``/``'pm'`` (any case) if a marker was present, else ``None``.
+
+    Returns:
+        int: the 24-hour-clock hour.
+    """
+    if not meridiem:
+        return hour
+    meridiem = meridiem.lower()
+    if meridiem == 'am':
+        return 0 if hour == 12 else hour
+    return 12 if hour == 12 else hour + 12
+
 
 # Observation Status -> RunStatus translation (Pitfall 3): case-insensitive substring
 # match, most-specific first, conservative REQUESTED default for anything unrecognized
@@ -139,14 +162,17 @@ def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, dateti
 
     match = _HHMM_RANGE.search(ut_range_raw or '')
     if match:
-        h1, m1, h2, m2 = (int(x) for x in match.groups())
+        h1_raw, m1, meridiem1, h2_raw, m2, meridiem2 = match.groups()
+        h1 = _to_24h(int(h1_raw), meridiem1)
+        h2 = _to_24h(int(h2_raw), meridiem2)
+        m1, m2 = int(m1), int(m2)
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h1, m1, tzinfo=dt_timezone.utc)
         end = datetime(obs_date.year, obs_date.month, obs_date.day, h2, m2, tzinfo=dt_timezone.utc)
         return obs_date, start, end
 
     match = _APPROX_HOUR.search(ut_range_raw or '')
     if match:
-        h = int(match.group(1))
+        h = _to_24h(int(match.group(1)), match.group(2))
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h, 0, tzinfo=dt_timezone.utc)
         return obs_date, start, None
 

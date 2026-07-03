@@ -148,6 +148,26 @@ class TestCampaignUtils(TestCase):
         self.assertEqual(start, datetime(2025, 7, 3, 1, 0, tzinfo=dt_timezone.utc))
         self.assertIsNone(end)
 
+    def test_parse_obs_window_approx_hour_pm_marker_applied(self):
+        """CR-01: a PM marker on the approximate-hour format must be applied, not discarded."""
+        obs_date, start, end = parse_obs_window('2025-07-16', '~7:00:00 PM')
+        self.assertEqual(obs_date, date(2025, 7, 16))
+        self.assertEqual(start, datetime(2025, 7, 16, 19, 0, tzinfo=dt_timezone.utc))
+        self.assertIsNone(end)
+
+    def test_parse_obs_window_hhmm_range_pm_markers_applied(self):
+        """CR-01: PM markers on the HH:MM range format must be applied to both ends."""
+        obs_date, start, end = parse_obs_window('2025-07-16', '08:50 pm - 11:50 pm')
+        self.assertEqual(obs_date, date(2025, 7, 16))
+        self.assertEqual(start, datetime(2025, 7, 16, 20, 50, tzinfo=dt_timezone.utc))
+        self.assertEqual(end, datetime(2025, 7, 16, 23, 50, tzinfo=dt_timezone.utc))
+
+    def test_parse_obs_window_hhmm_range_am_marker_noop(self):
+        """An explicit AM marker leaves the (already 24h-consistent) hour unchanged."""
+        obs_date, start, end = parse_obs_window('2025-07-16', '08:50 am - 11:50 am')
+        self.assertEqual(start, datetime(2025, 7, 16, 8, 50, tzinfo=dt_timezone.utc))
+        self.assertEqual(end, datetime(2025, 7, 16, 11, 50, tzinfo=dt_timezone.utc))
+
     def test_parse_obs_window_blank_time_falls_back_to_midnight(self):
         obs_date, start, end = parse_obs_window('2025-07-06', '')
         self.assertEqual(obs_date, date(2025, 7, 6))
