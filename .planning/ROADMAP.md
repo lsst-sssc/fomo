@@ -79,7 +79,7 @@
 ### 🚧 v2.0 Campaign Coordination for Rare/Urgent Objects (Phases 14-17) — IN PROGRESS
 
 - [x] **Phase 14: Campaign Data Model & Bootstrap Import** - `CampaignRun` model + one-off 3I/ATLAS CSV import validated against real data (completed 2026-07-03)
-- [ ] **Phase 15: Per-Campaign Table View (Read Path)** - Spreadsheet-replacement table of all runs for a campaign, PII-gated
+- [x] **Phase 15: Per-Campaign Table View (Read Path)** - Spreadsheet-replacement table of all runs for a campaign, PII-gated (completed 2026-07-03)
 - [ ] **Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)** - Community intake with staff approval gate; approved runs project onto the calendar
 - [ ] **Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)** - Ephemeris-aware observable-but-unclaimed dates; the differentiator over any spreadsheet
 
@@ -126,7 +126,7 @@ linked in the Milestones section above._
   3. Contact person/email are excluded from view context for anonymous requests (proven by an anonymous-client test) and shown only to authenticated staff.
   4. User can filter the table by lifecycle status and by the open-to-collaboration flag.
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 **UI hint**: yes
 
 **Wave 1**
@@ -135,7 +135,7 @@ linked in the Milestones section above._
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 15-02-PLAN.md — navigation & target-detail integration: apps.py hooks + inclusion tags + partials + tests (VIEW-02)
+- [x] 15-02-PLAN.md — navigation & target-detail integration: apps.py hooks + inclusion tags + partials + tests (VIEW-02)
 
 ### Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)
 
@@ -186,7 +186,7 @@ linked in the Milestones section above._
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
 | 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
-| 15. Per-Campaign Table View (Read Path) | v2.0 | 1/2 | In Progress|  |
+| 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete   | 2026-07-03 |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 0/? | Not started | - |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 0/? | Not started | - |
 

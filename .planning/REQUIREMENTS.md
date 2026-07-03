@@ -18,7 +18,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Campaign Display (VIEW)
 
 - [x] **VIEW-01**: User can view a per-campaign table of all its runs (sortable/paginated), replacing the spreadsheet
-- [ ] **VIEW-02**: User can reach a target's campaigns from its target-detail page; navbar exposes a campaigns entry
+- [x] **VIEW-02**: User can reach a target's campaigns from its target-detail page; navbar exposes a campaigns entry
 - [x] **VIEW-03**: Contact person/email are visible only to authenticated staff — excluded from view context for anonymous requests and proven by an anonymous-client test
 - [x] **VIEW-04**: User can filter the table by lifecycle status and the open-to-collaboration flag
 
@@ -83,7 +83,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAMP-04 | Phase 14 | Complete |
 | CAMP-05 | Phase 14 | Complete |
 | VIEW-01 | Phase 15 | Complete |
-| VIEW-02 | Phase 15 | Pending |
+| VIEW-02 | Phase 15 | Complete |
 | VIEW-03 | Phase 15 | Complete |
 | VIEW-04 | Phase 15 | Complete |
 | SUBMIT-01 | Phase 16 | Pending |

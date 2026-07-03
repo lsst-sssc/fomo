@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 15
 current_phase_name: per-campaign-table-view-read-path
-status: executing
-stopped_at: Phase 15 Plan 01 complete
-last_updated: "2026-07-03T16:02:39.546Z"
+status: verifying
+stopped_at: Phase 15 Plan 02 complete
+last_updated: "2026-07-03T16:21:22.233Z"
 last_activity: 2026-07-03
 last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 25
+  completed_plans: 5
+  percent: 50
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 Phase: 15 (per-campaign-table-view-read-path) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-03 — Phase 15 execution started
 Progress: [░░░░░░░░░░] 0/4 phases
 
@@ -65,6 +65,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 14 P02 | 6min | 3 tasks | 3 files |
 | Phase 14 P03 | 25min | 2 tasks | 2 files |
 | Phase 15 P01 | 25min | 3 tasks | 8 files |
+| Phase 15 P02 | 15min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 14]: Demo notebook seeds real MPC obscodes (F65/309/705) locally via update_or_create so import_campaign_csv's site resolution never makes a live MPC API call, matching load_telescope_runs_demo.ipynb's established seeding convention
 - [Phase 14]: Approval-lifecycle demo cell constructs CampaignRun rows directly via .objects.create() (not the CSV import, which always writes approved per D-03) to exercise pending_review -> approved/rejected
 - [Phase 15]: render_run_status/render_approval_status resolve the raw field value via Accessor(record) rather than trusting django-tables2's value kwarg, since django-tables2 auto-calls get_FOO_display() for model-instance rows before invoking a custom render_ method — django-tables2 handed staff requests an already-humanized label and anonymous requests the raw code, breaking the RunStatus/ApprovalStatus TextChoices lookup for staff -- contradicts 15-RESEARCH.md Pitfall 2's stated assumption
+- [Phase 15]: reverse('tom_targets:detail', ...) resolves via Django's application-namespace fallback even though the registered instance namespace is 'targets' -- confirmed live, no adjustment needed
+- [Phase 15]: campaign_links.html applies mr-2 mb-2 unconditionally to every link rather than only wrapping 2+ campaigns in a flex div -- simpler, harmless for the single-link case, matches the plan's literal Task 2 action text
 
 ### Pending Todos
 
@@ -117,8 +120,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-03T16:02:39.525Z
-Stopped at: Phase 15 Plan 01 complete
+Last session: 2026-07-03T16:21:22.225Z
+Stopped at: Phase 15 Plan 02 complete
 Resume file: None
 
 ## Operator Next Steps
