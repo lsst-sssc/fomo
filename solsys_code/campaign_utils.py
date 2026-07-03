@@ -133,7 +133,15 @@ def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
         except IntegrityError:
             # Race: another row in this same import (or a concurrent process) already
             # created it -- re-fetch instead of losing the row.
-            return Observatory.objects.get(obscode=code), False
+            try:
+                return Observatory.objects.get(obscode=code), False
+            except Observatory.DoesNotExist:
+                # WR-02: Observatory.name is also unique=True, so an IntegrityError here
+                # isn't necessarily an obscode race -- it could be a name collision with
+                # a *different* obscode, in which case no Observatory exists for `code`
+                # and the re-fetch above would otherwise raise uncaught. Fall through to
+                # tier 3 instead of letting DoesNotExist propagate out of resolve_site.
+                pass
 
     # Tier 3: placeholder, flagged for review (D-09 -- flag, don't silently guess).
     placeholder = Observatory.objects.create(

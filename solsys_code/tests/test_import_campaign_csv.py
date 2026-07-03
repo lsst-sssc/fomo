@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from django.core.management import call_command
+from django.db.utils import IntegrityError
 from django.test import TestCase
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -140,6 +141,29 @@ class TestCampaignUtils(TestCase):
 
         self.assertIsNotNone(site)
         self.assertEqual(site.obscode, 'Z99')
+        self.assertIn('NEEDS REVIEW', site.name)
+        self.assertTrue(needs_review)
+
+    @patch('solsys_code.campaign_utils.MPCObscodeFetcher.to_observatory')
+    @patch('requests.get')
+    def test_resolve_site_integrity_error_not_obscode_race_falls_through(self, mock_get, mock_to_observatory):
+        """WR-02: an IntegrityError that isn't actually an obscode race (e.g. a name
+        collision on a *different* obscode) must fall through to tier 3, not crash with
+        an uncaught Observatory.DoesNotExist.
+        """
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = _MPC_OBS_DATA_E10
+        mock_get.return_value = mock_response
+        mock_to_observatory.side_effect = IntegrityError(
+            'UNIQUE constraint failed: solsys_code_observatory_observatory.name'
+        )
+
+        # No Observatory with obscode='E10' exists, so the tier-2 re-fetch-on-race
+        # raises DoesNotExist -- this is the scenario WR-02 fixes.
+        site, needs_review = resolve_site('E10')
+
+        self.assertIsNotNone(site)
+        self.assertEqual(site.obscode, 'E10')
         self.assertIn('NEEDS REVIEW', site.name)
         self.assertTrue(needs_review)
 
