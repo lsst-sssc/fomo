@@ -134,3 +134,9 @@ None - no external service configuration required.
 ---
 *Phase: 14-campaign-data-model-bootstrap-import*
 *Completed: 2026-07-03*
+
+## Self-Check: PASSED
+
+All created files (`solsys_code/models.py`, `solsys_code/migrations/0002_campaignrun.py`,
+`solsys_code/tests/test_campaign_models.py`, this SUMMARY.md) confirmed present on disk. All
+4 commit hashes (`d3c095e`, `5560194`, `8ce8264`, `7ea89b5`) confirmed present in git log.
