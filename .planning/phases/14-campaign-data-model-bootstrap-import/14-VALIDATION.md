@@ -1,9 +1,9 @@
 ---
 phase: 14
 slug: campaign-data-model-bootstrap-import
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: verified
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-02
 ---
 
@@ -38,11 +38,13 @@ created: 2026-07-02
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 14-01-T3 | 14-01 | 1 | CAMP-01 | T-14-05 | `CampaignRun` stores full field inventory + required `campaign` FK | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 | ⬜ pending |
-| 14-02-T3 | 14-02 | 2 | CAMP-02 | — | Optional `target`; single-target campaign auto-resolves (D-07) without manual setting | unit | `./manage.py test solsys_code.tests.test_import_campaign_csv.TestImportCampaignCsv.test_auto_resolves_single_target_campaign` | ❌ W0 | ⬜ pending |
-| 14-01-T3 | 14-01 | 1 | CAMP-03 | — | Two independent status fields, 8 `run_status` values, correct defaults | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 | ⬜ pending |
-| 14-02-T3 | 14-02 | 2 | CAMP-04 | T-14-01 | Command reports created/updated/skipped; skip-and-log on natural-key failure; non-key failures null just that field; idempotent re-run | integration | `./manage.py test solsys_code.tests.test_import_campaign_csv` | ❌ W0 | ⬜ pending |
-| 14-03-T2 | 14-03 | 3 | CAMP-05 | T-14-02 | Demo notebook executes end-to-end with no live network call, against the synthetic fixture only | manual/notebook-execution | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` | ❌ W0 | ⬜ pending |
+| 14-01-T3 | 14-01 | 1 | CAMP-01 | T-14-05 | `CampaignRun` stores full field inventory + required `campaign` FK | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ✅ | ✅ green |
+| 14-02-T3 | 14-02 | 2 | CAMP-02 | — | Optional `target`; single-target campaign auto-resolves (D-07) without manual setting | unit | `./manage.py test solsys_code.tests.test_import_campaign_csv.TestImportCampaignCsv.test_auto_resolves_single_target_campaign` | ✅ | ✅ green |
+| 14-01-T3 | 14-01 | 1 | CAMP-03 | — | Two independent status fields, 8 `run_status` values, correct defaults | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ✅ | ✅ green |
+| 14-02-T3 | 14-02 | 2 | CAMP-04 | T-14-01 | Command reports created/updated/skipped; skip-and-log on natural-key failure; non-key failures null just that field; idempotent re-run | integration | `./manage.py test solsys_code.tests.test_import_campaign_csv` | ✅ | ✅ green |
+| 14-03-T2 | 14-03 | 3 | CAMP-05 | T-14-02 | Demo notebook executes end-to-end with no live network call, against the synthetic fixture only | manual/notebook-execution | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` | ✅ | ✅ green |
+
+*Re-verified 2026-07-03 during `/gsd-validate-phase`: `test_campaign_models` (6 tests), `test_import_campaign_csv` (33 tests, including the post-code-review additions for CR-01/CR-02/WR-01..09) all pass; notebook re-executes cleanly against the synthetic fixture with no live network call and no PII.*
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -54,11 +56,11 @@ are part of each plan's deliverable (model tests in 14-01, import tests in 14-02
 
 ## Wave 0 Requirements
 
-- [ ] `solsys_code/tests/test_campaign_models.py` — covers CAMP-01/CAMP-02/CAMP-03 model-level behavior (field presence, status defaults, optional `target`)
-- [ ] `solsys_code/tests/test_import_campaign_csv.py` — covers CAMP-04 (mirrors `test_load_telescope_runs.py`'s shape: temp-file CSV fixtures, `call_command`, stdout/stderr assertions)
-- [ ] `docs/notebooks/pre_executed/fixtures/campaign_sample.csv` — the D-10/D-11 synthetic fixture (also doubles as a manually-inspectable input for hand-verifying the notebook's demonstrated behavior)
-- [ ] `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` — covers CAMP-05
-- [ ] Migration `solsys_code/migrations/0002_campaignrun.py` (generated via `./manage.py makemigrations solsys_code`, not hand-written — see `0001_calendareventtelescopelabel.py` for the expected auto-generated shape)
+- [x] `solsys_code/tests/test_campaign_models.py` — covers CAMP-01/CAMP-02/CAMP-03 model-level behavior (field presence, status defaults, optional `target`) — 6 tests
+- [x] `solsys_code/tests/test_import_campaign_csv.py` — covers CAMP-04 (mirrors `test_load_telescope_runs.py`'s shape: temp-file CSV fixtures, `call_command`, stdout/stderr assertions) — 33 tests (24 `TestCampaignUtils` + 9 `TestImportCampaignCsv`)
+- [x] `docs/notebooks/pre_executed/fixtures/campaign_sample.csv` — the D-10/D-11 synthetic fixture (also doubles as a manually-inspectable input for hand-verifying the notebook's demonstrated behavior)
+- [x] `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` — covers CAMP-05
+- [x] Migration `solsys_code/migrations/0002_campaignrun.py` (generated via `./manage.py makemigrations solsys_code`, not hand-written — see `0001_calendareventtelescopelabel.py` for the expected auto-generated shape); also `0003_campaignrun_natural_key_unique_constraint.py` (added post-review, WR-05)
 - Framework install: none — `./manage.py test` is already fully configured, no new packages needed.
 
 ---
@@ -72,13 +74,24 @@ are part of each plan's deliverable (model tests in 14-01, import tests in 14-02
 
 ---
 
+## Validation Audit 2026-07-03
+
+| Metric | Count |
+|--------|-------|
+| Requirements checked | 5 (CAMP-01..05) |
+| Covered | 5 |
+| Partial | 0 |
+| Missing | 0 |
+
+No gaps found — all 5 requirements already had passing automated coverage from the phase's own plans. The post-plan-execution code review (`14-REVIEW.md`/`14-REVIEW-FIX.md`) added further regression tests beyond this document's original Wave 0 scope: `test_parse_obs_window_approx_hour_pm_marker_applied`/`test_parse_obs_window_hhmm_range_pm_markers_applied` (CR-01) and `test_duplicate_unparseable_ut_time_rows_do_not_merge` (CR-02), plus one test per WR-01 through WR-09 warning fix — all re-verified passing during this audit.
+
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** verified 2026-07-03
