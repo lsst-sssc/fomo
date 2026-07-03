@@ -47,7 +47,13 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `solsys_code/management/commands/sync_gemini_observation_calendar.py`: `sync_gemini_observation_calendar` BaseCommand (GEM ToO sync, credential-safe, no-churn)
 - `solsys_code/tests/test_sync_gemini_observation_calendar.py`: 15 tests (all 10 GEM-* requirements)
 - `docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb`: Stage 3b demo (4 D-06 scenarios)
-- **All 194 `./manage.py test solsys_code` tests pass (Phase 12 complete).**
+- `solsys_code/models.py`: now also `CampaignRun` (`ApprovalStatus`/`RunStatus` TextChoices) — v2.0 (Phase 14)
+- `solsys_code/migrations/0002_campaignrun.py`, `0003_campaignrun_natural_key_unique_constraint.py`: `CampaignRun` table + DB-level natural-key uniqueness — v2.0 (Phase 14)
+- `solsys_code/campaign_utils.py`: `resolve_site` (3-tier), `parse_obs_window` (best-effort UT parsing with am/pm handling), `map_observation_status`, `insert_or_create_campaign_run` — v2.0 (Phase 14)
+- `solsys_code/management/commands/import_campaign_csv.py`: bootstrap CSV import command (skip-and-log, site resolution, single-target auto-assignment, natural-key collision disambiguation) — v2.0 (Phase 14)
+- `solsys_code/tests/test_campaign_models.py`, `test_import_campaign_csv.py`: 39 tests — v2.0 (Phase 14)
+- `docs/notebooks/pre_executed/fixtures/campaign_sample.csv`, `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb`: synthetic PII-free fixture + paired demo notebook — v2.0 (Phase 14)
+- **All 242 `./manage.py test solsys_code` tests pass (Phase 14 complete, v2.0 in progress).**
 
 ## Core Value
 
@@ -71,6 +77,15 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - Reference model: the real 3I/ATLAS campaign Google Sheet (field inventory captured in the enriched seed)
 - Contact emails stored but auth-gated for display (FOMO is `OPEN` targets / `AUTH_STRATEGY='READ_ONLY'`) — exact policy settled during phase discussion
 - ESO seeds (SEED-001/SEED-002) do not match this scope and stay dormant; ESO-10/ESO-11 remain deferred
+
+**Phase 14 — Campaign Data Model & Bootstrap Import — COMPLETE (2026-07-03):**
+- ✅ CAMP-01: `CampaignRun` model with the full 3I-sheet field inventory, required `campaign` (`TargetList`) FK
+- ✅ CAMP-02: Optional `target` FK; single-target campaigns auto-assign their one `Target` to every imported row
+- ✅ CAMP-03: Lifecycle + approval status as two independent controlled-vocabulary fields (`approval_status`: 3 values, `run_status`: 8 values) per D-02 — not a single flat vocabulary (ROADMAP/REQUIREMENTS wording corrected to match)
+- ✅ CAMP-04: `import_campaign_csv` bootstrap-import command — skip-and-log natural-key handling, 3-tier site resolution (D-08), created/updated/unchanged/skipped/site_needs_review summary
+- ✅ CAMP-05: Paired demo notebook + synthetic PII-free fixture, executed with committed output, demonstrates the approval lifecycle
+- Post-plan deep code review found and fixed 2 critical data-correctness bugs before phase close: PM/AM UT-time markers were parsed but never applied (silently 12h wrong), and the `(campaign, telescope_instrument, ut_start)` natural key collided for distinct rows sharing an unparseable UT Time Range (silent row loss). Both fixed with regression tests, plus 9 warning-level hardening fixes (network timeouts, race protection, PII-safe logging, DB-level uniqueness constraint, status-mapping negation awareness, CSV header validation) — see `14-REVIEW.md`/`14-REVIEW-FIX.md`.
+- 242 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean on all Phase 14 files.
 
 **Prior milestones (v1.0-v1.7):**
 
@@ -153,13 +168,16 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ **ESO-03**: Confirmed a viable headless credential-sourcing path (direct `ESOAPI(...)` construction from env-var-supplied credentials, bypassing `ESOProfile`/session decryption) — v1.7 (Phase 13)
 - ✓ **ESO-04**: Decision doc recommends exactly one option — **Bypass** — with rationale tied directly to ESO-01/02/03 — v1.7 (Phase 13)
 - ✓ **ESO-05**: Future-sync sketch (synthetic key, banner-only vs. status-aware, 12-code `obStatus` vocabulary) scoped as input to a future milestone — v1.7 (Phase 13)
+- ✓ **CAMP-01**: `CampaignRun` model stores an observing run linked to a campaign `TargetList` (required FK) with the full 3I-sheet field inventory — v2.0 (Phase 14)
+- ✓ **CAMP-02**: A `CampaignRun` can optionally record the specific `Target` observed; single-target campaigns auto-assign it without setting it manually — v2.0 (Phase 14)
+- ✓ **CAMP-03**: Lifecycle status (planned → observed → reduced → published) plus approval state (pending review / approved / rejected) as two independent controlled-vocabulary fields (D-02) — v2.0 (Phase 14)
+- ✓ **CAMP-04**: Operator can bootstrap-import the real 3I/ATLAS sheet CSV via a management command with per-row skip-and-log error handling and a created/updated/skipped summary — v2.0 (Phase 14)
+- ✓ **CAMP-05**: The import command's paired demo notebook contains no real PII — runs against a synthetic/redacted fixture — v2.0 (Phase 14)
 
 ### Active
 
 <!-- v2.0 Campaign Coordination — requirement IDs defined in .planning/REQUIREMENTS.md -->
 
-- Campaign-run data model (target-linked, lifecycle status, PII-guarded contact fields)
-- One-off CSV bootstrap import of the 3I/ATLAS coordination sheet
 - Per-target campaign table view
 - Community submission form with admin approval queue
 - Ephemeris-aware coverage-gap analysis
@@ -284,6 +302,11 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | ESO-04 verdict is Bypass, not Bridge | All Plan 01 evidence came from direct `p2api`/`ESOAPI` reads (`getOB`, `getOBExecutions`, `getNightExecutions`); Bridge's premise — patching `tom_eso` to hand-create `ObservationRecord` rows — was never exercised, per the phase's D-08 read-only guardrail | ✓ Good — implemented in Phase 13; rationale traces each of ESO-01/02/03 explicitly in `13-DECISION.md` |
 | `eso_p2_probe.py` kept as a throwaway, git-excluded script, never a committed deliverable | D-09: the investigation itself is exploratory (scratch script/shell session), not a shippable module — only the decision docs are committed | ✓ Good — implemented in Phase 13; registered in `.git/info/exclude`, zero write-style `p2api` calls, never staged |
 | La Silla `production_lasilla` failure root-caused to `tom_eso.eso_api.ESOAPI` unconditionally requiring a `p1api` connection (whose `API_URL` lacks a La Silla entry), not genuine account/API inaccessibility | Live follow-up test (`p2api.ApiConnection('production_lasilla', ...)` bypassing `ESOAPI`/`p1api`) connected without error, confirming the wrapper-bug diagnosis; the operator also confirmed working La Silla web-portal access with the same credentials | ✓ Good — documented in Phase 13's `13-DECISION.md`; La-Silla-sourced OB data itself remains unconfirmed (the one live test returned a Paranal-instrument run) |
+| Status split into two independent `TextChoices` fields (`approval_status`: 3 values, `run_status`: 8 values) rather than one flat vocabulary (D-02) | A DDT/proposal request's real-world outcome can be pending independently of admin review state — a flat vocabulary can't represent both dimensions at once | ✓ Good — implemented in Phase 14; ROADMAP/REQUIREMENTS wording corrected post-verification to match |
+| Natural key `(campaign, telescope_instrument, ut_start)` for idempotent re-import, backed by a DB-level `UniqueConstraint` (D-04, added post-review as WR-05) | `get_or_create` alone is only race-safe with a real DB constraint on the lookup fields; without one, concurrent/overlapping imports could create duplicate rows | ✓ Good — implemented in Phase 14; deep code review (CR-02) additionally found the unparseable-UT-time fallback could collide two distinct rows onto the same key — fixed with a deterministic per-batch disambiguating offset |
+| Single-target campaigns auto-assign their one `Target` to every imported row (D-07); re-imports always reset `target` to the auto-resolved value | Matches the real 3I/ATLAS sheet's common case (comet-only campaign); re-import overwrite behavior is documented (WR-07) rather than tracking manual-correction provenance, which would be a larger scope increase | ✓ Good — implemented in Phase 14 |
+| 3-tier site resolution — existing `Observatory` → live MPC API → flagged placeholder (D-08) — length/blank-checked against `Observatory.obscode.max_length` before any tier is attempted | Never fabricate or truncate a site code; blank/oversized codes are flagged `site_needs_review` with `site=None` rather than guessing | ✓ Good — implemented in Phase 14; hardened post-review (WR-01/02/03/04) against network timeouts, malformed API responses, and unhandled race conditions |
+| Deep (not standard) code review depth on Phase 14 caught 2 critical, reproduced data-correctness bugs (PM/AM time markers silently discarded; natural-key collision silently merging distinct rows) that all task-level self-checks and 227 passing tests had missed | Both bugs sat directly on the phase's CAMP-04 purpose — validating the schema against the real, messy sheet before a live import; a shallower review pass would likely not have traced the "never raise, never fabricate, never silently merge" invariants against actual behavior | ✓ Good — both fixed with regression tests before phase completion (commits `70f6ef3`, `dab0314`); 242/242 tests pass post-fix |
 
 ## Evolution
 
@@ -303,4 +326,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-02 — v2.0 Campaign Coordination for Rare/Urgent Objects milestone opened*
+*Last updated: 2026-07-03 — Phase 14 (Campaign Data Model & Bootstrap Import) complete; v2.0 milestone continues with Phase 15*
