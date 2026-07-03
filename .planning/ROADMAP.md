@@ -126,8 +126,16 @@ linked in the Milestones section above._
   3. Contact person/email are excluded from view context for anonymous requests (proven by an anonymous-client test) and shown only to authenticated staff.
   4. User can filter the table by lifecycle status and by the open-to-collaboration flag.
 
-**Plans**: TBD
+**Plans**: 2 plans
 **UI hint**: yes
+
+**Wave 1**
+
+- [ ] 15-01-PLAN.md — per-campaign table read path: CampaignRunTable + FilterSet + views + urls + templates + tests (VIEW-01/03/04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 15-02-PLAN.md — navigation & target-detail integration: apps.py hooks + inclusion tags + partials + tests (VIEW-02)
 
 ### Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)
 
