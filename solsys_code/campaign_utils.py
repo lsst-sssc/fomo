@@ -144,11 +144,17 @@ def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
                 pass
 
     # Tier 3: placeholder, flagged for review (D-09 -- flag, don't silently guess).
-    placeholder = Observatory.objects.create(
-        obscode=code,
-        name=f'NEEDS REVIEW: {code}',
-        short_name=code,
-    )
+    try:
+        placeholder = Observatory.objects.create(
+            obscode=code,
+            name=f'NEEDS REVIEW: {code}',
+            short_name=code,
+        )
+    except IntegrityError:
+        # WR-03: race protection matching tier 2's -- another row in this same import
+        # (or a concurrent process) already created an Observatory (placeholder or real)
+        # for this obscode. Re-fetch instead of crashing the import.
+        return Observatory.objects.get(obscode=code), True
     return placeholder, True
 
 

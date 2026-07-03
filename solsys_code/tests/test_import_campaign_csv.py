@@ -167,6 +167,33 @@ class TestCampaignUtils(TestCase):
         self.assertIn('NEEDS REVIEW', site.name)
         self.assertTrue(needs_review)
 
+    def test_resolve_site_tier3_race_falls_through_to_refetch(self):
+        """WR-03: a concurrent process winning the race to create the tier-3 placeholder
+        must not crash resolve_site -- re-fetch instead, matching tier 2's protection.
+        """
+        mock_response = MagicMock(ok=False, status_code=501)
+        mock_response.json.return_value = {'error': 'input_error', 'message': "obscodes failed: No obscode 'Z99'"}
+
+        existing = Observatory.objects.create(obscode='Z99', name='Concurrent placeholder', short_name='Z99')
+
+        with (
+            patch('requests.get', return_value=mock_response),
+            # First get() call is tier 1 (must miss so we reach tier 2/3); second get()
+            # call is the post-IntegrityError re-fetch inside tier 3's except block.
+            patch(
+                'solsys_code.campaign_utils.Observatory.objects.get',
+                side_effect=[Observatory.DoesNotExist(), existing],
+            ),
+            patch(
+                'solsys_code.campaign_utils.Observatory.objects.create',
+                side_effect=IntegrityError('UNIQUE constraint failed: obscode'),
+            ),
+        ):
+            site, needs_review = resolve_site('Z99')
+
+        self.assertEqual(site, existing)
+        self.assertTrue(needs_review)
+
     def test_parse_obs_window_hhmm_range(self):
         obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-04', '08:50 - 11:50')
         self.assertEqual(obs_date, date(2025, 7, 4))
