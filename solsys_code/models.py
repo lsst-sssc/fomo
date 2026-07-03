@@ -111,5 +111,18 @@ class CampaignRun(models.Model):
         verbose_name='Run status',
     )
 
+    class Meta:  # noqa: D106
+        constraints = [
+            # WR-05: backs the natural key insert_or_create_campaign_run's docstring and
+            # import_campaign_csv's D-04 comment both describe as relied on for
+            # idempotent re-imports. get_or_create() is only race-safe when its lookup
+            # fields are backed by a real DB constraint; without one, two concurrent
+            # imports could both miss the existing row and both attempt to create it.
+            models.UniqueConstraint(
+                fields=['campaign', 'telescope_instrument', 'ut_start'],
+                name='unique_campaign_run_natural_key',
+            ),
+        ]
+
     def __str__(self):
         return f'{self.campaign.name}: {self.telescope_instrument} on {self.obs_date}'
