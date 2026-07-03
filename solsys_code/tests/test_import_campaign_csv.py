@@ -447,7 +447,14 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
         path, ctx = self._write_csv(
             [
-                _row(**{'Telescope / Instrument': 'JUICE', 'Obs. Date': '2025-11-02 -25'}),  # malformed date
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JUICE',
+                        'Obs. Date': '2025-11-02 -25',  # malformed date
+                        'Contact Person': 'Real Person',
+                        'Email': 'real.person@example.com',
+                    }
+                ),
                 _row(
                     **{
                         'Telescope / Instrument': 'FTN/MuSCAT3',
@@ -467,6 +474,31 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(CampaignRun.objects.count(), 1)
         err = stderr_buf.getvalue()
         self.assertIn('Row 2', err)
+        self.assertIn('JUICE', err)
+
+    def test_natural_key_failure_log_excludes_contact_pii(self):
+        """WR-06: the skipped-row stderr line must not leak Contact Person/Email PII."""
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JUICE',
+                        'Obs. Date': '2025-11-02 -25',  # malformed date
+                        'Contact Person': 'Real Person',
+                        'Email': 'real.person@example.com',
+                    }
+                ),
+            ]
+        )
+        with ctx:
+            stderr_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=stderr_buf
+            )
+
+        err = stderr_buf.getvalue()
+        self.assertNotIn('Real Person', err)
+        self.assertNotIn('real.person@example.com', err)
 
     def test_idempotent_rerun_no_duplicates(self):
         """D-04: running the command twice over the same CSV produces no duplicate CampaignRuns."""

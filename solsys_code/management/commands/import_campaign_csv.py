@@ -79,7 +79,13 @@ class Command(BaseCommand):
                     row.get('Obs. Date', ''), row.get('UT Time Range', '')
                 )
             except ValueError as exc:
-                self.stderr.write(f'Row {row_num}: {exc} (row: {row!r})')
+                # WR-06: log only the natural-key fields needed to diagnose the skip --
+                # not the full row, which also carries Contact Person/Email PII from the
+                # real 3I/ATLAS sheet this command is meant to ingest.
+                self.stderr.write(
+                    f'Row {row_num}: {exc} (Telescope/Instrument={telescope_instrument!r}, '
+                    f'Obs. Date={row.get("Obs. Date")!r})'
+                )
                 skipped_count += 1
                 continue
 
