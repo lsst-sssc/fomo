@@ -131,48 +131,61 @@ class TestCampaignUtils(TestCase):
         self.assertFalse(needs_review)
 
     def test_parse_obs_window_hhmm_range(self):
-        obs_date, start, end = parse_obs_window('2025-07-04', '08:50 - 11:50')
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-04', '08:50 - 11:50')
         self.assertEqual(obs_date, date(2025, 7, 4))
         self.assertEqual(start, datetime(2025, 7, 4, 8, 50, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 4, 11, 50, tzinfo=dt_timezone.utc))
+        self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_semicolon_typo(self):
-        obs_date, start, end = parse_obs_window('2025-07-06', '17:45 - 18;55')
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-06', '17:45 - 18;55')
         self.assertEqual(obs_date, date(2025, 7, 6))
         self.assertEqual(start, datetime(2025, 7, 6, 17, 45, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 6, 18, 55, tzinfo=dt_timezone.utc))
+        self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_approximate_hour(self):
-        obs_date, start, end = parse_obs_window('2025-07-03', '~1 am')
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-03', '~1 am')
         self.assertEqual(obs_date, date(2025, 7, 3))
         self.assertEqual(start, datetime(2025, 7, 3, 1, 0, tzinfo=dt_timezone.utc))
         self.assertIsNone(end)
+        self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_approx_hour_pm_marker_applied(self):
         """CR-01: a PM marker on the approximate-hour format must be applied, not discarded."""
-        obs_date, start, end = parse_obs_window('2025-07-16', '~7:00:00 PM')
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-16', '~7:00:00 PM')
         self.assertEqual(obs_date, date(2025, 7, 16))
         self.assertEqual(start, datetime(2025, 7, 16, 19, 0, tzinfo=dt_timezone.utc))
         self.assertIsNone(end)
+        self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_hhmm_range_pm_markers_applied(self):
         """CR-01: PM markers on the HH:MM range format must be applied to both ends."""
-        obs_date, start, end = parse_obs_window('2025-07-16', '08:50 pm - 11:50 pm')
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-16', '08:50 pm - 11:50 pm')
         self.assertEqual(obs_date, date(2025, 7, 16))
         self.assertEqual(start, datetime(2025, 7, 16, 20, 50, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 16, 23, 50, tzinfo=dt_timezone.utc))
+        self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_hhmm_range_am_marker_noop(self):
         """An explicit AM marker leaves the (already 24h-consistent) hour unchanged."""
-        obs_date, start, end = parse_obs_window('2025-07-16', '08:50 am - 11:50 am')
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-16', '08:50 am - 11:50 am')
         self.assertEqual(start, datetime(2025, 7, 16, 8, 50, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 16, 11, 50, tzinfo=dt_timezone.utc))
+        self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_blank_time_falls_back_to_midnight(self):
-        obs_date, start, end = parse_obs_window('2025-07-06', '')
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-06', '')
         self.assertEqual(obs_date, date(2025, 7, 6))
         self.assertEqual(start, datetime(2025, 7, 6, 0, 0, tzinfo=dt_timezone.utc))
         self.assertIsNone(end)
+        self.assertTrue(ut_needs_review)  # CR-02: fallback must be flagged for collision detection
+
+    def test_parse_obs_window_garbled_text_flagged_needs_review(self):
+        """CR-02: unparseable free text also falls back to midnight and is flagged."""
+        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-06', 'some garbled text, no time info')
+        self.assertEqual(start, datetime(2025, 7, 6, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertTrue(ut_needs_review)
 
     def test_parse_obs_window_unparseable_date_raises(self):
         with self.assertRaises(ValueError):
@@ -316,6 +329,38 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertIsNone(run.site)
         self.assertTrue(run.site_needs_review)
         self.assertEqual(run.site_raw, '500@-170')
+
+    def test_duplicate_unparseable_ut_time_rows_do_not_merge(self):
+        """CR-02: two same-telescope/same-date rows with unparseable UT Time Range must not
+        collide on the natural key and silently merge into one CampaignRun.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Obs. Date': '2025-07-06',
+                        'UT Time Range': 'redo later',
+                    }
+                ),
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Obs. Date': '2025-07-06',
+                        'UT Time Range': 'exact start time not logged',
+                    }
+                ),
+            ]
+        )
+        with ctx:
+            stderr_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=stderr_buf
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 2)
+        self.assertIn('WARNING', stderr_buf.getvalue())
+        self.assertIn('duplicate natural key', stderr_buf.getvalue())
 
     def test_natural_key_failure_skipped_and_logged(self):
         """D-05: a bad Obs. Date row is skipped and logged; a good sibling row still imports."""

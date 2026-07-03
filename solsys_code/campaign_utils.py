@@ -134,7 +134,7 @@ def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
     return placeholder, True
 
 
-def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, datetime, datetime | None]:
+def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, datetime, datetime | None, bool]:
     """Best-effort parse of the sheet's Obs. Date + UT Time Range columns (Pitfall 1).
 
     ``obs_date_raw`` must parse as ``%Y-%m-%d`` or the row is a true natural-key failure
@@ -150,9 +150,13 @@ def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, dateti
             hours, bare-hour-plus-UTC shorthand, blank, or unparseable prose).
 
     Returns:
-        tuple[date, datetime, datetime | None]: ``(obs_date, ut_start, ut_end)``, both
-            datetimes tz-aware UTC. ``ut_end`` is ``None`` whenever only a start time (or
-            no time at all) could be determined.
+        tuple[date, datetime, datetime | None, bool]: ``(obs_date, ut_start, ut_end,
+            ut_needs_review)``, both datetimes tz-aware UTC. ``ut_end`` is ``None``
+            whenever only a start time (or no time at all) could be determined.
+            ``ut_needs_review`` mirrors ``resolve_site``'s ``needs_review`` flag: ``True``
+            when ``ut_start`` is the midnight-UTC fallback rather than an actual parsed
+            time (CR-02) -- callers can use this to detect and disambiguate natural-key
+            collisions between distinct rows that both fell back to midnight.
 
     Raises:
         ValueError: if ``obs_date_raw`` itself can't be parsed to a date (true
@@ -168,24 +172,27 @@ def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, dateti
         m1, m2 = int(m1), int(m2)
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h1, m1, tzinfo=dt_timezone.utc)
         end = datetime(obs_date.year, obs_date.month, obs_date.day, h2, m2, tzinfo=dt_timezone.utc)
-        return obs_date, start, end
+        return obs_date, start, end, False
 
     match = _APPROX_HOUR.search(ut_range_raw or '')
     if match:
         h = _to_24h(int(match.group(1)), match.group(2))
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h, 0, tzinfo=dt_timezone.utc)
-        return obs_date, start, None
+        return obs_date, start, None, False
 
     match = _BARE_HOUR_UTC.search(ut_range_raw or '')
     if match:
         h = int(match.group(1))
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h, 0, tzinfo=dt_timezone.utc)
-        return obs_date, start, None
+        return obs_date, start, None, False
 
     # Fallback: obs_date is valid but UT range isn't parseable at all (blank, garbage
     # text, or a misplaced date-range) -- use midnight UTC (Pitfall 1), never skip here.
+    # Flagged via ut_needs_review=True (CR-02) since this fallback always resolves to the
+    # same timestamp for a given obs_date, so two distinct rows sharing telescope+date
+    # both falling back here would otherwise collide on the natural key.
     start = datetime(obs_date.year, obs_date.month, obs_date.day, 0, 0, tzinfo=dt_timezone.utc)
-    return obs_date, start, None
+    return obs_date, start, None, True
 
 
 def map_observation_status(raw: str) -> str:
