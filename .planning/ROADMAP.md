@@ -101,10 +101,10 @@ linked in the Milestones section above._
   3. Operator can run a management command that imports the real 3I/ATLAS sheet CSV, reporting a created/updated/skipped summary; unparseable rows are skipped and logged without aborting the run.
   4. The import command's paired demo notebook runs end-to-end against a synthetic/redacted fixture with no real PII committed to git history.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 **Wave 1**
 
-- [ ] 14-01-PLAN.md — CampaignRun model + migration + model tests (CAMP-01/02/03)
+- [x] 14-01-PLAN.md — CampaignRun model + migration + model tests (CAMP-01/02/03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -177,7 +177,7 @@ linked in the Milestones section above._
 | 11. Code Refactoring | v1.6 | 2/2 | Complete | 2026-06-27 |
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
-| 14. Campaign Data Model & Bootstrap Import | v2.0 | 0/? | Not started | - |
+| 14. Campaign Data Model & Bootstrap Import | v2.0 | 1/3 | In Progress|  |
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 0/? | Not started | - |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 0/? | Not started | - |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 0/? | Not started | - |
