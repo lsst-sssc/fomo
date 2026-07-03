@@ -1,0 +1,41 @@
+{% extends 'tom_common/base.html' %}
+{% load django_tables2 %}
+{% block title %}{{ campaign.name }} — Observing Runs{% endblock %}
+
+{% block content %}
+<h4 class="font-weight-bold mb-4">{{ campaign.name }} — Observing Runs</h4>
+
+<div class="card bg-light p-3 mb-4">
+  <form method="get">
+    <div class="form-group">
+      <label class="font-weight-bold">{{ filter.form.run_status.label }}</label>
+      <div>
+        {% for choice in filter.form.run_status %}
+        <div class="form-check form-check-inline">
+          {{ choice.tag }}
+          <label class="form-check-label" for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="font-weight-bold" for="{{ filter.form.open_to_collaboration.id_for_label }}">
+        Open to collaboration?
+      </label>
+      {% with value=filter.form.open_to_collaboration.value %}
+      <select name="{{ filter.form.open_to_collaboration.html_name }}"
+              id="{{ filter.form.open_to_collaboration.id_for_label }}"
+              class="form-control w-auto">
+        <option value="unknown" {% if not value or value == 'unknown' %}selected{% endif %}>Any</option>
+        <option value="true" {% if value == 'true' %}selected{% endif %}>Yes</option>
+        <option value="false" {% if value == 'false' %}selected{% endif %}>No</option>
+      </select>
+      {% endwith %}
+    </div>
+    <button type="submit" class="btn btn-primary">Filter</button>
+    <a href="{% url 'campaigns:table' pk=campaign.pk %}" class="btn btn-link">Clear filters</a>
+  </form>
+</div>
+
+{% render_table table %}
+{% endblock %}

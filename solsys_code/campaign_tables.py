@@ -79,15 +79,29 @@ class CampaignRunTable(tables.Table):
     publication_plans = tables.Column(attrs=_FREE_TEXT_ATTRS)
     comments = tables.Column(attrs=_FREE_TEXT_ATTRS)
 
-    def render_run_status(self, value):
-        """Render run_status as a muted Bootstrap badge (UI-SPEC Run-Status Badge Contract)."""
+    def render_run_status(self, record):
+        """Render run_status as a muted Bootstrap badge (UI-SPEC Run-Status Badge Contract).
+
+        Reads the raw stored value from ``record`` via Accessor rather than accepting
+        django-tables2's pre-resolved ``value`` kwarg: for model-instance rows (staff),
+        django-tables2's row machinery auto-calls ``get_run_status_display()`` *before*
+        this method runs (since the field has ``choices``), silently handing us the
+        already-humanized label instead of the raw code -- would break the
+        ``CampaignRun.RunStatus(value)`` lookup below. Resolving from ``record`` directly
+        sidesteps that pre-processing and gives the raw code for both dict and model rows.
+        """
+        value = Accessor('run_status').resolve(record, quiet=True)
         css = RUN_STATUS_BADGE_CLASSES.get(value, 'badge-secondary')
         label = CampaignRun.RunStatus(value).label
         style = 'border: 1px solid #6c757d;' if css == 'badge-light' else ''
         return format_html('<span class="badge {}" style="{}">{}</span>', css, style, label)
 
-    def render_approval_status(self, value):
-        """Render approval_status as a colored Bootstrap badge (D-08)."""
+    def render_approval_status(self, record):
+        """Render approval_status as a colored Bootstrap badge (D-08).
+
+        See render_run_status docstring -- same raw-value-via-Accessor rationale applies.
+        """
+        value = Accessor('approval_status').resolve(record, quiet=True)
         css = APPROVAL_BADGE_CLASSES.get(value, 'badge-secondary')
         label = CampaignRun.ApprovalStatus(value).label
         return format_html('<span class="badge {}">{}</span>', css, label)

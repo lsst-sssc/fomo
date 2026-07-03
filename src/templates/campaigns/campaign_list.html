@@ -1,0 +1,26 @@
+{% extends 'tom_common/base.html' %}
+{% block title %}Campaigns{% endblock %}
+
+{% block content %}
+<h4 class="font-weight-bold mb-4">Campaigns</h4>
+
+{% if campaigns %}
+<div class="list-group">
+  {% for campaign in campaigns %}
+  <a href="{% url 'campaigns:table' pk=campaign.pk %}"
+     class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+    {{ campaign.name }}
+    <span class="badge badge-secondary">{{ campaign.run_count }} run{{ campaign.run_count|pluralize }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="p-5 text-center text-muted">
+  <h5>No campaigns yet.</h5>
+  <p>
+    A campaign appears here once at least one observing run has been logged against a target
+    list. Import a coordination sheet or ask a coordinator to record the first run.
+  </p>
+</div>
+{% endif %}
+{% endblock %}
