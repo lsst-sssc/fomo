@@ -76,6 +76,11 @@ _STATUS_MAP = [
     ('planned', CampaignRun.RunStatus.PLANNED),
 ]
 
+# WR-08: a bare negation ("Not observed", no other keyword) contains the 'observ'
+# substring but means the opposite -- map_observation_status skips the ('observ', ...)
+# entry when this matches and no earlier, more-specific keyword already matched.
+_NOT_OBSERVED_RE = re.compile(r'\bnot\s+observ', re.IGNORECASE)
+
 
 def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
     """Resolve a raw Site Code string to an Observatory (D-08 3-tier resolution).
@@ -233,7 +238,10 @@ def map_observation_status(raw: str) -> str:
     unrecognized string (including blank) falls back to the conservative
     ``RunStatus.REQUESTED`` default rather than raising or guessing at a more specific
     status -- ``run_status`` is a non-key field (D-05), so an imprecise default must
-    never block the row.
+    never block the row. A bare negation like ``'Not observed'`` (WR-08) is deliberately
+    *not* classified as ``OBSERVED`` even though it contains that substring -- unless a
+    more specific keyword also co-occurs (e.g. ``'Not observed -- weather'`` still maps to
+    ``WEATHER_TECH_FAILURE`` via the earlier, more-specific ``'weather'`` entry).
 
     Args:
         raw: the CSV row's raw ``Observation Status`` cell value.
@@ -243,6 +251,11 @@ def map_observation_status(raw: str) -> str:
     """
     normalized = (raw or '').strip().lower()
     for needle, status in _STATUS_MAP:
+        if needle == 'observ' and _NOT_OBSERVED_RE.search(normalized):
+            # WR-08: no more-specific keyword matched by this point (they're all earlier
+            # in the table), so this is a bare negation -- skip straight to REQUESTED
+            # rather than mis-classifying it as OBSERVED.
+            continue
         if needle in normalized:
             return status
     return CampaignRun.RunStatus.REQUESTED

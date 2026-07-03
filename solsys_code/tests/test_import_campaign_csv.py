@@ -280,6 +280,14 @@ class TestCampaignUtils(TestCase):
     def test_map_observation_status_unknown_defaults_requested(self):
         self.assertEqual(map_observation_status('???'), CampaignRun.RunStatus.REQUESTED)
 
+    def test_map_observation_status_bare_negation_not_observed(self):
+        """WR-08: a bare negation must not be mis-classified as OBSERVED."""
+        self.assertEqual(map_observation_status('Not observed'), CampaignRun.RunStatus.REQUESTED)
+
+    def test_map_observation_status_negation_with_more_specific_keyword(self):
+        """WR-08: a negation that co-occurs with a more specific keyword still uses it."""
+        self.assertEqual(map_observation_status('Not observed -- weather'), CampaignRun.RunStatus.WEATHER_TECH_FAILURE)
+
     def test_insert_or_create_campaign_run_unchanged_on_second_call(self):
         campaign = TargetList.objects.create(name='Test Campaign')
         lookup = {
