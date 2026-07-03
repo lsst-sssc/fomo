@@ -53,7 +53,11 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `solsys_code/management/commands/import_campaign_csv.py`: bootstrap CSV import command (skip-and-log, site resolution, single-target auto-assignment, natural-key collision disambiguation) — v2.0 (Phase 14)
 - `solsys_code/tests/test_campaign_models.py`, `test_import_campaign_csv.py`: 39 tests — v2.0 (Phase 14)
 - `docs/notebooks/pre_executed/fixtures/campaign_sample.csv`, `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb`: synthetic PII-free fixture + paired demo notebook — v2.0 (Phase 14)
-- **All 242 `./manage.py test solsys_code` tests pass (Phase 14 complete, v2.0 in progress).**
+- `solsys_code/campaign_tables.py`, `campaign_filters.py`, `campaign_views.py`, `campaign_urls.py`: `CampaignRunTable`, `CampaignRunFilterSet`, `CampaignRunTableView`/`CampaignListView`, `campaigns` URL namespace — v2.0 (Phase 15)
+- `src/templates/campaigns/campaign_list.html`, `campaignrun_table.html`; `src/templates/solsys_code/partials/campaign_links.html`, `campaigns_nav_link.html`: read-path + navigation templates — v2.0 (Phase 15)
+- `solsys_code/apps.py`: second `target_detail_buttons()` entry + new `nav_items()` hook; `src/templatetags/solsys_code_extras.py`: `campaign_links`/`campaigns_nav_link` inclusion tags — v2.0 (Phase 15)
+- `solsys_code/tests/test_campaign_views.py`: 16 tests — v2.0 (Phase 15)
+- **All 258 `./manage.py test solsys_code` tests pass (Phase 15 complete, v2.0 in progress).**
 
 ## Core Value
 
@@ -86,6 +90,14 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✅ CAMP-05: Paired demo notebook + synthetic PII-free fixture, executed with committed output, demonstrates the approval lifecycle
 - Post-plan deep code review found and fixed 2 critical data-correctness bugs before phase close: PM/AM UT-time markers were parsed but never applied (silently 12h wrong), and the `(campaign, telescope_instrument, ut_start)` natural key collided for distinct rows sharing an unparseable UT Time Range (silent row loss). Both fixed with regression tests, plus 9 warning-level hardening fixes (network timeouts, race protection, PII-safe logging, DB-level uniqueness constraint, status-mapping negation awareness, CSV header validation) — see `14-REVIEW.md`/`14-REVIEW-FIX.md`.
 - 242 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean on all Phase 14 files.
+
+**Phase 15 — Per-Campaign Table View (Read Path) — COMPLETE (2026-07-03):**
+- ✅ VIEW-01: `CampaignRunTableView` (django-tables2 `SingleTableMixin` + django-filter `FilterView`) — sortable/paginated (25/page, default `-obs_date`) table of every `CampaignRun` for a campaign
+- ✅ VIEW-02: `SolsysCodeConfig.target_detail_buttons()` second entry links a target-detail page to each campaign it belongs to (via `TargetList` membership); new `SolsysCodeConfig.nav_items()` hook adds a global "Campaigns" navbar entry (first `nav_items()` consumer in FOMO)
+- ✅ VIEW-03: `get_queryset()` returns a `.values(*ALLOWED_FIELDS_FOR_NON_STAFF)`-restricted queryset for non-staff so `contact_person`/`contact_email` are never fetched by SQL for anonymous requests, proven by an anonymous-client test; visible to staff
+- ✅ VIEW-04: `CampaignRunFilterSet` — `run_status` multi-select (OR semantics), `open_to_collaboration` boolean filter
+- Verification independently re-ran the full test suite (`manage.py test solsys_code` — 258/258 pass) and the phase-specific module (16/16), confirmed PII-gating at the SQL level (not template-only), and cross-checked every commit hash — see `15-VERIFICATION.md`. Code review found no critical issues (2 warnings/3 info, non-blocking) — see `15-REVIEW.md`.
+- 258 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean on all Phase 15 files.
 
 **Prior milestones (v1.0-v1.7):**
 
@@ -173,12 +185,15 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ **CAMP-03**: Lifecycle status (planned → observed → reduced → published) plus approval state (pending review / approved / rejected) as two independent controlled-vocabulary fields (D-02) — v2.0 (Phase 14)
 - ✓ **CAMP-04**: Operator can bootstrap-import the real 3I/ATLAS sheet CSV via a management command with per-row skip-and-log error handling and a created/updated/skipped summary — v2.0 (Phase 14)
 - ✓ **CAMP-05**: The import command's paired demo notebook contains no real PII — runs against a synthetic/redacted fixture — v2.0 (Phase 14)
+- ✓ **VIEW-01**: User can view a per-campaign table of all its runs (sortable/paginated), replacing the spreadsheet — v2.0 (Phase 15)
+- ✓ **VIEW-02**: User can reach a target's campaigns from its target-detail page; navbar exposes a campaigns entry — v2.0 (Phase 15)
+- ✓ **VIEW-03**: Contact person/email are visible only to authenticated staff — excluded from view context for anonymous requests and proven by an anonymous-client test — v2.0 (Phase 15)
+- ✓ **VIEW-04**: User can filter the table by lifecycle status and the open-to-collaboration flag — v2.0 (Phase 15)
 
 ### Active
 
 <!-- v2.0 Campaign Coordination — requirement IDs defined in .planning/REQUIREMENTS.md -->
 
-- Per-target campaign table view
 - Community submission form with admin approval queue
 - Ephemeris-aware coverage-gap analysis
 
@@ -326,4 +341,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-03 — Phase 14 (Campaign Data Model & Bootstrap Import) complete; v2.0 milestone continues with Phase 15*
+*Last updated: 2026-07-03 — Phase 15 (Per-Campaign Table View, Read Path) complete; v2.0 milestone continues with Phase 16*
