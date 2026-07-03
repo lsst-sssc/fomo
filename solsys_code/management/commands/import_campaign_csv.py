@@ -17,7 +17,12 @@ from solsys_code.models import CampaignRun
 class Command(BaseCommand):
     """Bootstrap-import a campaign coordination CSV (e.g. the 3I/ATLAS sheet) into CampaignRun rows."""
 
-    help = 'Bootstrap-import a campaign coordination CSV into CampaignRun rows (CAMP-04)'
+    help = (
+        'Bootstrap-import a campaign coordination CSV into CampaignRun rows (CAMP-04). '
+        "WARNING: re-running this command over the same campaign always resets each row's "
+        '`target` to the auto-resolved value (D-07) -- any manual correction a staff user made '
+        'to `target` after a previous import will be silently overwritten on re-import (WR-07).'
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Parse command line arguments."""
@@ -41,6 +46,13 @@ class Command(BaseCommand):
         Range) skips a row (D-05); every other column defaults to a blank/None value
         rather than aborting the row. Site resolution (D-08/D-09) never skips a row --
         an unresolved site is flagged via `site_needs_review` and counted separately.
+
+        WR-07: `fields['target']` is unconditionally set to the campaign's auto-resolved
+        Target (D-07) on every row, every run -- including on a re-import that updates an
+        existing row. This is expected/acceptable for this bootstrap-import command (not
+        a bug), but it does mean a staff user's manual `CampaignRun.target` correction
+        made via the admin between imports will be reset back to the auto-resolved value
+        the next time this command runs over the same campaign.
 
         Returns:
             str | None: None on completion.
@@ -111,6 +123,8 @@ class Command(BaseCommand):
                 site_needs_review_count += 1
 
             fields = {
+                # WR-07: unconditionally reset to auto_target on every run, including
+                # re-imports -- see handle()'s docstring for why this is expected.
                 'target': auto_target,
                 'site': site,
                 'site_raw': site_raw,
