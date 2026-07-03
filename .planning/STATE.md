@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
-current_phase: 14
-current_phase_name: campaign-data-model-bootstrap-import
+current_phase: 15
+current_phase_name: Read Path
 status: verifying
 stopped_at: Completed 14-03-PLAN.md (CAMP-05 demo notebook + fixture)
-last_updated: "2026-07-03T07:43:55.177Z"
-last_activity: 2026-07-02
-last_activity_desc: Phase 14 execution started
+last_updated: "2026-07-03T08:44:21.563Z"
+last_activity: 2026-07-03
+last_activity_desc: Phase 14 complete, transitioned to Phase 15
 progress:
   total_phases: 4
   completed_phases: 1
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 ## Current Position
 
-Phase: 14 (campaign-data-model-bootstrap-import) — EXECUTING
-Plan: 3 of 3
+Phase: 15 — Per-Campaign Table View (Read Path)
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-02 — Phase 14 execution started
+Last activity: 2026-07-03 — Phase 14 complete, transitioned to Phase 15
 Progress: [░░░░░░░░░░] 0/4 phases
 
 ## Roadmap Summary (v2.0)
@@ -57,7 +57,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 14 | TBD | - | - |
+| 14 | 3 | - | - |
 | 15 | TBD | - | - |
 | 16 | TBD | - | - |
 | 17 | TBD | - | - |

@@ -177,7 +177,7 @@ linked in the Milestones section above._
 | 11. Code Refactoring | v1.6 | 2/2 | Complete | 2026-06-27 |
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
-| 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete   | 2026-07-03 |
+| 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 0/? | Not started | - |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 0/? | Not started | - |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 0/? | Not started | - |
