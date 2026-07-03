@@ -5,8 +5,8 @@ milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 15
 current_phase_name: Read Path
 status: verifying
-stopped_at: Completed 14-03-PLAN.md (CAMP-05 demo notebook + fixture)
-last_updated: "2026-07-03T08:44:21.563Z"
+stopped_at: Phase 15 context gathered
+last_updated: "2026-07-03T09:31:14.765Z"
 last_activity: 2026-07-03
 last_activity_desc: Phase 14 complete, transitioned to Phase 15
 progress:
@@ -115,9 +115,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-03T07:43:55.168Z
-Stopped at: Completed 14-03-PLAN.md (CAMP-05 demo notebook + fixture)
-Resume file: None
+Last session: 2026-07-03T09:31:14.737Z
+Stopped at: Phase 15 context gathered
+Resume file: .planning/phases/15-per-campaign-table-view-read-path/15-CONTEXT.md
 
 ## Operator Next Steps
 
