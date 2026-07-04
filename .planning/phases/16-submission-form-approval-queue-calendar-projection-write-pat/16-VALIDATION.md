@@ -1,10 +1,11 @@
 ---
 phase: 16
 slug: submission-form-approval-queue-calendar-projection-write-pat
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-03
+validated: 2026-07-04
 ---
 
 # Phase 16 — Validation Strategy
@@ -38,29 +39,35 @@ created: 2026-07-03
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD (assigned by planner) | TBD | TBD | SUBMIT-01 | — | Valid submission (campaign only) creates a `PENDING_REVIEW` `CampaignRun`; missing `campaign` fails validation; missing `contact_person`/`contact_email` fails validation (D-06) | integration (Django `Client`) | `./manage.py test solsys_code.tests.test_campaign_submission.TestCampaignSubmission.test_minimal_valid_submission_creates_pending_run` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | SUBMIT-02 | Visibility of unapproved data — see Security Domain below | Anonymous client cannot see a `pending_review` row on the per-campaign table | integration (Django `Client`) | `./manage.py test solsys_code.tests.test_campaign_views.TestContactFieldGating` (extend) or new module | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | SUBMIT-03 | Race condition / double-processing — see Security Domain below | Approve twice: first call transitions, second call is a proven no-op (`updated_count == 0`, no duplicate `CalendarEvent`, no second email) | integration | `./manage.py test solsys_code.tests.test_campaign_approval.TestApproval.test_double_approve_is_noop` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | SUBMIT-04 | Bot/automated abuse — see Security Domain below | Honeypot-filled submission: no `CampaignRun` created, no email sent, response is the same success page as a genuine submission | integration | `./manage.py test solsys_code.tests.test_campaign_submission.TestHoneypot` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | SUBMIT-05 | PII disclosure — see Security Domain below | Genuine submission triggers `send_mail` to every `is_staff=True` user with a non-empty email (staff with blank email excluded); email body/subject contain no PII (no `contact_person`/`contact_email`/telescope/campaign name), proving D-04 | integration (`django.core.mail.outbox`) | `./manage.py test solsys_code.tests.test_campaign_submission.TestStaffNotification` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | CAL-01 | — | Approving a run with telescope + `ut_start` + `ut_end` creates a `CalendarEvent` keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event()` | integration | `./manage.py test solsys_code.tests.test_campaign_approval.TestCalendarProjection` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | CAL-02 | — | Created `CalendarEvent.target_list` equals the campaign's `TargetList` | integration | same test module as CAL-01 | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | CAL-03 | — | Re-approving an already-approved run creates no duplicate `CalendarEvent` and causes no `modified` churn (assert `CalendarEvent.objects.count()` unchanged and `modified` timestamp unchanged after the second approve attempt) | integration | same test module as CAL-01 | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | D-09 (per-campaign table extension, not a numbered requirement) | Visibility of unapproved/rejected data | Non-staff sees `approved` and `rejected` rows, not `pending_review`, on the per-campaign table; staff continues to see every row | integration | extend `solsys_code/tests/test_campaign_views.py` | ❌ W0 | ⬜ pending |
-| TBD (assigned by planner) | TBD | TBD | D-01/D-02 (approval-queue access, not a numbered requirement) | Access control — see Security Domain below | Anonymous/non-staff GET to approval-queue and approve/reject URLs redirects (never 200 with content) | integration | `./manage.py test solsys_code.tests.test_campaign_approval.TestStaffGating` | ❌ W0 | ⬜ pending |
+| 16-01/16-02/16-04 | 01, 02, 04 | 1, 2, 4 | SUBMIT-01 | — | Valid submission (campaign only) creates a `PENDING_REVIEW` `CampaignRun`; missing `campaign` fails validation; missing `contact_person`/`contact_email` fails validation (D-06) | integration (Django `Client`) | `./manage.py test solsys_code.tests.test_campaign_submission.TestCampaignSubmission.test_minimal_valid_submission_creates_pending_run` | ✅ | ✅ green |
+| 16-04 | 04 | 4 | SUBMIT-02 | Visibility of unapproved data — see Security Domain below | Anonymous client cannot see a `pending_review` row on the per-campaign table | integration (Django `Client`) | `./manage.py test solsys_code.tests.test_campaign_views.TestNonStaffPendingReviewHidden` | ✅ | ✅ green |
+| 16-03/16-05 | 03, 05 | 3, 1 (16-05 is a gap-closure plan, own wave 1) | SUBMIT-03 | Race condition / double-processing — see Security Domain below | Approve twice: first call transitions, second call is a proven no-op (`updated_count == 0`, no duplicate `CalendarEvent`, no second email) | integration | `./manage.py test solsys_code.tests.test_campaign_approval.TestApproval.test_double_approve_is_noop` | ✅ | ✅ green |
+| 16-01/16-02 | 01, 02 | 1, 2 | SUBMIT-04 | Bot/automated abuse — see Security Domain below | Honeypot-filled submission: no `CampaignRun` created, no email sent, response is the same success page as a genuine submission | integration | `./manage.py test solsys_code.tests.test_campaign_submission.TestHoneypot` | ✅ | ✅ green |
+| 16-02 | 02 | 2 | SUBMIT-05 | PII disclosure — see Security Domain below | Genuine submission triggers `send_mail` to every `is_staff=True` user with a non-empty email (staff with blank email excluded); email body/subject contain no PII (no `contact_person`/`contact_email`/telescope/campaign name), proving D-04 | integration (`django.core.mail.outbox`) | `./manage.py test solsys_code.tests.test_campaign_submission.TestStaffNotification` | ✅ | ✅ green |
+| 16-03 | 03 | 3 | CAL-01 | — | Approving a run with telescope + `ut_start` + `ut_end` creates a `CalendarEvent` keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event()` | integration | `./manage.py test solsys_code.tests.test_campaign_approval.TestCalendarProjection` | ✅ | ✅ green |
+| 16-03 | 03 | 3 | CAL-02 | — | Created `CalendarEvent.target_list` equals the campaign's `TargetList` | integration | same test module as CAL-01 (`test_approve_with_full_window_creates_calendar_event`) | ✅ | ✅ green |
+| 16-03 | 03 | 3 | CAL-03 | — | Re-approving an already-approved run creates no duplicate `CalendarEvent` and causes no `modified` churn (assert `CalendarEvent.objects.count()` unchanged and `modified` timestamp unchanged after the second approve attempt) | integration | `./manage.py test solsys_code.tests.test_campaign_approval.TestCalendarNoChurn` | ✅ | ✅ green |
+| 16-04 | 04 | 4 | D-09 (per-campaign table extension, not a numbered requirement) | Visibility of unapproved/rejected data | Non-staff sees `approved` and `rejected` rows, not `pending_review`, on the per-campaign table; staff continues to see every row | integration | `./manage.py test solsys_code.tests.test_campaign_views.TestNonStaffPendingReviewHidden` | ✅ | ✅ green |
+| 16-03 | 03 | 3 | D-01/D-02 (approval-queue access, not a numbered requirement) | Access control — see Security Domain below | Anonymous/non-staff GET to approval-queue and approve/reject URLs redirects (never 200 with content) | integration | `./manage.py test solsys_code.tests.test_campaign_approval.TestStaffGating` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
-Task ID/Plan/Wave columns are placeholders — the planner assigns concrete task IDs when creating PLAN.md files and must update this table (or the plan's own `must_haves`) accordingly.
+Task ID/Plan/Wave columns resolved against the executed plans (`16-01` through `16-05`); `16-05`
+is the post-verification gap-closure plan (UAT Test 14, `ApprovalQueueTable` column trim/reorder),
+tagged `SUBMIT-03` in its own frontmatter. All commands above were re-run directly during this
+audit (`python manage.py test solsys_code.tests.test_campaign_submission
+solsys_code.tests.test_campaign_approval solsys_code.tests.test_campaign_views
+solsys_code.tests.test_campaign_forms` → 61 tests, OK) and independently confirmed green in
+16-VERIFICATION.md's 303-test full-suite run.
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `solsys_code/tests/test_campaign_submission.py` — new test module covering SUBMIT-01, SUBMIT-04, SUBMIT-05 (does not exist yet)
-- [ ] `solsys_code/tests/test_campaign_approval.py` — new test module covering SUBMIT-03, CAL-01, CAL-02, CAL-03, and staff-gating for the approval-queue/action views (does not exist yet)
-- [ ] Extend `solsys_code/tests/test_campaign_views.py` — D-09 non-staff visibility filter (existing module from Phase 15)
-- [ ] No new test framework install needed — `django.test.TestCase` + `django.core.mail` (`outbox`) are already available; no fixtures beyond `TargetList.objects.create(...)` + `User.objects.create_user(..., is_staff=True)` (already established in `test_campaign_views.py` from Phase 15)
+- [x] `solsys_code/tests/test_campaign_submission.py` — created (13 tests: `TestCampaignSubmission`, `TestHoneypot`, `TestStaffNotification`), covers SUBMIT-01, SUBMIT-04, SUBMIT-05
+- [x] `solsys_code/tests/test_campaign_approval.py` — created (17 tests: `TestStaffGating`, `TestApproval`, `TestCalendarProjection`, `TestApprovalQueueColumns`, `TestCalendarNoChurn`), covers SUBMIT-03, CAL-01, CAL-02, CAL-03, and staff-gating for the approval-queue/action views
+- [x] Extended `solsys_code/tests/test_campaign_views.py` — `TestNonStaffPendingReviewHidden` added for D-09 non-staff visibility filter
+- [x] No new test framework install needed — `django.test.TestCase` + `django.core.mail` (`outbox`) used as anticipated; no new fixture types beyond those already established in `test_campaign_views.py` from Phase 15
 
 ---
 
@@ -75,11 +82,42 @@ Task ID/Plan/Wave columns are placeholders — the planner assigns concrete task
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-07-04
+
+---
+
+## Validation Audit 2026-07-04
+
+State A audit (VALIDATION.md existed as the pre-execution draft with `TBD` task IDs and
+`⬜ pending` statuses; all 5 plans/summaries and 16-VERIFICATION.md were available for
+cross-reference).
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+All 10 rows in the Per-Task Verification Map (SUBMIT-01..05, CAL-01..03, D-09, D-01/D-02) were
+matched to real, existing, passing tests in `solsys_code/tests/test_campaign_submission.py`,
+`test_campaign_approval.py`, and `test_campaign_views.py`. Re-ran the targeted modules directly
+during this audit:
+
+```
+python manage.py test solsys_code.tests.test_campaign_submission \
+  solsys_code.tests.test_campaign_approval solsys_code.tests.test_campaign_views \
+  solsys_code.tests.test_campaign_forms
+→ Ran 61 tests ... OK
+```
+
+This corroborates 16-VERIFICATION.md's independent 303-test full-suite run. No auditor subagent
+was spawned (no gaps to fill). Task ID/Plan/Wave placeholders resolved against the executed
+PLAN.md frontmatter (`requirements:` fields) and file `files_modified` lists. `nyquist_compliant`
+set to `true`.
