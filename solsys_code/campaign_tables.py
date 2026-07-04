@@ -8,6 +8,8 @@ are resolved manually here via the model's ``TextChoices`` rather than relied on
 """
 
 import django_tables2 as tables
+from django.middleware.csrf import get_token
+from django.urls import reverse
 from django.utils.html import format_html
 from django_tables2.utils import Accessor
 
@@ -125,3 +127,52 @@ class CampaignRunTable(tables.Table):
         if value:
             return format_html('<i class="fa fa-check text-success" aria-hidden="true" title="Yes"></i>')
         return format_html('<i class="fa fa-times text-muted" aria-hidden="true" title="No"></i>')
+
+
+class ApprovalQueueTable(CampaignRunTable):
+    """CampaignRunTable plus an Actions column for the staff approval queue (D-01/D-02).
+
+    The pending-review table (``show_actions=True``, the default) renders an Approve/Reject
+    button pair per row that POST directly to ``campaigns:decide``; the recently-decided table
+    (``show_actions=False``) renders the same columns with an empty Actions cell -- read-only
+    per 16-RESEARCH.md Open Question 2. CSRF protection is handled inside ``render_actions``
+    itself (via ``django.middleware.csrf.get_token``) rather than in the template's row loop,
+    since ``{% render_table %}`` doesn't hand row-rendering control back to the template (see
+    16-03-PLAN.md Task 1 planner note) -- the request object must be passed in explicitly at
+    construction time so a CSRF token can be minted for each row's mini-forms.
+    """
+
+    actions = tables.Column(empty_values=(), orderable=False, verbose_name='Actions')
+
+    class Meta(CampaignRunTable.Meta):  # noqa: D106
+        pass
+
+    def __init__(self, *args, show_actions=True, request=None, **kwargs):
+        self.show_actions = show_actions
+        self.request = request
+        super().__init__(*args, **kwargs)
+
+    def render_actions(self, record):
+        """Render side-by-side Approve/Reject mini-forms, or nothing (decided-runs table)."""
+        if not self.show_actions:
+            return ''
+        decide_url = reverse('campaigns:decide', kwargs={'pk': record.pk})
+        csrf_token = get_token(self.request) if self.request is not None else ''
+        return format_html(
+            '<div class="d-flex" style="gap: 0.5rem;">'
+            '<form method="post" action="{0}" class="d-inline">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{1}">'
+            '<input type="hidden" name="action" value="approve">'
+            '<button type="submit" class="btn btn-sm btn-success">Approve</button>'
+            '</form>'
+            '<form method="post" action="{0}" class="d-inline">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{1}">'
+            '<input type="hidden" name="action" value="reject">'
+            '<button type="submit" class="btn btn-sm btn-danger" '
+            'onclick="return confirm(\'Reject this submission? '
+            'The submitter will not be automatically notified.\')">Reject</button>'
+            '</form>'
+            '</div>',
+            decide_url,
+            csrf_token,
+        )

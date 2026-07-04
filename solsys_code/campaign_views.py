@@ -8,20 +8,26 @@ import ``solsys_code.views`` -- that module imports ``.ephem_utils`` at module l
 which triggers a ~1.6 GB SPICE kernel download (CLAUDE.md "Heavy import side effect").
 """
 
+from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.db.models import Count
+from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import NoReverseMatch, reverse, reverse_lazy
-from django.views.generic import FormView, ListView
+from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
+from django_tables2 import RequestConfig
 from django_tables2.views import SingleTableMixin
 from tom_targets.models import TargetList
 
+from .calendar_utils import insert_or_create_calendar_event
 from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignRunSubmissionForm
-from .campaign_tables import CampaignRunTable
+from .campaign_tables import ApprovalQueueTable, CampaignRunTable
+from .campaign_utils import resolve_site
+from .mixins import StaffRequiredMixin
 from .models import CampaignRun
 
 # D-13/VIEW-03/T-15-01: the exact D-09 column list for non-staff requests. Deliberately
@@ -181,3 +187,103 @@ class CampaignRunSubmissionView(FormView):
             recipient_list=recipients,
             fail_silently=True,  # Pitfall 6: a mail outage must never break the submission
         )
+
+
+class ApprovalQueueView(StaffRequiredMixin, TemplateView):
+    """Staff-only two-section approval queue: pending review + recently decided (D-01/D-02).
+
+    Two independent ``ApprovalQueueTable`` instances are built by hand from two separate
+    querysets (16-RESEARCH.md Pattern 5) rather than routed through ``MultiTableMixin``, since
+    the pending/decided querysets have genuinely asymmetric filtering (not a list of symmetric
+    tables). ``StaffRequiredMixin`` gates the whole view -- this page must NOT follow Phase 15's
+    soft-filter (``.values()``) pattern; anonymous/non-staff requests are redirected before any
+    pending-submission content (which includes contact PII) is ever rendered (T-16-03).
+    """
+
+    template_name = 'campaigns/approval_queue.html'
+
+    def get_context_data(self, **kwargs):
+        """Build the pending (actionable) and recently-decided (read-only) tables."""
+        context = super().get_context_data(**kwargs)
+        pending_qs = CampaignRun.objects.filter(
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
+        ).select_related('campaign', 'site')
+        # Pitfall 1: CampaignRun has no modified/timestamp field -- order by -pk (a reasonable
+        # recency proxy) and cap at 20 rows.
+        decided_qs = (
+            CampaignRun.objects.exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+            .select_related('campaign', 'site')
+            .order_by('-pk')[:20]
+        )
+        pending_table = ApprovalQueueTable(
+            pending_qs,
+            prefix='pending-',
+            request=self.request,
+            empty_text='No submissions waiting for review.',
+        )
+        decided_table = ApprovalQueueTable(
+            decided_qs,
+            prefix='decided-',
+            show_actions=False,
+            empty_text='No decisions recorded yet.',
+        )
+        RequestConfig(self.request).configure(pending_table)
+        RequestConfig(self.request).configure(decided_table)
+        context['pending_table'] = pending_table
+        context['decided_table'] = decided_table
+        return context
+
+
+class CampaignRunDecisionView(StaffRequiredMixin, View):
+    """POST-only atomic approve/reject decision endpoint (SUBMIT-03) + calendar projection.
+
+    A single conditional ``.filter(pk=pk, approval_status=PENDING_REVIEW).update(...)`` proves
+    the double-approve no-op (T-16-02): a second decision POST on an already-decided row
+    matches zero rows, so the calendar projection below is never re-triggered (CAL-03).
+    ``http_method_names = ['post']`` ensures a GET (crawler prefetch, bare ``<a href>``) can
+    never trigger a state change (T-16-06).
+    """
+
+    http_method_names = ['post']
+
+    def post(self, request, pk):
+        """Atomically transition a CampaignRun and, on approve, project a CalendarEvent."""
+        action = request.POST.get('action')
+        if action not in ('approve', 'reject'):
+            return HttpResponseBadRequest()
+        new_status = CampaignRun.ApprovalStatus.APPROVED if action == 'approve' else CampaignRun.ApprovalStatus.REJECTED
+        updated_count = CampaignRun.objects.filter(
+            pk=pk, approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
+        ).update(approval_status=new_status)
+
+        if updated_count == 1 and action == 'approve':
+            run = CampaignRun.objects.get(pk=pk)
+            # D-07: reuse the existing 3-tier site resolver rather than re-implementing it.
+            site, needs_review = resolve_site(run.site_raw)
+            run.site, run.site_needs_review = site, needs_review
+            run.save(update_fields=['site', 'site_needs_review'])
+
+            # CAL-01/Pitfall 2: CalendarEvent.start_time/end_time are non-nullable -- only
+            # project when telescope_instrument, ut_start, AND ut_end are all present. A run
+            # missing ut_end simply doesn't get a CalendarEvent yet.
+            if run.telescope_instrument and run.ut_start and run.ut_end:
+                # Never construct CalendarEvent directly -- always route through the shared
+                # helper (Don't Hand-Roll) so the CAMPAIGN: namespace stays collision-safe
+                # against the LCO/Gemini/classical sync commands (T-16-09).
+                insert_or_create_calendar_event(
+                    {'url': f'CAMPAIGN:{run.pk}'},
+                    fields={
+                        'title': f'{run.campaign.name}: {run.telescope_instrument}',
+                        'description': run.observation_details,
+                        'start_time': run.ut_start,
+                        'end_time': run.ut_end,
+                        'target_list': run.campaign,  # CAL-02
+                        'telescope': run.telescope_instrument,
+                    },
+                )
+            messages.success(request, 'Run approved.')
+        elif updated_count == 1:
+            messages.success(request, 'Run rejected.')
+        else:
+            messages.warning(request, 'This run was already decided by someone else.')
+        return redirect('campaigns:approval_queue')
