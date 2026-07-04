@@ -144,8 +144,24 @@ class ApprovalQueueTable(CampaignRunTable):
 
     actions = tables.Column(empty_values=(), orderable=False, verbose_name='Actions')
 
+    # Triage-focused queue view (UAT Test 14 gap closure, 16-05): drop the three
+    # post-observation columns (weather, observation_outcome, publication_plans) that have
+    # no CampaignRunSubmissionForm field and are therefore structurally always blank on a
+    # PENDING_REVIEW row, and front-load `actions` so Approve/Reject is reachable without
+    # horizontal scrolling. CampaignRunTable itself is untouched -- it stays spreadsheet-parity
+    # for Phase 15's D-09 read path.
     class Meta(CampaignRunTable.Meta):  # noqa: D106
-        pass
+        exclude = ('weather', 'observation_outcome', 'publication_plans')
+        sequence = (
+            'actions',
+            'approval_status',
+            'telescope_instrument',
+            'site',
+            'obs_date',
+            'ut_start',
+            'ut_end',
+            '...',
+        )
 
     def __init__(self, *args, show_actions=True, request=None, **kwargs):
         self.show_actions = show_actions
