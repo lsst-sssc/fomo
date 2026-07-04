@@ -2,7 +2,17 @@
 {% block title %}Campaigns{% endblock %}
 
 {% block content %}
-<h4 class="font-weight-bold mb-4">Campaigns</h4>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="font-weight-bold mb-0">Campaigns</h4>
+  <a class="btn btn-primary" href="{% url 'campaigns:submit' %}">Submit a Run</a>
+</div>
+
+{% if request.user.is_staff and pending_count %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center mb-4">
+  <span><i class="fa fa-exclamation-circle mr-2"></i>{{ pending_count }} submission{{ pending_count|pluralize }} pending review</span>
+  <a href="{% url 'campaigns:approval_queue' %}" class="btn btn-sm btn-warning">Review queue</a>
+</div>
+{% endif %}
 
 {% if campaigns %}
 <div class="list-group">
