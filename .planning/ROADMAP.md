@@ -150,8 +150,24 @@ linked in the Milestones section above._
   4. Honeypot bot submissions are dropped without processing, and staff receive an email notification when a genuine submission lands.
   5. Approving a run that has a telescope + date range creates or updates a paired `CalendarEvent` (keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event()`, `target_list` set to the campaign's list) with no duplicate events and no `modified` churn on re-approval or unchanged edits.
 
-**Plans**: TBD
+**Plans**: 4 plans
 **UI hint**: yes
+
+**Wave 1**
+
+- [ ] 16-01-PLAN.md — StaffRequiredMixin + CampaignRunSubmissionForm (plain forms.Form + honeypot) + EMAIL_BACKEND (SUBMIT-01/04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 16-02-PLAN.md — CampaignRunSubmissionView + submit/thanks URLs + templates + staff email notify + tests (SUBMIT-01/04/05)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 16-03-PLAN.md — ApprovalQueueView + atomic approve/reject decision endpoint + calendar projection + ApprovalQueueTable + tests (SUBMIT-03/CAL-01/02/03)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 16-04-PLAN.md — D-09 non-staff visibility filter + Submit-a-Run entry buttons + staff pending banner + tests (SUBMIT-01/02)
 
 ### Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)
 
