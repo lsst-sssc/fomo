@@ -329,6 +329,12 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             messages.success(request, 'Run approved.')
         elif updated_count == 1:
             messages.success(request, 'Run rejected.')
-        else:
+        elif CampaignRun.objects.filter(pk=pk).exists():
+            # WR-01: the conditional .update() above returns 0 both when the row exists but
+            # was already decided, and when pk never existed at all -- distinguish the two so a
+            # deleted/stale/tampered pk gets an honest "no longer exists" message instead of the
+            # factually-wrong "already decided by someone else".
             messages.warning(request, 'This run was already decided by someone else.')
+        else:
+            messages.error(request, 'This run no longer exists.')
         return redirect('campaigns:approval_queue')
