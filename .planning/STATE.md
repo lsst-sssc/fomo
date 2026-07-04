@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
-current_phase: 16
-current_phase_name: submission-form-approval-queue-calendar-projection-write-pat
+current_phase: 17
+current_phase_name: Deferrable to v2.1
 status: verifying
 stopped_at: Completed Phase 16 Plan 03 (approval queue, decision endpoint, calendar projection)
-last_updated: "2026-07-04T13:45:11.235Z"
+last_updated: "2026-07-04T14:31:33.119Z"
 last_activity: 2026-07-04
-last_activity_desc: Phase 16 execution started
+last_activity_desc: Phase 16 complete, transitioned to Phase 17
 progress:
   total_phases: 4
   completed_phases: 3
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 ## Current Position
 
-Phase: 16 (submission-form-approval-queue-calendar-projection-write-pat) — EXECUTING
-Plan: 4 of 4
+Phase: 17 — Coverage-Gap Analysis (Deferrable to v2.1)
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-04 — Phase 16 execution started
+Last activity: 2026-07-04 — Phase 16 complete, transitioned to Phase 17
 Progress: [░░░░░░░░░░] 0/4 phases
 
 ## Roadmap Summary (v2.0)
@@ -59,7 +59,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 |-------|-------|-------|----------|
 | 14 | 3 | - | - |
 | 15 | 2 | - | - |
-| 16 | TBD | - | - |
+| 16 | 4 | - | - |
 | 17 | TBD | - | - |
 | Phase 14 P01 | 24min | 3 tasks | 3 files |
 | Phase 14 P02 | 6min | 3 tasks | 3 files |
