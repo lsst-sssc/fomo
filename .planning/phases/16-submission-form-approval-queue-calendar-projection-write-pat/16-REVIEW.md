@@ -1,6 +1,6 @@
 ---
 phase: 16-submission-form-approval-queue-calendar-projection-write-pat
-reviewed: 2026-07-04T14:07:32Z
+reviewed: 2026-07-04T00:00:00Z
 depth: deep
 files_reviewed: 15
 files_reviewed_list:
@@ -20,236 +20,201 @@ files_reviewed_list:
   - src/templates/campaigns/campaignrun_table.html
   - src/templates/campaigns/submission_thanks.html
 findings:
-  critical: 1
+  critical: 0
   warning: 3
-  info: 2
-  total: 6
+  info: 4
+  total: 7
 status: issues_found
 ---
 
 # Phase 16: Code Review Report
 
-**Reviewed:** 2026-07-04T14:07:32Z
+**Reviewed:** 2026-07-04T00:00:00Z
 **Depth:** deep
 **Files Reviewed:** 15
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the public campaign-run submission form, the staff approval queue, the atomic
-approve/reject decision endpoint, calendar projection on approval, and supporting
-templates/tests at deep depth (cross-file call-chain tracing into `campaign_utils.resolve_site`,
-`calendar_utils.insert_or_create_calendar_event`, and the `CalendarEvent`/`Observatory` models).
+Re-review of the full phase-16 file scope (plans 16-01 through 16-05) after the 16-05
+gap-closure plan landed. 16-05's own change — `ApprovalQueueTable.Meta` gaining an
+`exclude=('weather', 'observation_outcome', 'publication_plans')` + a `sequence` that
+front-loads `actions`/`approval_status` — was traced against the installed
+`django_tables2` source (`TableOptions` explicitly applies `exclude` on top of inherited
+`fields`, so combining them is a supported code path, not an accidental foot-gun) and
+verified empirically: `TestApprovalQueueColumns` passes, and the full listed test suite
+(61 tests across the four `test_campaign_*` modules) passes, `ruff check`/`ruff format
+--check` are clean on every reviewed `solsys_code`/template file. `CampaignRunTable`
+itself is untouched by 16-05, confirmed both by reading the diff and by
+`test_campaign_run_table_unchanged_by_approval_queue_trim`.
 
-The three explicitly-called-out concerns were verified empirically, not just read:
-
-- **Staff gating** (`StaffRequiredMixin` on both `ApprovalQueueView` and
-  `CampaignRunDecisionView`, correct MRO ordering) — confirmed correct; anonymous/non-staff
-  GET and POST both redirect with no state change (test suite + direct verification).
-- **Atomic double-approve guard** (`.filter(pk=pk, approval_status=PENDING_REVIEW).update(...)`
-  then `updated_count == 1`) — the concurrency-safety property itself is correct (single
-  UPDATE statement, verified with a live test DB). However, see CR-01 below: the guard
-  protects against *concurrent* double-processing, but the *side effects that follow it*
-  (site resolution + calendar projection) are not covered by the same transaction, and a
-  failure there leaves the row permanently stuck in a half-approved state that the guard
-  itself then makes unrecoverable.
-- **Honeypot trip path** — verified via both the existing test suite and direct reasoning:
-  no `CampaignRun` row and no email are created when `alt_contact_info` is filled, and the
-  redirect response is byte-identical to a genuine submission.
-- **PII leakage into emails/templates** — verified: `_notify_staff`'s subject/body contain
-  no contact/telescope/campaign data (only a bare link), and the non-staff table path
-  excludes `contact_person`/`contact_email` at the queryset level (`.values()`), not just the
-  rendered table.
-
-One finding is classified Critical (a real, reproducible data-consistency defect, not a
-theoretical one — reproduced against a live test database below). Three Warnings and two
-Info items round out lower-severity gaps.
-
-## Critical Issues
-
-### CR-01: Approve side-effects are not transactionally coupled to the atomic status update — a mid-flow failure leaves the run permanently stuck "approved" with no calendar event and no recovery path
-
-**File:** `solsys_code/campaign_views.py:279-308` (`CampaignRunDecisionView.post`)
-
-**Issue:** The atomic conditional `.update()` (line 279-281) is its own auto-committed
-statement. Everything that follows it on approve — `resolve_site(run.site_raw)` (a network
-call to the MPC Obscodes API on a Tier-2 miss), `run.save(update_fields=[...])`, and
-`insert_or_create_calendar_event(...)` (a further DB write) — runs *outside* any
-`transaction.atomic()` block. If any of these raises (network timeout/DNS failure not
-caught by `resolve_site`'s guards, a `sqlite3.OperationalError: database is locked` under
-concurrent writes — a documented limitation of this project's dev DB per CLAUDE.md — or a
-worker/request timeout while `resolve_site` is blocked on the MPC API call), the
-`approval_status` transition to `APPROVED` has **already committed** and is never rolled
-back. The row is now permanently `APPROVED` with `site`/`site_needs_review` unresolved and
-no `CalendarEvent` ever created.
-
-Worse, this state is **unrecoverable through the UI**: the double-approve guard
-(`filter(..., approval_status=PENDING_REVIEW)`) means a second POST to the same `decide`
-endpoint no longer matches the row (`updated_count == 0`), so it silently falls into the
-"already decided by someone else" warning branch — the calendar projection can never be
-retried. The run will appear as a normal "Approved" entry in the recently-decided table
-with no visible indication that its calendar projection never happened, silently defeating
-the entire purpose of this phase (CAL-01/02/03).
-
-Reproduced directly against a live test database (staff-authenticated POST to
-`/campaigns/<pk>/decide/` with `resolve_site` monkeypatched to raise `RuntimeError`):
-
-```
-status 500
-approval_status after failure: approved
-```
-
-**Fix:** Wrap the whole post-update side-effect sequence (site resolution, save, and
-calendar projection) in the same `transaction.atomic()` block as the conditional update, so
-any exception rolls the `approval_status` change back to `PENDING_REVIEW` and the run can be
-re-decided:
-
-```python
-def post(self, request, pk):
-    action = request.POST.get('action')
-    if action not in ('approve', 'reject'):
-        return HttpResponseBadRequest()
-    new_status = CampaignRun.ApprovalStatus.APPROVED if action == 'approve' else CampaignRun.ApprovalStatus.REJECTED
-
-    with transaction.atomic():
-        updated_count = CampaignRun.objects.filter(
-            pk=pk, approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
-        ).update(approval_status=new_status)
-
-        if updated_count == 1 and action == 'approve':
-            run = CampaignRun.objects.select_for_update().get(pk=pk)
-            site, needs_review = resolve_site(run.site_raw)
-            run.site, run.site_needs_review = site, needs_review
-            run.save(update_fields=['site', 'site_needs_review'])
-            if run.telescope_instrument and run.ut_start and run.ut_end:
-                insert_or_create_calendar_event(...)
-    # messages / redirect outside the atomic block, after the transaction has either
-    # fully committed or fully rolled back.
-```
-
-If a fully-atomic wrap is deemed too broad (e.g. the MPC network call inside a long-held
-transaction is itself undesirable), at minimum catch exceptions from this block, explicitly
-revert `approval_status` back to `PENDING_REVIEW` on failure, and surface an error message —
-never leave `APPROVED` and "not projected" as a silent, permanent combination.
+Cross-file call-chain tracing (`CampaignRunDecisionView.post` → `resolve_site` →
+`insert_or_create_calendar_event`, and `ApprovalQueueTable.render_actions` →
+`reverse('campaigns:decide')` → `CampaignRunDecisionView`) turned up no new Critical
+issues, but did surface one residual defect in the **already-applied** CR-01 fix from the
+prior review cycle (16-REVIEW-FIX.md), plus a persistent test-coverage gap around that
+same fix, and one previously-identified-and-consciously-deferred issue that is still live
+in the shipped code. No new Critical/blocking defects were found in this pass; findings
+below are Warning/Info.
 
 ## Warnings
 
-### WR-01: Decision endpoint returns a misleading "already decided by someone else" message for a `pk` that never existed
+### WR-01: CR-01's approve-failure recovery reverts `approval_status` but leaves `site`/`site_needs_review` already committed — partial, misleading "reset" state
 
-**File:** `solsys_code/campaign_views.py:279-312`
+**File:** `solsys_code/campaign_views.py:282-323` (`CampaignRunDecisionView.post`)
 
-**Issue:** `CampaignRun.objects.filter(pk=pk, approval_status=PENDING_REVIEW).update(...)`
-returns `updated_count == 0` both when the row exists but was already decided, and when
-`pk` does not exist at all (deleted row, stale/bookmarked link, or a tampered URL). Both
-cases fall into the same `else: messages.warning(request, 'This run was already decided by
-someone else.')` branch, which is factually wrong for a nonexistent row. Reproduced
-directly: POSTing `action=approve` to `/campaigns/99999/decide/` (no such `CampaignRun`)
-returns HTTP 200 with exactly that message, rather than a 404. No test exercises this path
-(`test_invalid_action_returns_bad_request` only covers a bad `action` value, not a bad `pk`).
-
-**Fix:** Distinguish the two cases, e.g.:
+**Issue:** The prior review cycle's CR-01 fix wraps `resolve_site()` + `run.save(update_fields=['site', 'site_needs_review'])` + `insert_or_create_calendar_event(...)` in a `try/except Exception`, and on failure reverts only `approval_status` back to `PENDING_REVIEW`:
 
 ```python
-run_exists = CampaignRun.objects.filter(pk=pk).exists()
+run.site, run.site_needs_review = site, needs_review
+run.save(update_fields=['site', 'site_needs_review'])          # <-- already committed
 ...
-else:
-    if run_exists:
-        messages.warning(request, 'This run was already decided by someone else.')
-    else:
-        messages.error(request, 'This run no longer exists.')
+insert_or_create_calendar_event(...)                             # <-- raises here
+except Exception:
+    ...
+    CampaignRun.objects.filter(pk=pk).update(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+    messages.error(request, '... This run has been reset to pending review -- please try again.')
 ```
 
-or use `get_object_or_404(CampaignRun, pk=pk)` up front to fail fast with a real 404 before
-attempting the conditional update.
+If `resolve_site`/`run.save()` succeed but `insert_or_create_calendar_event` then raises (e.g. a
+DB write failure), the row ends up `PENDING_REVIEW` with `site`/`site_needs_review` already
+populated from the resolution attempt (and, in the tier-3 fallback case, a real placeholder
+`Observatory` row may already have been created as a side effect of `resolve_site`). This
+contradicts the rest of the codebase's invariant that site resolution happens "at approval
+time" (D-07) — a pending row now shows a resolved site in the approval queue's Site column
+(`ApprovalQueueTable.render_site`), which will look inconsistent next to every other pending
+row (which correctly shows blank). The user-facing message ("reset to pending review") also
+overstates what actually happened: only one of the two side effects was rolled back.
 
-### WR-02: Public submission form's `campaign` field exposes every `TargetList` in the system, not just actual campaigns
+Practical severity is limited (retrying is idempotent — `resolve_site`'s tier-1 lookup will
+find the just-created `Observatory` on the next attempt), which is why this is a Warning
+rather than a Critical, but it's a real, reproducible gap in the fix that shipped for the
+previously-flagged CR-01.
+
+**Fix:** Either revert the site fields too in the `except` block, or (better) restructure so
+`run.save()` only happens after the calendar-projection step has succeeded:
+
+```python
+except Exception:
+    logger.exception(...)
+    CampaignRun.objects.filter(pk=pk).update(
+        approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        site=None,
+        site_needs_review=False,
+    )
+```
+
+or move `run.save(update_fields=['site', 'site_needs_review'])` to after
+`insert_or_create_calendar_event(...)` succeeds (or fold both into one `run.save()` call at the
+end of the `try` block), so a failure partway through never leaves a persisted half-committed
+field.
+
+### WR-02: No test exercises the CR-01 exception/revert path (still true after the 16-05 gap closure)
+
+**File:** `solsys_code/tests/test_campaign_approval.py` (whole file; would naturally live near
+`TestCalendarProjection`/`TestCalendarNoChurn`, lines 140-221)
+
+**Issue:** The prior REVIEW-FIX.md explicitly flagged this as needing follow-up ("no existing
+test exercising the `resolve_site`-raises path ... consider adding a regression test"). This
+re-review confirms the gap is still open: no test in `test_campaign_approval.py` (or anywhere
+else in the reviewed scope) monkeypatches/mocks `resolve_site` or
+`insert_or_create_calendar_event` to raise and asserts the revert-to-`PENDING_REVIEW` +
+`messages.error` behavior actually fires. The only evidence this path works is the reviewer's
+own ad hoc reproduction from the previous cycle (not committed as a test), so a future refactor
+of `CampaignRunDecisionView.post` could silently break this safety net with no test failing.
+It's also the code path directly implicated by WR-01 above — testing it would have caught that
+partial-revert gap immediately.
+
+**Fix:** Add a test that monkeypatches `solsys_code.campaign_views.resolve_site` (or
+`insert_or_create_calendar_event`) to raise, POSTs an approve action, and asserts: (a) the
+response redirects with an error message, (b) `run.approval_status` is back to
+`PENDING_REVIEW`, and (c) — once WR-01 is fixed — `run.site`/`run.site_needs_review` are also
+reverted.
+
+### WR-03: Public submission form's `campaign` field still exposes every `TargetList` in the system (carried forward, deliberately deferred)
 
 **File:** `solsys_code/campaign_forms.py:19`
 
 **Issue:** `campaign = forms.ModelChoiceField(queryset=TargetList.objects.all(), required=True)`
-lists **every** `TargetList` row in the entire TOM instance in an anonymous, unauthenticated
-dropdown — including private saved searches or ad-hoc groupings that were never intended as
-public "campaigns" (per `CampaignListView`'s own docstring, "campaign" is purely operational:
-a `TargetList` with `campaign_runs__isnull=False`; there is no actual campaign flag). This
-lets any anonymous visitor: (a) discover the names of every `TargetList` in the system via
-the rendered `<select>`, and (b) attach a `PENDING_REVIEW` `CampaignRun` to any of them,
-effectively bootstrapping an unrelated saved search into appearing on the public campaigns
-list once approved (or as target-list spam even while pending, visible to staff in the
-queue). No test exercises this — `test_missing_campaign_invalid` only checks that omitting
-the field errors, not that the field's choices are scoped.
+still lists every `TargetList` row in the system (including unrelated saved searches/groupings
+that were never intended as public campaigns) in an anonymous, unauthenticated dropdown. This
+was raised as WR-02 in the prior review cycle and explicitly left unfixed per
+16-REVIEW-FIX.md's documented rationale (scoping the queryset to
+`campaign_runs__isnull=False` would break the supported "submit the first run for a brand-new
+campaign" workflow, and there is no `TargetList.is_public_campaign`-style flag to distinguish
+a legitimate campaign-in-waiting from an arbitrary private `TargetList`). That rationale is
+sound given the current schema, so this is re-surfaced here only to confirm the underlying
+privacy/discovery risk (any anonymous visitor can enumerate every `TargetList` name in the
+system and attach a `PENDING_REVIEW` run to any of them) is still live in the shipped code, not
+a false-positive from a stale review — it still has no dedicated test and no tracked follow-up
+task in the reviewed scope.
 
-**Fix:** Scope the queryset to `TargetList` rows that are already legitimate campaigns (or a
-curated subset), e.g.:
-
-```python
-campaign = forms.ModelChoiceField(
-    queryset=TargetList.objects.filter(campaign_runs__isnull=False).distinct(),
-    required=True,
-)
-```
-
-(with a documented decision on how a *brand-new* campaign gets its first run submitted, if
-that's a use case this form needs to support.)
-
-### WR-03: `_notify_staff`'s `NoReverseMatch` fallback branch is now dead code, misleadingly implying a pending future state
-
-**File:** `solsys_code/campaign_views.py:191-199`
-
-**Issue:** The `try: reverse('campaigns:approval_queue') / except NoReverseMatch: ...`
-fallback's comment explains it exists because "`campaigns:approval_queue` is added by Plan
-03 (Wave 3), which has not landed yet at this plan's point in the phase's sequential wave
-order." All four plans have now landed in this same reviewed changeset —
-`solsys_code/campaign_urls.py:27` already defines `campaigns:approval_queue`, and
-`src/fomo/urls.py:26` already mounts `campaign_urls` at `'campaigns/'`. `reverse(...)` will
-therefore always succeed in the shipped codebase, making the `except NoReverseMatch` branch
-permanently unreachable, untested, and now actively misleading to a future reader (it
-describes a build-order constraint that no longer exists).
-
-**Fix:** Remove the `try/except NoReverseMatch` fallback now that Plan 03 has landed, and
-call `reverse('campaigns:approval_queue')` directly:
-
-```python
-queue_url = self.request.build_absolute_uri(reverse('campaigns:approval_queue'))
-```
-
-(Drop the now-unused `NoReverseMatch` import from the top of the file too.)
+**Fix:** As previously recommended: a schema-level fix (e.g. a `TargetList.is_public_campaign`
+flag, or a separate allow-list model) routed through phase planning rather than a mechanical
+code-review fix, since narrowing the queryset naively would regress the new-campaign workflow.
 
 ## Info
 
-### IN-01: `CampaignRunSubmissionView.success_url` is dead code
+### IN-01: `CampaignRunSubmissionView.success_url` is still dead code
 
-**File:** `solsys_code/campaign_views.py:138`
+**File:** `solsys_code/campaign_views.py:142`
 
-**Issue:** `success_url = reverse_lazy('campaigns:submission_thanks')` is set at the class
-level, but `form_valid` never calls `super().form_valid()` or references
-`self.success_url`/`self.get_success_url()` — both the honeypot path and the genuine-create
-path return `redirect('campaigns:submission_thanks')` explicitly. `success_url` is therefore
-unused in practice; it only matters if some future refactor accidentally calls
-`super().form_valid(form)`, in which case it would silently start working (or, if left
-stale relative to a URL rename, silently redirect somewhere wrong).
+**Issue:** Unchanged from the prior review (IN-01, out of the fixer's `critical_warning` scope
+last time): `success_url = reverse_lazy('campaigns:submission_thanks')` is declared but never
+read — both `form_valid` branches call `redirect('campaigns:submission_thanks')` directly, so a
+future URL-name rename could update `success_url` while leaving the actual redirect target
+stale (or vice versa), with nothing to catch the divergence.
 
-**Fix:** Either remove `success_url` (since `form_valid` is fully overridden), or use it
-consistently — e.g. `return redirect(self.success_url)` in both branches instead of the
-literal string, so there is a single source of truth for the destination URL.
+**Fix:** Remove `success_url`, or use `redirect(self.success_url)` in both branches so there is
+one source of truth.
 
-### IN-02: Honeypot `alt_contact_info` field has no `max_length`
+### IN-02: Honeypot `alt_contact_info` field still has no `max_length`
 
 **File:** `solsys_code/campaign_forms.py:32`
 
-**Issue:** Every other free-text field on the form (`telescope_instrument`, `site_raw`,
-`filters_bandpass`, `contact_person`) has an explicit `max_length=255`, matching the
-corresponding model field's `CharField(max_length=255)`. `alt_contact_info` is a bare
-`forms.CharField(required=False, widget=forms.HiddenInput())` with no bound — a bot (or a
-manual POST) can submit an arbitrarily large value for this field. It is never persisted, so
-this isn't a storage/overflow risk, but it is inconsistent with the rest of the form's
-validation discipline and offers a trivial (if minor) unbounded-input vector on a public,
-unauthenticated endpoint.
+**Issue:** Unchanged from the prior review (IN-02). Every other free-text field on the form has
+an explicit `max_length=255` matching its model counterpart; `alt_contact_info` is a bare
+`forms.CharField(required=False, widget=forms.HiddenInput())` with no bound, so a bot or manual
+POST can submit an arbitrarily large value. Low risk (never persisted), but inconsistent with
+the rest of the form's validation discipline.
 
-**Fix:** Add a reasonable `max_length` (e.g. `max_length=255`) for consistency, even though
-the value is discarded rather than saved.
+**Fix:** Add `max_length=255` for consistency.
+
+### IN-03: CSRF-token minting in `ApprovalQueueTable.render_actions` is never exercised with CSRF enforcement enabled
+
+**File:** `solsys_code/campaign_tables.py:171-194`
+
+**Issue:** `render_actions` mints a per-row CSRF token via `get_token(self.request)` and embeds
+it as a hidden `csrfmiddlewaretoken` input in each Approve/Reject mini-form — the only CSRF
+protection these forms get, since they aren't rendered via `{% csrf_token %}` in the template.
+None of the tests in `test_campaign_approval.py` (or elsewhere in scope) use
+`Client(enforce_csrf_checks=True)`; Django's default test client disables CSRF checking
+entirely, so every `self.client.post(...)` call in the suite would pass even if
+`render_actions` emitted an empty or stale token. The reasoning that this works is sound (this
+is documented Django public API usage), but it is unverified by the test suite itself.
+
+**Fix:** Add at least one test using `Client(enforce_csrf_checks=True)` that renders the
+approval-queue page, extracts the token from the rendered Approve form, and confirms a POST
+with that token succeeds (and, ideally, that a POST without it is rejected with 403).
+
+### IN-04: WR-01's "run no longer exists" branch (from the prior review cycle) has no dedicated test
+
+**File:** `solsys_code/campaign_views.py:327-334`
+
+**Issue:** The prior review's WR-01 fix (distinguishing an already-decided row from a
+nonexistent `pk` in the decision endpoint's fallback branch) shipped in
+`solsys_code/campaign_views.py`, but `test_campaign_approval.py` still has no test posting to
+`campaigns:decide` with a `pk` that doesn't exist. `test_invalid_action_returns_bad_request`
+only covers a bad `action` value against a real, existing row — the `messages.error(request,
+'This run no longer exists.')` branch (line 334) is currently reachable only by manual
+reasoning/inspection, not by any test in the suite.
+
+**Fix:** Add a test posting `{'action': 'approve'}` to `reverse('campaigns:decide', kwargs=
+{'pk': 999999})` (a nonexistent pk) as a staff user, asserting the redirect and the
+`'This run no longer exists.'` message.
 
 ---
 
-_Reviewed: 2026-07-04T14:07:32Z_
+_Reviewed: 2026-07-04T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
