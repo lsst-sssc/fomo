@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
-current_phase: 16
-current_phase_name: submission-form-approval-queue-calendar-projection-write-pat
-status: phase-complete
+current_phase: 17
+current_phase_name: Deferrable to v2.1
+status: completed
 stopped_at: Completed Phase 16 Plan 05 (gap closure - approval queue column trim/reorder)
-last_updated: "2026-07-04T15:57:24.135Z"
+last_updated: "2026-07-04T16:21:05.439Z"
 last_activity: 2026-07-04
-last_activity_desc: Phase 16 gap closure (16-05) complete
+last_activity_desc: Phase 16 complete, transitioned to Phase 17
 progress:
   total_phases: 4
   completed_phases: 3
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 ## Current Position
 
-Phase: 16 (submission-form-approval-queue-calendar-projection-write-pat) — COMPLETE
-Plan: 5 of 5 (all plans complete, including 16-05 gap closure)
+Phase: 17 — Coverage-Gap Analysis (Deferrable to v2.1)
+Plan: Not started
 Status: Phase 16 complete; Phase 17 (Coverage-Gap Analysis, deferrable to v2.1) not yet planned
-Last activity: 2026-07-04 — Phase 16 gap closure (16-05) complete
+Last activity: 2026-07-04 — Phase 16 complete, transitioned to Phase 17
 Progress: [███████░░░] 3/4 phases
 
 ## Roadmap Summary (v2.0)
