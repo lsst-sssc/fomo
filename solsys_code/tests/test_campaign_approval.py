@@ -21,6 +21,7 @@ from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
+from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
 from solsys_code.models import CampaignRun
 
 CONTACT_PERSON = 'Jane Coordinator'
@@ -173,6 +174,29 @@ class TestCalendarProjection(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
         self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+
+
+class TestApprovalQueueColumns(TestCase):
+    """UAT Test 14 gap closure (16-05): ApprovalQueueTable is trimmed/reordered for triage,
+    CampaignRunTable stays spreadsheet-parity (Phase 15 D-09 regression guard).
+
+    No DB rows are needed -- both tables are built with an empty data list; only the
+    declared column contract (``.columns``) is under test here.
+    """
+
+    def test_actions_leads_approval_queue_table(self):
+        column_names = [column.name for column in ApprovalQueueTable([]).columns]
+        self.assertEqual(column_names[0], 'actions')
+
+    def test_approval_queue_table_excludes_post_observation_columns(self):
+        column_names = {column.name for column in ApprovalQueueTable([]).columns}
+        self.assertEqual(column_names & {'weather', 'observation_outcome', 'publication_plans'}, set())
+
+    def test_campaign_run_table_unchanged_by_approval_queue_trim(self):
+        """D-09 regression guard: the fix is scoped to ApprovalQueueTable only."""
+        column_names = {column.name for column in CampaignRunTable([]).columns}
+        self.assertTrue({'weather', 'observation_outcome', 'publication_plans'} <= column_names)
+        self.assertNotIn('actions', column_names)
 
 
 class TestCalendarNoChurn(CampaignApprovalTestBase):
