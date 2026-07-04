@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 17
 current_phase_name: coverage-gap-analysis-deferrable-to-v2-1
-status: executing
-stopped_at: Completed 17-02-PLAN.md
-last_updated: "2026-07-04T21:53:58.988Z"
+status: verifying
+stopped_at: Completed 17-03-PLAN.md
+last_updated: "2026-07-04T22:49:26.748Z"
 last_activity: 2026-07-04
 last_activity_desc: Phase 17 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
-  percent: 75
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 Phase: 17 (coverage-gap-analysis-deferrable-to-v2-1) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-04 — Phase 17 execution started
 Progress: [███████░░░] 3/4 phases
 
@@ -73,6 +73,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 16 P05 | 16min | 2 tasks | 2 files |
 | Phase 17 P01 | 21min | 3 tasks | 3 files |
 | Phase 17 P02 | 25min | 3 tasks | 5 files |
+| Phase 17 P03 | 15min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 17]: Single-target campaigns: claimed_dates() does not filter by target at all -- the single target is implied and target=None is the common real-data case, matching import_campaign_csv's D-07 precedent
 - [Phase 17]: gap_analysis_available(campaign) placed as a module-level function (not a classmethod) in campaign_views.py so Plan 03's CampaignRunTableView can import and reuse it directly for button-gating
 - [Phase 17]: CampaignGapAnalysisView validates target/site membership via raw request.GET.get() + explicit queryset checks (not solely the form's ModelChoiceField validation), preserving 400 Bad Request semantics required by T-17-01
+- [Phase ?]: [Phase 17 P03] CampaignRunTableView.get_context_data() now supplies gap_analysis_available to context, reusing the Plan 02 gap_analysis_available(campaign) helper rather than duplicating its target-count/resolved-site logic (Rule 2 deviation).
+- [Phase ?]: [Phase 17 P03] CampaignGapAnalysisView's IDOR 400 branches re-render the gap-analysis template with status=400 and idor_error=True instead of a bare HttpResponseBadRequest, so the UI-SPEC's alert-danger error copy can show (Rule 2 deviation); verified this doesn't break Plan 02's IDOR test, full solsys_code suite re-confirmed 326/326 green.
 
 ### Pending Todos
 
@@ -139,8 +142,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-04T21:53:58.971Z
-Stopped at: Completed 17-02-PLAN.md
+Last session: 2026-07-04T22:49:26.740Z
+Stopped at: Completed 17-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

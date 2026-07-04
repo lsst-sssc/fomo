@@ -81,7 +81,7 @@
 - [x] **Phase 14: Campaign Data Model & Bootstrap Import** - `CampaignRun` model + one-off 3I/ATLAS CSV import validated against real data (completed 2026-07-03)
 - [x] **Phase 15: Per-Campaign Table View (Read Path)** - Spreadsheet-replacement table of all runs for a campaign, PII-gated (completed 2026-07-03)
 - [x] **Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)** - Community intake with staff approval gate; approved runs project onto the calendar (completed 2026-07-04)
-- [ ] **Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)** - Ephemeris-aware observable-but-unclaimed dates; the differentiator over any spreadsheet
+- [x] **Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)** - Ephemeris-aware observable-but-unclaimed dates; the differentiator over any spreadsheet (completed 2026-07-04)
 
 ## Phase Details
 
@@ -184,7 +184,7 @@ linked in the Milestones section above._
   2. User can view observable-but-unclaimed dates for a campaign target + site, computed on explicit request or from a cache.
   3. The gap computation never runs inline in the table view and never imports `ephem_utils` at module scope (lightweight `telescope_runs.py` helpers or a lazy import only).
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **UI hint**: yes
 
 **Wave 1**
@@ -197,7 +197,7 @@ linked in the Milestones section above._
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 17-03-PLAN.md — gap-analysis page template + `campaignrun_table.html` D-14-gated trigger button + button gating test + human-verify checkpoint (GAP-02)
+- [x] 17-03-PLAN.md — gap-analysis page template + `campaignrun_table.html` D-14-gated trigger button + button gating test + human-verify checkpoint (GAP-02)
 
 ## Progress
 
@@ -220,7 +220,7 @@ linked in the Milestones section above._
 | 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete    | 2026-07-03 |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete    | 2026-07-04 |
-| 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 2/3 | In Progress|  |
+| 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete   | 2026-07-04 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above. Active v2.0 phase detail is in the **Phase Details** section above.
 
