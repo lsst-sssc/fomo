@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
-current_phase: 17
-current_phase_name: Deferrable to v2.1
-status: verifying
-stopped_at: Completed Phase 16 Plan 03 (approval queue, decision endpoint, calendar projection)
-last_updated: "2026-07-04T14:31:33.119Z"
+current_phase: 16
+current_phase_name: submission-form-approval-queue-calendar-projection-write-pat
+status: phase-complete
+stopped_at: Completed Phase 16 Plan 05 (gap closure - approval queue column trim/reorder)
+last_updated: "2026-07-04T15:57:24.135Z"
 last_activity: 2026-07-04
-last_activity_desc: Phase 16 complete, transitioned to Phase 17
+last_activity_desc: Phase 16 gap closure (16-05) complete
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 10
+  completed_plans: 10
   percent: 75
 ---
 
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 ## Current Position
 
-Phase: 17 — Coverage-Gap Analysis (Deferrable to v2.1)
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-04 — Phase 16 complete, transitioned to Phase 17
-Progress: [░░░░░░░░░░] 0/4 phases
+Phase: 16 (submission-form-approval-queue-calendar-projection-write-pat) — COMPLETE
+Plan: 5 of 5 (all plans complete, including 16-05 gap closure)
+Status: Phase 16 complete; Phase 17 (Coverage-Gap Analysis, deferrable to v2.1) not yet planned
+Last activity: 2026-07-04 — Phase 16 gap closure (16-05) complete
+Progress: [███████░░░] 3/4 phases
 
 ## Roadmap Summary (v2.0)
 
@@ -59,7 +59,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 |-------|-------|-------|----------|
 | 14 | 3 | - | - |
 | 15 | 2 | - | - |
-| 16 | 4 | - | - |
+| 16 | 5 | - | - |
 | 17 | TBD | - | - |
 | Phase 14 P01 | 24min | 3 tasks | 3 files |
 | Phase 14 P02 | 6min | 3 tasks | 3 files |
@@ -70,6 +70,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 16 P02 | 26min | 2 tasks | 5 files |
 | Phase 16 P03 | 21min | 2 tasks | 5 files |
 | Phase 16 P04 | 8min | 2 tasks | 4 files |
+| Phase 16 P05 | 16min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 16]: CSRF token for the approval-queue Actions column's per-row mini-forms is minted via get_token(request) inside ApprovalQueueTable.render_actions (request passed as an explicit __init__ kwarg), keeping {% render_table %} intact instead of switching to a manual template row-loop
 - [Phase 16]: decided_qs is materialized to a list and passed order_by=() before construction of ApprovalQueueTable, fixing a 'Cannot reorder a query once a slice has been taken' crash caused by the inherited CampaignRunTable.Meta.order_by=('-obs_date',) default sort colliding with the already-sliced [:20] queryset
 - [Phase 16]: [Phase 16 P04]: Three pre-existing Phase 15 anonymous-client tests switched to the staff client since D-09 legitimately changes anonymous visibility and those tests exercise generic table mechanics (pagination/run_status coverage/filter semantics) unrelated to approval-status gating
+- [Phase 16]: [Phase 16 P05]: Fix scoped entirely to ApprovalQueueTable.Meta (exclude + sequence) -- CampaignRunTable untouched, preserving Phase 15 D-09 spreadsheet-parity; sequence uses the '...' ellipsis token instead of enumerating all remaining columns
 
 ### Pending Todos
 
@@ -131,10 +133,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-04T13:39:19.369Z
-Stopped at: Completed Phase 16 Plan 03 (approval queue, decision endpoint, calendar projection)
-Resume file: .planning/phases/16-submission-form-approval-queue-calendar-projection-write-pat/16-03-PLAN.md
+Last session: 2026-07-04T15:57:24.122Z
+Stopped at: Completed Phase 16 Plan 05 (gap closure - approval queue column trim/reorder)
+Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd-plan-phase 14`
+- Phase 16 (all 5 plans, including gap closure 16-05) is complete. Plan Phase 17 (Coverage-Gap Analysis, deferrable to v2.1) with `/gsd-plan-phase 17` when ready, or defer per milestone scope.
