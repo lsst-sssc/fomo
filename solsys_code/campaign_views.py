@@ -17,7 +17,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import NoReverseMatch, reverse, reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
 from django_tables2 import RequestConfig
@@ -192,15 +192,10 @@ class CampaignRunSubmissionView(FormView):
         recipients = list(User.objects.filter(is_staff=True).exclude(email='').values_list('email', flat=True))
         if not recipients:
             return  # no staff with an email on file -- nothing to notify, not an error
-        try:
-            queue_url = self.request.build_absolute_uri(reverse('campaigns:approval_queue'))
-        except NoReverseMatch:
-            # campaigns:approval_queue is added by Plan 03 (Wave 3), which has not landed yet
-            # at this plan's point in the phase's sequential wave order. Fall back to the exact
-            # path Plan 03 wires it to (src/fomo/urls.py mounts this app at 'campaigns/') so the
-            # notification link is still correct; once Plan 03 lands, reverse() above succeeds
-            # and this branch is dead code.
-            queue_url = self.request.build_absolute_uri('/campaigns/approval-queue/')
+        # WR-03: campaigns:approval_queue is wired up by campaign_urls.py/src/fomo/urls.py in
+        # this same shipped changeset, so reverse() always succeeds here -- no NoReverseMatch
+        # fallback needed.
+        queue_url = self.request.build_absolute_uri(reverse('campaigns:approval_queue'))
         send_mail(
             subject='FOMO: new campaign run submission pending review',
             message=f'A new run submission is pending review: {queue_url}',
