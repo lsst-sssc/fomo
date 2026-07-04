@@ -16,6 +16,7 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
@@ -266,6 +267,129 @@ class TestClaimedDatesMultiTarget(TestCase):
         claimed_b, _, _ = claimed_dates(self.campaign, self.target_b, self.site)
         self.assertIn(obs_date, claimed_a)
         self.assertNotIn(obs_date, claimed_b)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestGapAnalysisView(TestCase):
+    """Integration tests for CampaignGapAnalysisView (GAP-02): the fast table view never
+    triggers computation (D-09), a cache hit skips recomputation (D-10), out-of-scope
+    target/site pks are rejected server-side (T-17-01/Pitfall 3), and a single-target
+    campaign auto-selects its sole target (D-12).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.site = Observatory.objects.create(
+            obscode='097',
+            name='Wise Observatory',
+            short_name='Wise',
+            lon=34.7631,
+            lat=30.5958,
+            altitude=875.0,
+            timezone='Asia/Jerusalem',
+        )
+        cls.other_site = Observatory.objects.create(
+            obscode='I33',
+            name='SOAR Cerro Pachon',
+            short_name='SOAR',
+            lon=-70.7342,
+            lat=-30.2379,
+            altitude=2738.0,
+            timezone='America/Santiago',
+        )
+
+        # Single-target campaign: gap_analysis_available is True (has a target + an approved
+        # run with a resolved site) -- used for the cache-hit and auto-select tests.
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign = TargetList.objects.create(name='Single-target Campaign')
+        cls.campaign.targets.add(cls.target)
+        CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Wise/LAST',
+            site=cls.site,
+            obs_date=date(2026, 6, 1),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+
+        # Multi-target campaign, with its own used site -- used for the IDOR tests.
+        cls.target_a = NonSiderealTargetFactory.create()
+        cls.target_b = NonSiderealTargetFactory.create()
+        cls.multi_campaign = TargetList.objects.create(name='Multi-target Campaign')
+        cls.multi_campaign.targets.add(cls.target_a, cls.target_b)
+        CampaignRun.objects.create(
+            campaign=cls.multi_campaign,
+            telescope_instrument='Wise/LAST-2',
+            site=cls.site,
+            obs_date=date(2026, 6, 2),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+
+        # A wholly separate campaign -- its target and site are never used by either
+        # campaign above (T-17-01/Pitfall 3 fixtures for the IDOR tests).
+        cls.foreign_target = NonSiderealTargetFactory.create()
+        cls.foreign_campaign = TargetList.objects.create(name='Foreign Campaign')
+        cls.foreign_campaign.targets.add(cls.foreign_target)
+        CampaignRun.objects.create(
+            campaign=cls.foreign_campaign,
+            telescope_instrument='SOAR/GHTS',
+            site=cls.other_site,
+            obs_date=date(2026, 6, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+
+    def setUp(self):
+        cache.clear()
+
+    def test_table_view_does_not_trigger_computation(self):
+        table_url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        with mock.patch('solsys_code.campaign_views.get_or_compute_gap') as mocked_gap:
+            response = self.client.get(table_url)
+        self.assertEqual(response.status_code, 200)
+        mocked_gap.assert_not_called()
+
+    def test_cache_hit_skips_recomputation(self):
+        gap_url = reverse('campaigns:gap_analysis', kwargs={'pk': self.campaign.pk})
+        end_date = date.today() + timedelta(days=1)
+        params = {'site': self.site.pk, 'end_date': end_date.isoformat()}
+
+        # Mock sun_event (rather than the whole computation) so get_or_compute_gap's real
+        # cache-or-compute logic is genuinely exercised -- a fixed 2-day window (today,
+        # today+1) means exactly 2 sun_event calls total across both requests if (and only
+        # if) the second request is served entirely from cache.
+        with mock.patch('solsys_code.campaign_gap.sun_event', return_value=None) as mocked_sun_event:
+            response1 = self.client.get(gap_url, params)
+            response2 = self.client.get(gap_url, params)
+
+        self.assertEqual(response1.status_code, 200)
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(mocked_sun_event.call_count, 2)
+        self.assertEqual(response1.context['result']['computed_at'], response2.context['result']['computed_at'])
+
+    def test_rejects_out_of_scope_target_and_site(self):
+        gap_url = reverse('campaigns:gap_analysis', kwargs={'pk': self.multi_campaign.pk})
+
+        with mock.patch('solsys_code.campaign_views.get_or_compute_gap') as mocked_gap:
+            response_bad_target = self.client.get(gap_url, {'target': self.foreign_target.pk, 'site': self.site.pk})
+            response_bad_site = self.client.get(gap_url, {'target': self.target_a.pk, 'site': self.other_site.pk})
+
+        self.assertEqual(response_bad_target.status_code, 400)
+        self.assertEqual(response_bad_site.status_code, 400)
+        mocked_gap.assert_not_called()
+
+    def test_single_target_autoselects(self):
+        gap_url = reverse('campaigns:gap_analysis', kwargs={'pk': self.campaign.pk})
+        fixed_result = {'gap_dates': [], 'computed_at': 'sentinel'}
+        with mock.patch('solsys_code.campaign_views.get_or_compute_gap', return_value=fixed_result) as mocked_gap:
+            # No target_pk submitted -- the sole campaign target must still be used (D-12).
+            response = self.client.get(gap_url, {'site': self.site.pk})
+
+        self.assertEqual(response.status_code, 200)
+        mocked_gap.assert_called_once()
+        called_target = mocked_gap.call_args[0][1]
+        self.assertEqual(called_target, self.target)
 
 
 class TestNoHeavyEphemerisImport(TestCase):
