@@ -8,6 +8,7 @@ from django.views.generic import TemplateView
 
 from solsys_code.campaign_views import (
     ApprovalQueueView,
+    CampaignGapAnalysisView,
     CampaignListView,
     CampaignRunDecisionView,
     CampaignRunSubmissionView,
@@ -26,5 +27,6 @@ urlpatterns = [
     ),
     path('approval-queue/', ApprovalQueueView.as_view(), name='approval_queue'),
     path('<int:pk>/decide/', CampaignRunDecisionView.as_view(), name='decide'),
+    path('<int:pk>/gaps/', CampaignGapAnalysisView.as_view(), name='gap_analysis'),
     path('<int:pk>/', CampaignRunTableView.as_view(), name='table'),
 ]
