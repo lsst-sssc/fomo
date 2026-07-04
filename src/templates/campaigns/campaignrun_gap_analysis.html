@@ -1,0 +1,33 @@
+{% extends 'tom_common/base.html' %}
+{% load crispy_forms_tags %}
+{% block title %}{{ campaign.name }} — Coverage Gaps{% endblock %}
+
+{% block content %}
+{# NOTE: minimal placeholder added in Phase 17 Plan 02 (Rule 2 deviation) so the view's own    #}
+{# integration tests can render end-to-end. Plan 03 replaces this with the full UI-SPEC-      #}
+{# compliant page (empty state, D-08/D-03 caveats, IDOR alert, wait-state notice, etc.).       #}
+<h4 class="font-weight-bold mb-4">{{ campaign.name }} — Coverage Gaps</h4>
+
+{% if not gap_analysis_available %}
+<p class="text-muted">
+  Coverage-gap analysis needs at least one campaign target and at least one run with a resolved site.
+</p>
+{% else %}
+<div class="card bg-light p-3 mb-4">
+  {% crispy form %}
+</div>
+
+{% if result %}
+<p class="text-muted" style="font-size: 14px;">Last computed: {{ result.computed_at }} UTC</p>
+<ul>
+  {% for d in result.gap_dates %}
+  <li>{{ d }}</li>
+  {% empty %}
+  <li>No gaps found</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+
+<a class="btn btn-outline-primary" href="{% url 'campaigns:table' pk=campaign.pk %}">Back to Campaign Table</a>
+{% endblock %}

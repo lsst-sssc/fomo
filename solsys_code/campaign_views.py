@@ -1,14 +1,18 @@
-"""Views for the per-campaign table read path (VIEW-01/02/03/04) and the public submission
-write path (SUBMIT-01/04/05).
+"""Views for the per-campaign table read path (VIEW-01/02/03/04), the public submission write
+path (SUBMIT-01/04/05), and the coverage-gap analysis view (GAP-02).
 
 Views: ``CampaignRunTableView`` (the sortable/paginated/filterable per-campaign table,
 PII-gated at the queryset layer per D-13/VIEW-03), ``CampaignListView`` (D-03's campaigns
-list page), and ``CampaignRunSubmissionView`` (the public intake form). Deliberately does not
-import ``solsys_code.views`` -- that module imports ``.ephem_utils`` at module load time,
-which triggers a ~1.6 GB SPICE kernel download (CLAUDE.md "Heavy import side effect").
+list page), ``CampaignRunSubmissionView`` (the public intake form), and
+``CampaignGapAnalysisView`` (GET-triggered, cached, server-side-validated coverage-gap
+analysis). Deliberately does not import ``solsys_code.views`` -- that module imports
+``.ephem_utils`` at module load time, which triggers a ~1.6 GB SPICE kernel download (CLAUDE.md
+"Heavy import side effect"). ``campaign_gap`` is safe to import at module scope here: it only
+depends on ``telescope_runs.sun_event``, never the heavy SPICE-loading ephemeris module.
 """
 
 import logging
+from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.models import User
@@ -24,9 +28,12 @@ from django_tables2 import RequestConfig
 from django_tables2.views import SingleTableMixin
 from tom_targets.models import TargetList
 
+from solsys_code.solsys_code_observatory.models import Observatory
+
 from .calendar_utils import insert_or_create_calendar_event
 from .campaign_filters import CampaignRunFilterSet
-from .campaign_forms import CampaignRunSubmissionForm
+from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
+from .campaign_gap import clamp_date_range, get_or_compute_gap
 from .campaign_tables import ApprovalQueueTable, CampaignRunTable
 from .campaign_utils import resolve_site
 from .mixins import StaffRequiredMixin
@@ -333,3 +340,82 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         else:
             messages.error(request, 'This run no longer exists.')
         return redirect('campaigns:approval_queue')
+
+
+def gap_analysis_available(campaign) -> bool:
+    """D-14: whether coverage-gap analysis makes sense for this campaign.
+
+    False when the campaign has zero ``Target``s, or none of its ``CampaignRun``s have a
+    resolved ``site`` at all -- there is nothing to compute observability against either way.
+    Reused by Plan 03's ``CampaignRunTableView`` to gate the "Show Coverage Gaps" button
+    (disabled + explanatory helper text when unavailable, never a dead clickable button).
+    """
+    if campaign.targets.count() == 0:
+        return False
+    return CampaignRun.objects.filter(campaign=campaign, site__isnull=False).exists()
+
+
+class CampaignGapAnalysisView(TemplateView):
+    """Coverage-gap analysis page (GAP-02): observable-but-unclaimed dates for a campaign
+    target + site, computed on request or served from the 1-hour result cache (D-09/D-10).
+
+    Public/read-only, same posture as ``CampaignRunTableView`` -- no ``StaffRequiredMixin``.
+    A plain GET (not htmx) triggers computation, per D-09; the fast per-campaign table view
+    never imports this module's computation path inline. Re-derives the campaign's allowed
+    target/site sets server-side and validates any submitted ``target``/``site`` pk against
+    them before either reaches a query or the cache key -- the campaign-scoped dropdown only
+    constrains what's *offered*, never what a raw request can submit
+    (``HttpResponseBadRequest`` on mismatch, T-17-01/Pitfall 3).
+    """
+
+    template_name = 'campaigns/campaignrun_gap_analysis.html'
+
+    def get(self, request, *args, **kwargs):
+        """Resolve campaign/target/site/range server-side, then render the form and any result."""
+        campaign = get_object_or_404(TargetList, pk=self.kwargs['pk'])
+        available = gap_analysis_available(campaign)
+        form = CampaignGapAnalysisForm(request.GET or None, campaign=campaign)
+        context = self.get_context_data(campaign=campaign, form=form, gap_analysis_available=available)
+
+        if not available:
+            # D-14: nothing to compute -- render the disabled-state page, no computation.
+            return self.render_to_response(context)
+
+        # D-12: a single-target campaign auto-uses its sole Target, ignoring any submitted
+        # target pk; a multi-target campaign requires one and re-validates it server-side
+        # against the campaign's own targets (never trusting the dropdown alone).
+        if campaign.targets.count() == 1:
+            target = campaign.targets.first()
+        else:
+            target_pk = request.GET.get('target')
+            if not target_pk:
+                # No selection submitted yet -- render just the form, no computation.
+                return self.render_to_response(context)
+            if not campaign.targets.filter(pk=target_pk).exists():
+                return HttpResponseBadRequest('That target is not part of this campaign.')
+            target = campaign.targets.get(pk=target_pk)
+
+        # D-13: re-derive the campaign's allowed site set server-side (same query the form
+        # uses) and validate the submitted site pk is a member before using it anywhere.
+        site_pk = request.GET.get('site')
+        if not site_pk:
+            return self.render_to_response(context)
+        allowed_sites = Observatory.objects.filter(campaign_runs__campaign=campaign).distinct()
+        if not allowed_sites.filter(pk=site_pk).exists():
+            return HttpResponseBadRequest('That site is not part of this campaign.')
+        site = allowed_sites.get(pk=site_pk)
+
+        # D-11: always clamp the (possibly absent) requested end date server-side,
+        # regardless of what the client submitted.
+        requested_end = None
+        raw_end_date = request.GET.get('end_date')
+        if raw_end_date:
+            try:
+                requested_end = date.fromisoformat(raw_end_date)
+            except ValueError:
+                requested_end = None
+        start, end = clamp_date_range(date.today(), requested_end)
+
+        result = get_or_compute_gap(campaign, target, site, start, end)
+        context.update({'target': target, 'site': site, 'start': start, 'end': end, 'result': result})
+        return self.render_to_response(context)
