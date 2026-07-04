@@ -206,6 +206,43 @@ class TestCampaignListView(CampaignViewTestBase):
         response = self.client.get(self.list_url())
         self.assertNotContains(response, self.empty_campaign.name)
 
+    def test_pending_count_in_context(self):
+        response = self.client.get(self.list_url())
+        expected_pending = sum(
+            1 for run in self.runs if run.approval_status == CampaignRun.ApprovalStatus.PENDING_REVIEW
+        )
+        self.assertEqual(response.context['pending_count'], expected_pending)
+
+
+class TestNonStaffPendingReviewHidden(CampaignViewTestBase):
+    """D-09/SUBMIT-02: non-staff see approved AND rejected rows; only pending_review is hidden."""
+
+    def test_anonymous_queryset_excludes_pending_review(self):
+        response = self.client.get(self.table_url())
+        table = response.context['table']
+        seen_statuses = {self._row_value(row.record, 'approval_status') for row in table.page.object_list}
+        self.assertNotIn(CampaignRun.ApprovalStatus.PENDING_REVIEW, seen_statuses)
+
+    def test_anonymous_queryset_still_shows_approved_and_rejected(self):
+        response = self.client.get(self.table_url())
+        table = response.context['table']
+        seen_statuses = {self._row_value(row.record, 'approval_status') for row in table.page.object_list}
+        self.assertIn(CampaignRun.ApprovalStatus.APPROVED, seen_statuses)
+        self.assertIn(CampaignRun.ApprovalStatus.REJECTED, seen_statuses)
+
+    def test_anonymous_total_row_count_excludes_pending(self):
+        response = self.client.get(self.table_url())
+        table = response.context['table']
+        expected_count = sum(1 for run in self.runs if run.approval_status != CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        self.assertEqual(table.paginator.count, expected_count)
+
+    def test_staff_sees_all_approval_statuses_including_pending(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.table_url())
+        table = response.context['table']
+        seen_statuses = {self._row_value(row.record, 'approval_status') for row in table.page.object_list}
+        self.assertEqual(seen_statuses, set(CampaignRun.ApprovalStatus.values))
+
 
 class TestCampaignDetailIntegration(CampaignViewTestBase):
     """VIEW-02: target-detail page shows one campaign link per matching campaign (D-01/D-02),
