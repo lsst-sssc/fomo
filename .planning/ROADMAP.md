@@ -169,6 +169,10 @@ linked in the Milestones section above._
 
 - [x] 16-04-PLAN.md — D-09 non-staff visibility filter + Submit-a-Run entry buttons + staff pending banner + tests (SUBMIT-01/02)
 
+**Gap closure** *(post-UAT)*
+
+- [ ] 16-05-PLAN.md — Trim/reorder ApprovalQueueTable columns (Meta.exclude + sequence, actions-first) so Approve/Reject is reachable without scrolling; closes UAT Test 14 (SUBMIT-03)
+
 ### Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)
 
 **Goal**: A user can see which observable nights for a campaign target and site are not yet claimed by any run — FOMO's differentiator over any spreadsheet. **This phase is explicitly deferrable to v2.1 if the milestone runs long**; it is ordered last so it can be cut without disturbing the launch-critical Phases 14-16. GAP-01 is a phase-time research spike that gates GAP-02's implementation approach.
