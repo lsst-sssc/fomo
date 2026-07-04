@@ -203,3 +203,8 @@ view's UX copy around the up-to-~94s worst-case synchronous wait for a 180-day w
 ---
 *Phase: 17-coverage-gap-analysis-deferrable-to-v2-1*
 *Completed: 2026-07-04*
+
+## Self-Check: PASSED
+
+All 4 created files verified present on disk; all 4 task/plan commits (`589e949`, `cd4061c`,
+`bcfba8a`, `2c98dbc`) verified present in git log.
