@@ -209,7 +209,13 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
             approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
         ).select_related('campaign', 'site')
         # Pitfall 1: CampaignRun has no modified/timestamp field -- order by -pk (a reasonable
-        # recency proxy) and cap at 20 rows.
+        # recency proxy) and cap at 20 rows. Materialized to a list before handing it to the
+        # table: django-tables2 applies its Meta.order_by (inherited '-obs_date' from
+        # CampaignRunTable) by re-sorting the table's data on construction, and Django refuses
+        # to call .order_by() again on an already-sliced queryset (`Cannot reorder a query once
+        # a slice has been taken`). A plain list sidesteps that entirely (django-tables2 sorts
+        # lists in Python via TableListData.order_by), and order_by=() below suppresses the
+        # inherited default sort so the -pk selection order is preserved on first render.
         decided_qs = (
             CampaignRun.objects.exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
             .select_related('campaign', 'site')
@@ -222,10 +228,11 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
             empty_text='No submissions waiting for review.',
         )
         decided_table = ApprovalQueueTable(
-            decided_qs,
+            list(decided_qs),
             prefix='decided-',
             show_actions=False,
             empty_text='No decisions recorded yet.',
+            order_by=(),
         )
         RequestConfig(self.request).configure(pending_table)
         RequestConfig(self.request).configure(decided_table)
