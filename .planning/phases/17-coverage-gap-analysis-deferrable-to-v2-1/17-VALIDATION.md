@@ -2,7 +2,7 @@
 phase: 17
 slug: coverage-gap-analysis-deferrable-to-v2-1
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-07-04
 ---
@@ -38,19 +38,19 @@ created: 2026-07-04
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|--------------------|-------------|--------|
-| TBD | TBD | TBD | GAP-01 | — | `17-GAP-01-DECISION.md` documents the dark-window-only decision (D-02) | manual-only | N/A — verified by document review | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | — | `observable_dates()` returns dates with a non-zero dark window, skipping `ValueError` dates (D-03/D-04) | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestObservableDates -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | — | `claimed_dates()` derives dates per D-05/D-06/D-07 and excludes cancelled/not-awarded/weather-failure runs | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestClaimedDates -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | — | Undated `CampaignRun`s (D-08) are flagged, not silently dropped or counted as claiming a date | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestClaimedDates::test_undated_runs_flagged -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | — | Gap view never computes inline on the table-view GET; is a separate endpoint (D-09) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisView::test_table_view_does_not_trigger_computation -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | — | Cache hit avoids recomputation; TTL and "last computed at" behave correctly (D-10) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisView::test_cache_hit_skips_recomputation -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | — | Date range clamps to 180-day max regardless of client input (D-11) | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestClampDateRange -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | T-17-01 | Submitted `target_pk`/`site_pk` outside this campaign's scope are rejected (IDOR) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisView::test_rejects_out_of_scope_target_and_site -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-02 | — | Gap-analysis button hidden/disabled when D-14 applies (no targets, or no resolved site) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisButton -v 2` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | GAP-01 (transitively) | — | No module in this phase imports `ephem_utils`/`solsys_code.views` at module scope | static check | `grep -rn "import.*ephem_utils\|from solsys_code.views import" solsys_code/campaign_gap.py solsys_code/tests/test_campaign_gap.py` (expect zero output) | N/A | ⬜ pending |
+| 17-01 T1 | 17-01 | 1 | GAP-01 | — | `17-GAP-01-DECISION.md` documents the dark-window-only decision (D-02) | manual-only | N/A — verified by document review | ❌ W0 | ⬜ pending |
+| 17-01 T3 | 17-01 | 1 | GAP-02 | — | `observable_dates()` returns dates with a non-zero dark window, skipping `ValueError` dates (D-03/D-04) | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestObservableDates -v 2` | ❌ W0 | ⬜ pending |
+| 17-01 T3 | 17-01 | 1 | GAP-02 | — | `claimed_dates()` derives dates per D-05/D-06/D-07 and excludes cancelled/not-awarded/weather-failure runs | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestClaimedDates -v 2` | ❌ W0 | ⬜ pending |
+| 17-01 T3 | 17-01 | 1 | GAP-02 | — | Undated `CampaignRun`s (D-08) are flagged, not silently dropped or counted as claiming a date | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestClaimedDates::test_undated_runs_flagged -v 2` | ❌ W0 | ⬜ pending |
+| 17-02 T3 | 17-02 | 2 | GAP-02 | — | Gap view never computes inline on the table-view GET; is a separate endpoint (D-09) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisView::test_table_view_does_not_trigger_computation -v 2` | ❌ W0 | ⬜ pending |
+| 17-02 T3 | 17-02 | 2 | GAP-02 | — | Cache hit avoids recomputation; TTL and "last computed at" behave correctly (D-10) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisView::test_cache_hit_skips_recomputation -v 2` | ❌ W0 | ⬜ pending |
+| 17-01 T3 | 17-01 | 1 | GAP-02 | — | Date range clamps to 180-day max regardless of client input (D-11) | unit | `./manage.py test solsys_code.tests.test_campaign_gap.TestClampDateRange -v 2` | ❌ W0 | ⬜ pending |
+| 17-02 T3 | 17-02 | 2 | GAP-02 | T-17-01 | Submitted `target_pk`/`site_pk` outside this campaign's scope are rejected (IDOR) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisView::test_rejects_out_of_scope_target_and_site -v 2` | ❌ W0 | ⬜ pending |
+| 17-03 T2 | 17-03 | 3 | GAP-02 | — | Gap-analysis button hidden/disabled when D-14 applies (no targets, or no resolved site) | integration | `./manage.py test solsys_code.tests.test_campaign_gap.TestGapAnalysisButton -v 2` | ❌ W0 | ⬜ pending |
+| 17-01 T3 | 17-01 | 1 | GAP-01 (transitively) | — | No module in this phase imports the heavy SPICE-loading ephemeris/`solsys_code.views` module at module scope | static check | `grep -rnE "^[[:space:]]*(from\|import)[[:space:]].*ephem_utils\|^[[:space:]]*from solsys_code.views import" solsys_code/campaign_gap.py solsys_code/campaign_views.py solsys_code/tests/test_campaign_gap.py` (expect zero output) | N/A | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
-*Plan/wave/task IDs are `TBD` until gsd-planner assigns them; gsd-planner should fill these in as plans are created.*
+*Plan/wave/task IDs assigned by gsd-planner (2026-07-04): 17-01 (Wave 1, decision doc + campaign_gap.py + unit tests), 17-02 (Wave 2, form/view/url + integration tests), 17-03 (Wave 3, templates + button gating test + human-verify). The import guard is scoped to real import lines so a conceptual docstring mention does not false-positive.*
 
 ---
 
@@ -72,11 +72,11 @@ created: 2026-07-04
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (GAP-01 decision doc is manual-only per D-02; the human-verify checkpoint is the only non-automated implementation gate)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (test_campaign_gap.py created in 17-01 T3, extended in 17-02 T3 and 17-03 T2)
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s (unit + small-range integration tests; full-window sun_event runs avoided in tests)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** planner-assigned 2026-07-04 (plan/wave/task IDs filled in; awaiting execution)
