@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 16-submission-form-approval-queue-calendar-projection-write-pat
 source: [16-01-SUMMARY.md, 16-02-SUMMARY.md, 16-03-SUMMARY.md, 16-04-SUMMARY.md]
 started: 2026-07-04T14:45:00Z
@@ -150,7 +150,15 @@ blocked: 0
   reason: "User reported: For the pending review entries, is there a way to hide blank entries/columns so that Actions column appears with less scrolling"
   severity: minor
   test: 14
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "ApprovalQueueTable inherits CampaignRunTable's full 16-column Meta.fields set unchanged (class Meta(CampaignRunTable.Meta): pass) and appends a 17th actions column last. That column set was designed for Phase 15's spreadsheet-parity read path, where three columns (weather, observation_outcome, publication_plans) have no corresponding field on CampaignRunSubmissionForm at all and are structurally always blank for a PENDING_REVIEW row, and most remaining columns are required=False per D-05/D-06 so real submissions commonly leave them empty too. django-tables2 renders every declared column regardless of content; the inherited bootstrap4-responsive template wraps the resulting wide table in a table-responsive div, which is the horizontal-scroll fallback the user hit. Actions is column 17 of 17, so reaching Approve/Reject requires scrolling past 16 often-blank data columns."
+  artifacts:
+    - path: "solsys_code/campaign_tables.py"
+      issue: "ApprovalQueueTable inherits all 16 CampaignRunTable.Meta.fields via `class Meta(CampaignRunTable.Meta): pass` and appends actions last, with no column pruning/reordering for the queue's own triage use case"
+    - path: "solsys_code/campaign_forms.py"
+      issue: "CampaignRunSubmissionForm makes most fields required=False (D-05/D-06); three table columns (weather, observation_outcome, publication_plans) have no corresponding form field at all, so pending rows are structurally blank there"
+    - path: "src/templates/campaigns/approval_queue.html"
+      issue: "Renders both tables via {% render_table %} with no exclude/sequence override to trim columns for the pending-queue triage context"
+  missing:
+    - "Exclude or reorder ApprovalQueueTable's columns (e.g. via Meta.exclude or Meta.sequence) to drop/deprioritize columns irrelevant to a pending-review triage decision (weather, observation_outcome, publication_plans, and possibly comments/observation_details), independent of CampaignRunTable which must stay spreadsheet-parity for Phase 15"
+    - "Move/pin the actions column so Approve/Reject stays reachable without scrolling regardless of remaining column count (e.g. move to front, or CSS position: sticky; right: 0)"
+  debug_session: ".planning/debug/approval-queue-actions-scroll.md"
