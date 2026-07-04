@@ -381,6 +381,11 @@ REST_FRAMEWORK = {
 # 'plotly', 'plotly_white', 'plotly_dark', 'ggplot2', 'seaborn', 'simple_white', 'none'
 PLOTLY_THEME = 'plotly_white'
 
+# Dev default: prints emails to the runserver console instead of hanging on a real SMTP
+# connection to localhost:25. Production must set a real EMAIL_BACKEND/EMAIL_HOST/
+# EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/DEFAULT_FROM_EMAIL in local_settings.py (below).
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 try:
     from local_settings import *  # noqa
 except ImportError:
