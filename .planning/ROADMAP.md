@@ -80,7 +80,7 @@
 
 - [x] **Phase 14: Campaign Data Model & Bootstrap Import** - `CampaignRun` model + one-off 3I/ATLAS CSV import validated against real data (completed 2026-07-03)
 - [x] **Phase 15: Per-Campaign Table View (Read Path)** - Spreadsheet-replacement table of all runs for a campaign, PII-gated (completed 2026-07-03)
-- [ ] **Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)** - Community intake with staff approval gate; approved runs project onto the calendar
+- [x] **Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)** - Community intake with staff approval gate; approved runs project onto the calendar (completed 2026-07-04)
 - [ ] **Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)** - Ephemeris-aware observable-but-unclaimed dates; the differentiator over any spreadsheet
 
 ## Phase Details
@@ -150,7 +150,7 @@ linked in the Milestones section above._
   4. Honeypot bot submissions are dropped without processing, and staff receive an email notification when a genuine submission lands.
   5. Approving a run that has a telescope + date range creates or updates a paired `CalendarEvent` (keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event()`, `target_list` set to the campaign's list) with no duplicate events and no `modified` churn on re-approval or unchanged edits.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 **UI hint**: yes
 
 **Wave 1**
@@ -167,7 +167,7 @@ linked in the Milestones section above._
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 16-04-PLAN.md — D-09 non-staff visibility filter + Submit-a-Run entry buttons + staff pending banner + tests (SUBMIT-01/02)
+- [x] 16-04-PLAN.md — D-09 non-staff visibility filter + Submit-a-Run entry buttons + staff pending banner + tests (SUBMIT-01/02)
 
 ### Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)
 
@@ -203,7 +203,7 @@ linked in the Milestones section above._
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
 | 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete    | 2026-07-03 |
-| 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 3/4 | In Progress|  |
+| 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 4/4 | Complete   | 2026-07-04 |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 0/? | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above. Active v2.0 phase detail is in the **Phase Details** section above.

@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 16
 current_phase_name: submission-form-approval-queue-calendar-projection-write-pat
-status: executing
+status: verifying
 stopped_at: Completed Phase 16 Plan 03 (approval queue, decision endpoint, calendar projection)
-last_updated: "2026-07-04T11:18:11.762Z"
+last_updated: "2026-07-04T13:45:11.235Z"
 last_activity: 2026-07-04
 last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 8
-  percent: 50
+  completed_plans: 9
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 Phase: 16 (submission-form-approval-queue-calendar-projection-write-pat) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-04 — Phase 16 execution started
 Progress: [░░░░░░░░░░] 0/4 phases
 
@@ -69,6 +69,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 16 P01 | 8min | 2 tasks | 4 files |
 | Phase 16 P02 | 26min | 2 tasks | 5 files |
 | Phase 16 P03 | 21min | 2 tasks | 5 files |
+| Phase 16 P04 | 8min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 16]: _notify_staff wraps reverse('campaigns:approval_queue') in try/except NoReverseMatch with a hardcoded fallback path, since that URL name is added by Plan 03 (Wave 3) which has not landed yet at Plan 02's execution point in the wave sequence
 - [Phase 16]: CSRF token for the approval-queue Actions column's per-row mini-forms is minted via get_token(request) inside ApprovalQueueTable.render_actions (request passed as an explicit __init__ kwarg), keeping {% render_table %} intact instead of switching to a manual template row-loop
 - [Phase 16]: decided_qs is materialized to a list and passed order_by=() before construction of ApprovalQueueTable, fixing a 'Cannot reorder a query once a slice has been taken' crash caused by the inherited CampaignRunTable.Meta.order_by=('-obs_date',) default sort colliding with the already-sliced [:20] queryset
+- [Phase 16]: [Phase 16 P04]: Three pre-existing Phase 15 anonymous-client tests switched to the staff client since D-09 legitimately changes anonymous visibility and those tests exercise generic table mechanics (pagination/run_status coverage/filter semantics) unrelated to approval-status gating
 
 ### Pending Todos
 
@@ -129,7 +131,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-04T11:18:11.753Z
+Last session: 2026-07-04T13:39:19.369Z
 Stopped at: Completed Phase 16 Plan 03 (approval queue, decision endpoint, calendar projection)
 Resume file: .planning/phases/16-submission-form-approval-queue-calendar-projection-write-pat/16-03-PLAN.md
 
