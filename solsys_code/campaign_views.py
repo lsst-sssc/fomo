@@ -8,6 +8,8 @@ import ``solsys_code.views`` -- that module imports ``.ephem_utils`` at module l
 which triggers a ~1.6 GB SPICE kernel download (CLAUDE.md "Heavy import side effect").
 """
 
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
@@ -29,6 +31,8 @@ from .campaign_tables import ApprovalQueueTable, CampaignRunTable
 from .campaign_utils import resolve_site
 from .mixins import StaffRequiredMixin
 from .models import CampaignRun
+
+logger = logging.getLogger(__name__)
 
 # D-13/VIEW-03/T-15-01: the exact D-09 column list for non-staff requests. Deliberately
 # enumerated explicitly (not introspected from CampaignRun._meta) so contact_person/
@@ -281,30 +285,47 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         ).update(approval_status=new_status)
 
         if updated_count == 1 and action == 'approve':
-            run = CampaignRun.objects.get(pk=pk)
-            # D-07: reuse the existing 3-tier site resolver rather than re-implementing it.
-            site, needs_review = resolve_site(run.site_raw)
-            run.site, run.site_needs_review = site, needs_review
-            run.save(update_fields=['site', 'site_needs_review'])
+            try:
+                run = CampaignRun.objects.get(pk=pk)
+                # D-07: reuse the existing 3-tier site resolver rather than re-implementing it.
+                site, needs_review = resolve_site(run.site_raw)
+                run.site, run.site_needs_review = site, needs_review
+                run.save(update_fields=['site', 'site_needs_review'])
 
-            # CAL-01/Pitfall 2: CalendarEvent.start_time/end_time are non-nullable -- only
-            # project when telescope_instrument, ut_start, AND ut_end are all present. A run
-            # missing ut_end simply doesn't get a CalendarEvent yet.
-            if run.telescope_instrument and run.ut_start and run.ut_end:
-                # Never construct CalendarEvent directly -- always route through the shared
-                # helper (Don't Hand-Roll) so the CAMPAIGN: namespace stays collision-safe
-                # against the LCO/Gemini/classical sync commands (T-16-09).
-                insert_or_create_calendar_event(
-                    {'url': f'CAMPAIGN:{run.pk}'},
-                    fields={
-                        'title': f'{run.campaign.name}: {run.telescope_instrument}',
-                        'description': run.observation_details,
-                        'start_time': run.ut_start,
-                        'end_time': run.ut_end,
-                        'target_list': run.campaign,  # CAL-02
-                        'telescope': run.telescope_instrument,
-                    },
+                # CAL-01/Pitfall 2: CalendarEvent.start_time/end_time are non-nullable -- only
+                # project when telescope_instrument, ut_start, AND ut_end are all present. A run
+                # missing ut_end simply doesn't get a CalendarEvent yet.
+                if run.telescope_instrument and run.ut_start and run.ut_end:
+                    # Never construct CalendarEvent directly -- always route through the shared
+                    # helper (Don't Hand-Roll) so the CAMPAIGN: namespace stays collision-safe
+                    # against the LCO/Gemini/classical sync commands (T-16-09).
+                    insert_or_create_calendar_event(
+                        {'url': f'CAMPAIGN:{run.pk}'},
+                        fields={
+                            'title': f'{run.campaign.name}: {run.telescope_instrument}',
+                            'description': run.observation_details,
+                            'start_time': run.ut_start,
+                            'end_time': run.ut_end,
+                            'target_list': run.campaign,  # CAL-02
+                            'telescope': run.telescope_instrument,
+                        },
+                    )
+            except Exception:
+                # CR-01: the conditional .update() above is its own auto-committed statement,
+                # so the APPROVED transition has already landed. If site resolution (a network
+                # call to the MPC Obscodes API) or calendar projection then fails, revert
+                # approval_status back to PENDING_REVIEW so the run is never left permanently
+                # "approved" with no CalendarEvent and no way to re-decide it -- without this,
+                # the double-approve guard above makes that half-approved state unrecoverable
+                # through the UI.
+                logger.exception('Approve side-effects failed for CampaignRun %s; reverted to pending review.', pk)
+                CampaignRun.objects.filter(pk=pk).update(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+                messages.error(
+                    request,
+                    'Approval failed while resolving the site or projecting the calendar event. '
+                    'This run has been reset to pending review -- please try again.',
                 )
+                return redirect('campaigns:approval_queue')
             messages.success(request, 'Run approved.')
         elif updated_count == 1:
             messages.success(request, 'Run rejected.')
