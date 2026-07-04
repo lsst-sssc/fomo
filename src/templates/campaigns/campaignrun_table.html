@@ -5,7 +5,17 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="font-weight-bold mb-0">{{ campaign.name }} — Observing Runs</h4>
-  <a class="btn btn-primary" href="{% url 'campaigns:submit' %}">Submit a Run</a>
+  <div class="d-flex align-items-center">
+    {% if gap_analysis_available %}
+    <a class="btn btn-primary mr-2" href="{% url 'campaigns:gap_analysis' pk=campaign.pk %}">Show Coverage Gaps</a>
+    {% else %}
+    <button type="button" class="btn btn-primary disabled mr-2" disabled aria-disabled="true">Show Coverage Gaps</button>
+    <small class="text-muted mr-2">
+      Coverage-gap analysis needs at least one campaign target and at least one run with a resolved site.
+    </small>
+    {% endif %}
+    <a class="btn btn-primary" href="{% url 'campaigns:submit' %}">Submit a Run</a>
+  </div>
 </div>
 
 <div class="card bg-light p-3 mb-4">

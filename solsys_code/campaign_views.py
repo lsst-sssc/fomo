@@ -101,9 +101,12 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         return {}
 
     def get_context_data(self, **kwargs):
-        """Add the campaign (TargetList) to context for the page heading."""
+        """Add the campaign (TargetList) and D-14 gap-analysis-button availability to context."""
         context = super().get_context_data(**kwargs)
         context['campaign'] = get_object_or_404(TargetList, pk=self.kwargs['pk'])
+        # D-14: reuse gap_analysis_available() (defined below) rather than duplicating its
+        # target-count / resolved-site logic here -- gates the "Show Coverage Gaps" button.
+        context['gap_analysis_available'] = gap_analysis_available(context['campaign'])
         return context
 
 
@@ -392,7 +395,10 @@ class CampaignGapAnalysisView(TemplateView):
                 # No selection submitted yet -- render just the form, no computation.
                 return self.render_to_response(context)
             if not campaign.targets.filter(pk=target_pk).exists():
-                return HttpResponseBadRequest('That target is not part of this campaign.')
+                # T-17-01/Pitfall 3 (IDOR): never a raw 400 page -- re-render the selection
+                # form with the UI-SPEC's alert-danger copy (17-03-PLAN.md Task 1).
+                context['idor_error'] = True
+                return self.render_to_response(context, status=400)
             target = campaign.targets.get(pk=target_pk)
 
         # D-13: re-derive the campaign's allowed site set server-side (same query the form
@@ -402,7 +408,9 @@ class CampaignGapAnalysisView(TemplateView):
             return self.render_to_response(context)
         allowed_sites = Observatory.objects.filter(campaign_runs__campaign=campaign).distinct()
         if not allowed_sites.filter(pk=site_pk).exists():
-            return HttpResponseBadRequest('That site is not part of this campaign.')
+            # T-17-01/Pitfall 3 (IDOR): same treatment as the out-of-scope target case above.
+            context['idor_error'] = True
+            return self.render_to_response(context, status=400)
         site = allowed_sites.get(pk=site_pk)
 
         # D-11: always clamp the (possibly absent) requested end date server-side,
