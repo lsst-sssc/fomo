@@ -26,15 +26,15 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **SUBMIT-01**: Community member can submit a run via a web form — campaign (TargetList) mandatory, all other fields optional
 - [ ] **SUBMIT-02**: New submissions are pending and invisible on public views until approved
-- [ ] **SUBMIT-03**: Staff can review and approve/reject pending runs; approval is atomic (double-approve is a no-op, proven by test)
+- [x] **SUBMIT-03**: Staff can review and approve/reject pending runs; approval is atomic (double-approve is a no-op, proven by test)
 - [x] **SUBMIT-04**: The public form carries a honeypot field; bot submissions are dropped without processing
 - [x] **SUBMIT-05**: Staff receive an email notification when a new submission lands
 
 ### Calendar Projection (CAL)
 
-- [ ] **CAL-01**: Approving a run that has telescope + date range creates/updates a paired `CalendarEvent` via `insert_or_create_calendar_event()` keyed `CAMPAIGN:{pk}` (no collisions with facility syncs)
-- [ ] **CAL-02**: The paired `CalendarEvent.target_list` is set to the campaign's `TargetList` (native linkage — `CalendarEvent` has a `TargetList` FK but no `Target` FK)
-- [ ] **CAL-03**: Re-approving or editing an unchanged run causes no duplicate events and no `modified` churn
+- [x] **CAL-01**: Approving a run that has telescope + date range creates/updates a paired `CalendarEvent` via `insert_or_create_calendar_event()` keyed `CAMPAIGN:{pk}` (no collisions with facility syncs)
+- [x] **CAL-02**: The paired `CalendarEvent.target_list` is set to the campaign's `TargetList` (native linkage — `CalendarEvent` has a `TargetList` FK but no `Target` FK)
+- [x] **CAL-03**: Re-approving or editing an unchanged run causes no duplicate events and no `modified` churn
 
 ### Coverage-Gap Analysis (GAP) — deferrable to v2.1 if time runs short
 
@@ -88,12 +88,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VIEW-04 | Phase 15 | Complete |
 | SUBMIT-01 | Phase 16 | Complete |
 | SUBMIT-02 | Phase 16 | Pending |
-| SUBMIT-03 | Phase 16 | Pending |
+| SUBMIT-03 | Phase 16 | Complete |
 | SUBMIT-04 | Phase 16 | Complete |
 | SUBMIT-05 | Phase 16 | Complete |
-| CAL-01 | Phase 16 | Pending |
-| CAL-02 | Phase 16 | Pending |
-| CAL-03 | Phase 16 | Pending |
+| CAL-01 | Phase 16 | Complete |
+| CAL-02 | Phase 16 | Complete |
+| CAL-03 | Phase 16 | Complete |
 | GAP-01 | Phase 17 | Pending |
 | GAP-02 | Phase 17 | Pending |
 
