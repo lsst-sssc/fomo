@@ -57,7 +57,11 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `src/templates/campaigns/campaign_list.html`, `campaignrun_table.html`; `src/templates/solsys_code/partials/campaign_links.html`, `campaigns_nav_link.html`: read-path + navigation templates — v2.0 (Phase 15)
 - `solsys_code/apps.py`: second `target_detail_buttons()` entry + new `nav_items()` hook; `src/templatetags/solsys_code_extras.py`: `campaign_links`/`campaigns_nav_link` inclusion tags — v2.0 (Phase 15)
 - `solsys_code/tests/test_campaign_views.py`: 16 tests — v2.0 (Phase 15)
-- **All 258 `./manage.py test solsys_code` tests pass (Phase 15 complete, v2.0 in progress).**
+- `solsys_code/mixins.py`: `StaffRequiredMixin`; `solsys_code/campaign_forms.py`: `CampaignRunSubmissionForm` (plain `forms.Form` + honeypot `alt_contact_info`) — v2.0 (Phase 16)
+- `solsys_code/campaign_views.py`: now also `CampaignRunSubmissionView`, `ApprovalQueueView`, `CampaignRunDecisionView`, `_notify_staff`; `solsys_code/campaign_tables.py`: now also `ApprovalQueueTable`; `campaign_urls.py`: `submit`/`submission_thanks`/`approval_queue`/`decide` URL names — v2.0 (Phase 16)
+- `src/templates/campaigns/campaignrun_submit_form.html`, `submission_thanks.html`, `approval_queue.html`: submission + staff approval-queue templates — v2.0 (Phase 16)
+- `solsys_code/tests/test_campaign_forms.py`, `test_campaign_submission.py`, `test_campaign_approval.py`: 42 tests — v2.0 (Phase 16)
+- **All 300 `./manage.py test solsys_code` tests pass (Phase 16 complete, v2.0 in progress).**
 
 ## Core Value
 
@@ -98,6 +102,18 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✅ VIEW-04: `CampaignRunFilterSet` — `run_status` multi-select (OR semantics), `open_to_collaboration` boolean filter
 - Verification independently re-ran the full test suite (`manage.py test solsys_code` — 258/258 pass) and the phase-specific module (16/16), confirmed PII-gating at the SQL level (not template-only), and cross-checked every commit hash — see `15-VERIFICATION.md`. Code review found no critical issues (2 warnings/3 info, non-blocking) — see `15-REVIEW.md`.
 - 258 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean on all Phase 15 files.
+
+**Phase 16 — Submission Form, Approval Queue & Calendar Projection (Write Path) — COMPLETE (2026-07-04):**
+- ✅ SUBMIT-01: `CampaignRunSubmissionView` (public `FormView`) creates a `PENDING_REVIEW` `CampaignRun` from a validated submission; discoverable via "Submit a Run" entry buttons on the campaigns list and per-campaign table pages
+- ✅ SUBMIT-02: Non-staff visitors see approved and rejected rows on the per-campaign table; only `pending_review` is hidden (D-09)
+- ✅ SUBMIT-03: `CampaignRunDecisionView` performs an atomic conditional `.update()` keyed on `(pk, approval_status=PENDING_REVIEW)`; a double-approve/-reject is a proven no-op
+- ✅ SUBMIT-04: Hidden honeypot field `alt_contact_info` — a tripped submission creates no `CampaignRun`, sends no email, and returns the same thanks page as a genuine submission
+- ✅ SUBMIT-05: Genuine submissions email every `is_staff` user with a non-empty email; subject/body contain no PII
+- ✅ CAL-01/CAL-02: Approving a run with telescope + `ut_start`/`ut_end` creates/updates a `CalendarEvent` keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event`, `target_list` set to the campaign
+- ✅ CAL-03: Re-approving an already-approved run creates no duplicate event and no `modified` churn
+- Post-plan deep code review found and fixed one critical data-consistency bug before phase close: the calendar-projection side effects (site resolution + `CalendarEvent` write) ran outside the atomic status-update transaction, so a mid-flow failure left a run permanently stuck `APPROVED` with no calendar event and no recovery path (the double-approve guard made it unrecoverable via the UI). Fixed by reverting `approval_status` back to `PENDING_REVIEW` on any post-update failure, with logging. Two further warnings fixed (misleading message for a nonexistent `pk`; dead `NoReverseMatch` fallback). One warning — the public form's `campaign` field listing every `TargetList`, not just active campaigns — was deliberately left open as a product-scope decision (would require a schema change to distinguish "campaign" `TargetList`s and break the bootstrap-new-campaign submission path) — see `16-REVIEW.md`/`16-REVIEW-FIX.md`.
+- Verification independently re-ran the phase's 4 test modules (58/58), re-verified the fix chain by reproducing the original failure mode against a live test DB, and confirmed requirement traceability for all 8 IDs — see `16-VERIFICATION.md`.
+- 300 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean on all Phase 16 files.
 
 **Prior milestones (v1.0-v1.7):**
 
@@ -189,12 +205,18 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ **VIEW-02**: User can reach a target's campaigns from its target-detail page; navbar exposes a campaigns entry — v2.0 (Phase 15)
 - ✓ **VIEW-03**: Contact person/email are visible only to authenticated staff — excluded from view context for anonymous requests and proven by an anonymous-client test — v2.0 (Phase 15)
 - ✓ **VIEW-04**: User can filter the table by lifecycle status and the open-to-collaboration flag — v2.0 (Phase 15)
+- ✓ **SUBMIT-01**: Community member can submit a run via a public form, discoverable from the campaigns list and per-campaign table pages — v2.0 (Phase 16)
+- ✓ **SUBMIT-02**: Non-staff visitors see approved and rejected rows on the per-campaign table; only `pending_review` is hidden — v2.0 (Phase 16)
+- ✓ **SUBMIT-03**: Staff approve/reject via an atomic conditional update; a double-decision is a proven no-op — v2.0 (Phase 16)
+- ✓ **SUBMIT-04**: Hidden honeypot field silently absorbs spam submissions (no create, no email, same thanks page) — v2.0 (Phase 16)
+- ✓ **SUBMIT-05**: A genuine submission emails every staff user with a non-empty email; no PII in subject/body — v2.0 (Phase 16)
+- ✓ **CAL-01/CAL-02**: Approving a run with telescope + start/end time creates/updates a `CalendarEvent` via `insert_or_create_calendar_event`, keyed `CAMPAIGN:{pk}` — v2.0 (Phase 16)
+- ✓ **CAL-03**: Re-approving an already-approved run creates no duplicate event and no `modified` churn — v2.0 (Phase 16)
 
 ### Active
 
 <!-- v2.0 Campaign Coordination — requirement IDs defined in .planning/REQUIREMENTS.md -->
 
-- Community submission form with admin approval queue
 - Ephemeris-aware coverage-gap analysis
 
 ### Out of Scope
@@ -341,4 +363,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-03 — Phase 15 (Per-Campaign Table View, Read Path) complete; v2.0 milestone continues with Phase 16*
+*Last updated: 2026-07-04 — Phase 16 (Submission Form, Approval Queue & Calendar Projection, Write Path) complete; v2.0 milestone continues with Phase 17 (deferrable to v2.1)*
