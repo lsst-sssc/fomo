@@ -184,7 +184,7 @@ linked in the Milestones section above._
   2. User can view observable-but-unclaimed dates for a campaign target + site, computed on explicit request or from a cache.
   3. The gap computation never runs inline in the table view and never imports `ephem_utils` at module scope (lightweight `telescope_runs.py` helpers or a lazy import only).
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 **UI hint**: yes
 
 **Wave 1**
@@ -193,7 +193,7 @@ linked in the Milestones section above._
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-02-PLAN.md — `CampaignGapAnalysisForm` + `CampaignGapAnalysisView` (server-side IDOR/T-17-01 validation, D-11 clamp, D-12 target resolution, D-10 cache) + `gap_analysis` URL + integration tests (GAP-02)
+- [x] 17-02-PLAN.md — `CampaignGapAnalysisForm` + `CampaignGapAnalysisView` (server-side IDOR/T-17-01 validation, D-11 clamp, D-12 target resolution, D-10 cache) + `gap_analysis` URL + integration tests (GAP-02)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -220,7 +220,7 @@ linked in the Milestones section above._
 | 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete    | 2026-07-03 |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete    | 2026-07-04 |
-| 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 1/3 | In Progress|  |
+| 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 2/3 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above. Active v2.0 phase detail is in the **Phase Details** section above.
 

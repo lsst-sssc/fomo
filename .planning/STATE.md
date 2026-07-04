@@ -5,15 +5,15 @@ milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 17
 current_phase_name: coverage-gap-analysis-deferrable-to-v2-1
 status: executing
-stopped_at: Phase 17 UI-SPEC approved
-last_updated: "2026-07-04T21:35:56.336Z"
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-07-04T21:53:58.988Z"
 last_activity: 2026-07-04
 last_activity_desc: Phase 17 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 75
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 ## Current Position
 
 Phase: 17 (coverage-gap-analysis-deferrable-to-v2-1) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-04 — Phase 17 execution started
 Progress: [███████░░░] 3/4 phases
@@ -72,6 +72,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 16 P04 | 8min | 2 tasks | 4 files |
 | Phase 16 P05 | 16min | 2 tasks | 2 files |
 | Phase 17 P01 | 21min | 3 tasks | 3 files |
+| Phase 17 P02 | 25min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 16]: [Phase 16 P05]: Fix scoped entirely to ApprovalQueueTable.Meta (exclude + sequence) -- CampaignRunTable untouched, preserving Phase 15 D-09 spreadsheet-parity; sequence uses the '...' ellipsis token instead of enumerating all remaining columns
 - [Phase 17]: Multi-target campaign target=None CampaignRuns are collected into a separate unattributed_runs list, never counted as claiming either target's date (Pitfall 4)
 - [Phase 17]: Single-target campaigns: claimed_dates() does not filter by target at all -- the single target is implied and target=None is the common real-data case, matching import_campaign_csv's D-07 precedent
+- [Phase 17]: gap_analysis_available(campaign) placed as a module-level function (not a classmethod) in campaign_views.py so Plan 03's CampaignRunTableView can import and reuse it directly for button-gating
+- [Phase 17]: CampaignGapAnalysisView validates target/site membership via raw request.GET.get() + explicit queryset checks (not solely the form's ModelChoiceField validation), preserving 400 Bad Request semantics required by T-17-01
 
 ### Pending Todos
 
@@ -136,9 +139,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-04T21:35:22.325Z
-Stopped at: Phase 17 UI-SPEC approved
-Resume file: .planning/phases/17-coverage-gap-analysis-deferrable-to-v2-1/17-UI-SPEC.md
+Last session: 2026-07-04T21:53:58.971Z
+Stopped at: Completed 17-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
