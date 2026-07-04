@@ -4,12 +4,19 @@ Mirrors solsys_code/calendar_urls.py's structure: app_name + a flat urlpatterns 
 """
 
 from django.urls import path
+from django.views.generic import TemplateView
 
-from solsys_code.campaign_views import CampaignListView, CampaignRunTableView
+from solsys_code.campaign_views import CampaignListView, CampaignRunSubmissionView, CampaignRunTableView
 
 app_name = 'campaigns'
 
 urlpatterns = [
     path('', CampaignListView.as_view(), name='list'),
+    path('submit/', CampaignRunSubmissionView.as_view(), name='submit'),
+    path(
+        'submission-thanks/',
+        TemplateView.as_view(template_name='campaigns/submission_thanks.html'),
+        name='submission_thanks',
+    ),
     path('<int:pk>/', CampaignRunTableView.as_view(), name='table'),
 ]

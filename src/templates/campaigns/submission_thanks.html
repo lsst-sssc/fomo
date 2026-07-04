@@ -1,0 +1,13 @@
+{% extends 'tom_common/base.html' %}
+{% block title %}Submission received{% endblock %}
+
+{% block content %}
+<div class="p-5 text-center">
+  <h5 class="font-weight-bold">Thanks — your submission is pending review.</h5>
+  <p class="text-muted">
+    A staff member will review it shortly. Approved runs appear on the campaign table and,
+    if a telescope and date range were provided, on the shared calendar.
+  </p>
+  <a href="{% url 'campaigns:list' %}" class="btn btn-outline-primary">Back to Campaigns</a>
+</div>
+{% endblock %}
