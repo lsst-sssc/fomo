@@ -392,6 +392,101 @@ class TestGapAnalysisView(TestCase):
         self.assertEqual(called_target, self.target)
 
 
+@override_settings(CACHES=TEST_CACHES)
+class TestGapAnalysisButton(TestCase):
+    """Integration tests for the 'Show Coverage Gaps' button's D-14 gating on the per-campaign
+    table page (GAP-02): enabled + linked when gap_analysis_available(), disabled with the
+    explanatory helper text otherwise -- proven at the rendered-template level, not just view
+    context (17-03-PLAN.md Task 2).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.site = Observatory.objects.create(
+            obscode='268',
+            name='Las Campanas (Magellan-Clay)',
+            short_name='Magellan-Clay',
+            lon=-70.6926,
+            lat=-29.0146,
+            altitude=2402.0,
+            timezone='America/Santiago',
+        )
+
+    def setUp(self):
+        cache.clear()
+
+    def test_button_enabled_with_target_and_resolved_site(self):
+        target = NonSiderealTargetFactory.create()
+        campaign = TargetList.objects.create(name='Enabled Campaign')
+        campaign.targets.add(target)
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Magellan-Clay/IMACS',
+            site=self.site,
+            obs_date=date(2026, 7, 1),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        table_url = reverse('campaigns:table', kwargs={'pk': campaign.pk})
+        gap_url = reverse('campaigns:gap_analysis', kwargs={'pk': campaign.pk})
+
+        response = self.client.get(table_url)
+
+        self.assertContains(response, 'Show Coverage Gaps')
+        self.assertContains(response, f'href="{gap_url}"')
+        self.assertNotContains(
+            response,
+            'Coverage-gap analysis needs at least one campaign target and at least one run with a resolved site.',
+        )
+
+    def test_button_disabled_with_no_targets(self):
+        campaign = TargetList.objects.create(name='No-target Campaign')
+        # No .targets.add() -- zero targets, even though a resolved-site run exists, proving
+        # the gate is the target count, not merely "no runs at all" (D-14).
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Magellan-Clay/IMACS',
+            site=self.site,
+            obs_date=date(2026, 7, 2),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        table_url = reverse('campaigns:table', kwargs={'pk': campaign.pk})
+        gap_url = reverse('campaigns:gap_analysis', kwargs={'pk': campaign.pk})
+
+        response = self.client.get(table_url)
+
+        self.assertContains(
+            response,
+            'Coverage-gap analysis needs at least one campaign target and at least one run with a resolved site.',
+        )
+        self.assertNotContains(response, f'href="{gap_url}"')
+
+    def test_button_disabled_with_no_resolved_site(self):
+        target = NonSiderealTargetFactory.create()
+        campaign = TargetList.objects.create(name='No-site Campaign')
+        campaign.targets.add(target)
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Unresolved/Site',
+            site=None,
+            site_raw='Some Unresolved Site',
+            obs_date=date(2026, 7, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        table_url = reverse('campaigns:table', kwargs={'pk': campaign.pk})
+        gap_url = reverse('campaigns:gap_analysis', kwargs={'pk': campaign.pk})
+
+        response = self.client.get(table_url)
+
+        self.assertContains(
+            response,
+            'Coverage-gap analysis needs at least one campaign target and at least one run with a resolved site.',
+        )
+        self.assertNotContains(response, f'href="{gap_url}"')
+
+
 class TestNoHeavyEphemerisImport(TestCase):
     """GAP-01 (transitively): no phase module imports the heavy SPICE-loading ephemeris
     module or `solsys_code.views` at module scope -- mirrors the plan's own verify grep."""
