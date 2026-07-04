@@ -28,7 +28,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **SUBMIT-02**: New submissions are pending and invisible on public views until approved
 - [ ] **SUBMIT-03**: Staff can review and approve/reject pending runs; approval is atomic (double-approve is a no-op, proven by test)
 - [x] **SUBMIT-04**: The public form carries a honeypot field; bot submissions are dropped without processing
-- [ ] **SUBMIT-05**: Staff receive an email notification when a new submission lands
+- [x] **SUBMIT-05**: Staff receive an email notification when a new submission lands
 
 ### Calendar Projection (CAL)
 
@@ -90,7 +90,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SUBMIT-02 | Phase 16 | Pending |
 | SUBMIT-03 | Phase 16 | Pending |
 | SUBMIT-04 | Phase 16 | Complete |
-| SUBMIT-05 | Phase 16 | Pending |
+| SUBMIT-05 | Phase 16 | Complete |
 | CAL-01 | Phase 16 | Pending |
 | CAL-02 | Phase 16 | Pending |
 | CAL-03 | Phase 16 | Pending |

@@ -5,15 +5,15 @@ milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 16
 current_phase_name: submission-form-approval-queue-calendar-projection-write-pat
 status: executing
-stopped_at: "Completed Phase 16 Plan 01 (leaf dependencies: StaffRequiredMixin, CampaignRunSubmissionForm, EMAIL_BACKEND)"
-last_updated: "2026-07-04T09:52:27.914Z"
+stopped_at: Completed Phase 16 Plan 02 (CampaignRunSubmissionView submission write path)
+last_updated: "2026-07-04T10:36:49.429Z"
 last_activity: 2026-07-04
 last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 ## Current Position
 
 Phase: 16 (submission-form-approval-queue-calendar-projection-write-pat) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-04 — Phase 16 execution started
 Progress: [░░░░░░░░░░] 0/4 phases
@@ -67,6 +67,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 15 P01 | 25min | 3 tasks | 8 files |
 | Phase 15 P02 | 15min | 3 tasks | 5 files |
 | Phase 16 P01 | 8min | 2 tasks | 4 files |
+| Phase 16 P02 | 26min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 15]: campaign_links.html applies mr-2 mb-2 unconditionally to every link rather than only wrapping 2+ campaigns in a flex div -- simpler, harmless for the single-link case, matches the plan's literal Task 2 action text
 - [Phase 16]: CampaignRunSubmissionForm is a plain forms.Form, not ModelForm, because CampaignRun.telescope_instrument has no blank=True on the model -- a ModelForm would wrongly force it required, contradicting D-05
 - [Phase 16]: EMAIL_BACKEND placed before the local_settings.py import block so a production override always wins
+- [Phase 16]: CampaignRun.objects.create() wrapped in transaction.atomic() savepoint inside the IntegrityError handler -- without it, the caught exception poisons the outer request/test transaction and the form re-render raises TransactionManagementError instead of showing the friendly duplicate-submission error
+- [Phase 16]: _notify_staff wraps reverse('campaigns:approval_queue') in try/except NoReverseMatch with a hardcoded fallback path, since that URL name is added by Plan 03 (Wave 3) which has not landed yet at Plan 02's execution point in the wave sequence
 
 ### Pending Todos
 
@@ -123,9 +126,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-04T09:52:27.899Z
-Stopped at: Completed Phase 16 Plan 01 (leaf dependencies: StaffRequiredMixin, CampaignRunSubmissionForm, EMAIL_BACKEND)
-Resume file: .planning/phases/16-submission-form-approval-queue-calendar-projection-write-pat/16-UI-SPEC.md
+Last session: 2026-07-04T10:36:49.413Z
+Stopped at: Completed Phase 16 Plan 02 (CampaignRunSubmissionView submission write path)
+Resume file: .planning/phases/16-submission-form-approval-queue-calendar-projection-write-pat/16-03-PLAN.md
 
 ## Operator Next Steps
 
