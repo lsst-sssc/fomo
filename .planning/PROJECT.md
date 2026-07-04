@@ -58,10 +58,10 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `solsys_code/apps.py`: second `target_detail_buttons()` entry + new `nav_items()` hook; `src/templatetags/solsys_code_extras.py`: `campaign_links`/`campaigns_nav_link` inclusion tags — v2.0 (Phase 15)
 - `solsys_code/tests/test_campaign_views.py`: 16 tests — v2.0 (Phase 15)
 - `solsys_code/mixins.py`: `StaffRequiredMixin`; `solsys_code/campaign_forms.py`: `CampaignRunSubmissionForm` (plain `forms.Form` + honeypot `alt_contact_info`) — v2.0 (Phase 16)
-- `solsys_code/campaign_views.py`: now also `CampaignRunSubmissionView`, `ApprovalQueueView`, `CampaignRunDecisionView`, `_notify_staff`; `solsys_code/campaign_tables.py`: now also `ApprovalQueueTable`; `campaign_urls.py`: `submit`/`submission_thanks`/`approval_queue`/`decide` URL names — v2.0 (Phase 16)
+- `solsys_code/campaign_views.py`: now also `CampaignRunSubmissionView`, `ApprovalQueueView`, `CampaignRunDecisionView`, `_notify_staff`; `solsys_code/campaign_tables.py`: now also `ApprovalQueueTable` (`Meta.exclude`/`Meta.sequence` trims 3 structurally-blank columns and leads with `actions` — 16-05 gap closure); `campaign_urls.py`: `submit`/`submission_thanks`/`approval_queue`/`decide` URL names — v2.0 (Phase 16)
 - `src/templates/campaigns/campaignrun_submit_form.html`, `submission_thanks.html`, `approval_queue.html`: submission + staff approval-queue templates — v2.0 (Phase 16)
-- `solsys_code/tests/test_campaign_forms.py`, `test_campaign_submission.py`, `test_campaign_approval.py`: 42 tests — v2.0 (Phase 16)
-- **All 300 `./manage.py test solsys_code` tests pass (Phase 16 complete, v2.0 in progress).**
+- `solsys_code/tests/test_campaign_forms.py`, `test_campaign_submission.py`, `test_campaign_approval.py`: 40 tests — v2.0 (Phase 16)
+- **All 303 `./manage.py test solsys_code` tests pass (Phase 16 complete, including 16-05 gap closure; v2.0 in progress).**
 
 ## Core Value
 
@@ -363,4 +363,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-04 — Phase 16 (Submission Form, Approval Queue & Calendar Projection, Write Path) complete; v2.0 milestone continues with Phase 17 (deferrable to v2.1)*
+*Last updated: 2026-07-04 — Phase 16 (Submission Form, Approval Queue & Calendar Projection, Write Path) complete, including gap-closure plan 16-05 (approval-queue column trim/reorder, UAT Test 14); v2.0 milestone continues with Phase 17 (deferrable to v2.1)*
