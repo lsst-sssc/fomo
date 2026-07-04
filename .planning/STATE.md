@@ -4,9 +4,9 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 17
 current_phase_name: Deferrable to v2.1
-status: completed
+status: executing
 stopped_at: Phase 17 UI-SPEC approved
-last_updated: "2026-07-04T20:47:17.678Z"
+last_updated: "2026-07-04T21:12:23.421Z"
 last_activity: 2026-07-04
 last_activity_desc: Phase 16 complete, transitioned to Phase 17
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 Phase: 17 — Coverage-Gap Analysis (Deferrable to v2.1)
 Plan: Not started
-Status: Phase 16 complete; Phase 17 (Coverage-Gap Analysis, deferrable to v2.1) not yet planned
+Status: Ready to execute
 Last activity: 2026-07-04 — Phase 16 complete, transitioned to Phase 17
 Progress: [███████░░░] 3/4 phases
 
