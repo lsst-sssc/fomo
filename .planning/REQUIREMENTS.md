@@ -24,10 +24,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Community Submission & Approval (SUBMIT)
 
-- [ ] **SUBMIT-01**: Community member can submit a run via a web form — campaign (TargetList) mandatory, all other fields optional
+- [x] **SUBMIT-01**: Community member can submit a run via a web form — campaign (TargetList) mandatory, all other fields optional
 - [ ] **SUBMIT-02**: New submissions are pending and invisible on public views until approved
 - [ ] **SUBMIT-03**: Staff can review and approve/reject pending runs; approval is atomic (double-approve is a no-op, proven by test)
-- [ ] **SUBMIT-04**: The public form carries a honeypot field; bot submissions are dropped without processing
+- [x] **SUBMIT-04**: The public form carries a honeypot field; bot submissions are dropped without processing
 - [ ] **SUBMIT-05**: Staff receive an email notification when a new submission lands
 
 ### Calendar Projection (CAL)
@@ -86,10 +86,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VIEW-02 | Phase 15 | Complete |
 | VIEW-03 | Phase 15 | Complete |
 | VIEW-04 | Phase 15 | Complete |
-| SUBMIT-01 | Phase 16 | Pending |
+| SUBMIT-01 | Phase 16 | Complete |
 | SUBMIT-02 | Phase 16 | Pending |
 | SUBMIT-03 | Phase 16 | Pending |
-| SUBMIT-04 | Phase 16 | Pending |
+| SUBMIT-04 | Phase 16 | Complete |
 | SUBMIT-05 | Phase 16 | Pending |
 | CAL-01 | Phase 16 | Pending |
 | CAL-02 | Phase 16 | Pending |

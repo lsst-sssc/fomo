@@ -150,12 +150,12 @@ linked in the Milestones section above._
   4. Honeypot bot submissions are dropped without processing, and staff receive an email notification when a genuine submission lands.
   5. Approving a run that has a telescope + date range creates or updates a paired `CalendarEvent` (keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event()`, `target_list` set to the campaign's list) with no duplicate events and no `modified` churn on re-approval or unchanged edits.
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 **UI hint**: yes
 
 **Wave 1**
 
-- [ ] 16-01-PLAN.md — StaffRequiredMixin + CampaignRunSubmissionForm (plain forms.Form + honeypot) + EMAIL_BACKEND (SUBMIT-01/04)
+- [x] 16-01-PLAN.md — StaffRequiredMixin + CampaignRunSubmissionForm (plain forms.Form + honeypot) + EMAIL_BACKEND (SUBMIT-01/04)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -203,7 +203,7 @@ linked in the Milestones section above._
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
 | 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete    | 2026-07-03 |
-| 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 0/? | Not started | - |
+| 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 1/4 | In Progress|  |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 0/? | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above. Active v2.0 phase detail is in the **Phase Details** section above.
