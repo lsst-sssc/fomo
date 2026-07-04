@@ -1,8 +1,8 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "UAT gap diagnosis for Phase 16 Test 14: 'For the pending review entries, is there a way to hide blank entries/columns so that Actions column appears with less scrolling'"
 created: 2026-07-04T15:30:32Z
-updated: 2026-07-04T15:30:32Z
+updated: 2026-07-04T16:40:00Z
 ---
 
 ## Current Focus
@@ -106,6 +106,15 @@ root_cause: |
   overflow-width tables -- it produces exactly the horizontal scrollbar the user experienced.
   Because Actions is the last of 17 columns, reaching Approve/Reject requires scrolling past
   all 16 (often mostly-blank) data columns first.
-fix: ""
-verification: ""
-files_changed: []
+fix: |
+  ApprovalQueueTable.Meta now sets exclude = ('weather', 'observation_outcome', 'publication_plans')
+  and sequence = ('actions', 'approval_status', 'telescope_instrument', 'site', 'obs_date',
+  'ut_start', 'ut_end', '...') so Actions leads the table and the three structurally-blank
+  post-observation columns are dropped. CampaignRunTable is untouched (Phase 15 D-09 preserved).
+verification: |
+  TestApprovalQueueColumns (solsys_code/tests/test_campaign_approval.py) proves actions-first
+  ordering, the triage column trim, and a D-09 regression guard confirming CampaignRunTable is
+  unchanged. Full solsys_code suite (303 tests) and pytest suite pass; ruff clean.
+files_changed:
+  - solsys_code/campaign_tables.py
+  - solsys_code/tests/test_campaign_approval.py
