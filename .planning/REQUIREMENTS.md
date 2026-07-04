@@ -38,7 +38,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Coverage-Gap Analysis (GAP) — deferrable to v2.1 if time runs short
 
-- [ ] **GAP-01**: Phase-time research spike decides dark-window-only vs. target-altitude filtering (the `ephem_utils`/SPICE cost decision) before implementation
+- [x] **GAP-01**: Phase-time research spike decides dark-window-only vs. target-altitude filtering (the `ephem_utils`/SPICE cost decision) before implementation
 - [ ] **GAP-02**: User can view observable-but-unclaimed dates for a campaign target + site; computed on explicit request or cached, never inline in the table view, never importing `ephem_utils` at module scope
 
 ## v2 Requirements
@@ -94,7 +94,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAL-01 | Phase 16 | Complete |
 | CAL-02 | Phase 16 | Complete |
 | CAL-03 | Phase 16 | Complete |
-| GAP-01 | Phase 17 | Pending |
+| GAP-01 | Phase 17 | Complete |
 | GAP-02 | Phase 17 | Pending |
 
 **Coverage:**

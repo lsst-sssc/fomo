@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 17
-current_phase_name: Deferrable to v2.1
+current_phase_name: coverage-gap-analysis-deferrable-to-v2-1
 status: executing
 stopped_at: Phase 17 UI-SPEC approved
-last_updated: "2026-07-04T21:12:23.421Z"
+last_updated: "2026-07-04T21:35:56.336Z"
 last_activity: 2026-07-04
-last_activity_desc: Phase 16 complete, transitioned to Phase 17
+last_activity_desc: Phase 17 execution started
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 13
+  completed_plans: 11
   percent: 75
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 **Core value:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
-**Current focus:** Phase 16 — submission-form-approval-queue-calendar-projection-write-pat
+**Current focus:** Phase 17 — coverage-gap-analysis-deferrable-to-v2-1
 
 ## Current Position
 
-Phase: 17 — Coverage-Gap Analysis (Deferrable to v2.1)
-Plan: Not started
+Phase: 17 (coverage-gap-analysis-deferrable-to-v2-1) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-04 — Phase 16 complete, transitioned to Phase 17
+Last activity: 2026-07-04 — Phase 17 execution started
 Progress: [███████░░░] 3/4 phases
 
 ## Roadmap Summary (v2.0)
@@ -71,6 +71,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 16 P03 | 21min | 2 tasks | 5 files |
 | Phase 16 P04 | 8min | 2 tasks | 4 files |
 | Phase 16 P05 | 16min | 2 tasks | 2 files |
+| Phase 17 P01 | 21min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 16]: decided_qs is materialized to a list and passed order_by=() before construction of ApprovalQueueTable, fixing a 'Cannot reorder a query once a slice has been taken' crash caused by the inherited CampaignRunTable.Meta.order_by=('-obs_date',) default sort colliding with the already-sliced [:20] queryset
 - [Phase 16]: [Phase 16 P04]: Three pre-existing Phase 15 anonymous-client tests switched to the staff client since D-09 legitimately changes anonymous visibility and those tests exercise generic table mechanics (pagination/run_status coverage/filter semantics) unrelated to approval-status gating
 - [Phase 16]: [Phase 16 P05]: Fix scoped entirely to ApprovalQueueTable.Meta (exclude + sequence) -- CampaignRunTable untouched, preserving Phase 15 D-09 spreadsheet-parity; sequence uses the '...' ellipsis token instead of enumerating all remaining columns
+- [Phase 17]: Multi-target campaign target=None CampaignRuns are collected into a separate unattributed_runs list, never counted as claiming either target's date (Pitfall 4)
+- [Phase 17]: Single-target campaigns: claimed_dates() does not filter by target at all -- the single target is implied and target=None is the common real-data case, matching import_campaign_csv's D-07 precedent
 
 ### Pending Todos
 
@@ -133,7 +136,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-04T20:47:17.666Z
+Last session: 2026-07-04T21:35:22.325Z
 Stopped at: Phase 17 UI-SPEC approved
 Resume file: .planning/phases/17-coverage-gap-analysis-deferrable-to-v2-1/17-UI-SPEC.md
 
