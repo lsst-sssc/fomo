@@ -10,7 +10,7 @@ which triggers a ~1.6 GB SPICE kernel download (CLAUDE.md "Heavy import side eff
 
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import NoReverseMatch, reverse, reverse_lazy
@@ -121,22 +121,28 @@ class CampaignRunSubmissionView(FormView):
             # redirect as a genuine submission. No create, no email, no error signal.
             return redirect('campaigns:submission_thanks')
         try:
-            run = CampaignRun.objects.create(
-                campaign=form.cleaned_data['campaign'],
-                telescope_instrument=form.cleaned_data['telescope_instrument'],
-                site_raw=form.cleaned_data['site_raw'],
-                obs_date=form.cleaned_data['obs_date'],
-                ut_start=form.cleaned_data['ut_start'],
-                ut_end=form.cleaned_data['ut_end'],
-                filters_bandpass=form.cleaned_data['filters_bandpass'],
-                observation_details=form.cleaned_data['observation_details'],
-                open_to_collaboration=form.cleaned_data['open_to_collaboration'],
-                contact_person=form.cleaned_data['contact_person'],
-                contact_email=form.cleaned_data['contact_email'],
-                comments=form.cleaned_data['comments'],
-                # approval_status intentionally not set -- model default is PENDING_REVIEW.
-                # site/site_needs_review intentionally not set -- resolved at approval time (D-07).
-            )
+            # Wrapped in its own atomic block (savepoint): without it, the IntegrityError
+            # caught below poisons the outer request/test transaction, and any subsequent
+            # query (e.g. re-rendering the form's ModelChoiceField) raises
+            # TransactionManagementError instead of the intended friendly form error.
+            with transaction.atomic():
+                run = CampaignRun.objects.create(
+                    campaign=form.cleaned_data['campaign'],
+                    telescope_instrument=form.cleaned_data['telescope_instrument'],
+                    site_raw=form.cleaned_data['site_raw'],
+                    obs_date=form.cleaned_data['obs_date'],
+                    ut_start=form.cleaned_data['ut_start'],
+                    ut_end=form.cleaned_data['ut_end'],
+                    filters_bandpass=form.cleaned_data['filters_bandpass'],
+                    observation_details=form.cleaned_data['observation_details'],
+                    open_to_collaboration=form.cleaned_data['open_to_collaboration'],
+                    contact_person=form.cleaned_data['contact_person'],
+                    contact_email=form.cleaned_data['contact_email'],
+                    comments=form.cleaned_data['comments'],
+                    # approval_status intentionally not set -- model default is PENDING_REVIEW.
+                    # site/site_needs_review intentionally not set -- resolved at approval
+                    # time (D-07).
+                )
         except IntegrityError:
             # Pitfall 4: two submitters proposing the same campaign+telescope_instrument+
             # ut_start collide on CampaignRun's natural-key UniqueConstraint. Friendly form
