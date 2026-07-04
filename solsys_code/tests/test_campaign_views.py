@@ -109,19 +109,28 @@ class CampaignViewTestBase(TestCase):
 
 
 class TestCampaignRunTableView(CampaignViewTestBase):
-    """VIEW-01: table lists all runs for a campaign, 25/page, default-sorted obs_date desc."""
+    """VIEW-01: table lists all runs for a campaign, 25/page, default-sorted obs_date desc.
+
+    These assertions are about generic table mechanics (pagination, sort, full row-status
+    coverage), not approval-status visibility gating -- exercised via the staff client so
+    D-09's non-staff `.exclude(approval_status=PENDING_REVIEW)` (added in Plan 04) doesn't
+    change the expected row counts here. D-09 visibility itself is covered separately by
+    `TestNonStaffPendingReviewHidden`.
+    """
 
     def test_anonymous_get_returns_200(self):
         response = self.client.get(self.table_url())
         self.assertEqual(response.status_code, 200)
 
     def test_first_page_shows_25_rows_and_second_page_exists(self):
+        self.client.force_login(self.staff_user)
         response = self.client.get(self.table_url())
         table = response.context['table']
         self.assertEqual(len(table.page.object_list), 25)
         self.assertGreaterEqual(table.paginator.num_pages, 2)
 
     def test_default_load_shows_every_seeded_run_status_value(self):
+        self.client.force_login(self.staff_user)
         response = self.client.get(self.table_url())
         table = response.context['table']
         seen_statuses = {self._row_value(row.record, 'run_status') for row in table.page.object_list}
@@ -168,14 +177,21 @@ class TestContactFieldGating(CampaignViewTestBase):
 
 
 class TestCampaignRunFilterSet(CampaignViewTestBase):
-    """VIEW-04: run_status multi-select (OR) + open_to_collaboration boolean; unfiltered default."""
+    """VIEW-04: run_status multi-select (OR) + open_to_collaboration boolean; unfiltered default.
+
+    Uses the staff client throughout -- these assertions are about filter semantics over the
+    full 30-row fixture, not D-09 approval-status visibility gating (covered separately by
+    `TestNonStaffPendingReviewHidden`).
+    """
 
     def test_default_unfiltered_shows_all_rows(self):
+        self.client.force_login(self.staff_user)
         response = self.client.get(self.table_url())
         table = response.context['table']
         self.assertEqual(table.paginator.count, _TOTAL_RUNS)
 
     def test_run_status_multiselect_or_semantics(self):
+        self.client.force_login(self.staff_user)
         response = self.client.get(
             self.table_url(),
             {'run_status': [CampaignRun.RunStatus.PLANNED, CampaignRun.RunStatus.OBSERVED]},

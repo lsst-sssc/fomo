@@ -77,6 +77,10 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         qs = CampaignRun.objects.filter(campaign_id=campaign_pk)
         if self.request.user.is_staff:
             return qs.select_related('site')
+        # D-09/SUBMIT-02: non-staff see approved AND rejected runs; only pending_review is
+        # hidden. Queryset-level exclude (not a template conditional) so pending rows never
+        # enter the non-staff SELECT -- mirrors D-13's existing discipline (T-16-07).
+        qs = qs.exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
         return qs.values(*ALLOWED_FIELDS_FOR_NON_STAFF)
 
     def get_table_kwargs(self):
@@ -105,6 +109,19 @@ class CampaignListView(ListView):
     )
     template_name = 'campaigns/campaign_list.html'
     context_object_name = 'campaigns'
+
+    def get_context_data(self, **kwargs):
+        """Add pending_count for the staff-only "N pending review" banner (D-01).
+
+        Computed unconditionally -- the template gates its display on request.user.is_staff,
+        so it's harmless to compute for anonymous/non-staff visitors too (D-10: list
+        membership itself is unchanged).
+        """
+        context = super().get_context_data(**kwargs)
+        context['pending_count'] = CampaignRun.objects.filter(
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
+        ).count()
+        return context
 
 
 class CampaignRunSubmissionView(FormView):
