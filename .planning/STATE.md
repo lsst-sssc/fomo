@@ -4,9 +4,9 @@ milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
 current_phase: 16
 current_phase_name: Write Path
-status: verifying
-stopped_at: Phase 16 context gathered
-last_updated: "2026-07-03T21:52:15.208Z"
+status: executing
+stopped_at: Phase 16 UI-SPEC approved
+last_updated: "2026-07-04T09:09:01.584Z"
 last_activity: 2026-07-03
 last_activity_desc: Phase 15 complete, transitioned to Phase 16
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 Phase: 16 — Submission Form, Approval Queue & Calendar Projection (Write Path)
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-03 — Phase 15 complete, transitioned to Phase 16
 Progress: [░░░░░░░░░░] 0/4 phases
 
@@ -120,9 +120,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-03T21:52:15.188Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-submission-form-approval-queue-calendar-projection-write-pat/16-CONTEXT.md
+Last session: 2026-07-04T05:36:31.899Z
+Stopped at: Phase 16 UI-SPEC approved
+Resume file: .planning/phases/16-submission-form-approval-queue-calendar-projection-write-pat/16-UI-SPEC.md
 
 ## Operator Next Steps
 
