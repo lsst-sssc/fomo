@@ -10,7 +10,7 @@
 - ✅ **v1.5 Gemini Calendar Sync** — Phase 10 (shipped 2026-06-27) — see [milestones/v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
 - ✅ **v1.6 Tech Debt & Display Polish** — Phases 11-12 (shipped 2026-06-29) — see [milestones/v1.6-ROADMAP.md](milestones/v1.6-ROADMAP.md)
 - ✅ **v1.7 ESO/VLT Calendar Sync — Feasibility Spike** — Phase 13 (shipped 2026-07-02) — see [milestones/v1.7-ROADMAP.md](milestones/v1.7-ROADMAP.md)
-- 🚧 **v2.0 Campaign Coordination for Rare/Urgent Objects** — Phases 14-17 (in progress, opened 2026-07-02)
+- ✅ **v2.0 Campaign Coordination for Rare/Urgent Objects** — Phases 14-17 (shipped 2026-07-05) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
 
 ## Phases
 
@@ -76,128 +76,15 @@
 
 </details>
 
-### 🚧 v2.0 Campaign Coordination for Rare/Urgent Objects (Phases 14-17) — IN PROGRESS
+<details>
+<summary>✅ v2.0 Campaign Coordination for Rare/Urgent Objects (Phases 14-17) — SHIPPED 2026-07-05</summary>
 
-- [x] **Phase 14: Campaign Data Model & Bootstrap Import** - `CampaignRun` model + one-off 3I/ATLAS CSV import validated against real data (completed 2026-07-03)
-- [x] **Phase 15: Per-Campaign Table View (Read Path)** - Spreadsheet-replacement table of all runs for a campaign, PII-gated (completed 2026-07-03)
-- [x] **Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)** - Community intake with staff approval gate; approved runs project onto the calendar (completed 2026-07-04)
-- [x] **Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)** - Ephemeris-aware observable-but-unclaimed dates; the differentiator over any spreadsheet (completed 2026-07-04)
+- [x] Phase 14: Campaign Data Model & Bootstrap Import (3/3 plans) — completed 2026-07-03
+- [x] Phase 15: Per-Campaign Table View (Read Path) (2/2 plans) — completed 2026-07-03
+- [x] Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path) (5/5 plans) — completed 2026-07-04
+- [x] Phase 17: Coverage-Gap Analysis (Deferrable to v2.1, shipped anyway) (3/3 plans) — completed 2026-07-04
 
-## Phase Details
-
-_Detail sections below cover the active v2.0 milestone. Full phase detail for all
-shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files
-linked in the Milestones section above._
-
-### Phase 14: Campaign Data Model & Bootstrap Import
-
-**Goal**: A `CampaignRun` model exists — linked to a campaign `TargetList`, carrying the full 3I-sheet field inventory and a combined lifecycle/approval status — and the real 3I/ATLAS coordination sheet can be imported into it.
-**Depends on**: Nothing (first phase of milestone)
-**Requirements**: CAMP-01, CAMP-02, CAMP-03, CAMP-04, CAMP-05
-**Success Criteria** (what must be TRUE):
-
-  1. A `CampaignRun` record stores its campaign `TargetList`, an optional observed `Target`, two independent controlled-vocabulary fields for lifecycle/approval status (approval status + run status, per discuss-phase decision D-02), and the full 3I field inventory (telescope/instrument, site, obs date + UT range, filters/bandpass, observation details, weather, outcome, publication plans, collaboration flag, comments, contact person/email).
-  2. A single-target campaign works without ever setting the optional observed `Target`.
-  3. Operator can run a management command that imports the real 3I/ATLAS sheet CSV, reporting a created/updated/skipped summary; unparseable rows are skipped and logged without aborting the run.
-  4. The import command's paired demo notebook runs end-to-end against a synthetic/redacted fixture with no real PII committed to git history.
-
-**Plans**: 3/3 plans complete
-**Wave 1**
-
-- [x] 14-01-PLAN.md — CampaignRun model + migration + model tests (CAMP-01/02/03)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 14-02-PLAN.md — campaign_utils helpers + import_campaign_csv command + tests (CAMP-02/04)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 14-03-PLAN.md — synthetic PII-free fixture + paired demo notebook (CAMP-05)
-
-### Phase 15: Per-Campaign Table View (Read Path)
-
-**Goal**: A coordinator can see every run for a campaign in one sortable, filterable table that replaces the shared spreadsheet — with contact details visible only to staff.
-**Depends on**: Phase 14
-**Requirements**: VIEW-01, VIEW-02, VIEW-03, VIEW-04
-**Success Criteria** (what must be TRUE):
-
-  1. User can view a per-campaign table listing all of its runs, sortable and paginated.
-  2. User can reach a campaign's table from the relevant target-detail page, and a navbar entry exposes campaigns.
-  3. Contact person/email are excluded from view context for anonymous requests (proven by an anonymous-client test) and shown only to authenticated staff.
-  4. User can filter the table by lifecycle status and by the open-to-collaboration flag.
-
-**Plans**: 2/2 plans complete
-**UI hint**: yes
-
-**Wave 1**
-
-- [x] 15-01-PLAN.md — per-campaign table read path: CampaignRunTable + FilterSet + views + urls + templates + tests (VIEW-01/03/04)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 15-02-PLAN.md — navigation & target-detail integration: apps.py hooks + inclusion tags + partials + tests (VIEW-02)
-
-### Phase 16: Submission Form, Approval Queue & Calendar Projection (Write Path)
-
-**Goal**: Community members (PIs and external observers) can submit runs that stay hidden until a staff member approves them, and an approved run with a telescope and date range appears on the shared calendar.
-**Depends on**: Phase 15
-**Requirements**: SUBMIT-01, SUBMIT-02, SUBMIT-03, SUBMIT-04, SUBMIT-05, CAL-01, CAL-02, CAL-03
-**Success Criteria** (what must be TRUE):
-
-  1. A community member can submit a run via a web form with campaign (`TargetList`) mandatory and every other field optional.
-  2. A new submission is pending and invisible on public views until a staff member approves it.
-  3. Staff can approve or reject pending runs, and approval is atomic — a double-approve is a proven no-op.
-  4. Honeypot bot submissions are dropped without processing, and staff receive an email notification when a genuine submission lands.
-  5. Approving a run that has a telescope + date range creates or updates a paired `CalendarEvent` (keyed `CAMPAIGN:{pk}` via `insert_or_create_calendar_event()`, `target_list` set to the campaign's list) with no duplicate events and no `modified` churn on re-approval or unchanged edits.
-
-**Plans**: 5/5 plans complete
-**UI hint**: yes
-
-**Wave 1**
-
-- [x] 16-01-PLAN.md — StaffRequiredMixin + CampaignRunSubmissionForm (plain forms.Form + honeypot) + EMAIL_BACKEND (SUBMIT-01/04)
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 16-02-PLAN.md — CampaignRunSubmissionView + submit/thanks URLs + templates + staff email notify + tests (SUBMIT-01/04/05)
-
-**Wave 3** *(blocked on Wave 2)*
-
-- [x] 16-03-PLAN.md — ApprovalQueueView + atomic approve/reject decision endpoint + calendar projection + ApprovalQueueTable + tests (SUBMIT-03/CAL-01/02/03)
-
-**Wave 4** *(blocked on Wave 3)*
-
-- [x] 16-04-PLAN.md — D-09 non-staff visibility filter + Submit-a-Run entry buttons + staff pending banner + tests (SUBMIT-01/02)
-
-**Gap closure** *(post-UAT)*
-
-- [x] 16-05-PLAN.md — Trim/reorder ApprovalQueueTable columns (Meta.exclude + sequence, actions-first) so Approve/Reject is reachable without scrolling; closes UAT Test 14 (SUBMIT-03)
-
-### Phase 17: Coverage-Gap Analysis (Deferrable to v2.1)
-
-**Goal**: A user can see which observable nights for a campaign target and site are not yet claimed by any run — FOMO's differentiator over any spreadsheet. **This phase is explicitly deferrable to v2.1 if the milestone runs long**; it is ordered last so it can be cut without disturbing the launch-critical Phases 14-16. GAP-01 is a phase-time research spike that gates GAP-02's implementation approach.
-**Depends on**: Phase 16 (needs both the claimed-runs data and the campaign table stable)
-**Requirements**: GAP-01, GAP-02
-**Success Criteria** (what must be TRUE):
-
-  1. A phase-time research spike produces an explicit decision — dark-window-only vs. target-altitude filtering — settling the `ephem_utils`/SPICE-cost tradeoff before any implementation begins.
-  2. User can view observable-but-unclaimed dates for a campaign target + site, computed on explicit request or from a cache.
-  3. The gap computation never runs inline in the table view and never imports `ephem_utils` at module scope (lightweight `telescope_runs.py` helpers or a lazy import only).
-
-**Plans**: 3/3 plans complete
-**UI hint**: yes
-
-**Wave 1**
-
-- [x] 17-01-PLAN.md — GAP-01 decision doc + `campaign_gap.py` core computation (observable/claimed/gap sets, D-03 skip, D-05/06/07 night derivation, D-08 undated flag, D-10 cache key, D-11 clamp) + unit tests (GAP-01, GAP-02)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 17-02-PLAN.md — `CampaignGapAnalysisForm` + `CampaignGapAnalysisView` (server-side IDOR/T-17-01 validation, D-11 clamp, D-12 target resolution, D-10 cache) + `gap_analysis` URL + integration tests (GAP-02)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 17-03-PLAN.md — gap-analysis page template + `campaignrun_table.html` D-14-gated trigger button + button gating test + human-verify checkpoint (GAP-02)
+</details>
 
 ## Progress
 
@@ -217,20 +104,15 @@ linked in the Milestones section above._
 | 11. Code Refactoring | v1.6 | 2/2 | Complete | 2026-06-27 |
 | 12. Display Polish | v1.6 | 1/1 | Complete | 2026-06-28 |
 | 13. ESO Feasibility Spike | v1.7 | 2/2 | Complete | 2026-07-02 |
-| 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete    | 2026-07-03 |
-| 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete    | 2026-07-03 |
-| 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete    | 2026-07-04 |
-| 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete    | 2026-07-04 |
+| 14. Campaign Data Model & Bootstrap Import | v2.0 | 3/3 | Complete | 2026-07-03 |
+| 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete | 2026-07-03 |
+| 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete | 2026-07-04 |
+| 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
 
-Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above. Active v2.0 phase detail is in the **Phase Details** section above.
+Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
 ## Current Milestone
 
-**v2.0 Campaign Coordination for Rare/Urgent Objects** — Phases 14-17, opened 2026-07-02.
+None — v2.0 shipped 2026-07-05. Awaiting `/gsd-new-milestone` to open v2.1.
 
-When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the
-community's campaign-coordination hub — target-linked observing runs, submission with
-oversight, and a per-object campaign view. Phases 14-16 are launch-critical; Phase 17
-(coverage-gap analysis) is the differentiator and is deferrable to v2.1 if time runs short.
-
-Next: `/gsd-plan-phase 14`
+Next: `/gsd-new-milestone`

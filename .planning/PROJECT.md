@@ -10,8 +10,9 @@ A helper module and management commands for FOMO that:
 4. A visual clarity layer (v1.4): `CalendarEventTelescopeLabel` sidecar model records live-verified vs. fallback telescope-label resolution; `calendar_display_extras` template-tag library provides proposal-keyed color (sha256 → 8-color colorblind-vetted palette), status box-shadow rings, and a click-to-filter legend.
 5. (`solsys_code/management/commands/sync_gemini_observation_calendar.py`) syncs submitted Gemini ToO `ObservationRecord`s to `CalendarEvent` window banners — using explicit `windowDate`/`windowTime`/`windowDuration` parameters when present and ToO-type-derived defaults (`Rap:` +24 h; `Std:` +24 h to +7 d) when not — with per-record credential scrubbing, idempotent no-churn find-or-create, and a pre-executed demo notebook — Stage 3b (v1.5).
 6. (`solsys_code/calendar_utils.py`) shared utility module holding `SITE_TELESCOPE_MAP`, `_extract_instrument`, `insert_or_create_calendar_event()`, and related helpers — extracted from `sync_lco_observation_calendar.py` in v1.6 so all three management commands share one canonical implementation. Calendar event title text is now WCAG-AA-compliant against all palette backgrounds (`text_color_for_bg`), and `CalendarEventTelescopeLabel` data is loaded in a single prefetch query rather than one per event (`fomo_render_calendar` wrapper view, v1.6).
+7. (`solsys_code/models.py:CampaignRun`, `campaign_utils.py`, `campaign_tables.py`, `campaign_views.py`, `campaign_gap.py`) a second, separate feature area — **campaign coordination** — added in v2.0: a `CampaignRun` model (linked to a campaign `TargetList`) with the full 3I-sheet field inventory and independent lifecycle/approval status fields; a bootstrap CSV import command validated against the real 3I/ATLAS coordination sheet; a PII-gated per-campaign table (spreadsheet replacement); a public submission form with a staff approval queue whose approved runs project onto the shared calendar (`CAMPAIGN:{pk}` `CalendarEvent`s, reusing `insert_or_create_calendar_event()`); and ephemeris-aware coverage-gap analysis showing observable-but-unclaimed dates. This makes FOMO the community's campaign-coordination hub for rare/urgent objects (e.g. interstellar visitors like 3I/ATLAS), not just a calendar-sync tool.
 
-This is a Stages-1-through-3b-complete implementation of the "telescope runs on the calendar" feature (issue #37), with a calendar visual clarity layer added in v1.4, Gemini ToO calendar sync added in v1.5, and shared-utility refactoring + WCAG/N+1 polish added in v1.6. Stage 4 (full observation-record sync for all facilities) remains future work.
+This is a Stages-1-through-3b-complete implementation of the "telescope runs on the calendar" feature (issue #37), with a calendar visual clarity layer added in v1.4, Gemini ToO calendar sync added in v1.5, shared-utility refactoring + WCAG/N+1 polish added in v1.6, and an ESO/VLT feasibility spike in v1.7. v2.0 added a second, independent feature area — campaign coordination for rare/urgent objects — reusing the calendar-sync infrastructure but serving a distinct community-coordination use case. Stage 4 (full observation-record sync for all facilities) remains future work.
 
 ## Current State
 
@@ -24,6 +25,7 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - ✅ v1.5 "Gemini Calendar Sync" — 2026-06-27 (Phase 10) — `sync_gemini_observation_calendar` management command syncing Gemini ToO ObservationRecords to CalendarEvent window banners with per-record password scrubbing, ToO-type window derivation, and no-churn idempotency
 - ✅ v1.6 "Tech Debt & Display Polish" — 2026-06-29 (Phases 11-12) — `calendar_utils.py` shared utility module with `SITE_TELESCOPE_MAP`/`_extract_instrument`/`insert_or_create_calendar_event` (REFAC-01/02); `text_color_for_bg` WCAG template tag (DISPLAY-08); `fomo_render_calendar` wrapper view eliminating N+1 query (DISPLAY-09)
 - ✅ v1.7 "ESO/VLT Calendar Sync — Feasibility Spike" — 2026-07-02 (Phase 13) — investigation-only: live Paranal (VLT) P2 API probe confirmed credentials obtainable/usable (ESO-01), captured real `getOB()`/`getNightExecutions()` shapes (ESO-02), confirmed a headless `FACILITIES['ESO']`-style credential path bypassing `ESOProfile`/session decryption (ESO-03); decision doc recommends **Bypass** — sync straight from `p2api` to `CalendarEvent`, skipping `ObservationRecord` for ESO (ESO-04) — with a future-sync sketch (ESO-05) in `.planning/phases/13-eso-feasibility-spike/13-DECISION.md` and `docs/design/eso_feasibility_spike.rst`. No sync command shipped; La Silla P2 connectivity confirmed reachable via a direct `p2api` bypass of `tom_eso`'s broken `ESOAPI`/`p1api` wrapper, though La-Silla-sourced OB data remains unconfirmed.
+- ✅ v2.0 "Campaign Coordination for Rare/Urgent Objects" — 2026-07-05 (Phases 14-17) — `CampaignRun` model + real 3I/ATLAS CSV bootstrap import (Phase 14); PII-gated per-campaign spreadsheet-replacement table (Phase 15); public submission form + staff approval queue with calendar projection (Phase 16); ephemeris-aware coverage-gap analysis (Phase 17). 19/19 v1 requirements shipped. A manual-UAT gap found just before close (pending approval-queue rows showed a blank Site column, and approving an unresolvable free-text site silently fabricated a placeholder `Observatory` row) was fixed via quick task `260705-l1v` prior to shipping.
 
 **Working code:**
 - `solsys_code/telescope_runs.py`: `SITES`, `get_site()`, `horizon_dip()`, `sun_event()`, `ParsedRun`, `parse_run_line()`, `KNOWN_STATUSES`
@@ -64,7 +66,8 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `solsys_code/campaign_gap.py`: `observable_dates`/`claimed_dates`/`get_or_compute_gap` coverage-gap computation core, cached (TTL) set-difference of observable vs. claimed nights — v2.0 (Phase 17)
 - `solsys_code/campaign_forms.py`: now also `CampaignGapAnalysisForm`; `campaign_views.py`: now also `CampaignGapAnalysisView`, `gap_analysis_available()`; `campaign_urls.py`: `gap_analysis` URL — v2.0 (Phase 17)
 - `src/templates/campaigns/campaignrun_gap_analysis.html`: coverage-gap page; `campaignrun_table.html`: D-14-gated "Show Coverage Gaps" button — v2.0 (Phase 17)
-- **All 326 `./manage.py test solsys_code` tests pass (Phase 17 complete — v2.0 milestone target features all shipped).**
+- `solsys_code/campaign_tables.py` (`render_site` fallback), `campaign_utils.py` (`resolve_site` gains keyword-only `create_placeholder`), `campaign_views.py` (approval opts out of placeholder creation): approval-queue site-visibility gap fix — quick task `260705-l1v` (2026-07-05)
+- **All 332 `./manage.py test solsys_code` tests pass (v2.0 milestone target features all shipped, plus the pre-close quick-task fix).**
 
 ## Core Value
 
@@ -74,7 +77,9 @@ Stage 2 (v1.1): A `load_telescope_runs` management command turns classical-sched
 
 Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO queue ObservationRecords (FTS/MuSCAT4) to the calendar — one CalendarEvent per record, keyed on the LCO portal URL, transitioning from a scheduling-window banner (`parameters['start'`/`'end']`) to a placed block (`scheduled_start`/`scheduled_end`) as the scheduler acts, and updating in place if the block is rescheduled.
 
-## Current Milestone: v2.0 Campaign Coordination for Rare/Urgent Objects
+v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view. This is now co-equal with the calendar-sync value above, not a extension of it — the two feature areas share infrastructure (`insert_or_create_calendar_event()`, `Observatory`) but serve distinct use cases (routine facility sync vs. ad-hoc community coordination for rare objects).
+
+## v2.0 Campaign Coordination for Rare/Urgent Objects — SHIPPED 2026-07-05
 
 **Goal:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
 
@@ -230,7 +235,7 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 
 <!-- v2.0 Campaign Coordination — requirement IDs defined in .planning/REQUIREMENTS.md -->
 
-None — all v2.0 target features (data model, table view, submission/approval, coverage-gap analysis) are now validated. v2.0 is ready for `/gsd-complete-milestone`.
+None — v2.0 has shipped. Awaiting `/gsd-new-milestone` for v2.1. Candidate carry-forward items (not yet committed to a milestone): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup); VIEW-05 (opt-in public contact display) — see `.planning/STATE.md` Deferred Items and `.planning/REQUIREMENTS.md` v2 Requirements (archived to `.planning/milestones/v2.0-REQUIREMENTS.md`) for full detail.
 
 ### Out of Scope
 
@@ -357,6 +362,7 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | Single-target campaigns auto-assign their one `Target` to every imported row (D-07); re-imports always reset `target` to the auto-resolved value | Matches the real 3I/ATLAS sheet's common case (comet-only campaign); re-import overwrite behavior is documented (WR-07) rather than tracking manual-correction provenance, which would be a larger scope increase | ✓ Good — implemented in Phase 14 |
 | 3-tier site resolution — existing `Observatory` → live MPC API → flagged placeholder (D-08) — length/blank-checked against `Observatory.obscode.max_length` before any tier is attempted | Never fabricate or truncate a site code; blank/oversized codes are flagged `site_needs_review` with `site=None` rather than guessing | ✓ Good — implemented in Phase 14; hardened post-review (WR-01/02/03/04) against network timeouts, malformed API responses, and unhandled race conditions |
 | Deep (not standard) code review depth on Phase 14 caught 2 critical, reproduced data-correctness bugs (PM/AM time markers silently discarded; natural-key collision silently merging distinct rows) that all task-level self-checks and 227 passing tests had missed | Both bugs sat directly on the phase's CAMP-04 purpose — validating the schema against the real, messy sheet before a live import; a shallower review pass would likely not have traced the "never raise, never fabricate, never silently merge" invariants against actual behavior | ✓ Good — both fixed with regression tests before phase completion (commits `70f6ef3`, `dab0314`); 242/242 tests pass post-fix |
+| `resolve_site()` gained a keyword-only `create_placeholder` parameter (default `True`) rather than changing tier-3 behavior globally | Manual UAT just before v2.0 close found the approval endpoint silently fabricated placeholder `Observatory` rows for unresolvable public free-text site names (e.g. 'DCT'); the already-vetted CSV import path (Phase 14) legitimately wants tier-3's placeholder-creation behavior unchanged, so the fix had to be call-site-scoped, not a blanket behavior change | ✓ Good — implemented via quick task `260705-l1v` (2026-07-05); approval now leaves `site=None, site_needs_review=True` with no bogus Observatory row, CSV path unaffected, 332/332 tests pass |
 
 ## Evolution
 
@@ -376,4 +382,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-05 — Phase 17 (Coverage-Gap Analysis) complete; all v2.0 "Campaign Coordination for Rare/Urgent Objects" target features shipped — ready for `/gsd-complete-milestone`*
+*Last updated: 2026-07-05 — v2.0 "Campaign Coordination for Rare/Urgent Objects" milestone shipped (Phases 14-17, 19/19 requirements); pre-close manual-UAT gap fixed via quick task `260705-l1v`*

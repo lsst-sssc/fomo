@@ -1,5 +1,28 @@
 # Milestones
 
+## v2.0 Campaign Coordination for Rare/Urgent Objects (Shipped: 2026-07-05)
+
+**Phases completed:** 4 phases, 13 plans, 33 tasks
+**Closeout type:** override_closeout (4 acknowledged pre-existing items — 2 pending todos, 2 dormant ESO seeds, none introduced by v2.0; see STATE.md Deferred Items). One real gap found during pre-close manual UAT (approval-queue site-visibility + silent placeholder-Observatory fabrication) was fixed via quick task `260705-l1v` before shipping, not deferred.
+
+**Key accomplishments:**
+
+- `CampaignRun` Django model with two-field TextChoices status vocabulary (3-value approval, 8-value run status), required campaign FK, nullable target/site FKs, migration applied, and 6 model-level tests green.
+- `campaign_utils.py` (3-tier site resolution, best-effort UT-time parsing, status translation, no-churn create-or-update) plus the `import_campaign_csv` management command, both covered by 20 passing Django tests with the MPC Obscodes API fully mocked.
+- Synthetic, PII-free `campaign_sample.csv` fixture plus a paired, executed `import_campaign_csv_demo.ipynb` demonstrating the bootstrap import's created/updated/skipped summary, auto-target resolution, and the `pending_review` -> `approved`/`rejected` approval lifecycle -- all offline, satisfying CAMP-05.
+- Anonymous-accessible, PII-gated `django-tables2`/`django-filter` table listing every `CampaignRun` for a campaign, plus a campaigns list page — first real consumer of both libraries in FOMO.
+- Per-campaign "View {name} Runs" links on target-detail pages via a second `target_detail_buttons()` entry, plus FOMO's first `AppConfig.nav_items()` navbar hook for a global "Campaigns" entry -- completing VIEW-02.
+- Plain `forms.Form` submission form with a non-raising HiddenInput honeypot, a dispatch-level `is_staff` gate mixin, and a console `EMAIL_BACKEND` -- the three self-contained leaf dependencies for Phase 16's submission/approval write path.
+- `CampaignRunSubmissionView` (FormView) wired at `campaigns:submit`, backed by a `transaction.atomic()`-guarded `.objects.create()` that turns Pitfall 4's natural-key collision into a friendly form error, a honeypot short-circuit that returns the identical thanks redirect (SUBMIT-04), and a PII-free staff-notification email (SUBMIT-05).
+- Staff-gated two-section approval queue (pending actionable / recently-decided read-only), a POST-only atomic approve/reject endpoint whose double-approve is a proven no-op, and a `CAMPAIGN:{pk}` `CalendarEvent` projection on successful approve routed through the shared `insert_or_create_calendar_event()` helper.
+- Non-staff visitors to a per-campaign table now see approved and rejected runs but never `pending_review` ones (queryset-level `.exclude()`, mirroring the existing D-13 discipline); "Submit a Run" buttons and a staff-only "N pending review" banner close the discoverability loop for the form (Plan 02) and approval queue (Plan 03).
+- `ApprovalQueueTable.Meta` gains `exclude`/`sequence` so Approve/Reject leads column 1 and three structurally-blank post-observation columns are dropped, while `CampaignRunTable` stays byte-for-byte spreadsheet-parity.
+- Pure-logic `campaign_gap.py` module composing `telescope_runs.sun_event()` (observable side) with a `CampaignRun` query (claimed side) into a cached set-difference, plus the GAP-01 dark-window-only decision artifact.
+- `CampaignGapAnalysisView` wires Plan 01's `get_or_compute_gap` into a public, GET-triggered, cached endpoint with a campaign-scoped selection form and server-side IDOR re-validation of target/site pks.
+- Gap-analysis page (`campaignrun_gap_analysis.html`) and D-14-gated "Show Coverage Gaps" button on the campaign table, rendered verbatim to the UI-SPEC copywriting contract, human-verified and approved.
+
+---
+
 ## v1.7 ESO/VLT Calendar Sync — Feasibility Spike (Shipped: 2026-07-02)
 
 **Phases completed:** 1 phases, 2 plans, 5 tasks

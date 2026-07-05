@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Campaign Coordination for Rare/Urgent Objects
-current_phase: 17
-status: verifying
+current_phase: 0
+status: Awaiting next milestone
 stopped_at: Completed 17-03-PLAN.md
-last_updated: "2026-07-05T04:42:59.530Z"
+last_updated: "2026-07-05T17:52:52.000Z"
 last_activity: 2026-07-05
-last_activity_desc: Completed quick task 260705-l1v: Fix approval-queue site-visibility gap
+last_activity_desc: Milestone v2.0 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -28,11 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-05 — Completed quick task 260705-l1v: Fix approval-queue site-visibility gap
-Progress: [███████░░░] 3/4 phases
+Phase: Milestone v2.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-05 — Milestone v2.0 completed and archived
 
 ## Roadmap Summary (v2.0)
 
@@ -157,4 +156,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Phase 16 (all 5 plans, including gap closure 16-05) is complete. Plan Phase 17 (Coverage-Gap Analysis, deferrable to v2.1) with `/gsd-plan-phase 17` when ready, or defer per milestone scope.
+- Start the next milestone with /gsd-new-milestone
