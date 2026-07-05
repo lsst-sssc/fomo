@@ -59,7 +59,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | Continuous confidence-score field for date certainty | No reference system (JWST, HST, ToO literature) uses this; the window's presence/absence/width already encodes certainty; a float invites false precision with no data to support it |
 | STScI APT/Visit-Status scraping or sync integration | No public bulk API exists for this; mirrors the exact over-scope anti-pattern already flagged in v2.0 research (a generic bot-ingestion layer is a different product) |
 | Reusing Gemini's Rap:/Std: ToO trigger-relative window pattern for community-submitted rows | Wrong shape — Gemini's windows are computed from a known trigger timestamp (`ObservationRecord.created`); 3I/ATLAS space-mission rows have no trigger data at all, just human-typed free text |
-| `Observatory.obscode` length widening | Presumed unnecessary post-correction — real space-observatory MPC codes (250/274/289) are standard 3-character codes; only revisit if the spike finds a real code that doesn't fit |
+| `Observatory.obscode` length widening | Presumed unnecessary post-correction — real space-observatory MPC codes (250/274/289) are standard 3-character codes; only revisit if the Phase 18 spike finds a real code that doesn't fit |
 
 ## Traceability
 
@@ -67,25 +67,25 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHED-01 | TBD | Pending |
-| SCHED-02 | TBD | Pending |
-| SCHED-03 | TBD | Pending |
-| SCHED-04 | TBD | Pending |
-| SCHED-05 | TBD | Pending |
-| ASSET-01 | TBD | Pending |
-| ASSET-02 | TBD | Pending |
-| IMPORT-01 | TBD | Pending |
-| IMPORT-02 | TBD | Pending |
-| SITE-01 | TBD | Pending |
-| SITE-02 | TBD | Pending |
-| SITE-03 | TBD | Pending |
-| VIEW-05 | TBD | Pending |
+| SCHED-01 | Phase 18 | Pending |
+| SCHED-02 | Phase 19 | Pending |
+| SCHED-03 | Phase 19 | Pending |
+| SCHED-04 | Phase 19 | Pending |
+| SCHED-05 | Phase 19 | Pending |
+| ASSET-01 | Phase 20 | Pending |
+| ASSET-02 | Phase 20 | Pending |
+| IMPORT-01 | Phase 20 | Pending |
+| IMPORT-02 | Phase 20 | Pending |
+| SITE-01 | Phase 21 | Pending |
+| SITE-02 | Phase 21 | Pending |
+| SITE-03 | Phase 21 | Pending |
+| VIEW-05 | Phase 21 | Pending |
 
 **Coverage:**
 - v1 requirements: 13 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 13 ⚠️ (roadmapper will resolve)
+- Mapped to phases: 13 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-05*
-*Last updated: 2026-07-05 after initial definition*
+*Last updated: 2026-07-05 after roadmap creation (Phases 18-21 mapped)*
