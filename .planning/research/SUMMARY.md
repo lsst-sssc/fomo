@@ -6,6 +6,14 @@
 **Researched:** 2026-07-05  
 **Overall Confidence:** MEDIUM-HIGH
 
+## POST-RESEARCH CORRECTION (operator-provided, 2026-07-05)
+
+**Every finding below about `Observatory.obscode` needing to widen from 4 to 8+ characters is built on a false premise and should NOT be treated as a blocker.** The `'500@-170'` string this research (and the pre-existing `campaign_utils.py` docstring it was quoting) treated as "JWST's MPC obscode" is actually JPL Horizons/SPICE observer notation (`500` = geocentric-observer flag, `@-170` = JWST's NAIF SPK ID) — **not an MPC observatory code at all.**
+
+Per the official MPC Observatory Codes list (https://www.minorplanetcenter.net/iau/lists/ObsCodes.html), real space telescopes already have standard, short MPC obscodes: **250 = Hubble, 274 = JWST, 289 = Nancy Grace Roman** — all 3 characters, well within the existing `Observatory.obscode` `max_length=4`.
+
+**Practical effect on scope:** `Observatory.obscode` widening is very likely NOT required. The actual open questions for the phase-time spike are narrower: (a) confirm `resolve_site()`'s tier 1/tier 2 (exact match, then live MPC Obscodes API query) correctly resolves these real space-observatory codes the same way it resolves ground codes — no evidence yet either way; (b) `CreateObservatoryForm`'s hardcoded `max_length=3, min_length=3` may need to become `max_length=4` (matching the model) only if some real code needs the 4th character, not 8. Treat "does the obscode length need to change at all" as a spike question with a *default answer of no*, not a presumed P1 blocker. Everywhere below that frames the obscode length as "the hardest blocking dependency in the whole milestone" should be read with this correction in mind.
+
 ## Executive Summary
 
 FOMO v2.1 must extend the existing campaign-coordination system to handle space-mission scheduling workflows, where observation dates are uncertain during early proposal stages and narrow over time from wide windows to fixed dates. This is a genuine schema and integration challenge, not a simple feature add: the current `CampaignRun` model assumes a single `obs_date` with optional UTC time bounds, a representation that fails entirely for "TBD pending Cycle 2" rows or "Aug 1-15" ranges — exactly the rows the real 3I/ATLAS community sheet currently contains for JWST/HST observations and that v2.0 silently drops.

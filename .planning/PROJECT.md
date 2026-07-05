@@ -93,7 +93,7 @@ v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replac
 - **Phase-time investigation spike** — settles the exact window schema, the range/TBD parsing rules, and the fuzzy-match approach against real 3I sheet rows before implementation lands, in the same milestone (not deferred).
 
 **Key context:**
-- `Observatory.obscode` is `CharField(max_length=4)`, but spacecraft-style codes (e.g. JWST's `'500@-170'`, already referenced in `resolve_site()`'s docstring as too long to fit) are up to 8 characters — the spike must resolve this before space-mission `Observatory` rows can be created at all.
+- **Correction (operator-caught, post-research):** real space telescopes have standard, short MPC obscodes — 250 = Hubble, 274 = JWST, 289 = Nancy Grace Roman (all 3 characters, per the official MPC Observatory Codes list). The `'500@-170'` string in `resolve_site()`'s docstring/comments (and repeated throughout this milestone's research) is JPL Horizons/SPICE observer notation (NAIF SPK ID), **not an MPC obscode** — `Observatory.obscode`'s `CharField(max_length=4)` very likely does NOT need widening. The spike should confirm `resolve_site()` resolves these real codes correctly, treating "does obscode length need to change" as a spike question with a default answer of no, not a presumed blocker.
 - The `CampaignRun` natural-key `UniqueConstraint` is `(campaign, telescope_instrument, ut_start)` — a run with no fixed start time (TBD scheduling) breaks this key's assumption; the spike must decide the replacement natural key for window/TBD rows.
 - This directly extends quick task `260705-l1v` (approval-queue site-visibility fix, 2026-07-05): that fix stopped auto-fabrication and surfaced the raw typed text; this milestone adds the actual resolution UI staff need to act on it.
 
@@ -259,7 +259,7 @@ v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replac
 - [ ] Coverage-gap analysis is asset-aware (ground window claims every date in range; space-mission claims none until scheduling narrows)
 - [ ] Approval-queue site-disambiguation UI — inline dropdown of fuzzy-matched `Observatory` candidates + free-text resolve-or-create, never auto-fabricating a placeholder
 - [ ] VIEW-05 — single combined submitter opt-in (default opt-out) for public contact display
-- [ ] Phase-time investigation spike settling window schema, range/TBD parsing rules, and fuzzy-match approach against real 3I sheet rows, plus the `Observatory.obscode` 4-char-vs-8-char-spacecraft-code constraint
+- [ ] Phase-time investigation spike settling window schema, range/TBD parsing rules, and fuzzy-match approach against real 3I sheet rows, plus confirming `resolve_site()` correctly resolves real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman — standard 3-char codes; `Observatory.obscode` widening is very likely NOT needed, corrected post-research)
 
 Not yet committed to this milestone (still candidates for a future one): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup) — see `.planning/STATE.md` Deferred Items and `.planning/milestones/v2.0-REQUIREMENTS.md` v2 Requirements for full detail.
 
