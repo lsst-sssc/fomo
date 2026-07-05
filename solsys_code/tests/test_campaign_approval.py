@@ -199,6 +199,28 @@ class TestApprovalQueueColumns(TestCase):
         self.assertNotIn('actions', column_names)
 
 
+class TestApprovalQueueSiteVisibility(CampaignApprovalTestBase):
+    """Regression coverage for the visibility gap: pending runs (site_needs_review=False,
+    per D-07) must still surface their submitted site_raw text in the site column, not just
+    runs where resolution ran and failed."""
+
+    def test_pending_unresolved_site_shows_site_raw(self):
+        run = self._make_pending_run(site=None, site_raw='DCT', site_needs_review=False)
+        cell = CampaignRunTable([run]).rows[0].get_cell('site')
+        self.assertIn('DCT', cell)
+
+    def test_pending_blank_site_raw_renders_empty_cell(self):
+        run = self._make_pending_run(site=None, site_raw='', site_needs_review=False)
+        cell = CampaignRunTable([run]).rows[0].get_cell('site')
+        self.assertEqual(cell, '')
+
+    def test_resolution_failed_site_still_shows_site_raw_with_failure_indicator(self):
+        run = self._make_pending_run(site=None, site_raw='DCT', site_needs_review=True)
+        cell = CampaignRunTable([run]).rows[0].get_cell('site')
+        self.assertIn('DCT', cell)
+        self.assertIn('exclamation-triangle', cell)
+
+
 class TestCalendarNoChurn(CampaignApprovalTestBase):
     """CAL-03: re-approve produces no duplicate event and no modified churn."""
 

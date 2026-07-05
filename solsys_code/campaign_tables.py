@@ -109,18 +109,32 @@ class CampaignRunTable(tables.Table):
         return format_html('<span class="badge {}">{}</span>', css, label)
 
     def render_site(self, record):
-        """Show Observatory.short_name when resolved, else flagged site_raw text (UI-SPEC)."""
+        """Show Observatory.short_name when resolved, else the submitted site_raw text.
+
+        Falls back to ``site_raw`` whenever the site is unresolved (``site__short_name``
+        empty) and ``site_raw`` is non-empty, regardless of ``site_needs_review`` --
+        pending runs (D-07) leave ``site_needs_review`` False until approval, so relying
+        on that flag alone hid every pending submission's site text from staff. When
+        resolution genuinely ran and failed (``site_needs_review`` True), keep the
+        failure styling (warning triangle); otherwise (not yet attempted) show a plain
+        muted-italic "pending review" presentation with no failure icon.
+        """
         site_short_name = Accessor('site__short_name').resolve(record, quiet=True)
         if site_short_name:
             return site_short_name
+        site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
+        if not site_raw:
+            return ''
         if Accessor('site_needs_review').resolve(record, quiet=True):
-            site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
             return format_html(
                 '<span class="text-muted font-italic" title="Site could not be automatically resolved">'
                 '<i class="fa fa-exclamation-triangle" aria-hidden="true"></i> {}</span>',
                 site_raw,
             )
-        return ''
+        return format_html(
+            '<span class="text-muted font-italic" title="Site not yet resolved -- pending review">{}</span>',
+            site_raw,
+        )
 
     def render_open_to_collaboration(self, value):
         """Render open_to_collaboration as a Yes/No icon (UI-SPEC column set)."""
