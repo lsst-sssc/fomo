@@ -331,6 +331,52 @@
 
 ---
 
+## Milestone: v2.0 — Campaign Coordination for Rare/Urgent Objects
+
+**Shipped:** 2026-07-05
+**Phases:** 4 (14-17) | **Plans:** 13 | **Sessions:** ~4 (2026-07-02 → 2026-07-05)
+
+### What Was Built
+
+- Phase 14: `CampaignRun` model (two independent `TextChoices` fields — 3-value approval, 8-value lifecycle status, D-02) linked to a campaign `TargetList`, with the full 3I-sheet field inventory; `campaign_utils.py` (3-tier site resolution, best-effort UT-time parsing) and `import_campaign_csv` bootstrap-import command validated against the real 3I/ATLAS sheet; synthetic PII-free fixture + paired demo notebook.
+- Phase 15: PII-gated, sortable/paginated `CampaignRunTable` (first `django-tables2`/`django-filter` consumer in FOMO) replacing the shared spreadsheet; target-detail and navbar entry points.
+- Phase 16: Public `CampaignRunSubmissionView` with honeypot spam defense, staff-only atomic approval queue (double-approve proven no-op), and calendar projection on approve (`CAMPAIGN:{pk}` keyed, reusing `insert_or_create_calendar_event()`).
+- Phase 17: `campaign_gap.py` — cached, dark-window-only (GAP-01 decision) coverage-gap computation; public GET-triggered, IDOR-validated `CampaignGapAnalysisView` showing observable-but-unclaimed dates.
+- Post-close: manual UAT (clicking through the actual running app, not just automated tests) found a real gap — the approval queue showed a blank Site column for pending public submissions, and approving an unresolvable free-text site silently fabricated a placeholder `Observatory` row. Fixed via quick task `260705-l1v` before shipping: `render_site()` now falls back to `site_raw` regardless of `site_needs_review`'s pre-approval default, and `resolve_site()` gained a keyword-only `create_placeholder` opt-out used only at the approval call site (CSV import path unchanged).
+- 19/19 v1 requirements shipped; 332/332 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean.
+
+### What Worked
+
+- Deep (not standard) code-review depth caught critical, reproduced data-correctness/consistency bugs before close in three separate phases (14: PM/AM time-marker discard + natural-key collision; 16: calendar-projection side effects running outside the atomic status-update transaction; 17: unhandled 500s for malformed GET params and blank-timezone sites) — none of these were caught by task-level self-checks or the passing test suite at the time.
+- Phase ordering (model+import → read path → write path → coverage-gap) let staff see real data working in the table before the public submission form went live, and meant the gap-analysis feature (last, explicitly deferrable) could build on stable claimed-runs data.
+- A scoped, keyword-only opt-out (`resolve_site(..., create_placeholder=False)`) fixed the approval-endpoint's distinct need without touching the CSV import path's existing, still-correct behavior — safer than a global behavior change to a shared utility.
+- Manual click-through verification of the live running app, done deliberately *after* all phases passed automated verification and the milestone audit but *before* the close was finalized, caught a real UX/data-integrity gap that no test had been written to catch (nothing in the test suite exercised "what does staff see in the pending queue before approving").
+
+### What Was Inefficient
+
+- `v2.0-MILESTONE-AUDIT.md` was generated before Phase 17 completed (deliberately deferrable per ROADMAP.md), so it reported `gaps_found` on stale grounds — the audit's own framing correctly flagged this as a pre-approved deferral rather than a defect, but closing still required manually cross-checking the live phase manifest (`init.manager`) to confirm Phase 17 had since shipped and passed verification, rather than trusting the audit file's verdict at face value.
+- The harness's native `isolation="worktree"` Agent-tool option forked the quick-task executor from `origin/main` (a stale, unrelated default-branch tip) rather than the current feature branch — caught cleanly by the fail-closed `worktree_branch_check` guard embedded in the executor prompt, but required a fallback re-dispatch without isolation. No work was lost (the guard halted before touching any files), but it cost a full extra agent round-trip for a single-task, non-parallel quick fix where isolation added no value anyway.
+
+### Patterns Established
+
+- Schedule a manual click-through pass on the actual running app immediately before milestone close, even after all phases pass automated verification and a milestone audit — it operates at a different altitude than either (real browser interaction vs. test assertions vs. requirement-traceability cross-checks) and can catch gaps neither one is positioned to find.
+- When a milestone audit runs before a deferrable-but-ultimately-shipped phase completes, treat its verdict as provisional and re-validate against the live phase manifest at close time rather than re-running the full audit workflow from scratch.
+- For single-task, non-parallel quick fixes, worktree isolation's safety guard is worth keeping (it fails closed correctly), but its recovery path (fall back to direct, non-isolated execution on the current branch) is a legitimate and fast option when isolation itself is what's misbehaving — don't spend a second round-trip trying to fix the worktree's base before considering that route.
+
+### Key Lessons
+
+1. Automated test suites and phase/milestone audits can be 100% green and still miss real UX and data-integrity gaps — a deliberate manual UAT pass on the live app before final close is not redundant with them, it checks a different thing entirely (v2.0's approval-queue site-visibility gap: 332/332 tests green, audit passed, only a human clicking "Approve" surfaced it).
+2. A milestone audit generated before all its milestone's phases complete (common when a phase is marked deferrable) needs its freshness re-checked against the live phase manifest at close time, not trusted as final — `gaps_found` from a stale audit run is a different condition than `gaps_found` from a complete one.
+3. When native harness worktree isolation forks from the wrong git base, the fail-closed guard is doing its job correctly by halting rather than self-recovering — the fastest safe recovery for a single, non-parallel task is often to just re-dispatch without isolation rather than debugging the isolation mechanism itself.
+4. A shared utility function gaining a new caller with different correctness needs (here: `resolve_site()`'s tier-3 placeholder-creation, fine for vetted CSV data, wrong for public free-text) is a signal for a scoped keyword-only opt-out at the new call site, not a global behavior change that risks the existing caller.
+
+### Cost Observations
+
+- Sessions: ~4 (2026-07-02 → 2026-07-05); 146 commits, 132 files changed, +21,885/-641 lines (includes the pre-close quick-task fix)
+- Notable: this milestone's Phase 17 (explicitly scoped as deferrable to v2.1) shipped anyway within the milestone window — the "deferrable" framing kept planning honest about priority without actually forcing a cut.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -345,6 +391,7 @@
 | v1.5 | ~2 | 1 | Smallest milestone (1 phase, 2 plans); TDD-first with 15 tests covering all 10 requirements; 6 code-review fixes pre-UAT; `milestone.complete` CLI required manual workaround (archived phases not recognized) |
 | v1.6 | ~2 | 2 | First pure-refactor + polish milestone (zero new models/migrations); `insert_or_create_calendar_event` shared helper; WCAG text color + N+1 prefetch fix; parallel-worktree collision recovered; `summary-extract` one-liner issue recurred (3rd time) |
 | v1.7 | ~1 | 1 | First investigation-only milestone (no sync command shipped); live production ESO P2 API probe; decision doc verdict (Bypass) grounded in captured real-API evidence; upstream `tom_eso` bug filed (`#55`) + 4 more parked as a dormant seed; STATE.md `status` field found stale relative to authoritative verification data |
+| v2.0 | ~4 | 4 | First milestone with a second, independent feature area (campaign coordination, distinct from calendar sync); deep code review caught critical bugs pre-close in 3 of 4 phases; first milestone audit generated before its own last (deferrable) phase completed, requiring a freshness re-check at close; first quick-task fix triggered by manual UAT immediately before close, not by automated verification; first worktree-isolation base-mismatch caught by the fail-closed guard, recovered via non-isolated fallback |
 
 ### Cumulative Quality
 
@@ -358,6 +405,7 @@
 | v1.5 | +15 (GEM sync command, all 10 GEM-* requirements; all 186 under `./manage.py test solsys_code`) | - | 0 |
 | v1.6 | +8 (WCAG text color unit × 4, N+1 regression, integration × 3; all 194 under `./manage.py test solsys_code`) | - | 0 |
 | v1.7 | +0 (investigation-only; no code/tests shipped — deliverable is a decision doc) | - | 0 |
+| v2.0 | +138 (model + import + read-path + write-path + coverage-gap + pre-close quick-task fix; all 332 under `./manage.py test solsys_code`) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -368,6 +416,7 @@
 5. A phase's own verification is only as broad as its fixtures — a single-facility/single-shape test+UAT+notebook can all pass while a defect ships for an untested shape (v1.3 Phase 7's LCO-only verification missed a SOAR-only defect). Milestone-level audits exist precisely to catch this, but catching it in-phase is cheaper.
 6. When a new management command follows an established idiomatic pattern (no-churn `get_or_create + update_fields=changed`), write the idiomatic test at RED time — the no-churn path requires zero debugging when the test was written before the command (v1.5 Phase 10).
 7. Quick-task `SUMMARY.md` frontmatter missing a `status` field has now cost manual cross-checking at two consecutive milestone closes (v1.2: 4 tasks, v1.3: 7 tasks) — fix at the template level, not at close time.
+8. A 100%-green test suite plus a passed milestone audit are necessary but not sufficient — schedule a manual click-through UAT pass on the live running app immediately before final close; v2.0's approval-queue site-visibility gap passed every automated gate and was only caught by a human clicking "Approve."
 8. `event.save(update_fields=changed)` silently skips `auto_now` fields — use `event.save()` in no-churn helpers so `CalendarEvent.modified` updates correctly on every write. Write an explicit assertion for the timestamp change (v1.6 Phase 11 fix commit 3fb5ad7).
 9. Close todos at the phase boundary that resolves them — a todo left open after the delivering phase ships becomes an open-artifact-audit finding at milestone close, forcing an acknowledge step that should have been a clean verified_closeout (v1.6 close).
 10. The `gsd-tools.cjs summary-extract` one-liner field picks up any paragraph-level text in a SUMMARY, not only the plan's accomplishment description. Three consecutive milestones (v1.4, v1.5, v1.6) required manual MILESTONES.md correction — fix at the SUMMARY authoring step by using a dedicated `one_liner:` frontmatter field rather than relying on paragraph parsing.
