@@ -14,7 +14,9 @@ CLAUDE.md's non-sidereal-only target-factory convention doesn't even arise here.
 """
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
+import requests
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
@@ -22,7 +24,9 @@ from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
 from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
+from solsys_code.campaign_utils import resolve_site
 from solsys_code.models import CampaignRun
+from solsys_code.solsys_code_observatory.models import Observatory
 
 CONTACT_PERSON = 'Jane Coordinator'
 CONTACT_EMAIL = 'jane@example.org'
@@ -219,6 +223,47 @@ class TestApprovalQueueSiteVisibility(CampaignApprovalTestBase):
         cell = CampaignRunTable([run]).rows[0].get_cell('site')
         self.assertIn('DCT', cell)
         self.assertIn('exclamation-triangle', cell)
+
+
+class TestApprovalSiteResolution(CampaignApprovalTestBase):
+    """Approving an unresolvable free-text site must not fabricate a placeholder
+    Observatory row (unlike the already-vetted CSV import path), and must not block
+    approval (D-07)."""
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+        # Keep tier 2 deterministic and offline: simulate an MPC miss/no-network so
+        # resolution always falls through past tier 2 to the create_placeholder branch.
+        patcher = patch(
+            'solsys_code.campaign_utils.MPCObscodeFetcher.query',
+            side_effect=requests.exceptions.RequestException,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_approving_unresolvable_free_text_site_creates_no_placeholder_observatory(self):
+        run = self._make_pending_run(site_raw='DCT')
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+        self.assertEqual(Observatory.objects.count(), 0)
+
+    def test_resolve_site_create_placeholder_false_creates_no_observatory(self):
+        observatory, needs_review = resolve_site('DCT', create_placeholder=False)
+        self.assertIsNone(observatory)
+        self.assertTrue(needs_review)
+        self.assertEqual(Observatory.objects.count(), 0)
+
+    def test_resolve_site_default_still_creates_placeholder_observatory(self):
+        """CSV-import path (default create_placeholder=True) is unaffected."""
+        observatory, needs_review = resolve_site('DCT')
+        self.assertIsNotNone(observatory)
+        self.assertEqual(observatory.obscode, 'DCT')
+        self.assertTrue(needs_review)
+        self.assertEqual(Observatory.objects.count(), 1)
 
 
 class TestCalendarNoChurn(CampaignApprovalTestBase):

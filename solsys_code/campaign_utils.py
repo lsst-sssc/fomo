@@ -82,20 +82,28 @@ _STATUS_MAP = [
 _NOT_OBSERVED_RE = re.compile(r'\bnot\s+observ', re.IGNORECASE)
 
 
-def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
+def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tuple[Observatory | None, bool]:
     """Resolve a raw Site Code string to an Observatory (D-08 3-tier resolution).
 
     Tier 1: match against an existing ``Observatory`` record. Tier 2: query the MPC
     Obscodes API via ``MPCObscodeFetcher`` and create an ``Observatory`` row if found.
-    Tier 3: create a placeholder ``Observatory`` row, flagged for manual review. A blank
-    or oversized (> ``Observatory.obscode``'s max length) code never reaches tier 1/2/3 at
-    all -- it is flagged immediately with no Observatory row created, so a code that can't
-    possibly be a real MPC obscode (e.g. JWST's 8-character spacecraft-style
-    ``'500@-170'``) is never truncated or fabricated (D-09/Pitfall 2).
+    Tier 3: create a placeholder ``Observatory`` row, flagged for manual review -- unless
+    ``create_placeholder`` is False, in which case tier 3 is skipped entirely and the code
+    is flagged for manual review with no Observatory row created. A blank or oversized
+    (> ``Observatory.obscode``'s max length) code never reaches tier 1/2/3 at all -- it is
+    flagged immediately with no Observatory row created, so a code that can't possibly be
+    a real MPC obscode (e.g. JWST's 8-character spacecraft-style ``'500@-170'``) is never
+    truncated or fabricated (D-09/Pitfall 2).
 
     Args:
         site_code_raw: the CSV row's raw ``Site Code`` cell value (may be blank, ``None``,
             or contain leading/trailing whitespace).
+        create_placeholder: whether tier 3 may fabricate a placeholder ``Observatory`` row
+            when tiers 1 and 2 both miss. Defaults to ``True`` so the existing CSV-import
+            caller (already-vetted sheet data) is unaffected. Pass ``False`` for
+            unvetted/public free-text input (e.g. the campaign approval endpoint) so an
+            unresolvable site is flagged for manual review instead of fabricating a fake
+            Observatory row.
 
     Returns:
         tuple[Observatory | None, bool]: ``(observatory_or_none, needs_review)``. Never
@@ -154,6 +162,11 @@ def resolve_site(site_code_raw: str) -> tuple[Observatory | None, bool]:
                 # and the re-fetch above would otherwise raise uncaught. Fall through to
                 # tier 3 instead of letting DoesNotExist propagate out of resolve_site.
                 pass
+
+    if not create_placeholder:
+        # Public free-text submissions (unlike the already-vetted CSV import) should not
+        # auto-create a placeholder Observatory on approve -- flag for manual review only.
+        return None, True
 
     # Tier 3: placeholder, flagged for review (D-09 -- flag, don't silently guess).
     try:

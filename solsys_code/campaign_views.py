@@ -293,7 +293,13 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             try:
                 run = CampaignRun.objects.get(pk=pk)
                 # D-07: reuse the existing 3-tier site resolver rather than re-implementing it.
-                site, needs_review = resolve_site(run.site_raw)
+                # On approve we resolve the site but never auto-create a placeholder
+                # Observatory for unresolvable public free-text (unlike the already-vetted
+                # CSV import path) -- the run is still approved with site=None +
+                # site_needs_review=True (site failure never blocks approval, and CAL-01
+                # calendar projection only needs telescope_instrument + ut_start + ut_end,
+                # not site).
+                site, needs_review = resolve_site(run.site_raw, create_placeholder=False)
                 run.site, run.site_needs_review = site, needs_review
                 run.save(update_fields=['site', 'site_needs_review'])
 
