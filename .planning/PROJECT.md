@@ -61,7 +61,10 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `solsys_code/campaign_views.py`: now also `CampaignRunSubmissionView`, `ApprovalQueueView`, `CampaignRunDecisionView`, `_notify_staff`; `solsys_code/campaign_tables.py`: now also `ApprovalQueueTable` (`Meta.exclude`/`Meta.sequence` trims 3 structurally-blank columns and leads with `actions` — 16-05 gap closure); `campaign_urls.py`: `submit`/`submission_thanks`/`approval_queue`/`decide` URL names — v2.0 (Phase 16)
 - `src/templates/campaigns/campaignrun_submit_form.html`, `submission_thanks.html`, `approval_queue.html`: submission + staff approval-queue templates — v2.0 (Phase 16)
 - `solsys_code/tests/test_campaign_forms.py`, `test_campaign_submission.py`, `test_campaign_approval.py`: 40 tests — v2.0 (Phase 16)
-- **All 303 `./manage.py test solsys_code` tests pass (Phase 16 complete, including 16-05 gap closure; v2.0 in progress).**
+- `solsys_code/campaign_gap.py`: `observable_dates`/`claimed_dates`/`get_or_compute_gap` coverage-gap computation core, cached (TTL) set-difference of observable vs. claimed nights — v2.0 (Phase 17)
+- `solsys_code/campaign_forms.py`: now also `CampaignGapAnalysisForm`; `campaign_views.py`: now also `CampaignGapAnalysisView`, `gap_analysis_available()`; `campaign_urls.py`: `gap_analysis` URL — v2.0 (Phase 17)
+- `src/templates/campaigns/campaignrun_gap_analysis.html`: coverage-gap page; `campaignrun_table.html`: D-14-gated "Show Coverage Gaps" button — v2.0 (Phase 17)
+- **All 326 `./manage.py test solsys_code` tests pass (Phase 17 complete — v2.0 milestone target features all shipped).**
 
 ## Core Value
 
@@ -114,6 +117,14 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - Post-plan deep code review found and fixed one critical data-consistency bug before phase close: the calendar-projection side effects (site resolution + `CalendarEvent` write) ran outside the atomic status-update transaction, so a mid-flow failure left a run permanently stuck `APPROVED` with no calendar event and no recovery path (the double-approve guard made it unrecoverable via the UI). Fixed by reverting `approval_status` back to `PENDING_REVIEW` on any post-update failure, with logging. Two further warnings fixed (misleading message for a nonexistent `pk`; dead `NoReverseMatch` fallback). One warning — the public form's `campaign` field listing every `TargetList`, not just active campaigns — was deliberately left open as a product-scope decision (would require a schema change to distinguish "campaign" `TargetList`s and break the bootstrap-new-campaign submission path) — see `16-REVIEW.md`/`16-REVIEW-FIX.md`.
 - Verification independently re-ran the phase's 4 test modules (58/58), re-verified the fix chain by reproducing the original failure mode against a live test DB, and confirmed requirement traceability for all 8 IDs — see `16-VERIFICATION.md`.
 - 300 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean on all Phase 16 files.
+
+**Phase 17 — Coverage-Gap Analysis (Deferrable to v2.1) — COMPLETE (2026-07-05):**
+- ✅ GAP-01: Dark-window-only observability decision (`17-GAP-01-DECISION.md`) — reuses `telescope_runs.sun_event()`, no true altitude/airmass filtering, no module-scope dependency on the heavy SPICE-loading ephemeris module
+- ✅ GAP-02: `campaign_gap.py` composes `sun_event()` (observable dates) with `CampaignRun` queries (claimed dates) into a cached set-difference; `CampaignGapAnalysisView` exposes it as a public, GET-triggered, server-validated endpoint with a campaign-scoped selection form and a `campaignrun_gap_analysis.html` page matching the UI-SPEC contract; a D-14-gated "Show Coverage Gaps" button was added to the campaign table page
+- Post-plan deep code review found and fixed 2 critical bugs before phase close: a non-numeric `target`/`site` GET param crashed the view with an unhandled 500 instead of the documented 400, and `claimed_dates()` crashed with an unhandled `ValueError` for any site with a blank `timezone` (reachable via normal production data, since auto-created `Observatory` rows from `resolve_site()` never set one). Both fixed with regression-safe guards; 5 further warnings fixed (PII-safe `.only()` queryset for the public cached view, date-range floor, form-based `end_date` parsing instead of hand-parsed GET data, a redundant-query TOCTOU cleanup, and a documented range-scope invariant) — see `17-REVIEW.md`/`17-REVIEW-FIX.md`.
+- Verification independently re-ran the full test suite, and re-reproduced both critical-bug scenarios directly against the fixed code (confirmed 400 instead of 500, and 200 instead of 500) rather than trusting the fix report's narrative — see `17-VERIFICATION.md`. Human-verify checkpoint (page + button visual/interaction review) approved with no issues.
+- 326 `./manage.py test solsys_code` tests pass; `ruff check .`/`ruff format --check .` clean on all Phase 17 files.
+- This was the last phase of v2.0 — all target features (data model, table view, submission/approval, coverage-gap analysis) are now shipped.
 
 **Prior milestones (v1.0-v1.7):**
 
@@ -212,12 +223,14 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 - ✓ **SUBMIT-05**: A genuine submission emails every staff user with a non-empty email; no PII in subject/body — v2.0 (Phase 16)
 - ✓ **CAL-01/CAL-02**: Approving a run with telescope + start/end time creates/updates a `CalendarEvent` via `insert_or_create_calendar_event`, keyed `CAMPAIGN:{pk}` — v2.0 (Phase 16)
 - ✓ **CAL-03**: Re-approving an already-approved run creates no duplicate event and no `modified` churn — v2.0 (Phase 16)
+- ✓ **GAP-01**: Coverage-gap analysis observability approach decided (dark-window-only, not true altitude/airmass filtering) with rationale citing pre-milestone research — v2.0 (Phase 17)
+- ✓ **GAP-02**: User can see which observable nights for a campaign target and site are not yet claimed by any run, via a GET-triggered, cached, server-validated view — v2.0 (Phase 17)
 
 ### Active
 
 <!-- v2.0 Campaign Coordination — requirement IDs defined in .planning/REQUIREMENTS.md -->
 
-- Ephemeris-aware coverage-gap analysis
+None — all v2.0 target features (data model, table view, submission/approval, coverage-gap analysis) are now validated. v2.0 is ready for `/gsd-complete-milestone`.
 
 ### Out of Scope
 
@@ -363,4 +376,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-04 — Phase 16 (Submission Form, Approval Queue & Calendar Projection, Write Path) complete, including gap-closure plan 16-05 (approval-queue column trim/reorder, UAT Test 14); v2.0 milestone continues with Phase 17 (deferrable to v2.1)*
+*Last updated: 2026-07-05 — Phase 17 (Coverage-Gap Analysis) complete; all v2.0 "Campaign Coordination for Rare/Urgent Objects" target features shipped — ready for `/gsd-complete-milestone`*
