@@ -57,7 +57,10 @@ def clamp_date_range(today: date, requested_end: date | None) -> tuple[date, dat
     max_end = start + timedelta(days=MAX_WINDOW_DAYS)
     if requested_end is None:
         return start, default_end
-    return start, min(requested_end, max_end)
+    # WR-02: also floor at `start` -- otherwise a past `requested_end` (e.g. a client
+    # submitting end_date=2020-01-01) produces end < start, an empty range, and a
+    # misleading "no gaps found" instead of reflecting that nothing was actually searched.
+    return start, max(start, min(requested_end, max_end))
 
 
 def build_gap_cache_key(campaign_pk: int, target_pk: int | None, site_pk: int, start: date, end: date) -> str:
@@ -156,11 +159,27 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
         target: the selected Target, or None.
         site: the selected Observatory.
 
+    WR-05: unlike ``observable_dates(site, start, end)``, this function takes no date-range
+    parameters -- it returns every approved, non-excluded ``CampaignRun`` for the campaign/
+    site combination regardless of any requested window. ``_compute_gap()`` only ever
+    evaluates the range-bounded ``gap = obs - claimed`` against the range-bounded ``obs``
+    set, so ``gap_dates`` is correct -- but the returned ``claimed_dates``/``undated_runs``/
+    ``unattributed_runs`` are campaign/site-wide, NOT scoped to ``[start, end]``, even though
+    the cached result they end up in (``build_gap_cache_key()``) is keyed by a date range.
+    Do not assume a range-keyed cache entry's ``claimed_dates`` is itself range-bounded.
+
     Returns:
         tuple[set[date], list, list]: (claimed_dates, undated_runs, unattributed_runs).
     """
+    # D-13/WR-01: restrict the columns actually fetched to a PII-free field set (never
+    # contact_person/contact_email) before anything is collected into
+    # `undated_runs`/`unattributed_runs` and cached -- mirrors CampaignRunTableView's
+    # "restrict the queryset, not just the rendered output" discipline. `.only()` (not
+    # `.values()`) keeps these as CampaignRun instances so existing pk-based equality and
+    # attribute access downstream keep working; only pk/obs_date/ut_start are fetched.
     qs = CampaignRun.objects.filter(campaign=campaign, site=site, approval_status=CampaignRun.ApprovalStatus.APPROVED)
     qs = qs.exclude(run_status__in=_EXCLUDED_RUN_STATUSES)
+    qs = qs.only('pk', 'obs_date', 'ut_start')
 
     unattributed_runs: list[CampaignRun] = []
     single_target = campaign.targets.count() == 1
@@ -178,7 +197,14 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
         if run.obs_date is not None:
             claimed.add(run.obs_date)
         elif run.ut_start is not None:
-            claimed.add(_observing_night_date(run.ut_start, site.timezone))
+            try:
+                claimed.add(_observing_night_date(run.ut_start, site.timezone))
+            except ValueError:
+                # CR-02: a site with a blank/unset timezone can't derive an observing
+                # night -- log+skip the same way observable_dates() skips a raising
+                # sun_event() call, rather than letting the whole request crash.
+                logger.debug('Could not derive observing night for run pk=%s (site timezone unset?)', run.pk)
+                undated_runs.append(run)
         else:
             undated_runs.append(run)
 
