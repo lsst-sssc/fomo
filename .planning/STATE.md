@@ -7,7 +7,7 @@ status: verifying
 stopped_at: Completed 17-03-PLAN.md
 last_updated: "2026-07-05T04:42:59.530Z"
 last_activity: 2026-07-05
-last_activity_desc: Phase 17 complete
+last_activity_desc: Completed quick task 260705-l1v: Fix approval-queue site-visibility gap
 progress:
   total_phases: 4
   completed_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
 Phase: 17
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-05 — Phase 17 complete
+Last activity: 2026-07-05 — Completed quick task 260705-l1v: Fix approval-queue site-visibility gap
 Progress: [███████░░░] 3/4 phases
 
 ## Roadmap Summary (v2.0)
@@ -128,6 +128,12 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 
 None. Roadmap created; Phase 14 ready to plan via `/gsd-plan-phase 14`.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 260705-l1v | Fix approval-queue site-visibility gap: show site_raw in the pending CampaignRun approval queue and stop the approval endpoint from fabricating placeholder Observatory rows for unresolvable free-text site names (found during v2.0 manual UAT) | 2026-07-05 | 959a78d | Verified | [260705-l1v-fix-approval-queue-site-visibility-gap-s](./quick/260705-l1v-fix-approval-queue-site-visibility-gap-s/) |
+
 ## Deferred Items
 
 Items acknowledged and carried forward from previous milestone close:
@@ -139,6 +145,9 @@ Items acknowledged and carried forward from previous milestone close:
 | todo | `2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md` — extract site/telescope mapping and instrument extraction into own module | Deliberately deferred; no second consumer yet | v1.7 close |
 | seed | SEED-001 — file upstream `tom_eso` feature requests | Dormant; trigger is TOM Toolkit maintainer bandwidth or a future ESO milestone start | v1.7 close |
 | seed | SEED-002 — ESO ObservationRecord-centric future intent | Dormant; unrelated to v2.0 campaign-coordination scope | v1.7 close |
+| todo | `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename `calendar_utils.py`'s private helpers to reflect shared-module status | Low-priority style cleanup; no functional impact | v2.0 close |
+| seed | SEED-001 — file upstream `tom_eso` feature requests (re-acknowledged) | Still dormant at v2.0 close | v2.0 close |
+| seed | SEED-002 — ESO ObservationRecord-centric future intent (re-acknowledged) | Still dormant at v2.0 close | v2.0 close |
 
 ## Session Continuity
 
