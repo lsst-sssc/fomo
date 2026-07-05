@@ -79,6 +79,24 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 
 v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view. This is now co-equal with the calendar-sync value above, not a extension of it — the two feature areas share infrastructure (`insert_or_create_calendar_event()`, `Observatory`) but serve distinct use cases (routine facility sync vs. ad-hoc community coordination for rare objects).
 
+## Current Milestone: v2.1 Uncertain Scheduling & Site Disambiguation
+
+**Goal:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations (e.g. the Carrie Holt/Martin Cordiner JWST rows) whose exact observing night isn't known yet, only a window or a still-pending schedule — while also closing out the two loose ends v2.0 shipped with: submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI (the natural next step after quick task `260705-l1v`'s visibility fix).
+
+**Target features:**
+- **Range-first `CampaignRun` scheduling** — replace the single `obs_date`/`ut_start`/`ut_end` fields with a window representation (a single classically-scheduled night becomes a 1-day window); this is a real schema migration touching every existing row, not an additive bolt-on field.
+- **Ground vs. space-mission asset distinction** — reuse the existing `Observatory.observations_type` (`SATELLITE_OBSTYPE`) rather than adding a new field to `CampaignRun`; a run's "is this a space mission" status is derived from its resolved `site`.
+- **CSV import handles range/TBD dates** — `import_campaign_csv`'s `parse_obs_window()` currently requires an exact `YYYY-MM-DD` and skips any row that doesn't parse (a true natural-key failure per D-05) — a range like "Aug 1-15" or a "TBD pending Cycle 2" cell must import into the new window representation instead of being silently dropped.
+- **Coverage-gap analysis is asset-aware** — a ground-based run's window claims every date within it (conservative, avoids double-booking); a space-mission run claims nothing until its schedule narrows to something concrete (exact narrowing/refinement trigger is a spike question).
+- **Site-disambiguation UI in the approval queue** — the Site column becomes an inline dropdown of fuzzy-matched `Observatory` candidates (matched against name/short_name/old_names when the typed text doesn't resolve via `resolve_site()`'s existing tier 1/2), plus a free-text fallback to resolve-to-existing or explicitly create a new `Observatory`. Never auto-fabricates a placeholder (consistent with quick task `260705-l1v`) — an unresolved site with no good candidate just stays unresolved until a human acts.
+- **VIEW-05** — a single combined opt-in flag on the submission form (default opt-out); when set, `contact_person`/`contact_email` become visible to anonymous visitors on the per-campaign table, same as staff already see.
+- **Phase-time investigation spike** — settles the exact window schema, the range/TBD parsing rules, and the fuzzy-match approach against real 3I sheet rows before implementation lands, in the same milestone (not deferred).
+
+**Key context:**
+- `Observatory.obscode` is `CharField(max_length=4)`, but spacecraft-style codes (e.g. JWST's `'500@-170'`, already referenced in `resolve_site()`'s docstring as too long to fit) are up to 8 characters — the spike must resolve this before space-mission `Observatory` rows can be created at all.
+- The `CampaignRun` natural-key `UniqueConstraint` is `(campaign, telescope_instrument, ut_start)` — a run with no fixed start time (TBD scheduling) breaks this key's assumption; the spike must decide the replacement natural key for window/TBD rows.
+- This directly extends quick task `260705-l1v` (approval-queue site-visibility fix, 2026-07-05): that fix stopped auto-fabrication and surfaced the raw typed text; this milestone adds the actual resolution UI staff need to act on it.
+
 ## v2.0 Campaign Coordination for Rare/Urgent Objects — SHIPPED 2026-07-05
 
 **Goal:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
@@ -233,9 +251,17 @@ v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replac
 
 ### Active
 
-<!-- v2.0 Campaign Coordination — requirement IDs defined in .planning/REQUIREMENTS.md -->
+<!-- v2.1 Uncertain Scheduling & Site Disambiguation — requirement IDs to be defined in .planning/REQUIREMENTS.md -->
 
-None — v2.0 has shipped. Awaiting `/gsd-new-milestone` for v2.1. Candidate carry-forward items (not yet committed to a milestone): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup); VIEW-05 (opt-in public contact display) — see `.planning/STATE.md` Deferred Items and `.planning/REQUIREMENTS.md` v2 Requirements (archived to `.planning/milestones/v2.0-REQUIREMENTS.md`) for full detail.
+- [ ] Range-first `CampaignRun` scheduling (window replaces single obs_date/ut_start/ut_end; single night = 1-day window)
+- [ ] Ground vs. space-mission asset distinction via `Observatory.observations_type` (`SATELLITE_OBSTYPE`)
+- [ ] CSV import (`import_campaign_csv`/`parse_obs_window`) handles range/TBD `Obs. Date` text instead of skipping the row
+- [ ] Coverage-gap analysis is asset-aware (ground window claims every date in range; space-mission claims none until scheduling narrows)
+- [ ] Approval-queue site-disambiguation UI — inline dropdown of fuzzy-matched `Observatory` candidates + free-text resolve-or-create, never auto-fabricating a placeholder
+- [ ] VIEW-05 — single combined submitter opt-in (default opt-out) for public contact display
+- [ ] Phase-time investigation spike settling window schema, range/TBD parsing rules, and fuzzy-match approach against real 3I sheet rows, plus the `Observatory.obscode` 4-char-vs-8-char-spacecraft-code constraint
+
+Not yet committed to this milestone (still candidates for a future one): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup) — see `.planning/STATE.md` Deferred Items and `.planning/milestones/v2.0-REQUIREMENTS.md` v2 Requirements for full detail.
 
 ### Out of Scope
 
@@ -382,4 +408,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-05 — v2.0 "Campaign Coordination for Rare/Urgent Objects" milestone shipped (Phases 14-17, 19/19 requirements); pre-close manual-UAT gap fixed via quick task `260705-l1v`*
+*Last updated: 2026-07-05 — v2.1 "Uncertain Scheduling & Site Disambiguation" milestone opened*

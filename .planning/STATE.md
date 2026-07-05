@@ -1,37 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Campaign Coordination for Rare/Urgent Objects
-current_phase: 0
-status: Awaiting next milestone
-stopped_at: Completed 17-03-PLAN.md
-last_updated: "2026-07-05T17:52:52.000Z"
+milestone: v2.1
+milestone_name: Uncertain Scheduling & Site Disambiguation
+status: planning
+last_updated: "2026-07-05T19:48:12.599Z"
 last_activity: 2026-07-05
-last_activity_desc: Milestone v2.0 completed and archived
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
-current_phase_name: coverage-gap-analysis-deferrable-to-v2-1
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-05 — v2.0 milestone shipped)
+See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
-**Current focus:** Awaiting `/gsd-new-milestone` for v2.1
+**Current focus:** v2.1 — Uncertain Scheduling & Site Disambiguation (defining requirements)
 
 ## Current Position
 
-Phase: Milestone v2.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-05 — Milestone v2.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-05 — Milestone v2.1 started
 
 ## Roadmap Summary (v2.0)
 
