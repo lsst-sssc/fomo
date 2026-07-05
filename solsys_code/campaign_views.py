@@ -358,6 +358,22 @@ def gap_analysis_available(campaign) -> bool:
     return CampaignRun.objects.filter(campaign=campaign, site__isnull=False).exists()
 
 
+def _as_pk_or_none(raw: str | None) -> int | None:
+    """Parse a raw GET-param string as a pk, or None if it isn't a valid integer (CR-01).
+
+    Guards every `target`/`site` pk lookup in `CampaignGapAnalysisView` before it reaches
+    `.filter(pk=...)` -- Django's `IntegerField.get_prep_value()` raises a bare `ValueError`
+    for a non-integer string, which would otherwise crash the view with an unhandled 500
+    instead of the documented `HttpResponseBadRequest` (T-17-01/Pitfall 3).
+    """
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 class CampaignGapAnalysisView(TemplateView):
     """Coverage-gap analysis page (GAP-02): observable-but-unclaimed dates for a campaign
     target + site, computed on request or served from the 1-hour result cache (D-09/D-10).
@@ -390,38 +406,44 @@ class CampaignGapAnalysisView(TemplateView):
         if campaign.targets.count() == 1:
             target = campaign.targets.first()
         else:
-            target_pk = request.GET.get('target')
-            if not target_pk:
+            target_pk_raw = request.GET.get('target')
+            if not target_pk_raw:
                 # No selection submitted yet -- render just the form, no computation.
                 return self.render_to_response(context)
-            if not campaign.targets.filter(pk=target_pk).exists():
+            # CR-01: a non-numeric pk (e.g. ?target=abc) must never reach `.filter(pk=...)`
+            # un-guarded -- Django's IntegerField.get_prep_value() raises a bare ValueError
+            # for a non-integer string, which would otherwise crash this view with an
+            # unhandled 500 instead of the documented HttpResponseBadRequest.
+            target_pk = _as_pk_or_none(target_pk_raw)
+            target = target_pk is not None and campaign.targets.filter(pk=target_pk).first()
+            if not target:
                 # T-17-01/Pitfall 3 (IDOR): never a raw 400 page -- re-render the selection
                 # form with the UI-SPEC's alert-danger copy (17-03-PLAN.md Task 1).
                 context['idor_error'] = True
                 return self.render_to_response(context, status=400)
-            target = campaign.targets.get(pk=target_pk)
 
         # D-13: re-derive the campaign's allowed site set server-side (same query the form
         # uses) and validate the submitted site pk is a member before using it anywhere.
-        site_pk = request.GET.get('site')
-        if not site_pk:
+        site_pk_raw = request.GET.get('site')
+        if not site_pk_raw:
             return self.render_to_response(context)
         allowed_sites = Observatory.objects.filter(campaign_runs__campaign=campaign).distinct()
-        if not allowed_sites.filter(pk=site_pk).exists():
+        # CR-01/WR-04: guard the non-numeric-pk case the same way as `target` above, and
+        # collapse the `.exists()` + `.get()` pair into a single `.filter(...).first()`
+        # query to close the TOCTOU window between the existence check and the fetch.
+        site_pk = _as_pk_or_none(site_pk_raw)
+        site = site_pk is not None and allowed_sites.filter(pk=site_pk).first()
+        if not site:
             # T-17-01/Pitfall 3 (IDOR): same treatment as the out-of-scope target case above.
             context['idor_error'] = True
             return self.render_to_response(context, status=400)
-        site = allowed_sites.get(pk=site_pk)
 
-        # D-11: always clamp the (possibly absent) requested end date server-side,
-        # regardless of what the client submitted.
-        requested_end = None
-        raw_end_date = request.GET.get('end_date')
-        if raw_end_date:
-            try:
-                requested_end = date.fromisoformat(raw_end_date)
-            except ValueError:
-                requested_end = None
+        # D-11/WR-03: use the already-bound, already-validated form's cleaned_data instead
+        # of re-parsing raw request.GET by hand -- a form validation failure now renders the
+        # form's own errors instead of silently substituting the 90-day default window.
+        if not form.is_valid():
+            return self.render_to_response(context, status=400)
+        requested_end = form.cleaned_data.get('end_date')
         start, end = clamp_date_range(date.today(), requested_end)
 
         result = get_or_compute_gap(campaign, target, site, start, end)
