@@ -21,10 +21,10 @@ current_phase_name: coverage-gap-analysis-deferrable-to-v2-1
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-02 — v2.0 milestone opened)
+See: .planning/PROJECT.md (updated 2026-07-05 — v2.0 milestone shipped)
 
 **Core value:** When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view.
-**Current focus:** Phase 17 — coverage-gap-analysis-deferrable-to-v2-1
+**Current focus:** Awaiting `/gsd-new-milestone` for v2.1
 
 ## Current Position
 
