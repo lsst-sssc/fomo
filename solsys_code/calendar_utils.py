@@ -6,6 +6,7 @@ sync_gemini, load_telescope_runs) can share a single implementation, plus the
 no-churn CalendarEvent create-or-update function used by all three consumers.
 """
 
+from datetime import timedelta
 from typing import Any
 from urllib.parse import urljoin
 
@@ -293,9 +294,32 @@ def _coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
     return instrument_type
 
 
+def _update_or_unchanged(event: CalendarEvent, fields: dict[str, Any]) -> tuple[CalendarEvent, str]:
+    """Apply `fields` to an existing event, saving only if something actually changed.
+
+    Args:
+        event: the matched CalendarEvent to reconcile.
+        fields: field-value mapping to set on the event.
+
+    Returns:
+        tuple[CalendarEvent, str]: (event, 'updated') if any field differed and the
+            row was saved, or (event, 'unchanged') if every field already matched and
+            no save was issued (no-churn contract).
+    """
+    changed = [f for f, v in fields.items() if getattr(event, f) != v]
+    if changed:
+        for f, v in fields.items():
+            setattr(event, f, v)
+        event.save(update_fields=list(fields.keys()) + ['modified'])
+        return event, 'updated'
+    return event, 'unchanged'
+
+
 def insert_or_create_calendar_event(
     lookup: dict[str, Any],
     fields: dict[str, Any],
+    *,
+    start_time_tolerance: timedelta | None = None,
 ) -> tuple[CalendarEvent, str]:
     """Create or update a CalendarEvent, or leave it unchanged if no fields differ.
 
@@ -313,6 +337,19 @@ def insert_or_create_calendar_event(
         fields: field-value mapping of CalendarEvent attributes to set when
             creating or updating. Not merged with `lookup`; the caller is
             responsible for ensuring the combined key+fields set is complete.
+        start_time_tolerance: if given, the lookup's `start_time` is matched by
+            proximity (an existing event whose start_time is within +/- this
+            tolerance of the lookup value counts as the same event) rather than by
+            exact datetime equality. This exists for load_telescope_runs, whose
+            `start_time` is a computed sun-event time (telescope_runs.sun_event())
+            that drifts by a second or two between independent ingests of the same
+            (site, night) as astropy's IERS Earth-orientation data is refreshed --
+            an exact key would silently create a near-duplicate row on re-ingest.
+            A proximity WINDOW is used deliberately rather than rounding/truncating
+            start_time to the minute: any fixed bucketing still splits an event that
+            drifts across a bucket boundary, whereas a centred window never does. The
+            URL-keyed sync callers pass None and keep exact-equality behaviour
+            unchanged. Ignored when the lookup has no `start_time` key.
 
     Returns:
         tuple[CalendarEvent, str]: (event, action) where action is one of
@@ -320,13 +357,22 @@ def insert_or_create_calendar_event(
             and saved), or 'unchanged' (existing record matched all fields; no
             save issued). Callers own counter updates and any sidecar writes.
     """
+    if start_time_tolerance is not None and 'start_time' in lookup:
+        start_time = lookup['start_time']
+        key = {k: v for k, v in lookup.items() if k != 'start_time'}
+        window = (start_time - start_time_tolerance, start_time + start_time_tolerance)
+        # order_by makes the match deterministic; in this domain at most one event
+        # per (telescope, instrument) ever falls in the window (nights are ~24h apart,
+        # far wider than any plausible IERS-driven drift).
+        existing = CalendarEvent.objects.filter(**key, start_time__range=window).order_by('start_time').first()
+        if existing is not None:
+            # start_time itself is intentionally NOT in `fields`: leaving the stored
+            # (first-ingested) value pinned avoids churning `modified` every re-ingest
+            # just because the recomputed sun-event time drifted within tolerance.
+            return _update_or_unchanged(existing, fields)
+        return CalendarEvent.objects.create(**lookup, **fields), 'created'
+
     event, created = CalendarEvent.objects.get_or_create(**lookup, defaults=fields)
     if created:
         return event, 'created'
-    changed = [f for f, v in fields.items() if getattr(event, f) != v]
-    if changed:
-        for f, v in fields.items():
-            setattr(event, f, v)
-        event.save(update_fields=list(fields.keys()) + ['modified'])
-        return event, 'updated'
-    return event, 'unchanged'
+    return _update_or_unchanged(event, fields)

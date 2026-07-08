@@ -8,6 +8,18 @@ from solsys_code.calendar_utils import insert_or_create_calendar_event
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, ParsedRun, get_site, parse_run_line, sun_event
 
+# The event start_time is a computed sun-event time (telescope_runs.sun_event()), not a
+# stable external identifier. It drifts by a second or two between independent ingests of
+# the same (site, night) because astropy's IERS Earth-orientation data (UT1-UTC / polar
+# motion) is refreshed between runs (see debug/start-time-idempotency-key.md). Match an
+# existing CalendarEvent whose start_time is within this window of the freshly computed
+# value instead of requiring an exact datetime match, so re-ingesting an unchanged schedule
+# updates the existing night rather than silently creating a near-duplicate row. The window
+# is ~2 orders of magnitude larger than the largest drift observed (~2s) yet ~3 orders of
+# magnitude smaller than the ~24h spacing between any two legitimately distinct events for a
+# single telescope+instrument, so it can never merge two genuinely different nights.
+_START_TIME_MATCH_TOLERANCE = timedelta(minutes=5)
+
 
 def _resolve_window_time(window: str, sunset, sunrise, evening_date: date) -> datetime:
     """Convert a window token to a UTC datetime for a single observing night.
@@ -134,6 +146,7 @@ class Command(BaseCommand):
                     event, action = insert_or_create_calendar_event(
                         {'telescope': parsed.telescope, 'instrument': parsed.instrument, 'start_time': start_time},
                         {'end_time': end_time, 'title': title, 'description': description},
+                        start_time_tolerance=_START_TIME_MATCH_TOLERANCE,
                     )
                     if action == 'created':
                         created_count += 1

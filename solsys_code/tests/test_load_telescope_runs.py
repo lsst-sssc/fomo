@@ -2,15 +2,35 @@ import io
 import pathlib
 import tempfile
 from datetime import date
+from unittest import mock
 
+import astropy.units as u
 from django.core.management import call_command
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 
+from solsys_code import telescope_runs as tr
 from solsys_code.management.commands.load_telescope_runs import _iter_run_nights
 from solsys_code.models import CalendarEventTelescopeLabel
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import parse_run_line
+
+
+def _drifted_sun_event(offset_seconds: float):
+    """Wrap the real sun_event() to add a fixed offset, simulating cross-session IERS drift.
+
+    The real sun-event math is deterministic within a process, so a genuine cross-session
+    start_time drift (astropy refreshing its IERS Earth-orientation data between ingests)
+    cannot be produced by simply re-running in one test. This shifts every returned crossing
+    time by `offset_seconds`, reproducing the observed ~2s dev-DB drift deterministically.
+    """
+    real = tr.sun_event
+
+    def _wrapped(site, d, kind):
+        setting, rising = real(site, d, kind)
+        return setting + offset_seconds * u.s, rising + offset_seconds * u.s
+
+    return _wrapped
 
 
 class TestLoadTelescopeRuns(TestCase):
@@ -174,6 +194,36 @@ class TestLoadTelescopeRuns(TestCase):
             # Second run summary should report updated: 0
             summary = stdout2.getvalue()
             self.assertIn('updated: 0', summary)
+
+    def test_reingest_with_drifted_sun_event_does_not_duplicate(self):
+        """Regression (start-time-idempotency-key): a re-ingest whose computed start_time drifted
+        a couple seconds (astropy IERS Earth-orientation refresh across sessions) must UPDATE the
+        existing night, never silently create a near-duplicate CalendarEvent.
+
+        Reproduces the real dev-DB failure (Magellan-Baade pk16->48 / pk17->49, +2s across a
+        7-day gap) deterministically by shifting the second ingest's sun-event times by +2s.
+        """
+        path, tmpdir_ctx = self._write_schedule_file(['Magellan-Baade IMACS 17-18 July'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            first_count = CalendarEvent.objects.count()
+            first_pks = set(CalendarEvent.objects.values_list('pk', flat=True))
+
+            # Second ingest of the identical file, but with the sun-event times shifted +2s
+            # to mimic the IERS-driven drift seen between real cross-session ingests.
+            stdout2 = io.StringIO()
+            with mock.patch(
+                'solsys_code.management.commands.load_telescope_runs.sun_event',
+                side_effect=_drifted_sun_event(2.0),
+            ):
+                call_command('load_telescope_runs', path, stdout=stdout2, stderr=io.StringIO())
+
+            # No duplicate rows: the two Magellan-Baade nights are matched, not re-created.
+            self.assertEqual(first_count, 2)
+            self.assertEqual(CalendarEvent.objects.count(), 2)
+            self.assertEqual(set(CalendarEvent.objects.values_list('pk', flat=True)), first_pks)
+            # The reported bug was 'created' on re-ingest; it must now be created: 0.
+            self.assertIn('created: 0', stdout2.getvalue())
 
     def test_display_01_no_sidecar_row_for_classically_scheduled_event(self):
         """DISPLAY-01: load_telescope_runs never resolves a telescope label via the LCO
