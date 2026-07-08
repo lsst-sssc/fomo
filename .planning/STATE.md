@@ -2,9 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
+current_phase: 18
 status: planning
-last_updated: "2026-07-05T20:15:00.000Z"
+stopped_at: Phase 18 context gathered
+last_updated: "2026-07-08T21:15:18.232Z"
 last_activity: 2026-07-05
+last_activity_desc: Roadmap for v2.1 created (Phases 18-21)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -140,9 +143,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-05T20:15:00.000Z
-Stopped at: v2.1 roadmap created (Phases 18-21)
-Resume file: None
+Last session: 2026-07-08T21:15:18.219Z
+Stopped at: Phase 18 context gathered
+Resume file: .planning/phases/18-uncertain-scheduling-investigation-spike/18-CONTEXT.md
 
 ## Operator Next Steps
 
