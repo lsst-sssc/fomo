@@ -197,6 +197,17 @@ evening ``S`` to evening ``E`` yields ``E - S + 1`` nights, one event per evenin
 date ``d`` with ``start = sunset(d)``, ``end = sunrise(d+1)``.  Consecutive runs
 tile without overlap.
 
+**ESO / La Silla night convention (Tatoo noon-to-noon).**  This both-inclusive
+rule is specific to Las Campanas.  ESO's *Tatoo* scheduling tool instead
+displays a run's date range with an **End date that is the noon-to-noon closing
+boundary of the last night, not itself an observing night** (e.g.
+``NTT ... 9-13 July`` is *4.0 nights* in Tatoo: the evenings of the 9th, 10th,
+11th and 12th; the 13th is only the closing noon of the night of the 12th).  So
+for ESO sites (listed in ``telescope_runs.ESO_NOON_TO_NOON_SITES``) a run from
+evening ``S`` to boundary ``E`` yields ``E - S`` nights, one fewer than the Las
+Campanas convention above.  ``load_telescope_runs._iter_run_nights`` applies
+whichever convention matches the run's site.
+
 Queue Runs: #1 + #3
 -------------------
 

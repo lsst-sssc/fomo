@@ -21,6 +21,16 @@ SITES = {
     'FTS': 'E10',
 }
 
+# Sites whose classical-run date ranges follow ESO's noon-to-noon convention.
+# For these sites (e.g. NTT / La Silla) the date range is transcribed verbatim
+# from ESO's Tatoo scheduling tool, whose displayed END date is the noon-to-noon
+# *closing boundary* of the last night, NOT itself an observing night -- so the
+# last observing night is day2 - 1 (E - S nights). Las Campanas (Magellan) sites,
+# by contrast, treat Start and End as BOTH inclusive observing nights (E - S + 1
+# nights); see docs/design/telescope_runs_calendar.rst "Night convention". This
+# distinction is applied in load_telescope_runs._iter_run_nights().
+ESO_NOON_TO_NOON_SITES = frozenset({'NTT'})
+
 # Known classical-schedule status words/phrases (case-insensitive), per
 # docs/design/telescope_runs_calendar.rst "Classical Run Input Format".
 KNOWN_STATUSES = {'allocation', 'proposed', 'confirmed', 'cancelled', 'not confirmed'}

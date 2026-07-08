@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from solsys_code.calendar_utils import insert_or_create_calendar_event
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.telescope_runs import ParsedRun, get_site, parse_run_line, sun_event
+from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, ParsedRun, get_site, parse_run_line, sun_event
 
 
 def _resolve_window_time(window: str, sunset, sunrise, evening_date: date) -> datetime:
@@ -34,7 +34,15 @@ def _resolve_window_time(window: str, sunset, sunrise, evening_date: date) -> da
 
 
 def _iter_run_nights(parsed: ParsedRun) -> list[date]:
-    """Returns one evening date per observing night (E - S + 1 nights, INGEST-01).
+    """Returns one evening date per observing night, per the site's night convention.
+
+    Las Campanas (Magellan) Start and End dates are BOTH inclusive observing
+    nights, so a run yields E - S + 1 nights (INGEST-01;
+    docs/design/telescope_runs_calendar.rst "Night convention"). ESO sites
+    (``ESO_NOON_TO_NOON_SITES``, e.g. NTT / La Silla) transcribe their ranges
+    verbatim from ESO's Tatoo tool, whose displayed END date is the noon-to-noon
+    closing boundary of the last night rather than an observing night itself, so
+    their last observing night is day2 - 1 (E - S nights).
 
     Args:
         parsed: a ParsedRun from parse_run_line().
@@ -43,12 +51,23 @@ def _iter_run_nights(parsed: ParsedRun) -> list[date]:
         list[date]: evening dates for each night of the run.
 
     Raises:
-        ValueError: if day2 < day1 (cross-month ranges are not supported in Phase 3).
+        ValueError: if day2 < day1 (cross-month ranges are not supported in
+            Phase 3), or if an ESO noon-to-noon range leaves no observing nights
+            after dropping its closing boundary (day2 <= day1).
     """
     if parsed.day2 < parsed.day1:
         raise ValueError(f'Cross-month run ranges not yet supported in Phase 3: {parsed!r}')
-    first_night = date(parsed.year, parsed.month, parsed.day1)
     n_nights = parsed.day2 - parsed.day1 + 1
+    if parsed.telescope in ESO_NOON_TO_NOON_SITES:
+        # Tatoo's End date is the closing noon boundary of the last night, not an
+        # observing night -- drop it so E - S nights remain.
+        n_nights -= 1
+        if n_nights < 1:
+            raise ValueError(
+                f'ESO noon-to-noon run range has no observing nights after dropping its '
+                f'closing boundary (day1={parsed.day1}, day2={parsed.day2}): {parsed!r}'
+            )
+    first_night = date(parsed.year, parsed.month, parsed.day1)
     return [first_night + timedelta(days=i) for i in range(n_nights)]
 
 

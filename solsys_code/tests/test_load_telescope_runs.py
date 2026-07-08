@@ -1,13 +1,16 @@
 import io
 import pathlib
 import tempfile
+from datetime import date
 
 from django.core.management import call_command
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 
+from solsys_code.management.commands.load_telescope_runs import _iter_run_nights
 from solsys_code.models import CalendarEventTelescopeLabel
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import parse_run_line
 
 
 class TestLoadTelescopeRuns(TestCase):
@@ -64,11 +67,48 @@ class TestLoadTelescopeRuns(TestCase):
         return str(path), tmpdir_ctx
 
     def test_creates_one_event_per_night(self):
-        """INGEST-01: 'NTT EFOSC2 allocation 9-13 July' creates exactly 5 CalendarEvents (E - S + 1)."""
+        """INGEST-01: 'NTT EFOSC2 allocation 9-13 July' creates exactly 4 CalendarEvents.
+
+        NTT is an ESO noon-to-noon site: Tatoo's End date (13 July) is the closing
+        boundary of the last night, not an observing night, so the run covers only
+        the 4 nights of 9, 10, 11, 12 July (E - S, not E - S + 1).
+        """
         path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
         with tmpdir_ctx:
             call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
-            self.assertEqual(CalendarEvent.objects.count(), 5)
+            self.assertEqual(CalendarEvent.objects.count(), 4)
+
+    def test_iter_run_nights_eso_drops_tatoo_end_boundary(self):
+        """ESO regression: 'NTT EFOSC2 allocation 9-13 July' (Tatoo '4.0 nights') expands to
+        exactly the 4 evening dates 9-12 July. Tatoo's End date (13 July) is the noon-to-noon
+        closing boundary of the last night, not itself an observing night, so it is dropped."""
+        parsed = parse_run_line('NTT EFOSC2 allocation 9-13 July')
+        year = date.today().year
+        self.assertEqual(
+            _iter_run_nights(parsed),
+            [date(year, 7, 9), date(year, 7, 10), date(year, 7, 11), date(year, 7, 12)],
+        )
+
+    def test_iter_run_nights_magellan_both_inclusive_unchanged(self):
+        """Magellan/Las Campanas keeps its E - S + 1 both-inclusive convention:
+        'Magellan-Baade IMACS 17-18 July' still yields the 2 evening dates 17 and 18 July."""
+        parsed = parse_run_line('Magellan-Baade IMACS 17-18 July')
+        year = date.today().year
+        self.assertEqual(_iter_run_nights(parsed), [date(year, 7, 17), date(year, 7, 18)])
+
+    def test_iter_run_nights_eso_single_night(self):
+        """ESO single-night run: 'NTT EFOSC2 9-10 July' (Tatoo '1.0 nights') yields exactly
+        the one observing night of 9 July (10 July is the closing boundary only)."""
+        parsed = parse_run_line('NTT EFOSC2 9-10 July')
+        year = date.today().year
+        self.assertEqual(_iter_run_nights(parsed), [date(year, 7, 9)])
+
+    def test_iter_run_nights_eso_zero_length_range_raises(self):
+        """ESO degenerate range: an End date equal to the Start date leaves no observing
+        nights after dropping the closing boundary, which raises ValueError."""
+        parsed = parse_run_line('NTT EFOSC2 9-9 July')
+        with self.assertRaises(ValueError):
+            _iter_run_nights(parsed)
 
     def test_event_durations_within_range(self):
         """INGEST-01: every created event has end_time > start_time and duration between 8 and 15 hours."""
@@ -102,15 +142,15 @@ class TestLoadTelescopeRuns(TestCase):
             self.assertIn('NTT EFOSC2 allocation 9-13 July', desc)
 
     def test_idempotent_rerun_no_duplicates(self):
-        """INGEST-03: running command twice on same file leaves total CalendarEvent count unchanged (still 5)."""
+        """INGEST-03: running command twice on same file leaves total CalendarEvent count unchanged (still 4)."""
         path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
         with tmpdir_ctx:
             call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
             first_count = CalendarEvent.objects.count()
             call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
             second_count = CalendarEvent.objects.count()
-            self.assertEqual(first_count, 5)
-            self.assertEqual(second_count, 5)
+            self.assertEqual(first_count, 4)
+            self.assertEqual(second_count, 4)
 
     def test_unchanged_rerun_does_not_update_existing_rows(self):
         """D-04: a re-run with unchanged schedule leaves modified timestamps untouched and reports updated: 0."""
@@ -158,8 +198,9 @@ class TestLoadTelescopeRuns(TestCase):
         with tmpdir_ctx:
             stderr_buf = io.StringIO()
             call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=stderr_buf)
-            # The NTT line should have created 5 events; the ambiguous Magellan line should produce none
-            self.assertEqual(CalendarEvent.objects.count(), 5)
+            # The NTT line should have created 4 events (ESO noon-to-noon: nights 9-12 July);
+            # the ambiguous Magellan line should produce none
+            self.assertEqual(CalendarEvent.objects.count(), 4)
             # stderr should contain the line number (2) and the original ambiguous line text
             err = stderr_buf.getvalue()
             self.assertIn('2', err, 'Expected line number in stderr error message')
