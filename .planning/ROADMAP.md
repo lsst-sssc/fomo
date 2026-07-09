@@ -106,7 +106,11 @@
   3. The CSV range/TBD text-parsing rules are enumerated from the actual cell shapes present in the real 3I sheet (one rule per real shape), not guessed generically
   4. The fuzzy-match library choice (`rapidfuzz` vs. stdlib `difflib`) is made with a recorded rationale from match-quality testing against real messy site-name input
   5. `resolve_site()` is confirmed to resolve real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman) correctly, with a documented verdict on whether `Observatory.obscode` length needs changing at all (default answer: no)
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 18-01-PLAN.md — Live rapidfuzz-vs-difflib + resolve_site() probe against the real 3I/ATLAS CSV; capture redacted Findings (SCHED-01 criteria 2-5) into 18-DECISION.md
+- [ ] 18-02-PLAN.md — Complete 18-DECISION.md Recommendation for all 5 criteria; write durable docs/design/uncertain_scheduling_spike.rst
 
 ### Phase 19: Window-Schema Migration
 **Goal**: Replace `CampaignRun`'s single-night `obs_date`/`ut_start`/`ut_end` representation with a nullable window (`window_start`/`window_end`), migrating every existing row with no data loss. This is the largest-blast-radius change in the milestone and lands as its own phase before any consumer (CSV import, gap analysis) is touched.
@@ -165,7 +169,7 @@
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete | 2026-07-03 |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete | 2026-07-04 |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
-| 18. Uncertain-Scheduling Investigation Spike | v2.1 | 0/? | Not started | - |
+| 18. Uncertain-Scheduling Investigation Spike | v2.1 | 0/2 | Not started | - |
 | 19. Window-Schema Migration | v2.1 | 0/? | Not started | - |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 0/? | Not started | - |
 | 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |
