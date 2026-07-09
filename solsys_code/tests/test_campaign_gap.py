@@ -11,7 +11,7 @@ targets).
 """
 
 import inspect
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from unittest import mock
 
 from django.core.cache import cache
@@ -122,7 +122,7 @@ class TestObservableDates(TestCase):
 
 @override_settings(CACHES=TEST_CACHES)
 class TestClaimedDates(TestCase):
-    """D-05/D-06/D-07/D-08: claimed-date derivation, exclusions, and undated flagging."""
+    """D-05/D-08: window-range claiming, exclusions, and undated (TBD) flagging."""
 
     @classmethod
     def setUpTestData(cls):
@@ -162,42 +162,50 @@ class TestClaimedDates(TestCase):
         defaults.update(kwargs)
         return CampaignRun.objects.create(**defaults)
 
-    def test_approved_completed_run_claimed_via_obs_date(self):
-        obs_date = date(2026, 7, 10)
-        self._make_run(obs_date=obs_date, telescope_instrument='A')
+    def test_approved_run_claims_its_single_night_window(self):
+        night = date(2026, 7, 10)
+        self._make_run(window_start=night, window_end=night, telescope_instrument='A')
         claimed, undated, unattributed = claimed_dates(self.campaign, self.target, self.site)
-        self.assertIn(obs_date, claimed)
+        self.assertIn(night, claimed)
+        self.assertEqual(len(claimed), 1)
         self.assertEqual(undated, [])
         self.assertEqual(unattributed, [])
 
+    def test_range_run_claims_every_date_in_window(self):
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 4)
+        self._make_run(window_start=window_start, window_end=window_end, telescope_instrument='RANGE')
+        claimed, undated, _ = claimed_dates(self.campaign, self.target, self.site)
+        expected = {
+            date(2026, 8, 1),
+            date(2026, 8, 2),
+            date(2026, 8, 3),
+            date(2026, 8, 4),
+        }
+        self.assertEqual(claimed, expected)
+        self.assertEqual(undated, [])
+
     def test_cancelled_run_not_claimed(self):
-        obs_date = date(2026, 7, 11)
-        self._make_run(obs_date=obs_date, telescope_instrument='B', run_status=CampaignRun.RunStatus.CANCELLED)
+        night = date(2026, 7, 11)
+        self._make_run(
+            window_start=night, window_end=night, telescope_instrument='B', run_status=CampaignRun.RunStatus.CANCELLED
+        )
         claimed, _, _ = claimed_dates(self.campaign, self.target, self.site)
-        self.assertNotIn(obs_date, claimed)
+        self.assertNotIn(night, claimed)
 
     def test_pending_review_run_not_claimed(self):
-        obs_date = date(2026, 7, 12)
+        night = date(2026, 7, 12)
         self._make_run(
-            obs_date=obs_date,
+            window_start=night,
+            window_end=night,
             telescope_instrument='C',
             approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
         )
         claimed, _, _ = claimed_dates(self.campaign, self.target, self.site)
-        self.assertNotIn(obs_date, claimed)
-
-    def test_ut_start_only_keys_to_site_local_observing_night(self):
-        # 2026-07-14 02:00 UTC = 2026-07-13 22:00 America/Santiago (UTC-4) -- evening,
-        # so the observing-night label is the local date itself, not the raw UTC date.
-        ut_start = datetime(2026, 7, 14, 2, 0, tzinfo=timezone.utc)
-        self._make_run(obs_date=None, ut_start=ut_start, telescope_instrument='D')
-        claimed, undated, _ = claimed_dates(self.campaign, self.target, self.site)
-        self.assertIn(date(2026, 7, 13), claimed)
-        self.assertNotIn(date(2026, 7, 14), claimed)
-        self.assertEqual(undated, [])
+        self.assertNotIn(night, claimed)
 
     def test_undated_runs_flagged(self):
-        run = self._make_run(obs_date=None, ut_start=None, telescope_instrument='E')
+        run = self._make_run(window_start=None, window_end=None, telescope_instrument='E')
         claimed, undated, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertIn(run, undated)
         self.assertNotIn(None, claimed)
@@ -205,10 +213,10 @@ class TestClaimedDates(TestCase):
         self.assertEqual(len(claimed), 0)
 
     def test_different_site_not_claimed(self):
-        obs_date = date(2026, 7, 15)
-        self._make_run(obs_date=obs_date, telescope_instrument='F', site=self.other_site)
+        night = date(2026, 7, 15)
+        self._make_run(window_start=night, window_end=night, telescope_instrument='F', site=self.other_site)
         claimed, _, _ = claimed_dates(self.campaign, self.target, self.site)
-        self.assertNotIn(obs_date, claimed)
+        self.assertNotIn(night, claimed)
 
 
 @override_settings(CACHES=TEST_CACHES)
@@ -235,38 +243,40 @@ class TestClaimedDatesMultiTarget(TestCase):
         cache.clear()
 
     def test_target_none_run_is_unattributed_not_claimed_for_either_target(self):
-        obs_date = date(2026, 7, 20)
+        night = date(2026, 7, 20)
         CampaignRun.objects.create(
             campaign=self.campaign,
             telescope_instrument='FTS/Sinistro',
             site=self.site,
             target=None,
-            obs_date=obs_date,
+            window_start=night,
+            window_end=night,
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
         claimed_a, _, unattributed_a = claimed_dates(self.campaign, self.target_a, self.site)
         claimed_b, _, unattributed_b = claimed_dates(self.campaign, self.target_b, self.site)
-        self.assertNotIn(obs_date, claimed_a)
-        self.assertNotIn(obs_date, claimed_b)
+        self.assertNotIn(night, claimed_a)
+        self.assertNotIn(night, claimed_b)
         self.assertEqual(len(unattributed_a), 1)
         self.assertEqual(len(unattributed_b), 1)
 
     def test_target_specific_run_claimed_only_for_its_own_target(self):
-        obs_date = date(2026, 7, 21)
+        night = date(2026, 7, 21)
         CampaignRun.objects.create(
             campaign=self.campaign,
             telescope_instrument='FTS/Sinistro-2',
             site=self.site,
             target=self.target_a,
-            obs_date=obs_date,
+            window_start=night,
+            window_end=night,
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
         claimed_a, _, _ = claimed_dates(self.campaign, self.target_a, self.site)
         claimed_b, _, _ = claimed_dates(self.campaign, self.target_b, self.site)
-        self.assertIn(obs_date, claimed_a)
-        self.assertNotIn(obs_date, claimed_b)
+        self.assertIn(night, claimed_a)
+        self.assertNotIn(night, claimed_b)
 
 
 @override_settings(CACHES=TEST_CACHES)
@@ -307,7 +317,8 @@ class TestGapAnalysisView(TestCase):
             campaign=cls.campaign,
             telescope_instrument='Wise/LAST',
             site=cls.site,
-            obs_date=date(2026, 6, 1),
+            window_start=date(2026, 6, 1),
+            window_end=date(2026, 6, 1),
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
@@ -321,7 +332,8 @@ class TestGapAnalysisView(TestCase):
             campaign=cls.multi_campaign,
             telescope_instrument='Wise/LAST-2',
             site=cls.site,
-            obs_date=date(2026, 6, 2),
+            window_start=date(2026, 6, 2),
+            window_end=date(2026, 6, 2),
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
@@ -335,7 +347,8 @@ class TestGapAnalysisView(TestCase):
             campaign=cls.foreign_campaign,
             telescope_instrument='SOAR/GHTS',
             site=cls.other_site,
-            obs_date=date(2026, 6, 3),
+            window_start=date(2026, 6, 3),
+            window_end=date(2026, 6, 3),
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
@@ -423,7 +436,8 @@ class TestGapAnalysisButton(TestCase):
             campaign=campaign,
             telescope_instrument='Magellan-Clay/IMACS',
             site=self.site,
-            obs_date=date(2026, 7, 1),
+            window_start=date(2026, 7, 1),
+            window_end=date(2026, 7, 1),
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
@@ -447,7 +461,8 @@ class TestGapAnalysisButton(TestCase):
             campaign=campaign,
             telescope_instrument='Magellan-Clay/IMACS',
             site=self.site,
-            obs_date=date(2026, 7, 2),
+            window_start=date(2026, 7, 2),
+            window_end=date(2026, 7, 2),
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
@@ -471,7 +486,8 @@ class TestGapAnalysisButton(TestCase):
             telescope_instrument='Unresolved/Site',
             site=None,
             site_raw='Some Unresolved Site',
-            obs_date=date(2026, 7, 3),
+            window_start=date(2026, 7, 3),
+            window_end=date(2026, 7, 3),
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
