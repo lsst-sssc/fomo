@@ -41,16 +41,16 @@ Key finding
 -----------
 
 **Window schema: confirmed as the already-locked nullable
-`window_start`/`window_end` `DateField` pair — no schema change needed.**
+``window_start``/``window_end`` ``DateField`` pair — no schema change needed.**
 Every real cell shape in the sheet (single exact date, full-date range,
-compact same-month range, and the day-unknown `TBD` marker) maps cleanly
+compact same-month range, and the day-unknown ``TBD`` marker) maps cleanly
 onto this pair.
 
 **Fuzzy-match library: difflib is the primary choice — no new dependency
-justified by this live test.** `rapidfuzz` and stdlib `difflib` produced the
+justified by this live test.** ``rapidfuzz`` and stdlib ``difflib`` produced the
 same matches (including the same two false positives) and the same clean
-misses on the real messy `Site Code` corpus; add `rapidfuzz` to
-`pyproject.toml` explicitly only if a future, wider candidate pool
+misses on the real messy ``Site Code`` corpus; add ``rapidfuzz`` to
+``pyproject.toml`` explicitly only if a future, wider candidate pool
 demonstrates a case difflib genuinely misses.
 
 Decisions
