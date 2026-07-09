@@ -3,9 +3,11 @@
 Covers: staff-only gating on both the approval-queue GET and the decision-endpoint POST
 (never a soft-filter -- a redirect, never 200-with-pending-content, per 16-RESEARCH.md Pitfall
 7); the atomic conditional approve/reject transition and its proven double-approve no-op
-(SUBMIT-03); the CAMPAIGN:{pk} CalendarEvent projection that fires only when
-telescope_instrument + ut_start + ut_end are all present (CAL-01/CAL-02); no duplicate event
-and no ``modified`` churn on re-approve (CAL-03); and the reject path (no event created).
+(SUBMIT-03); the D-06 hybrid CAMPAIGN:{pk} CalendarEvent projection that fires only for a
+single concrete night (window_start == window_end) with a resolved site -- a dip-corrected
+sun_event() window for a ground site, a midnight-UTC placeholder for a space site
+(CAL-01/CAL-02); no duplicate event and no ``modified`` churn on re-approve (CAL-03); and the
+reject path (no event created).
 
 Uses ``TargetList.objects.create(...)`` for the campaign container and plain
 ``CampaignRun.objects.create(...)`` fixtures. This module never fixtures an individual
@@ -13,7 +15,7 @@ Uses ``TargetList.objects.create(...)`` for the campaign container and plain
 CLAUDE.md's non-sidereal-only target-factory convention doesn't even arise here.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 import requests
@@ -27,6 +29,7 @@ from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
 from solsys_code.campaign_utils import resolve_site
 from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import sun_event
 
 CONTACT_PERSON = 'Jane Coordinator'
 CONTACT_EMAIL = 'jane@example.org'
@@ -47,8 +50,8 @@ class CampaignApprovalTestBase(TestCase):
             'campaign': self.campaign,
             'telescope_instrument': 'FTN/MuSCAT3',
             'site_raw': 'F65',
-            'ut_start': datetime(2026, 8, 1, 3, 0, 0, tzinfo=timezone.utc),
-            'ut_end': datetime(2026, 8, 1, 9, 0, 0, tzinfo=timezone.utc),
+            'window_start': date(2026, 8, 1),
+            'window_end': date(2026, 8, 1),
             'observation_details': 'Photometric monitoring',
             'contact_person': CONTACT_PERSON,
             'contact_email': CONTACT_EMAIL,
@@ -98,6 +101,23 @@ class TestStaffGating(CampaignApprovalTestBase):
 class TestApproval(CampaignApprovalTestBase):
     """SUBMIT-03: atomic approve/reject and the proven double-approve no-op."""
 
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        # D-06: a Tier-1-resolvable ground Observatory for the default fixture's site_raw
+        # ('F65') so approve's calendar projection (which now requires a resolved run.site)
+        # succeeds deterministically here, without a live MPC API call.
+        Observatory.objects.create(
+            obscode='F65',
+            name='Faulkes Telescope South',
+            short_name='FTS',
+            lat=-31.2727,
+            lon=149.0644,
+            altitude=1149.0,
+            timezone='Australia/Sydney',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
     def setUp(self):
         self.client.login(username='staffcoordinator', password='pw')
 
@@ -142,24 +162,63 @@ class TestApproval(CampaignApprovalTestBase):
 
 
 class TestCalendarProjection(CampaignApprovalTestBase):
-    """CAL-01/CAL-02: approving a telescope+date-range run projects a CAMPAIGN:{pk} event."""
+    """D-06/CAL-01/CAL-02: approving a single-night run with a resolved site projects a
+    CAMPAIGN:{pk} event -- a dip-corrected sun_event() window for a ground site, a
+    midnight-UTC placeholder for a space site. A range, TBD run, missing
+    telescope_instrument, or a sun_event() ValueError all project nothing (the last of
+    these without reverting the already-committed approval).
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        # Tier-1-resolvable so approve's site resolution never needs a live MPC API call.
+        cls.ground_site = Observatory.objects.create(
+            obscode='F65',
+            name='Faulkes Telescope South',
+            short_name='FTS',
+            lat=-31.2727,
+            lon=149.0644,
+            altitude=1149.0,
+            timezone='Australia/Sydney',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
 
     def setUp(self):
         self.client.login(username='staffcoordinator', password='pw')
 
-    def test_approve_with_full_window_creates_calendar_event(self):
+    def test_approve_single_night_ground_run_creates_dip_corrected_calendar_event(self):
         run = self._make_pending_run()
         self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         event = CalendarEvent.objects.get(url=f'CAMPAIGN:{run.pk}')
+        expected_sunset, expected_sunrise = sun_event(self.ground_site, run.window_start, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=timezone.utc).replace(microsecond=0))
+        self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=timezone.utc).replace(microsecond=0))
         self.assertEqual(event.target_list_id, self.campaign.pk)
-        self.assertEqual(event.start_time, run.ut_start)
-        self.assertEqual(event.end_time, run.ut_end)
         self.assertEqual(event.telescope, run.telescope_instrument)
 
-    def test_approve_without_ut_end_creates_no_calendar_event(self):
-        """Pitfall 2: CalendarEvent.start_time/end_time are non-nullable -- ut_end missing means
-        no event, not a fabricated end_time."""
-        run = self._make_pending_run(ut_end=None)
+    def test_approve_single_night_space_run_creates_midnight_utc_placeholder_event(self):
+        space_site = Observatory.objects.create(
+            obscode='250',
+            name='Test Space Telescope',
+            short_name='TST',
+            observations_type=Observatory.SATELLITE_OBSTYPE,
+        )
+        run = self._make_pending_run(site_raw=space_site.obscode)
+        self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        event = CalendarEvent.objects.get(url=f'CAMPAIGN:{run.pk}')
+        self.assertEqual(event.start_time, datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(event.end_time, datetime(2026, 8, 1, 23, 59, tzinfo=timezone.utc))
+
+    def test_approve_range_run_creates_no_calendar_event(self):
+        run = self._make_pending_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
+        self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+
+    def test_approve_tbd_run_creates_no_calendar_event(self):
+        run = self._make_pending_run(window_start=None, window_end=None)
         self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
@@ -172,9 +231,14 @@ class TestCalendarProjection(CampaignApprovalTestBase):
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
         self.assertEqual(CalendarEvent.objects.count(), 0)
 
-    def test_approve_without_ut_start_creates_no_calendar_event(self):
-        run = self._make_pending_run(ut_start=None)
-        self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+    def test_sun_event_valueerror_skips_projection_without_reverting_approval(self):
+        """Pitfall 7: a sun_event() ValueError (e.g. blank site.timezone) must be logged and
+        skipped, never reach the broad except Exception that reverts a half-committed
+        approval back to PENDING_REVIEW."""
+        run = self._make_pending_run()
+        with patch('solsys_code.campaign_views.sun_event', side_effect=ValueError('no crossings')):
+            response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
         self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
@@ -268,6 +332,22 @@ class TestApprovalSiteResolution(CampaignApprovalTestBase):
 
 class TestCalendarNoChurn(CampaignApprovalTestBase):
     """CAL-03: re-approve produces no duplicate event and no modified churn."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        # D-06: a Tier-1-resolvable ground Observatory for the default fixture's site_raw
+        # ('F65') so the first approve's calendar projection succeeds deterministically.
+        Observatory.objects.create(
+            obscode='F65',
+            name='Faulkes Telescope South',
+            short_name='FTS',
+            lat=-31.2727,
+            lon=149.0644,
+            altitude=1149.0,
+            timezone='Australia/Sydney',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
 
     def setUp(self):
         self.client.login(username='staffcoordinator', password='pw')
