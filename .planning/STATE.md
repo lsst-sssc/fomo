@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 18
-status: planning
-stopped_at: Phase 18 context gathered
-last_updated: "2026-07-08T21:15:18.232Z"
-last_activity: 2026-07-05
-last_activity_desc: Roadmap for v2.1 created (Phases 18-21)
+current_phase_name: uncertain-scheduling-investigation-spike
+status: executing
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-07-09T09:36:36.272Z"
+last_activity: 2026-07-09
+last_activity_desc: Phase 18 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** v2.1 — Uncertain Scheduling & Site Disambiguation (roadmap created, Phase 18 ready to plan)
+**Current focus:** Phase 18 — uncertain-scheduling-investigation-spike
 
 ## Current Position
 
-Phase: 18 — Uncertain-Scheduling Investigation Spike (not started)
-Plan: —
-Status: Roadmap created; awaiting `/gsd-plan-phase 18`
-Last activity: 2026-07-05 — Roadmap for v2.1 created (Phases 18-21)
+Phase: 18 (uncertain-scheduling-investigation-spike) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-09 — Phase 18 execution started
 
 ## Roadmap Summary (v2.1)
 
@@ -85,6 +86,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 17 P01 | 21min | 3 tasks | 3 files |
 | Phase 17 P02 | 25min | 3 tasks | 5 files |
 | Phase 17 P03 | 15min | 3 tasks | 4 files |
+| Phase 18 P01 | 32min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -104,6 +106,9 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 14]: parse_obs_window uses three narrowly-scoped regexes (not a permissive general date parser) so a stray date-range or garbage UT Time Range cell never succeeds into a wrong-but-plausible time — Phase 20's range/TBD parsing must extend this pattern-per-shape approach, not replace it with a generic parser.
 - [Phase 14]: resolve_site length-checks and blank-checks the raw Site Code before any tier attempt, flagging oversized/blank codes for review with site=None rather than fabricating (D-08/D-09/Pitfall 2) — quick task 260705-l1v extended this "never fabricate" invariant; Phase 21's fuzzy-match UI must preserve it (never auto-select).
 - [Phase 17]: Multi-target campaign target=None CampaignRuns are collected into a separate unattributed_runs list, never counted as claiming either target's date — Phase 20's asset-aware claimed_dates() rewrite must preserve this bucketing.
+- [Phase 18]: rapidfuzz package legitimacy confirmed by human (Task 1 checkpoint approved) — the automated SUS verdict was a documented download-lookup false-positive
+- [Phase 18]: probe script fuzzy_match_probe.py never staged/committed (per D-08); only 18-DECISION.md is a committed deliverable from this plan
+- [Phase 18]: resolve_site() cannot currently resolve 250/274/289 via its MPC Tier 2 path due to a null-longitude TypeError in MPCObscodeFetcher.to_observatory() for satellite-type MPC records (real live-test finding, flagged for Phase 19/21 awareness, no fix in this phase)
 
 ### Pending Todos
 
@@ -143,9 +148,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T21:15:18.219Z
-Stopped at: Phase 18 context gathered
-Resume file: .planning/phases/18-uncertain-scheduling-investigation-spike/18-CONTEXT.md
+Last session: 2026-07-09T09:36:36.258Z
+Stopped at: Completed 18-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

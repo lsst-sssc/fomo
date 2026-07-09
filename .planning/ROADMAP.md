@@ -109,12 +109,12 @@
   4. The fuzzy-match library choice (`rapidfuzz` vs. stdlib `difflib`) is made with a recorded rationale from match-quality testing against real messy site-name input
   5. `resolve_site()` is confirmed to resolve real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman) correctly, with a documented verdict on whether `Observatory.obscode` length needs changing at all (default answer: no)
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 18-01-PLAN.md — Live rapidfuzz-vs-difflib + resolve_site() probe against the real 3I/ATLAS CSV; capture redacted Findings (SCHED-01 criteria 2-5) into 18-DECISION.md
+- [x] 18-01-PLAN.md — Live rapidfuzz-vs-difflib + resolve_site() probe against the real 3I/ATLAS CSV; capture redacted Findings (SCHED-01 criteria 2-5) into 18-DECISION.md
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -186,7 +186,7 @@ Plans:
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete | 2026-07-03 |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete | 2026-07-04 |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
-| 18. Uncertain-Scheduling Investigation Spike | v2.1 | 0/2 | Not started | - |
+| 18. Uncertain-Scheduling Investigation Spike | v2.1 | 1/2 | In Progress|  |
 | 19. Window-Schema Migration | v2.1 | 0/? | Not started | - |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 0/? | Not started | - |
 | 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |
