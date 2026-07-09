@@ -91,6 +91,11 @@ Decisions
      - No widening of ``Observatory.obscode`` (``max_length=4``) needed —
        confirmed against the live field definition; real space-observatory
        MPC codes (``250``, ``274``, ``289``) all fit within 3 characters.
+       Separately, ``resolve_site()`` cannot *currently* resolve any of the
+       three: ``MPCObscodeFetcher.to_observatory()`` raises an unguarded
+       ``TypeError`` on the MPC API's ``null`` longitude for satellite-type
+       records, an unrelated bug for Phase 19/21 to be aware of (see
+       Future scope).
      - None (confirmed as-is)
 
 Future scope
