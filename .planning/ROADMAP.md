@@ -89,7 +89,7 @@
 
 ### 🚧 v2.1 Uncertain Scheduling & Site Disambiguation (Phases 18-21) — IN PROGRESS
 
-- [ ] **Phase 18: Uncertain-Scheduling Investigation Spike** - Settle window schema, TBD natural key, CSV range/TBD parsing rules, and fuzzy-match library against real 3I sheet rows before implementation
+- [x] **Phase 18: Uncertain-Scheduling Investigation Spike** - Settle window schema, TBD natural key, CSV range/TBD parsing rules, and fuzzy-match library against real 3I sheet rows before implementation (completed 2026-07-09)
 - [ ] **Phase 19: Window-Schema Migration** - Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair, migrating existing rows with no data loss
 - [ ] **Phase 20: Range/TBD Import & Asset-Aware Coverage Gap** - Import range/TBD `Obs. Date` rows into the window representation and make coverage-gap analysis distinguish ground vs. space-mission runs
 - [ ] **Phase 21: Site Disambiguation & Submitter Contact Opt-In** - Staff-facing fuzzy-match site-resolution UI in the approval queue plus a submitter contact opt-in flag
@@ -109,7 +109,7 @@
   4. The fuzzy-match library choice (`rapidfuzz` vs. stdlib `difflib`) is made with a recorded rationale from match-quality testing against real messy site-name input
   5. `resolve_site()` is confirmed to resolve real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman) correctly, with a documented verdict on whether `Observatory.obscode` length needs changing at all (default answer: no)
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -118,7 +118,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 18-02-PLAN.md — Complete 18-DECISION.md Recommendation for all 5 criteria; write durable docs/design/uncertain_scheduling_spike.rst
+- [x] 18-02-PLAN.md — Complete 18-DECISION.md Recommendation for all 5 criteria; write durable docs/design/uncertain_scheduling_spike.rst
 
 ### Phase 19: Window-Schema Migration
 
@@ -186,7 +186,7 @@ Plans:
 | 15. Per-Campaign Table View (Read Path) | v2.0 | 2/2 | Complete | 2026-07-03 |
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete | 2026-07-04 |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
-| 18. Uncertain-Scheduling Investigation Spike | v2.1 | 1/2 | In Progress|  |
+| 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete   | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 0/? | Not started | - |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 0/? | Not started | - |
 | 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |

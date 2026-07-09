@@ -9,7 +9,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Scheduling Window Model (SCHED)
 
-- [ ] **SCHED-01**: A phase-time investigation spike settles the window field schema (`window_start`/`window_end` nullable `DateField` pair), the replacement natural key for TBD rows (no fixed start time), the CSV range/TBD text-parsing rules, the fuzzy-match library choice (`rapidfuzz` vs. stdlib `difflib`), and confirms whether `resolve_site()` correctly resolves real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman — standard 3-char codes; `Observatory.obscode` widening is presumed NOT needed per post-research correction) — before implementation begins
+- [x] **SCHED-01**: A phase-time investigation spike settles the window field schema (`window_start`/`window_end` nullable `DateField` pair), the replacement natural key for TBD rows (no fixed start time), the CSV range/TBD text-parsing rules, the fuzzy-match library choice (`rapidfuzz` vs. stdlib `difflib`), and confirms whether `resolve_site()` correctly resolves real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman — standard 3-char codes; `Observatory.obscode` widening is presumed NOT needed per post-research correction) — before implementation begins
 - [ ] **SCHED-02**: `CampaignRun`'s `obs_date`/`ut_start`/`ut_end` (single-night representation) is replaced by a window (`window_start`/`window_end`); a classically-scheduled single night is represented as `window_start == window_end`
 - [ ] **SCHED-03**: A `CampaignRun` can exist with no window at all yet ("TBD" state — both `window_start`/`window_end` null), distinct from having a resolved window
 - [ ] **SCHED-04**: The natural-key `UniqueConstraint` no longer silently allows duplicate TBD rows (the SQLite/PostgreSQL NULL-uniqueness gap is closed via a partial/conditional constraint)
@@ -67,7 +67,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHED-01 | Phase 18 | Pending |
+| SCHED-01 | Phase 18 | Complete |
 | SCHED-02 | Phase 19 | Pending |
 | SCHED-03 | Phase 19 | Pending |
 | SCHED-04 | Phase 19 | Pending |
@@ -82,6 +82,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VIEW-05 | Phase 21 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 13 total
 - Mapped to phases: 13 ✓
 - Unmapped: 0

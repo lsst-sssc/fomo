@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 18
 current_phase_name: uncertain-scheduling-investigation-spike
-status: executing
+status: verifying
 stopped_at: Completed 18-01-PLAN.md
-last_updated: "2026-07-09T09:36:36.272Z"
+last_updated: "2026-07-09T09:50:23.036Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 18 execution started
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 25
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 Phase: 18 (uncertain-scheduling-investigation-spike) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-09 — Phase 18 execution started
 
 ## Roadmap Summary (v2.1)
@@ -87,6 +87,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 17 P02 | 25min | 3 tasks | 5 files |
 | Phase 17 P03 | 15min | 3 tasks | 4 files |
 | Phase 18 P01 | 32min | 3 tasks | 2 files |
+| Phase 18 P02 | 12min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,11 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 18]: rapidfuzz package legitimacy confirmed by human (Task 1 checkpoint approved) — the automated SUS verdict was a documented download-lookup false-positive
 - [Phase 18]: probe script fuzzy_match_probe.py never staged/committed (per D-08); only 18-DECISION.md is a committed deliverable from this plan
 - [Phase 18]: resolve_site() cannot currently resolve 250/274/289 via its MPC Tier 2 path due to a null-longitude TypeError in MPCObscodeFetcher.to_observatory() for satellite-type MPC records (real live-test finding, flagged for Phase 19/21 awareness, no fix in this phase)
+- [Phase 18]: SCHED-01 criterion 1 (window schema): confirmed as-is - nullable window_start/window_end DateField pair, validated against every real cell shape
+- [Phase 18]: SCHED-01 criterion 4 (fuzzy library): split verdict - difflib primary/default, rapidfuzz deferred until a real advantage is demonstrated
+- [Phase 18]: SCHED-01 criterion 5 (obscode widening): no widening needed, confirmed against live Observatory.obscode max_length=4
+- [Phase 18]: SCHED-01 criterion 2 (TBD natural key): fold contact_person into the natural key for null-window rows via a partial/conditional UniqueConstraint (Phase 19 to design mechanism)
+- [Phase 18]: SCHED-01 criterion 3 (CSV range/TBD parsing): extend parse_obs_window()'s pattern-per-shape discipline to Obs. Date, checking both Obs. Date and UT Time Range (Phase 20 to implement)
 
 ### Pending Todos
 
@@ -148,7 +154,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T09:36:36.258Z
+Last session: 2026-07-09T09:47:14.421Z
 Stopped at: Completed 18-01-PLAN.md
 Resume file: None
 
