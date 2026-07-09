@@ -6,7 +6,7 @@ CLAUDE.md; no sidereal-target factory is used anywhere in this module) and plain
 `test_campaign_views.py`'s conventions.
 """
 
-from datetime import datetime, timezone
+from datetime import date
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -19,7 +19,7 @@ from solsys_code.models import CampaignRun
 CONTACT_PERSON = 'Jane Coordinator'
 CONTACT_EMAIL = 'jane@example.org'
 TELESCOPE_INSTRUMENT = 'FTN/MuSCAT3'
-UT_START = datetime(2026, 8, 1, 3, 0, 0, tzinfo=timezone.utc)
+OBS_DATE = date(2026, 8, 1)
 
 
 class CampaignSubmissionTestBase(TestCase):
@@ -60,13 +60,17 @@ class TestCampaignSubmission(CampaignSubmissionTestBase):
     """SUBMIT-01: minimal valid submission creates a PENDING_REVIEW CampaignRun."""
 
     def test_minimal_valid_submission_creates_pending_run(self):
-        response = self.client.post(self.submit_url(), data=self.minimal_valid_data())
+        response = self.client.post(self.submit_url(), data=self.minimal_valid_data(obs_date=OBS_DATE.isoformat()))
         self.assertEqual(CampaignRun.objects.count(), 1)
         run = CampaignRun.objects.get()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
         self.assertEqual(run.campaign, self.campaign)
         self.assertEqual(run.contact_person, CONTACT_PERSON)
         self.assertEqual(run.contact_email, CONTACT_EMAIL)
+        # SCHED-02: the form's single observing-date field collapses to window_start ==
+        # window_end (a single-night run).
+        self.assertEqual(run.window_start, OBS_DATE)
+        self.assertEqual(run.window_end, OBS_DATE)
         self.assertRedirects(response, self.thanks_url())
 
     def test_get_returns_200_and_renders_form(self):
@@ -99,12 +103,13 @@ class TestCampaignSubmission(CampaignSubmissionTestBase):
         self.assertFormError(response.context['form'], 'contact_email', 'This field is required.')
 
     def test_duplicate_natural_key_submission_shows_friendly_form_error(self):
-        """Pitfall 4: same campaign+telescope_instrument+ut_start collides on the DB
-        UniqueConstraint -- a friendly non_field_errors banner, never a 500.
+        """Pitfall 4: same campaign+telescope_instrument+window_start(==window_end) collides
+        on the resolved-window UniqueConstraint -- a friendly non_field_errors banner, never
+        a 500.
         """
         data = self.minimal_valid_data(
             telescope_instrument=TELESCOPE_INSTRUMENT,
-            ut_start=UT_START.isoformat(),
+            obs_date=OBS_DATE.isoformat(),
         )
         first = self.client.post(self.submit_url(), data=data)
         self.assertRedirects(first, self.thanks_url())

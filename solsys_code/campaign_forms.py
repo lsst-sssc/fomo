@@ -21,9 +21,11 @@ class CampaignRunSubmissionForm(forms.Form):
     campaign = forms.ModelChoiceField(queryset=TargetList.objects.all(), required=True)
     telescope_instrument = forms.CharField(max_length=255, required=False, label='Telescope / instrument')
     site_raw = forms.CharField(max_length=255, required=False, label='Observing site')
+    # A3: collapses to a single observing-date field -- the window schema has no time-of-
+    # night component, so the UT start/end DateTimeField inputs have no home here and are
+    # dropped entirely (not repurposed). The view maps this single date to both
+    # window_start and window_end on save (single-night collapse, SCHED-02).
     obs_date = forms.DateField(required=False, label='Observation date')
-    ut_start = forms.DateTimeField(required=False, label='UT start time')
-    ut_end = forms.DateTimeField(required=False, label='UT end time')
     filters_bandpass = forms.CharField(max_length=255, required=False, label='Filter(s) / bandpass')
     observation_details = forms.CharField(widget=forms.Textarea, required=False, label='Observation details')
     open_to_collaboration = forms.BooleanField(required=False, label='Open to collaboration?')
@@ -49,8 +51,6 @@ class CampaignRunSubmissionForm(forms.Form):
                 'telescope_instrument',
                 'site_raw',
                 'obs_date',
-                'ut_start',
-                'ut_end',
                 'filters_bandpass',
                 'observation_details',
                 'open_to_collaboration',

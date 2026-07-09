@@ -185,9 +185,10 @@ class CampaignRunSubmissionView(FormView):
                     campaign=form.cleaned_data['campaign'],
                     telescope_instrument=form.cleaned_data['telescope_instrument'],
                     site_raw=form.cleaned_data['site_raw'],
-                    obs_date=form.cleaned_data['obs_date'],
-                    ut_start=form.cleaned_data['ut_start'],
-                    ut_end=form.cleaned_data['ut_end'],
+                    # SCHED-02: single-night collapse -- the form's one observing-date field
+                    # feeds both window_start and window_end.
+                    window_start=form.cleaned_data['obs_date'],
+                    window_end=form.cleaned_data['obs_date'],
                     filters_bandpass=form.cleaned_data['filters_bandpass'],
                     observation_details=form.cleaned_data['observation_details'],
                     open_to_collaboration=form.cleaned_data['open_to_collaboration'],
@@ -200,11 +201,13 @@ class CampaignRunSubmissionView(FormView):
                 )
         except IntegrityError:
             # Pitfall 4: two submitters proposing the same campaign+telescope_instrument+
-            # ut_start collide on CampaignRun's natural-key UniqueConstraint. Friendly form
-            # error, never a 500.
+            # observing date (a resolved single night) -- or the same campaign+
+            # telescope_instrument+contact_person when the date is left blank (TBD) --
+            # collide on one of CampaignRun's two partial natural-key UniqueConstraints.
+            # Friendly form error, never a 500.
             form.add_error(
                 None,
-                'A run for this telescope at this start time already exists for this campaign. '
+                'A run for this telescope on this observing date already exists for this campaign. '
                 'Check the campaign table, or contact a coordinator if you believe this is a mistake.',
             )
             return self.form_invalid(form)
