@@ -248,10 +248,11 @@ v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replac
 - ✓ **CAL-03**: Re-approving an already-approved run creates no duplicate event and no `modified` churn — v2.0 (Phase 16)
 - ✓ **GAP-01**: Coverage-gap analysis observability approach decided (dark-window-only, not true altitude/airmass filtering) with rationale citing pre-milestone research — v2.0 (Phase 17)
 - ✓ **GAP-02**: User can see which observable nights for a campaign target and site are not yet claimed by any run, via a GET-triggered, cached, server-validated view — v2.0 (Phase 17)
+- ✓ **SCHED-01**: Phase-time investigation spike settled all five scheduling-design decisions against the real 3I/ATLAS sheet rows: window schema confirmed as the nullable `window_start`/`window_end` `DateField` pair; TBD natural key folds `contact_person` into a partial/conditional `UniqueConstraint`; CSV range/TBD parsing rules enumerated per real cell shape (extends `_HHMM_RANGE`/`_APPROX_HOUR`/`_BARE_HOUR_UTC`); fuzzy-match library split verdict is **difflib primary** (no live-test evidence favored `rapidfuzz`'s extra dependency); `Observatory.obscode` needs no widening (250/274/289 all fit `max_length=4`) — but the spike also surfaced a real, previously-unknown bug: `resolve_site()` currently **cannot** resolve any of the three standard space-observatory codes because `MPCObscodeFetcher.to_observatory()` raises an unguarded `TypeError` on the MPC API's `null` longitude for satellite-type records (flagged for Phase 19/21, not fixed here — investigation-only phase). See `.planning/phases/18-uncertain-scheduling-investigation-spike/18-DECISION.md` and `docs/design/uncertain_scheduling_spike.rst` — v2.1 (Phase 18)
 
 ### Active
 
-<!-- v2.1 Uncertain Scheduling & Site Disambiguation — requirement IDs to be defined in .planning/REQUIREMENTS.md -->
+<!-- v2.1 Uncertain Scheduling & Site Disambiguation — requirement IDs defined in .planning/REQUIREMENTS.md -->
 
 - [ ] Range-first `CampaignRun` scheduling (window replaces single obs_date/ut_start/ut_end; single night = 1-day window)
 - [ ] Ground vs. space-mission asset distinction via `Observatory.observations_type` (`SATELLITE_OBSTYPE`)
@@ -259,7 +260,6 @@ v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replac
 - [ ] Coverage-gap analysis is asset-aware (ground window claims every date in range; space-mission claims none until scheduling narrows)
 - [ ] Approval-queue site-disambiguation UI — inline dropdown of fuzzy-matched `Observatory` candidates + free-text resolve-or-create, never auto-fabricating a placeholder
 - [ ] VIEW-05 — single combined submitter opt-in (default opt-out) for public contact display
-- [ ] Phase-time investigation spike settling window schema, range/TBD parsing rules, and fuzzy-match approach against real 3I sheet rows, plus confirming `resolve_site()` correctly resolves real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman — standard 3-char codes; `Observatory.obscode` widening is very likely NOT needed, corrected post-research)
 
 Not yet committed to this milestone (still candidates for a future one): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup) — see `.planning/STATE.md` Deferred Items and `.planning/milestones/v2.0-REQUIREMENTS.md` v2 Requirements for full detail.
 
@@ -408,4 +408,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-05 — v2.1 "Uncertain Scheduling & Site Disambiguation" milestone opened*
+*Last updated: 2026-07-09 — Phase 18 (investigation spike) complete, SCHED-01 validated*
