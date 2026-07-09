@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 19
 current_phase_name: window-schema-migration
-status: executing
-stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-07-09T23:01:27.757Z"
+status: verifying
+stopped_at: Completed 19-04-PLAN.md
+last_updated: "2026-07-09T23:17:13.877Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 19 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 25
+  completed_plans: 6
+  percent: 50
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 Phase: 19 (window-schema-migration) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-09 — Phase 19 execution started
 
 ## Roadmap Summary (v2.1)
@@ -92,6 +92,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 19 P01 | 20min | 2 tasks | 3 files |
 | Phase 19 P02 | 10min | 2 tasks | 2 files |
 | Phase 19 P03 | ~20min | 3 tasks | 6 files |
+| Phase 19 P04 | 20min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,9 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 19]: [Phase 19] Deleted test_ut_start_only_keys_to_site_local_observing_night rather than renaming it -- the code path it tested no longer exists under the window schema
 - [Phase 19]: render_window_start() returns the literal '-&gt;' HTML entity (not a plain hyphen/en-dash) for a range row, per D-05's exact wording
 - [Phase 19]: TestApproval/TestCalendarNoChurn each got their own scoped ground-Observatory fixture (not added to the shared CampaignApprovalTestBase) so D-06's site-required calendar projection doesn't break TestApprovalSiteResolution's Observatory.objects.count()==0 assertions
+- [Phase 19]: [Phase 19] import_campaign_csv's window-key collision check now runs for every row (not just ut_needs_review fallback rows), since window_start collapses to date granularity -- any same-telescope/same-date pair collides on the natural key — window_start is a DateField; time-of-day no longer disambiguates the natural key
+- [Phase 19]: [Phase 19] Applied migration 0004_campaignrun_window_schema to the real dev DB (src/fomo_db.sqlite3), previously deferred by Plan 01, so the import_campaign_csv_demo notebook could execute against the live schema — Notebook connects directly to the dev DB, not a test DB; backfill/dedup outcome matched Plan 01's smoke test exactly (16 -> 14 rows)
+- [Phase 19]: [Phase 19] Demo notebook's approval-lifecycle cell switched from unconditional CampaignRun.objects.create() to update_or_create() keyed on (campaign, telescope_instrument, contact_person) — Plan 01's new partial TBD UniqueConstraint on those same fields made repeat notebook execution crash with IntegrityError once the dev DB was actually migrated
 
 ### Pending Todos
 
@@ -164,8 +168,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T23:01:27.742Z
-Stopped at: Completed 19-02-PLAN.md
+Last session: 2026-07-09T23:17:13.859Z
+Stopped at: Completed 19-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

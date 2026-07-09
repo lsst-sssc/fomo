@@ -150,3 +150,9 @@ None - no external service configuration required. The dev DB migration was appl
 ---
 *Phase: 19-window-schema-migration*
 *Completed: 2026-07-10*
+
+## Self-Check: PASSED
+
+All modified files found on disk (`import_campaign_csv.py`, `test_import_campaign_csv.py`,
+`campaign_utils.py`, `import_campaign_csv_demo.ipynb`, this SUMMARY.md); all task and
+summary commit hashes (`f1f4e38`, `a295b3e`, `0ab80a0`) found in git log.

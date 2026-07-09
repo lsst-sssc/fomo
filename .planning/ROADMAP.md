@@ -90,7 +90,7 @@
 ### 🚧 v2.1 Uncertain Scheduling & Site Disambiguation (Phases 18-21) — IN PROGRESS
 
 - [x] **Phase 18: Uncertain-Scheduling Investigation Spike** - Settle window schema, TBD natural key, CSV range/TBD parsing rules, and fuzzy-match library against real 3I sheet rows before implementation (completed 2026-07-09)
-- [ ] **Phase 19: Window-Schema Migration** - Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair, migrating existing rows with no data loss
+- [x] **Phase 19: Window-Schema Migration** - Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair, migrating existing rows with no data loss (completed 2026-07-09)
 - [ ] **Phase 20: Range/TBD Import & Asset-Aware Coverage Gap** - Import range/TBD `Obs. Date` rows into the window representation and make coverage-gap analysis distinguish ground vs. space-mission runs
 - [ ] **Phase 21: Site Disambiguation & Submitter Contact Opt-In** - Staff-facing fuzzy-match site-resolution UI in the approval queue plus a submitter contact opt-in flag
 
@@ -133,7 +133,7 @@ Plans:
   4. Every existing `CampaignRun` row survives the migration with `window_start == window_end == former obs_date` — no data loss
   5. The existing per-campaign table, approval queue, and coverage-gap pages still render correctly against the new window fields
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -144,7 +144,7 @@ Plans:
 
 - [x] 19-02-PLAN.md — Coverage-gap consumer: rewrite claimed_dates() to iterate the window range, delete _observing_night_date()
 - [x] 19-03-PLAN.md — Views/display/forms/projection: window display column (D-03/05), nulls-last sort (D-04), D-06 hybrid ground/space calendar projection, PII allowlist swap, collapsed submission form
-- [ ] 19-04-PLAN.md — CSV import: window natural-key lookup + collision rethink + regenerated demo notebook
+- [x] 19-04-PLAN.md — CSV import: window natural-key lookup + collision rethink + regenerated demo notebook
 
 ### Phase 20: Range/TBD Import & Asset-Aware Coverage Gap
 
@@ -198,7 +198,7 @@ Plans:
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete | 2026-07-04 |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
-| 19. Window-Schema Migration | v2.1 | 3/4 | In Progress|  |
+| 19. Window-Schema Migration | v2.1 | 4/4 | Complete   | 2026-07-09 |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 0/? | Not started | - |
 | 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |
 
