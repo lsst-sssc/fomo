@@ -86,9 +86,8 @@ class CampaignRun(models.Model):
     site_needs_review = models.BooleanField(
         default=False, verbose_name='Whether the site could not be automatically resolved and needs manual review'
     )
-    obs_date = models.DateField(null=True, blank=True, verbose_name='Observation date')
-    ut_start = models.DateTimeField(null=True, blank=True, verbose_name='UT start time')
-    ut_end = models.DateTimeField(null=True, blank=True, verbose_name='UT end time')
+    window_start = models.DateField(null=True, blank=True, verbose_name='Observing window start')
+    window_end = models.DateField(null=True, blank=True, verbose_name='Observing window end')
     filters_bandpass = models.CharField(max_length=255, blank=True, default='', verbose_name='Filter(s) / bandpass')
     observation_details = models.TextField(blank=True, default='', verbose_name='Observation details')
     weather = models.TextField(blank=True, default='', verbose_name='Weather conditions or forecast')
@@ -118,11 +117,27 @@ class CampaignRun(models.Model):
             # idempotent re-imports. get_or_create() is only race-safe when its lookup
             # fields are backed by a real DB constraint; without one, two concurrent
             # imports could both miss the existing row and both attempt to create it.
+            # Resolved-window branch: a concrete single night (window_start == window_end)
+            # or range. window_end is included (not just window_start) so a range starting
+            # on the same day as an existing single-night entry is not treated as the same
+            # row.
             models.UniqueConstraint(
-                fields=['campaign', 'telescope_instrument', 'ut_start'],
-                name='unique_campaign_run_natural_key',
+                fields=('campaign', 'telescope_instrument', 'window_start', 'window_end'),
+                condition=models.Q(window_start__isnull=False),
+                name='unique_campaign_run_resolved_window',
+            ),
+            # TBD branch: window_start/window_end are deliberately NOT in this constraint's
+            # field tuple -- they're both NULL for every row this constraint applies to (per
+            # its own condition), and NULL is never considered equal by a unique constraint
+            # on any backend, so including them here would silently defeat the whole point
+            # of this constraint. contact_person is the natural-key discriminator instead
+            # (never NULL: CharField(blank=True, default='')).
+            models.UniqueConstraint(
+                fields=('campaign', 'telescope_instrument', 'contact_person'),
+                condition=models.Q(window_start__isnull=True),
+                name='unique_campaign_run_tbd_natural_key',
             ),
         ]
 
     def __str__(self):
-        return f'{self.campaign.name}: {self.telescope_instrument} on {self.obs_date}'
+        return f'{self.campaign.name}: {self.telescope_instrument} on {self.window_start}'
