@@ -1,3 +1,4 @@
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -13,14 +14,14 @@ class TestCampaignRunFieldInventory(TestCase):
         cls.campaign = TargetList.objects.create(name='3I/ATLAS')
 
     def test_full_field_inventory_persists_and_reloads(self):
+        """SCHED-02: a single-night run (window_start == window_end) persists and reloads."""
         run = CampaignRun.objects.create(
             campaign=self.campaign,
             telescope_instrument='FTN/MuSCAT3',
             site_raw='F65',
             site_needs_review=False,
-            obs_date='2025-07-04',
-            ut_start='2025-07-04T08:50:00Z',
-            ut_end='2025-07-04T11:50:00Z',
+            window_start='2025-07-04',
+            window_end='2025-07-04',
             filters_bandpass='griz',
             observation_details='Photometric monitoring',
             weather='Clear',
@@ -40,7 +41,11 @@ class TestCampaignRunFieldInventory(TestCase):
         self.assertEqual(reloaded.telescope_instrument, 'FTN/MuSCAT3')
         self.assertEqual(reloaded.site_raw, 'F65')
         self.assertFalse(reloaded.site_needs_review)
-        self.assertEqual(str(reloaded.obs_date), '2025-07-04')
+        self.assertEqual(str(reloaded.window_start), '2025-07-04')
+        self.assertEqual(reloaded.window_start, reloaded.window_end)
+        self.assertFalse(hasattr(reloaded, 'obs_date'))
+        self.assertFalse(hasattr(reloaded, 'ut_start'))
+        self.assertFalse(hasattr(reloaded, 'ut_end'))
         self.assertEqual(reloaded.filters_bandpass, 'griz')
         self.assertEqual(reloaded.observation_details, 'Photometric monitoring')
         self.assertEqual(reloaded.weather, 'Clear')
@@ -52,6 +57,88 @@ class TestCampaignRunFieldInventory(TestCase):
         self.assertEqual(reloaded.contact_email, 'test@example.com')
         self.assertEqual(reloaded.approval_status, CampaignRun.ApprovalStatus.APPROVED)
         self.assertEqual(reloaded.run_status, CampaignRun.RunStatus.OBSERVED)
+
+
+class TestCampaignRunWindowSchema(TestCase):
+    """SCHED-03/SCHED-04: TBD runs and the two partial UniqueConstraints."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS')
+
+    def test_tbd_run_saves_with_both_window_fields_null(self):
+        """SCHED-03: a fully-TBD run (both window fields null) persists and reloads."""
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='JWST',
+            window_start=None,
+            window_end=None,
+            contact_person='Carrie Holt',
+        )
+
+        reloaded = CampaignRun.objects.get(pk=run.pk)
+
+        self.assertIsNone(reloaded.window_start)
+        self.assertIsNone(reloaded.window_end)
+
+    def test_tbd_same_contact_person_collides(self):
+        """SCHED-04 (TBD branch): same campaign+telescope_instrument+contact_person collides."""
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='JWST',
+            window_start=None,
+            window_end=None,
+            contact_person='Carrie Holt',
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                CampaignRun.objects.create(
+                    campaign=self.campaign,
+                    telescope_instrument='JWST',
+                    window_start=None,
+                    window_end=None,
+                    contact_person='Carrie Holt',
+                )
+
+    def test_tbd_differing_contact_person_both_save(self):
+        """SCHED-04 (TBD branch): contact_person discriminates otherwise-identical TBD rows."""
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='JWST',
+            window_start=None,
+            window_end=None,
+            contact_person='Carrie Holt',
+        )
+        with transaction.atomic():
+            second = CampaignRun.objects.create(
+                campaign=self.campaign,
+                telescope_instrument='JWST',
+                window_start=None,
+                window_end=None,
+                contact_person='Martin Cordiner',
+            )
+
+        self.assertIsNotNone(second.pk)
+        self.assertEqual(CampaignRun.objects.filter(telescope_instrument='JWST').count(), 2)
+
+    def test_resolved_window_same_key_collides(self):
+        """SCHED-04 (resolved branch): same campaign+telescope_instrument+window_start+window_end collides."""
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start='2025-07-04',
+            window_end='2025-07-04',
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                CampaignRun.objects.create(
+                    campaign=self.campaign,
+                    telescope_instrument='FTN/MuSCAT3',
+                    window_start='2025-07-04',
+                    window_end='2025-07-04',
+                )
 
 
 class TestCampaignRunOptionalTarget(TestCase):
