@@ -12,7 +12,9 @@ depends on ``telescope_runs.sun_event``, never the heavy SPICE-loading ephemeris
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime
+from datetime import time as dt_time
+from datetime import timezone as dt_timezone
 
 from django.contrib import messages
 from django.contrib.auth.models import User
@@ -38,6 +40,7 @@ from .campaign_tables import ApprovalQueueTable, CampaignRunTable
 from .campaign_utils import resolve_site
 from .mixins import StaffRequiredMixin
 from .models import CampaignRun
+from .telescope_runs import sun_event
 
 logger = logging.getLogger(__name__)
 
@@ -312,31 +315,61 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                 # On approve we resolve the site but never auto-create a placeholder
                 # Observatory for unresolvable public free-text (unlike the already-vetted
                 # CSV import path) -- the run is still approved with site=None +
-                # site_needs_review=True (site failure never blocks approval, and CAL-01
-                # calendar projection only needs telescope_instrument + ut_start + ut_end,
-                # not site).
+                # site_needs_review=True (site failure never blocks approval; D-06's calendar
+                # projection below needs a resolved site, so an unresolved site simply means
+                # no CalendarEvent yet, not a blocked approval).
                 site, needs_review = resolve_site(run.site_raw, create_placeholder=False)
                 run.site, run.site_needs_review = site, needs_review
                 run.save(update_fields=['site', 'site_needs_review'])
 
-                # CAL-01/Pitfall 2: CalendarEvent.start_time/end_time are non-nullable -- only
-                # project when telescope_instrument, ut_start, AND ut_end are all present. A run
-                # missing ut_end simply doesn't get a CalendarEvent yet.
-                if run.telescope_instrument and run.ut_start and run.ut_end:
-                    # Never construct CalendarEvent directly -- always route through the shared
-                    # helper (Don't Hand-Roll) so the CAMPAIGN: namespace stays collision-safe
-                    # against the LCO/Gemini/classical sync commands (T-16-09).
-                    insert_or_create_calendar_event(
-                        {'url': f'CAMPAIGN:{run.pk}'},
-                        fields={
-                            'title': f'{run.campaign.name}: {run.telescope_instrument}',
-                            'description': run.observation_details,
-                            'start_time': run.ut_start,
-                            'end_time': run.ut_end,
-                            'target_list': run.campaign,  # CAL-02
-                            'telescope': run.telescope_instrument,
-                        },
-                    )
+                # D-06/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- only
+                # project a single concrete night (window_start == window_end); a resolved
+                # site is required to pick the ground-vs-space branch. A range, TBD run, or
+                # unresolved site simply doesn't get a CalendarEvent yet.
+                if run.telescope_instrument and run.site and run.window_start and run.window_start == run.window_end:
+                    event_fields = {
+                        'title': f'{run.campaign.name}: {run.telescope_instrument}',
+                        'description': run.observation_details,
+                        'target_list': run.campaign,  # CAL-02
+                        'telescope': run.telescope_instrument,
+                    }
+                    if run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
+                        # Space-based observatory: no fixed horizon for sun_event() to work
+                        # against -- use a midnight-UTC placeholder spanning the window date.
+                        event_fields['start_time'] = datetime.combine(
+                            run.window_start, dt_time(0, 0), tzinfo=dt_timezone.utc
+                        )
+                        event_fields['end_time'] = datetime.combine(
+                            run.window_end, dt_time(23, 59), tzinfo=dt_timezone.utc
+                        )
+                        # Never construct CalendarEvent directly -- always route through the
+                        # shared helper (Don't Hand-Roll) so the CAMPAIGN: namespace stays
+                        # collision-safe against the LCO/Gemini/classical sync commands (T-16-09).
+                        insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
+                    else:
+                        # Ground-based observatory: reuse the same dip-corrected sunset/sunrise
+                        # convention the rest of the calendar feature already uses (kind='sun',
+                        # not 'dark' -- Pitfall 6). A ValueError (e.g. blank site.timezone, or
+                        # no 2 sun-altitude crossings) is logged and skipped, matching
+                        # campaign_gap.observable_dates()'s established discipline -- it must
+                        # never reach the broad except Exception below, which exists to revert
+                        # a half-committed approval, not to handle expected messy site data.
+                        try:
+                            sunset, sunrise = sun_event(run.site, run.window_start, kind='sun')
+                        except ValueError:
+                            logger.debug(
+                                'sun_event(sun) raised for site=%s date=%s; skipping projection.',
+                                run.site,
+                                run.window_start,
+                            )
+                        else:
+                            event_fields['start_time'] = sunset.to_datetime(timezone=dt_timezone.utc).replace(
+                                microsecond=0
+                            )
+                            event_fields['end_time'] = sunrise.to_datetime(timezone=dt_timezone.utc).replace(
+                                microsecond=0
+                            )
+                            insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
             except Exception:
                 # CR-01: the conditional .update() above is its own auto-committed statement,
                 # so the APPROVED transition has already landed. If site resolution (a network
