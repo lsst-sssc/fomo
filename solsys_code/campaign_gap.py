@@ -14,8 +14,7 @@ import side effect") would otherwise be paid by every process that imports this 
 """
 
 import logging
-from datetime import date, time, timedelta
-from zoneinfo import ZoneInfo
+from datetime import date, timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -84,28 +83,6 @@ def build_gap_cache_key(campaign_pk: int, target_pk: int | None, site_pk: int, s
     return f'campaign_gap:{campaign_pk}:{target_segment}:{site_pk}:{start.isoformat()}:{end.isoformat()}'
 
 
-def _observing_night_date(ut_start, tz_name: str) -> date:
-    """Derive the observing-night date label for a UT start time (D-06/D-07).
-
-    Uses the same local-noon-anchored convention `sun_event()` uses: the observing night
-    is labeled by the local calendar date if local time is at or after noon (evening of
-    that date), else by the local calendar date minus one day (early-morning hours belong
-    to the previous evening's night). Keeps the claimed side aligned with the observable
-    side and avoids an off-by-one-night mismatch at sites west of UTC.
-
-    Args:
-        ut_start: an aware datetime (UTC or otherwise) marking the start of an observation.
-        tz_name: IANA timezone name for the site (e.g. 'America/Santiago').
-
-    Returns:
-        date: the observing-night date label.
-    """
-    local = ut_start.astimezone(ZoneInfo(tz_name))
-    if local.time() >= time(12, 0):
-        return local.date()
-    return local.date() - timedelta(days=1)
-
-
 def observable_dates(site, start: date, end: date) -> set[date]:
     """Return the set of dates in [start, end] with a non-zero -15 degree dark window.
 
@@ -149,10 +126,13 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
     separate "unattributed" list rather than being counted as claiming (or not claiming)
     any specific target's dates -- a data-quality signal, not a silent guess either way.
 
-    D-06/D-07: for each counted run, the claimed date is obs_date if set, else derived
-    from ut_start via the site-local observing-night convention. D-08: a run with
-    neither obs_date nor ut_start set cannot be attributed to any date -- it is collected
-    into a separate "undated" list, never added to the claimed set.
+    For each counted run, every date in the inclusive range
+    [window_start, window_end] is claimed (a single-night run has window_start ==
+    window_end, so exactly one date is claimed). A run with window_start is None (TBD)
+    cannot be attributed to any date -- it is collected into a separate "undated" list,
+    never added to the claimed set. This does not distinguish ground vs. space-mission
+    runs (ASSET-02 asset-awareness is explicitly Phase 20's job) -- every counted run
+    claims its full window regardless of site type.
 
     Args:
         campaign: the campaign TargetList.
@@ -176,10 +156,10 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
     # `undated_runs`/`unattributed_runs` and cached -- mirrors CampaignRunTableView's
     # "restrict the queryset, not just the rendered output" discipline. `.only()` (not
     # `.values()`) keeps these as CampaignRun instances so existing pk-based equality and
-    # attribute access downstream keep working; only pk/obs_date/ut_start are fetched.
+    # attribute access downstream keep working; only pk/window_start/window_end are fetched.
     qs = CampaignRun.objects.filter(campaign=campaign, site=site, approval_status=CampaignRun.ApprovalStatus.APPROVED)
     qs = qs.exclude(run_status__in=_EXCLUDED_RUN_STATUSES)
-    qs = qs.only('pk', 'obs_date', 'ut_start')
+    qs = qs.only('pk', 'window_start', 'window_end')
 
     unattributed_runs: list[CampaignRun] = []
     single_target = campaign.targets.count() == 1
@@ -194,19 +174,13 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
     claimed: set[date] = set()
     undated_runs: list[CampaignRun] = []
     for run in qs:
-        if run.obs_date is not None:
-            claimed.add(run.obs_date)
-        elif run.ut_start is not None:
-            try:
-                claimed.add(_observing_night_date(run.ut_start, site.timezone))
-            except ValueError:
-                # CR-02: a site with a blank/unset timezone can't derive an observing
-                # night -- log+skip the same way observable_dates() skips a raising
-                # sun_event() call, rather than letting the whole request crash.
-                logger.debug('Could not derive observing night for run pk=%s (site timezone unset?)', run.pk)
-                undated_runs.append(run)
-        else:
+        if run.window_start is None:
+            # TBD -- can't be attributed to any date (unchanged bucketing rule).
             undated_runs.append(run)
+            continue
+        n_days = (run.window_end - run.window_start).days + 1
+        for i in range(n_days):
+            claimed.add(run.window_start + timedelta(days=i))
 
     return claimed, undated_runs, unattributed_runs
 
