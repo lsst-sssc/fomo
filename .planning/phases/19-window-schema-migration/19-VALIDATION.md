@@ -36,21 +36,20 @@ created: 2026-07-09
 
 ## Per-Task Verification Map
 
-Task IDs are not yet assigned (VALIDATION.md is created before PLAN.md in the
-plan-phase workflow). The planner/executor should map each row below to the
-concrete task(s) that implement it as plans are created; the requirement-level
-mapping itself is fixed by 19-RESEARCH.md's Validation Architecture section.
+Task IDs assigned during planning (2026-07-09). Each row below maps to the
+concrete plan/task that implements it; the requirement-level mapping itself is
+fixed by 19-RESEARCH.md's Validation Architecture section.
 
-| Requirement | Behavior | Test Type | Automated Command | File Exists | Status |
-|-------------|----------|-----------|---------------------|-------------|--------|
-| SCHED-02 | `CampaignRun` savable with `window_start == window_end` (single night) | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ✅ (rewrite `TestCampaignRunFieldInventory`) | ⬜ pending |
-| SCHED-03 | `CampaignRun` savable fully TBD (both window fields null) | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 — new test case needed | ⬜ pending |
-| SCHED-04 | Two TBD rows for same campaign+telescope+contact_person collide (`IntegrityError`); two TBD rows differing only in `contact_person` both save; resolved-window collisions key on all 4 fields | unit | `./manage.py test solsys_code.tests.test_campaign_models` | ❌ W0 — new test cases needed for both constraints | ⬜ pending |
-| SCHED-05 | Migration backfill: every pre-existing row survives with `window_start == window_end == former obs_date`; de-dup removes only the known duplicate pairs | migration / data | `TestCase` against post-migration schema, plus manual `manage.py migrate` dry run against a dev-DB copy (see Manual-Only Verifications) | ❌ W0 — no migration-testing convention exists yet in this repo | ⬜ pending |
-| Table/queue rendering (D-03/D-04/D-05) | TBD badge (or plain-text fallback), `->` range display, nulls-last default sort | unit + view | `./manage.py test solsys_code.tests.test_campaign_views` | ✅ (rewrite `test_default_sort_is_obs_date_descending`; add TBD-badge and range-display cases) | ⬜ pending |
-| Calendar projection (D-06) | Ground vs. space branch produces correct `CalendarEvent` window | unit | `./manage.py test solsys_code.tests.test_campaign_approval` | ✅ (existing calendar-projection tests need window-field rewrite + new space-branch case) | ⬜ pending |
-| Coverage-gap `claimed_dates()` rewrite | Every date in `[window_start, window_end]` claimed; TBD → undated bucket | unit | `./manage.py test solsys_code.tests.test_campaign_gap` | ✅ (rewrite `TestClaimedDates`; delete `_observing_night_date()`-dependent case per Pitfall 5) | ⬜ pending |
-| CSV import lookup key | Natural-key lookup uses `window_start` not `ut_start` | unit | `./manage.py test solsys_code.tests.test_import_campaign_csv` | ✅ (rewrite `test_duplicate_unparseable_ut_time_rows_do_not_merge`, `test_idempotent_rerun_no_duplicates`) | ⬜ pending |
+| Requirement | Behavior | Test Type | Automated Command | Plan/Task | Status |
+|-------------|----------|-----------|---------------------|-----------|--------|
+| SCHED-02 | `CampaignRun` savable with `window_start == window_end` (single night) | unit | `./manage.py test solsys_code.tests.test_campaign_models` | 19-01 Task 2 (schema); consumed by 19-02/03/04 | ⬜ pending |
+| SCHED-03 | `CampaignRun` savable fully TBD (both window fields null) | unit | `./manage.py test solsys_code.tests.test_campaign_models` | 19-01 Task 2 | ⬜ pending |
+| SCHED-04 | Two TBD rows for same campaign+telescope+contact_person collide (`IntegrityError`); two TBD rows differing only in `contact_person` both save; resolved-window collisions key on all 4 fields | unit | `./manage.py test solsys_code.tests.test_campaign_models` | 19-01 Task 2 (constraints); 19-04 Task 1 (import key) | ⬜ pending |
+| SCHED-05 | Migration backfill: every pre-existing row survives with `window_start == window_end == former obs_date`; de-dup removes only the known duplicate pairs | migration / data | `TestCase` against post-migration schema, plus manual `manage.py migrate` dry run against a dev-DB copy (see Manual-Only Verifications) | 19-01 Task 1 (migration) + manual dry run | ⬜ pending |
+| Table/queue rendering (D-03/D-04/D-05) | TBD badge (or plain-text fallback), `->` range display, nulls-last default sort | unit + view | `./manage.py test solsys_code.tests.test_campaign_views` | 19-03 Task 1 | ⬜ pending |
+| Calendar projection (D-06) | Ground vs. space branch produces correct `CalendarEvent` window | unit | `./manage.py test solsys_code.tests.test_campaign_approval` | 19-03 Task 2 | ⬜ pending |
+| Coverage-gap `claimed_dates()` rewrite | Every date in `[window_start, window_end]` claimed; TBD → undated bucket | unit | `./manage.py test solsys_code.tests.test_campaign_gap` | 19-02 Task 1 (impl) + Task 2 (tests) | ⬜ pending |
+| CSV import lookup key | Natural-key lookup uses `window_start` not `ut_start` | unit | `./manage.py test solsys_code.tests.test_import_campaign_csv` | 19-04 Task 1 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
