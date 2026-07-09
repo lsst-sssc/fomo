@@ -43,3 +43,4 @@ Design Notes
    tom_calendar_vs_yse_pz_calendar
    gsd_experiment
    eso_feasibility_spike
+   uncertain_scheduling_spike
