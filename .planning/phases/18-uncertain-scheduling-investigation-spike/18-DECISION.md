@@ -1,9 +1,9 @@
 # Phase 18: Uncertain-Scheduling Investigation Spike - Decision
 
 **Investigated:** 2026-07-09
-**Status:** Findings recorded (SCHED-01 criteria 2-5) against the real 3I/ATLAS coordination
-sheet (2026-07-09 snapshot) and the live local `Observatory` DB/MPC Obscodes API.
-Recommendation and Durable summary to be completed in Plan 02.
+**Status:** Complete. Findings recorded (SCHED-01 criteria 2-5) against the real 3I/ATLAS
+coordination sheet (2026-07-09 snapshot) and the live local `Observatory` DB/MPC Obscodes API.
+Recommendation (all five SCHED-01 criteria) and Durable summary now recorded below.
 
 This phase is investigation-only, mirroring Phase 13's ESO feasibility spike. No
 `CampaignRun` schema migration, no `import_campaign_csv`/`parse_obs_window()` change, and no
@@ -180,8 +180,147 @@ investigation-only phase boundary).
 
 ## Recommendation
 
-<!-- completed in Plan 02 -->
+Five locked decisions, each resting directly on a Finding above — Phases 19-21 implement
+these without re-deriving anything.
+
+### Criterion 1 — Window schema: confirmed as-is
+
+**Locked schema (already decided pre-spike, now validated against real rows): a nullable
+`window_start`/`window_end` `DateField` pair — not `DateTimeField`, not
+`django.contrib.postgres.fields.DateRangeField`.** The criterion-3 Finding's real cell
+shapes map onto this pair cleanly with no schema change needed:
+
+- A single-night exact date (`2025-11-27`) -> `window_start == window_end` (both set).
+- A `" to "` range or compact same-month range (`2025-07-05 to 2025-09-22`,
+  `2025-11-02 -25`) -> `window_start` != `window_end`, both set.
+- A `2025-12-?` month-known-day-TBD marker, or a blank `Obs. Date` entirely -> both
+  `window_start` and `window_end` `NULL`.
+
+No real row in the criterion-3 sample produced a shape this pair cannot represent (no
+third boundary, no open-ended range, no fractional-day case). Phase 19 implements this
+pair exactly as already specified — this criterion needed confirmation, not a new
+decision.
+
+### Criterion 4 — Fuzzy-match library: split verdict (difflib primary, rapidfuzz deferred)
+
+**Verdict: `difflib.get_close_matches` is the default/primary choice for Phase 21 — no
+new dependency, and this live test found no case where `rapidfuzz` demonstrated a real
+matching advantage over it on the D-09 corpus. Add `rapidfuzz` to `pyproject.toml`
+explicitly only if a later, wider candidate pool surfaces a case difflib genuinely
+misses; it is not justified by this spike's evidence.**
+
+This is derived directly from the criterion-4 Finding's scores, not asserted
+independently:
+
+- On the two "hits" — `X09` -> `'309'` (rapidfuzz `WRatio`/`token_sort_ratio`/
+  `token_set_ratio` all score `66.67`; difflib returns `['809', '309']`) and `C65` ->
+  `'F65'` (rapidfuzz `66.67` across all three scorers; difflib returns `['F65']`) — both
+  libraries produce the *same* match, and the Finding already establishes both are false
+  positives: character-position overlap against an unrelated local `Observatory.obscode`
+  entry, not a real candidate. Neither library's underlying algorithm (Levenshtein-family
+  vs. Ratcliff-Obershelp) discriminated between a real and a coincidental match here.
+- On the three genuine misses — `N50`, `X07`, and the blank D-07 case — both libraries
+  agree there is nothing to match (`None` for rapidfuzz at `score_cutoff=60`, `[]` for
+  difflib at `cutoff=0.6`). No split in outcome.
+- RESEARCH Pitfall 2 predicted `rapidfuzz`'s `token_sort_ratio`/`token_set_ratio` might
+  outperform `WRatio` on the long-human-readable-name cases (e.g. `C65` against
+  `"Telescope Joan Oró, Montsec, Catalonia"`-shaped candidates) precisely because
+  word-order-insensitive scoring is a capability difflib lacks. This live run's candidate
+  pool did not contain a long-name candidate close enough to `C65` to test that
+  discriminator in practice (`'F65'` — an unrelated 3-char code — won regardless of
+  scorer). RESEARCH Open Questions §1 anticipated exactly this possible outcome ("a split
+  verdict... difflib fine for exact/near-exact cases") — that is the verdict this live
+  test actually produced.
+- The finding's real scoping caveat still stands regardless of library choice: the
+  current local `Observatory` table (8 rows) is too narrow a candidate pool for either
+  library to meaningfully fuzzy-match arbitrary external site codes — Phase 21's design
+  should weigh widening the candidate pool (e.g. to the live MPC Obscodes list) or
+  running the fuzzy match only after `resolve_site()`'s own Tier 1/2 have already missed,
+  independent of which library it picks.
+- Per RESEARCH Pitfall 4: if a future Phase 21 iteration does decide `rapidfuzz`'s
+  token-order-insensitive scorers are worth the dependency, it must be added to
+  `pyproject.toml` explicitly — its presence in this dev venv today is an incidental
+  transitive dependency of `cleo`/`poetry`, not a project dependency, and cannot be relied
+  on in CI or a fresh `./.setup_dev.sh` environment.
+- Neither library bridges the `500@-170`-vs-`274` notation gap (criterion-5 Finding): a
+  straight fuzzy-string match against `Observatory.name`/`short_name`/`old_names` will
+  not turn JPL/SPICE observer notation into the correct MPC code — that is a distinct
+  Phase 21 problem this spike does not solve, regardless of library choice.
+
+### Criterion 5 — Obscode widening: no widening needed
+
+**Verdict: no widening of `Observatory.obscode` (`max_length=4`) is needed.** The
+criterion-5 Finding confirms directly against the live field definition and real/
+constructed resolution attempts: `250`, `274`, and `289` are each 3 characters and fit
+comfortably within `max_length=4`; the length guard correctly flags the real
+over-length `500@-170` JWST `Site Code` value (8 characters) for manual review rather
+than truncating or fabricating a match. The Finding's separate discovery — that
+`resolve_site()` cannot currently complete Tier 2 for `250`/`274`/`289` due to an
+unguarded `float(None)` `TypeError` on the MPC API's `null` longitude for
+satellite-type records — is an unrelated `to_observatory()` bug, not an obscode-length
+problem; it is flagged for Phase 19/21 awareness but does not change this verdict. Only
+revisit widening `max_length` if a future real code is discovered that exceeds 4
+characters.
+
+### Criterion 2 — TBD natural key: fold `contact_person` into the key for null-window rows
+
+**Locked recommendation (restating D-06, now backed by real-row evidence): for rows
+where `window_start IS NULL` (day-unknown), extend the natural key with
+`contact_person` — already an existing `CampaignRun` field, populated on every real row
+seen — via a partial/conditional `UniqueConstraint` scoped to `window_start IS NULL`.**
+The exact constraint mechanism is Phase 19's to design; this phase's job is only to
+confirm the real evidence the design must satisfy. That evidence is the criterion-2
+Finding: two genuinely distinct real rows (different JWST instrument configurations,
+distinct contact persons per D-06, confirmed here via the `Filter(s)/Bandpass` column
+alone) share `Telescope / Instrument = 'JWST'` and `Obs. Date = '2025-12-?'`, which would
+collide under `(campaign, telescope_instrument, window_start)` alone once
+`window_start` is `NULL` for both. Without folding `contact_person` into the key, Phase
+19's schema would silently merge two real, distinct campaign runs.
+
+### Criterion 3 — CSV range/TBD parsing rules: pattern-per-shape extension for Phase 20
+
+**Recommendation for Phase 20 (not implemented here): extend `parse_obs_window()`'s
+existing pattern-per-shape discipline — the same approach already used for
+`_HHMM_RANGE`, `_APPROX_HOUR`, and `_BARE_HOUR_UTC` on the `UT Time Range` column — to
+`Obs. Date`, adding one narrowly-scoped rule per real shape enumerated in the
+criterion-3 Finding, rather than replacing it with a general-purpose/permissive date
+parser.** One rule per real shape:
+
+- Blank `Obs. Date` entirely -> `window_start = window_end = NULL`.
+- `" to "`-separated full-date range (`2025-07-05 to 2025-09-22`) -> `window_start` /
+  `window_end` parsed from each side.
+- Compact same-month range (`2025-11-02 -25`) -> `window_start` = the full date,
+  `window_end` = same year/month with the second day, per the criterion-3 Finding's
+  worked example.
+- `YYYY-MM-?` month-known-day-TBD marker (`2025-12-?`) -> `window_start = window_end =
+  NULL` (day genuinely unknown; distinct from the blank case only in that the
+  year/month is known and should still be recorded somewhere for display, e.g. an
+  `original_obs_date_raw` free-text field — exact field design is Phase 19/20's call).
+
+Two cross-cutting rules the criterion-3 Finding establishes as load-bearing, not
+optional:
+
+- **D-04 — inspect BOTH columns.** Range/TBD detection must check `UT Time Range` as
+  well as `Obs. Date`: the Finding's spot-check confirms real rows (`HST STIS/COS`,
+  `Swift/UVOT`, `VLT/UVES`) type their multi-day range into `UT Time Range` while
+  `Obs. Date` itself remains an exact, valid date. A parser that only inspects
+  `Obs. Date` for range syntax would silently miss all three of these real rows.
+- **D-05/D-07 — never raise on messy non-key fields; flag needs-review.** The Finding's
+  live spot-check of today's `parse_obs_window()` shows it already falls back to
+  midnight UTC with `ut_needs_review=True` rather than raising whenever `Obs. Date` is a
+  valid exact date but `UT Time Range` is messy, ranged, TBD, or genuine copy-paste
+  garbage (the Palomar preamble-fragment case). Phase 20's `Obs. Date`-side extension
+  must preserve this same "never raise, flag for review" posture for its own new range/
+  TBD shapes — it should raise only on truly malformed `Obs. Date` values outside the
+  enumerated shapes above, exactly as today's parser already raises on anything outside
+  its exact-`%Y-%m-%d` contract.
+
+These are recommendations Phase 20 implements, not a simplified or placeholder version
+of that work — the shapes are exhaustively enumerated from the real 2026-07-09 snapshot
+(criterion-3 Finding), not guessed.
 
 ## Durable summary
 
-<!-- completed in Plan 02 -->
+See `docs/design/uncertain_scheduling_spike.rst` for the durable, redaction-free summary
+of these five decisions — written for future milestones to reference without digging
+into this findings record.
