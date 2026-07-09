@@ -288,7 +288,7 @@ def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]
     Args:
         lookup: keyword-argument mapping used as the unique lookup key for
             ``CampaignRun.objects.get_or_create`` (D-04: campaign, telescope_instrument,
-            ut_start).
+            window_start).
         fields: field-value mapping of ``CampaignRun`` attributes to set when creating or
             updating. Not merged with `lookup`; the caller is responsible for ensuring
             the combined key+fields set is complete.

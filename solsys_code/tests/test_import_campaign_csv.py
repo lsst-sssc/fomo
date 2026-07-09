@@ -293,9 +293,9 @@ class TestCampaignUtils(TestCase):
         lookup = {
             'campaign': campaign,
             'telescope_instrument': 'FTN',
-            'ut_start': datetime(2025, 7, 4, 8, 50, tzinfo=dt_timezone.utc),
+            'window_start': date(2025, 7, 4),
         }
-        fields = {'obs_date': date(2025, 7, 4), 'run_status': CampaignRun.RunStatus.OBSERVED}
+        fields = {'window_end': date(2025, 7, 4), 'run_status': CampaignRun.RunStatus.OBSERVED}
 
         run1, action1 = insert_or_create_campaign_run(lookup, fields)
         self.assertEqual(action1, 'created')
@@ -334,6 +334,9 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(run.site.obscode, 'F65')
         self.assertFalse(run.site_needs_review)
         self.assertEqual(run.run_status, CampaignRun.RunStatus.OBSERVED)
+        # Window-schema single-night collapse: window_start == window_end == Obs. Date.
+        self.assertEqual(run.window_start, date(2025, 7, 4))
+        self.assertEqual(run.window_end, date(2025, 7, 4))
 
     def test_auto_resolves_single_target_campaign(self):
         """D-07/CAMP-02: a single-Target campaign auto-assigns that Target to every imported row."""
@@ -419,8 +422,12 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(run.site_raw, '500@-170')
 
     def test_duplicate_unparseable_ut_time_rows_do_not_merge(self):
-        """CR-02: two same-telescope/same-date rows with unparseable UT Time Range must not
-        collide on the natural key and silently merge into one CampaignRun.
+        """CR-02 (window-schema rethink): window_start is date-only, so two same-telescope/
+        same-date rows with unparseable UT Time Range now collide on the natural key too.
+        The importer must not silently merge them into one CampaignRun (losing one row's
+        data), must not crash, and must not fabricate a fake sub-second offset (the old
+        mechanism, impossible now that window_start is a DateField) -- it logs the
+        duplicate and skips it, keeping exactly the first row's CampaignRun.
         """
         path, ctx = self._write_csv(
             [
@@ -441,14 +448,24 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
             ]
         )
         with ctx:
+            stdout_buf = io.StringIO()
             stderr_buf = io.StringIO()
             call_command(
-                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=stderr_buf
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout_buf, stderr=stderr_buf
             )
 
-        self.assertEqual(CampaignRun.objects.count(), 2)
-        self.assertIn('WARNING', stderr_buf.getvalue())
-        self.assertIn('duplicate natural key', stderr_buf.getvalue())
+        # Exactly one CampaignRun -- not two (merge) and not a crash.
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        run = CampaignRun.objects.first()
+        self.assertEqual(run.window_start, date(2025, 7, 6))
+        self.assertEqual(run.window_end, date(2025, 7, 6))
+        # The duplicate is logged and counted as skipped, not fabricated with an offset.
+        err = stderr_buf.getvalue()
+        self.assertIn('WARNING', err)
+        self.assertIn('duplicate natural key', err)
+        self.assertNotIn('offsetting', err)
+        self.assertIn('created: 1', stdout_buf.getvalue())
+        self.assertIn('skipped: 1', stdout_buf.getvalue())
 
     def test_natural_key_failure_skipped_and_logged(self):
         """D-05: a bad Obs. Date row is skipped and logged; a good sibling row still imports."""
@@ -509,7 +526,9 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertNotIn('real.person@example.com', err)
 
     def test_idempotent_rerun_no_duplicates(self):
-        """D-04: running the command twice over the same CSV produces no duplicate CampaignRuns."""
+        """D-04: running the command twice over the same CSV produces no duplicate CampaignRuns,
+        keyed on the window natural key (campaign, telescope_instrument, window_start).
+        """
         Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
         path, ctx = self._write_csv(
             [
@@ -534,7 +553,9 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
                 'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout2, stderr=io.StringIO()
             )
             second_count = CampaignRun.objects.count()
+            run = CampaignRun.objects.first()
 
+        self.assertEqual(run.window_start, date(2025, 7, 4))
         self.assertEqual(first_count, 1)
         self.assertEqual(second_count, 1)
         self.assertIn('created: 0', stdout2.getvalue())

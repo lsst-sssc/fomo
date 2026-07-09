@@ -1,5 +1,5 @@
 import csv
-from datetime import timedelta
+from datetime import date
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -52,6 +52,13 @@ class Command(BaseCommand):
         rather than aborting the row. Site resolution (D-08/D-09) never skips a row --
         an unresolved site is flagged via `site_needs_review` and counted separately.
 
+        The window-schema natural key (`campaign`, `telescope_instrument`, `window_start`)
+        is date-only (single-night collapse: `window_end` == `window_start` == the parsed
+        `Obs. Date`), so two rows sharing the same telescope/campaign/date now collide on
+        the key regardless of whether their `UT Time Range` cells parsed. A genuine
+        same-date collision is logged and skipped rather than silently merged into one
+        `CampaignRun` (D-07/D-08) -- Phase 20 owns real range/TBD disambiguation.
+
         WR-07: `fields['target']` is unconditionally set to the campaign's auto-resolved
         Target (D-07) on every row, every run -- including on a re-import that updates an
         existing row. This is expected/acceptable for this bootstrap-import command (not
@@ -73,13 +80,13 @@ class Command(BaseCommand):
         unchanged_count = 0
         skipped_count = 0
         site_needs_review_count = 0
-        # CR-02: parse_obs_window's unparseable-time fallback always resolves to the same
-        # midnight-UTC timestamp for a given obs_date. Two distinct rows sharing the same
-        # telescope/campaign/date that both fall back here would otherwise collide on the
-        # (campaign, telescope_instrument, ut_start) natural key and silently merge in
-        # insert_or_create_campaign_run. Track how many times each such key has been seen
-        # in this batch so repeats get a disambiguating offset instead of merging.
-        seen_fallback_keys: dict[tuple[Any, str, Any], int] = {}
+        # CR-02 (window-schema rethink): window_start is date-only, so the natural key is
+        # now (campaign, telescope_instrument, obs_date) -- any two rows sharing that key
+        # collide, not just rows that both fell back to parse_obs_window's
+        # unparseable-UT midnight default. Track keys already seen in this batch so a
+        # genuine duplicate is logged and skipped rather than silently merged into one
+        # CampaignRun via insert_or_create_campaign_run's get_or_create.
+        seen_window_keys: set[tuple[Any, str, date]] = set()
 
         try:
             with open(filepath, encoding='utf-8', newline='') as f:
@@ -101,7 +108,10 @@ class Command(BaseCommand):
             try:
                 if not telescope_instrument:
                     raise ValueError('Telescope / Instrument is required and was blank')
-                obs_date, ut_start, ut_end, ut_needs_review = parse_obs_window(
+                # ut_start/ut_end are no longer stored (window schema is date-only) -- only
+                # obs_date (-> window_start/window_end) and ut_needs_review (collision
+                # log wording) are used.
+                obs_date, _ut_start, _ut_end, ut_needs_review = parse_obs_window(
                     row.get('Obs. Date', ''), row.get('UT Time Range', '')
                 )
             except ValueError as exc:
@@ -115,21 +125,21 @@ class Command(BaseCommand):
                 skipped_count += 1
                 continue
 
-            if ut_needs_review:
-                # See seen_fallback_keys comment above (CR-02): disambiguate repeats of
-                # the same fallback natural key within this import so distinct rows don't
-                # silently merge, and flag it so the operator knows to check the source
-                # rows' UT Time Range cells.
-                collision_key = (campaign.pk, telescope_instrument, ut_start)
-                collision_count = seen_fallback_keys.get(collision_key, 0)
-                if collision_count:
-                    ut_start = ut_start + timedelta(seconds=collision_count)
-                    self.stderr.write(
-                        f'Row {row_num}: WARNING duplicate natural key for unparseable/blank UT Time Range '
-                        f'(Telescope/Instrument={telescope_instrument!r}, Obs. Date={obs_date!r}); '
-                        f'offsetting ut_start by {collision_count}s to avoid merging distinct rows'
-                    )
-                seen_fallback_keys[collision_key] = collision_count + 1
+            # See seen_window_keys comment above (CR-02): window_start collapses to
+            # obs_date, so this check now runs for every row, not just ones whose UT
+            # Time Range fell back to the unparseable-UT default.
+            collision_key = (campaign.pk, telescope_instrument, obs_date)
+            if collision_key in seen_window_keys:
+                self.stderr.write(
+                    f'Row {row_num}: WARNING duplicate natural key '
+                    f'(Telescope/Instrument={telescope_instrument!r}, Obs. Date={obs_date!r}); '
+                    f'skipping row to avoid merging distinct observations into one CampaignRun -- '
+                    f"check the source rows' UT Time Range cells"
+                    + (' (unparseable/blank UT Time Range)' if ut_needs_review else '')
+                )
+                skipped_count += 1
+                continue
+            seen_window_keys.add(collision_key)
 
             site_raw = row.get('Site Code', '') or ''
             site, needs_review = resolve_site(site_raw)
@@ -143,8 +153,7 @@ class Command(BaseCommand):
                 'site': site,
                 'site_raw': site_raw,
                 'site_needs_review': needs_review,
-                'obs_date': obs_date,
-                'ut_end': ut_end,
+                'window_end': obs_date,  # single-night collapse: window_end == window_start == obs_date
                 'filters_bandpass': row.get('Filter(s)/Bandpass', '') or '',
                 'observation_details': row.get('Observation Details', '') or '',
                 'weather': row.get('Weather conditions or forecast', '') or '',
@@ -159,7 +168,7 @@ class Command(BaseCommand):
             }
 
             run, action = insert_or_create_campaign_run(
-                {'campaign': campaign, 'telescope_instrument': telescope_instrument, 'ut_start': ut_start},
+                {'campaign': campaign, 'telescope_instrument': telescope_instrument, 'window_start': obs_date},
                 fields,
             )
             if action == 'created':
