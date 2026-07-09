@@ -18,7 +18,7 @@ from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, F
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -52,9 +52,8 @@ ALLOWED_FIELDS_FOR_NON_STAFF = [
     'site__short_name',
     'site_raw',
     'site_needs_review',
-    'obs_date',
-    'ut_start',
-    'ut_end',
+    'window_start',
+    'window_end',
     'filters_bandpass',
     'run_status',
     'approval_status',
@@ -83,22 +82,38 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
     table_pagination = {'per_page': 25}  # D-11
 
     def get_queryset(self):
-        """Restrict to this campaign; non-staff get a PII-safe .values() queryset (D-13)."""
+        """Restrict to this campaign; non-staff get a PII-safe .values() queryset (D-13).
+
+        D-04: default-sorts resolved rows first (most recent window_start first), TBD
+        (window_start is NULL) rows last -- portably across SQLite/PostgreSQL, which
+        default to opposite implicit NULL-ordering directions for DESC (RESEARCH.md
+        Pattern 4/Anti-Patterns). Applied here (not django-tables2's Meta.order_by,
+        which only compiles bare accessor strings) for both the staff and non-staff
+        branches.
+        """
         campaign_pk = self.kwargs['pk']
         qs = CampaignRun.objects.filter(campaign_id=campaign_pk)
         if self.request.user.is_staff:
-            return qs.select_related('site')
+            return qs.select_related('site').order_by(F('window_start').desc(nulls_last=True))
         # D-09/SUBMIT-02: non-staff see approved AND rejected runs; only pending_review is
         # hidden. Queryset-level exclude (not a template conditional) so pending rows never
         # enter the non-staff SELECT -- mirrors D-13's existing discipline (T-16-07).
         qs = qs.exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        qs = qs.order_by(F('window_start').desc(nulls_last=True))
         return qs.values(*ALLOWED_FIELDS_FOR_NON_STAFF)
 
     def get_table_kwargs(self):
-        """Belt-and-suspenders: also drop contact columns from the rendered table (D-13)."""
+        """Belt-and-suspenders: also drop contact columns from the rendered table (D-13).
+
+        D-04: 'order_by': () suppresses django-tables2's own default sort so it doesn't
+        clobber get_queryset()'s nulls-last ordering (mirrors the existing
+        decided_table = ApprovalQueueTable(..., order_by=()) precedent in
+        ApprovalQueueView below). Interactive column-header sorting (RequestConfig)
+        still works normally on top of this.
+        """
         if not self.request.user.is_staff:
-            return {'exclude': ('contact_person', 'contact_email')}
-        return {}
+            return {'exclude': ('contact_person', 'contact_email'), 'order_by': ()}
+        return {'order_by': ()}
 
     def get_context_data(self, **kwargs):
         """Add the campaign (TargetList) and D-14 gap-analysis-button availability to context."""
@@ -236,12 +251,13 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
         ).select_related('campaign', 'site')
         # Pitfall 1: CampaignRun has no modified/timestamp field -- order by -pk (a reasonable
         # recency proxy) and cap at 20 rows. Materialized to a list before handing it to the
-        # table: django-tables2 applies its Meta.order_by (inherited '-obs_date' from
-        # CampaignRunTable) by re-sorting the table's data on construction, and Django refuses
-        # to call .order_by() again on an already-sliced queryset (`Cannot reorder a query once
-        # a slice has been taken`). A plain list sidesteps that entirely (django-tables2 sorts
-        # lists in Python via TableListData.order_by), and order_by=() below suppresses the
-        # inherited default sort so the -pk selection order is preserved on first render.
+        # table: django-tables2's table construction would otherwise re-sort the data, and
+        # Django refuses to call .order_by() again on an already-sliced queryset (`Cannot
+        # reorder a query once a slice has been taken`). A plain list sidesteps that entirely
+        # (django-tables2 sorts lists in Python via TableListData.order_by), and order_by=()
+        # below suppresses any default sort so the -pk selection order is preserved on first
+        # render (D-04's nulls-last window sort is a CampaignRunTableView-only concern; this
+        # queue view intentionally orders by recency, not window_start).
         decided_qs = (
             CampaignRun.objects.exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
             .select_related('campaign', 'site')

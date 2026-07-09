@@ -10,7 +10,7 @@ non-sidereal-only fixtures for this project) and a plain `is_staff=True` `User` 
 prior `is_staff` test precedent exists in this codebase per 15-RESEARCH.md Wave 0 Gaps).
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -18,6 +18,7 @@ from django.urls import reverse
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.campaign_tables import CampaignRunTable
 from solsys_code.models import CampaignRun
 
 # Cycle of run_status values for the "filler" rows -- deliberately excludes PLANNED/OBSERVED/
@@ -38,7 +39,6 @@ _CYCLE_APPROVAL_STATUSES = [
 
 _TOTAL_RUNS = 30  # > 25 so pagination (D-11) is genuinely exercised
 _BASE_DATE = date(2026, 6, 1)
-_BASE_UT = datetime(2026, 6, 1, 8, 0, 0, tzinfo=timezone.utc)
 
 CONTACT_PERSON = 'Jane Coordinator'
 CONTACT_EMAIL = 'jane@example.org'
@@ -55,16 +55,15 @@ class CampaignViewTestBase(TestCase):
 
         cls.runs = []
         for i in range(_TOTAL_RUNS):
-            obs_date = _BASE_DATE + timedelta(days=i)
-            ut_start = _BASE_UT + timedelta(days=i)
+            window_date = _BASE_DATE + timedelta(days=i)
             kwargs = {
                 'campaign': cls.campaign,
                 'telescope_instrument': f'FTN/MuSCAT3-{i}',
-                'obs_date': obs_date,
-                'ut_start': ut_start,
+                'window_start': window_date,
+                'window_end': window_date,
             }
             if i == _TOTAL_RUNS - 1:
-                # Most-recent row (highest obs_date -- always page 1, first row per D-10).
+                # Most-recent row (highest window_start -- always page 1, first row per D-10).
                 # Carries the seeded contact PII and open_to_collaboration=True so VIEW-03/
                 # VIEW-04 assertions never depend on which pagination page a row lands on.
                 kwargs.update(
@@ -109,7 +108,7 @@ class CampaignViewTestBase(TestCase):
 
 
 class TestCampaignRunTableView(CampaignViewTestBase):
-    """VIEW-01: table lists all runs for a campaign, 25/page, default-sorted obs_date desc.
+    """VIEW-01: table lists all runs for a campaign, 25/page, default-sorted window_start desc.
 
     These assertions are about generic table mechanics (pagination, sort, full row-status
     coverage), not approval-status visibility gating -- exercised via the staff client so
@@ -136,11 +135,63 @@ class TestCampaignRunTableView(CampaignViewTestBase):
         seen_statuses = {self._row_value(row.record, 'run_status') for row in table.page.object_list}
         self.assertEqual(seen_statuses, set(CampaignRun.RunStatus.values))
 
-    def test_default_sort_is_obs_date_descending(self):
+    def test_default_sort_is_window_start_desc_tbd_last(self):
+        """D-04: resolved rows lead (most recent window_start first); a TBD row (both
+        window fields null) sorts last -- portably across backends via
+        F('window_start').desc(nulls_last=True), never relying on the DB's own implicit
+        NULL-ordering default (SQLite/PostgreSQL disagree on that direction)."""
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='TBD-Telescope',
+            contact_person='TBD Coordinator',
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
         response = self.client.get(self.table_url())
         table = response.context['table']
         first_record = table.page.object_list[0].record
-        self.assertEqual(self._row_value(first_record, 'obs_date'), self.most_recent_run.obs_date)
+        self.assertEqual(self._row_value(first_record, 'window_start'), self.most_recent_run.window_start)
+
+        last_page_rows = list(table.paginator.page(table.paginator.num_pages).object_list)
+        last_record = last_page_rows[-1].record
+        self.assertIsNone(self._row_value(last_record, 'window_start'))
+
+
+class TestWindowColumnRendering(TestCase):
+    """D-03/D-05: TBD badge, single-date, and range-arrow rendering for the window column.
+
+    Exercises CampaignRunTable.render_window_start() directly (no HTTP round trip needed --
+    this is purely about the render method's output, mirroring test_campaign_approval.py's
+    TestApprovalQueueSiteVisibility precedent for render_site()).
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Render Campaign')
+
+    def test_tbd_row_renders_tbd_indicator(self):
+        run = CampaignRun.objects.create(
+            campaign=self.campaign, telescope_instrument='TBD Scope', contact_person='Render Contact'
+        )
+        cell = CampaignRunTable([run]).rows[0].get_cell('window_start')
+        self.assertIn('TBD', cell)
+
+    def test_range_row_renders_arrow(self):
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='Range Scope',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 15),
+        )
+        cell = CampaignRunTable([run]).rows[0].get_cell('window_start')
+        self.assertIn('-&gt;', cell)
+
+    def test_single_night_row_renders_one_date(self):
+        d = date(2026, 8, 1)
+        run = CampaignRun.objects.create(
+            campaign=self.campaign, telescope_instrument='Single Night Scope', window_start=d, window_end=d
+        )
+        cell = CampaignRunTable([run]).rows[0].get_cell('window_start')
+        self.assertEqual(cell, d)
 
 
 class TestContactFieldGating(CampaignViewTestBase):

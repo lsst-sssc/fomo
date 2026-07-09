@@ -55,9 +55,7 @@ class CampaignRunTable(tables.Table):
         fields = (
             'telescope_instrument',
             'site',
-            'obs_date',
-            'ut_start',
-            'ut_end',
+            'window_start',
             'filters_bandpass',
             'run_status',
             'approval_status',
@@ -70,7 +68,6 @@ class CampaignRunTable(tables.Table):
             'contact_person',
             'contact_email',
         )
-        order_by = ('-obs_date',)  # D-10
         template_name = 'django_tables2/bootstrap4-responsive.html'
         attrs = {'class': 'table table-bordered table-sm'}
         empty_text = 'No runs match these filters. Clear filters to see all runs for this campaign.'
@@ -136,6 +133,21 @@ class CampaignRunTable(tables.Table):
             site_raw,
         )
 
+    def render_window_start(self, record):
+        """Render the observing window as a TBD badge, single date, or 'start -> end' range.
+
+        Resolves both window_start/window_end via Accessor (D-03/D-05) so this works
+        identically whether record is a dict (non-staff) or a CampaignRun instance
+        (staff) -- mirrors render_site()'s dict-vs-model dual-accessor precedent.
+        """
+        start = Accessor('window_start').resolve(record, quiet=True)
+        end = Accessor('window_end').resolve(record, quiet=True)
+        if start is None:  # both null by the model's own invariant
+            return format_html('<span class="badge badge-secondary">TBD</span>')
+        if start == end:
+            return start  # single-night row (D-05)
+        return format_html('{} -&gt; {}', start, end)  # D-05: literal "->", not an en-dash
+
     def render_open_to_collaboration(self, value):
         """Render open_to_collaboration as a Yes/No icon (UI-SPEC column set)."""
         if value:
@@ -171,9 +183,7 @@ class ApprovalQueueTable(CampaignRunTable):
             'approval_status',
             'telescope_instrument',
             'site',
-            'obs_date',
-            'ut_start',
-            'ut_end',
+            'window_start',
             '...',
         )
 
