@@ -6,14 +6,14 @@ current_phase: 19
 current_phase_name: window-schema-migration
 status: executing
 stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-07-09T22:37:14.354Z"
+last_updated: "2026-07-09T23:01:27.757Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 19 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 25
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 19 (window-schema-migration) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-09 — Phase 19 execution started
 
@@ -91,6 +91,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 18 | 2 | - | - |
 | Phase 19 P01 | 20min | 2 tasks | 3 files |
 | Phase 19 P02 | 10min | 2 tasks | 2 files |
+| Phase 19 P03 | ~20min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 19]: TBD UniqueConstraint deliberately excludes window_start/window_end from its fields tuple (always NULL under its own condition) and keys on contact_person instead
 - [Phase 19]: [Phase 19] Deleted _observing_night_date() outright rather than deprecating it -- window_start/window_end are already plain dates, no time-of-day-to-night-boundary conversion needed
 - [Phase 19]: [Phase 19] Deleted test_ut_start_only_keys_to_site_local_observing_night rather than renaming it -- the code path it tested no longer exists under the window schema
+- [Phase 19]: render_window_start() returns the literal '-&gt;' HTML entity (not a plain hyphen/en-dash) for a range row, per D-05's exact wording
+- [Phase 19]: TestApproval/TestCalendarNoChurn each got their own scoped ground-Observatory fixture (not added to the shared CampaignApprovalTestBase) so D-06's site-required calendar projection doesn't break TestApprovalSiteResolution's Observatory.objects.count()==0 assertions
 
 ### Pending Todos
 
@@ -161,7 +164,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T22:37:14.345Z
+Last session: 2026-07-09T23:01:27.742Z
 Stopped at: Completed 19-02-PLAN.md
 Resume file: None
 
