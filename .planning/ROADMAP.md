@@ -133,7 +133,7 @@ Plans:
   4. Every existing `CampaignRun` row survives the migration with `window_start == window_end == former obs_date` — no data loss
   5. The existing per-campaign table, approval queue, and coverage-gap pages still render correctly against the new window fields
 
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
@@ -142,7 +142,7 @@ Plans:
 
 **Wave 2** *(all depend on 19-01; no file overlap, run in parallel)*
 
-- [ ] 19-02-PLAN.md — Coverage-gap consumer: rewrite claimed_dates() to iterate the window range, delete _observing_night_date()
+- [x] 19-02-PLAN.md — Coverage-gap consumer: rewrite claimed_dates() to iterate the window range, delete _observing_night_date()
 - [ ] 19-03-PLAN.md — Views/display/forms/projection: window display column (D-03/05), nulls-last sort (D-04), D-06 hybrid ground/space calendar projection, PII allowlist swap, collapsed submission form
 - [ ] 19-04-PLAN.md — CSV import: window natural-key lookup + collision rethink + regenerated demo notebook
 
@@ -198,7 +198,7 @@ Plans:
 | 16. Submission Form, Approval Queue & Calendar Projection | v2.0 | 5/5 | Complete | 2026-07-04 |
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
-| 19. Window-Schema Migration | v2.1 | 1/4 | In Progress|  |
+| 19. Window-Schema Migration | v2.1 | 2/4 | In Progress|  |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 0/? | Not started | - |
 | 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |
 

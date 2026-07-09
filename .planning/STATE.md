@@ -5,15 +5,15 @@ milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 19
 current_phase_name: window-schema-migration
 status: executing
-stopped_at: Completed 19-01-PLAN.md
-last_updated: "2026-07-09T22:24:21.245Z"
+stopped_at: Completed 19-02-PLAN.md
+last_updated: "2026-07-09T22:37:14.354Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 19 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 6
-  completed_plans: 3
+  completed_plans: 4
   percent: 25
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 19 (window-schema-migration) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-09 — Phase 19 execution started
 
@@ -90,6 +90,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 18 P02 | 12min | 2 tasks | 3 files |
 | 18 | 2 | - | - |
 | Phase 19 P01 | 20min | 2 tasks | 3 files |
+| Phase 19 P02 | 10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 18]: SCHED-01 criterion 3 (CSV range/TBD parsing): extend parse_obs_window()'s pattern-per-shape discipline to Obs. Date, checking both Obs. Date and UT Time Range (Phase 20 to implement)
 - [Phase 19]: Resolved-window UniqueConstraint keys on all four fields (campaign, telescope_instrument, window_start, window_end), not window_start alone, so a future date range starting the same day as an existing single-night row won't false-collide
 - [Phase 19]: TBD UniqueConstraint deliberately excludes window_start/window_end from its fields tuple (always NULL under its own condition) and keys on contact_person instead
+- [Phase 19]: [Phase 19] Deleted _observing_night_date() outright rather than deprecating it -- window_start/window_end are already plain dates, no time-of-day-to-night-boundary conversion needed
+- [Phase 19]: [Phase 19] Deleted test_ut_start_only_keys_to_site_local_observing_night rather than renaming it -- the code path it tested no longer exists under the window schema
 
 ### Pending Todos
 
@@ -158,8 +161,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T22:24:21.225Z
-Stopped at: Completed 19-01-PLAN.md
+Last session: 2026-07-09T22:37:14.345Z
+Stopped at: Completed 19-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
