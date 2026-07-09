@@ -140,3 +140,7 @@ None - no external service configuration required.
 ---
 *Phase: 19-window-schema-migration*
 *Completed: 2026-07-09*
+
+## Self-Check: PASSED
+
+All created/modified files found on disk; all task and summary commit hashes (`909484c`, `5154bb7`, `d293418`) found in git log.

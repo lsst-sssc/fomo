@@ -10,10 +10,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Scheduling Window Model (SCHED)
 
 - [x] **SCHED-01**: A phase-time investigation spike settles the window field schema (`window_start`/`window_end` nullable `DateField` pair), the replacement natural key for TBD rows (no fixed start time), the CSV range/TBD text-parsing rules, the fuzzy-match library choice (`rapidfuzz` vs. stdlib `difflib`), and confirms whether `resolve_site()` correctly resolves real space-observatory MPC codes (250=Hubble, 274=JWST, 289=Nancy Grace Roman — standard 3-char codes; `Observatory.obscode` widening is presumed NOT needed per post-research correction) — before implementation begins
-- [ ] **SCHED-02**: `CampaignRun`'s `obs_date`/`ut_start`/`ut_end` (single-night representation) is replaced by a window (`window_start`/`window_end`); a classically-scheduled single night is represented as `window_start == window_end`
-- [ ] **SCHED-03**: A `CampaignRun` can exist with no window at all yet ("TBD" state — both `window_start`/`window_end` null), distinct from having a resolved window
-- [ ] **SCHED-04**: The natural-key `UniqueConstraint` no longer silently allows duplicate TBD rows (the SQLite/PostgreSQL NULL-uniqueness gap is closed via a partial/conditional constraint)
-- [ ] **SCHED-05**: Existing `CampaignRun` rows migrate to the new window representation with no data loss (single night → `window_start == window_end == obs_date`)
+- [x] **SCHED-02**: `CampaignRun`'s `obs_date`/`ut_start`/`ut_end` (single-night representation) is replaced by a window (`window_start`/`window_end`); a classically-scheduled single night is represented as `window_start == window_end`
+- [x] **SCHED-03**: A `CampaignRun` can exist with no window at all yet ("TBD" state — both `window_start`/`window_end` null), distinct from having a resolved window
+- [x] **SCHED-04**: The natural-key `UniqueConstraint` no longer silently allows duplicate TBD rows (the SQLite/PostgreSQL NULL-uniqueness gap is closed via a partial/conditional constraint)
+- [x] **SCHED-05**: Existing `CampaignRun` rows migrate to the new window representation with no data loss (single night → `window_start == window_end == obs_date`)
 
 ### Asset-Type Distinction & Coverage-Gap (ASSET)
 
@@ -68,10 +68,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SCHED-01 | Phase 18 | Complete |
-| SCHED-02 | Phase 19 | Pending |
-| SCHED-03 | Phase 19 | Pending |
-| SCHED-04 | Phase 19 | Pending |
-| SCHED-05 | Phase 19 | Pending |
+| SCHED-02 | Phase 19 | Complete |
+| SCHED-03 | Phase 19 | Complete |
+| SCHED-04 | Phase 19 | Complete |
+| SCHED-05 | Phase 19 | Complete |
 | ASSET-01 | Phase 20 | Pending |
 | ASSET-02 | Phase 20 | Pending |
 | IMPORT-01 | Phase 20 | Pending |
