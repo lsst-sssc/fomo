@@ -357,6 +357,17 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                         # campaign_gap.observable_dates()'s established discipline -- it must
                         # never reach the broad except Exception below, which exists to revert
                         # a half-committed approval, not to handle expected messy site data.
+                        #
+                        # IN-02 (19-REVIEW.md): this branch also catches OCCULTATION_OBSTYPE and
+                        # RADAR_OBSTYPE sites, not just OPTICAL_OBSTYPE -- every non-SATELLITE
+                        # Observatory.OBSTYPE_CHOICES member unconditionally gets the
+                        # dip-corrected dark-window treatment. That's a deliberate simplification
+                        # for this milestone (no OCCULTATION/RADAR Observatory fixtures exist yet
+                        # in test_campaign_approval.py, and occultation/radar windows are driven
+                        # by predicted-event timing / daylight operation, not local darkness) --
+                        # scope this to Observatory.OPTICAL_OBSTYPE explicitly, with
+                        # OCCULTATION/RADAR falling back to no projection, when those site types
+                        # get real support.
                         try:
                             sunset, sunrise = sun_event(run.site, run.window_start, kind='sun')
                         except ValueError:
