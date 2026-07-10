@@ -140,6 +140,17 @@ class TestCampaignRunWindowSchema(TestCase):
                     window_end='2025-07-04',
                 )
 
+    def test_mismatched_window_start_end_pair_rejected_by_db(self):
+        """WR-02: window_start/window_end must be null together at the DB level."""
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                CampaignRun.objects.create(
+                    campaign=self.campaign,
+                    telescope_instrument='FTN/MuSCAT3',
+                    window_start='2025-07-04',
+                    window_end=None,
+                )
+
 
 class TestCampaignRunOptionalTarget(TestCase):
     """CAMP-02: target is nullable; single-target campaigns work without ever setting it."""
