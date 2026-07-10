@@ -174,8 +174,10 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
     claimed: set[date] = set()
     undated_runs: list[CampaignRun] = []
     for run in qs:
-        if run.window_start is None:
-            # TBD -- can't be attributed to any date (unchanged bucketing rule).
+        if run.window_start is None or run.window_end is None:
+            # TBD -- can't be attributed to any date (unchanged bucketing rule). WR-02:
+            # also catches the DB-CheckConstraint-should-prevent-but-defend-anyway case of a
+            # mismatched pair (one set, one NULL) so this never raises a TypeError on read.
             undated_runs.append(run)
             continue
         n_days = (run.window_end - run.window_start).days + 1

@@ -137,6 +137,19 @@ class CampaignRun(models.Model):
                 condition=models.Q(window_start__isnull=True),
                 name='unique_campaign_run_tbd_natural_key',
             ),
+            # WR-02: every reader of window_start/window_end (render_window_start,
+            # CampaignRunDecisionView.post, claimed_dates) assumes the two fields are either
+            # both NULL (TBD) or both set (resolved) -- neither partial UniqueConstraint above
+            # enforces that pairing. Without this, a row with window_start set and
+            # window_end NULL (or vice versa) would silently persist and crash
+            # claimed_dates()'s date-arithmetic on read.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(window_start__isnull=True, window_end__isnull=True)
+                    | models.Q(window_start__isnull=False, window_end__isnull=False)
+                ),
+                name='campaign_run_window_start_end_null_together',
+            ),
         ]
 
     def __str__(self):
