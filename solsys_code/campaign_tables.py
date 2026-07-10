@@ -139,10 +139,20 @@ class CampaignRunTable(tables.Table):
         Resolves both window_start/window_end via Accessor (D-03/D-05) so this works
         identically whether record is a dict (non-staff) or a CampaignRun instance
         (staff) -- mirrors render_site()'s dict-vs-model dual-accessor precedent.
+
+        The TBD badge additionally carries a ``title`` tooltip with
+        ``original_obs_date_raw`` (D-08) when that field is non-empty, so staff can see
+        exactly what the sheet said without new display machinery -- reuses render_site()'s
+        format_html tooltip convention. The raw text is interpolated as a positional
+        format_html argument so Django auto-escapes it (mitigates stored-XSS from
+        community-editable sheet text, T-20-03); never mark_safe or string concatenation.
         """
         start = Accessor('window_start').resolve(record, quiet=True)
         end = Accessor('window_end').resolve(record, quiet=True)
         if start is None:  # both null by the model's own invariant
+            original_obs_date_raw = Accessor('original_obs_date_raw').resolve(record, quiet=True) or ''
+            if original_obs_date_raw:
+                return format_html('<span class="badge badge-secondary" title="{}">TBD</span>', original_obs_date_raw)
             return format_html('<span class="badge badge-secondary">TBD</span>')
         if start == end:
             return start  # single-night row (D-05)

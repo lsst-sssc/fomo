@@ -175,6 +175,39 @@ class TestWindowColumnRendering(TestCase):
         cell = CampaignRunTable([run]).rows[0].get_cell('window_start')
         self.assertIn('TBD', cell)
 
+    def test_tbd_row_with_raw_text_renders_tooltip(self):
+        """D-08: a TBD row with original_obs_date_raw set carries a title tooltip."""
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='TBD Scope',
+            contact_person='Render Contact Raw',
+            original_obs_date_raw='TBD pending Cycle 2',
+        )
+        cell = CampaignRunTable([run]).rows[0].get_cell('window_start')
+        self.assertIn('title="TBD pending Cycle 2"', cell)
+
+    def test_tbd_row_with_blank_raw_text_renders_no_title(self):
+        """D-08: a blank original_obs_date_raw renders the plain TBD badge, no title attribute."""
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='TBD Scope',
+            contact_person='Render Contact Blank',
+        )
+        cell = CampaignRunTable([run]).rows[0].get_cell('window_start')
+        self.assertNotIn('title=', cell)
+
+    def test_tbd_row_with_markup_raw_text_is_escaped(self):
+        """T-20-03: angle-bracket markup in original_obs_date_raw is HTML-escaped, not rendered live."""
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='TBD Scope',
+            contact_person='Render Contact Markup',
+            original_obs_date_raw='<script>alert(1)</script>',
+        )
+        cell = CampaignRunTable([run]).rows[0].get_cell('window_start')
+        self.assertNotIn('<script>', cell)
+        self.assertIn('&lt;script&gt;', cell)
+
     def test_range_row_renders_arrow(self):
         run = CampaignRun.objects.create(
             campaign=self.campaign,
