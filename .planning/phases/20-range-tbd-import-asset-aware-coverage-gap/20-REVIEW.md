@@ -20,7 +20,13 @@ findings:
   warning: 2
   info: 1
   total: 4
-status: issues_found
+status: clean
+resolution: |
+  CR-01 and WR-01 fixed directly (commit 2e85670): TBD-branch lookup now includes
+  window_start__isnull=True; reversed full-date ranges fall through to TBD instead of
+  producing an inverted window. WR-02 fixed (docstring updated to document both natural-key
+  shapes). IN-01 (complexity) left as a non-blocking maintainability note for a future change.
+  Regression tests added for CR-01 and WR-01; full solsys_code suite (385 tests) and ruff clean.
 ---
 
 # Phase 20: Code Review Report
