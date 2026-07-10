@@ -6,14 +6,14 @@ current_phase: 20
 current_phase_name: range-tbd-import-asset-aware-coverage-gap
 status: executing
 stopped_at: Phase 20 context gathered
-last_updated: "2026-07-10T19:23:40.239Z"
+last_updated: "2026-07-10T19:47:42.249Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 20 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 20 (range-tbd-import-asset-aware-coverage-gap) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-10 — Phase 20 execution started
 
@@ -96,6 +96,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 19 | 4 | - | - |
 | Phase 20 P01 | 20min | 2 tasks | 3 files |
 | Phase 20 P02 | 10min | 2 tasks | 5 files |
+| Phase 20 P03 | 20min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -136,6 +137,9 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 20]: pending_narrowing_runs is a distinct bucket from undated_runs -- TBD runs always land in undated_runs regardless of site type; only a space-mission run with an un-narrowed range lands in pending_narrowing_runs — D-09 explicit distinction between 'no info at all' and 'a real space-mission run with a range, just not scheduled tight enough yet'
 - [Phase 20]: original_obs_date_raw is CharField(max_length=255), not TextField -- mirrors site_raw exactly per RESEARCH field-type resolution
 - [Phase 20]: render_window_start()'s TBD-badge tooltip resolves original_obs_date_raw via Accessor(...).resolve(record, quiet=True) or '', guarding for blank, and interpolates via format_html positional argument (never mark_safe/f-string) -- reusable pattern for future dict-vs-model tooltips on this table
+- [Phase 20]: parse_obs_window() order-of-attempts parser (exact date -> full-date range regex -> compact-range regex with rollover -> TBD catch-all) never raises for any Obs. Date input (D-13) -- stdlib date()'s own ValueError validation is the never-raise mechanism, no manual day-count guard needed
+- [Phase 20]: import_campaign_csv's natural key branches on window_start is None (resolved-window vs TBD lookup/collision-key shape), matching CampaignRun.Meta.constraints' two partial UniqueConstraints exactly -- contact_person is pulled out of the unconditional fields dict and only set via lookup for the TBD branch
+- [Phase 20]: range/TBD rows skip UT-Time-Range parsing entirely (ut_start=ut_end=None, ut_needs_review=False) per RESEARCH.md's A1 assumption -- no current CampaignRun field stores these values for a multi-night window
 
 ### Pending Todos
 
@@ -175,7 +179,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-10T19:18:24.587Z
+Last session: 2026-07-10T19:47:42.223Z
 Stopped at: Phase 20 context gathered
 Resume file: .planning/phases/20-range-tbd-import-asset-aware-coverage-gap/20-CONTEXT.md
 

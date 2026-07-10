@@ -158,7 +158,7 @@ Plans:
   3. Coverage-gap analysis marks every date within a ground-based run's window as claimed (conservative, avoids double-booking)
   4. A space-mission run (its resolved site's `Observatory.observations_type == SATELLITE_OBSTYPE`) claims no dates until its window narrows to a single concrete night, at which point that night is claimed
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -168,7 +168,7 @@ Plans:
 
 **Wave 2** *(depends on 20-02)*
 
-- [ ] 20-03-PLAN.md — CSV range/TBD parsing (`parse_obs_window` D-11/D-12/D-13) + `import_campaign_csv` row-loop rewrite (D-05/D-06/D-07, Pitfall 2) (IMPORT-01/02)
+- [x] 20-03-PLAN.md — CSV range/TBD parsing (`parse_obs_window` D-11/D-12/D-13) + `import_campaign_csv` row-loop rewrite (D-05/D-06/D-07, Pitfall 2) (IMPORT-01/02)
 
 **Wave 3** *(depends on 20-03)*
 
@@ -213,7 +213,7 @@ Plans:
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 4/4 | Complete    | 2026-07-09 |
-| 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 2/4 | In Progress|  |
+| 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 3/4 | In Progress|  |
 | 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
