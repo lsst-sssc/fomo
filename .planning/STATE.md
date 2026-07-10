@@ -5,8 +5,8 @@ milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 20
 current_phase_name: Range/TBD Import & Asset-Aware Coverage Gap
 status: verifying
-stopped_at: Completed 19-04-PLAN.md
-last_updated: "2026-07-10T06:48:10.971Z"
+stopped_at: Phase 20 context gathered
+last_updated: "2026-07-10T17:16:36.545Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 19 complete, transitioned to Phase 20
 progress:
@@ -169,9 +169,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T23:17:13.859Z
-Stopped at: Completed 19-04-PLAN.md
-Resume file: None
+Last session: 2026-07-10T17:16:36.534Z
+Stopped at: Phase 20 context gathered
+Resume file: .planning/phases/20-range-tbd-import-asset-aware-coverage-gap/20-CONTEXT.md
 
 ## Operator Next Steps
 
