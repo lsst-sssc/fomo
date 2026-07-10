@@ -37,6 +37,21 @@ _HHMM_RANGE = re.compile(r'(\d{1,2})[:;](\d{2})\s*(am|pm)?\s*-\s*(\d{1,2})[:;](\
 _APPROX_HOUR = re.compile(r'~\s*(\d{1,2})(?::\d{2})?(?::\d{2})?\s*(am|pm)?', re.IGNORECASE)
 _BARE_HOUR_UTC = re.compile(r'(\d{1,2})\s*UTC\b', re.IGNORECASE)
 
+# D-12: full-date range, en-dash/em-dash/hyphen or literal "to" separator. Anchored
+# start-to-end (never .search()) so it never partially matches inside a longer garbage
+# string -- Obs. Date is a structured column, not free prose (unlike the UT-time regexes
+# above, which use .search() against genuinely free text).
+_DATE_RANGE_FULL = re.compile(
+    r'^(\d{4}-\d{2}-\d{2})\s*(?:to|[-–—])\s*(\d{4}-\d{2}-\d{2})$',
+    re.IGNORECASE,
+)
+
+# D-11: compact same-month/rollover range, e.g. '2025-11-02 -25' or '2025-11-28 -05'.
+# Second group is the day-of-month only (1-2 digits); rollover logic lives in the caller,
+# not the regex, matching this module's existing convention (_HHMM_RANGE also keeps
+# am/pm interpretation out of the pattern itself).
+_DATE_RANGE_COMPACT = re.compile(r'^(\d{4})-(\d{2})-(\d{2})\s*-\s*(\d{1,2})$')
+
 
 def _to_24h(hour: int, meridiem: str | None) -> int:
     """Apply an optional am/pm marker to an hour parsed from a 12-hour-ish UT time cell.
@@ -183,35 +198,85 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
     return placeholder, True
 
 
-def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, datetime, datetime | None, bool]:
-    """Best-effort parse of the sheet's Obs. Date + UT Time Range columns (Pitfall 1).
+def parse_obs_window(
+    obs_date_raw: str, ut_range_raw: str
+) -> tuple[date | None, date | None, str, bool, datetime | None, datetime | None, bool]:
+    """Best-effort parse of the sheet's Obs. Date + UT Time Range columns (D-11/D-12/D-13).
 
-    ``obs_date_raw`` must parse as ``%Y-%m-%d`` or the row is a true natural-key failure
-    (D-05) and this raises. ``ut_range_raw`` is always best-effort: an unparseable or
-    blank time range never raises -- it falls back to ``obs_date`` at 00:00:00 UTC, so a
-    malformed non-key field never skips the row (D-05/D-09 discipline extended to time
-    parsing).
+    Tries, in order, an exact ``YYYY-MM-DD`` date, a full-date range (``' to '``/en-dash/
+    em-dash/hyphen separated), and a compact same-month/rollover range (``'2025-11-02
+    -25'``). Anything that doesn't match any of those shapes -- including blank text, a
+    ``'YYYY-MM-?'`` marker, and free-text prose -- is a TBD row: ``window_start`` and
+    ``window_end`` are both ``None``, ``original_obs_date_raw`` carries the verbatim raw
+    text, and ``window_needs_review`` is ``True``. ``parse_obs_window()`` never raises for
+    any ``obs_date_raw`` input (D-13) -- this is a contract change from the previous
+    exact-date-or-raise behavior.
+
+    ``ut_range_raw`` is only parsed for the single-night case (``window_start ==
+    window_end``, both not ``None``); a range or TBD row skips UT parsing entirely (A1 --
+    ``ut_start``/``ut_end``/``ut_needs_review`` are unused by every real caller, and a
+    multi-night window has no single night to anchor a UT time to).
 
     Args:
-        obs_date_raw: the CSV row's raw ``Obs. Date`` cell value, expected ``YYYY-MM-DD``.
+        obs_date_raw: the CSV row's raw ``Obs. Date`` cell value -- an exact date, a
+            range (full-date or compact same-month/rollover), or unparseable free text.
         ut_range_raw: the CSV row's raw ``UT Time Range`` cell value -- highly variable
             free text in the real sheet (HH:MM ranges, semicolon typos, approximate
             hours, bare-hour-plus-UTC shorthand, blank, or unparseable prose).
 
     Returns:
-        tuple[date, datetime, datetime | None, bool]: ``(obs_date, ut_start, ut_end,
-            ut_needs_review)``, both datetimes tz-aware UTC. ``ut_end`` is ``None``
-            whenever only a start time (or no time at all) could be determined.
-            ``ut_needs_review`` mirrors ``resolve_site``'s ``needs_review`` flag: ``True``
-            when ``ut_start`` is the midnight-UTC fallback rather than an actual parsed
-            time (CR-02) -- callers can use this to detect and disambiguate natural-key
-            collisions between distinct rows that both fell back to midnight.
-
-    Raises:
-        ValueError: if ``obs_date_raw`` itself can't be parsed to a date (true
-            natural-key failure per D-05) -- a bad/missing ``ut_range_raw`` never raises.
+        tuple[date | None, date | None, str, bool, datetime | None, datetime | None, bool]:
+            ``(window_start, window_end, original_obs_date_raw, window_needs_review,
+            ut_start, ut_end, ut_needs_review)``. ``ut_start``/``ut_end`` are tz-aware UTC
+            when present. Never raises.
     """
-    obs_date = datetime.strptime((obs_date_raw or '').strip(), '%Y-%m-%d').date()  # ValueError propagates
+    text = (obs_date_raw or '').strip()
+
+    window_start: date | None = None
+    window_end: date | None = None
+
+    try:
+        window_start = window_end = datetime.strptime(text, '%Y-%m-%d').date()
+    except ValueError:
+        match = _DATE_RANGE_FULL.match(text)
+        if match:
+            start_s, end_s = match.groups()
+            try:
+                window_start = datetime.strptime(start_s, '%Y-%m-%d').date()
+                window_end = datetime.strptime(end_s, '%Y-%m-%d').date()
+            except ValueError:
+                window_start = window_end = None
+        else:
+            match = _DATE_RANGE_COMPACT.match(text)
+            if match:
+                year_s, month_s, day1_s, day2_s = match.groups()
+                year, month, day1, day2 = int(year_s), int(month_s), int(day1_s), int(day2_s)
+                try:
+                    window_start = date(year, month, day1)
+                    if day2 < day1:
+                        # D-11 rollover: second number is smaller than the first
+                        # day-of-month -- roll into the next month (and next year for a
+                        # Dec -> Jan crossing).
+                        window_end = date(year + 1, 1, day2) if month == 12 else date(year, month + 1, day2)
+                    else:
+                        window_end = date(year, month, day2)
+                except ValueError:
+                    # e.g. day2=35 for a 28/29/30/31-day month, or day1 itself invalid --
+                    # stdlib date() already validates this; treat like any other
+                    # unparseable shape and fall through to TBD.
+                    window_start = window_end = None
+
+    if window_start is None:
+        # No shape matched (blank, 'YYYY-MM-?', or genuine garbage) -- D-03/D-06/D-13 TBD
+        # state. No dedicated 'YYYY-MM-?' regex is needed: it falls through here naturally.
+        return None, None, text, True, None, None, False
+
+    if window_start != window_end:
+        # Range row -- no single night to anchor a UT time to (A1); skip UT parsing.
+        return window_start, window_end, '', False, None, None, False
+
+    # Single-night case (window_start == window_end): UT-Time-Range parsing unchanged.
+    obs_date = window_start
 
     match = _HHMM_RANGE.search(ut_range_raw or '')
     if match:
@@ -221,19 +286,19 @@ def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, dateti
         m1, m2 = int(m1), int(m2)
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h1, m1, tzinfo=dt_timezone.utc)
         end = datetime(obs_date.year, obs_date.month, obs_date.day, h2, m2, tzinfo=dt_timezone.utc)
-        return obs_date, start, end, False
+        return window_start, window_end, '', False, start, end, False
 
     match = _APPROX_HOUR.search(ut_range_raw or '')
     if match:
         h = _to_24h(int(match.group(1)), match.group(2))
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h, 0, tzinfo=dt_timezone.utc)
-        return obs_date, start, None, False
+        return window_start, window_end, '', False, start, None, False
 
     match = _BARE_HOUR_UTC.search(ut_range_raw or '')
     if match:
         h = int(match.group(1))
         start = datetime(obs_date.year, obs_date.month, obs_date.day, h, 0, tzinfo=dt_timezone.utc)
-        return obs_date, start, None, False
+        return window_start, window_end, '', False, start, None, False
 
     # Fallback: obs_date is valid but UT range isn't parseable at all (blank, garbage
     # text, or a misplaced date-range) -- use midnight UTC (Pitfall 1), never skip here.
@@ -241,7 +306,7 @@ def parse_obs_window(obs_date_raw: str, ut_range_raw: str) -> tuple[date, dateti
     # same timestamp for a given obs_date, so two distinct rows sharing telescope+date
     # both falling back here would otherwise collide on the natural key.
     start = datetime(obs_date.year, obs_date.month, obs_date.day, 0, 0, tzinfo=dt_timezone.utc)
-    return obs_date, start, None, True
+    return window_start, window_end, '', False, start, None, True
 
 
 def map_observation_status(raw: str) -> str:

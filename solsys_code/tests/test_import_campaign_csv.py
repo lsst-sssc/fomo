@@ -211,65 +211,204 @@ class TestCampaignUtils(TestCase):
         self.assertTrue(needs_review)
 
     def test_parse_obs_window_hhmm_range(self):
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-04', '08:50 - 11:50')
-        self.assertEqual(obs_date, date(2025, 7, 4))
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-04', '08:50 - 11:50'
+        )
+        self.assertEqual(window_start, date(2025, 7, 4))
+        self.assertEqual(window_end, date(2025, 7, 4))
+        self.assertEqual(raw, '')
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 4, 8, 50, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 4, 11, 50, tzinfo=dt_timezone.utc))
         self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_semicolon_typo(self):
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-06', '17:45 - 18;55')
-        self.assertEqual(obs_date, date(2025, 7, 6))
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-06', '17:45 - 18;55'
+        )
+        self.assertEqual(window_start, date(2025, 7, 6))
+        self.assertEqual(window_end, date(2025, 7, 6))
+        self.assertEqual(raw, '')
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 6, 17, 45, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 6, 18, 55, tzinfo=dt_timezone.utc))
         self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_approximate_hour(self):
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-03', '~1 am')
-        self.assertEqual(obs_date, date(2025, 7, 3))
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-03', '~1 am'
+        )
+        self.assertEqual(window_start, date(2025, 7, 3))
+        self.assertEqual(window_end, date(2025, 7, 3))
+        self.assertEqual(raw, '')
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 3, 1, 0, tzinfo=dt_timezone.utc))
         self.assertIsNone(end)
         self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_approx_hour_pm_marker_applied(self):
         """CR-01: a PM marker on the approximate-hour format must be applied, not discarded."""
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-16', '~7:00:00 PM')
-        self.assertEqual(obs_date, date(2025, 7, 16))
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-16', '~7:00:00 PM'
+        )
+        self.assertEqual(window_start, date(2025, 7, 16))
+        self.assertEqual(window_end, date(2025, 7, 16))
+        self.assertEqual(raw, '')
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 16, 19, 0, tzinfo=dt_timezone.utc))
         self.assertIsNone(end)
         self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_hhmm_range_pm_markers_applied(self):
         """CR-01: PM markers on the HH:MM range format must be applied to both ends."""
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-16', '08:50 pm - 11:50 pm')
-        self.assertEqual(obs_date, date(2025, 7, 16))
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-16', '08:50 pm - 11:50 pm'
+        )
+        self.assertEqual(window_start, date(2025, 7, 16))
+        self.assertEqual(window_end, date(2025, 7, 16))
+        self.assertEqual(raw, '')
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 16, 20, 50, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 16, 23, 50, tzinfo=dt_timezone.utc))
         self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_hhmm_range_am_marker_noop(self):
         """An explicit AM marker leaves the (already 24h-consistent) hour unchanged."""
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-16', '08:50 am - 11:50 am')
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-16', '08:50 am - 11:50 am'
+        )
+        self.assertEqual(window_start, date(2025, 7, 16))
+        self.assertEqual(window_end, date(2025, 7, 16))
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 16, 8, 50, tzinfo=dt_timezone.utc))
         self.assertEqual(end, datetime(2025, 7, 16, 11, 50, tzinfo=dt_timezone.utc))
         self.assertFalse(ut_needs_review)
 
     def test_parse_obs_window_blank_time_falls_back_to_midnight(self):
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-06', '')
-        self.assertEqual(obs_date, date(2025, 7, 6))
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window('2025-07-06', '')
+        self.assertEqual(window_start, date(2025, 7, 6))
+        self.assertEqual(window_end, date(2025, 7, 6))
+        self.assertEqual(raw, '')
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 6, 0, 0, tzinfo=dt_timezone.utc))
         self.assertIsNone(end)
         self.assertTrue(ut_needs_review)  # CR-02: fallback must be flagged for collision detection
 
     def test_parse_obs_window_garbled_text_flagged_needs_review(self):
-        """CR-02: unparseable free text also falls back to midnight and is flagged."""
-        obs_date, start, end, ut_needs_review = parse_obs_window('2025-07-06', 'some garbled text, no time info')
+        """CR-02: unparseable UT time (but a valid Obs. Date) also falls back to midnight and is flagged."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-06', 'some garbled text, no time info'
+        )
+        self.assertEqual(window_start, date(2025, 7, 6))
+        self.assertFalse(needs_review)
         self.assertEqual(start, datetime(2025, 7, 6, 0, 0, tzinfo=dt_timezone.utc))
         self.assertTrue(ut_needs_review)
 
-    def test_parse_obs_window_unparseable_date_raises(self):
-        with self.assertRaises(ValueError):
-            parse_obs_window('', '08:50 - 11:50')
+    def test_parse_obs_window_blank_date_returns_tbd_tuple(self):
+        """D-13: parse_obs_window() never raises -- a blank Obs. Date returns the TBD tuple."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window('', '08:50 - 11:50')
+        self.assertIsNone(window_start)
+        self.assertIsNone(window_end)
+        self.assertEqual(raw, '')
+        self.assertTrue(needs_review)
+        self.assertIsNone(start)
+        self.assertIsNone(end)
+        self.assertFalse(ut_needs_review)
+
+    def test_parse_obs_window_full_range_literal_to(self):
+        """D-12: a literal 'to'-separated full-date range parses to distinct window bounds."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-05 to 2025-09-22', ''
+        )
+        self.assertEqual(window_start, date(2025, 7, 5))
+        self.assertEqual(window_end, date(2025, 9, 22))
+        self.assertEqual(raw, '')
+        self.assertFalse(needs_review)
+        self.assertIsNone(start)
+        self.assertIsNone(end)
+        self.assertFalse(ut_needs_review)
+
+    def test_parse_obs_window_full_range_en_dash(self):
+        """D-12: an en-dash-separated full-date range parses identically to 'to'."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-05–2025-09-22', ''
+        )
+        self.assertEqual(window_start, date(2025, 7, 5))
+        self.assertEqual(window_end, date(2025, 9, 22))
+        self.assertFalse(needs_review)
+
+    def test_parse_obs_window_full_range_em_dash(self):
+        """D-12: an em-dash-separated full-date range parses identically to 'to'."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-05—2025-09-22', ''
+        )
+        self.assertEqual(window_start, date(2025, 7, 5))
+        self.assertEqual(window_end, date(2025, 9, 22))
+        self.assertFalse(needs_review)
+
+    def test_parse_obs_window_full_range_hyphen(self):
+        """D-12: a hyphen-separated full-date range parses identically to 'to'."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-07-05-2025-09-22', ''
+        )
+        self.assertEqual(window_start, date(2025, 7, 5))
+        self.assertEqual(window_end, date(2025, 9, 22))
+        self.assertFalse(needs_review)
+
+    def test_parse_obs_window_compact_range_same_month(self):
+        """D-11: a compact same-month range (Phase 18's confirmed example) is now valid."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-11-02 -25', ''
+        )
+        self.assertEqual(window_start, date(2025, 11, 2))
+        self.assertEqual(window_end, date(2025, 11, 25))
+        self.assertFalse(needs_review)
+
+    def test_parse_obs_window_compact_range_rollover_same_year(self):
+        """D-11: day2 < day1 rolls the end into the next month, same year."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-11-28 -05', ''
+        )
+        self.assertEqual(window_start, date(2025, 11, 28))
+        self.assertEqual(window_end, date(2025, 12, 5))
+        self.assertFalse(needs_review)
+
+    def test_parse_obs_window_compact_range_rollover_year_crossing(self):
+        """D-11: a December start with day2 < day1 rolls into January of the next year."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-12-20 -03', ''
+        )
+        self.assertEqual(window_start, date(2025, 12, 20))
+        self.assertEqual(window_end, date(2026, 1, 3))
+        self.assertFalse(needs_review)
+
+    def test_parse_obs_window_compact_range_invalid_day_falls_through_to_tbd(self):
+        """D-11: an invalid resulting day (e.g. day2=35) never raises -- falls through to TBD."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-02-01 -35', ''
+        )
+        self.assertIsNone(window_start)
+        self.assertIsNone(window_end)
+        self.assertEqual(raw, '2025-02-01 -35')
+        self.assertTrue(needs_review)
+
+    def test_parse_obs_window_yyyy_mm_question_marker_returns_tbd(self):
+        """D-03/D-06: a 'YYYY-MM-?' marker falls through to the TBD catch-all (no dedicated regex)."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window('2025-12-?', '')
+        self.assertIsNone(window_start)
+        self.assertIsNone(window_end)
+        self.assertEqual(raw, '2025-12-?')
+        self.assertTrue(needs_review)
+
+    def test_parse_obs_window_garbage_free_text_returns_tbd(self):
+        """D-03/D-06: arbitrary free text (schedule still pending) returns the TBD tuple."""
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            'TBD pending Cycle 2', ''
+        )
+        self.assertIsNone(window_start)
+        self.assertIsNone(window_end)
+        self.assertEqual(raw, 'TBD pending Cycle 2')
+        self.assertTrue(needs_review)
 
     def test_map_observation_status_completed(self):
         self.assertEqual(map_observation_status('completed'), CampaignRun.RunStatus.OBSERVED)
