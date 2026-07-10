@@ -88,6 +88,13 @@ class CampaignRun(models.Model):
     )
     window_start = models.DateField(null=True, blank=True, verbose_name='Observing window start')
     window_end = models.DateField(null=True, blank=True, verbose_name='Observing window end')
+    original_obs_date_raw = models.CharField(
+        max_length=255, blank=True, default='', verbose_name='Original Obs. Date text (TBD rows only)'
+    )
+    window_needs_review = models.BooleanField(
+        default=False,
+        verbose_name='Whether the observing window could not be automatically resolved and needs manual review',
+    )
     filters_bandpass = models.CharField(max_length=255, blank=True, default='', verbose_name='Filter(s) / bandpass')
     observation_details = models.TextField(blank=True, default='', verbose_name='Observation details')
     weather = models.TextField(blank=True, default='', verbose_name='Weather conditions or forecast')

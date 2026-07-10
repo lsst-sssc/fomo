@@ -205,3 +205,34 @@ class TestCampaignRunStatusVocabulary(TestCase):
 
     def test_run_status_has_exactly_eight_members(self):
         self.assertEqual(len(CampaignRun.RunStatus.choices), 8)
+
+
+class TestCampaignRunWindowNeedsReviewFields(TestCase):
+    """IMPORT-01/IMPORT-02: original_obs_date_raw/window_needs_review defaults and persistence."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS')
+
+    def test_defaults_on_fresh_campaign_run(self):
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+        )
+
+        self.assertEqual(run.original_obs_date_raw, '')
+        self.assertFalse(run.window_needs_review)
+
+    def test_fields_are_assignable_and_persist(self):
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='JWST',
+            contact_person='Carrie Holt',
+            original_obs_date_raw='TBD pending Cycle 2',
+            window_needs_review=True,
+        )
+
+        reloaded = CampaignRun.objects.get(pk=run.pk)
+
+        self.assertEqual(reloaded.original_obs_date_raw, 'TBD pending Cycle 2')
+        self.assertTrue(reloaded.window_needs_review)
