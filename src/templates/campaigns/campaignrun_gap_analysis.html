@@ -68,6 +68,16 @@
 </div>
 {% endif %}
 
+{% if result.pending_narrowing_runs %}
+<div class="alert alert-info mb-4">
+  <h5 class="font-weight-bold mb-1"><i class="fa fa-clock-o mr-2"></i>Pending narrowing: space-mission runs</h5>
+  <p class="mb-0">
+    {{ result.pending_narrowing_runs|length }} space-mission run(s) haven't narrowed to a
+    specific night yet and aren't counted as claiming any date.
+  </p>
+</div>
+{% endif %}
+
 {% endif %}
 {% endif %}
 

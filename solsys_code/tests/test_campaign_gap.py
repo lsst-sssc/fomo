@@ -469,6 +469,39 @@ class TestGapAnalysisView(TestCase):
         called_target = mocked_gap.call_args[0][1]
         self.assertEqual(called_target, self.target)
 
+    def test_pending_narrowing_alert_shown_for_unnarrowed_space_run(self):
+        """D-09: an un-narrowed space-mission run's page shows the distinct
+        pending-narrowing alert with its count. The space site has no timezone set, so
+        every date in the observable-dates loop raises ValueError and is skipped as
+        unknown (D-03) -- that's fine, the pending_narrowing_runs alert is driven purely
+        by claimed_dates() bucketing, independent of observable_dates()."""
+        space_site = Observatory.objects.create(
+            obscode='274',
+            name='Test Space Telescope 2',
+            short_name='TST2',
+            observations_type=Observatory.SATELLITE_OBSTYPE,
+        )
+        target = NonSiderealTargetFactory.create()
+        campaign = TargetList.objects.create(name='Space Pending Campaign')
+        campaign.targets.add(target)
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='HST/WFC3',
+            site=space_site,
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 10),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        gap_url = reverse('campaigns:gap_analysis', kwargs={'pk': campaign.pk})
+
+        response = self.client.get(gap_url, {'site': space_site.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pending narrowing: space-mission runs')
+        self.assertContains(response, '1 space-mission run(s)')
+        self.assertContains(response, "haven't narrowed to a")
+
 
 @override_settings(CACHES=TEST_CACHES)
 class TestGapAnalysisButton(TestCase):
