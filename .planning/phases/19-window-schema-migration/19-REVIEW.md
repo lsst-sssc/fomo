@@ -1,8 +1,8 @@
 ---
 phase: 19-window-schema-migration
-reviewed: 2026-07-10T00:00:00Z
+reviewed: 2026-07-10T09:00:00Z
 depth: deep
-files_reviewed: 15
+files_reviewed: 16
 files_reviewed_list:
   - docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb
   - solsys_code/campaign_forms.py
@@ -12,6 +12,7 @@ files_reviewed_list:
   - solsys_code/campaign_views.py
   - solsys_code/management/commands/import_campaign_csv.py
   - solsys_code/migrations/0004_campaignrun_window_schema.py
+  - solsys_code/migrations/0005_campaignrun_campaign_run_window_start_end_null_together.py
   - solsys_code/models.py
   - solsys_code/tests/test_campaign_approval.py
   - solsys_code/tests/test_campaign_gap.py
@@ -19,297 +20,206 @@ files_reviewed_list:
   - solsys_code/tests/test_campaign_submission.py
   - solsys_code/tests/test_campaign_views.py
   - solsys_code/tests/test_import_campaign_csv.py
+  - solsys_code/tests/test_window_schema_migration.py
 findings:
-  critical: 1
-  warning: 3
+  critical: 0
+  warning: 2
   info: 2
-  total: 6
+  total: 4
 status: issues_found
 ---
 
-# Phase 19: Code Review Report
+# Phase 19: Code Review Report (re-review after --fix)
 
-**Reviewed:** 2026-07-10T00:00:00Z
+**Reviewed:** 2026-07-10T09:00:00Z
 **Depth:** deep
-**Files Reviewed:** 15
+**Files Reviewed:** 16
 **Status:** issues_found
 
 ## Summary
 
-This is a fresh, independent re-review of phase 19's 15-file change set (the hard-cutover of
-`CampaignRun`'s `obs_date`/`ut_start`/`ut_end` triple to a `window_start`/`window_end` date-pair
-schema), run immediately ahead of a `--fix` pass. **None of the 15 files have changed since the
-prior deep review** (commit `3bf7abe`, 2026-07-09T23:30:00Z) — `git diff 3bf7abe..HEAD -- <these
-15 paths>` is empty for all of them. I re-derived every finding independently by reading the
-current file contents and cross-referencing against the pre-migration schema (migration `0003`)
-and the diff against `diff_base`, rather than trusting the prior report's prose, and confirm: **all
-5 previously reported findings (CR-01, WR-01, WR-02, WR-03, IN-01) still hold, unaddressed, against
-the current file contents.** I also found one new Info-level item not previously flagged.
+This is a re-review after the `--fix` pass (commits `4b1fc5c`, `089e0a0`, `d1adf4e`, `32093cf`)
+closed CR-01, WR-01, WR-02, and WR-03 from the prior `19-REVIEW.md`. All four fixes were
+independently traced through the current source (not just trusted from `19-REVIEW-FIX.md`), and
+each does what it claims:
 
-The consumer-side rewrite (`campaign_gap.py`, `campaign_views.py`, `campaign_tables.py`,
-`campaign_forms.py`, `import_campaign_csv.py`) is careful and well-tested for the code paths it
-actually reaches. The migration's TBD-branch (`window_start IS NULL`) dedup step is real, correctly
-ordered ahead of its `AddConstraint`, and has been validated against known dev-DB duplicates. The
-core, still-open problem is that the **resolved-window branch has no equivalent dedup step**, even
-though the same backfill operation that makes the TBD dedup necessary also creates duplicate risk on
-the resolved-window side — and nothing in this changeset (code or tests) detects or prevents it. Two
-further latent (currently-unreachable, but real) gaps affect the resolved-window natural key and the
-`window_start`/`window_end` null-pairing invariant, plus a test-coverage gap on the migration's own
-data-transformation logic and a factual inconsistency in the paired demo notebook's narrative text.
+- **CR-01** (migration dedup gap): `solsys_code/migrations/0004_campaignrun_window_schema.py` now
+  contains `dedupe_resolved_window_collisions`, correctly sequenced after
+  `backfill_window_fields`/`dedupe_tbd_collisions` and before `RemoveConstraint`/`RemoveField`/
+  `AddConstraint`, so it runs before the `unique_campaign_run_resolved_window` `AddConstraint` that
+  would otherwise choke on real leftover same-night, different-`ut_start` rows.
+- **WR-01** (CSV importer lookup key): `import_campaign_csv.py`'s `insert_or_create_campaign_run`
+  call now includes `'window_end': obs_date` in the `lookup` dict (removed from `fields`), matching
+  `models.py`'s documented resolved-window natural key.
+- **WR-02** (missing DB invariant): `models.py` now has the
+  `campaign_run_window_start_end_null_together` `CheckConstraint`, mirrored in the new migration
+  `0005`, and `campaign_gap.py:claimed_dates()` now buckets a mismatched (`window_start` XOR
+  `window_end` null) row into `undated_runs` instead of crashing on the date-arithmetic
+  subtraction.
+- **WR-03** (no migration regression coverage): `test_window_schema_migration.py` is new, uses
+  `MigrationExecutor` against the pre-0004 historical schema, and asserts the CR-01
+  resolved-window collision scenario collapses to one survivor, a non-colliding row survives, and
+  the pre-existing TBD dedup keeps working.
+
+The two files new to this changeset since the last review — migration `0005` and
+`test_window_schema_migration.py` — were reviewed independently for the first time. Both are
+functionally correct, but together they leave a real coverage gap: the DB-level invariant WR-02
+just added (the exact thing that stops `claimed_dates()` from crashing) is not exercised by any
+test, and the migration that adds it has no defensive data-cleanup step of the kind CR-01 just
+established as this changeset's own precedent. Neither is a functional bug in the shipped
+behavior today; both are robustness/coverage gaps. The two carried-over Info findings from the
+prior review were independently re-confirmed against current file contents and still hold,
+unchanged.
 
 ## Narrative Findings (AI reviewer)
 
-### Critical Issues
-
-#### CR-01: Migration's dedup step only covers the TBD branch, not the structurally identical resolved-window collision the backfill also creates
-
-**File:** `solsys_code/migrations/0004_campaignrun_window_schema.py:17-47,93-100`
-**Issue:**
-
-`backfill_window_fields` (lines 17-21) sets `window_start = window_end = obs_date` for **every**
-row, discarding the time-of-night distinction the *old* constraint relied on. That old constraint
-(`solsys_code/migrations/0003_campaignrun_natural_key_unique_constraint.py:14-19`) was keyed on
-`(campaign, telescope_instrument, ut_start)` — a full `DateTimeField`, not `obs_date` — and carried
-no `condition=`. Because SQL unique constraints never treat two `NULL`s as equal, this also means
-the old schema tolerated unlimited `ut_start IS NULL` rows sharing `(campaign,
-telescope_instrument)`; the important case for this finding is the *non-null* one: two pre-migration
-rows for the same campaign/telescope/night but two distinct, non-null `ut_start` values (two
-separate observing blocks the same night) were perfectly legal, non-colliding rows.
-
-After `backfill_window_fields` runs, both such rows collapse to the same `(window_start,
-window_end)` pair — an exact duplicate under the new `unique_campaign_run_resolved_window`
-constraint (`AddConstraint` at lines 93-100, mirrored in `models.py:124-128`). `dedupe_tbd_collisions`
-(lines 23-47) only queries `CampaignRun.objects.filter(window_start__isnull=True)` — rows whose
-`obs_date` was `NULL` — and does nothing for the resolved-window case. There is no equivalent dedup
-step anywhere between the backfill and the `unique_campaign_run_resolved_window` `AddConstraint`.
-
-Concretely: if the pre-migration `CampaignRun` table contains **any** two rows sharing `(campaign,
-telescope_instrument, obs_date)` with distinct, non-null `ut_start` values — a state the *old*
-schema explicitly permitted — this non-reversible, single-file migration will raise `IntegrityError`
-when it reaches the `unique_campaign_run_resolved_window` `AddConstraint` and fail to apply, on
-whatever environment first encounters that data shape (a fresh deploy re-importing a fuller
-historical CSV export before migrating, a staging DB seeded differently from the one dev DB this
-phase's manual dry run happened to check, etc.).
-
-No test in this changeset exercises this scenario: `grep`-ing `solsys_code/tests/` for
-`dedupe_tbd_collisions`/`backfill_window_fields`/`unique_campaign_run_resolved_window` finds zero
-hits outside `test_resolved_window_same_key_collides` (which tests the *new* constraint against
-*post-migration* `CampaignRun.objects.create()` calls, not the migration's own `RunPython` backfill
-logic against pre-migration row data). The 355 passing tests cited in the review scope all run
-against a freshly-migrated, empty test DB and cannot catch this class of bug.
-
-**Fix:** Add a second, symmetric dedup `RunPython` step (mirroring `dedupe_tbd_collisions`) for the
-resolved-window branch, inserted anywhere between the backfill and the resolved-window
-`AddConstraint`:
-
-```python
-def dedupe_resolved_window_collisions(apps, schema_editor):
-    """Analogous to dedupe_tbd_collisions, but for the resolved-window branch: two
-    pre-migration rows that shared campaign+telescope_instrument+obs_date but differed
-    only by the now-dropped ut_start collapse onto an identical (window_start, window_end)
-    tuple after backfill_window_fields runs. Must run before the resolved-window
-    UniqueConstraint is added below, or that AddConstraint can fail against real
-    pre-existing same-night, different-ut_start rows.
-    """
-    CampaignRun = apps.get_model('solsys_code', 'CampaignRun')
-    seen: dict[tuple, int] = {}
-    qs = CampaignRun.objects.filter(window_start__isnull=False).order_by('pk')
-    for run in qs:
-        key = (run.campaign_id, run.telescope_instrument, run.window_start, run.window_end)
-        if key in seen:
-            logger.warning(
-                'Deleting duplicate resolved-window CampaignRun pk=%s (kept pk=%s) for '
-                'campaign=%s telescope_instrument=%r window=%s..%s',
-                run.pk, seen[key], run.campaign_id, run.telescope_instrument,
-                run.window_start, run.window_end,
-            )
-            run.delete()
-        else:
-            seen[key] = run.pk
-```
-
-Insert `migrations.RunPython(dedupe_resolved_window_collisions, reverse_code=migrations.RunPython.noop)`
-immediately after `dedupe_tbd_collisions` and before `RemoveConstraint`. Before shipping, re-run the
-manual `manage.py migrate` dry run against a copy of the real dev DB with this step added to confirm
-whether it actually deletes anything.
-
 ### Warnings
 
-#### WR-01: CSV importer's natural-key lookup omits `window_end`, contradicting the model's own documented resolved-window contract
+#### WR-01: New CheckConstraint (migration 0005) is completely untested — the exact crash scenario WR-02 was fixed to prevent has no regression coverage
 
-**File:** `solsys_code/management/commands/import_campaign_csv.py:170-173`
+**File:** `solsys_code/tests/test_window_schema_migration.py` (whole file); also
+`solsys_code/tests/test_campaign_models.py`, `solsys_code/tests/test_campaign_gap.py`
 **Issue:**
 
-```python
-run, action = insert_or_create_campaign_run(
-    {'campaign': campaign, 'telescope_instrument': telescope_instrument, 'window_start': obs_date},
-    fields,
-)
-```
+`test_window_schema_migration.py` (new, added for WR-03) only exercises migration `0004`'s three
+`RunPython` steps (`backfill_window_fields`, `dedupe_tbd_collisions`,
+`dedupe_resolved_window_collisions`) against the pre-0004 historical schema; `migrate_to =
+[('solsys_code', '0004_campaignrun_window_schema')]` never advances as far as `0005`, and no test
+asserts anything about the new `campaign_run_window_start_end_null_together` `CheckConstraint`.
 
-`fields` (built at lines 149-168) sets `'window_end': obs_date`, but the `lookup` dict passed to
-`insert_or_create_campaign_run` — and hence to `CampaignRun.objects.get_or_create(**lookup,
-defaults=fields)` in `campaign_utils.py:301` — only constrains `window_start`. `models.py:120-124`'s
-own Meta comment is explicit about why this is wrong: *"window_end is included (not just
-window_start) so a range starting on the same day as an existing single-night entry is not treated
-as the same row."* The importer's lookup doesn't follow that rule it documents elsewhere.
+I grepped every test file in scope (`test_campaign_models.py`, `test_campaign_gap.py`, and the
+rest) for a test that creates a `CampaignRun` with `window_start` set and `window_end=None` (or
+vice versa) and expects an `IntegrityError` — there is none. `TestCampaignRunWindowSchema` in
+`test_campaign_models.py` covers the two `UniqueConstraint`s (TBD collision, resolved-window
+collision) but not the new `CheckConstraint`.
 
-This is currently unreachable — every write path shipped in this phase
-(`CampaignRunSubmissionView`, this importer) always sets `window_end == window_start`, so no real
-range row exists yet to collide with. But it is a landmine for the next feature that creates a range
-(Phase 20, or a direct admin/ORM edit): re-running this importer over a campaign that already has a
-resolved multi-night `CampaignRun` starting on the CSV row's `obs_date` would either match that range
-row via `get()` (since only `window_start` is filtered) and silently overwrite its `window_end` back
-down to `obs_date` via `insert_or_create_campaign_run`'s field-diff/update path
-(`campaign_utils.py:304-309`) — a silent data-loss collapse of a real range into a single night — or
-raise an uncaught `django.core.exceptions.MultipleObjectsReturned` from `get_or_create()` if more
-than one range shares that `window_start`, a crash the command's per-row `try/except ValueError`
-(`import_campaign_csv.py:108-126`) does not catch, aborting the whole batch import instead of
-skip-and-log per row.
+The WR-02 fix report's own rationale for why `campaign_gap.claimed_dates()`'s defensive `run.
+window_start is None or run.window_end is None` guard is enough — i.e. that the DB now makes the
+mismatched-pair state genuinely unreachable in practice — is currently unverified by any automated
+test. If a future change accidentally drops or weakens the constraint (e.g. during a migration
+squash, a schema refactor, or a typo in the `Q` expression), nothing in the suite would catch it,
+and the application-level fallback (`undated_runs` bucketing) would remain the only defense against
+a state the code otherwise assumes can't occur.
 
-**Fix:** Include `window_end` in the lookup, matching the model's actual key:
+**Fix:** Add one test alongside `TestCampaignRunWindowSchema` in `test_campaign_models.py` that
+asserts the DB rejects a partial-null row:
 
 ```python
-run, action = insert_or_create_campaign_run(
-    {
-        'campaign': campaign,
-        'telescope_instrument': telescope_instrument,
-        'window_start': obs_date,
-        'window_end': obs_date,
-    },
-    fields,  # drop 'window_end' from fields; it's now part of the lookup key
-)
+def test_mismatched_window_start_end_pair_rejected_by_db(self):
+    """WR-02: window_start/window_end must be null together at the DB level."""
+    with self.assertRaises(IntegrityError):
+        with transaction.atomic():
+            CampaignRun.objects.create(
+                campaign=self.campaign,
+                telescope_instrument='FTN/MuSCAT3',
+                window_start=date(2025, 7, 4),
+                window_end=None,
+            )
 ```
 
-#### WR-02: No DB-level invariant that `window_start`/`window_end` are null together; `claimed_dates()` will crash on a mismatched row
+Optionally also extend `test_window_schema_migration.py`'s `migrate_to` to `0005` (or add a second
+migration test class) so the historical-schema coverage includes the `CheckConstraint`'s own
+`AddConstraint` step, for symmetry with the `0004` coverage already there.
 
-**File:** `solsys_code/models.py:113-140` (missing `CheckConstraint`); `solsys_code/campaign_gap.py:176-183`
+#### WR-02: Migration 0005 adds a CheckConstraint with no defensive data-cleanup step, unlike migration 0004's own CR-01 precedent in this same changeset
+
+**File:** `solsys_code/migrations/0005_campaignrun_campaign_run_window_start_end_null_together.py:13-24`
 **Issue:**
 
-Every reader of `window_start`/`window_end` in this changeset
-(`campaign_tables.render_window_start`, `campaign_views.CampaignRunDecisionView.post`,
-`campaign_gap.claimed_dates`) assumes the two fields are either both `NULL` (TBD) or both set
-(resolved). Nothing enforces this at the model or DB layer — only the two partial
-`UniqueConstraint`s exist, and neither prevents `window_start` set with `window_end` `NULL` (or vice
-versa); that combination isn't `NULL` on `window_start`, so it falls into the resolved-window
-constraint's `condition=Q(window_start__isnull=False)` branch and is simply allowed to persist as a
-unique (if internally inconsistent) row.
-
-`campaign_gap.claimed_dates()` (lines 176-183, verified against current file contents) only guards
-the fully-TBD case:
+Migration `0004` (this same changeset) went out of its way to add
+`dedupe_resolved_window_collisions` (the CR-01 fix) specifically because adding a constraint
+against real, potentially-violating pre-existing data raises an unhandled `IntegrityError` with no
+recovery path. Migration `0005` adds `campaign_run_window_start_end_null_together` as a bare
+`AddConstraint` with no equivalent guard or cleanup `RunPython` step:
 
 ```python
-for run in qs:
-    if run.window_start is None:
-        undated_runs.append(run)
-        continue
-    n_days = (run.window_end - run.window_start).days + 1   # TypeError if window_end is None
-```
-
-If a `CampaignRun` ever exists with `window_start` set and `window_end` `None` (currently
-unreachable via any shipped write path, but reachable via direct ORM/admin/future code — e.g. a
-partially-completed Phase 20 range-entry form, or a bad manual fixup), this raises an uncaught
-`TypeError` that propagates out of `_compute_gap()` / `get_or_compute_gap()` and 500s the entire
-`CampaignGapAnalysisView` for that campaign+site+target combination, rather than a graceful per-run
-skip. `campaign_tables.render_window_start()` degrades more gracefully in the same scenario (renders
-`"2026-08-01 -&gt; None"` rather than crashing), which is itself an inconsistency in how the two
-call sites handle the same unguarded state.
-
-**Fix:** Add a DB-level `CheckConstraint` enforcing the pairing:
-
-```python
-models.CheckConstraint(
-    condition=(
-        models.Q(window_start__isnull=True, window_end__isnull=True)
-        | models.Q(window_start__isnull=False, window_end__isnull=False)
+operations = [
+    migrations.AddConstraint(
+        model_name='campaignrun',
+        constraint=models.CheckConstraint(
+            condition=models.Q(
+                models.Q(('window_end__isnull', True), ('window_start__isnull', True)),
+                models.Q(('window_end__isnull', False), ('window_start__isnull', False)),
+                _connector='OR',
+            ),
+            name='campaign_run_window_start_end_null_together',
+        ),
     ),
-    name='campaign_run_window_start_end_null_together',
-),
+]
 ```
 
-and/or defensively guard `claimed_dates()`:
+In this specific case the invariant already holds for every row at the point `0005` runs —
+`0004`'s `backfill_window_fields` sets `window_start`/`window_end` from the same source column via
+`F('obs_date')`, so the two fields are always either both `NULL` or both equal, and no write path
+in this changeset (`CampaignRunSubmissionView`, `import_campaign_csv`) ever sets them
+independently. Today's `0004`→`0005` sequence is therefore safe in practice. But that safety is
+entirely incidental to `0005` itself — it depends on `0004` having already run in the same deploy.
+If `0004` and `0005` were ever applied as separate deploys (not unusual for a squashed or
+backported migration set), and any out-of-band write in the gap between them (a fixture load, a
+data-migration bug elsewhere, a direct DB edit) created a mismatched-pair row, `0005` would fail
+with an opaque `IntegrityError` and no documented cleanup step — contradicting the discipline this
+same author just established one migration earlier, in this same file set, for the exact same
+class of risk.
 
-```python
-if run.window_start is None or run.window_end is None:
-    undated_runs.append(run)
-    continue
-```
+**Fix:** Either add a small defensive `RunPython` step ahead of the `AddConstraint` in `0005`
+that normalizes any orphaned single-sided value (e.g. `CampaignRun.objects.filter(
+window_start__isnull=True, window_end__isnull=False).update(window_end=None)` and the mirror
+case for `window_start__isnull=False, window_end__isnull=True`), or at minimum add a comment in
+`0005` explicitly documenting the "safe only because 0004 guarantees this in the same deploy"
+assumption, so a future migration-squash or backport doesn't silently reintroduce the risk CR-01
+already taught this codebase to guard against.
 
-#### WR-03: Migration's `RunPython` backfill/dedup logic has zero automated regression coverage
+## Info
 
-**File:** `solsys_code/migrations/0004_campaignrun_window_schema.py:17-47`; `solsys_code/tests/test_campaign_models.py`
+#### IN-01: Notebook narrative text still contradicts its own executed output (carried over, unfixed — expected, was out of scope for the `--fix` pass)
+
+**File:** `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` (markdown cell `c37e3856`
+and the summary table in cell `90d785d4`, vs. the executed output of code cell `1093927e`)
 **Issue:**
 
-`backfill_window_fields` and `dedupe_tbd_collisions` are non-reversible, data-deleting functions
-with real production consequences (see CR-01), but no test in this changeset exercises them
-directly. `test_campaign_models.py`'s `TestCampaignRunWindowSchema` (verified against current file
-contents) only asserts the *post-migration model shape* — constraints and nullability via
-`CampaignRun.objects.create()` calls against the already-migrated test schema — never the
-migration's own `RunPython` data-transformation functions against a simulated pre-migration state.
-The mitigation actually used (a manual dry run against a copy of the dev DB, referenced by the prior
-review and CR-01 above) leaves no artifact in the repository proving this logic was exercised, let
-alone that CR-01's specific gap was checked for.
+Re-confirmed still present against the notebook's current committed JSON. The markdown cell above
+the row-inspection cell (`c37e3856`) says *"all 6 should be `created` on a first run,"* and the
+final summary table's CAMP-04 row (`90d785d4`) says *"Demonstrated by: Import cell summary (6
+created) and re-run cell summary (6 unchanged)."* The actual executed output of the import cell
+(`1093927e`) is `Done. created: 0, updated: 0, unchanged: 6, skipped: 0, site_needs_review: 1` for
+**both** the first and second `call_command` invocations — the fixture rows were already imported
+into the shared dev DB from a prior notebook run, so neither run ever reports `created: 6`. The
+narrative text was never updated to match the executed output committed right next to it.
 
-**Fix:** At minimum, add a migration test (Django's `MigratorTestCase`-style pattern, or a
-hand-rolled one using historical model state via `apps.get_model` inside a
-`django.test.TransactionTestCase`) that seeds two rows sharing `obs_date` with distinct `ut_start`
-values against the pre-0004 schema, runs the migration, and asserts the outcome (dedup, or a
-documented, deliberately-accepted failure mode) rather than relying entirely on an unrepeatable
-manual dry run.
+**Fix:** Update the `c37e3856` markdown cell and the `90d785d4` summary-table row to describe what
+the executed output actually shows (`unchanged: 6` on both runs against this notebook's
+persistent dev-DB state, matching the tone the later-added "Idempotency note" cell `c32cae1e`
+already uses), or reset the target dev DB and re-execute+recommit the notebook so a fresh
+`created: 6` first run genuinely matches the narrative claim.
 
-### Info
+#### IN-02: Ground-vs-space calendar-projection branch still treats OCCULTATION/RADAR sites identically to OPTICAL (carried over, unfixed — expected, was out of scope for the `--fix` pass)
 
-#### IN-01: Demo notebook's committed output contradicts its own narrative text
-
-**File:** `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` (markdown cell `48b89ebf` vs.
-code-cell outputs `1093927e`/`16d14cf8`)
+**File:** `solsys_code/campaign_views.py:339-375` (`CampaignRunDecisionView.post`)
 **Issue:**
 
-Verified directly against the notebook's current JSON: the "synthetic fixture" markdown cell
-(`48b89ebf`, unchanged by this phase's regeneration) says *"all 6 should be `created` on a first
-run"*, but the executed output of cell `1093927e` (the actual import run) reads `Done. created: 0,
-updated: 0, unchanged: 6, skipped: 0, site_needs_review: 1`, and cell `16d14cf8`'s inspection table
-reports a total row count of **10**, not 6 — because the notebook was regenerated against the
-shared, already-populated dev DB (`src/fomo_db.sqlite3`) rather than a clean one, as the commit
-message for the `19-04` regeneration commit acknowledges. The later-added "Idempotency note" cell
-(`c32cae1e`) correctly anticipates this for the approval-lifecycle rows, but the older "synthetic
-fixture" cell's "all 6 should be `created`" sentence was never updated to match and now reads as
-factually wrong next to the actual printed output immediately below it.
+Re-confirmed still present against current file contents. The branch is `if
+run.site.observations_type == Observatory.SATELLITE_OBSTYPE: ... else: ...
+sun_event(run.site, run.window_start, kind='sun')`. `Observatory.OBSTYPE_CHOICES`
+(`solsys_code/solsys_code_observatory/models.py:17-25`) has four members —
+`OPTICAL_OBSTYPE`, `OCCULTATION_OBSTYPE`, `SATELLITE_OBSTYPE`, `RADAR_OBSTYPE` — and every
+non-`SATELLITE` value, including `OCCULTATION` and `RADAR`, falls into the `else` branch commented
+`# Ground-based observatory:`, unconditionally requiring a dip-corrected dark window via
+`sun_event(kind='sun')`. That's a reasonable default for optical sites but a real semantic
+mismatch for occultation campaigns (whose observing window is the predicted occultation timing,
+not local darkness) and for radar (which routinely operates in daylight). No test in
+`test_campaign_approval.py` exercises an `OCCULTATION_OBSTYPE` or `RADAR_OBSTYPE` site through
+this path — both fixtured `Observatory` records used across the approval tests are
+`OPTICAL_OBSTYPE` or `SATELLITE_OBSTYPE` only.
 
-**Fix:** Update the "synthetic fixture" markdown cell's wording to acknowledge the notebook may show
-`unchanged` instead of `created` on a rerun against a pre-populated dev DB, matching the tone of the
-"Idempotency note" cell added later in the same notebook.
-
-#### IN-02: Ground-vs-space calendar-projection branch treats all non-satellite observatory types identically, without acknowledging RADAR/OCCULTATION
-
-**File:** `solsys_code/campaign_views.py:339-375`
-**Issue:**
-
-`CampaignRunDecisionView.post()`'s new D-06 hybrid calendar projection branches only on
-`run.site.observations_type == Observatory.SATELLITE_OBSTYPE`; every other value falls into the
-`else` branch, which is commented `# Ground-based observatory:` and unconditionally calls
-`sun_event(run.site, run.window_start, kind='sun')` to derive a dip-corrected sunset/sunrise window.
-`Observatory.OBSTYPE_CHOICES` (`solsys_code/solsys_code_observatory/models.py:17-25`) actually has
-four members — `OPTICAL`, `OCCULTATION`, `SATELLITE`, `RADAR` — and this is the only place in the
-codebase that branches on `observations_type` at all (`grep -rn SATELLITE_OBSTYPE solsys_code/`
-outside `solsys_code_observatory/models.py` and its own tests returns only this one call site). A
-`RADAR` observatory (e.g. a planetary-radar facility, which characteristically observes regardless
-of solar altitude) or an `OCCULTATION` site gets the same "must be dark, dip-corrected sunset to
-sunrise" treatment as an `OPTICAL` telescope, which may not reflect how those sites actually operate
-— `sun_event(kind='sun')` could legitimately raise `ValueError` (no two-crossing sun_event) or
-produce a semantically meaningless window for such a site, silently skipping calendar projection
-(logged at `debug`) rather than surfacing that the ground/space dichotomy doesn't fit every
-`observations_type`.
-
-**Fix:** Either explicitly document that the ground/space split is deliberately binary for this
-milestone (RADAR/OCCULTATION sites are out of scope, same as ASSET-02 is explicitly deferred to
-Phase 20 per the `claimed_dates()` docstring), or branch more precisely, e.g. treat only
-`OPTICAL_OBSTYPE` as the "needs a dark window" case and leave `RADAR`/`OCCULTATION` unprojected
-(matching the "graceful no projection" behavior already used for unresolved sites/TBD runs) rather
-than silently routing them through `sun_event()`.
+**Fix:** Unchanged from the prior review's recommendation — either scope the calendar-projection
+branch condition to `observations_type == Observatory.OPTICAL_OBSTYPE` explicitly (falling back to
+no projection, same as an unresolved site or TBD run, for `OCCULTATION`/`RADAR`), or add an
+explicit code comment acknowledging this is a deliberate simplification deferred to a later phase.
+As before, this is Info-level because it doesn't crash or corrupt data — it silently produces the
+wrong kind of `CalendarEvent` window for a site type this milestone has no real fixtures for yet.
 
 ---
 
-_Reviewed: 2026-07-10T00:00:00Z_
+_Reviewed: 2026-07-10T09:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
