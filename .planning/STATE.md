@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
-current_phase: 20
-current_phase_name: range-tbd-import-asset-aware-coverage-gap
+current_phase: 21
+current_phase_name: Site Disambiguation & Submitter Contact Opt-In
 status: verifying
 stopped_at: Phase 20 context gathered
-last_updated: "2026-07-10T20:01:00.948Z"
+last_updated: "2026-07-10T22:05:39.982Z"
 last_activity: 2026-07-10
-last_activity_desc: Phase 20 execution started
+last_activity_desc: Phase 20 complete, transitioned to Phase 21
 progress:
   total_phases: 4
   completed_phases: 3
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 ## Current Position
 
-Phase: 20 (range-tbd-import-asset-aware-coverage-gap) — EXECUTING
-Plan: 4 of 4
+Phase: 21 — Site Disambiguation & Submitter Contact Opt-In
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-10 — Phase 20 execution started
+Last activity: 2026-07-10 — Phase 20 complete, transitioned to Phase 21
 
 ## Roadmap Summary (v2.1)
 
@@ -98,6 +98,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 20 P02 | 10min | 2 tasks | 5 files |
 | Phase 20 P03 | 20min | 2 tasks | 3 files |
 | Phase 20 P04 | 22min | 1 tasks | 2 files |
+| 20 | 4 | - | - |
 
 ## Accumulated Context
 
