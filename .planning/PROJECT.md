@@ -413,4 +413,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-10 — Phase 19 (window-schema migration) complete, SCHED-02/03/04/05 validated*
+*Last updated: 2026-07-10 — Phase 20 (range/TBD import & asset-aware coverage gap) complete, IMPORT-01/02 and ASSET-01/02 validated. Code review caught and fixed a critical TBD-vs-resolved natural-key collision (`window_start__isnull=True` missing from the TBD lookup) before ship.*
