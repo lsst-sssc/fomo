@@ -68,6 +68,8 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `src/templates/campaigns/campaignrun_gap_analysis.html`: coverage-gap page; `campaignrun_table.html`: D-14-gated "Show Coverage Gaps" button — v2.0 (Phase 17)
 - `solsys_code/campaign_tables.py` (`render_site` fallback), `campaign_utils.py` (`resolve_site` gains keyword-only `create_placeholder`), `campaign_views.py` (approval opts out of placeholder creation): approval-queue site-visibility gap fix — quick task `260705-l1v` (2026-07-05)
 - **All 332 `./manage.py test solsys_code` tests pass (v2.0 milestone target features all shipped, plus the pre-close quick-task fix).**
+- `solsys_code/models.py` (`CampaignRun.window_start`/`window_end` replace `obs_date`/`ut_start`/`ut_end`, two partial `UniqueConstraint`s), `solsys_code/migrations/0004_campaignrun_window_schema.py` (backfill → dedup → constraint-swap hard-cutover migration), `campaign_gap.py`/`campaign_tables.py`/`campaign_views.py`/`campaign_forms.py`/`import_campaign_csv.py` (all consumers rewritten window-native) — v2.1 (Phase 19). Code review flagged one Critical follow-up (CR-01: the migration's dedup step only covers the TBD-branch collision, not the structurally identical resolved-window collision the backfill also creates); independently confirmed via live-DB query to have caused no actual data loss in this run, but tracked as a real robustness gap — see `.planning/phases/19-window-schema-migration/19-REVIEW.md`, fix via `/gsd-code-review 19 --fix`.
+- **All 355 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
 
@@ -249,12 +251,15 @@ v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replac
 - ✓ **GAP-01**: Coverage-gap analysis observability approach decided (dark-window-only, not true altitude/airmass filtering) with rationale citing pre-milestone research — v2.0 (Phase 17)
 - ✓ **GAP-02**: User can see which observable nights for a campaign target and site are not yet claimed by any run, via a GET-triggered, cached, server-validated view — v2.0 (Phase 17)
 - ✓ **SCHED-01**: Phase-time investigation spike settled all five scheduling-design decisions against the real 3I/ATLAS sheet rows: window schema confirmed as the nullable `window_start`/`window_end` `DateField` pair; TBD natural key folds `contact_person` into a partial/conditional `UniqueConstraint`; CSV range/TBD parsing rules enumerated per real cell shape (extends `_HHMM_RANGE`/`_APPROX_HOUR`/`_BARE_HOUR_UTC`); fuzzy-match library split verdict is **difflib primary** (no live-test evidence favored `rapidfuzz`'s extra dependency); `Observatory.obscode` needs no widening (250/274/289 all fit `max_length=4`) — but the spike also surfaced a real, previously-unknown bug: `resolve_site()` currently **cannot** resolve any of the three standard space-observatory codes because `MPCObscodeFetcher.to_observatory()` raises an unguarded `TypeError` on the MPC API's `null` longitude for satellite-type records (flagged for Phase 19/21, not fixed here — investigation-only phase). See `.planning/phases/18-uncertain-scheduling-investigation-spike/18-DECISION.md` and `docs/design/uncertain_scheduling_spike.rst` — v2.1 (Phase 18)
+- ✓ **SCHED-02**: `CampaignRun`'s `obs_date`/`ut_start`/`ut_end` single-night representation replaced by a nullable `window_start`/`window_end` pair; a classically-scheduled single night is `window_start == window_end` — v2.1 (Phase 19)
+- ✓ **SCHED-03**: A `CampaignRun` can be saved in a "TBD" state (both window fields null), distinct from a resolved window — v2.1 (Phase 19)
+- ✓ **SCHED-04**: Two distinct TBD rows for the same campaign + telescope neither silently merge nor duplicate — closed via a partial `UniqueConstraint` on `(campaign, telescope_instrument, contact_person)` scoped to `window_start IS NULL` — v2.1 (Phase 19)
+- ✓ **SCHED-05**: Every existing `CampaignRun` row migrated with no data loss (`window_start == window_end == former obs_date`) — migration `0004_campaignrun_window_schema.py` combines backfill → dedup → constraint-swap in load-bearing order. Code review's CR-01 (dedup asymmetry between TBD and resolved-window branches) was independently confirmed to have caused no actual data loss in this migration run, but remains a real robustness gap for richer future datasets — v2.1 (Phase 19)
 
 ### Active
 
 <!-- v2.1 Uncertain Scheduling & Site Disambiguation — requirement IDs defined in .planning/REQUIREMENTS.md -->
 
-- [ ] Range-first `CampaignRun` scheduling (window replaces single obs_date/ut_start/ut_end; single night = 1-day window)
 - [ ] Ground vs. space-mission asset distinction via `Observatory.observations_type` (`SATELLITE_OBSTYPE`)
 - [ ] CSV import (`import_campaign_csv`/`parse_obs_window`) handles range/TBD `Obs. Date` text instead of skipping the row
 - [ ] Coverage-gap analysis is asset-aware (ground window claims every date in range; space-mission claims none until scheduling narrows)
@@ -408,4 +413,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 — Phase 18 (investigation spike) complete, SCHED-01 validated*
+*Last updated: 2026-07-10 — Phase 19 (window-schema migration) complete, SCHED-02/03/04/05 validated*
