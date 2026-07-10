@@ -91,7 +91,7 @@
 
 - [x] **Phase 18: Uncertain-Scheduling Investigation Spike** - Settle window schema, TBD natural key, CSV range/TBD parsing rules, and fuzzy-match library against real 3I sheet rows before implementation (completed 2026-07-09)
 - [x] **Phase 19: Window-Schema Migration** - Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair, migrating existing rows with no data loss (completed 2026-07-09)
-- [ ] **Phase 20: Range/TBD Import & Asset-Aware Coverage Gap** - Import range/TBD `Obs. Date` rows into the window representation and make coverage-gap analysis distinguish ground vs. space-mission runs
+- [x] **Phase 20: Range/TBD Import & Asset-Aware Coverage Gap** - Import range/TBD `Obs. Date` rows into the window representation and make coverage-gap analysis distinguish ground vs. space-mission runs (completed 2026-07-10)
 - [ ] **Phase 21: Site Disambiguation & Submitter Contact Opt-In** - Staff-facing fuzzy-match site-resolution UI in the approval queue plus a submitter contact opt-in flag
 
 ## Phase Details
@@ -158,7 +158,7 @@ Plans:
   3. Coverage-gap analysis marks every date within a ground-based run's window as claimed (conservative, avoids double-booking)
   4. A space-mission run (its resolved site's `Observatory.observations_type == SATELLITE_OBSTYPE`) claims no dates until its window narrows to a single concrete night, at which point that night is claimed
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -172,7 +172,7 @@ Plans:
 
 **Wave 3** *(depends on 20-03)*
 
-- [ ] 20-04-PLAN.md — Demo notebook: range/TBD import demonstration with executed output (IMPORT-01/02)
+- [x] 20-04-PLAN.md — Demo notebook: range/TBD import demonstration with executed output (IMPORT-01/02)
 
 ### Phase 21: Site Disambiguation & Submitter Contact Opt-In
 
@@ -213,7 +213,7 @@ Plans:
 | 17. Coverage-Gap Analysis (Deferrable to v2.1) | v2.0 | 3/3 | Complete | 2026-07-04 |
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 4/4 | Complete    | 2026-07-09 |
-| 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 3/4 | In Progress|  |
+| 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 4/4 | Complete   | 2026-07-10 |
 | 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

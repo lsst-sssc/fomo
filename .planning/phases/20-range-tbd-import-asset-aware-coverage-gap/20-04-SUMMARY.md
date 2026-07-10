@@ -124,3 +124,10 @@ None - no external service configuration required. Migration 0006 was already ap
 ---
 *Phase: 20-range-tbd-import-asset-aware-coverage-gap*
 *Completed: 2026-07-10*
+
+## Self-Check: PASSED
+
+Both modified files (`docs/notebooks/pre_executed/fixtures/campaign_sample.csv`,
+`docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb`) and both commits
+(`38d88ea` task commit, `9aaa221` summary commit) verified present on disk and in
+git log.

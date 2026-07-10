@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 20
 current_phase_name: range-tbd-import-asset-aware-coverage-gap
-status: executing
+status: verifying
 stopped_at: Phase 20 context gathered
-last_updated: "2026-07-10T19:47:42.249Z"
+last_updated: "2026-07-10T20:01:00.948Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 20 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 9
-  percent: 50
+  completed_plans: 10
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 Phase: 20 (range-tbd-import-asset-aware-coverage-gap) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-10 — Phase 20 execution started
 
 ## Roadmap Summary (v2.1)
@@ -97,6 +97,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 20 P01 | 20min | 2 tasks | 3 files |
 | Phase 20 P02 | 10min | 2 tasks | 5 files |
 | Phase 20 P03 | 20min | 2 tasks | 3 files |
+| Phase 20 P04 | 22min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 20]: parse_obs_window() order-of-attempts parser (exact date -> full-date range regex -> compact-range regex with rollover -> TBD catch-all) never raises for any Obs. Date input (D-13) -- stdlib date()'s own ValueError validation is the never-raise mechanism, no manual day-count guard needed
 - [Phase 20]: import_campaign_csv's natural key branches on window_start is None (resolved-window vs TBD lookup/collision-key shape), matching CampaignRun.Meta.constraints' two partial UniqueConstraints exactly -- contact_person is pulled out of the unconditional fields dict and only set via lookup for the TBD branch
 - [Phase 20]: range/TBD rows skip UT-Time-Range parsing entirely (ut_start=ut_end=None, ut_needs_review=False) per RESEARCH.md's A1 assumption -- no current CampaignRun field stores these values for a multi-night window
+- [Phase 20]: Demo notebook's new range/TBD demonstration cell placed after the existing generic inspection cell (not immediately after the import call_command cell) so it reuses the notebook's already-established CampaignRun.objects.get(...) query style
 
 ### Pending Todos
 
@@ -179,7 +181,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-10T19:47:42.223Z
+Last session: 2026-07-10T19:59:53.869Z
 Stopped at: Phase 20 context gathered
 Resume file: .planning/phases/20-range-tbd-import-asset-aware-coverage-gap/20-CONTEXT.md
 
