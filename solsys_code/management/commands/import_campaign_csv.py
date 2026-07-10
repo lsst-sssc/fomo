@@ -153,7 +153,6 @@ class Command(BaseCommand):
                 'site': site,
                 'site_raw': site_raw,
                 'site_needs_review': needs_review,
-                'window_end': obs_date,  # single-night collapse: window_end == window_start == obs_date
                 'filters_bandpass': row.get('Filter(s)/Bandpass', '') or '',
                 'observation_details': row.get('Observation Details', '') or '',
                 'weather': row.get('Weather conditions or forecast', '') or '',
@@ -168,7 +167,17 @@ class Command(BaseCommand):
             }
 
             run, action = insert_or_create_campaign_run(
-                {'campaign': campaign, 'telescope_instrument': telescope_instrument, 'window_start': obs_date},
+                {
+                    # WR-01: window_end must be part of the lookup key too (single-night
+                    # collapse: window_end == window_start == obs_date for every row this
+                    # importer writes) -- matching models.py's own documented resolved-window
+                    # natural key (Meta.constraints comment), so a re-import can never match a
+                    # multi-night range row that merely starts on this obs_date.
+                    'campaign': campaign,
+                    'telescope_instrument': telescope_instrument,
+                    'window_start': obs_date,
+                    'window_end': obs_date,
+                },
                 fields,
             )
             if action == 'created':
