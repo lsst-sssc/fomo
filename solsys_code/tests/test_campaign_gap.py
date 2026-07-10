@@ -165,17 +165,18 @@ class TestClaimedDates(TestCase):
     def test_approved_run_claims_its_single_night_window(self):
         night = date(2026, 7, 10)
         self._make_run(window_start=night, window_end=night, telescope_instrument='A')
-        claimed, undated, unattributed = claimed_dates(self.campaign, self.target, self.site)
+        claimed, undated, unattributed, pending_narrowing = claimed_dates(self.campaign, self.target, self.site)
         self.assertIn(night, claimed)
         self.assertEqual(len(claimed), 1)
         self.assertEqual(undated, [])
         self.assertEqual(unattributed, [])
+        self.assertEqual(pending_narrowing, [])
 
     def test_range_run_claims_every_date_in_window(self):
         window_start = date(2026, 8, 1)
         window_end = date(2026, 8, 4)
         self._make_run(window_start=window_start, window_end=window_end, telescope_instrument='RANGE')
-        claimed, undated, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.site)
         expected = {
             date(2026, 8, 1),
             date(2026, 8, 2),
@@ -184,13 +185,16 @@ class TestClaimedDates(TestCase):
         }
         self.assertEqual(claimed, expected)
         self.assertEqual(undated, [])
+        # A ground run with a range never lands in pending_narrowing_runs -- that bucket
+        # is space-only (ASSET-02).
+        self.assertEqual(pending_narrowing, [])
 
     def test_cancelled_run_not_claimed(self):
         night = date(2026, 7, 11)
         self._make_run(
             window_start=night, window_end=night, telescope_instrument='B', run_status=CampaignRun.RunStatus.CANCELLED
         )
-        claimed, _, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertNotIn(night, claimed)
 
     def test_pending_review_run_not_claimed(self):
@@ -201,22 +205,83 @@ class TestClaimedDates(TestCase):
             telescope_instrument='C',
             approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
         )
-        claimed, _, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertNotIn(night, claimed)
 
     def test_undated_runs_flagged(self):
         run = self._make_run(window_start=None, window_end=None, telescope_instrument='E')
-        claimed, undated, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.site)
         self.assertIn(run, undated)
         self.assertNotIn(None, claimed)
         # No date should have been added on behalf of this run.
         self.assertEqual(len(claimed), 0)
+        # TBD runs never land in pending_narrowing_runs (D-09 explicit distinction).
+        self.assertEqual(pending_narrowing, [])
 
     def test_different_site_not_claimed(self):
         night = date(2026, 7, 15)
         self._make_run(window_start=night, window_end=night, telescope_instrument='F', site=self.other_site)
-        claimed, _, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertNotIn(night, claimed)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestClaimedDatesSpaceMission(TestCase):
+    """ASSET-01/ASSET-02/D-09: space-mission runs claim nothing until narrowed to a
+    single night; an un-narrowed range lands in pending_narrowing_runs, never
+    undated_runs; a TBD space-mission run lands in undated_runs, never
+    pending_narrowing_runs (D-09's explicit distinction)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.space_site = Observatory.objects.create(
+            obscode='250',
+            name='Test Space Telescope',
+            short_name='TST',
+            observations_type=Observatory.SATELLITE_OBSTYPE,
+        )
+        cls.campaign = TargetList.objects.create(name='Space Campaign')
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign.targets.add(cls.target)
+
+    def setUp(self):
+        cache.clear()
+
+    def _make_run(self, **kwargs):
+        defaults = {
+            'campaign': self.campaign,
+            'telescope_instrument': 'HST/WFC3',
+            'site': self.space_site,
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'run_status': CampaignRun.RunStatus.OBSERVED,
+        }
+        defaults.update(kwargs)
+        return CampaignRun.objects.create(**defaults)
+
+    def test_narrowed_space_run_claims_its_single_night(self):
+        night = date(2026, 9, 1)
+        self._make_run(window_start=night, window_end=night, telescope_instrument='Narrowed')
+        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.space_site)
+        self.assertEqual(claimed, {night})
+        self.assertEqual(undated, [])
+        self.assertEqual(pending_narrowing, [])
+
+    def test_unnarrowed_space_run_claims_nothing_and_lands_in_pending_narrowing(self):
+        window_start = date(2026, 9, 1)
+        window_end = date(2026, 9, 10)
+        run = self._make_run(window_start=window_start, window_end=window_end, telescope_instrument='Unnarrowed')
+        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.space_site)
+        self.assertEqual(claimed, set())
+        self.assertEqual(undated, [])
+        self.assertIn(run, pending_narrowing)
+        self.assertEqual(len(pending_narrowing), 1)
+
+    def test_tbd_space_run_lands_in_undated_not_pending_narrowing(self):
+        run = self._make_run(window_start=None, window_end=None, telescope_instrument='TBD')
+        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.space_site)
+        self.assertEqual(claimed, set())
+        self.assertIn(run, undated)
+        self.assertEqual(pending_narrowing, [])
 
 
 @override_settings(CACHES=TEST_CACHES)
@@ -254,8 +319,8 @@ class TestClaimedDatesMultiTarget(TestCase):
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
-        claimed_a, _, unattributed_a = claimed_dates(self.campaign, self.target_a, self.site)
-        claimed_b, _, unattributed_b = claimed_dates(self.campaign, self.target_b, self.site)
+        claimed_a, _, unattributed_a, _ = claimed_dates(self.campaign, self.target_a, self.site)
+        claimed_b, _, unattributed_b, _ = claimed_dates(self.campaign, self.target_b, self.site)
         self.assertNotIn(night, claimed_a)
         self.assertNotIn(night, claimed_b)
         self.assertEqual(len(unattributed_a), 1)
@@ -273,8 +338,8 @@ class TestClaimedDatesMultiTarget(TestCase):
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
-        claimed_a, _, _ = claimed_dates(self.campaign, self.target_a, self.site)
-        claimed_b, _, _ = claimed_dates(self.campaign, self.target_b, self.site)
+        claimed_a, _, _, _ = claimed_dates(self.campaign, self.target_a, self.site)
+        claimed_b, _, _, _ = claimed_dates(self.campaign, self.target_b, self.site)
         self.assertIn(night, claimed_a)
         self.assertNotIn(night, claimed_b)
 

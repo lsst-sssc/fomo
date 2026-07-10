@@ -20,6 +20,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from solsys_code.models import CampaignRun
+from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import sun_event
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ def observable_dates(site, start: date, end: date) -> set[date]:
     return observable
 
 
-def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
+def claimed_dates(campaign, target, site) -> tuple[set[date], list, list, list]:
     """Return the set of dates claimed by approved, non-terminal-failure CampaignRuns.
 
     D-05: a date is claimed when a CampaignRun has approval_status=APPROVED and
@@ -126,13 +127,20 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
     separate "unattributed" list rather than being counted as claiming (or not claiming)
     any specific target's dates -- a data-quality signal, not a silent guess either way.
 
-    For each counted run, every date in the inclusive range
-    [window_start, window_end] is claimed (a single-night run has window_start ==
-    window_end, so exactly one date is claimed). A run with window_start is None (TBD)
-    cannot be attributed to any date -- it is collected into a separate "undated" list,
-    never added to the claimed set. This does not distinguish ground vs. space-mission
-    runs (ASSET-02 asset-awareness is explicitly Phase 20's job) -- every counted run
-    claims its full window regardless of site type.
+    Ground-vs-space asset-awareness (ASSET-01/ASSET-02, D-09): the classification is
+    computed once, before the loop, from the ``site`` parameter (``site.observations_type
+    == Observatory.SATELLITE_OBSTYPE``) -- never re-read per-row (Pitfall 3), since the
+    queryset is already filtered to this single site. For a ground run, every date in the
+    inclusive range [window_start, window_end] is claimed (a single-night run has
+    window_start == window_end, so exactly one date is claimed). A space-mission run whose
+    window hasn't narrowed to a single night (window_start != window_end) claims nothing
+    and is collected into a separate "pending narrowing" list instead -- a space
+    observatory has no fixed horizon, so claiming every date in a broad window would
+    wrongly mark those nights as covered. A run with window_start is None (TBD) cannot be
+    attributed to any date regardless of site type -- it is collected into a separate
+    "undated" list, never added to the claimed set and never added to "pending narrowing"
+    (D-09 explicit distinction: "no info at all" vs. "a real space-mission run with a
+    range, just not scheduled tight enough yet").
 
     Args:
         campaign: the campaign TargetList.
@@ -144,12 +152,14 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
     site combination regardless of any requested window. ``_compute_gap()`` only ever
     evaluates the range-bounded ``gap = obs - claimed`` against the range-bounded ``obs``
     set, so ``gap_dates`` is correct -- but the returned ``claimed_dates``/``undated_runs``/
-    ``unattributed_runs`` are campaign/site-wide, NOT scoped to ``[start, end]``, even though
-    the cached result they end up in (``build_gap_cache_key()``) is keyed by a date range.
-    Do not assume a range-keyed cache entry's ``claimed_dates`` is itself range-bounded.
+    ``unattributed_runs``/``pending_narrowing_runs`` are campaign/site-wide, NOT scoped to
+    ``[start, end]``, even though the cached result they end up in
+    (``build_gap_cache_key()``) is keyed by a date range. Do not assume a range-keyed cache
+    entry's ``claimed_dates`` is itself range-bounded.
 
     Returns:
-        tuple[set[date], list, list]: (claimed_dates, undated_runs, unattributed_runs).
+        tuple[set[date], list, list, list]: (claimed_dates, undated_runs,
+            unattributed_runs, pending_narrowing_runs).
     """
     # D-13/WR-01: restrict the columns actually fetched to a PII-free field set (never
     # contact_person/contact_email) before anything is collected into
@@ -171,20 +181,34 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list]:
     # Single-target campaign: don't filter by target at all -- the single target is
     # implied and target=None is the common real-data case (Pitfall 4).
 
+    # ASSET-01: classification computed once from the site parameter, before the loop --
+    # never a per-row run.site read (Pitfall 3), which would force widening the
+    # PII-minimizing .only('pk', 'window_start', 'window_end') queryset above.
+    is_space_mission = site.observations_type == Observatory.SATELLITE_OBSTYPE
+
     claimed: set[date] = set()
     undated_runs: list[CampaignRun] = []
+    pending_narrowing_runs: list[CampaignRun] = []
     for run in qs:
         if run.window_start is None or run.window_end is None:
-            # TBD -- can't be attributed to any date (unchanged bucketing rule). WR-02:
-            # also catches the DB-CheckConstraint-should-prevent-but-defend-anyway case of a
-            # mismatched pair (one set, one NULL) so this never raises a TypeError on read.
+            # TBD -- can't be attributed to any date (unchanged bucketing rule), regardless
+            # of site type (D-09 explicit distinction from pending_narrowing_runs below).
+            # WR-02: also catches the DB-CheckConstraint-should-prevent-but-defend-anyway
+            # case of a mismatched pair (one set, one NULL) so this never raises a
+            # TypeError on read.
             undated_runs.append(run)
+            continue
+        if is_space_mission and run.window_start != run.window_end:
+            # ASSET-02/D-09: a space-mission run with an un-narrowed range claims nothing
+            # until a staff edit or CSV re-import narrows it to window_start == window_end
+            # (D-10: no automated narrowing mechanism).
+            pending_narrowing_runs.append(run)
             continue
         n_days = (run.window_end - run.window_start).days + 1
         for i in range(n_days):
             claimed.add(run.window_start + timedelta(days=i))
 
-    return claimed, undated_runs, unattributed_runs
+    return claimed, undated_runs, unattributed_runs, pending_narrowing_runs
 
 
 def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
@@ -199,12 +223,13 @@ def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
 
     Returns:
         dict: gap_dates, claimed_dates, observable_dates (each a sorted list of dates),
-            undated_runs, unattributed_runs (lists of CampaignRun), and
-            unknown_date_count (number of dates in range whose sun_event() call raised,
-            i.e. dates in range that are neither observable nor known-unavailable).
+            undated_runs, unattributed_runs, pending_narrowing_runs (lists of CampaignRun),
+            and unknown_date_count (number of dates in range whose sun_event() call
+            raised, i.e. dates in range that are neither observable nor
+            known-unavailable).
     """
     obs = observable_dates(site, start, end)
-    claimed, undated_runs, unattributed_runs = claimed_dates(campaign, target, site)
+    claimed, undated_runs, unattributed_runs, pending_narrowing_runs = claimed_dates(campaign, target, site)
     gap = obs - claimed
 
     n_days = (end - start).days + 1
@@ -220,6 +245,7 @@ def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
         'observable_dates': sorted(obs),
         'undated_runs': undated_runs,
         'unattributed_runs': unattributed_runs,
+        'pending_narrowing_runs': pending_narrowing_runs,
         'unknown_date_count': unknown_date_count,
     }
 
