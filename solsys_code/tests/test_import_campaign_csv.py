@@ -328,6 +328,19 @@ class TestCampaignUtils(TestCase):
         self.assertIsNone(end)
         self.assertFalse(ut_needs_review)
 
+    def test_parse_obs_window_full_range_reversed_falls_through_to_tbd(self):
+        """WR-01 regression: a reversed 'to'-separated range (end before start, e.g. an
+        operand-swap typo) must not silently parse into an inverted, zero-coverage window --
+        it falls through to the TBD/needs-review tuple instead.
+        """
+        window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
+            '2025-09-22 to 2025-07-05', ''
+        )
+        self.assertIsNone(window_start)
+        self.assertIsNone(window_end)
+        self.assertTrue(needs_review)
+        self.assertEqual(raw, '2025-09-22 to 2025-07-05')
+
     def test_parse_obs_window_full_range_en_dash(self):
         """D-12: an en-dash-separated full-date range parses identically to 'to'."""
         window_start, window_end, raw, needs_review, start, end, ut_needs_review = parse_obs_window(
@@ -790,6 +803,63 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertIn('duplicate natural key', err)
         self.assertNotIn('Alice', err)
         self.assertNotIn('alice@example.com', err)
+
+    def test_tbd_row_does_not_collide_with_resolved_row_same_contact(self):
+        """CR-01 regression: a TBD row must never match/corrupt an existing resolved-window
+        row sharing campaign+telescope_instrument+Contact Person -- the TBD lookup key must
+        require window_start__isnull=True so the two natural-key shapes (D-04/Pitfall 2)
+        stay disjoint at the database level, not just within a single import batch.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JUICE',
+                        'Obs. Date': '2025-07-05',
+                        'Contact Person': 'Alice',
+                    }
+                ),
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        resolved_run = CampaignRun.objects.get()
+        self.assertEqual(resolved_run.window_start, date(2025, 7, 5))
+
+        # Second, separate import run: a TBD row for the same campaign+telescope+contact.
+        path2, ctx2 = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JUICE',
+                        'Obs. Date': 'TBD pending Cycle 2',
+                        'Contact Person': 'Alice',
+                    }
+                ),
+            ]
+        )
+        with ctx2:
+            stdout_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv',
+                '--campaign',
+                'Test Campaign',
+                path2,
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 2)
+        self.assertIn('created: 1', stdout_buf.getvalue())
+        resolved_run.refresh_from_db()
+        self.assertEqual(resolved_run.window_start, date(2025, 7, 5))
+        self.assertFalse(resolved_run.window_needs_review)
+        tbd_run = CampaignRun.objects.exclude(pk=resolved_run.pk).get()
+        self.assertIsNone(tbd_run.window_start)
+        self.assertTrue(tbd_run.window_needs_review)
 
     def test_idempotent_rerun_no_duplicates(self):
         """D-04: running the command twice over the same CSV produces no duplicate CampaignRuns,

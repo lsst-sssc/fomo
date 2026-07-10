@@ -201,6 +201,7 @@ class Command(BaseCommand):
                     'campaign': campaign,
                     'telescope_instrument': telescope_instrument,
                     'contact_person': contact_person,
+                    'window_start__isnull': True,
                 }
 
             run, action = insert_or_create_campaign_run(lookup, fields)

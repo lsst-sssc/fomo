@@ -244,6 +244,11 @@ def parse_obs_window(
             try:
                 window_start = datetime.strptime(start_s, '%Y-%m-%d').date()
                 window_end = datetime.strptime(end_s, '%Y-%m-%d').date()
+                if window_end < window_start:
+                    # Reversed range (operands swapped, e.g. a source-sheet typo) --
+                    # treat like any other unparseable shape rather than silently
+                    # accepting a window that claims zero dates (WR-01).
+                    window_start = window_end = None
             except ValueError:
                 window_start = window_end = None
         else:
@@ -352,8 +357,11 @@ def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]
 
     Args:
         lookup: keyword-argument mapping used as the unique lookup key for
-            ``CampaignRun.objects.get_or_create`` (D-04: campaign, telescope_instrument,
-            window_start).
+            ``CampaignRun.objects.get_or_create`` (D-04). Two shapes: resolved-window rows
+            key on (campaign, telescope_instrument, window_start, window_end); TBD rows key
+            on (campaign, telescope_instrument, contact_person, window_start__isnull=True) --
+            the `window_start__isnull=True` guard is required so a TBD row never collides
+            with a resolved row sharing the same campaign/telescope/contact_person.
         fields: field-value mapping of ``CampaignRun`` attributes to set when creating or
             updating. Not merged with `lookup`; the caller is responsible for ensuring
             the combined key+fields set is complete.
