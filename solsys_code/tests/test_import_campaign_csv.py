@@ -607,14 +607,18 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertIn('skipped: 1', stdout_buf.getvalue())
 
     def test_natural_key_failure_skipped_and_logged(self):
-        """D-05: a bad Obs. Date row is skipped and logged; a good sibling row still imports."""
+        """D-07 (Pitfall 1): a blank Telescope/Instrument row is skipped and logged; a good
+        sibling row still imports. '2025-11-02 -25' is now a valid compact date range
+        (D-11), so a blank Telescope/Instrument is used as the genuine natural-key failure
+        instead.
+        """
         Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
         path, ctx = self._write_csv(
             [
                 _row(
                     **{
-                        'Telescope / Instrument': 'JUICE',
-                        'Obs. Date': '2025-11-02 -25',  # malformed date
+                        'Telescope / Instrument': '',  # blank -- true natural-key failure
+                        'Obs. Date': '2025-07-10',
                         'Contact Person': 'Real Person',
                         'Email': 'real.person@example.com',
                     }
@@ -638,16 +642,19 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(CampaignRun.objects.count(), 1)
         err = stderr_buf.getvalue()
         self.assertIn('Row 2', err)
-        self.assertIn('JUICE', err)
+        self.assertIn('required and was blank', err)
 
     def test_natural_key_failure_log_excludes_contact_pii(self):
-        """WR-06: the skipped-row stderr line must not leak Contact Person/Email PII."""
+        """WR-06/Pitfall 1: the skipped-row stderr line must not leak Contact Person/Email
+        PII. Uses a blank Telescope/Instrument as the genuine natural-key failure ('2025-11-
+        02 -25' is now a valid compact date range, D-11).
+        """
         path, ctx = self._write_csv(
             [
                 _row(
                     **{
-                        'Telescope / Instrument': 'JUICE',
-                        'Obs. Date': '2025-11-02 -25',  # malformed date
+                        'Telescope / Instrument': '',
+                        'Obs. Date': '2025-07-10',
                         'Contact Person': 'Real Person',
                         'Email': 'real.person@example.com',
                     }
@@ -663,6 +670,126 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         err = stderr_buf.getvalue()
         self.assertNotIn('Real Person', err)
         self.assertNotIn('real.person@example.com', err)
+
+    def test_range_row_creates_window(self):
+        """IMPORT-01: a date-range Obs. Date creates a CampaignRun with the parsed window,
+        not skipped as a natural-key failure.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JWST',
+                        'Obs. Date': '2025-07-05 to 2025-09-22',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            stdout_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout_buf, stderr=io.StringIO()
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        run = CampaignRun.objects.first()
+        self.assertEqual(run.window_start, date(2025, 7, 5))
+        self.assertEqual(run.window_end, date(2025, 9, 22))
+        self.assertFalse(run.window_needs_review)
+        self.assertEqual(run.original_obs_date_raw, '')
+        self.assertIn('created: 1', stdout_buf.getvalue())
+        self.assertIn('skipped: 0', stdout_buf.getvalue())
+
+    def test_tbd_row_flagged_and_counted(self):
+        """IMPORT-02: unparseable Obs. Date text creates a flagged TBD row -- never skipped,
+        counted in the new window_needs_review summary counter.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JUICE',
+                        'Obs. Date': 'TBD pending Cycle 2',
+                        'Contact Person': 'Alice',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            stdout_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout_buf, stderr=io.StringIO()
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        run = CampaignRun.objects.first()
+        self.assertIsNone(run.window_start)
+        self.assertIsNone(run.window_end)
+        self.assertTrue(run.window_needs_review)
+        self.assertEqual(run.original_obs_date_raw, 'TBD pending Cycle 2')
+        self.assertIn('window_needs_review: 1', stdout_buf.getvalue())
+        self.assertIn('skipped: 0', stdout_buf.getvalue())
+
+    def test_two_tbd_rows_different_contact_both_import(self):
+        """TBD natural key folds in contact_person -- two TBD rows for the same
+        campaign+telescope but different Contact Person both import.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(**{'Telescope / Instrument': 'JUICE', 'Obs. Date': '', 'Contact Person': 'Alice'}),
+                _row(**{'Telescope / Instrument': 'JUICE', 'Obs. Date': '', 'Contact Person': 'Bob'}),
+            ]
+        )
+        with ctx:
+            stdout_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout_buf, stderr=io.StringIO()
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 2)
+        self.assertIn('created: 2', stdout_buf.getvalue())
+        self.assertIn('skipped: 0', stdout_buf.getvalue())
+
+    def test_two_tbd_rows_same_contact_second_collides(self):
+        """Two TBD rows sharing campaign+telescope+Contact Person collide on the natural
+        key; the second is skipped/logged, and the collision log excludes Contact
+        Person/Email PII (WR-06).
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JUICE',
+                        'Obs. Date': '',
+                        'Contact Person': 'Alice',
+                        'Email': 'alice@example.com',
+                    }
+                ),
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JUICE',
+                        'Obs. Date': 'still pending',
+                        'Contact Person': 'Alice',
+                        'Email': 'alice@example.com',
+                    }
+                ),
+            ]
+        )
+        with ctx:
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout_buf, stderr=stderr_buf
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertIn('created: 1', stdout_buf.getvalue())
+        self.assertIn('skipped: 1', stdout_buf.getvalue())
+        err = stderr_buf.getvalue()
+        self.assertIn('WARNING', err)
+        self.assertIn('duplicate natural key', err)
+        self.assertNotIn('Alice', err)
+        self.assertNotIn('alice@example.com', err)
 
     def test_idempotent_rerun_no_duplicates(self):
         """D-04: running the command twice over the same CSV produces no duplicate CampaignRuns,

@@ -1,5 +1,4 @@
 import csv
-from datetime import date
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -47,17 +46,22 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> str | None:
         """Import campaign CSV rows into CampaignRun, row-by-row, skip-and-log on natural-key failure.
 
-        Only a failure in a natural-key field (Telescope / Instrument, Obs. Date/UT Time
-        Range) skips a row (D-05); every other column defaults to a blank/None value
-        rather than aborting the row. Site resolution (D-08/D-09) never skips a row --
-        an unresolved site is flagged via `site_needs_review` and counted separately.
+        Only a blank Telescope / Instrument is a true natural-key failure that skips a row
+        (D-07); every other column defaults to a blank/None value rather than aborting the
+        row. `Obs. Date` never skips a row either, per D-13's never-raise contract:
+        `parse_obs_window()` always returns a usable window/TBD result, so every row
+        creates or updates a `CampaignRun` -- a resolved single-night/range window, or a
+        flagged TBD row (`window_needs_review=True`, counted in the summary, IMPORT-02).
+        Site resolution (D-08/D-09) never skips a row either -- an unresolved site is
+        flagged via `site_needs_review` and counted separately.
 
-        The window-schema natural key (`campaign`, `telescope_instrument`, `window_start`)
-        is date-only (single-night collapse: `window_end` == `window_start` == the parsed
-        `Obs. Date`), so two rows sharing the same telescope/campaign/date now collide on
-        the key regardless of whether their `UT Time Range` cells parsed. A genuine
-        same-date collision is logged and skipped rather than silently merged into one
-        `CampaignRun` (D-07/D-08) -- Phase 20 owns real range/TBD disambiguation.
+        The natural key branches on whether the row resolved to a window or TBD
+        (Pitfall 2, matching `CampaignRun.Meta.constraints`'s two partial
+        `UniqueConstraint`s exactly): a resolved window keys on `(campaign,
+        telescope_instrument, window_start, window_end)`; a TBD row keys on `(campaign,
+        telescope_instrument, contact_person)` instead, since `window_start`/`window_end`
+        are always `NULL` for a TBD row. A genuine same-key collision within this batch is
+        logged and skipped rather than silently merged into one `CampaignRun`.
 
         WR-07: `fields['target']` is unconditionally set to the campaign's auto-resolved
         Target (D-07) on every row, every run -- including on a re-import that updates an
@@ -80,13 +84,13 @@ class Command(BaseCommand):
         unchanged_count = 0
         skipped_count = 0
         site_needs_review_count = 0
-        # CR-02 (window-schema rethink): window_start is date-only, so the natural key is
-        # now (campaign, telescope_instrument, obs_date) -- any two rows sharing that key
-        # collide, not just rows that both fell back to parse_obs_window's
-        # unparseable-UT midnight default. Track keys already seen in this batch so a
-        # genuine duplicate is logged and skipped rather than silently merged into one
-        # CampaignRun via insert_or_create_campaign_run's get_or_create.
-        seen_window_keys: set[tuple[Any, str, date]] = set()
+        window_needs_review_count = 0
+        # Two distinct key shapes (Pitfall 2): a resolved window key
+        # (campaign_pk, telescope_instrument, window_start, window_end), or a TBD key
+        # (campaign_pk, telescope_instrument, contact_person). Track keys already seen in
+        # this batch so a genuine duplicate is logged and skipped rather than silently
+        # merged into one CampaignRun via insert_or_create_campaign_run's get_or_create.
+        seen_window_keys: set[tuple[Any, ...]] = set()
 
         try:
             with open(filepath, encoding='utf-8', newline='') as f:
@@ -105,36 +109,48 @@ class Command(BaseCommand):
 
         for row_num, row in enumerate(rows, start=2):  # header is row 1
             telescope_instrument = (row.get('Telescope / Instrument', '') or '').strip()
-            try:
-                if not telescope_instrument:
-                    raise ValueError('Telescope / Instrument is required and was blank')
-                # ut_start/ut_end are no longer stored (window schema is date-only) -- only
-                # obs_date (-> window_start/window_end) and ut_needs_review (collision
-                # log wording) are used.
-                obs_date, _ut_start, _ut_end, ut_needs_review = parse_obs_window(
-                    row.get('Obs. Date', ''), row.get('UT Time Range', '')
-                )
-            except ValueError as exc:
-                # WR-06: log only the natural-key fields needed to diagnose the skip --
-                # not the full row, which also carries Contact Person/Email PII from the
-                # real 3I/ATLAS sheet this command is meant to ingest.
+            if not telescope_instrument:
+                # D-07: the one remaining true natural-key failure -- WR-06: log only the
+                # natural-key fields needed to diagnose the skip, not the full row (which
+                # also carries Contact Person/Email PII from the real 3I/ATLAS sheet).
                 self.stderr.write(
-                    f'Row {row_num}: {exc} (Telescope/Instrument={telescope_instrument!r}, '
-                    f'Obs. Date={row.get("Obs. Date")!r})'
+                    f'Row {row_num}: Telescope / Instrument is required and was blank '
+                    f'(Obs. Date={row.get("Obs. Date")!r})'
                 )
                 skipped_count += 1
                 continue
 
-            # See seen_window_keys comment above (CR-02): window_start collapses to
-            # obs_date, so this check now runs for every row, not just ones whose UT
-            # Time Range fell back to the unparseable-UT default.
-            collision_key = (campaign.pk, telescope_instrument, obs_date)
+            # D-13: parse_obs_window() never raises -- every Obs. Date shape resolves to
+            # either a window (single-night or range) or the TBD tuple.
+            (
+                window_start,
+                window_end,
+                original_obs_date_raw,
+                window_needs_review,
+                _ut_start,
+                _ut_end,
+                ut_needs_review,
+            ) = parse_obs_window(row.get('Obs. Date', ''), row.get('UT Time Range', ''))
+            if window_needs_review:
+                window_needs_review_count += 1
+
+            contact_person = row.get('Contact Person', '') or ''
+
+            # Pitfall 2: branch the natural key on whether this row resolved to a window
+            # or fell through to TBD -- matches CampaignRun.Meta.constraints' two partial
+            # UniqueConstraints exactly (resolved: campaign+telescope_instrument+
+            # window_start+window_end; TBD: campaign+telescope_instrument+contact_person).
+            if window_start is not None:
+                collision_key = (campaign.pk, telescope_instrument, window_start, window_end)
+            else:
+                collision_key = (campaign.pk, telescope_instrument, contact_person)
+
             if collision_key in seen_window_keys:
                 self.stderr.write(
                     f'Row {row_num}: WARNING duplicate natural key '
-                    f'(Telescope/Instrument={telescope_instrument!r}, Obs. Date={obs_date!r}); '
-                    f'skipping row to avoid merging distinct observations into one CampaignRun -- '
-                    f"check the source rows' UT Time Range cells"
+                    f'(Telescope/Instrument={telescope_instrument!r}, '
+                    f'Obs. Date={row.get("Obs. Date")!r}); '
+                    f'skipping row to avoid merging distinct observations into one CampaignRun'
                     + (' (unparseable/blank UT Time Range)' if ut_needs_review else '')
                 )
                 skipped_count += 1
@@ -153,6 +169,8 @@ class Command(BaseCommand):
                 'site': site,
                 'site_raw': site_raw,
                 'site_needs_review': needs_review,
+                'original_obs_date_raw': original_obs_date_raw,  # D-04: TBD rows only, '' otherwise
+                'window_needs_review': window_needs_review,
                 'filters_bandpass': row.get('Filter(s)/Bandpass', '') or '',
                 'observation_details': row.get('Observation Details', '') or '',
                 'weather': row.get('Weather conditions or forecast', '') or '',
@@ -161,25 +179,31 @@ class Command(BaseCommand):
                 'observation_outcome': row.get('Observation Outcome', '') or '',
                 'publication_plans': row.get('Publication Plans', '') or '',
                 'open_to_collaboration': (row.get('Open to collaboration?', '') or '').strip().lower() == 'yes',
-                'contact_person': row.get('Contact Person', '') or '',
                 'contact_email': row.get('Email', '') or '',
                 'comments': row.get('Other comments', '') or '',
             }
 
-            run, action = insert_or_create_campaign_run(
-                {
-                    # WR-01: window_end must be part of the lookup key too (single-night
-                    # collapse: window_end == window_start == obs_date for every row this
-                    # importer writes) -- matching models.py's own documented resolved-window
-                    # natural key (Meta.constraints comment), so a re-import can never match a
-                    # multi-night range row that merely starts on this obs_date.
+            if window_start is not None:
+                # Resolved-window branch: contact_person is a plain field, not part of
+                # the lookup key.
+                fields['contact_person'] = contact_person
+                lookup = {
                     'campaign': campaign,
                     'telescope_instrument': telescope_instrument,
-                    'window_start': obs_date,
-                    'window_end': obs_date,
-                },
-                fields,
-            )
+                    'window_start': window_start,
+                    'window_end': window_end,
+                }
+            else:
+                # TBD branch (Pitfall 2): contact_person is promoted into the lookup key
+                # instead, so it's deliberately left out of `fields` to avoid
+                # lookup/defaults key-overlap ambiguity.
+                lookup = {
+                    'campaign': campaign,
+                    'telescope_instrument': telescope_instrument,
+                    'contact_person': contact_person,
+                }
+
+            run, action = insert_or_create_campaign_run(lookup, fields)
             if action == 'created':
                 created_count += 1
             elif action == 'updated':
@@ -192,6 +216,7 @@ class Command(BaseCommand):
             f'updated: {updated_count}, '
             f'unchanged: {unchanged_count}, '
             f'skipped: {skipped_count}, '
-            f'site_needs_review: {site_needs_review_count}'
+            f'site_needs_review: {site_needs_review_count}, '
+            f'window_needs_review: {window_needs_review_count}'
         )
         return
