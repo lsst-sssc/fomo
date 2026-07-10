@@ -5,3 +5,5 @@ Cy Fixture,cy.fixture@example.com,Apache Point Observatory/ARCTIC,705,2025-07-06
 Dee Approx,dee.approx@example.com,VLT/MUSE,309,2025-07-16,~1 am,480-930 nm,IFU monitoring cadence single exposure,Photometric,completed,Nucleus well resolved from coma,Survey paper; co-authorship open,no,
 Eli Blank,eli.blank@example.com,Apache Point Observatory/KOSMOS,705,2025-07-06,,Blue GRISM 3800-6600 A,Low-res spectroscopy exact start time not logged,Good,completed,Detected continuum; weak emission features,Open to shared authorship,yes,Contact for raw data access
 Fay Review,fay.review@example.com,Generic 1m robotic telescope,,2025-07-11,09:00 - 09:30,V,Rapid-response photometry site not yet confirmed,Clear,Upcoming,,,no,Site TBD needs manual review
+Gia Range,gia.range@example.com,FTN/FLOYDS,F65,2025-08-01 to 2025-08-15,,BVRI,Multi-night monitoring window not yet narrowed to a single night,Variable,Upcoming,,,no,Window reserved pending scheduling
+Ike Pending,ike.pending@example.com,VLT/X-shooter,309,TBD pending Cycle 2,,NUV-NIR,Awaiting Cycle 2 time allocation decision,,Upcoming,,,no,Contact Person required for a stable TBD natural key
