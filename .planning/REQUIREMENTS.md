@@ -17,8 +17,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Asset-Type Distinction & Coverage-Gap (ASSET)
 
-- [ ] **ASSET-01**: A `CampaignRun`'s "ground" vs. "space-mission" classification is derived from its resolved site's `Observatory.observations_type` (`SATELLITE_OBSTYPE`) — no new field on `CampaignRun`
-- [ ] **ASSET-02**: Coverage-gap analysis claims every date in a ground-based run's window; a space-mission run claims no dates until its window narrows to a single concrete night (`window_start == window_end`)
+- [x] **ASSET-01**: A `CampaignRun`'s "ground" vs. "space-mission" classification is derived from its resolved site's `Observatory.observations_type` (`SATELLITE_OBSTYPE`) — no new field on `CampaignRun`
+- [x] **ASSET-02**: Coverage-gap analysis claims every date in a ground-based run's window; a space-mission run claims no dates until its window narrows to a single concrete night (`window_start == window_end`)
 
 ### CSV Import (IMPORT)
 
@@ -72,8 +72,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SCHED-03 | Phase 19 | Complete |
 | SCHED-04 | Phase 19 | Complete |
 | SCHED-05 | Phase 19 | Complete |
-| ASSET-01 | Phase 20 | Pending |
-| ASSET-02 | Phase 20 | Pending |
+| ASSET-01 | Phase 20 | Complete |
+| ASSET-02 | Phase 20 | Complete |
 | IMPORT-01 | Phase 20 | Pending |
 | IMPORT-02 | Phase 20 | Pending |
 | SITE-01 | Phase 21 | Pending |

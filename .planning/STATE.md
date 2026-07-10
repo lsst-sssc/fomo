@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 20
-current_phase_name: Range/TBD Import & Asset-Aware Coverage Gap
+current_phase_name: range-tbd-import-asset-aware-coverage-gap
 status: executing
 stopped_at: Phase 20 context gathered
-last_updated: "2026-07-10T18:35:40.148Z"
+last_updated: "2026-07-10T19:07:00.959Z"
 last_activity: 2026-07-10
-last_activity_desc: Phase 19 complete, transitioned to Phase 20
+last_activity_desc: Phase 20 execution started
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 10
+  completed_plans: 7
   percent: 50
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Phase 19 — window-schema-migration
+**Current focus:** Phase 20 — range-tbd-import-asset-aware-coverage-gap
 
 ## Current Position
 
-Phase: 20 — Range/TBD Import & Asset-Aware Coverage Gap
-Plan: Not started
+Phase: 20 (range-tbd-import-asset-aware-coverage-gap) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-10 — Phase 19 complete, transitioned to Phase 20
+Last activity: 2026-07-10 — Phase 20 execution started
 
 ## Roadmap Summary (v2.1)
 
@@ -94,6 +94,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 19 P03 | ~20min | 3 tasks | 6 files |
 | Phase 19 P04 | 20min | 2 tasks | 4 files |
 | 19 | 4 | - | - |
+| Phase 20 P01 | 20min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 19]: [Phase 19] import_campaign_csv's window-key collision check now runs for every row (not just ut_needs_review fallback rows), since window_start collapses to date granularity -- any same-telescope/same-date pair collides on the natural key — window_start is a DateField; time-of-day no longer disambiguates the natural key
 - [Phase 19]: [Phase 19] Applied migration 0004_campaignrun_window_schema to the real dev DB (src/fomo_db.sqlite3), previously deferred by Plan 01, so the import_campaign_csv_demo notebook could execute against the live schema — Notebook connects directly to the dev DB, not a test DB; backfill/dedup outcome matched Plan 01's smoke test exactly (16 -> 14 rows)
 - [Phase 19]: [Phase 19] Demo notebook's approval-lifecycle cell switched from unconditional CampaignRun.objects.create() to update_or_create() keyed on (campaign, telescope_instrument, contact_person) — Plan 01's new partial TBD UniqueConstraint on those same fields made repeat notebook execution crash with IntegrityError once the dev DB was actually migrated
+- [Phase 20]: claimed_dates() computes ground-vs-space classification once from the site parameter before the per-run loop (is_space_mission), never per-row from run.site, preserving the PII-minimizing .only('pk','window_start','window_end') queryset — Avoids N+1 reads and keeps the existing PII-minimization invariant intact (Pitfall 3)
+- [Phase 20]: pending_narrowing_runs is a distinct bucket from undated_runs -- TBD runs always land in undated_runs regardless of site type; only a space-mission run with an un-narrowed range lands in pending_narrowing_runs — D-09 explicit distinction between 'no info at all' and 'a real space-mission run with a range, just not scheduled tight enough yet'
 
 ### Pending Todos
 
@@ -169,7 +172,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-10T17:16:36.534Z
+Last session: 2026-07-10T19:06:18.495Z
 Stopped at: Phase 20 context gathered
 Resume file: .planning/phases/20-range-tbd-import-asset-aware-coverage-gap/20-CONTEXT.md
 
