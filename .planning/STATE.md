@@ -6,14 +6,14 @@ current_phase: 20
 current_phase_name: range-tbd-import-asset-aware-coverage-gap
 status: executing
 stopped_at: Phase 20 context gathered
-last_updated: "2026-07-10T19:07:00.959Z"
+last_updated: "2026-07-10T19:23:40.239Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 20 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 20 (range-tbd-import-asset-aware-coverage-gap) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-10 — Phase 20 execution started
 
@@ -95,6 +95,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 19 P04 | 20min | 2 tasks | 4 files |
 | 19 | 4 | - | - |
 | Phase 20 P01 | 20min | 2 tasks | 3 files |
+| Phase 20 P02 | 10min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 19]: [Phase 19] Demo notebook's approval-lifecycle cell switched from unconditional CampaignRun.objects.create() to update_or_create() keyed on (campaign, telescope_instrument, contact_person) — Plan 01's new partial TBD UniqueConstraint on those same fields made repeat notebook execution crash with IntegrityError once the dev DB was actually migrated
 - [Phase 20]: claimed_dates() computes ground-vs-space classification once from the site parameter before the per-run loop (is_space_mission), never per-row from run.site, preserving the PII-minimizing .only('pk','window_start','window_end') queryset — Avoids N+1 reads and keeps the existing PII-minimization invariant intact (Pitfall 3)
 - [Phase 20]: pending_narrowing_runs is a distinct bucket from undated_runs -- TBD runs always land in undated_runs regardless of site type; only a space-mission run with an un-narrowed range lands in pending_narrowing_runs — D-09 explicit distinction between 'no info at all' and 'a real space-mission run with a range, just not scheduled tight enough yet'
+- [Phase 20]: original_obs_date_raw is CharField(max_length=255), not TextField -- mirrors site_raw exactly per RESEARCH field-type resolution
+- [Phase 20]: render_window_start()'s TBD-badge tooltip resolves original_obs_date_raw via Accessor(...).resolve(record, quiet=True) or '', guarding for blank, and interpolates via format_html positional argument (never mark_safe/f-string) -- reusable pattern for future dict-vs-model tooltips on this table
 
 ### Pending Todos
 
@@ -172,7 +175,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-10T19:06:18.495Z
+Last session: 2026-07-10T19:18:24.587Z
 Stopped at: Phase 20 context gathered
 Resume file: .planning/phases/20-range-tbd-import-asset-aware-coverage-gap/20-CONTEXT.md
 

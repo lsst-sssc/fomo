@@ -22,8 +22,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### CSV Import (IMPORT)
 
-- [ ] **IMPORT-01**: `import_campaign_csv`/`parse_obs_window` accepts a date range (e.g. "Aug 1-15") or a TBD-style free-text cell (e.g. "TBD pending Cycle 2") and imports the row into the new window representation, instead of raising and skipping it as a natural-key failure
-- [ ] **IMPORT-02**: A row whose `Obs. Date` text still can't be parsed after the above gets a "needs review" flag and is included in the import summary, never silently dropped
+- [x] **IMPORT-01**: `import_campaign_csv`/`parse_obs_window` accepts a date range (e.g. "Aug 1-15") or a TBD-style free-text cell (e.g. "TBD pending Cycle 2") and imports the row into the new window representation, instead of raising and skipping it as a natural-key failure
+- [x] **IMPORT-02**: A row whose `Obs. Date` text still can't be parsed after the above gets a "needs review" flag and is included in the import summary, never silently dropped
 
 ### Site Disambiguation (SITE)
 
@@ -74,8 +74,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SCHED-05 | Phase 19 | Complete |
 | ASSET-01 | Phase 20 | Complete |
 | ASSET-02 | Phase 20 | Complete |
-| IMPORT-01 | Phase 20 | Pending |
-| IMPORT-02 | Phase 20 | Pending |
+| IMPORT-01 | Phase 20 | Complete |
+| IMPORT-02 | Phase 20 | Complete |
 | SITE-01 | Phase 21 | Pending |
 | SITE-02 | Phase 21 | Pending |
 | SITE-03 | Phase 21 | Pending |
