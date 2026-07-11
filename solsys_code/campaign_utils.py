@@ -280,10 +280,13 @@ def build_site_candidates() -> dict[str, str]:
     try:
         obscode_dict = MPCObscodeFetcher().query_all()
         mpc_candidates = _flatten_mpc_candidates(obscode_dict)
-    except (requests.exceptions.RequestException, ValueError, KeyError, TypeError):
+    except (requests.exceptions.RequestException, ValueError, KeyError, TypeError, AttributeError):
         # WR-style fallback (mirrors resolve_site()'s tier-2 network-failure handling):
         # an MPC outage must never break the approval-queue page render -- fall through to
-        # a local-only pool below.
+        # a local-only pool below. WR-01: AttributeError is included because
+        # _flatten_mpc_candidates() calls .items()/.get() assuming obscode_dict (and each
+        # record) is a dict -- a bulk endpoint response that's drifted to a non-dict shape
+        # (e.g. a list or None) raises AttributeError, not one of the other caught types.
         logger.debug('MPC bulk obscode fetch failed; falling back to local-only candidate pool.', exc_info=True)
 
     merged = dict(mpc_candidates)
