@@ -229,7 +229,7 @@ Plans:
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 4/4 | Complete    | 2026-07-09 |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 4/4 | Complete    | 2026-07-10 |
-| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 4/4 | Complete   | 2026-07-11 |
+| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 4/4 | Complete    | 2026-07-11 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
