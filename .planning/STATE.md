@@ -4,9 +4,9 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 21
 current_phase_name: Site Disambiguation & Submitter Contact Opt-In
-status: verifying
-stopped_at: Phase 21 context gathered
-last_updated: "2026-07-11T10:31:15.636Z"
+status: executing
+stopped_at: Phase 21 UI-SPEC approved
+last_updated: "2026-07-11T11:20:25.386Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 20 complete, transitioned to Phase 21
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 Phase: 21 — Site Disambiguation & Submitter Contact Opt-In
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-10 — Phase 20 complete, transitioned to Phase 21
 
 ## Roadmap Summary (v2.1)
@@ -182,9 +182,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T10:31:15.614Z
-Stopped at: Phase 21 context gathered
-Resume file: .planning/phases/21-site-disambiguation-submitter-contact-opt-in/21-CONTEXT.md
+Last session: 2026-07-11T10:57:14.781Z
+Stopped at: Phase 21 UI-SPEC approved
+Resume file: .planning/phases/21-site-disambiguation-submitter-contact-opt-in/21-UI-SPEC.md
 
 ## Operator Next Steps
 
