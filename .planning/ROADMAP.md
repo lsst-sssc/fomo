@@ -186,7 +186,7 @@ Plans:
   3. Approving a run whose site a staff member already manually resolved does not silently re-resolve or overwrite that choice
   4. A submitter who opts in (single combined flag, default opt-out) has their `contact_person`/`contact_email` shown publicly on the per-campaign table; leaving it unset keeps them staff-only exactly as today
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -196,7 +196,7 @@ Plans:
 
 **Wave 2** *(depends on 21-01)*
 
-- [ ] 21-03-PLAN.md — Approval-queue site UI: single-`<form>` `render_actions()` refactor + `render_site()` input/datalist override + once-per-request candidate pool wiring (SITE-01, D-04)
+- [x] 21-03-PLAN.md — Approval-queue site UI: single-`<form>` `render_actions()` refactor + `render_site()` input/datalist override + once-per-request candidate pool wiring (SITE-01, D-04)
 
 **Wave 3** *(depends on 21-02, 21-03)*
 
@@ -229,7 +229,7 @@ Plans:
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 4/4 | Complete    | 2026-07-09 |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 4/4 | Complete    | 2026-07-10 |
-| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 2/4 | In Progress|  |
+| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 3/4 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 

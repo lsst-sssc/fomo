@@ -6,14 +6,14 @@ current_phase: 21
 current_phase_name: site-disambiguation-submitter-contact-opt-in
 status: executing
 stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-07-11T12:06:08.646Z"
+last_updated: "2026-07-11T15:11:39.525Z"
 last_activity: 2026-07-11
 last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 75
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 21 (site-disambiguation-submitter-contact-opt-in) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-11 — Phase 21 execution started
 
@@ -101,6 +101,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 20 | 4 | - | - |
 | Phase 21 P01 | 8min | 3 tasks | 3 files |
 | Phase 21 P02 | 14min | 3 tasks | 7 files |
+| Phase 21 P03 | 21min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 21]: [Phase 21 P01]: local Observatory candidates merge in after the MPC pool via dict.setdefault(), so an already-vetted local record's display string wins any first-seen collision over raw MPC bulk data
 - [Phase 21]: [Phase 21 P02]: Reordered Django .values()-before-.annotate() to alias a Case/When annotation over a real model field name (contact_person/contact_email) -- Django rejects the collision unless .values() has already narrowed the field list
 - [Phase 21]: [Phase 21 P02]: VIEW-05 changes the non-staff .values() dict shape from 'no contact keys at all' to 'always present, blank unless opted in' -- updated Phase 15's TestContactFieldGating assertion to match
+- [Phase 21]: [Phase 21 P03]: render_site() override placed on ApprovalQueueTable (not CampaignRunTable) since only the former carries show_actions/candidate_pool
+- [Phase 21]: [Phase 21 P03]: Only the candidate display string (not obscode) is emitted per <option value>; obscode resolution happens server-side in Plan 21-04
 
 ### Pending Todos
 
@@ -188,7 +191,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T12:06:08.631Z
+Last session: 2026-07-11T15:10:55.565Z
 Stopped at: Completed 21-02-PLAN.md
 Resume file: None
 
