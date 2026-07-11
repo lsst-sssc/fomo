@@ -28,8 +28,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Site Disambiguation (SITE)
 
 - [x] **SITE-01**: When a submitted `site_raw` doesn't resolve via `resolve_site()`'s existing tier 1 (exact `Observatory` match) or tier 2 (live MPC Obscodes API), the approval queue's Site column presents a dropdown of fuzzy-matched `Observatory` candidates for staff to pick from
-- [ ] **SITE-02**: Staff can type a code directly and resolve it to an existing `Observatory` or explicitly create a new one, if no fuzzy-matched candidate is correct; no placeholder `Observatory` is ever auto-fabricated (consistent with quick task `260705-l1v`)
-- [ ] **SITE-03**: Approving a run whose site a staff member already manually resolved does not get silently re-resolved/overwritten by `CampaignRunDecisionView`'s automatic `resolve_site()` call (fixes a real clobbering bug found during v2.1 research)
+- [x] **SITE-02**: Staff can type a code directly and resolve it to an existing `Observatory` or explicitly create a new one, if no fuzzy-matched candidate is correct; no placeholder `Observatory` is ever auto-fabricated (consistent with quick task `260705-l1v`)
+- [x] **SITE-03**: Approving a run whose site a staff member already manually resolved does not get silently re-resolved/overwritten by `CampaignRunDecisionView`'s automatic `resolve_site()` call (fixes a real clobbering bug found during v2.1 research)
 
 ### Campaign Display (VIEW)
 
@@ -77,8 +77,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | IMPORT-01 | Phase 20 | Complete |
 | IMPORT-02 | Phase 20 | Complete |
 | SITE-01 | Phase 21 | Complete |
-| SITE-02 | Phase 21 | Pending |
-| SITE-03 | Phase 21 | Pending |
+| SITE-02 | Phase 21 | Complete |
+| SITE-03 | Phase 21 | Complete |
 | VIEW-05 | Phase 21 | Complete |
 
 **Coverage:**

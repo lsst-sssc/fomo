@@ -92,7 +92,7 @@
 - [x] **Phase 18: Uncertain-Scheduling Investigation Spike** - Settle window schema, TBD natural key, CSV range/TBD parsing rules, and fuzzy-match library against real 3I sheet rows before implementation (completed 2026-07-09)
 - [x] **Phase 19: Window-Schema Migration** - Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair, migrating existing rows with no data loss (completed 2026-07-09)
 - [x] **Phase 20: Range/TBD Import & Asset-Aware Coverage Gap** - Import range/TBD `Obs. Date` rows into the window representation and make coverage-gap analysis distinguish ground vs. space-mission runs (completed 2026-07-10)
-- [ ] **Phase 21: Site Disambiguation & Submitter Contact Opt-In** - Staff-facing fuzzy-match site-resolution UI in the approval queue plus a submitter contact opt-in flag
+- [x] **Phase 21: Site Disambiguation & Submitter Contact Opt-In** - Staff-facing fuzzy-match site-resolution UI in the approval queue plus a submitter contact opt-in flag (completed 2026-07-11)
 
 ## Phase Details
 
@@ -186,7 +186,7 @@ Plans:
   3. Approving a run whose site a staff member already manually resolved does not silently re-resolve or overwrite that choice
   4. A submitter who opts in (single combined flag, default opt-out) has their `contact_person`/`contact_email` shown publicly on the per-campaign table; leaving it unset keeps them staff-only exactly as today
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -200,7 +200,7 @@ Plans:
 
 **Wave 3** *(depends on 21-02, 21-03)*
 
-- [ ] 21-04-PLAN.md — Decision + create-new: `post()` D-06 clobber guard + `site_selection` read + `CreateObservatory` `?obscode=`/`?next=` support (SITE-02/03, D-05/06)
+- [x] 21-04-PLAN.md — Decision + create-new: `post()` D-06 clobber guard + `site_selection` read + `CreateObservatory` `?obscode=`/`?next=` support (SITE-02/03, D-05/06)
 
 **UI hint**: yes
 
@@ -229,7 +229,7 @@ Plans:
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 4/4 | Complete    | 2026-07-09 |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 4/4 | Complete    | 2026-07-10 |
-| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 3/4 | In Progress|  |
+| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 4/4 | Complete   | 2026-07-11 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 

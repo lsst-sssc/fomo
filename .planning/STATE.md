@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 21
 current_phase_name: site-disambiguation-submitter-contact-opt-in
-status: executing
-stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-07-11T15:11:39.525Z"
+status: verifying
+stopped_at: Completed 21-04-PLAN.md
+last_updated: "2026-07-11T15:29:33.378Z"
 last_activity: 2026-07-11
 last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 14
-  completed_plans: 13
-  percent: 75
+  completed_plans: 14
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 Phase: 21 (site-disambiguation-submitter-contact-opt-in) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-11 — Phase 21 execution started
 
 ## Roadmap Summary (v2.1)
@@ -102,6 +102,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 21 P01 | 8min | 3 tasks | 3 files |
 | Phase 21 P02 | 14min | 3 tasks | 7 files |
 | Phase 21 P03 | 21min | 3 tasks | 3 files |
+| Phase 21 P04 | 13min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 21]: [Phase 21 P02]: VIEW-05 changes the non-staff .values() dict shape from 'no contact keys at all' to 'always present, blank unless opted in' -- updated Phase 15's TestContactFieldGating assertion to match
 - [Phase 21]: [Phase 21 P03]: render_site() override placed on ApprovalQueueTable (not CampaignRunTable) since only the former carries show_actions/candidate_pool
 - [Phase 21]: [Phase 21 P03]: Only the candidate display string (not obscode) is emitted per <option value>; obscode resolution happens server-side in Plan 21-04
+- [Phase 21]: [Phase 21 P04]: Kept the except Exception revert block byte-for-byte unchanged -- the D-06 fix is purely the new if run.site is None guard placed before resolve_site(), not a change to the failure-recovery contract
+- [Phase 21]: [Phase 21 P04]: Mocked MPCObscodeFetcher.to_observatory() directly (side_effect creating a real Observatory row) for the CreateObservatory round-trip tests, since to_observatory() reads several MPC-response dict keys with no defaults and a bare query() mock would raise MissingDataException
 
 ### Pending Todos
 
@@ -191,8 +194,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T15:10:55.565Z
-Stopped at: Completed 21-02-PLAN.md
+Last session: 2026-07-11T15:29:33.354Z
+Stopped at: Completed 21-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
