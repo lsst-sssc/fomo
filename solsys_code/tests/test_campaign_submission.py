@@ -73,6 +73,18 @@ class TestCampaignSubmission(CampaignSubmissionTestBase):
         self.assertEqual(run.window_end, OBS_DATE)
         self.assertRedirects(response, self.thanks_url())
 
+    def test_contact_public_opt_in_checked_persists_true(self):
+        """VIEW-05: submitting the box checked persists contact_public_opt_in=True."""
+        self.client.post(self.submit_url(), data=self.minimal_valid_data(contact_public_opt_in='on'))
+        run = CampaignRun.objects.get()
+        self.assertTrue(run.contact_public_opt_in)
+
+    def test_contact_public_opt_in_unchecked_persists_false(self):
+        """VIEW-05: an unchecked box (default opt-out) persists contact_public_opt_in=False."""
+        self.client.post(self.submit_url(), data=self.minimal_valid_data())
+        run = CampaignRun.objects.get()
+        self.assertFalse(run.contact_public_opt_in)
+
     def test_get_returns_200_and_renders_form(self):
         response = self.client.get(self.submit_url())
         self.assertEqual(response.status_code, 200)

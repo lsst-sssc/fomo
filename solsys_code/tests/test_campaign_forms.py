@@ -88,6 +88,28 @@ class CampaignRunSubmissionFormTest(TestCase):
         form = CampaignRunSubmissionForm()
         self.assertEqual(form.fields['site_raw'].label, 'Observing site')
 
+    def test_contact_public_opt_in_present_and_not_required(self):
+        """VIEW-05/D-07: the opt-in checkbox is not required, so an unchecked box validates."""
+        form = CampaignRunSubmissionForm()
+        self.assertIn('contact_public_opt_in', form.fields)
+        self.assertFalse(form.fields['contact_public_opt_in'].required)
+
+    def test_contact_public_opt_in_unchecked_defaults_false(self):
+        """VIEW-05: omitting the checkbox from POST data (unchecked box) cleans to False."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data())
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertFalse(form.cleaned_data['contact_public_opt_in'])
+
+    def test_contact_public_opt_in_checked_cleans_true(self):
+        """VIEW-05: submitting the checkbox as checked cleans to True."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data(contact_public_opt_in='on'))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.cleaned_data['contact_public_opt_in'])
+
+    def test_contact_public_opt_in_label(self):
+        form = CampaignRunSubmissionForm()
+        self.assertEqual(form.fields['contact_public_opt_in'].label, 'Show contact info publicly?')
+
     def test_is_plain_form_not_model_form(self):
         """CampaignRunSubmissionForm must be a plain forms.Form, never a ModelForm (Pitfall 3)."""
         self.assertTrue(issubclass(CampaignRunSubmissionForm, forms.Form))
