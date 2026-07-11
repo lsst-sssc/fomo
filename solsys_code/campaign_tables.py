@@ -10,9 +10,11 @@ are resolved manually here via the model's ``TextChoices`` rather than relied on
 import django_tables2 as tables
 from django.middleware.csrf import get_token
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
+from django.utils.http import urlencode
 from django_tables2.utils import Accessor
 
+from .campaign_utils import fuzzy_match_candidates
 from .models import CampaignRun
 
 # D-08 / UI-SPEC Approval-Status Badge Contract: fixed 3-entry dict, badge class never derived
@@ -197,32 +199,71 @@ class ApprovalQueueTable(CampaignRunTable):
             '...',
         )
 
-    def __init__(self, *args, show_actions=True, request=None, **kwargs):
+    def __init__(self, *args, show_actions=True, request=None, candidate_pool=None, **kwargs):
         self.show_actions = show_actions
         self.request = request
+        self.candidate_pool = candidate_pool
         super().__init__(*args, **kwargs)
 
+    def render_site(self, record):
+        """Unresolved actionable pending row: inline site input + fuzzy-matched datalist +
+        an always-visible "Create new Observatory" link (SITE-01/D-04), submitted into the
+        row's single decide-form via the HTML5 ``form=`` attribute. Resolved rows and the
+        read-only decided table (``show_actions=False``) keep CampaignRunTable's existing
+        plain-text ``render_site`` rendering unchanged.
+
+        Only overridden here (not on ``CampaignRunTable``): only ``ApprovalQueueTable``
+        instances carry ``self.show_actions``/``self.candidate_pool``, so overriding on the
+        parent would raise ``AttributeError`` for the per-campaign ``CampaignRunTable``.
+        """
+        site_short_name = Accessor('site__short_name').resolve(record, quiet=True)
+        if site_short_name or not self.show_actions:
+            return super().render_site(record)
+        pk = Accessor('pk').resolve(record, quiet=True)
+        site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
+        datalist_id = f'site-candidates-{pk}'
+        form_id = f'decide-form-{pk}'
+        candidate_pairs = fuzzy_match_candidates(site_raw, self.candidate_pool) if self.candidate_pool else []
+        # Only the MPC-sourced display string becomes the <option> value -- the resolved
+        # obscode itself is read server-side from site_selection's submitted text, not
+        # from a hidden option attribute (T-21-01: every candidate string still goes
+        # through format_html_join's auto-escaping positional substitution).
+        options = format_html_join('', '<option value="{}">', ((candidate,) for candidate, _obscode in candidate_pairs))
+        create_url = '{}?{}'.format(
+            reverse('solsys_code_observatory:create'),
+            urlencode({'obscode': site_raw, 'next': reverse('campaigns:approval_queue')}),
+        )
+        return format_html(
+            '<input type="text" name="site_selection" value="{0}" list="{1}" '
+            'form="{2}" class="form-control form-control-sm" placeholder="MPC code or site name…">'
+            '<datalist id="{1}">{3}</datalist>'
+            '<a href="{4}" class="small ml-1">Create new Observatory</a>',
+            site_raw,
+            datalist_id,
+            form_id,
+            options,
+            create_url,
+        )
+
     def render_actions(self, record):
-        """Render side-by-side Approve/Reject mini-forms, or nothing (decided-runs table)."""
+        """Render one form (Approve/Reject as named submit buttons), or nothing
+        (decided-runs table). Single form (not two) so the Site column's ``form=`` input
+        can target it via the HTML5 ``form=`` attribute (D-04)."""
         if not self.show_actions:
             return ''
         decide_url = reverse('campaigns:decide', kwargs={'pk': record.pk})
         csrf_token = get_token(self.request) if self.request is not None else ''
+        form_id = f'decide-form-{record.pk}'
         return format_html(
+            '<form id="{0}" method="post" action="{1}">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{2}">'
             '<div class="d-flex" style="gap: 0.5rem;">'
-            '<form method="post" action="{0}" class="d-inline">'
-            '<input type="hidden" name="csrfmiddlewaretoken" value="{1}">'
-            '<input type="hidden" name="action" value="approve">'
-            '<button type="submit" class="btn btn-sm btn-success">Approve</button>'
-            '</form>'
-            '<form method="post" action="{0}" class="d-inline">'
-            '<input type="hidden" name="csrfmiddlewaretoken" value="{1}">'
-            '<input type="hidden" name="action" value="reject">'
-            '<button type="submit" class="btn btn-sm btn-danger" '
+            '<button type="submit" name="action" value="approve" class="btn btn-sm btn-success">Approve</button>'
+            '<button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" '
             'onclick="return confirm(\'Reject this submission? '
             'The submitter will not be automatically notified.\')">Reject</button>'
-            '</form>'
-            '</div>',
+            '</div></form>',
+            form_id,
             decide_url,
             csrf_token,
         )
