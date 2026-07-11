@@ -37,7 +37,7 @@ from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
 from .campaign_tables import ApprovalQueueTable, CampaignRunTable
-from .campaign_utils import resolve_site
+from .campaign_utils import build_site_candidates, resolve_site
 from .mixins import StaffRequiredMixin
 from .models import CampaignRun
 from .telescope_runs import sun_event
@@ -297,10 +297,16 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
             .select_related('campaign', 'site')
             .order_by('-pk')[:20]
         )
+        # SITE-01/Pitfall 5: build the merged local+MPC candidate pool exactly once per
+        # request (never per row) -- build_site_candidates() is itself 24h-cached, but
+        # calling it once here still avoids a per-row cache.get() round-trip. Never
+        # raises (Plan 21-01's local-only fallback), so no try/except is needed here.
+        candidate_pool = build_site_candidates()
         pending_table = ApprovalQueueTable(
             pending_qs,
             prefix='pending-',
             request=self.request,
+            candidate_pool=candidate_pool,
             empty_text='No submissions waiting for review.',
         )
         decided_table = ApprovalQueueTable(
