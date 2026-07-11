@@ -69,7 +69,9 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 - `solsys_code/campaign_tables.py` (`render_site` fallback), `campaign_utils.py` (`resolve_site` gains keyword-only `create_placeholder`), `campaign_views.py` (approval opts out of placeholder creation): approval-queue site-visibility gap fix — quick task `260705-l1v` (2026-07-05)
 - **All 332 `./manage.py test solsys_code` tests pass (v2.0 milestone target features all shipped, plus the pre-close quick-task fix).**
 - `solsys_code/models.py` (`CampaignRun.window_start`/`window_end` replace `obs_date`/`ut_start`/`ut_end`, two partial `UniqueConstraint`s), `solsys_code/migrations/0004_campaignrun_window_schema.py` (backfill → dedup → constraint-swap hard-cutover migration), `campaign_gap.py`/`campaign_tables.py`/`campaign_views.py`/`campaign_forms.py`/`import_campaign_csv.py` (all consumers rewritten window-native) — v2.1 (Phase 19). Code review flagged one Critical follow-up (CR-01: the migration's dedup step only covers the TBD-branch collision, not the structurally identical resolved-window collision the backfill also creates); independently confirmed via live-DB query to have caused no actual data loss in this run, but tracked as a real robustness gap — see `.planning/phases/19-window-schema-migration/19-REVIEW.md`, fix via `/gsd-code-review 19 --fix`.
-- **All 355 `./manage.py test solsys_code` tests pass.**
+- `solsys_code/campaign_utils.py` (`parse_obs_window()` range/TBD parsing), `solsys_code/campaign_gap.py` (asset-aware `claimed_dates()` — ground windows claim every date, space-mission runs claim none until narrowed to `window_start == window_end`), `solsys_code/management/commands/import_campaign_csv.py` (range/TBD rows import instead of skip) — v2.1 (Phase 20).
+- `solsys_code/solsys_code_observatory/utils.py` (`MPCObscodeFetcher.query_all()` bulk fetch), `solsys_code/campaign_utils.py` (`build_site_candidates()`/`fuzzy_match_candidates()` — cached `difflib` fuzzy-match against the live MPC obscode list), `solsys_code/campaign_tables.py` (`ApprovalQueueTable.render_site()` inline datalist + `render_actions()` single-form refactor), `solsys_code/campaign_views.py` (`CampaignRunDecisionView.post()` D-06 clobber guard + `site_selection` resolution, once-per-request candidate pool), `solsys_code/solsys_code_observatory/views.py` (`CreateObservatory` `?obscode=`/`?next=` round-trip), `solsys_code/models.py`/`migrations/0007_campaignrun_contact_public_opt_in.py`/`campaign_forms.py` (`CampaignRun.contact_public_opt_in` opt-in flag + submission-form checkbox + `Case`/`When` queryset-level PII gate) — v2.1 (Phase 21). Deep code review found and fixed 2 critical bugs before phase close: fuzzy-matched name/short_name candidates couldn't actually resolve on approve (the raw display text was never mapped back to its obscode before `resolve_site()`), and the `CreateObservatory` `?next=`/`?obscode=` round-trip was unreachable because the real template dropped both query params — see `21-REVIEW.md`/`21-REVIEW-FIX.md`. This was the last phase of v2.1 — all target features (window-schema migration, range/TBD import, asset-aware coverage gap, site-disambiguation UI, contact opt-in) are now shipped.
+- **All 417 `./manage.py test solsys_code` tests pass.**
 
 ## Core Value
 
@@ -255,16 +257,18 @@ v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replac
 - ✓ **SCHED-03**: A `CampaignRun` can be saved in a "TBD" state (both window fields null), distinct from a resolved window — v2.1 (Phase 19)
 - ✓ **SCHED-04**: Two distinct TBD rows for the same campaign + telescope neither silently merge nor duplicate — closed via a partial `UniqueConstraint` on `(campaign, telescope_instrument, contact_person)` scoped to `window_start IS NULL` — v2.1 (Phase 19)
 - ✓ **SCHED-05**: Every existing `CampaignRun` row migrated with no data loss (`window_start == window_end == former obs_date`) — migration `0004_campaignrun_window_schema.py` combines backfill → dedup → constraint-swap in load-bearing order. Code review's CR-01 (dedup asymmetry between TBD and resolved-window branches) was independently confirmed to have caused no actual data loss in this migration run, but remains a real robustness gap for richer future datasets — v2.1 (Phase 19)
+- ✓ **ASSET-01**: A `CampaignRun`'s ground vs. space-mission classification is derived from its resolved site's `Observatory.observations_type` (`SATELLITE_OBSTYPE`) — no new field on `CampaignRun` — v2.1 (Phase 20)
+- ✓ **ASSET-02**: Coverage-gap analysis claims every date in a ground-based run's window; a space-mission run claims no dates until its window narrows to a single concrete night — v2.1 (Phase 20)
+- ✓ **IMPORT-01**: `import_campaign_csv`/`parse_obs_window` accepts a date range or a TBD-style free-text cell and imports the row into the window representation, instead of raising and skipping it as a natural-key failure — v2.1 (Phase 20)
+- ✓ **IMPORT-02**: A row whose `Obs. Date` text still can't be parsed gets a "needs review" flag and is included in the import summary, never silently dropped — v2.1 (Phase 20)
+- ✓ **SITE-01**: When a submitted `site_raw` doesn't resolve via `resolve_site()`'s tier 1/tier 2, the approval queue's Site column presents a dropdown of fuzzy-matched `Observatory` candidates for staff to pick from — v2.1 (Phase 21)
+- ✓ **SITE-02**: Staff can type a code directly and resolve it to an existing `Observatory` or explicitly create a new one; no placeholder `Observatory` is ever auto-fabricated — v2.1 (Phase 21)
+- ✓ **SITE-03**: Approving a run whose site a staff member already manually resolved is never silently re-resolved/overwritten (fixes the `CampaignRunDecisionView` clobbering bug) — v2.1 (Phase 21)
+- ✓ **VIEW-05**: Submitter can opt in (single combined flag, default opt-out) to public display of `contact_person`/`contact_email` on the per-campaign table; unset behaves exactly as today (staff-only) — v2.1 (Phase 21)
 
 ### Active
 
-<!-- v2.1 Uncertain Scheduling & Site Disambiguation — requirement IDs defined in .planning/REQUIREMENTS.md -->
-
-- [ ] Ground vs. space-mission asset distinction via `Observatory.observations_type` (`SATELLITE_OBSTYPE`)
-- [ ] CSV import (`import_campaign_csv`/`parse_obs_window`) handles range/TBD `Obs. Date` text instead of skipping the row
-- [ ] Coverage-gap analysis is asset-aware (ground window claims every date in range; space-mission claims none until scheduling narrows)
-- [ ] Approval-queue site-disambiguation UI — inline dropdown of fuzzy-matched `Observatory` candidates + free-text resolve-or-create, never auto-fabricating a placeholder
-- [ ] VIEW-05 — single combined submitter opt-in (default opt-out) for public contact display
+None — all v2.1 target features shipped (Phases 18-21). Milestone close via `/gsd-complete-milestone` is the next step, not yet run.
 
 Not yet committed to this milestone (still candidates for a future one): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup) — see `.planning/STATE.md` Deferred Items and `.planning/milestones/v2.0-REQUIREMENTS.md` v2 Requirements for full detail.
 
@@ -413,4 +417,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-10 — Phase 20 (range/TBD import & asset-aware coverage gap) complete, IMPORT-01/02 and ASSET-01/02 validated. Code review caught and fixed a critical TBD-vs-resolved natural-key collision (`window_start__isnull=True` missing from the TBD lookup) before ship.*
+*Last updated: 2026-07-11 — Phase 21 (site disambiguation & submitter contact opt-in) complete, SITE-01/02/03 and VIEW-05 validated. Code review found and fixed 2 critical bugs before ship (fuzzy-matched candidates couldn't resolve on approve; CreateObservatory's `?next=`/`?obscode=` round-trip was dropped by the real template). This was the last phase of v2.1 Uncertain Scheduling & Site Disambiguation — all target features shipped; milestone close (`/gsd-complete-milestone`) not yet run.*
