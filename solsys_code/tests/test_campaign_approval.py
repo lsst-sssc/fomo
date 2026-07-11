@@ -438,6 +438,111 @@ class TestApprovalSiteResolution(CampaignApprovalTestBase):
         self.assertEqual(Observatory.objects.count(), 1)
 
 
+class TestSiteSelectionResolution(CampaignApprovalTestBase):
+    """SITE-02: the staff-submitted site_selection value drives approve-time resolution."""
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def test_staff_typed_existing_obscode_resolves_via_site_selection_tier_1_hit(self):
+        """A tier-1 hit (existing Observatory) resolves with no fabrication."""
+        Observatory.objects.create(
+            obscode='G37',
+            name='Lowell Discovery Telescope',
+            short_name='LDT',
+            lat=34.744,
+            lon=-111.4223,
+            altitude=2361.0,
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run = self._make_pending_run(site_raw='Lowell Discvery Tel')  # typo -- never resolves via site_raw
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'approve', 'site_selection': 'G37'},
+        )
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(run.site.obscode, 'G37')
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(Observatory.objects.count(), 1)
+
+    def test_unresolvable_site_selection_leaves_observatory_count_unchanged(self):
+        """Regression on 260705-l1v's invariant: an unresolvable site_selection on approve
+        creates no placeholder Observatory."""
+        run = self._make_pending_run()
+        with patch(
+            'solsys_code.campaign_utils.MPCObscodeFetcher.query',
+            side_effect=requests.exceptions.RequestException,
+        ):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'approve', 'site_selection': 'NOWHERE'},
+            )
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+        self.assertEqual(Observatory.objects.count(), 0)
+
+
+def _stub_to_observatory():
+    """Create-and-return an Observatory row, mirroring what a real MPC-backed
+    ``MPCObscodeFetcher.to_observatory()`` call would do -- used to fake a successful
+    MPC lookup without hitting the live MPC API."""
+    return Observatory.objects.create(
+        obscode='G37',
+        name='Lowell Discovery Telescope',
+        short_name='LDT',
+        lat=34.744,
+        lon=-111.4223,
+        altitude=2361.0,
+        observations_type=Observatory.OPTICAL_OBSTYPE,
+    )
+
+
+class TestCreateObservatoryRoundTrip(CampaignApprovalTestBase):
+    """SITE-02/D-05: the "Create new Observatory" round-trip from the approval queue --
+    ``?obscode=`` prefill and a validated ``?next=`` redirect back to the queue."""
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+        self.next_url = reverse('campaigns:approval_queue')
+
+    def test_get_with_obscode_and_next_prefills_form_initial(self):
+        create_url = reverse('solsys_code_observatory:create')
+        response = self.client.get(create_url, {'obscode': 'G37', 'next': self.next_url})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['form'].initial.get('obscode'), 'G37')
+
+    def test_valid_create_with_safe_next_redirects_to_approval_queue(self):
+        create_url = reverse('solsys_code_observatory:create')
+        with (
+            patch('solsys_code.solsys_code_observatory.views.MPCObscodeFetcher.query'),
+            patch(
+                'solsys_code.solsys_code_observatory.views.MPCObscodeFetcher.to_observatory',
+                side_effect=_stub_to_observatory,
+            ),
+        ):
+            response = self.client.post(create_url, {'obscode': 'G37', 'next': self.next_url})
+        self.assertRedirects(response, self.next_url)
+        self.assertEqual(Observatory.objects.filter(obscode='G37').count(), 1)
+
+    def test_unsafe_next_falls_back_to_detail_redirect(self):
+        create_url = reverse('solsys_code_observatory:create')
+        with (
+            patch('solsys_code.solsys_code_observatory.views.MPCObscodeFetcher.query'),
+            patch(
+                'solsys_code.solsys_code_observatory.views.MPCObscodeFetcher.to_observatory',
+                side_effect=_stub_to_observatory,
+            ),
+        ):
+            response = self.client.post(create_url, {'obscode': 'G37', 'next': 'https://evil.example/steal'})
+        observatory = Observatory.objects.get(obscode='G37')
+        self.assertRedirects(response, reverse('solsys_code_observatory:detail', kwargs={'pk': observatory.pk}))
+
+
 class TestCalendarNoChurn(CampaignApprovalTestBase):
     """CAL-03: re-approve produces no duplicate event and no modified churn."""
 
