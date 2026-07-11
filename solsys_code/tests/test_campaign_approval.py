@@ -16,23 +16,77 @@ CLAUDE.md's non-sidereal-only target-factory convention doesn't even arise here.
 """
 
 from datetime import date, datetime, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
+from solsys_code import campaign_utils
 from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
 from solsys_code.campaign_utils import resolve_site
 from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
 from solsys_code.telescope_runs import sun_event
 
 CONTACT_PERSON = 'Jane Coordinator'
 CONTACT_EMAIL = 'jane@example.org'
+
+# Wave-0 fixture (SITE-01, RESEARCH.md Pattern 2/3): a small, representative slice of the
+# real MPC bulk obscodes response shape ({obscode: {name_utf8, short_name, old_names,
+# observations_type, longitude, ...}}). Deliberately does NOT include 'DCT' as a candidate
+# string anywhere -- Pitfall 2 confirmed live that difflib cannot bridge the acronym/
+# nickname gap even against the full 5,636-string real pool, so 'DCT' must stay a genuine
+# no-match case here too (G37's real MPC name is spelled out in full, never abbreviated).
+BULK_MPC_FIXTURE = {
+    'C65': {
+        'name_utf8': 'Observatori Astronòmic del Montsec',
+        'short_name': 'OAdM',
+        'old_names': None,
+        'observations_type': 'fixed',
+        'longitude': 1.1937,
+    },
+    '250': {
+        'name_utf8': 'Hubble Space Telescope',
+        'short_name': 'HST',
+        'old_names': None,
+        'observations_type': 'satellite',
+        'longitude': None,
+    },
+    'G37': {
+        'name_utf8': 'Lowell Discovery Telescope',
+        'short_name': 'Lowell Discovery Telescope',
+        'old_names': None,
+        'observations_type': 'fixed',
+        'longitude': -111.4223,
+    },
+    'W89': {
+        'name_utf8': 'Siding Spring Observatory',
+        'short_name': 'SSO',
+        'old_names': None,
+        'observations_type': 'fixed',
+        'longitude': 149.0,
+    },
+    'F65': {
+        'name_utf8': 'Faulkes Telescope South',
+        'short_name': 'FTS',
+        'old_names': None,
+        'observations_type': 'fixed',
+        'longitude': 149.0644,
+    },
+    'X09': {
+        'name_utf8': 'Deep Random Survey, Rio Hurtado',
+        'short_name': 'Deep Random Survey',
+        'old_names': None,
+        'observations_type': 'fixed',
+        'longitude': -70.9,
+    },
+}
 
 
 class CampaignApprovalTestBase(TestCase):
@@ -365,3 +419,122 @@ class TestCalendarNoChurn(CampaignApprovalTestBase):
         self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 1)
         event.refresh_from_db()
         self.assertEqual(event.modified, modified_after_first_approve)
+
+
+class TestSiteFuzzyMatch(TestCase):
+    """Wave-0 scaffold (SITE-01): cached MPC candidate pool + difflib fuzzy matching.
+
+    Not-yet-existing helpers (``MPCObscodeFetcher.query_all``, ``campaign_utils.
+    build_site_candidates``, ``campaign_utils.fuzzy_match_candidates``) are referenced via
+    module attribute access so RED failures before Tasks 2-3 land are localized
+    AttributeErrors on these specific calls, not an ImportError that would de-collect the
+    whole test module (this class deliberately does not import the two campaign_utils
+    helpers by name at module scope). ``requests.get``/``MPCObscodeFetcher.query_all`` is
+    always mocked -- no test in this class hits the live MPC API.
+
+    Uses a plain ``TestCase`` (not ``CampaignApprovalTestBase``) -- this class needs no
+    campaign/staff/pending-run fixtures, only ``Observatory`` rows for the local-pool
+    fallback case.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    @patch('requests.get')
+    def test_query_all_returns_fixture_dict_without_mutating_query_contract(self, mock_get):
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = BULK_MPC_FIXTURE
+        mock_get.return_value = mock_response
+
+        fetcher = MPCObscodeFetcher()
+        result = fetcher.query_all()
+
+        self.assertEqual(result, BULK_MPC_FIXTURE)
+        self.assertEqual(fetcher.obs_data, BULK_MPC_FIXTURE)
+        _, kwargs = mock_get.call_args
+        self.assertEqual(kwargs.get('json'), {})
+        # query()'s own single-code contract is untouched by adding query_all -- a fresh
+        # fetcher's query() must still exist and behave independently of query_all().
+        self.assertTrue(callable(fetcher.query))
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_flattens_obscode_name_and_short_name(self, mock_query_all):
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+
+        pool = campaign_utils.build_site_candidates()
+
+        for obscode, rec in BULK_MPC_FIXTURE.items():
+            self.assertEqual(pool.get(obscode), obscode)
+            self.assertEqual(pool.get(rec['name_utf8']), obscode)
+            self.assertEqual(pool.get(rec['short_name']), obscode)
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_caches_result_under_fixed_key(self, mock_query_all):
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+
+        pool = campaign_utils.build_site_candidates()
+
+        self.assertEqual(cache.get('mpc_obscode_candidates'), pool)
+        mock_query_all.assert_called_once()
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_second_call_reuses_cache_not_query_all(self, mock_query_all):
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+        campaign_utils.build_site_candidates()
+
+        # On the second call, a raise here would propagate if the cache were bypassed.
+        mock_query_all.side_effect = requests.exceptions.RequestException
+        pool_second = campaign_utils.build_site_candidates()
+
+        self.assertIn('C65', pool_second)
+        mock_query_all.assert_called_once()
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_cold_cache_mpc_failure_falls_back_to_local_pool(self, mock_query_all):
+        mock_query_all.side_effect = requests.exceptions.RequestException
+        local = Observatory.objects.create(
+            obscode='Q64',
+            name='El Sauce Observatory',
+            short_name='El Sauce',
+            lat=-30.47,
+            lon=-70.77,
+            altitude=1500.0,
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+        pool = campaign_utils.build_site_candidates()
+
+        self.assertEqual(pool.get(local.obscode), local.obscode)
+        self.assertEqual(pool.get(local.name), local.obscode)
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_fuzzy_match_candidates_exact_hit_includes_obscode(self, mock_query_all):
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+        pool = campaign_utils.build_site_candidates()
+
+        matches = campaign_utils.fuzzy_match_candidates('C65', pool)
+
+        self.assertIn(('C65', 'C65'), matches)
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_fuzzy_match_candidates_near_typo_scores_above_cutoff(self, mock_query_all):
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+        pool = campaign_utils.build_site_candidates()
+
+        matches = campaign_utils.fuzzy_match_candidates('Siding Spring Observatry', pool)
+
+        self.assertIn(('Siding Spring Observatory', 'W89'), matches)
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_fuzzy_match_candidates_nickname_returns_no_matches(self, mock_query_all):
+        """Pitfall 2: 'DCT' cannot bridge to 'Lowell Discovery Telescope' via difflib, even
+        against the widened pool -- the free-text/create-new fallback is load-bearing."""
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+        pool = campaign_utils.build_site_candidates()
+
+        matches = campaign_utils.fuzzy_match_candidates('DCT', pool)
+
+        self.assertEqual(matches, [])
