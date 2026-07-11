@@ -16,6 +16,7 @@ CLAUDE.md's non-sidereal-only target-factory convention doesn't even arise here.
 """
 
 from datetime import date, datetime, timezone
+from html.parser import HTMLParser
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -487,6 +488,112 @@ class TestSiteSelectionResolution(CampaignApprovalTestBase):
         self.assertEqual(Observatory.objects.count(), 0)
 
 
+class TestSiteSelectionNameCandidateResolution(CampaignApprovalTestBase):
+    """Permanent CR-01 regression (21-REVIEW-FIX.md / 21-VERIFICATION.md): a name/
+    short_name/old_names display-string ``site_selection`` candidate -- NOT a literal
+    obscode -- submitted through the real ``campaigns:decide`` POST resolves ``run.site``
+    via ``CampaignRunDecisionView.post()``'s ``build_site_candidates().get(selection,
+    selection)`` obscode mapping. ``TestSiteSelectionResolution`` above only exercises the
+    literal-obscode case (``'G37'`` passes through the mapping unchanged), so it never
+    proves the display-string lookup itself works. The verifier independently confirmed
+    this behavior with a temporary end-to-end test (written, run, then removed per
+    verifier convention) before this class existed; this class makes that coverage
+    permanent.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.client.login(username='staffcoordinator', password='pw')
+        self.observatory = Observatory.objects.create(
+            obscode='G37',
+            name='Lowell Discovery Telescope',
+            short_name='LDT',
+            lat=34.744,
+            lon=-111.4223,
+            altitude=2361.0,
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        # Explicit candidate pool mapping a name (name_utf8, from the fixture), a
+        # short_name, AND an old_names string all to obscode 'G37' -- the three
+        # display-string candidate types build_site_candidates()/_flatten_mpc_candidates()
+        # produce (RESEARCH.md Open Question 2).
+        candidate_pool = {
+            **campaign_utils._flatten_mpc_candidates(BULK_MPC_FIXTURE),
+            'LDT': 'G37',
+            'Historic Lowell Reflector': 'G37',
+        }
+        patcher = patch('solsys_code.campaign_views.build_site_candidates', return_value=candidate_pool)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_name_short_name_and_old_names_candidates_resolve_via_real_decide_post(self):
+        candidates = {
+            'name_utf8': 'Lowell Discovery Telescope',
+            'short_name': 'LDT',
+            'old_names': 'Historic Lowell Reflector',
+        }
+        for index, (candidate_type, site_selection) in enumerate(candidates.items()):
+            with self.subTest(candidate_type=candidate_type, site_selection=site_selection):
+                # Distinct window_start per iteration -- CampaignRun's natural-key
+                # UniqueConstraint keys on (campaign, telescope_instrument, window_start,
+                # window_end), so three runs sharing _make_pending_run()'s default window
+                # would otherwise collide on the second/third create().
+                run_date = date(2026, 8, 1 + index)
+                run = self._make_pending_run(
+                    site_raw='Lowell Discvery Tel',  # typo -- never self-resolves
+                    window_start=run_date,
+                    window_end=run_date,
+                )
+                response = self.client.post(
+                    reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                    {'action': 'approve', 'site_selection': site_selection},
+                )
+                self.assertEqual(response.status_code, 302)
+                run.refresh_from_db()
+                self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+                self.assertEqual(run.site.obscode, 'G37')
+                self.assertEqual(run.site_id, self.observatory.pk)
+                self.assertFalse(run.site_needs_review)
+                self.assertEqual(Observatory.objects.count(), 1)
+
+
+def _extract_create_observatory_form_fields(html_content: str, form_action_fragment: str) -> dict[str, str]:
+    """Extract ``name`` -> ``value`` for every ``<input>`` inside the
+    ``observatory_create.html`` form whose ``action`` attribute contains
+    ``form_action_fragment`` (CR-02). Stdlib ``html.parser.HTMLParser`` only -- no new
+    dependency. Used to replay ONLY the fields the rendered template itself contains, so a
+    round-trip test proves the template carries a field rather than merely that the view
+    logic works when handed a hand-built POST body."""
+
+    class _FormFieldParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.in_target_form = False
+            self.fields: dict[str, str] = {}
+
+        def handle_starttag(self, tag, attrs):
+            attrs_dict = dict(attrs)
+            if tag == 'form':
+                if form_action_fragment in (attrs_dict.get('action') or ''):
+                    self.in_target_form = True
+                return
+            if tag == 'input' and self.in_target_form:
+                name = attrs_dict.get('name')
+                if name:
+                    self.fields[name] = attrs_dict.get('value') or ''
+
+        def handle_endtag(self, tag):
+            if tag == 'form' and self.in_target_form:
+                self.in_target_form = False
+
+    parser = _FormFieldParser()
+    parser.feed(html_content)
+    return parser.fields
+
+
 def _stub_to_observatory():
     """Create-and-return an Observatory row, mirroring what a real MPC-backed
     ``MPCObscodeFetcher.to_observatory()`` call would do -- used to fake a successful
@@ -541,6 +648,45 @@ class TestCreateObservatoryRoundTrip(CampaignApprovalTestBase):
             response = self.client.post(create_url, {'obscode': 'G37', 'next': 'https://evil.example/steal'})
         observatory = Observatory.objects.get(obscode='G37')
         self.assertRedirects(response, reverse('solsys_code_observatory:detail', kwargs={'pk': observatory.pk}))
+
+
+class TestCreateObservatoryTemplateNextRoundTrip(CampaignApprovalTestBase):
+    """Permanent CR-02 regression (21-REVIEW-FIX.md / 21-VERIFICATION.md): the real
+    ``observatory_create.html`` template renders a hidden ``next`` input carrying
+    ``request.GET.next``, and POSTing ONLY the fields the rendered form itself contains
+    (extracted from the response HTML, not hand-constructed with ``next`` injected)
+    redirects to that ``next`` target. ``TestCreateObservatoryRoundTrip`` above proves the
+    view logic (``get_success_url()``) works when handed a manually-built POST body, but
+    never proves the template actually carries the field. The verifier independently
+    confirmed the real-template round-trip with a temporary end-to-end test (written, run,
+    then removed per verifier convention) before this class existed; this class makes that
+    coverage permanent.
+    """
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+        self.next_url = reverse('campaigns:approval_queue')
+        self.create_url = reverse('solsys_code_observatory:create')
+
+    def test_rendered_form_carries_next_field_and_replaying_it_redirects(self):
+        response = self.client.get(self.create_url, {'obscode': 'G37', 'next': self.next_url})
+        self.assertEqual(response.status_code, 200)
+
+        fields = _extract_create_observatory_form_fields(response.content.decode(), self.create_url)
+        # Load-bearing proof the template rendered the hidden field -- NOT hand-injected.
+        self.assertEqual(fields.get('next'), self.next_url)
+
+        with (
+            patch('solsys_code.solsys_code_observatory.views.MPCObscodeFetcher.query'),
+            patch(
+                'solsys_code.solsys_code_observatory.views.MPCObscodeFetcher.to_observatory',
+                side_effect=_stub_to_observatory,
+            ),
+        ):
+            post_response = self.client.post(self.create_url, fields)
+
+        self.assertRedirects(post_response, self.next_url)
+        self.assertEqual(Observatory.objects.filter(obscode='G37').count(), 1)
 
 
 class TestCalendarNoChurn(CampaignApprovalTestBase):
