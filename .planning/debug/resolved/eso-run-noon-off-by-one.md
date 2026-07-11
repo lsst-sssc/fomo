@@ -1,8 +1,8 @@
 ---
-status: verifying
+status: resolved
 trigger: "ESO/NTT classical run lines produce an off-by-one extra CalendarEvent when transcribed verbatim from Tatoo (LPO schedule tool). Tatoo displays date ranges like '2026-07-09 - 2026-07-13, 4.0 nights' where the end date is the noon-to-noon closing boundary of the LAST night, not itself an observing night. load_telescope_runs' _iter_run_nights() computes n_nights = day2 - day1 + 1 and treats both day1 and day2 as observing-night evening dates for ALL telescopes uniformly, silently over-counting ESO/NTT lines by one night."
 created: 2026-07-08T00:00:00Z
-updated: 2026-07-08T00:00:00Z
+updated: 2026-07-08T13:00:00Z
 ---
 
 ## Current Focus
@@ -167,6 +167,17 @@ verification: |
     2 nights; DB-dependent inspect cell now shows exactly 4 NTT events (Jul 9-12, no
     Jul 13) after clearing 8 stale/buggy NTT rows from the dev DB; summary table row
     updated 5 NTT -> 4 NTT. No execution errors.
+  - Independent real dev-DB re-verification (post-fix, commit b9c2266, confirmed by
+    orchestrator in a later turn): after deleting the 4 stale NTT CalendarEvent rows,
+    `python manage.py load_telescope_runs Didymos_runs` reingested to exactly 4 correct
+    NTT rows (Jul 9-12, no night of the 13th), matching Tatoo's own "4.0 nights" for
+    that date range. Immediate second run reported `created: 0, unchanged: 9` --
+    confirming the fix is idempotent, not merely correct on first run. Full targeted
+    suite (solsys_code.tests.test_load_telescope_runs + test_telescope_runs, 44 tests)
+    passes; ruff / ruff format clean. Session closed to `status: resolved`; the
+    separate Magellan-Baade CalendarEvent create-or-update duplicate-row issue found as
+    a side effect is tracked/resolved under the `start-time-idempotency-key` session and
+    is out of scope here.
 files_changed:
   - solsys_code/telescope_runs.py (added ESO_NOON_TO_NOON_SITES registry)
   - solsys_code/management/commands/load_telescope_runs.py (site-aware _iter_run_nights)
