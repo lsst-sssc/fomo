@@ -178,3 +178,14 @@ None - no external service configuration required.
 ---
 *Phase: 21-site-disambiguation-submitter-contact-opt-in*
 *Completed: 2026-07-11*
+
+## Self-Check: PASSED
+
+- FOUND: solsys_code/migrations/0007_campaignrun_contact_public_opt_in.py
+- FOUND: .planning/phases/21-site-disambiguation-submitter-contact-opt-in/21-02-SUMMARY.md
+- FOUND: commit eb2ec05
+- FOUND: commit 4e4fa94
+- FOUND: commit 1eccfac
+- FOUND: commit 5733bd8
+- FOUND: commit 8e95b14
+- FOUND: commit a3acd1a
