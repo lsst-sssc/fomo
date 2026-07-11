@@ -8,12 +8,15 @@ here is structured as "never raise for expected messy data; return a usable valu
 an explicit flag" per the ``_derive_telescope_class`` precedent in ``calendar_utils.py``.
 """
 
+import difflib
+import logging
 import re
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from typing import Any
 
 import requests
+from django.core.cache import cache
 from django.db.utils import IntegrityError
 from tom_dataservices.dataservices import MissingDataException
 
@@ -21,9 +24,17 @@ from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
 
+logger = logging.getLogger(__name__)
+
 # D-08 Pitfall 2: Observatory.obscode is CharField(max_length=4). Computed from the
 # field itself (not hardcoded) so a future schema change can't silently desync this guard.
 _MAX_OBSCODE_LEN = Observatory._meta.get_field('obscode').max_length
+
+# D-02/A2: the MPC obscode list changes far less often than gap-analysis results, so this
+# mirrors campaign_gap.py's cache pattern (GAP_CACHE_TTL_SECONDS = 3600) with a much
+# longer TTL. Single global pool -> a fixed cache key, no per-request parameters needed.
+MPC_CANDIDATE_CACHE_TTL_SECONDS = 86400  # 24h
+_MPC_CANDIDATE_CACHE_KEY = 'mpc_obscode_candidates'
 
 # UT Time Range formats confirmed against the real 3I/ATLAS sheet export (RESEARCH.md
 # "Real 3I/ATLAS Sheet -- Verified Shape"): 'HH:MM - HH:MM' (tolerant of a ';' typo in
@@ -196,6 +207,118 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
         # for this obscode. Re-fetch instead of crashing the import.
         return Observatory.objects.get(obscode=code), True
     return placeholder, True
+
+
+def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
+    """Flatten a bulk MPC obscodes dict into a fuzzy-matchable ``{string: obscode}`` map.
+
+    Per RESEARCH.md Pattern 3 / Open Question 2: each record contributes its obscode,
+    ``name_utf8``, ``short_name``, and ``old_names`` (as one whole string, not split) as
+    candidate display strings. First-seen wins on collision (rare -- distinct sites
+    practically never share a name); blank/falsy strings are skipped.
+
+    Args:
+        obscode_dict: dict keyed by 3-char obscode, as returned by
+            ``MPCObscodeFetcher.query_all()``.
+
+    Returns:
+        dict[str, str]: candidate display string -> obscode. Never raises for expected
+            messy data (a missing/None field is treated as an empty string and skipped).
+    """
+    mapping: dict[str, str] = {}
+    for code, rec in obscode_dict.items():
+        for candidate in (code, rec.get('name_utf8') or '', rec.get('short_name') or '', rec.get('old_names') or ''):
+            if candidate and candidate not in mapping:
+                mapping[candidate] = code
+    return mapping
+
+
+def _local_observatory_candidates() -> dict[str, str]:
+    """Build a ``{string: obscode}`` map from every local ``Observatory`` row.
+
+    Candidate strings mirror ``_flatten_mpc_candidates()``'s field selection (obscode,
+    name, short_name, old_names) so the local and MPC-sourced pools merge uniformly.
+    First-seen wins on collision.
+
+    Returns:
+        dict[str, str]: candidate display string -> obscode. Never raises.
+    """
+    mapping: dict[str, str] = {}
+    for obs in Observatory.objects.all():
+        for candidate in (obs.obscode, obs.name or '', obs.short_name or '', obs.old_names or ''):
+            if candidate and candidate not in mapping:
+                mapping[candidate] = obs.obscode
+    return mapping
+
+
+def build_site_candidates() -> dict[str, str]:
+    """Build (and cache) the merged local + MPC fuzzy-match candidate pool (D-01/D-02).
+
+    On a cache hit under ``'mpc_obscode_candidates'``, returns the cached pool without
+    re-fetching. On a miss, bulk-fetches the full MPC obscode list via
+    ``MPCObscodeFetcher.query_all()``, flattens it (``_flatten_mpc_candidates()``), merges
+    in every local ``Observatory`` row's candidate strings, caches the merged result for
+    ``MPC_CANDIDATE_CACHE_TTL_SECONDS``, and returns it.
+
+    Mirrors ``resolve_site()``'s "never raise for expected messy data; return a usable
+    value plus an explicit flag" discipline (here: no explicit flag, since a network
+    failure degrades gracefully to a still-usable local-only pool rather than needing a
+    caller-visible error state): a bulk-fetch network/parse failure is caught narrowly and
+    falls back to the local-only ``Observatory`` pool, never raising into
+    ``ApprovalQueueView``'s page render (RESEARCH.md Environment Availability fallback).
+
+    Returns:
+        dict[str, str]: candidate display string -> obscode, merged from the cached MPC
+            bulk list (or local-only on MPC failure) and every local ``Observatory`` row.
+            Never raises.
+    """
+    cached = cache.get(_MPC_CANDIDATE_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    mpc_candidates: dict[str, str] = {}
+    try:
+        obscode_dict = MPCObscodeFetcher().query_all()
+        mpc_candidates = _flatten_mpc_candidates(obscode_dict)
+    except (requests.exceptions.RequestException, ValueError, KeyError, TypeError):
+        # WR-style fallback (mirrors resolve_site()'s tier-2 network-failure handling):
+        # an MPC outage must never break the approval-queue page render -- fall through to
+        # a local-only pool below.
+        logger.debug('MPC bulk obscode fetch failed; falling back to local-only candidate pool.', exc_info=True)
+
+    merged = dict(mpc_candidates)
+    # Local Observatory rows merge in last so an already-vetted local record's display
+    # string always wins a first-seen collision over the raw MPC bulk data.
+    for candidate, obscode in _local_observatory_candidates().items():
+        merged.setdefault(candidate, obscode)
+
+    cache.set(_MPC_CANDIDATE_CACHE_KEY, merged, timeout=MPC_CANDIDATE_CACHE_TTL_SECONDS)
+    return merged
+
+
+def fuzzy_match_candidates(site_raw: str, candidate_pool: dict[str, str]) -> list[tuple[str, str]]:
+    """Fuzzy-match a raw submitted site string against a candidate pool (D-01/A3).
+
+    Wraps ``difflib.get_close_matches`` (``n=5, cutoff=0.6`` -- difflib's own documented
+    default cutoff, per RESEARCH.md Assumption A3) and resolves each matched display
+    string back to its obscode via ``candidate_pool``.
+
+    Args:
+        site_raw: the raw submitted/typed site text to match against the pool. Blank
+            input returns an empty list without invoking difflib.
+        candidate_pool: a ``{candidate_display_string: obscode}`` mapping, typically from
+            ``build_site_candidates()``.
+
+    Returns:
+        list[tuple[str, str]]: ranked ``(display_string, obscode)`` pairs, best match
+            first. Empty list when nothing clears the cutoff (e.g. an acronym/nickname
+            like ``'DCT'`` that difflib cannot bridge -- Pitfall 2). Never raises.
+    """
+    text = (site_raw or '').strip()
+    if not text:
+        return []
+    matches = difflib.get_close_matches(text, candidate_pool.keys(), n=5, cutoff=0.6)
+    return [(match, candidate_pool[match]) for match in matches]
 
 
 def parse_obs_window(
