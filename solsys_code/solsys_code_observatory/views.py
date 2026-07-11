@@ -44,7 +44,16 @@ class CreateObservatory(CreateView):
         link -- so staff don't have to retype it.
         """
         initial = super().get_initial()
-        initial['obscode'] = self.request.GET.get('obscode', '')
+        raw_obscode = self.request.GET.get('obscode', '')
+        # WR-02: ``?obscode=`` may carry an unresolved approval-queue row's ``site_raw``
+        # verbatim (campaign_tables.py's "Create new Observatory" link), which is frequently
+        # a full site name rather than a real obscode. CreateObservatoryForm.obscode is
+        # exactly 3 characters (min_length=max_length=3), so pre-filling anything else is
+        # guaranteed invalid on first render -- only pre-fill when the raw value plausibly
+        # is an obscode; otherwise leave the field blank so it doesn't look "already filled
+        # in" with a value staff must notice and fully overwrite.
+        if len(raw_obscode) == 3:
+            initial['obscode'] = raw_obscode
         return initial
 
     def get_context_data(self, **kwargs):  # noqa: D102
