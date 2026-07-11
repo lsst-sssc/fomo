@@ -186,7 +186,22 @@ Plans:
   3. Approving a run whose site a staff member already manually resolved does not silently re-resolve or overwrite that choice
   4. A submitter who opts in (single combined flag, default opt-out) has their `contact_person`/`contact_email` shown publicly on the per-campaign table; leaving it unset keeps them staff-only exactly as today
 
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 21-01-PLAN.md — Site-disambiguation backend: `MPCObscodeFetcher.query_all()` bulk fetch, cached `build_site_candidates()` + `fuzzy_match_candidates()`, `TestSiteFuzzyMatch` scaffold (SITE-01, D-01/02/03)
+- [ ] 21-02-PLAN.md — VIEW-05 contact opt-in: `contact_public_opt_in` field + migration 0007 + submission-form checkbox + `Case`/`When` per-row PII gating (VIEW-05, D-07/08)
+
+**Wave 2** *(depends on 21-01)*
+
+- [ ] 21-03-PLAN.md — Approval-queue site UI: single-`<form>` `render_actions()` refactor + `render_site()` input/datalist override + once-per-request candidate pool wiring (SITE-01, D-04)
+
+**Wave 3** *(depends on 21-02, 21-03)*
+
+- [ ] 21-04-PLAN.md — Decision + create-new: `post()` D-06 clobber guard + `site_selection` read + `CreateObservatory` `?obscode=`/`?next=` support (SITE-02/03, D-05/06)
+
 **UI hint**: yes
 
 ## Progress
@@ -214,7 +229,7 @@ Plans:
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 4/4 | Complete    | 2026-07-09 |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 4/4 | Complete    | 2026-07-10 |
-| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/? | Not started | - |
+| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 0/4 | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
