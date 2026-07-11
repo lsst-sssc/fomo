@@ -20,7 +20,7 @@ from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F
+from django.db.models import Case, CharField, Count, EmailField, F, Value, When
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -103,19 +103,46 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         # enter the non-staff SELECT -- mirrors D-13's existing discipline (T-16-07).
         qs = qs.exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
         qs = qs.order_by(F('window_start').desc(nulls_last=True))
-        return qs.values(*ALLOWED_FIELDS_FOR_NON_STAFF)
+        # VIEW-05/T-21-02: gate contact_person/contact_email at the SQL SELECT via a per-row
+        # Case/When annotation keyed on the submitter's own opt-in flag -- an opted-out row's
+        # real contact values are never fetched, only an empty string. ALLOWED_FIELDS_FOR_NON_STAFF
+        # itself deliberately does NOT list contact_person/contact_email (RESEARCH.md
+        # Anti-Pattern); they arrive only via this annotation.
+        #
+        # .values() MUST be called before .annotate() here (not after, despite that reading
+        # more naturally): Django's annotate() rejects an alias that collides with a real model
+        # field name ("The annotation 'contact_person' conflicts with a field on the model"),
+        # and that check is against the model's full field list unless .values() has already
+        # narrowed QuerySet._fields -- calling .values() first (without contact_person/
+        # contact_email in the field list) makes the alias check pass. contact_public_opt_in
+        # itself doesn't need to be in the .values() field list for the When() condition below
+        # to reference it -- Django resolves F()/condition expressions against the underlying
+        # column regardless of the projected .values() field list.
+        qs = qs.values(*[f for f in ALLOWED_FIELDS_FOR_NON_STAFF if f not in ('contact_person', 'contact_email')])
+        return qs.annotate(
+            contact_person=Case(
+                When(contact_public_opt_in=True, then=F('contact_person')),
+                default=Value(''),
+                output_field=CharField(),
+            ),
+            contact_email=Case(
+                When(contact_public_opt_in=True, then=F('contact_email')),
+                default=Value(''),
+                output_field=EmailField(),
+            ),
+        )
 
     def get_table_kwargs(self):
-        """Belt-and-suspenders: also drop contact columns from the rendered table (D-13).
-
-        D-04: 'order_by': () suppresses django-tables2's own default sort so it doesn't
+        """D-04: 'order_by': () suppresses django-tables2's own default sort so it doesn't
         clobber get_queryset()'s nulls-last ordering (mirrors the existing
         decided_table = ApprovalQueueTable(..., order_by=()) precedent in
         ApprovalQueueView below). Interactive column-header sorting (RequestConfig)
         still works normally on top of this.
+
+        VIEW-05: contact_person/contact_email are no longer excluded for non-staff -- they're
+        always safe to render now (blank string for opted-out rows, populated for opted-in
+        ones), gated at the SQL SELECT by get_queryset()'s Case/When annotation, not here.
         """
-        if not self.request.user.is_staff:
-            return {'exclude': ('contact_person', 'contact_email'), 'order_by': ()}
         return {'order_by': ()}
 
     def get_context_data(self, **kwargs):
