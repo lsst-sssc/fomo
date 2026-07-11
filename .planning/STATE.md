@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 21
-current_phase_name: Site Disambiguation & Submitter Contact Opt-In
+current_phase_name: site-disambiguation-submitter-contact-opt-in
 status: executing
 stopped_at: Phase 21 UI-SPEC approved
-last_updated: "2026-07-11T11:20:25.386Z"
-last_activity: 2026-07-10
-last_activity_desc: Phase 20 complete, transitioned to Phase 21
+last_updated: "2026-07-11T11:49:47.654Z"
+last_activity: 2026-07-11
+last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 14
+  completed_plans: 11
   percent: 75
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Phase 20 — range-tbd-import-asset-aware-coverage-gap
+**Current focus:** Phase 21 — site-disambiguation-submitter-contact-opt-in
 
 ## Current Position
 
-Phase: 21 — Site Disambiguation & Submitter Contact Opt-In
-Plan: Not started
+Phase: 21 (site-disambiguation-submitter-contact-opt-in) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-10 — Phase 20 complete, transitioned to Phase 21
+Last activity: 2026-07-11 — Phase 21 execution started
 
 ## Roadmap Summary (v2.1)
 
@@ -99,6 +99,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 20 P03 | 20min | 2 tasks | 3 files |
 | Phase 20 P04 | 22min | 1 tasks | 2 files |
 | 20 | 4 | - | - |
+| Phase 21 P01 | 8min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 20]: import_campaign_csv's natural key branches on window_start is None (resolved-window vs TBD lookup/collision-key shape), matching CampaignRun.Meta.constraints' two partial UniqueConstraints exactly -- contact_person is pulled out of the unconditional fields dict and only set via lookup for the TBD branch
 - [Phase 20]: range/TBD rows skip UT-Time-Range parsing entirely (ut_start=ut_end=None, ut_needs_review=False) per RESEARCH.md's A1 assumption -- no current CampaignRun field stores these values for a multi-night window
 - [Phase 20]: Demo notebook's new range/TBD demonstration cell placed after the existing generic inspection cell (not immediately after the import call_command cell) so it reuses the notebook's already-established CampaignRun.objects.get(...) query style
+- [Phase 21]: [Phase 21 P01]: old_names included as one whole string (not split) per RESEARCH.md Open Question 2 recommendation
+- [Phase 21]: [Phase 21 P01]: local Observatory candidates merge in after the MPC pool via dict.setdefault(), so an already-vetted local record's display string wins any first-seen collision over raw MPC bulk data
 
 ### Pending Todos
 
@@ -182,7 +185,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T10:57:14.781Z
+Last session: 2026-07-11T11:46:15.658Z
 Stopped at: Phase 21 UI-SPEC approved
 Resume file: .planning/phases/21-site-disambiguation-submitter-contact-opt-in/21-UI-SPEC.md
 
