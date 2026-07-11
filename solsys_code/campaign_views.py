@@ -348,16 +348,30 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         if updated_count == 1 and action == 'approve':
             try:
                 run = CampaignRun.objects.get(pk=pk)
-                # D-07: reuse the existing 3-tier site resolver rather than re-implementing it.
-                # On approve we resolve the site but never auto-create a placeholder
-                # Observatory for unresolvable public free-text (unlike the already-vetted
-                # CSV import path) -- the run is still approved with site=None +
-                # site_needs_review=True (site failure never blocks approval; D-06's calendar
-                # projection below needs a resolved site, so an unresolved site simply means
-                # no CalendarEvent yet, not a blocked approval).
-                site, needs_review = resolve_site(run.site_raw, create_placeholder=False)
-                run.site, run.site_needs_review = site, needs_review
-                run.save(update_fields=['site', 'site_needs_review'])
+                # D-06: only resolve the site once. An already-resolved run.site (from CSV
+                # import, tier 1/2 auto-resolution, or a prior staff-UI resolution) must never
+                # be re-resolved on a later approve -- e.g. after the except Exception revert
+                # below reverts approval_status back to PENDING_REVIEW while leaving run.site
+                # set, a second approve POST would otherwise re-hit resolve_site()
+                # unconditionally (RESEARCH.md Pitfall 3, the live clobbering bug this closes).
+                # A satellite-type site_selection (250/274/289) still falls through to
+                # (None, True) via resolve_site()'s to_observatory() TypeError path -- expected,
+                # pre-existing behavior, not a Phase 21 regression (RESEARCH.md Pitfall 4).
+                if run.site is None:
+                    # D-07: reuse the existing 3-tier site resolver rather than
+                    # re-implementing it. SITE-02: prefer the staff-submitted site_selection
+                    # (Plan 21-03's inline input) over the originally-submitted site_raw,
+                    # falling back to site_raw when blank. On approve we resolve the site but
+                    # never auto-create a placeholder Observatory for unresolvable public free
+                    # text (unlike the already-vetted CSV import path) -- the run is still
+                    # approved with site=None + site_needs_review=True (site failure never
+                    # blocks approval; the calendar projection below needs a resolved site, so
+                    # an unresolved site simply means no CalendarEvent yet, not a blocked
+                    # approval).
+                    selection = request.POST.get('site_selection', '').strip() or run.site_raw
+                    site, needs_review = resolve_site(selection, create_placeholder=False)
+                    run.site, run.site_needs_review = site, needs_review
+                    run.save(update_fields=['site', 'site_needs_review'])
 
                 # D-06/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- only
                 # project a single concrete night (window_start == window_end); a resolved

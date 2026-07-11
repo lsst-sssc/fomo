@@ -214,6 +214,60 @@ class TestApproval(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
 
+    def test_approving_already_resolved_site_does_not_call_resolve_site(self):
+        """SITE-03/D-06: a pre-set run.site is trusted and never re-resolved on approve."""
+        observatory = Observatory.objects.get(obscode='F65')
+        run = self._make_pending_run(site=observatory, site_needs_review=False)
+        with patch('solsys_code.campaign_views.resolve_site') as mock_resolve_site:
+            response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        mock_resolve_site.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(run.site_id, observatory.pk)
+
+    def test_projection_failure_reverts_site_stays_set_second_approve_skips_resolve_site(self):
+        """RESEARCH.md Pitfall 3 regression: a projection failure reverts approval_status to
+        PENDING_REVIEW while leaving run.site set (D-06's clobber-fix guard); a second approve
+        POST must not re-call resolve_site() (the pre-fix bug re-ran the MPC fetch here)."""
+        run = self._make_pending_run()
+        with patch(
+            'solsys_code.campaign_views.insert_or_create_calendar_event',
+            side_effect=RuntimeError('boom'),
+        ):
+            response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        self.assertIsNotNone(run.site)
+        resolved_site_pk = run.site.pk
+
+        with patch('solsys_code.campaign_views.resolve_site') as mock_resolve_site:
+            response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        mock_resolve_site.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(run.site.pk, resolved_site_pk)
+
+    def test_oversized_site_selection_is_flagged_with_no_network_call_or_fabrication(self):
+        """T-21-04: an oversized site_selection is flagged by resolve_site's existing
+        _MAX_OBSCODE_LEN guard -- no tier attempted, no network call, no fabricated Observatory."""
+        run = self._make_pending_run()
+        oversized = 'X' * (Observatory._meta.get_field('obscode').max_length + 1)
+        with patch('solsys_code.campaign_utils.MPCObscodeFetcher.query') as mock_query:
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'approve', 'site_selection': oversized},
+            )
+        self.assertEqual(response.status_code, 302)
+        mock_query.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+        self.assertEqual(Observatory.objects.filter(obscode=oversized).count(), 0)
+
 
 class TestCalendarProjection(CampaignApprovalTestBase):
     """D-06/CAL-01/CAL-02: approving a single-night run with a resolved site projects a
