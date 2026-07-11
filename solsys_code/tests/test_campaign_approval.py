@@ -538,3 +538,79 @@ class TestSiteFuzzyMatch(TestCase):
         matches = campaign_utils.fuzzy_match_candidates('DCT', pool)
 
         self.assertEqual(matches, [])
+
+
+class TestApprovalQueueSiteDisambiguationUI(CampaignApprovalTestBase):
+    """SITE-01/D-04 rendering + stored-XSS coverage for the inline site input +
+    datalist + "Create new Observatory" link (Plan 21-03).
+
+    ``build_site_candidates`` is patched at the view's import site
+    (``solsys_code.campaign_views.build_site_candidates``) so every case here is
+    deterministic and never hits the live MPC API -- mirrors ``TestSiteFuzzyMatch``'s
+    mocking-boundary discipline, but at the view layer instead of the helper layer.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.client.login(username='staffcoordinator', password='pw')
+        self._candidate_pool = campaign_utils._flatten_mpc_candidates(BULK_MPC_FIXTURE)
+        patcher = patch('solsys_code.campaign_views.build_site_candidates', return_value=self._candidate_pool)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_unresolved_pending_row_renders_site_input_datalist_and_create_link(self):
+        run = self._make_pending_run(site=None, site_raw='F65', site_needs_review=False)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertIn('name="site_selection"', content)
+        self.assertIn(f'list="site-candidates-{run.pk}"', content)
+        self.assertIn(f'form="decide-form-{run.pk}"', content)
+        self.assertIn(f'<datalist id="site-candidates-{run.pk}">', content)
+        self.assertIn('<option value=', content)
+        self.assertIn('Create new Observatory', content)
+
+    def test_site_raw_script_injection_is_escaped_not_rendered_raw(self):
+        """T-21-01: format_html auto-escaping must neutralize a stored-XSS attempt in
+        site_raw -- no unescaped <script> tag may reach the response body."""
+        self._make_pending_run(site=None, site_raw='<script>alert(1)</script>', site_needs_review=False)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertNotIn('<script>alert(1)</script>', content)
+        self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', content)
+
+    def test_resolved_pending_row_renders_no_site_selection_input(self):
+        observatory = Observatory.objects.create(
+            obscode='F65',
+            name='Faulkes Telescope South',
+            short_name='FTS',
+            lat=-31.2727,
+            lon=149.0644,
+            altitude=1149.0,
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run = self._make_pending_run(site=observatory, site_raw='F65', site_needs_review=False)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertNotIn(f'list="site-candidates-{run.pk}"', content)
+        self.assertIn('FTS', content)
+
+    def test_decided_table_renders_no_site_selection_input(self):
+        self._make_pending_run(
+            site=None,
+            site_raw='F65',
+            site_needs_review=False,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        self.assertNotIn('name="site_selection"', response.content.decode())
