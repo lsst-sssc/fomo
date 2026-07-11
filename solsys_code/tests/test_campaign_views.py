@@ -231,13 +231,18 @@ class TestContactFieldGating(CampaignViewTestBase):
     """VIEW-03: contact_person/contact_email visible only to staff -- proven via context AND content."""
 
     def test_anonymous_context_rows_have_no_contact_fields(self):
+        """VIEW-05: contact_person/contact_email keys are now always present in the non-staff
+        .values() dict (queryset-level Case/When annotation, T-21-02), but blank unless the
+        row opted in -- none of this base fixture's rows have contact_public_opt_in=True, so
+        every anonymous row's value is the empty string, never the raw PII.
+        """
         response = self.client.get(self.table_url())
         table = response.context['table']
         for row in table.page.object_list:
             record = row.record
             self.assertIsInstance(record, dict, 'Anonymous rows must be dicts from a .values() queryset')
-            self.assertNotIn('contact_person', record)
-            self.assertNotIn('contact_email', record)
+            self.assertEqual(record['contact_person'], '')
+            self.assertEqual(record['contact_email'], '')
 
     def test_anonymous_content_has_no_contact_strings(self):
         response = self.client.get(self.table_url())
@@ -258,6 +263,85 @@ class TestContactFieldGating(CampaignViewTestBase):
         table = response.context['table']
         contact_persons = {self._row_value(row.record, 'contact_person') for row in table.page.object_list}
         self.assertIn(CONTACT_PERSON, contact_persons)
+
+
+class TestContactPublicOptIn(CampaignViewTestBase):
+    """VIEW-05/T-21-02: opted-in runs expose contact PII to anonymous visitors; opted-out
+    runs never emit it from the non-staff SQL SELECT (queryset-level gate, not template-only).
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.opted_in_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Opted-In Scope',
+            window_start=_BASE_DATE + timedelta(days=100),
+            window_end=_BASE_DATE + timedelta(days=100),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            contact_person='Opted In Person',
+            contact_email='optedin@example.org',
+            contact_public_opt_in=True,
+        )
+        cls.opted_out_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Opted-Out Scope',
+            window_start=_BASE_DATE + timedelta(days=101),
+            window_end=_BASE_DATE + timedelta(days=101),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            contact_person='Opted Out Person',
+            contact_email='optedout@example.org',
+            contact_public_opt_in=False,
+        )
+
+    def _non_staff_values_row(self, pk):
+        """Reach into the raw non-staff .values() queryset directly (not via the table/HTTP
+        response) to prove the SQL SELECT itself, not just rendered HTML (T-21-02).
+        """
+        from solsys_code.campaign_views import CampaignRunTableView
+
+        view = CampaignRunTableView()
+        view.kwargs = {'pk': self.campaign.pk}
+        view.request = type('Req', (), {'user': type('U', (), {'is_staff': False})()})()
+        return view.get_queryset().get(pk=pk)
+
+    def test_opted_in_row_exposes_contact_in_non_staff_values(self):
+        row = self._non_staff_values_row(self.opted_in_run.pk)
+        self.assertEqual(row['contact_person'], 'Opted In Person')
+        self.assertEqual(row['contact_email'], 'optedin@example.org')
+
+    def test_opted_out_row_blanks_contact_in_non_staff_values(self):
+        row = self._non_staff_values_row(self.opted_out_run.pk)
+        self.assertEqual(row['contact_person'], '')
+        self.assertEqual(row['contact_email'], '')
+
+    def test_opted_in_content_visible_to_anonymous_visitor(self):
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertIn('Opted In Person', content)
+        self.assertIn('optedin@example.org', content)
+
+    def test_opted_out_content_not_visible_to_anonymous_visitor(self):
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertNotIn('Opted Out Person', content)
+        self.assertNotIn('optedout@example.org', content)
+
+    def test_staff_sees_both_regardless_of_opt_in(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertIn('Opted In Person', content)
+        self.assertIn('Opted Out Person', content)
+
+    def test_allowed_fields_for_non_staff_does_not_list_contact_fields(self):
+        """RESEARCH.md Anti-Pattern: contact_person/contact_email must arrive via the
+        Case/When F() kwargs in .values(), never be added directly to the allow-list.
+        """
+        from solsys_code.campaign_views import ALLOWED_FIELDS_FOR_NON_STAFF
+
+        self.assertNotIn('contact_person', ALLOWED_FIELDS_FOR_NON_STAFF)
+        self.assertNotIn('contact_email', ALLOWED_FIELDS_FOR_NON_STAFF)
 
 
 class TestCampaignRunFilterSet(CampaignViewTestBase):
