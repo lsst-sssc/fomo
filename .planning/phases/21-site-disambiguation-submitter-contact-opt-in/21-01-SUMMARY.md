@@ -146,3 +146,12 @@ None - no external service configuration required. No new packages installed (`d
 ---
 *Phase: 21-site-disambiguation-submitter-contact-opt-in*
 *Completed: 2026-07-11*
+
+## Self-Check: PASSED
+
+- FOUND: solsys_code/solsys_code_observatory/utils.py
+- FOUND: solsys_code/campaign_utils.py
+- FOUND: solsys_code/tests/test_campaign_approval.py
+- FOUND commit: f2b8418 (test)
+- FOUND commit: d571b18 (feat)
+- FOUND commit: 5c1ac30 (feat)
