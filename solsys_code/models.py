@@ -104,6 +104,7 @@ class CampaignRun(models.Model):
     comments = models.TextField(blank=True, default='', verbose_name='Other comments')
     contact_person = models.CharField(max_length=255, blank=True, default='', verbose_name='Contact person')
     contact_email = models.EmailField(blank=True, default='', verbose_name='Contact email')
+    contact_public_opt_in = models.BooleanField(default=False, verbose_name='Show contact info publicly?')
     approval_status = models.CharField(
         max_length=20,
         choices=ApprovalStatus,
