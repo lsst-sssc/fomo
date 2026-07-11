@@ -61,6 +61,27 @@ class MPCObscodeFetcher:
                 print('Error: ', response.status_code, self._flatten_error_dict(json_resp))
             return json_resp
 
+    def query_all(self, timeout: float = 30) -> dict:
+        """Query the MPC obscodes API for every registered observatory code (bulk mode).
+
+        Omitting the ``obscode`` key from the POST body triggers the bulk-list response
+        (confirmed live: 2,710 codes, ~1.5 MB, ~1.3s as of 2026-07-11). Stores the result
+        on ``self.obs_data`` like ``query()`` does, but here it is a dict keyed by 3-char
+        obscode rather than a single flat observatory dict -- do **not** call
+        ``to_observatory()`` on a ``query_all()`` result, its ``self.obs_data`` shape
+        contract is for ``query()`` only. This is a distinct, sibling method: ``query()``
+        itself is unmodified.
+
+        :param timeout: request timeout in seconds, passed through to ``requests.get``.
+        :type timeout: float
+        :returns: dict keyed by obscode, e.g. {'X09': {'name_utf8': ..., 'longitude': ..., ...}}
+        :rtype: dict
+        """
+        response = requests.get('https://data.minorplanetcenter.net/api/obscodes', json={}, timeout=timeout)
+        response.raise_for_status()
+        self.obs_data = response.json()
+        return self.obs_data
+
     def to_observatory(self):
         """
         Instantiates a ``Observatory`` object with the data from the obscode query search result.
