@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 Phase: 21
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-11 — Phase 21 complete
+Last activity: 2026-07-11 - Completed quick task 260711-o71: Measure current test coverage for solsys_code, add two permanent regression tests to solsys_code/tests/test_campaign_approval.py covering CR-01 and CR-02, then re-measure coverage and report the diff.
 
 ## Roadmap Summary (v2.1)
 
@@ -177,6 +177,7 @@ None. Roadmap created; Phase 18 ready to plan via `/gsd-plan-phase 18`.
 | # | Description | Date | Commit | Status | Directory |
 |---|-------------|------|--------|--------|-----------|
 | 260705-l1v | Fix approval-queue site-visibility gap: show site_raw in the pending CampaignRun approval queue and stop the approval endpoint from fabricating placeholder Observatory rows for unresolvable free-text site names (found during v2.0 manual UAT) | 2026-07-05 | 959a78d | Verified | [260705-l1v-fix-approval-queue-site-visibility-gap-s](./quick/260705-l1v-fix-approval-queue-site-visibility-gap-s/) |
+| 260711-o71 | Measure solsys_code test coverage, add permanent CR-01/CR-02 regression tests to test_campaign_approval.py (closing the gap left by the phase 21 verifier's temporary tests), re-measure and report the diff | 2026-07-11 | adcd59a | Complete | [260711-o71-measure-current-test-coverage-for-solsys](./quick/260711-o71-measure-current-test-coverage-for-solsys/) |
 
 ## Deferred Items
 
