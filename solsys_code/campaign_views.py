@@ -194,6 +194,7 @@ class CampaignRunSubmissionView(FormView):
                     open_to_collaboration=form.cleaned_data['open_to_collaboration'],
                     contact_person=form.cleaned_data['contact_person'],
                     contact_email=form.cleaned_data['contact_email'],
+                    contact_public_opt_in=form.cleaned_data['contact_public_opt_in'],
                     comments=form.cleaned_data['comments'],
                     # approval_status intentionally not set -- model default is PENDING_REVIEW.
                     # site/site_needs_review intentionally not set -- resolved at approval

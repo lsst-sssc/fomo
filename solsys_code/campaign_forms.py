@@ -31,6 +31,16 @@ class CampaignRunSubmissionForm(forms.Form):
     open_to_collaboration = forms.BooleanField(required=False, label='Open to collaboration?')
     contact_person = forms.CharField(max_length=255, required=True, label='Contact person')  # D-06
     contact_email = forms.EmailField(required=True, label='Contact email')  # D-06
+    # VIEW-05/D-07: default-opt-out combined contact-visibility flag. required=False means an
+    # unchecked box (the default) cleans to False.
+    contact_public_opt_in = forms.BooleanField(
+        required=False,
+        label='Show contact info publicly?',
+        help_text=(
+            'If checked, your name and email will be shown on the public campaign table. '
+            'Leave unchecked to keep them visible to staff only (default).'
+        ),
+    )
     comments = forms.CharField(widget=forms.Textarea, required=False, label='Other comments')
     # SUBMIT-04: hidden honeypot, non-obvious name, never rendered visibly to a human.
     alt_contact_info = forms.CharField(required=False, widget=forms.HiddenInput())
@@ -55,7 +65,7 @@ class CampaignRunSubmissionForm(forms.Form):
                 'observation_details',
                 'open_to_collaboration',
             ),
-            Fieldset('Contact', 'contact_person', 'contact_email', 'comments'),
+            Fieldset('Contact', 'contact_person', 'contact_email', 'contact_public_opt_in', 'comments'),
             # Hidden via widget=HiddenInput above; belt-and-suspenders CSS hiding too.
             Div('alt_contact_info', css_class='d-none'),
             FormActions(Submit('submit', 'Submit run for review')),
