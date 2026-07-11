@@ -33,7 +33,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Campaign Display (VIEW)
 
-- [ ] **VIEW-05**: Submitter can opt in (single combined flag, default opt-out) to public display of their `contact_person`/`contact_email` on the per-campaign table; unset behaves exactly as today (staff-only)
+- [x] **VIEW-05**: Submitter can opt in (single combined flag, default opt-out) to public display of their `contact_person`/`contact_email` on the per-campaign table; unset behaves exactly as today (staff-only)
 
 ## v2 Requirements
 
@@ -79,7 +79,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SITE-01 | Phase 21 | Complete |
 | SITE-02 | Phase 21 | Pending |
 | SITE-03 | Phase 21 | Pending |
-| VIEW-05 | Phase 21 | Pending |
+| VIEW-05 | Phase 21 | Complete |
 
 **Coverage:**
 

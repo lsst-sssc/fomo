@@ -186,13 +186,13 @@ Plans:
   3. Approving a run whose site a staff member already manually resolved does not silently re-resolve or overwrite that choice
   4. A submitter who opts in (single combined flag, default opt-out) has their `contact_person`/`contact_email` shown publicly on the per-campaign table; leaving it unset keeps them staff-only exactly as today
 
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 21-01-PLAN.md — Site-disambiguation backend: `MPCObscodeFetcher.query_all()` bulk fetch, cached `build_site_candidates()` + `fuzzy_match_candidates()`, `TestSiteFuzzyMatch` scaffold (SITE-01, D-01/02/03)
-- [ ] 21-02-PLAN.md — VIEW-05 contact opt-in: `contact_public_opt_in` field + migration 0007 + submission-form checkbox + `Case`/`When` per-row PII gating (VIEW-05, D-07/08)
+- [x] 21-02-PLAN.md — VIEW-05 contact opt-in: `contact_public_opt_in` field + migration 0007 + submission-form checkbox + `Case`/`When` per-row PII gating (VIEW-05, D-07/08)
 
 **Wave 2** *(depends on 21-01)*
 
@@ -229,7 +229,7 @@ Plans:
 | 18. Uncertain-Scheduling Investigation Spike | v2.1 | 2/2 | Complete    | 2026-07-09 |
 | 19. Window-Schema Migration | v2.1 | 4/4 | Complete    | 2026-07-09 |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | v2.1 | 4/4 | Complete    | 2026-07-10 |
-| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 1/4 | In Progress|  |
+| 21. Site Disambiguation & Submitter Contact Opt-In | v2.1 | 2/4 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
