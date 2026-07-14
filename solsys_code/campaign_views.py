@@ -212,10 +212,13 @@ class CampaignRunSubmissionView(FormView):
                     campaign=form.cleaned_data['campaign'],
                     telescope_instrument=form.cleaned_data['telescope_instrument'],
                     site_raw=form.cleaned_data['site_raw'],
-                    # SCHED-02: single-night collapse -- the form's one observing-date field
-                    # feeds both window_start and window_end.
-                    window_start=form.cleaned_data['obs_date'],
-                    window_end=form.cleaned_data['obs_date'],
+                    # SCHED-02: window_start/window_end come from the form's clean(), which
+                    # runs the free-text obs_date through parse_obs_window() -- single-night
+                    # collapse (start == end) for one date or an equal-endpoint range, a real
+                    # start..end span for a multi-night range, and both None for a blank
+                    # (TBD) submission.
+                    window_start=form.cleaned_data['window_start'],
+                    window_end=form.cleaned_data['window_end'],
                     filters_bandpass=form.cleaned_data['filters_bandpass'],
                     observation_details=form.cleaned_data['observation_details'],
                     open_to_collaboration=form.cleaned_data['open_to_collaboration'],
@@ -229,13 +232,16 @@ class CampaignRunSubmissionView(FormView):
                 )
         except IntegrityError:
             # Pitfall 4: two submitters proposing the same campaign+telescope_instrument+
-            # observing date (a resolved single night) -- or the same campaign+
-            # telescope_instrument+contact_person when the date is left blank (TBD) --
-            # collide on one of CampaignRun's two partial natural-key UniqueConstraints.
-            # Friendly form error, never a 500.
+            # resolved window (a single night OR an identical range) -- or the same
+            # campaign+telescope_instrument+contact_person when the date is left blank
+            # (TBD) -- collide on one of CampaignRun's two partial natural-key
+            # UniqueConstraints. Friendly form error, never a 500. Requirement 7 (see
+            # 260714-ilz-SUMMARY.md): this handler already covers the range case unchanged;
+            # only the wording below was broadened to read correctly for a window as well
+            # as a single date.
             form.add_error(
                 None,
-                'A run for this telescope on this observing date already exists for this campaign. '
+                'A run for this telescope for this observing window already exists for this campaign. '
                 'Check the campaign table, or contact a coordinator if you believe this is a mistake.',
             )
             return self.form_invalid(form)

@@ -12,6 +12,7 @@ from crispy_forms.layout import Div, Fieldset, Layout, Submit
 from django import forms
 from tom_targets.models import Target, TargetList
 
+from solsys_code.campaign_utils import parse_obs_window
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
@@ -21,11 +22,22 @@ class CampaignRunSubmissionForm(forms.Form):
     campaign = forms.ModelChoiceField(queryset=TargetList.objects.all(), required=True)
     telescope_instrument = forms.CharField(max_length=255, required=False, label='Telescope / instrument')
     site_raw = forms.CharField(max_length=255, required=False, label='Observing site')
-    # A3: collapses to a single observing-date field -- the window schema has no time-of-
-    # night component, so the UT start/end DateTimeField inputs have no home here and are
-    # dropped entirely (not repurposed). The view maps this single date to both
-    # window_start and window_end on save (single-night collapse, SCHED-02).
-    obs_date = forms.DateField(required=False, label='Observation date')
+    # A3: collapses to a single observing-date free-text field -- the window schema has no
+    # time-of-night component, so the UT start/end DateTimeField inputs have no home here
+    # and are dropped entirely (not repurposed). This is now free text parsed by
+    # `parse_obs_window()` (SUBMIT-01 date-format gap fix) rather than a strict single
+    # `DateField` -- clean() below maps the parsed window onto cleaned_data['window_start']/
+    # ['window_end'], which the view reads (single-night collapse or a genuine multi-night
+    # range; blank -> TBD, both None).
+    obs_date = forms.CharField(
+        required=False,
+        max_length=255,
+        label='Observation date',
+        help_text=(
+            'A single date (YYYY-MM-DD), a date range (YYYY-MM-DD -- YYYY-MM-DD or '
+            'YYYY-MM-DD to YYYY-MM-DD), or leave blank if not yet scheduled (TBD).'
+        ),
+    )
     filters_bandpass = forms.CharField(max_length=255, required=False, label='Filter(s) / bandpass')
     observation_details = forms.CharField(widget=forms.Textarea, required=False, label='Observation details')
     open_to_collaboration = forms.BooleanField(required=False, label='Open to collaboration?')
@@ -50,6 +62,41 @@ class CampaignRunSubmissionForm(forms.Form):
         decides what to do with a filled value; the form only passes it through.
         """
         return self.cleaned_data.get('alt_contact_info', '')
+
+    def clean(self):
+        """Parse the free-text `obs_date` into a window via `parse_obs_window()`.
+
+        Mirrors `import_campaign_csv`'s needs-review discipline (act on the parser's flag,
+        never raise) but adapted to Django form-error convention: non-blank unparseable text
+        surfaces a friendly `obs_date` error (`form.add_error`, not a silent skip); blank text
+        also comes back with `window_needs_review=True` but is an intentional TBD and must NOT
+        error. `parse_obs_window()` always returns `window_start`/`window_end` both `None` or
+        both set (single-night collapse or a genuine range), never one-`None` -- this keeps the
+        model's `campaign_run_window_start_end_null_together` CheckConstraint invariant intact
+        with no extra code needed here. There is no UT-time field on this public form (per the
+        `obs_date` field's A3 comment), so an empty `ut_range_raw` is passed through.
+        """
+        cleaned_data = super().clean()
+        obs_date_raw = cleaned_data.get('obs_date', '') or ''
+        (
+            window_start,
+            window_end,
+            _original_raw,
+            window_needs_review,
+            _ut_start,
+            _ut_end,
+            _ut_needs_review,
+        ) = parse_obs_window(obs_date_raw, '')
+        cleaned_data['window_start'] = window_start
+        cleaned_data['window_end'] = window_end
+        if window_needs_review and obs_date_raw.strip():
+            self.add_error(
+                'obs_date',
+                "Couldn't understand this date. Use a single date (YYYY-MM-DD), a range "
+                '(YYYY-MM-DD -- YYYY-MM-DD or YYYY-MM-DD to YYYY-MM-DD), or leave it blank '
+                'if the observing date is not yet scheduled.',
+            )
+        return cleaned_data
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
