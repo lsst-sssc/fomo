@@ -4,16 +4,16 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 21
 status: verifying
-stopped_at: Completed 260714-jpd-PLAN.md (quick task)
-last_updated: "2026-07-14T13:30:41.535Z"
+stopped_at: Phase 22 context gathered
+last_updated: "2026-07-14T15:01:22.296Z"
 last_activity: 2026-07-14
 last_activity_desc: Phase 21 complete
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
   total_plans: 14
   completed_plans: 14
-  percent: 100
+  percent: 80
 current_phase_name: site-disambiguation-submitter-contact-opt-in
 ---
 
@@ -204,9 +204,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-14T13:30:33.095Z
-Stopped at: Completed 260714-jpd-PLAN.md (quick task)
-Resume file: None
+Last session: 2026-07-14T15:01:22.270Z
+Stopped at: Phase 22 context gathered
+Resume file: .planning/phases/22-site-matching-at-submission-and-unmatched-site-resolution-wo/22-CONTEXT.md
 
 ## Operator Next Steps
 
