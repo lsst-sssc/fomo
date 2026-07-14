@@ -5,8 +5,8 @@ milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 21
 status: verifying
 stopped_at: Completed 21-04-PLAN.md
-last_updated: "2026-07-11T16:01:54.491Z"
-last_activity: 2026-07-11
+last_updated: "2026-07-14T09:34:39.032Z"
+last_activity: 2026-07-14
 last_activity_desc: Phase 21 complete
 progress:
   total_phases: 4
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 Phase: 21
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-11 - Completed quick task 260711-o71: Measure current test coverage for solsys_code, add two permanent regression tests to solsys_code/tests/test_campaign_approval.py covering CR-01 and CR-02, then re-measure coverage and report the diff.
+Last activity: 2026-07-14 — Phase 21 complete
 
 ## Roadmap Summary (v2.1)
 
