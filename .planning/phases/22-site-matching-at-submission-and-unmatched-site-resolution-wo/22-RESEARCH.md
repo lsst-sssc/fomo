@@ -535,7 +535,7 @@ snippet between declared fields.
 | A3 | Exempting staff (`request.user.is_staff`) from the anonymous throttle is a reasonable design choice, not explicitly locked by CONTEXT.md | Pitfall 5 | If not implemented, staff could occasionally be rate-limited during their own legitimate use of the D-10 widget in the approval queue — a UX annoyance, not a correctness bug (free-text fallback always still works). |
 | A4 | A single shared endpoint (`campaigns:site_search`) serving both the public form and the approval-queue rows, differentiated by an `input_id` GET param, is simpler than two separate endpoints | Pattern 1 | If the two callers' needs diverge later (e.g. different result formatting), a shared endpoint could need an `if` branch — low risk, easy to split later since it's one `View`. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the throttle exempt authenticated staff?**
    - What we know: D-02 locks the mechanism (zero-dependency cache-based per-IP throttle) but not whether it applies uniformly to staff and anonymous callers.
