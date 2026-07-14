@@ -4,8 +4,8 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 21
 status: verifying
-stopped_at: Completed 260714-ilz-PLAN.md
-last_updated: "2026-07-14T12:46:18.675Z"
+stopped_at: Completed 260714-jpd-PLAN.md (quick task)
+last_updated: "2026-07-14T13:30:41.535Z"
 last_activity: 2026-07-14
 last_activity_desc: Phase 21 complete
 progress:
@@ -157,6 +157,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 21]: [Phase 21 P04]: Kept the except Exception revert block byte-for-byte unchanged -- the D-06 fix is purely the new if run.site is None guard placed before resolve_site(), not a change to the failure-recovery contract
 - [Phase 21]: [Phase 21 P04]: Mocked MPCObscodeFetcher.to_observatory() directly (side_effect creating a real Observatory row) for the CreateObservatory round-trip tests, since to_observatory() reads several MPC-response dict keys with no defaults and a bare query() mock would raise MissingDataException
 - [Phase ?]: [Quick 260714-ilz]: Widened parse_obs_window()'s date-range separator regex to accept a double-hyphen (-{1,2}), enabling the public form's genuine multi-night range examples to parse; non-regressive against existing single-hyphen/en-dash/em-dash/'to' shapes and the CSV importer.
+- [Phase ?]: [Quick 260714-jpd]: readonly_fields (not exclude) used to keep CampaignRun.approval_status visible-but-non-editable in admin, preventing an admin path to APPROVED that bypasses CampaignRunDecisionView.post()'s side effects
 
 ### Pending Todos
 
@@ -180,6 +181,7 @@ None. Roadmap created; Phase 18 ready to plan via `/gsd-plan-phase 18`.
 | 260705-l1v | Fix approval-queue site-visibility gap: show site_raw in the pending CampaignRun approval queue and stop the approval endpoint from fabricating placeholder Observatory rows for unresolvable free-text site names (found during v2.0 manual UAT) | 2026-07-05 | 959a78d | Verified | [260705-l1v-fix-approval-queue-site-visibility-gap-s](./quick/260705-l1v-fix-approval-queue-site-visibility-gap-s/) |
 | 260711-o71 | Measure solsys_code test coverage, add permanent CR-01/CR-02 regression tests to test_campaign_approval.py (closing the gap left by the phase 21 verifier's temporary tests), re-measure and report the diff | 2026-07-11 | adcd59a | Complete | [260711-o71-measure-current-test-coverage-for-solsys](./quick/260711-o71-measure-current-test-coverage-for-solsys/) |
 | 260714-ilz | Close date-format gap on public campaign-run submission form: obs_date now accepts single date/range/blank via parse_obs_window(), closing the hard Django date-validation failure that blocked multi-night range submissions (SUBMIT-01) | 2026-07-14 | f7b3ca0 | Complete | [260714-ilz-close-date-format-gap-on-public-campaign](./quick/260714-ilz-close-date-format-gap-on-public-campaign/) |
+| 260714-jpd | Register CampaignRun and CalendarEventTelescopeLabel in solsys_code/admin.py: approval_status read-only (no admin bypass of CampaignRunDecisionView.post()'s calendar projection + D-06 guard), contact PII excluded from the change-list but editable in detail, proven via a new admin test-client suite | 2026-07-14 | b6ae100 | Complete | [260714-jpd-add-calendareventtelescopelabel-and-camp](./quick/260714-jpd-add-calendareventtelescopelabel-and-camp/) |
 
 ## Deferred Items
 
@@ -198,8 +200,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-14T12:46:18.640Z
-Stopped at: Completed 260714-ilz-PLAN.md
+Last session: 2026-07-14T13:30:33.095Z
+Stopped at: Completed 260714-jpd-PLAN.md (quick task)
 Resume file: None
 
 ## Operator Next Steps
