@@ -87,12 +87,13 @@
 
 </details>
 
-### 🚧 v2.1 Uncertain Scheduling & Site Disambiguation (Phases 18-21) — IN PROGRESS
+### 🚧 v2.1 Uncertain Scheduling & Site Disambiguation (Phases 18-22) — IN PROGRESS
 
 - [x] **Phase 18: Uncertain-Scheduling Investigation Spike** - Settle window schema, TBD natural key, CSV range/TBD parsing rules, and fuzzy-match library against real 3I sheet rows before implementation (completed 2026-07-09)
 - [x] **Phase 19: Window-Schema Migration** - Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair, migrating existing rows with no data loss (completed 2026-07-09)
 - [x] **Phase 20: Range/TBD Import & Asset-Aware Coverage Gap** - Import range/TBD `Obs. Date` rows into the window representation and make coverage-gap analysis distinguish ground vs. space-mission runs (completed 2026-07-10)
 - [x] **Phase 21: Site Disambiguation & Submitter Contact Opt-In** - Staff-facing fuzzy-match site-resolution UI in the approval queue plus a submitter contact opt-in flag (completed 2026-07-11)
+- [ ] **Phase 22: Site Matching at Submission and Unmatched-Site Resolution Workflow** - HTMX live fuzzy site search on the public submission form and approval queue, plus a "Sites needing review" resolution surface for approved runs with unresolved sites (with deferred calendar projection on resolve)
 
 ## Phase Details
 
@@ -235,8 +236,19 @@ Full phase detail for all shipped milestones lives in their respective `mileston
 
 ## Current Milestone
 
-**v2.1 Uncertain Scheduling & Site Disambiguation** — Phases 18-21, roadmap created 2026-07-05.
+**v2.1 Uncertain Scheduling & Site Disambiguation** — Phases 18-22, roadmap created 2026-07-05; Phase 22 added 2026-07-14 to close the Phase 21 site-matching functionality gap.
 
 **Dependency spine:** Phase 18 (spike) settles the schema → Phase 19 (window migration, largest blast radius) → Phase 20 (import + asset-gap consumers of the new schema). Phase 21 (site UI + contact opt-in) is structurally independent of the scheduling work and depends only on Phase 18's fuzzy-library decision, so it can run in parallel with Phases 19-20.
 
 Next: `/gsd-plan-phase 18`
+
+### Phase 22: Site Matching at Submission and Unmatched-Site Resolution Workflow
+
+**Goal:** Close the Phase 21 functionality gap: submitters and staff get live fuzzy matching against the merged local `Observatory` + full MPC candidate pool wherever a site is entered, and approved runs with unresolved sites get a resolution workflow instead of a dead end. (1) The public 'Submit an Observing Run' form's Observing site field becomes an HTMX live-search autocomplete backed by a new endpoint running `fuzzy_match_candidates()` over `build_site_candidates()`, replacing the bare free-text CharField; the same live-search widget replaces the approval queue's static per-row datalist (currently only the ≤5 fuzzy matches of the originally-submitted `site_raw`). (2) Post-approval resolution: keep "site failure never blocks approval", but add a "Sites needing review" surface listing approved runs with `site_needs_review=True`, with the same inline resolve input; resolving a site then triggers the deferred CalendarEvent projection that approval skipped.
+**Requirements**: TBD
+**Depends on:** Phase 21 (reuses `resolve_site`/`build_site_candidates`/`fuzzy_match_candidates` and the approval-queue decide flow)
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 22 to break down)

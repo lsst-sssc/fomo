@@ -107,6 +107,10 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 22 added (2026-07-14): Site Matching at Submission and Unmatched-Site Resolution Workflow — closes the Phase 21 functionality gap. Decisions confirmed with operator: (a) the public submission form's Observing site field gets HTMX live-search autocomplete (new endpoint running `fuzzy_match_candidates()` over `build_site_candidates()`), also replacing the approval queue's static per-row datalist; (b) "site failure never blocks approval" is kept, with a new "Sites needing review" surface for approved runs with `site_needs_review=True` whose resolution triggers the deferred CalendarEvent projection.
+
 ### Decisions
 
 All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
