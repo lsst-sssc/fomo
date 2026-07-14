@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 21
-status: verifying
-stopped_at: Phase 22 context gathered
-last_updated: "2026-07-14T15:01:22.296Z"
+status: executing
+stopped_at: Phase 22 UI-SPEC approved
+last_updated: "2026-07-14T20:16:48.588Z"
 last_activity: 2026-07-14
 last_activity_desc: Phase 21 complete
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 Phase: 21
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-14 — Phase 21 complete
 
 ## Roadmap Summary (v2.1)
@@ -204,9 +204,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-14T15:01:22.270Z
-Stopped at: Phase 22 context gathered
-Resume file: .planning/phases/22-site-matching-at-submission-and-unmatched-site-resolution-wo/22-CONTEXT.md
+Last session: 2026-07-14T15:39:38.605Z
+Stopped at: Phase 22 UI-SPEC approved
+Resume file: .planning/phases/22-site-matching-at-submission-and-unmatched-site-resolution-wo/22-UI-SPEC.md
 
 ## Operator Next Steps
 
