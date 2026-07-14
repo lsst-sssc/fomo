@@ -6,6 +6,8 @@ project; campaigns are `TargetList` objects, not `Target`, so no Target factory 
 at all).
 """
 
+from datetime import date
+
 from django import forms
 from django.test import TestCase
 from tom_targets.models import TargetList
@@ -114,3 +116,69 @@ class CampaignRunSubmissionFormTest(TestCase):
         """CampaignRunSubmissionForm must be a plain forms.Form, never a ModelForm (Pitfall 3)."""
         self.assertTrue(issubclass(CampaignRunSubmissionForm, forms.Form))
         self.assertFalse(issubclass(CampaignRunSubmissionForm, forms.ModelForm))
+
+
+class CampaignRunSubmissionFormObsDateWindowTest(TestCase):
+    """260714-ilz: obs_date accepts flexible date/range text, parsed via parse_obs_window()
+    into cleaned_data['window_start']/['window_end'] (requirements 1/2/4/5/6).
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS')
+
+    def _minimal_data(self, **overrides):
+        data = {
+            'campaign': self.campaign.pk,
+            'contact_person': CONTACT_PERSON,
+            'contact_email': CONTACT_EMAIL,
+        }
+        data.update(overrides)
+        return data
+
+    def test_single_date_collapses_to_start_equals_end(self):
+        form = CampaignRunSubmissionForm(data=self._minimal_data(obs_date='2027-04-20'))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['window_start'], date(2027, 4, 20))
+        self.assertEqual(form.cleaned_data['window_end'], date(2027, 4, 20))
+
+    def test_identical_double_hyphen_range_collapses_to_single_night(self):
+        """Requirement 4: an explicit start==end range still collapses to a single night."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data(obs_date='2027-04-20 -- 2027-04-20'))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['window_start'], date(2027, 4, 20))
+        self.assertEqual(form.cleaned_data['window_end'], date(2027, 4, 20))
+
+    def test_identical_to_separated_range_collapses_to_single_night(self):
+        """The 'to'-separated equal-endpoint range exercises the second separator path."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data(obs_date='2027-04-20 to 2027-04-20'))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['window_start'], date(2027, 4, 20))
+        self.assertEqual(form.cleaned_data['window_end'], date(2027, 4, 20))
+
+    def test_genuine_multi_night_range_is_valid(self):
+        """Requirement 1: a real multi-night range no longer hard-fails Django date validation."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data(obs_date='2027-04-20 -- 2027-05-11'))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['window_start'], date(2027, 4, 20))
+        self.assertEqual(form.cleaned_data['window_end'], date(2027, 5, 11))
+
+    def test_blank_obs_date_is_valid_and_yields_tbd_window(self):
+        """Requirement 5: blank obs_date still produces a TBD run, both window fields None."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data())
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data['window_start'])
+        self.assertIsNone(form.cleaned_data['window_end'])
+
+    def test_unparseable_obs_date_text_is_invalid_with_friendly_error(self):
+        """Requirement 2: genuinely unparseable non-blank text errors, never a silent TBD."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data(obs_date='sometime next spring'))
+        self.assertFalse(form.is_valid())
+        self.assertIn('obs_date', form.errors)
+        self.assertTrue(form.errors['obs_date'][0])
+
+    def test_reversed_range_is_invalid_with_friendly_error(self):
+        """A reversed range (end < start) falls through to the unparseable-non-blank branch."""
+        form = CampaignRunSubmissionForm(data=self._minimal_data(obs_date='2027-05-11 -- 2027-04-20'))
+        self.assertFalse(form.is_valid())
+        self.assertIn('obs_date', form.errors)

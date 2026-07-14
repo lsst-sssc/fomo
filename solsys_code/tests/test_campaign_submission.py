@@ -133,6 +133,55 @@ class TestCampaignSubmission(CampaignSubmissionTestBase):
         self.assertTrue(second.context['form'].non_field_errors())
 
 
+class TestCampaignSubmissionObsDateWindow(CampaignSubmissionTestBase):
+    """260714-ilz: end-to-end POST coverage for the flexible obs_date/window intake
+    (requirements 1/2/5/7) -- proves no 500, correct DB effect, and correct HTTP status.
+    """
+
+    def test_multi_night_range_creates_one_run_with_resolved_window(self):
+        response = self.client.post(
+            self.submit_url(),
+            data=self.minimal_valid_data(obs_date='2027-04-20 -- 2027-05-11'),
+        )
+        self.assertRedirects(response, self.thanks_url())
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        run = CampaignRun.objects.get()
+        self.assertEqual(run.window_start, date(2027, 4, 20))
+        self.assertEqual(run.window_end, date(2027, 5, 11))
+
+    def test_blank_obs_date_creates_one_tbd_run(self):
+        response = self.client.post(self.submit_url(), data=self.minimal_valid_data())
+        self.assertRedirects(response, self.thanks_url())
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        run = CampaignRun.objects.get()
+        self.assertIsNone(run.window_start)
+        self.assertIsNone(run.window_end)
+
+    def test_unparseable_obs_date_re_renders_form_creates_no_run(self):
+        response = self.client.post(
+            self.submit_url(),
+            data=self.minimal_valid_data(obs_date='sometime next spring'),
+        )
+        self.assertEqual(response.status_code, 200)  # re-rendered, not a redirect or a 500
+        self.assertEqual(CampaignRun.objects.count(), 0)
+        self.assertIn('obs_date', response.context['form'].errors)
+
+    def test_duplicate_range_submission_shows_friendly_form_error(self):
+        """Requirement 7: the existing except-IntegrityError handler covers the range case."""
+        data = self.minimal_valid_data(
+            telescope_instrument=TELESCOPE_INSTRUMENT,
+            obs_date='2027-04-20 -- 2027-05-11',
+        )
+        first = self.client.post(self.submit_url(), data=data)
+        self.assertRedirects(first, self.thanks_url())
+        self.assertEqual(CampaignRun.objects.count(), 1)
+
+        second = self.client.post(self.submit_url(), data=data)
+        self.assertEqual(second.status_code, 200)  # re-rendered, not a 500
+        self.assertEqual(CampaignRun.objects.count(), 1)  # unchanged, no second row
+        self.assertTrue(second.context['form'].non_field_errors())
+
+
 class TestHoneypot(CampaignSubmissionTestBase):
     """SUBMIT-04: a tripped honeypot creates nothing, emails nothing, and redirects identically
     to a genuine submission.
