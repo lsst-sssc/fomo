@@ -48,12 +48,16 @@ _HHMM_RANGE = re.compile(r'(\d{1,2})[:;](\d{2})\s*(am|pm)?\s*-\s*(\d{1,2})[:;](\
 _APPROX_HOUR = re.compile(r'~\s*(\d{1,2})(?::\d{2})?(?::\d{2})?\s*(am|pm)?', re.IGNORECASE)
 _BARE_HOUR_UTC = re.compile(r'(\d{1,2})\s*UTC\b', re.IGNORECASE)
 
-# D-12: full-date range, en-dash/em-dash/hyphen or literal "to" separator. Anchored
+# D-12: full-date range, en-dash/em-dash/hyphen(s) or literal "to" separator. Anchored
 # start-to-end (never .search()) so it never partially matches inside a longer garbage
 # string -- Obs. Date is a structured column, not free prose (unlike the UT-time regexes
-# above, which use .search() against genuinely free text).
+# above, which use .search() against genuinely free text). `-{1,2}` (260714-ilz) also
+# accepts a double-hyphen separator ('2027-04-20 -- 2027-05-11') -- the ASCII-typable
+# stand-in for an en/em dash that a public form submitter is far more likely to type than
+# an actual Unicode dash character; the original CSV-sheet-derived single-hyphen/en-dash/
+# em-dash/"to" shapes are unaffected.
 _DATE_RANGE_FULL = re.compile(
-    r'^(\d{4}-\d{2}-\d{2})\s*(?:to|[-–—])\s*(\d{4}-\d{2}-\d{2})$',
+    r'^(\d{4}-\d{2}-\d{2})\s*(?:to|-{1,2}|[–—])\s*(\d{4}-\d{2}-\d{2})$',
     re.IGNORECASE,
 )
 
