@@ -93,7 +93,7 @@
 - [x] **Phase 19: Window-Schema Migration** - Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair, migrating existing rows with no data loss (completed 2026-07-09)
 - [x] **Phase 20: Range/TBD Import & Asset-Aware Coverage Gap** - Import range/TBD `Obs. Date` rows into the window representation and make coverage-gap analysis distinguish ground vs. space-mission runs (completed 2026-07-10)
 - [x] **Phase 21: Site Disambiguation & Submitter Contact Opt-In** - Staff-facing fuzzy-match site-resolution UI in the approval queue plus a submitter contact opt-in flag (completed 2026-07-11)
-- [ ] **Phase 22: Site Matching at Submission and Unmatched-Site Resolution Workflow** - HTMX live fuzzy site search on the public submission form and approval queue, plus a "Sites needing review" resolution surface for approved runs with unresolved sites (with deferred calendar projection on resolve)
+- [x] **Phase 22: Site Matching at Submission and Unmatched-Site Resolution Workflow** - HTMX live fuzzy site search on the public submission form and approval queue, plus a "Sites needing review" resolution surface for approved runs with unresolved sites (with deferred calendar projection on resolve) (completed 2026-07-15)
 
 ## Phase Details
 
@@ -247,7 +247,7 @@ Next: `/gsd-plan-phase 18`
 **Goal:** Close the Phase 21 functionality gap: submitters and staff get live fuzzy matching against the merged local `Observatory` + full MPC candidate pool wherever a site is entered, and approved runs with unresolved sites get a resolution workflow instead of a dead end. (1) The public 'Submit an Observing Run' form's Observing site field becomes an HTMX live-search autocomplete backed by a new endpoint running `fuzzy_match_candidates()` over `build_site_candidates()`, replacing the bare free-text CharField; the same live-search widget replaces the approval queue's static per-row datalist (currently only the ≤5 fuzzy matches of the originally-submitted `site_raw`). (2) Post-approval resolution: keep "site failure never blocks approval", but add a "Sites needing review" surface listing approved runs with `site_needs_review=True`, with the same inline resolve input; resolving a site then triggers the deferred CalendarEvent projection that approval skipped.
 **Requirements**: TBD
 **Depends on:** Phase 21 (reuses `resolve_site`/`build_site_candidates`/`fuzzy_match_candidates` and the approval-queue decide flow)
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -260,4 +260,4 @@ Plans:
 
 **Wave 3** *(depends on 22-02)*
 
-- [ ] 22-03-PLAN.md — Post-approval resolution: `_project_calendar_event()` extraction (approve revert-path unchanged), `resolve_site` decision action with non-reverting failure path + D-06 guard, third "Sites Needing Review" table with Resolve action (D-07/D-08)
+- [x] 22-03-PLAN.md — Post-approval resolution: `_project_calendar_event()` extraction (approve revert-path unchanged), `resolve_site` decision action with non-reverting failure path + D-06 guard, third "Sites Needing Review" table with Resolve action (D-07/D-08)

@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 22
 current_phase_name: site-matching-at-submission-and-unmatched-site-resolution-wo
-status: executing
+status: verifying
 stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-07-15T09:05:47.475Z"
+last_updated: "2026-07-15T09:34:12.444Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 22 execution started
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 17
-  completed_plans: 16
-  percent: 80
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 Phase: 22 (site-matching-at-submission-and-unmatched-site-resolution-wo) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-15 — Phase 22 execution started
 
 ## Roadmap Summary (v2.1)
@@ -107,6 +107,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 22 P01 | 20min | - tasks | - files |
 | Phase 22 P01 | 20min | 2 tasks | 5 files |
 | Phase 22 P02 | 15min | 2 tasks | 4 files |
+| Phase 22 P03 | 35min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -170,6 +171,9 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 22 P01]: SiteSearchView exempts request.user.is_staff from the anonymous per-IP throttle so staff triaging the approval queue never trip the public-abuse limit
 - [Phase ?]: [Phase 22 P02]: input event (not keyup) chosen for both site-entry widgets' hx-trigger per 22-REVIEWS.md finding 1 -- also fires on paste/autocomplete/IME input
 - [Phase ?]: [Phase 22 P02]: fuzzy_match_candidates import removed from campaign_tables.py -- its sole caller (the datalist branch) was deleted
+- [Phase ?]: [Phase 22 P03]: _project_calendar_event() bool return distinguishes event-created from skipped-by-design, driving resolve_site's two success messages; approve branch ignores the return
+- [Phase ?]: [Phase 22 P03]: site_needs_review clears only after a successful projection -- the conditional site-claim update writes site only, preserving the review-table retry surface
+- [Phase ?]: [Phase 22 P03]: resolve-mode forms use their own resolve-form-{pk} id, distinct from the pending row's decide-form-{pk}
 
 ### Pending Todos
 
@@ -212,7 +216,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-15T09:02:54.518Z
+Last session: 2026-07-15T09:31:00.880Z
 Stopped at: Phase 22 UI-SPEC approved
 Resume file: .planning/phases/22-site-matching-at-submission-and-unmatched-site-resolution-wo/22-UI-SPEC.md
 
