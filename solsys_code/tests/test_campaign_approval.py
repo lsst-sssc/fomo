@@ -438,6 +438,19 @@ class TestApprovalSiteResolution(CampaignApprovalTestBase):
         self.assertTrue(needs_review)
         self.assertEqual(Observatory.objects.count(), 1)
 
+    def test_resolve_site_tier1_hit_on_existing_placeholder_still_flags_review(self):
+        """CR-01 (22-REVIEW.md re-review): a Tier 1 hit against a *pre-existing* tier-3
+        placeholder (e.g. a repeat CSV Site Code whose first row already created it) must
+        still report needs_review=True -- it is not a genuine resolution just because an
+        Observatory row exists for that obscode."""
+        placeholder = Observatory.objects.create(obscode='DCT', name=f'{NEEDS_REVIEW_NAME_PREFIX}DCT', short_name='DCT')
+
+        site, needs_review = resolve_site('DCT', create_placeholder=False)
+
+        self.assertEqual(site, placeholder)
+        self.assertTrue(needs_review)
+        self.assertEqual(Observatory.objects.count(), 1)  # no second placeholder fabricated
+
 
 class TestSiteSelectionResolution(CampaignApprovalTestBase):
     """SITE-02: the staff-submitted site_selection value drives approve-time resolution."""

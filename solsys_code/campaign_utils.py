@@ -154,11 +154,19 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
         # truncated/wrong site. Flag for manual review instead (Pitfall 2).
         return None, True
 
-    # Tier 1: existing Observatory record.
+    # Tier 1: existing Observatory record. CR-01 (22-REVIEW.md re-review): the matched row
+    # may itself be a tier-3 placeholder created by an earlier resolve_site() call for this
+    # same obscode (e.g. import_campaign_csv.py calling resolve_site() once per CSV row --
+    # only the first row sharing a still-unresolved Site Code goes through tier 3; every
+    # later row hits this placeholder via tier 1). Derive needs_review from whether the
+    # matched row actually is a placeholder, never report False unconditionally, or a
+    # placeholder hit is silently mistaken for a genuine resolution.
     try:
-        return Observatory.objects.get(obscode=code), False
+        obs = Observatory.objects.get(obscode=code)
     except Observatory.DoesNotExist:
         pass
+    else:
+        return obs, is_placeholder_observatory(obs)
 
     # Tier 2: MPC Obscodes API (same call CreateObservatory.form_valid makes). The
     # `errors` return value is intentionally unused beyond triggering the
@@ -176,7 +184,11 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
         pass
     else:
         try:
-            return fetcher.to_observatory(), False
+            # CR-01: to_observatory() never itself produces a placeholder-named row, but
+            # deriving needs_review the same way as every other success path keeps this
+            # tier consistent rather than special-cased.
+            obs = fetcher.to_observatory()
+            return obs, is_placeholder_observatory(obs)
         except MissingDataException:
             pass  # no such obscode at MPC either -- fall through to tier 3
         except (KeyError, ValueError, TypeError):
@@ -188,9 +200,12 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
             pass
         except IntegrityError:
             # Race: another row in this same import (or a concurrent process) already
-            # created it -- re-fetch instead of losing the row.
+            # created it -- re-fetch instead of losing the row. CR-01: the racing writer
+            # could have been a concurrent tier-3 placeholder create for this same code, so
+            # the re-fetched row may itself be a placeholder -- derive needs_review from it
+            # rather than reporting False unconditionally.
             try:
-                return Observatory.objects.get(obscode=code), False
+                obs = Observatory.objects.get(obscode=code)
             except Observatory.DoesNotExist:
                 # WR-02: Observatory.name is also unique=True, so an IntegrityError here
                 # isn't necessarily an obscode race -- it could be a name collision with
@@ -198,6 +213,8 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
                 # and the re-fetch above would otherwise raise uncaught. Fall through to
                 # tier 3 instead of letting DoesNotExist propagate out of resolve_site.
                 pass
+            else:
+                return obs, is_placeholder_observatory(obs)
 
     if not create_placeholder:
         # Public free-text submissions (unlike the already-vetted CSV import) should not
