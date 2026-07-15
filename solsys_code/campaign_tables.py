@@ -271,7 +271,9 @@ class ApprovalQueueTable(CampaignRunTable):
         pk = Accessor('pk').resolve(record, quiet=True)
         site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
         input_id = f'site-input-{pk}'
-        form_id = f'decide-form-{pk}'
+        # Resolve-mode rows submit into their own resolve-form (distinct from the pending
+        # row's decide-form), matching render_actions()'s resolve-mode form id below.
+        form_id = f'resolve-form-{pk}' if self.mode == 'resolve' else f'decide-form-{pk}'
         return self._render_site_search_widget(site_raw=site_raw, input_id=input_id, form_id=form_id)
 
     def render_actions(self, record):
@@ -281,8 +283,8 @@ class ApprovalQueueTable(CampaignRunTable):
         attribute (D-04)."""
         decide_url = reverse('campaigns:decide', kwargs={'pk': record.pk})
         csrf_token = get_token(self.request) if self.request is not None else ''
-        form_id = f'decide-form-{record.pk}'
         if self.mode == 'resolve':
+            form_id = f'resolve-form-{record.pk}'
             return format_html(
                 '<form id="{0}" method="post" action="{1}">'
                 '<input type="hidden" name="csrfmiddlewaretoken" value="{2}">'
@@ -295,6 +297,7 @@ class ApprovalQueueTable(CampaignRunTable):
             )
         if not self.show_actions:
             return ''
+        form_id = f'decide-form-{record.pk}'
         return format_html(
             '<form id="{0}" method="post" action="{1}">'
             '<input type="hidden" name="csrfmiddlewaretoken" value="{2}">'

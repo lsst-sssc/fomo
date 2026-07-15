@@ -767,7 +767,7 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         content = response.content.decode()
         self.assertIn('Sites Needing Review', content)
         self.assertIn('name="site_selection"', content)
-        self.assertIn(f'form="decide-form-{run.pk}"', content)
+        self.assertIn(f'form="resolve-form-{run.pk}"', content)
         self.assertIn('hx-get', content)
         self.assertIn(reverse('campaigns:site_search'), content)
         self.assertIn('input[this.value.length >= 2] changed delay:300ms', content)
@@ -785,7 +785,7 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         content = response.content.decode()
         self.assertNotIn(f'id="site-input-{run.pk}"', content)
         self.assertIn('FTS', content)
-        self.assertIn(f'id="decide-form-{run.pk}"', content)
+        self.assertIn(f'id="resolve-form-{run.pk}"', content)
         self.assertIn('value="resolve_site"', content)
 
     def test_review_table_empty_state_renders_configured_copy(self):
