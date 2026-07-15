@@ -15,163 +15,252 @@ files_reviewed_list:
   - src/templates/campaigns/approval_queue.html
   - src/templates/campaigns/partials/site_search_results.html
 findings:
-  critical: 1
-  warning: 2
-  info: 2
-  total: 5
+  critical: 2
+  warning: 3
+  info: 1
+  total: 6
 status: issues_found
 ---
 
 # Phase 22: Code Review Report
 
-**Reviewed:** 2026-07-15T00:00:00Z
+**Reviewed:** 2026-07-15
 **Depth:** deep
 **Files Reviewed:** 10
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the full diff introducing the shared anonymous/throttled HTMX site-search endpoint
-(`SiteSearchView`), its wiring into the public submission form and approval-queue widgets, and
-the new "Sites Needing Review" table + `resolve_site` decision action with the extracted
-`_project_calendar_event()` helper. Ran the full `solsys_code.tests.test_campaign_*` suite (100
-tests, all passing), `ruff check`/`ruff format --check` (clean), and independently verified
-against Django 5.2's actual `QuerySet.annotate()` source that the `.values()`-before-`.annotate()`
-PII-gating trick in `CampaignRunTableView.get_queryset()` really does work as claimed.
+This review covers all six plans of Phase 22 (22-01 through 22-06), including the three
+gap-closure plans (22-04/05/06) executed to fix UAT bugs found in the first three plans, and
+supersedes the prior 22-REVIEW.md (1 Critical + 2 Warning, all fixed per 22-REVIEW-FIX.md — those
+findings (`_project_calendar_event()`'s swallowed `ValueError`, `show_actions`/resolve-mode
+gating, the missing-`REMOTE_ADDR` throttle bucket) are confirmed fixed in the current code and
+are not repeated here).
 
-The items specifically called out in the prompt all check out as implemented correctly:
-- **XSS escaping**: `site_search_results.html` runs `display`, `obscode`, and every `input_id`
-  occurrence through `|escapejs` inside the `onclick=` JS-string context. Confirmed against
-  Django's actual `_js_escapes` table that `'`, `"`, `<`, `>`, `&` are all hex-escaped and the
-  filter's output is `mark_safe`d (so it isn't double-HTML-escaped) — this genuinely closes the
-  JS-string-context XSS gap the in-line pre-implementation review (22-REVIEWS.md finding 2)
-  flagged, and the server-side `_INPUT_ID_RE` allowlist in `campaign_views.py` is real
-  belt-and-suspenders on top of it.
-- **htmx `hx-trigger` grammar**: `input[this.value.length >= 2] changed delay:300ms` — filter
-  immediately after the event name, modifiers after — is used consistently in both the form
-  widget and the table widget, matches htmx's documented grammar, and is exercised by dedicated
-  regression tests (`assertNotContains(response, 'delay:300ms[')`).
-- **Per-IP throttle**: `_check_and_increment_throttle()`'s `add()`-then-`incr()` logic was traced
-  by hand against `SITE_SEARCH_THROTTLE_LIMIT` — off-by-one behavior is correct (exactly `LIMIT`
-  requests allowed, the `LIMIT+1`th rejected), and this matches the passing throttle tests.
-- **Concurrency-safe site claim in `resolve_site`**: the conditional
-  `.filter(pk=pk, approval_status=APPROVED, site_needs_review=True, site__isnull=True).update(site=site)`
-  correctly makes exactly one of two racing POSTs win, and `site_needs_review` is genuinely never
-  cleared before `_project_calendar_event()` returns without raising — for the *exception* case.
+The three invariants this review was specifically asked to re-verify against the 22-06
+gap-closure changes are all correctly preserved:
 
-That last point is also where the deep review found a real gap the inline review missed: a
-**Critical** issue where `_project_calendar_event()`'s internal `sun_event()` `ValueError` handling
-means the "never clear the flag on a projection failure" guarantee silently does not apply to the
-single most likely real-world failure mode for this exact feature (see CR-01). This was
-reproduced with a standalone test against the actual code (not just read) before being written up
-and discarded, per verifier convention.
+- **CR-01 (a genuinely-resolved projection-failed retry row must still render plain text):**
+  `ApprovalQueueTable.render_site()`'s `is_correctable_placeholder` gate requires
+  `is_placeholder_observatory(site_obj)` to be True, so a retry-state row whose site is a real,
+  non-placeholder Observatory still falls through to `super().render_site(record)` (plain text).
+  Confirmed by `test_retry_row_renders_plain_text_site_and_resolve_button_no_input`.
+- **WR-01 (a read-only table with `show_actions=False` must never render an interactive
+  widget):** both branches of `render_site()` gate on `self.show_actions` before rendering the
+  widget, for both `mode='pending'` and `mode='resolve'`, including the new placeholder branch.
+  Confirmed by `test_placeholder_row_read_only_table_never_renders_widget`.
+- **D-06 (a genuinely-resolved site must never be silently re-resolved/replaced):**
+  `_resolve_site()`'s guard is `if run.site is None or is_placeholder_observatory(run.site):` — a
+  real, non-placeholder site skips the branch entirely and `resolve_site()` is never called for
+  it. Confirmed by `test_genuine_site_still_never_re_resolved_when_replacing_placeholder_would_apply`.
+
+However, tracing the placeholder-awareness that 22-06 introduces (`is_placeholder_observatory()`)
+back to *how a site is decided to be "genuinely resolved" in the first place* surfaced a real,
+provable gap that 22-06 did not close: that awareness lives only at the display/eligibility layer
+(`render_site()`/`_resolve_site()`'s own guard), not inside `resolve_site()` itself or the local
+candidate pool that feeds the correction widget. Together (CR-01/CR-02 below) these let a
+Sites-Needing-Review row be silently "resolved" back to a still-placeholder site — clearing
+`site_needs_review` and reporting success for a run whose site is still unusable — which is
+exactly the D-06/D-08 invariant this phase exists to protect, reopened one layer down.
 
 ## Critical Issues
 
-### CR-01: `resolve_site` silently reports success and permanently drops the retry surface when the newly-resolved site has no timezone set
+### CR-01: `resolve_site()` reports a placeholder hit as a genuine resolution (Tier 1, and the Tier 2 race-recovery re-fetch)
 
-**File:** `solsys_code/campaign_views.py:405-421` (`_project_calendar_event`'s `sun_event()`
-`ValueError` handling) and `solsys_code/campaign_views.py:592-609` (`_resolve_site`'s
-flag-clearing/messaging)
+**File:** `solsys_code/campaign_utils.py:157-161` (Tier 1), also `:179` (Tier 2 success) and
+`:192-193` (Tier 2 IntegrityError race-recovery re-fetch)
 
-**Issue:** `_project_calendar_event()` catches `sun_event()`'s `ValueError` internally and returns
-`False` *without raising* (`campaign_views.py:413-421`). `_resolve_site()` treats a `False`,
-non-raising return identically to the deliberate "no projection needed" cases (range/TBD run,
-missing telescope/site) — it unconditionally clears `site_needs_review` and shows the plain
-success message `'Site resolved.'` (`campaign_views.py:604-609`). It only takes the "stay in the
-retry surface" branch when `_project_calendar_event()` *raises* (the `except Exception:` block at
-line ~594).
-
-`sun_event()` raises exactly this `ValueError` whenever `Observatory.timezone` is blank
-(`solsys_code/telescope_runs.py:254-257`). Crucially, `Observatory.timezone` defaults to `''`
-(`solsys_code_observatory/models.py:55`) and `MPCObscodeFetcher.to_observatory()` — the function
-`resolve_site()`'s Tier 2 calls for *any obscode not already a local `Observatory` row*
-(`solsys_code_observatory/utils.py:85-124`) — never sets `timezone` on the `Observatory` it
-creates. Tier 2 (MPC lookup creating a brand-new local `Observatory`) is precisely the common case
-this phase's "Sites Needing Review" + Resolve feature exists to serve: an approved run whose
-submitted site wasn't already a known local `Observatory`.
-
-Net effect: resolving a ground-based run's still-unmatched site via a genuine, valid MPC obscode
-will, in the ordinary case, silently fail to create the `CalendarEvent` — yet report
-`'Site resolved.'` (implying full success) and permanently remove the row from the "Sites Needing
-Review" table (the only surface gated on `site_needs_review=True`). There is no further way to
-retry or even notice the missing calendar entry short of manually cross-checking the calendar.
-This directly contradicts the feature's own stated design goal, documented in `_resolve_site()`'s
-own docstring: *"a failed projection leaves the run visible in the Sites Needing Review table (its
-retry surface) instead of vanishing into a dead end."* — the ordering guarantee holds only for
-exceptions that propagate, not for this internally-swallowed `ValueError`, which is the realistic
-failure mode for exactly the sites this feature is built to resolve.
-
-Reproduced directly against the code (test written, run, and discarded per verifier convention):
-patching `resolve_site()` to create a fresh Tier-2-style `Observatory` (blank `timezone`, matching
-what `to_observatory()` actually produces) and POSTing `action=resolve_site` for a single-night
-ground run yields `site_needs_review == False`, `CalendarEvent.objects.count() == 0`, and
-`messages == ['Site resolved.']` — the silent-failure state described above, confirmed live.
-
-**Fix:** Distinguish "skip by design" from "projection attempted but failed" in
-`_project_calendar_event()`'s contract, and have `_resolve_site()` treat the latter like the
-existing `except Exception` path (keep `site_needs_review=True`, warn instead of claiming
-success). E.g., re-raise the `ValueError` from `_project_calendar_event()` instead of swallowing it
-when reached via a resolved site (only swallow it in call sites that don't need the retry
-guarantee, or thread a tri-state result through):
+**Issue:** `resolve_site()`'s Tier 1 branch is:
 
 ```python
-# campaign_views.py, _project_calendar_event()
 try:
-    sunset, sunrise = sun_event(run.site, run.window_start, kind='sun')
-except ValueError:
-    logger.debug(
-        'sun_event(sun) raised for site=%s date=%s; skipping projection.',
-        run.site,
-        run.window_start,
-    )
-    raise  # let callers that need the retry guarantee (resolve_site) see this as a failure
+    return Observatory.objects.get(obscode=code), False
+except Observatory.DoesNotExist:
+    pass
 ```
 
-and drop the (now redundant) approve-branch's separate handling, or catch-and-swallow explicitly
-only in the approve() call site where there's no retry surface to protect. At minimum,
-`_resolve_site()` must not report `'Site resolved.'` (a claim about the calendar entry as well as
-the site) when no `CalendarEvent` was actually created due to a real failure rather than a
-by-design skip.
+This returns `needs_review=False` for *any* existing `Observatory` row matching `code`,
+including one that is itself a tier-3 placeholder (`NEEDS REVIEW: `-prefixed name, created by an
+earlier `resolve_site()` call for the same obscode with `create_placeholder=True`). This is
+directly reachable, not a narrow edge case:
+
+1. `import_campaign_csv.py` calls `resolve_site(site_raw)` fresh, once per CSV row, in a loop
+   (`solsys_code/management/commands/import_campaign_csv.py:161`), and creates every row with
+   `approval_status=APPROVED` directly (bootstrap rows are pre-vetted — the approve-time
+   site-resolution code in `campaign_views.py` never runs for them, since they're never
+   `PENDING_REVIEW`). For a `Site Code` that repeats across multiple CSV rows — the ordinary
+   case, e.g. a telescope observing the same still-unconfigured site across several nights —
+   only the **first** row's `resolve_site()` call goes through Tier 3 (`needs_review=True`);
+   every subsequent row's call hits Tier 1 against the placeholder Tier 3 just created, and gets
+   `needs_review=False`. Those rows are created `APPROVED` with a bogus site (blank `timezone`,
+   default `lat`/`lon`/`altitude`) and `site_needs_review=False`: they never appear in "Sites
+   Needing Review" and never get a `CalendarEvent`, with no path in the UI to ever notice. This
+   is precisely the dead end D-07/D-08 (this phase's stated purpose) was built to close,
+   reopened for every CSV-imported run after the first one sharing an unresolved site code.
+2. The same Tier 1 branch is reused by both `CampaignRunDecisionView.post()`'s approve branch
+   (`campaign_views.py:496`) and `_resolve_site()` (`campaign_views.py:595`) via
+   `resolve_site(obscode_selection, create_placeholder=False)`. If a staff member submits (or is
+   *offered* — see CR-02 below) a `site_selection` value that maps to an obscode already carrying
+   a placeholder Observatory, `resolve_site()` reports success (`needs_review=False`) even though
+   nothing was actually corrected — `_resolve_site()` then clears `site_needs_review` and reports
+   "Site resolved — run added to the calendar." (or "Site resolved.") for a run still pointing at
+   the same unusable placeholder.
+
+No existing test exercises "Tier 1 hits a pre-existing placeholder" — every `resolve_site()` /
+`TestApprovalSiteResolution` / `TestPlaceholderSiteReplacement` test either starts from an empty
+`Observatory` table or fixtures a genuinely-resolved Observatory, so this shipped undetected
+through three gap-closure plans of test-writing (see IN-01 below).
+
+**Fix:** Every success path in `resolve_site()` should derive `needs_review` from whether the
+matched/returned Observatory is itself a placeholder, not report `False` unconditionally:
+
+```python
+# Tier 1
+try:
+    obs = Observatory.objects.get(obscode=code)
+except Observatory.DoesNotExist:
+    pass
+else:
+    return obs, is_placeholder_observatory(obs)
+```
+
+Apply the same correction to the Tier 2 IntegrityError race-recovery re-fetch at line 193 (it can
+race against a concurrent Tier 3 create for the same code, so the re-fetched row can be a
+placeholder). The Tier 2 success path at line 179 (`fetcher.to_observatory()`) never itself
+produces a placeholder-named row, so it's lower-value to change, but doing so anyway keeps every
+success path consistent. `is_placeholder_observatory` is defined later in the same module
+(`campaign_utils.py:222`), which is fine — it only needs to exist by call time, not definition
+time.
+
+### CR-02: Placeholder Observatories pollute the site-search candidate pool used by the correction widget
+
+**File:** `solsys_code/campaign_utils.py:263-278` (`_local_observatory_candidates()`)
+
+**Issue:**
+
+```python
+def _local_observatory_candidates() -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for obs in Observatory.objects.all():
+        for candidate in (obs.obscode, obs.name or '', obs.short_name or '', obs.old_names or ''):
+            if candidate and candidate not in mapping:
+                mapping[candidate] = obs.obscode
+    return mapping
+```
+
+`Observatory.objects.all()` includes tier-3 placeholder rows (e.g. `name='NEEDS REVIEW: DCT'`,
+`short_name='DCT'`, `obscode='DCT'`). These candidates flow unfiltered into
+`build_site_candidates()`'s merged pool, which backs *both* the public submission form's live
+search and the approval-queue/Sites-Needing-Review correction widget
+(`SiteSearchView`/`substring_or_fuzzy_match_candidates`). Concretely: once a placeholder
+`'NEEDS REVIEW: DCT'` (obscode `DCT`) exists, typing `dct` (or `needs review`) into *any*
+site-search box — including that exact run's own "Sites Needing Review" correction widget —
+surfaces `"NEEDS REVIEW: DCT (DCT)"` as a clickable suggestion. Clicking it fills the input with
+that literal placeholder display string; submitting it maps back to obscode `DCT` via
+`build_site_candidates().get(selection, selection)` and calls
+`resolve_site('DCT', create_placeholder=False)`, which (pre-CR-01-fix) resolves via Tier 1 back
+to the *very same placeholder* and reports success. `site_needs_review` is then cleared and
+"Site resolved — run added to the calendar." (or "Site resolved.") is shown, even though the site
+was never actually corrected — precisely the scenario 22-06 was written to prevent (UAT gap 2B),
+now reachable *through* the correction UI itself rather than around it.
+
+**Fix:** Exclude placeholders from the local candidate pool, e.g.:
+
+```python
+def _local_observatory_candidates() -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for obs in Observatory.objects.exclude(name__startswith=NEEDS_REVIEW_NAME_PREFIX):
+        for candidate in (obs.obscode, obs.name or '', obs.short_name or '', obs.old_names or ''):
+            if candidate and candidate not in mapping:
+                mapping[candidate] = obs.obscode
+    return mapping
+```
+
+This is complementary to CR-01's fix, not redundant with it: CR-02 stops the placeholder from
+being *offered* as a suggestion at all; CR-01 stops it from being silently *accepted* as a
+genuine resolution if a staff member types its obscode directly (e.g. from memory, without using
+the widget) or a stale/cached suggestion slips through.
 
 ## Warnings
 
-### WR-01: `ApprovalQueueTable.render_actions()`/`render_site()` ignore `show_actions` entirely in resolve mode
+### WR-01: `CampaignRunDecisionView.post()`'s approve branch isn't placeholder-aware, unlike `_resolve_site()`
 
-**File:** `solsys_code/campaign_tables.py:269, 286-297`
+**File:** `solsys_code/campaign_views.py:475`
 
-**Issue:** `render_site()`'s early-return guard is `if self.mode != 'resolve' and not self.show_actions: ...` and `render_actions()` checks `if self.mode == 'resolve': ...` *before* checking `self.show_actions` at all. Both mean a hypothetical `ApprovalQueueTable(..., mode='resolve', show_actions=False)` would still render a fully interactive Resolve form and live-search widget — `show_actions` is a complete no-op for resolve-mode tables. No current caller constructs that combination (the one `mode='resolve'` call site in `ApprovalQueueView` never passes `show_actions`), so this isn't exploitable today, but it's a latent footgun: a future maintainer adding a read-only "resolved sites" audit view by reusing this class with `mode='resolve', show_actions=False` (the natural-looking API) would silently get live action buttons instead of a read-only render.
+**Issue:** 22-06 taught `_resolve_site()` to treat `run.site is None or
+is_placeholder_observatory(run.site)` as "not yet genuinely resolved"
+(`campaign_views.py:587`), but the approve branch's own inline site-resolution still uses only
+`if run.site is None:` (line 475). In every currently-reachable state this self-heals — a
+placeholder's `observations_type` defaults to `OPTICAL_OBSTYPE` and `timezone` defaults to `''`,
+so `_project_calendar_event()` always raises `ValueError` for a placeholder-sited run, leaving
+`site_needs_review` untouched and the row visible in "Sites Needing Review" — but it's a fragile
+coincidence, not a designed invariant, and it will start silently under-resolving once CR-01 is
+fixed at the `resolve_site()` layer: a run whose `site` is already a CSV-imported placeholder
+(not `None`) would never re-enter the resolution branch here even though `is_placeholder_observatory`
+would now correctly say it isn't genuinely resolved.
 
-**Fix:** Make `show_actions` gate resolve-mode rendering too, e.g. `if not self.show_actions: return ''` as the very first check in `render_actions()`, and mirror it in `render_site()`'s guard (`if not self.show_actions: return super().render_site(record)` before the mode check).
+**Fix:** Mirror `_resolve_site()`'s guard here: `if run.site is None or
+is_placeholder_observatory(run.site):`.
 
-### WR-02: `SiteSearchView`'s per-IP throttle collapses to a single shared bucket when `REMOTE_ADDR` is absent
+### WR-02: Placeholder detection is a magic string prefix on a user-editable field
 
-**File:** `solsys_code/campaign_views.py:731-738`, `solsys_code/campaign_utils.py:406-407`
+**File:** `solsys_code/campaign_utils.py:222-236` (`is_placeholder_observatory()`)
 
-**Issue:** `client_ip = request.META.get('REMOTE_ADDR', '')` defaults to the empty string when the key is missing, and `_check_and_increment_throttle` keys the cache on `f'site_search_throttle:{client_ip}'`. If `REMOTE_ADDR` is ever absent from `request.META` (e.g. certain ASGI/test-client configurations, or a misconfigured deployment in front of a proxy that strips it), every such anonymous request shares one throttle bucket (`site_search_throttle:`), so one client exhausting it would incorrectly 429 all other clients missing that header, or (more likely in practice) all clients behind the same reverse-proxy IP share one bucket regardless of the header being present — a known, documented limitation (Assumption A2: no `X-Forwarded-For` handling), but the *empty-string* collapse case specifically is a step further (silently merging distinct-but-header-less clients into the same key) and isn't mentioned in the docstring's caveat.
+**Issue:** "Is this Observatory a placeholder" is decided purely by
+`observatory.name.startswith('NEEDS REVIEW: ')` — a convention on a plain, staff-editable
+`CharField`, not a dedicated model flag. Nothing in `Observatory`/`CreateObservatoryForm`
+prevents a staff member from creating (or renaming) a genuine, fully-configured Observatory whose
+name happens to start with that exact string (e.g. copy-pasting a Sites-Needing-Review row's
+display text into "Create new Observatory" without editing it). Such a record would be
+permanently treated by `render_site()`/`_resolve_site()` as an eligible-for-replacement
+placeholder no matter how correctly it's configured — a genuinely-resolved site perpetually
+reopened for "correction", the inverse of D-06's intent.
 
-**Fix:** At minimum, document the empty-string case explicitly alongside the existing Assumption A2 note, or treat a missing `REMOTE_ADDR` as "no throttle key available" (e.g., skip throttling and log instead of silently sharing a bucket) so the failure mode is "no rate limit" rather than "cross-client interference."
+**Fix:** Either add a dedicated boolean field (e.g. `Observatory.is_placeholder`), set explicitly
+by `resolve_site()`'s tier-3 branch and checked by `is_placeholder_observatory()` instead of a
+string prefix, or validate/reject the reserved `NEEDS_REVIEW_NAME_PREFIX` in
+`CreateObservatoryForm` so it can never be assigned to a manually-created record.
+
+### WR-03: Replaced placeholder Observatory rows are never cleaned up
+
+**File:** `solsys_code/campaign_views.py:621-626` (`_resolve_site()`'s claim update)
+
+**Issue:** When `_resolve_site()` successfully replaces a placeholder with a real site, the
+conditional `.update(site=site)` repoints the `CampaignRun`, but the orphaned placeholder
+`Observatory` row itself is never deleted or flagged as superseded. It stays in the database
+indefinitely, continuing to satisfy `is_placeholder_observatory()` and (until CR-02 is fixed)
+continuing to pollute the search pool for the next, unrelated resolution attempt.
+
+**Fix:** Not a hard blocker, but worth a follow-up: delete the orphaned placeholder (guarding
+against any other `CampaignRun` still referencing it) once a replacement succeeds, or track
+superseded placeholders for periodic cleanup.
 
 ## Info
 
-### IN-01: `_resolve_site()`'s business-logic bypass guard has no dedicated non-staff/anonymous regression test
+### IN-01: No test exercises `resolve_site()` hitting a pre-existing placeholder via Tier 1
 
-**File:** `solsys_code/tests/test_campaign_approval.py` (class `TestSitesNeedingReview`)
+**File:** `solsys_code/tests/test_campaign_approval.py`
 
-**Issue:** `TestStaffGating` exercises anonymous/non-staff access only against the `approve`/`reject` actions of `campaigns:decide`, not `resolve_site`. Because `StaffRequiredMixin` gates the whole view uniformly, this is very likely fine in practice, but there's no explicit test proving a non-staff POST with `action=resolve_site` is rejected the same way — a future refactor that moves `_resolve_site()` out from under `StaffRequiredMixin` (e.g. into its own view class) would not be caught by the existing test suite.
+**Issue:** Every existing `resolve_site()` test (`TestApprovalSiteResolution`,
+`TestPlaceholderSiteReplacement`, `TestIsPlaceholderObservatory`) either starts from an empty
+`Observatory` table or fixtures a genuinely-resolved Observatory. None fixtures an *existing
+placeholder* (`Observatory.objects.create(name=f'{NEEDS_REVIEW_NAME_PREFIX}...')`) and then calls
+`resolve_site()` again for the same obscode — precisely the CR-01/CR-02 scenario. This gap in
+coverage is why the bug shipped undetected through three gap-closure plans of test-writing aimed
+squarely at this exact placeholder-vs-genuine distinction.
 
-**Fix:** Add a `test_non_staff_post_resolve_site_redirects_and_makes_no_change` case mirroring the existing `approve`/`reject` staff-gating tests.
+**Fix:** Add a regression test such as:
 
-### IN-02: `_check_and_increment_throttle`'s cache backend note documents `FileBasedCache` non-atomicity but the project's actual default cache backend isn't stated
-
-**File:** `solsys_code/campaign_utils.py:391-395`
-
-**Issue:** The docstring reasons about `FileBasedCache`'s `incr()` non-atomicity specifically, but doesn't note which `CACHES` backend this project actually runs (e.g. `LocMemCache`, which is what the test suite exercises, has different atomicity characteristics — its `incr()` uses a lock and is effectively atomic within a single process, but not across multiple worker processes). A reader auditing throttle correctness has to go find `settings.py` to know which caveat actually applies in production; a one-line pointer (or an explicit "we assume backend X in production") would save that lookup.
-
-**Fix:** Add a one-line cross-reference to the configured `CACHES` backend in `settings.py`, or state explicitly that the analysis is backend-agnostic (i.e., holds for both file-based and multi-process shared caches).
+```python
+def test_resolve_site_tier1_hit_on_existing_placeholder_still_flags_review(self):
+    Observatory.objects.create(obscode='DCT', name=f'{NEEDS_REVIEW_NAME_PREFIX}DCT', short_name='DCT')
+    site, needs_review = resolve_site('DCT', create_placeholder=False)
+    self.assertTrue(needs_review)  # currently fails: returns False
+```
 
 ---
 
-_Reviewed: 2026-07-15T00:00:00Z_
+_Reviewed: 2026-07-15_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
