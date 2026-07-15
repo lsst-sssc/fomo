@@ -14,6 +14,7 @@ from django.utils.html import format_html
 from django.utils.http import urlencode
 from django_tables2.utils import Accessor
 
+from .campaign_utils import is_placeholder_observatory
 from .models import CampaignRun
 
 # D-08 / UI-SPEC Approval-Status Badge Contract: fixed 3-entry dict, badge class never derived
@@ -251,12 +252,16 @@ class ApprovalQueueTable(CampaignRunTable):
         attribute. Resolved rows and the read-only decided table (``show_actions=False``)
         keep CampaignRunTable's existing plain-text ``render_site`` rendering unchanged.
 
-        A resolve-mode row (``self.mode == 'resolve'``) whose site IS already set (the
-        projection-failed retry state -- 22-REVIEWS.md finding 8c) also keeps the plain-text
-        fallback: such a row's Resolve button alone re-attempts the projection, no site input
-        is needed. ``not self.show_actions`` suppresses the widget in both pending and
-        resolve mode (WR-01, 22-REVIEW.md): a read-only table must never render live action
-        widgets regardless of ``self.mode``.
+        A resolve-mode row (``self.mode == 'resolve'``) whose site IS already set to a
+        REAL (non-placeholder) Observatory is the projection-failed retry state --
+        22-REVIEWS.md finding 8c -- and also keeps the plain-text fallback: such a row's
+        Resolve button alone re-attempts the projection, no site input is needed. But a
+        resolve-mode row whose site is a tier-3 PLACEHOLDER Observatory (22-06 gap
+        closure, UAT gap 2B) falls through to the same live-search widget an unresolved
+        row gets, since a placeholder is not a genuine resolution and still needs staff
+        correction. ``not self.show_actions`` suppresses the widget in every case (WR-01,
+        22-REVIEW.md): a read-only table must never render live action widgets regardless
+        of ``self.mode`` or placeholder state.
 
         Only overridden here (not on ``CampaignRunTable``): only ``ApprovalQueueTable``
         instances carry ``self.show_actions``/``self.candidate_pool``/``self.mode``, so
@@ -265,12 +270,22 @@ class ApprovalQueueTable(CampaignRunTable):
         """
         site_short_name = Accessor('site__short_name').resolve(record, quiet=True)
         if site_short_name:
-            return super().render_site(record)
-        # WR-01: show_actions must gate resolve-mode rendering too -- a hypothetical
-        # ApprovalQueueTable(..., mode='resolve', show_actions=False) (e.g. a future read-only
-        # "resolved sites" audit view) must fall back to the plain-text render, not the live
-        # search widget, the same way a pending-mode show_actions=False table already does.
-        if not self.show_actions:
+            # 22-06: a set site only falls through to the widget when it's a tier-3
+            # placeholder in an actionable resolve-mode row -- everything else (a genuine
+            # Observatory, any pending-mode row, or a read-only show_actions=False row,
+            # WR-01) keeps the plain-text render.
+            site_obj = Accessor('site').resolve(record, quiet=True)
+            is_correctable_placeholder = (
+                self.show_actions and self.mode == 'resolve' and is_placeholder_observatory(site_obj)
+            )
+            if not is_correctable_placeholder:
+                return super().render_site(record)
+        elif not self.show_actions:
+            # WR-01: show_actions must gate resolve-mode rendering too -- a hypothetical
+            # ApprovalQueueTable(..., mode='resolve', show_actions=False) (e.g. a future
+            # read-only "resolved sites" audit view) must fall back to the plain-text
+            # render, not the live search widget, the same way a pending-mode
+            # show_actions=False table already does.
             return super().render_site(record)
         pk = Accessor('pk').resolve(record, quiet=True)
         site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
