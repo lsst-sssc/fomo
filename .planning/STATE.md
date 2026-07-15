@@ -6,14 +6,14 @@ current_phase: 22
 current_phase_name: site-matching-at-submission-and-unmatched-site-resolution-wo
 status: executing
 stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-07-15T08:50:24.857Z"
+last_updated: "2026-07-15T09:05:47.475Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 22 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
   percent: 80
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 22 (site-matching-at-submission-and-unmatched-site-resolution-wo) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-15 — Phase 22 execution started
 
@@ -106,6 +106,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 21 | 4 | - | - |
 | Phase 22 P01 | 20min | - tasks | - files |
 | Phase 22 P01 | 20min | 2 tasks | 5 files |
+| Phase 22 P02 | 15min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -167,6 +168,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 22 P01]: substring_or_fuzzy_match_candidates() placed below fuzzy_match_candidates() in campaign_utils.py, not replacing it; fuzzy_match_candidates() gained a backward-compatible optional n=5 parameter
 - [Phase ?]: [Phase 22 P01]: _check_and_increment_throttle() stays in campaign_utils.py (not campaign_views.py) per 22-REVIEWS.md finding 8a disposition
 - [Phase ?]: [Phase 22 P01]: SiteSearchView exempts request.user.is_staff from the anonymous per-IP throttle so staff triaging the approval queue never trip the public-abuse limit
+- [Phase ?]: [Phase 22 P02]: input event (not keyup) chosen for both site-entry widgets' hx-trigger per 22-REVIEWS.md finding 1 -- also fires on paste/autocomplete/IME input
+- [Phase ?]: [Phase 22 P02]: fuzzy_match_candidates import removed from campaign_tables.py -- its sole caller (the datalist branch) was deleted
 
 ### Pending Todos
 
@@ -209,7 +212,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-15T08:47:41.535Z
+Last session: 2026-07-15T09:02:54.518Z
 Stopped at: Phase 22 UI-SPEC approved
 Resume file: .planning/phases/22-site-matching-at-submission-and-unmatched-site-resolution-wo/22-UI-SPEC.md
 
