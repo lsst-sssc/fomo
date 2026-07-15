@@ -560,6 +560,179 @@ class TestSiteSelectionNameCandidateResolution(CampaignApprovalTestBase):
                 self.assertEqual(Observatory.objects.count(), 1)
 
 
+class TestSitesNeedingReview(CampaignApprovalTestBase):
+    """D-06/D-07/D-08/22-REVIEWS.md findings 3/5/6/8c: the resolve_site decision action for
+    approved runs whose site never resolved (``site_needs_review=True``).
+
+    Fixture convention mirrors TestApproval/TestCalendarProjection: a Tier-1-resolvable
+    ground Observatory ('F65') so resolution never needs a live MPC API call.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.ground_site = Observatory.objects.create(
+            obscode='F65',
+            name='Faulkes Telescope South',
+            short_name='FTS',
+            lat=-31.2727,
+            lon=149.0644,
+            altitude=1149.0,
+            timezone='Australia/Sydney',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def _make_needs_review_run(self, **overrides):
+        """An APPROVED run with site_needs_review=True (the dead end this phase closes)."""
+        kwargs = {
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'site': None,
+            'site_needs_review': True,
+        }
+        kwargs.update(overrides)
+        return self._make_pending_run(**kwargs)
+
+    def test_resolve_success_single_night_ground_run_projects_calendar_event(self):
+        run = self._make_needs_review_run(site_raw='F65')
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 1)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('Site resolved — run added to the calendar.', messages_list)
+
+    def test_resolve_never_re_resolves_already_set_site_but_retries_projection(self):
+        """D-06/finding 8c: a run with site already set (the projection-failed retry state)
+        must never re-call resolve_site, but its projection IS re-attempted and the flag
+        clears on success."""
+        run = self._make_needs_review_run(site=self.ground_site, site_raw='F65')
+        with patch('solsys_code.campaign_views.resolve_site') as mock_resolve_site:
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site'},
+            )
+        self.assertEqual(response.status_code, 302)
+        mock_resolve_site.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 1)
+
+    def test_resolve_retryable_projection_failure_stays_approved_site_saved_flag_stays_true(self):
+        """Finding 3: a projection failure must not revert approval, must keep the resolved
+        site, and must keep site_needs_review=True so the row stays in the retry surface."""
+        run = self._make_needs_review_run(site_raw='F65')
+        with patch('solsys_code.campaign_views._project_calendar_event', side_effect=RuntimeError('boom')):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site', 'site_selection': 'F65'},
+                follow=True,
+            )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertTrue(run.site_needs_review)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('calendar entry' in m for m in messages_list))
+        # NOTE: the "still listed in review_table" assertion (22-REVIEWS.md finding 3) is
+        # added in Task 2's extension of this test, once ApprovalQueueView actually builds
+        # review_table -- until then this test only proves the model-level retry state.
+
+    def test_resolve_lost_race_no_op_warns(self):
+        """Finding 5: a concurrent resolution landing between the fresh fetch and the site
+        write must make the loser's claim update match 0 rows -- no write, no projection."""
+        run = self._make_needs_review_run(site_raw='F65')
+
+        def _racing_resolve_site(obscode_selection, create_placeholder=False):
+            # Simulate the second staff member's POST winning the race: directly resolve
+            # the row's site in the DB before this (the loser's) call returns.
+            CampaignRun.objects.filter(pk=run.pk).update(site=self.ground_site, site_needs_review=False)
+            return self.ground_site, False
+
+        with patch('solsys_code.campaign_views.resolve_site', side_effect=_racing_resolve_site):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site', 'site_selection': 'F65'},
+                follow=True,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn("This run's site was already resolved by someone else.", messages_list)
+
+    def test_resolve_rejects_pending_review_run(self):
+        run = self._make_pending_run()
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertIsNone(run.site)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('This run is not awaiting site resolution.', messages_list)
+
+    def test_resolve_rejects_already_resolved_run(self):
+        run = self._make_needs_review_run(site=self.ground_site, site_needs_review=False)
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('This run is not awaiting site resolution.', messages_list)
+
+    def test_resolve_range_tbd_run_clears_flag_with_no_calendar_event(self):
+        run = self._make_needs_review_run(site_raw='F65', window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('Site resolved.', messages_list)
+
+    def test_resolve_unresolvable_selection_leaves_site_none_and_flag_true(self):
+        run = self._make_needs_review_run(site_raw='')
+        with patch(
+            'solsys_code.campaign_utils.MPCObscodeFetcher.query',
+            side_effect=requests.exceptions.RequestException,
+        ):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site', 'site_selection': 'NOWHERE'},
+                follow=True,
+            )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn(
+            'Could not resolve that site. Try a different search term or an exact MPC code, '
+            'or use Create new Observatory.',
+            messages_list,
+        )
+
+
 def _extract_create_observatory_form_fields(html_content: str, form_action_fragment: str) -> dict[str, str]:
     """Extract ``name`` -> ``value`` for every ``<input>`` inside the
     ``observatory_create.html`` form whose ``action`` attribute contains

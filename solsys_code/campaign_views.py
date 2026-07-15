@@ -344,8 +344,68 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
         return context
 
 
+def _project_calendar_event(run: CampaignRun) -> bool:
+    """CAL-01/CAL-02 CalendarEvent projection (D-08), extracted from the approve branch.
+
+    Returns True when ``insert_or_create_calendar_event()`` was actually called (an event was
+    created/updated), False when projection was skipped by design (range/TBD run, missing
+    telescope_instrument/site, or a sun_event() ValueError skip) -- 22-REVIEWS.md finding 6:
+    this bool drives the resolve_site action's two distinct success messages. MAY RAISE on
+    unexpected failure (e.g. insert_or_create_calendar_event() itself failing) -- this helper
+    does NO error-handling of its own; callers own revert-vs-non-revert behavior.
+    """
+    # D-06/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- only project a
+    # single concrete night (window_start == window_end); a resolved site is required to
+    # pick the ground-vs-space branch. A range, TBD run, or unresolved site simply doesn't
+    # get a CalendarEvent yet.
+    if not (run.telescope_instrument and run.site and run.window_start and run.window_start == run.window_end):
+        return False
+    event_fields = {
+        'title': f'{run.campaign.name}: {run.telescope_instrument}',
+        'description': run.observation_details,
+        'target_list': run.campaign,  # CAL-02
+        'telescope': run.telescope_instrument,
+    }
+    if run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
+        # Space-based observatory: no fixed horizon for sun_event() to work against -- use
+        # a midnight-UTC placeholder spanning the window date.
+        event_fields['start_time'] = datetime.combine(run.window_start, dt_time(0, 0), tzinfo=dt_timezone.utc)
+        event_fields['end_time'] = datetime.combine(run.window_end, dt_time(23, 59), tzinfo=dt_timezone.utc)
+        # Never construct CalendarEvent directly -- always route through the shared helper
+        # (Don't Hand-Roll) so the CAMPAIGN: namespace stays collision-safe against the
+        # LCO/Gemini/classical sync commands (T-16-09).
+        insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
+        return True
+    # Ground-based observatory: reuse the same dip-corrected sunset/sunrise convention the
+    # rest of the calendar feature already uses (kind='sun', not 'dark' -- Pitfall 6). A
+    # ValueError (e.g. blank site.timezone, or no 2 sun-altitude crossings) is logged and
+    # skipped, matching campaign_gap.observable_dates()'s established discipline.
+    #
+    # IN-02 (19-REVIEW.md): this branch also catches OCCULTATION_OBSTYPE and RADAR_OBSTYPE
+    # sites, not just OPTICAL_OBSTYPE -- every non-SATELLITE Observatory.OBSTYPE_CHOICES
+    # member unconditionally gets the dip-corrected dark-window treatment. That's a
+    # deliberate simplification for this milestone; scope this to Observatory.OPTICAL_OBSTYPE
+    # explicitly, with OCCULTATION/RADAR falling back to no projection, when those site types
+    # get real support.
+    try:
+        sunset, sunrise = sun_event(run.site, run.window_start, kind='sun')
+    except ValueError:
+        logger.debug(
+            'sun_event(sun) raised for site=%s date=%s; skipping projection.',
+            run.site,
+            run.window_start,
+        )
+        return False
+    event_fields['start_time'] = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+    event_fields['end_time'] = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+    insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
+    return True
+
+
 class CampaignRunDecisionView(StaffRequiredMixin, View):
-    """POST-only atomic approve/reject decision endpoint (SUBMIT-03) + calendar projection.
+    """POST-only atomic approve/reject decision endpoint (SUBMIT-03) + calendar projection,
+    plus the resolve_site action (D-08) that resolves an approved run's still-unmatched site
+    and retroactively projects the calendar event approval skipped.
 
     A single conditional ``.filter(pk=pk, approval_status=PENDING_REVIEW).update(...)`` proves
     the double-approve no-op (T-16-02): a second decision POST on an already-decided row
@@ -359,8 +419,10 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
     def post(self, request, pk):
         """Atomically transition a CampaignRun and, on approve, project a CalendarEvent."""
         action = request.POST.get('action')
-        if action not in ('approve', 'reject'):
+        if action not in ('approve', 'reject', 'resolve_site'):
             return HttpResponseBadRequest()
+        if action == 'resolve_site':
+            return self._resolve_site(request, pk)
         new_status = CampaignRun.ApprovalStatus.APPROVED if action == 'approve' else CampaignRun.ApprovalStatus.REJECTED
         updated_count = CampaignRun.objects.filter(
             pk=pk, approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
@@ -403,65 +465,10 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     run.site, run.site_needs_review = site, needs_review
                     run.save(update_fields=['site', 'site_needs_review'])
 
-                # D-06/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- only
-                # project a single concrete night (window_start == window_end); a resolved
-                # site is required to pick the ground-vs-space branch. A range, TBD run, or
-                # unresolved site simply doesn't get a CalendarEvent yet.
-                if run.telescope_instrument and run.site and run.window_start and run.window_start == run.window_end:
-                    event_fields = {
-                        'title': f'{run.campaign.name}: {run.telescope_instrument}',
-                        'description': run.observation_details,
-                        'target_list': run.campaign,  # CAL-02
-                        'telescope': run.telescope_instrument,
-                    }
-                    if run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
-                        # Space-based observatory: no fixed horizon for sun_event() to work
-                        # against -- use a midnight-UTC placeholder spanning the window date.
-                        event_fields['start_time'] = datetime.combine(
-                            run.window_start, dt_time(0, 0), tzinfo=dt_timezone.utc
-                        )
-                        event_fields['end_time'] = datetime.combine(
-                            run.window_end, dt_time(23, 59), tzinfo=dt_timezone.utc
-                        )
-                        # Never construct CalendarEvent directly -- always route through the
-                        # shared helper (Don't Hand-Roll) so the CAMPAIGN: namespace stays
-                        # collision-safe against the LCO/Gemini/classical sync commands (T-16-09).
-                        insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
-                    else:
-                        # Ground-based observatory: reuse the same dip-corrected sunset/sunrise
-                        # convention the rest of the calendar feature already uses (kind='sun',
-                        # not 'dark' -- Pitfall 6). A ValueError (e.g. blank site.timezone, or
-                        # no 2 sun-altitude crossings) is logged and skipped, matching
-                        # campaign_gap.observable_dates()'s established discipline -- it must
-                        # never reach the broad except Exception below, which exists to revert
-                        # a half-committed approval, not to handle expected messy site data.
-                        #
-                        # IN-02 (19-REVIEW.md): this branch also catches OCCULTATION_OBSTYPE and
-                        # RADAR_OBSTYPE sites, not just OPTICAL_OBSTYPE -- every non-SATELLITE
-                        # Observatory.OBSTYPE_CHOICES member unconditionally gets the
-                        # dip-corrected dark-window treatment. That's a deliberate simplification
-                        # for this milestone (no OCCULTATION/RADAR Observatory fixtures exist yet
-                        # in test_campaign_approval.py, and occultation/radar windows are driven
-                        # by predicted-event timing / daylight operation, not local darkness) --
-                        # scope this to Observatory.OPTICAL_OBSTYPE explicitly, with
-                        # OCCULTATION/RADAR falling back to no projection, when those site types
-                        # get real support.
-                        try:
-                            sunset, sunrise = sun_event(run.site, run.window_start, kind='sun')
-                        except ValueError:
-                            logger.debug(
-                                'sun_event(sun) raised for site=%s date=%s; skipping projection.',
-                                run.site,
-                                run.window_start,
-                            )
-                        else:
-                            event_fields['start_time'] = sunset.to_datetime(timezone=dt_timezone.utc).replace(
-                                microsecond=0
-                            )
-                            event_fields['end_time'] = sunrise.to_datetime(timezone=dt_timezone.utc).replace(
-                                microsecond=0
-                            )
-                            insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
+                # Projection extracted into the shared _project_calendar_event() helper
+                # (22-REVIEWS.md finding 6); the approve branch ignores its bool return --
+                # this except block's revert-on-failure behavior is unchanged either way.
+                _project_calendar_event(run)
             except Exception:
                 # CR-01: the conditional .update() above is its own auto-committed statement,
                 # so the APPROVED transition has already landed. If site resolution (a network
@@ -489,6 +496,94 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             messages.warning(request, 'This run was already decided by someone else.')
         else:
             messages.error(request, 'This run no longer exists.')
+        return redirect('campaigns:approval_queue')
+
+    def _resolve_site(self, request, pk):
+        """D-07/D-08: resolve an approved run's still-unmatched site, then retroactively
+        project the CalendarEvent approval skipped.
+
+        Ordering is deliberately load-bearing (22-REVIEWS.md findings 3/5/6/8c):
+        ``site_needs_review`` is cleared ONLY after ``_project_calendar_event()`` returns
+        without raising -- never before, and never on a projection failure -- so a failed
+        projection leaves the run visible in the Sites Needing Review table (its retry
+        surface) instead of vanishing into a dead end. The site write itself is a single
+        conditional queryset update (not a plain re-fetch + in-Python check) so two racing
+        staff POSTs cannot both claim the write.
+        """
+        # Pitfall 2: re-fetch fresh from the DB -- never trust a stale in-memory instance.
+        run = get_object_or_404(CampaignRun, pk=pk)
+
+        # Business-logic bypass guard (Security "business-logic bypass" domain): validate
+        # state server-side, never just trust the button was only offered on eligible rows.
+        if run.approval_status != CampaignRun.ApprovalStatus.APPROVED or not run.site_needs_review:
+            messages.warning(request, 'This run is not awaiting site resolution.')
+            return redirect('campaigns:approval_queue')
+
+        # D-06 never-re-resolve guard: only resolve when the site isn't already set. A run
+        # with site already set + site_needs_review still True is the projection-failed
+        # retry state (finding 8c) -- resolve_site is never called again for it; it falls
+        # straight through to the projection retry below.
+        if run.site is None:
+            # SITE-02: prefer the staff-submitted site_selection over the originally-
+            # submitted site_raw, falling back to site_raw when blank.
+            selection = request.POST.get('site_selection', '').strip() or run.site_raw
+            # CR-01: map the display-string selection back to its obscode via the same
+            # candidate pool the widget was built from, before calling resolve_site(), which
+            # otherwise treats its argument as a literal obscode.
+            obscode_selection = build_site_candidates().get(selection, selection)
+            site, needs_review = resolve_site(obscode_selection, create_placeholder=False)
+            if site is None:
+                # Nothing was written -- the flag is already True, the row stays in the
+                # review table for another attempt.
+                messages.error(
+                    request,
+                    'Could not resolve that site. Try a different search term or an exact '
+                    'MPC code, or use Create new Observatory.',
+                )
+                return redirect('campaigns:approval_queue')
+
+            # 22-REVIEWS.md finding 5: claim the site write with a single conditional
+            # queryset update mirroring the approve/reject staleness guard
+            # (`updated_count == 1` discipline) -- deliberately writing `site` ONLY, never
+            # `site_needs_review` (finding 3: the flag must never clear before a successful
+            # projection). Not using transaction.atomic()+select_for_update() here -- the
+            # conditional-update claim is this codebase's established guard and behaves
+            # uniformly on SQLite.
+            claimed = CampaignRun.objects.filter(
+                pk=pk,
+                approval_status=CampaignRun.ApprovalStatus.APPROVED,
+                site_needs_review=True,
+                site__isnull=True,
+            ).update(site=site)
+            if claimed == 0:
+                # A racing staff POST resolved (or is resolving) this run first -- the
+                # loser's site value is never written, and no projection fires for it.
+                messages.warning(request, "This run's site was already resolved by someone else.")
+                return redirect('campaigns:approval_queue')
+            run.refresh_from_db()
+
+        # Projection, inside its own NON-reverting try/except (never reuse the approve
+        # branch's revert-to-PENDING_REVIEW except block -- reverting an already-APPROVED
+        # run would resurrect it into the pending queue, reintroducing the dead end this
+        # phase closes).
+        try:
+            created = _project_calendar_event(run)
+        except Exception:
+            logger.exception('Calendar projection failed for CampaignRun %s during resolve_site.', pk)
+            messages.warning(
+                request,
+                "Site resolved, but the calendar entry couldn't be created automatically -- "
+                'the run stays in Sites Needing Review; use Resolve to retry.',
+            )
+            return redirect('campaigns:approval_queue')
+
+        # Only after the projection call returned without raising: clear the flag.
+        run.site_needs_review = False
+        run.save(update_fields=['site_needs_review'])
+        if created:
+            messages.success(request, 'Site resolved — run added to the calendar.')
+        else:
+            messages.success(request, 'Site resolved.')
         return redirect('campaigns:approval_queue')
 
 
