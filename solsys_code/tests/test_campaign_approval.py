@@ -1001,6 +1001,44 @@ class TestPlaceholderSiteReplacement(CampaignApprovalTestBase):
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('Site resolved — run added to the calendar.', messages_list)
 
+    def test_placeholder_replacement_deletes_orphaned_placeholder_observatory(self):
+        """WR-03 (22-REVIEW.md re-review): once a placeholder Observatory is successfully
+        replaced and nothing else references it, the now-orphaned placeholder row itself
+        must be cleaned up -- not left behind to keep satisfying is_placeholder_observatory()
+        and polluting the CR-02 search-suggestion pool."""
+        placeholder = self._make_placeholder_observatory()
+        run = self._make_placeholder_run(site=placeholder, site_raw='DCT')
+
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Observatory.objects.filter(pk=placeholder.pk).exists())
+
+    def test_placeholder_replacement_keeps_placeholder_still_referenced_by_another_run(self):
+        """WR-03: the orphaned-placeholder cleanup must never delete a placeholder still
+        referenced by a *different* CampaignRun (e.g. a second still-unresolved row sharing
+        the same not-yet-configured site)."""
+        placeholder = self._make_placeholder_observatory()
+        other_run = self._make_placeholder_run(
+            site=placeholder, site_raw='DCT', window_start=date(2026, 9, 1), window_end=date(2026, 9, 1)
+        )
+        run = self._make_placeholder_run(site=placeholder, site_raw='DCT')
+
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Observatory.objects.filter(pk=placeholder.pk).exists())
+        other_run.refresh_from_db()
+        self.assertEqual(other_run.site_id, placeholder.pk)
+
     def test_placeholder_replacement_failure_fabricates_no_second_placeholder(self):
         """D-09: an unresolvable site_selection on a placeholder-site row must write
         nothing new -- no second placeholder Observatory, the run keeps pointing at its

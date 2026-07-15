@@ -635,6 +635,26 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                 return redirect('campaigns:approval_queue')
             run.refresh_from_db()
 
+            # WR-03 (22-REVIEW.md re-review): the just-replaced placeholder Observatory (if
+            # any) is now orphaned by this run -- delete it so it stops satisfying
+            # is_placeholder_observatory() and no longer pollutes the search-suggestion pool
+            # (CR-02) for the next, unrelated resolution attempt. Guarded on no other
+            # CampaignRun still referencing it: the same placeholder obscode can be shared by
+            # more than one still-unresolved row (e.g. several CSV-imported runs at one
+            # still-unconfigured site), so it's only safe to delete once nothing points to it
+            # anymore.
+            if previous_site_id is not None:
+                try:
+                    previous_site = Observatory.objects.get(pk=previous_site_id)
+                except Observatory.DoesNotExist:
+                    pass
+                else:
+                    if (
+                        is_placeholder_observatory(previous_site)
+                        and not CampaignRun.objects.filter(site_id=previous_site_id).exists()
+                    ):
+                        previous_site.delete()
+
         # Projection, inside its own NON-reverting try/except (never reuse the approve
         # branch's revert-to-PENDING_REVIEW except block -- reverting an already-APPROVED
         # run would resurrect it into the pending queue, reintroducing the dead end this
