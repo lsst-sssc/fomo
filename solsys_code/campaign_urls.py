@@ -13,6 +13,7 @@ from solsys_code.campaign_views import (
     CampaignRunDecisionView,
     CampaignRunSubmissionView,
     CampaignRunTableView,
+    SiteSearchView,
 )
 
 app_name = 'campaigns'
@@ -26,6 +27,7 @@ urlpatterns = [
         name='submission_thanks',
     ),
     path('approval-queue/', ApprovalQueueView.as_view(), name='approval_queue'),
+    path('site-search/', SiteSearchView.as_view(), name='site_search'),
     path('<int:pk>/decide/', CampaignRunDecisionView.as_view(), name='decide'),
     path('<int:pk>/gaps/', CampaignGapAnalysisView.as_view(), name='gap_analysis'),
     path('<int:pk>/', CampaignRunTableView.as_view(), name='table'),

@@ -12,6 +12,7 @@ depends on ``telescope_runs.sun_event``, never the heavy SPICE-loading ephemeris
 """
 
 import logging
+import re
 from datetime import date, datetime
 from datetime import time as dt_time
 from datetime import timezone as dt_timezone
@@ -21,8 +22,8 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.db.models import Case, CharField, Count, EmailField, F, Value, When
-from django.http import HttpResponseBadRequest
-from django.shortcuts import get_object_or_404, redirect
+from django.http import HttpResponse, HttpResponseBadRequest
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
@@ -37,12 +38,26 @@ from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
 from .campaign_tables import ApprovalQueueTable, CampaignRunTable
-from .campaign_utils import build_site_candidates, resolve_site
+from .campaign_utils import (
+    _check_and_increment_throttle,
+    build_site_candidates,
+    resolve_site,
+    substring_or_fuzzy_match_candidates,
+)
 from .mixins import StaffRequiredMixin
 from .models import CampaignRun
 from .telescope_runs import sun_event
 
 logger = logging.getLogger(__name__)
+
+# 22-REVIEWS.md finding 2: a conservative DOM-id allowlist for the `input_id` GET param
+# echoed back into SiteSearchView's rendered fragment. HTML auto-escaping alone is NOT
+# sufficient for a value embedded in the inline `onclick=` JS-string context -- browsers
+# decode HTML entities before the JS parser runs, so an HTML-escaped quote still
+# terminates the JS string. A non-matching value is replaced server-side with the
+# default 'id_site_raw' before it ever reaches the template context (belt-and-suspenders
+# on top of the template's own `|escapejs` filter).
+_INPUT_ID_RE = re.compile(r'^[-A-Za-z0-9_:.]+$')
 
 # D-13/VIEW-03/T-15-01: the exact D-09 column list for non-staff requests. Deliberately
 # enumerated explicitly (not introspected from CampaignRun._meta) so contact_person/
@@ -581,3 +596,61 @@ class CampaignGapAnalysisView(TemplateView):
         result = get_or_compute_gap(campaign, target, site, start, end)
         context.update({'target': target, 'site': site, 'start': start, 'end': end, 'result': result})
         return self.render_to_response(context)
+
+
+class SiteSearchView(View):
+    """Shared, anonymous, throttled HTMX live-search endpoint (D-01/D-02/D-03, Phase 22 P01).
+
+    Public/read-only, same posture as ``CampaignGapAnalysisView``/``CampaignRunTableView``
+    -- deliberately no ``StaffRequiredMixin``. The candidate pool is public MPC data
+    (``build_site_candidates()``), and this endpoint backs the public submission form
+    (Plan 02) as well as the approval-queue widgets (Plan 02/03) -- neither caller is
+    staff-only. Returns a rendered HTML fragment (never JSON), per D-03.
+    """
+
+    http_method_names = ['get']
+
+    def get(self, request):
+        """Throttle, validate, min-length-gate, then render the suggestion fragment."""
+        # D-02/Pitfall 5: staff triaging the approval queue must never trip the
+        # anonymous-abuse throttle meant for the public form (Assumption A3) -- exempt
+        # authenticated staff from the per-IP counter entirely.
+        client_ip = request.META.get('REMOTE_ADDR', '')
+        if not request.user.is_staff and not _check_and_increment_throttle(client_ip):
+            return HttpResponse(status=429)
+
+        # 22-REVIEWS.md finding 2: validate input_id server-side against a conservative
+        # DOM-id allowlist before it ever reaches the template context -- HTML
+        # auto-escaping alone is not sufficient inside the fragment's inline `onclick=`
+        # JS-string context (see _INPUT_ID_RE comment above).
+        input_id = request.GET.get('input_id', 'id_site_raw')
+        if not _INPUT_ID_RE.fullmatch(input_id):
+            input_id = 'id_site_raw'
+
+        # 22-REVIEWS.md finding 4/T-22-02: a blank/1-char query must never reach
+        # build_site_candidates() -- on a cache miss that would trigger
+        # MPCObscodeFetcher().query_all(), and the widgets' client-side 2-char
+        # hx-trigger filter only gates browser-originated requests, not a direct
+        # anonymous GET. Gate here, AFTER the throttle check but BEFORE any pool access.
+        query = request.GET.get('q', '')
+        if len(query.strip()) < 2:
+            return render(
+                request,
+                'campaigns/partials/site_search_results.html',
+                {'candidates': [], 'input_id': input_id, 'query': '', 'no_matches_copy': ''},
+            )
+
+        candidates = substring_or_fuzzy_match_candidates(query, build_site_candidates())
+        # Copywriting Contract: distinguish the public form (free text is fine, staff
+        # will resolve it) from the queue widgets (a different site is expected to
+        # actually resolve) by input_id.
+        no_matches_copy = (
+            'No matches — free text is fine, a staff member will resolve it.'
+            if input_id == 'id_site_raw'
+            else 'No matches for this search.'
+        )
+        return render(
+            request,
+            'campaigns/partials/site_search_results.html',
+            {'candidates': candidates, 'input_id': input_id, 'query': query, 'no_matches_copy': no_matches_copy},
+        )

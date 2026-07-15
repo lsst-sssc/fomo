@@ -1,0 +1,32 @@
+{% comment %}
+Shared live-search suggestion fragment (D-01/D-03/D-04/D-05, Phase 22 P01).
+
+Rendered by SiteSearchView.get() for both the public submission form (Plan 02) and the
+approval-queue widgets (Plan 02/03), differentiated only by input_id.
+
+XSS note (22-REVIEWS.md finding 2, T-22-01/T-22-10): {{ display }} ({{ obscode }}) is a
+plain Django auto-escaped visible text node -- safe on its own. The onclick= attribute
+below is a DISTINCT escaping context: it is JS-string content inside an HTML attribute,
+so every value interpolated there -- display, obscode, AND both input_id occurrences --
+MUST go through the |escapejs filter as well as auto-escaping. HTML entity-escaping alone
+is not sufficient there: browsers decode HTML entities before the JS parser runs, so an
+HTML-escaped quote would still terminate the JS string. Never use mark_safe, an f-string,
+or % interpolation to build this markup.
+{% endcomment %}
+{% if candidates %}
+<ul class="list-group" id="site-suggestions-list">
+  {% for display, obscode in candidates %}
+  <li class="list-group-item list-group-item-action"
+      style="cursor:pointer;"
+      onclick="var inputEl = document.getElementById('{{ input_id|escapejs }}');
+               var displayText = '{{ display|escapejs }}';
+               var obscodeText = '{{ obscode|escapejs }}';
+               inputEl.value = displayText + ' (' + obscodeText + ')';
+               document.getElementById('site-suggestions-{{ input_id|escapejs }}').innerHTML = '';">
+    {{ display }} ({{ obscode }})
+  </li>
+  {% endfor %}
+</ul>
+{% elif query %}
+<p class="text-muted small mb-0">{{ no_matches_copy }}</p>
+{% endif %}
