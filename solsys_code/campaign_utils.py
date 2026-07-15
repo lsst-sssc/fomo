@@ -303,10 +303,10 @@ def build_site_candidates() -> dict[str, str]:
     return merged
 
 
-def fuzzy_match_candidates(site_raw: str, candidate_pool: dict[str, str]) -> list[tuple[str, str]]:
+def fuzzy_match_candidates(site_raw: str, candidate_pool: dict[str, str], n: int = 5) -> list[tuple[str, str]]:
     """Fuzzy-match a raw submitted site string against a candidate pool (D-01/A3).
 
-    Wraps ``difflib.get_close_matches`` (``n=5, cutoff=0.6`` -- difflib's own documented
+    Wraps ``difflib.get_close_matches`` (``cutoff=0.6`` -- difflib's own documented
     default cutoff, per RESEARCH.md Assumption A3) and resolves each matched display
     string back to its obscode via ``candidate_pool``.
 
@@ -315,6 +315,12 @@ def fuzzy_match_candidates(site_raw: str, candidate_pool: dict[str, str]) -> lis
             input returns an empty list without invoking difflib.
         candidate_pool: a ``{candidate_display_string: obscode}`` mapping, typically from
             ``build_site_candidates()``.
+        n: maximum number of difflib matches to consider (default 5, difflib's own
+            documented default). Phase 22 P01: kept as an optional keyword-only-in-spirit
+            parameter (backward compatible default) so ``substring_or_fuzzy_match_candidates()``'s
+            fallback branch can request more than 5 without reimplementing the difflib
+            call; the existing single call site (``ApprovalQueueTable.render_site()``) is
+            unaffected by the default.
 
     Returns:
         list[tuple[str, str]]: ranked ``(display_string, obscode)`` pairs, best match
@@ -324,8 +330,90 @@ def fuzzy_match_candidates(site_raw: str, candidate_pool: dict[str, str]) -> lis
     text = (site_raw or '').strip()
     if not text:
         return []
-    matches = difflib.get_close_matches(text, candidate_pool.keys(), n=5, cutoff=0.6)
+    matches = difflib.get_close_matches(text, candidate_pool.keys(), n=n, cutoff=0.6)
     return [(match, candidate_pool[match]) for match in matches]
+
+
+def substring_or_fuzzy_match_candidates(
+    site_raw: str, candidate_pool: dict[str, str], *, limit: int = 8
+) -> list[tuple[str, str]]:
+    """Substring-first, difflib-fallback site match (D-04, Phase 22 P01).
+
+    Case-insensitive containment over ``candidate_pool`` first -- this bridges short
+    partial queries like ``'Faulkes'`` against long official MPC strings (e.g.
+    ``'Faulkes Telescope South'``) that ``difflib.get_close_matches``'s whole-string
+    similarity scoring cannot reach at its 0.6 cutoff (Pitfall from 22-RESEARCH.md).
+    Falls back to ``fuzzy_match_candidates()`` for typo tolerance only when containment
+    finds nothing at all -- mirrors this module's "never raise for expected messy data"
+    discipline (``resolve_site()``/``build_site_candidates()``).
+
+    Args:
+        site_raw: the raw submitted/typed live-search query text. Blank/whitespace-only
+            input returns an empty list without scanning the pool.
+        candidate_pool: a ``{candidate_display_string: obscode}`` mapping, typically from
+            ``build_site_candidates()``.
+        limit: maximum number of results to return (default 8, per CONTEXT.md's
+            "Claude's Discretion" suggestion count cap).
+
+    Returns:
+        list[tuple[str, str]]: ranked ``(display_string, obscode)`` pairs. Substring hits
+            are sorted shortest/most-specific display string first; falls back to
+            ``fuzzy_match_candidates()``'s own ranking when there are no substring hits.
+            Never raises.
+    """
+    text = (site_raw or '').strip()
+    if not text:
+        return []
+    needle = text.lower()
+    hits = [(candidate, obscode) for candidate, obscode in candidate_pool.items() if needle in candidate.lower()]
+    if hits:
+        hits.sort(key=lambda pair: (len(pair[0]), pair[0]))  # shortest/most-specific first
+        return hits[:limit]
+    return fuzzy_match_candidates(text, candidate_pool, n=limit)[:limit]
+
+
+# D-02: 40 requests / 60s per IP -- within CONTEXT.md's 30-60/min guidance (Assumption
+# A1). Exposed as a module-level constant (not a settings value) so tests can
+# `patch.object(campaign_utils, 'SITE_SEARCH_THROTTLE_LIMIT', ...)` to a small number
+# without touching Django settings.
+SITE_SEARCH_THROTTLE_LIMIT = 40
+SITE_SEARCH_THROTTLE_WINDOW_SECONDS = 60
+
+
+def _check_and_increment_throttle(client_ip: str) -> bool:
+    """Fixed-window per-IP request throttle for the live-search endpoint (D-02).
+
+    Uses only the already-imported ``django.core.cache.cache`` -- no new dependency
+    (D-02 explicitly forbids ``django-ratelimit``/DRF for this). ``cache.add()`` opens a
+    fresh window on the first request from an IP; subsequent requests within the window
+    increment the counter via ``cache.incr()``.
+
+    Note: ``FileBasedCache``'s ``incr()`` is implemented as a plain get-then-set pair, not
+    atomic across processes (RESEARCH.md Pitfall 3) -- under concurrent requests from the
+    same IP this soft-throttle can under-count by a few, which is acceptable at this
+    project's single-dev-server deployment scale ("abuse protection", not a hard SLA).
+    ``REMOTE_ADDR`` is the only client-IP source used by the caller (Assumption A2) -- no
+    reverse-proxy/``X-Forwarded-For`` handling is configured in this project.
+
+    Args:
+        client_ip: the requesting client's IP address (typically ``request.META['REMOTE_ADDR']``).
+
+    Returns:
+        bool: ``True`` if this request is within the per-window limit, ``False`` once the
+            IP has exceeded ``SITE_SEARCH_THROTTLE_LIMIT`` requests within
+            ``SITE_SEARCH_THROTTLE_WINDOW_SECONDS``. Never raises.
+    """
+    key = f'site_search_throttle:{client_ip}'
+    added = cache.add(key, 1, timeout=SITE_SEARCH_THROTTLE_WINDOW_SECONDS)
+    if added:
+        return True
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        # Key expired between add() and incr() (race) -- treat as a fresh window.
+        cache.set(key, 1, timeout=SITE_SEARCH_THROTTLE_WINDOW_SECONDS)
+        return True
+    return count <= SITE_SEARCH_THROTTLE_LIMIT
 
 
 def parse_obs_window(
