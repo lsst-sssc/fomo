@@ -11,6 +11,14 @@
 <h5 class="font-weight-bold mb-3 mt-4">Recently Decided</h5>
 {% render_table decided_table %}
 
-<h5 class="font-weight-bold mb-3 mt-4">Sites Needing Review</h5>
-{% render_table review_table %}
+<div class="card border-warning mt-4">
+  <div class="card-header bg-warning text-dark font-weight-bold">Sites Needing Review — action required</div>
+  <div class="card-body">
+    <p class="mb-3">
+      Approved runs whose observing site still needs a staff member to resolve it before it
+      lands on the calendar.
+    </p>
+    {% render_table review_table %}
+  </div>
+</div>
 {% endblock %}
