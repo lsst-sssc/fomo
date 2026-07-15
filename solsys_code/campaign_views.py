@@ -472,7 +472,11 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                 # A satellite-type site_selection (250/274/289) still falls through to
                 # (None, True) via resolve_site()'s to_observatory() TypeError path -- expected,
                 # pre-existing behavior, not a Phase 21 regression (RESEARCH.md Pitfall 4).
-                if run.site is None:
+                # WR-01 (22-REVIEW.md re-review): mirrors _resolve_site()'s placeholder-aware
+                # guard below -- a run whose site is already a tier-3 placeholder (e.g. from
+                # CSV import) is not a genuine resolution either, so it must still re-enter
+                # resolution here, not only when site is None.
+                if run.site is None or is_placeholder_observatory(run.site):
                     # D-07: reuse the existing 3-tier site resolver rather than
                     # re-implementing it. SITE-02: prefer the staff-submitted site_selection
                     # (Plan 21-03's inline input) over the originally-submitted site_raw,

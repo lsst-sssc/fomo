@@ -500,6 +500,36 @@ class TestSiteSelectionResolution(CampaignApprovalTestBase):
         self.assertTrue(run.site_needs_review)
         self.assertEqual(Observatory.objects.count(), 0)
 
+    def test_approve_re_resolves_when_existing_site_is_a_placeholder(self):
+        """WR-01 (22-REVIEW.md re-review): a PENDING_REVIEW run whose ``site`` already
+        points at a tier-3 placeholder Observatory (not None) must still re-enter site
+        resolution on approve, mirroring ``_resolve_site()``'s placeholder-aware guard --
+        not just the site-is-None case. Without the fix, ``run.site is None`` is False here
+        (a placeholder Observatory is still an Observatory), so resolution never runs and
+        the run stays pointed at the unusable placeholder."""
+        Observatory.objects.create(
+            obscode='G37',
+            name='Lowell Discovery Telescope',
+            short_name='LDT',
+            lat=34.744,
+            lon=-111.4223,
+            altitude=2361.0,
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        placeholder = Observatory.objects.create(obscode='DCT', name=f'{NEEDS_REVIEW_NAME_PREFIX}DCT', short_name='DCT')
+        run = self._make_pending_run(site=placeholder, site_raw='DCT', site_needs_review=True)
+
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'approve', 'site_selection': 'G37'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(run.site.obscode, 'G37')
+        self.assertFalse(run.site_needs_review)
+
 
 class TestSiteSelectionNameCandidateResolution(CampaignApprovalTestBase):
     """Permanent CR-01 regression (21-REVIEW-FIX.md / 21-VERIFICATION.md): a name/
