@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
-current_phase: 21
+current_phase: 22
+current_phase_name: site-matching-at-submission-and-unmatched-site-resolution-wo
 status: executing
 stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-07-14T20:16:48.588Z"
-last_activity: 2026-07-14
-last_activity_desc: Phase 21 complete
+last_updated: "2026-07-15T08:50:24.857Z"
+last_activity: 2026-07-15
+last_activity_desc: Phase 22 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 17
+  completed_plans: 15
   percent: 80
-current_phase_name: site-disambiguation-submitter-contact-opt-in
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: site-disambiguation-submitter-contact-opt-in
 See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Phase 21 — site-disambiguation-submitter-contact-opt-in
+**Current focus:** Phase 22 — site-matching-at-submission-and-unmatched-site-resolution-wo
 
 ## Current Position
 
-Phase: 21
-Plan: Not started
+Phase: 22 (site-matching-at-submission-and-unmatched-site-resolution-wo) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-14 — Phase 21 complete
+Last activity: 2026-07-15 — Phase 22 execution started
 
 ## Roadmap Summary (v2.1)
 
@@ -104,6 +104,8 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 21 P03 | 21min | 3 tasks | 3 files |
 | Phase 21 P04 | 13min | 2 tasks | 3 files |
 | 21 | 4 | - | - |
+| Phase 22 P01 | 20min | - tasks | - files |
+| Phase 22 P01 | 20min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -162,6 +164,9 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase 21]: [Phase 21 P04]: Mocked MPCObscodeFetcher.to_observatory() directly (side_effect creating a real Observatory row) for the CreateObservatory round-trip tests, since to_observatory() reads several MPC-response dict keys with no defaults and a bare query() mock would raise MissingDataException
 - [Phase ?]: [Quick 260714-ilz]: Widened parse_obs_window()'s date-range separator regex to accept a double-hyphen (-{1,2}), enabling the public form's genuine multi-night range examples to parse; non-regressive against existing single-hyphen/en-dash/em-dash/'to' shapes and the CSV importer.
 - [Phase ?]: [Quick 260714-jpd]: readonly_fields (not exclude) used to keep CampaignRun.approval_status visible-but-non-editable in admin, preventing an admin path to APPROVED that bypasses CampaignRunDecisionView.post()'s side effects
+- [Phase ?]: [Phase 22 P01]: substring_or_fuzzy_match_candidates() placed below fuzzy_match_candidates() in campaign_utils.py, not replacing it; fuzzy_match_candidates() gained a backward-compatible optional n=5 parameter
+- [Phase ?]: [Phase 22 P01]: _check_and_increment_throttle() stays in campaign_utils.py (not campaign_views.py) per 22-REVIEWS.md finding 8a disposition
+- [Phase ?]: [Phase 22 P01]: SiteSearchView exempts request.user.is_staff from the anonymous per-IP throttle so staff triaging the approval queue never trip the public-abuse limit
 
 ### Pending Todos
 
@@ -204,7 +209,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-14T15:39:38.605Z
+Last session: 2026-07-15T08:47:41.535Z
 Stopped at: Phase 22 UI-SPEC approved
 Resume file: .planning/phases/22-site-matching-at-submission-and-unmatched-site-resolution-wo/22-UI-SPEC.md
 
