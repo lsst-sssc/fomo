@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 22
-current_phase_name: site-matching-at-submission-and-unmatched-site-resolution-wo
 status: verifying
 stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-07-15T09:34:12.444Z"
+last_updated: "2026-07-15T22:03:27.276Z"
 last_activity: 2026-07-15
-last_activity_desc: Phase 22 execution started
+last_activity_desc: Phase 22 complete
 progress:
   total_phases: 5
   completed_phases: 5
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 20
+  completed_plans: 20
   percent: 100
+current_phase_name: site-matching-at-submission-and-unmatched-site-resolution-wo
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 ## Current Position
 
-Phase: 22 (site-matching-at-submission-and-unmatched-site-resolution-wo) — EXECUTING
-Plan: 3 of 3
+Phase: 22
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-15 — Phase 22 execution started
+Last activity: 2026-07-15 — Phase 22 complete
 
 ## Roadmap Summary (v2.1)
 
@@ -108,6 +108,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 22 P01 | 20min | 2 tasks | 5 files |
 | Phase 22 P02 | 15min | 2 tasks | 4 files |
 | Phase 22 P03 | 35min | 2 tasks | 4 files |
+| 22 | 6 | - | - |
 
 ## Accumulated Context
 
