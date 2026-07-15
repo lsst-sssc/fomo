@@ -1332,6 +1332,21 @@ class TestSiteFuzzyMatch(TestCase):
         self.assertEqual(pool.get(local.name), local.obscode)
 
     @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_excludes_placeholder_observatories(self, mock_query_all):
+        """CR-02 (22-REVIEW.md re-review): a tier-3 placeholder Observatory (name prefixed
+        NEEDS_REVIEW_NAME_PREFIX) must never surface as a search-suggestion candidate --
+        neither by its obscode/short_name nor its 'NEEDS REVIEW: ...' display name -- or a
+        staff member could click it and have resolve_site() silently accept it as a genuine
+        resolution of itself."""
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+        Observatory.objects.create(obscode='DCT', name=f'{NEEDS_REVIEW_NAME_PREFIX}DCT', short_name='DCT')
+
+        pool = campaign_utils.build_site_candidates()
+
+        self.assertNotIn('DCT', pool)
+        self.assertNotIn(f'{NEEDS_REVIEW_NAME_PREFIX}DCT', pool)
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
     def test_fuzzy_match_candidates_exact_hit_includes_obscode(self, mock_query_all):
         mock_query_all.return_value = BULK_MPC_FIXTURE
         pool = campaign_utils.build_site_candidates()

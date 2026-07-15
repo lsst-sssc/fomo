@@ -284,11 +284,18 @@ def _local_observatory_candidates() -> dict[str, str]:
     name, short_name, old_names) so the local and MPC-sourced pools merge uniformly.
     First-seen wins on collision.
 
+    CR-02 (22-REVIEW.md re-review): excludes tier-3 placeholder Observatories (created by
+    ``resolve_site()``'s ``create_placeholder`` fallback). Without this, a placeholder like
+    ``'NEEDS REVIEW: DCT'`` (obscode ``DCT``) would surface as a clickable suggestion in
+    both the public submission form's live search and the approval-queue/Sites-Needing-
+    Review correction widget -- clicking it maps back to the same placeholder's obscode and
+    (pre-CR-01-fix) resolve_site() would silently accept it as a genuine resolution.
+
     Returns:
         dict[str, str]: candidate display string -> obscode. Never raises.
     """
     mapping: dict[str, str] = {}
-    for obs in Observatory.objects.all():
+    for obs in Observatory.objects.exclude(name__startswith=NEEDS_REVIEW_NAME_PREFIX):
         for candidate in (obs.obscode, obs.name or '', obs.short_name or '', obs.old_names or ''):
             if candidate and candidate not in mapping:
                 mapping[candidate] = obs.obscode
