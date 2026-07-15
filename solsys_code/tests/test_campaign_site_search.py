@@ -170,6 +170,38 @@ class SiteSearchViewTest(TestCase):
         self.assertNotContains(response, '<li')
         self.mock_build_site_candidates.assert_not_called()
 
+    def test_site_raw_param_without_q_returns_suggestions(self):
+        # 22-04 gap closure (UAT test 1): the public submission form's widget is
+        # `<input name="site_raw">` -- htmx's hx-get sends `?site_raw=<text>`, never `q`.
+        response = self.client.get(reverse('campaigns:site_search'), {'site_raw': 'faulkes'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<li')
+        self.assertContains(response, 'Faulkes Telescope South')
+
+    def test_site_selection_param_without_q_returns_suggestions(self):
+        # 22-04 gap closure (UAT test 3): the approval-queue / Sites Needing Review
+        # widgets are `<input name="site_selection">` -- same missing-`q` defect.
+        response = self.client.get(
+            reverse('campaigns:site_search'), {'site_selection': 'faulkes', 'input_id': 'site-input-1'}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<li')
+        self.assertContains(response, 'Faulkes Telescope South')
+
+    def test_q_takes_precedence_over_site_raw(self):
+        # Guarantee no existing `?q=` caller regressed: when both are present, `q` wins.
+        response = self.client.get(reverse('campaigns:site_search'), {'q': 'faulkes', 'site_raw': 'lowell'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Faulkes Telescope South')
+        self.assertNotContains(response, 'Lowell Discovery Telescope')
+
+    def test_one_char_site_raw_returns_empty_fragment_without_building_pool(self):
+        self.mock_build_site_candidates.reset_mock()
+        response = self.client.get(reverse('campaigns:site_search'), {'site_raw': 'x'})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, '<li')
+        self.mock_build_site_candidates.assert_not_called()
+
     def test_hostile_input_id_is_replaced_with_default_fallback(self):
         response = self.client.get(
             reverse('campaigns:site_search'),
