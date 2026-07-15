@@ -1,8 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "Investigate issue: site-search-widget-query-param-mismatch — Live-search suggestion widgets (public submission form, and the \"Sites Needing Review\" row) never render suggestions despite the debounced hx-get firing correctly."
 created: 2026-07-15T19:00:00Z
-updated: 2026-07-15T19:09:00Z
+updated: 2026-07-15T20:30:00Z
+resolution: "Fixed by 22-04-PLAN.md: SiteSearchView.get() now resolves its search term via request.GET.get('q', '') or request.GET.get('site_raw', '') or request.GET.get('site_selection', ''), matching whichever name-keyed param each widget actually sends over hx-get. Commit dba220d."
 ---
 
 ## Current Focus

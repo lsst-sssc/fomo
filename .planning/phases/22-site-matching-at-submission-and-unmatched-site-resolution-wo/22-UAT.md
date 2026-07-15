@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 phase: 22-site-matching-at-submission-and-unmatched-site-resolution-wo
 source: [22-VERIFICATION.md]
 started: 2026-07-15T18:00:00Z
-updated: 2026-07-15T19:10:00Z
+updated: 2026-07-15T20:30:00Z
 ---
 
 ## Current Test
@@ -76,7 +76,7 @@ blocked: 0
 ## Gaps
 
 - truth: "On the public 'Submit an Observing Run' form, typing 'faulkes' (2+ chars) into the Observing site field fires an hx-get to /campaigns/site-search/ and a suggestion list appears below the field showing both Faulkes sites, with click-to-fill working."
-  status: failed
+  status: resolved
   reason: "User reported: the hx-get fires correctly and is debounced (GET requests visible in runserver logs at fa -> faulk -> faulke -> faulkes), each returning HTTP 200 with a 2-byte body, but the query string key is `site_raw` (e.g. `?site_raw=faulkes&input_id=id_site_raw`) rather than `q` — SiteSearchView.get() reads `request.GET.get('q', '')`, so the server sees an empty query, hits the len<2 empty-fragment path, and renders nothing. No suggestion list appears."
   severity: major
   test: 1
@@ -89,10 +89,11 @@ blocked: 0
   missing:
     - "Align the query-param key the view reads with what the widget actually sends, without breaking the real POST field name (site_raw must stay site_raw for form submission)"
     - "Either: view accepts q OR site_raw OR site_selection as fallback param names, OR each widget sends the typed value under q explicitly via dynamic hx-vals='js:{\"q\": event.target.value, \"input_id\": \"...\"}\'"
-  debug_session: .planning/debug/site-search-widget-query-param-mismatch.md
+  debug_session: .planning/debug/resolved/site-search-widget-query-param-mismatch.md
+  resolution: "Fixed by 22-04-PLAN.md (commit dba220d): SiteSearchView.get() resolves the search term via q -> site_raw -> site_selection fallback chain."
 
 - truth: "In the staff approval queue, the Sites Needing Review row's site input supports searching and picking a suggestion; submitting resolves as expected."
-  status: failed
+  status: resolved
   reason: "User reported two problems from a screenshot: (1) placement — the Sites Needing Review table renders at the bottom of the approval-queue page after the approved/decided runs, not grouped clearly under the Approval Queue heading, which reads as unhelpful; (2) a projection-failed-retry row (site already resolved to plain-text 'DCT') offers only a Resolve button with no way to correct the site if 'DCT' is a placeholder/wrong value rather than a genuinely resolved Observatory — by design (22-03-PLAN.md), retry rows intentionally render site as read-only text with no search input, but the user expected an escape hatch to fix a wrong/placeholder resolution rather than being limited to a projection-retry-only action. NOTE: orchestrator confirmed via Django shell that the local Observatory row with obscode 'DCT' has name 'NEEDS REVIEW: DCT' and blank timezone — it IS a placeholder record (likely created via an earlier create_placeholder=True path, e.g. Phase 21's approve flow), not a genuinely resolved site, corroborating the user's suspicion."
   severity: major
   test: 2
@@ -111,10 +112,11 @@ blocked: 0
     - "Add a queryable way to detect a placeholder Observatory (model field, or shared helper checking the 'NEEDS REVIEW: ' prefix)"
     - "Have render_site() show the live-search widget (not just plain text) when the row's site is a placeholder"
     - "Extend the resolve_site view action to allow replacing a placeholder site, distinguishing 'never re-resolve a genuinely-resolved site' from 'allow correcting a known-placeholder site'"
-  debug_session: .planning/debug/sites-needing-review-placement-and-placeholder-correction.md
+  debug_session: .planning/debug/resolved/sites-needing-review-placement-and-placeholder-correction.md
+  resolution: "Placement fixed by 22-05-PLAN.md (commit 936f565): action-required card, D-07 order preserved. Placeholder correction fixed by 22-06-PLAN.md (commits ef97bd2/03bb0e9/7bd649e). A follow-up deep review found and fixed 2 further Critical gaps this exposed (resolve_site() misreporting placeholder hits as genuine, and placeholders polluting the search pool) — see 22-REVIEW.md/22-REVIEW-FIX.md."
 
 - truth: "Resolving a Sites Needing Review row's unresolved site (site=None) via its live-search widget renders suggestions the same way the public form and pending-queue widgets do."
-  status: failed
+  status: resolved
   reason: "User reported: typing 'G96' or 'Mt. Lemmon' into the Site search box for an unresolved Sites Needing Review row (tested against orchestrator-injected CampaignRun pk=30 on 'Test Campaign', site=None, site_raw='G96', site_needs_review=True, single-night window 2026-08-01, APPROVED) produces no suggestions, same symptom as test 1. This is very likely the SAME root cause as test 1 (query-string key mismatch: the widget's GET request is keyed by the input's `name` attribute rather than `q`, which SiteSearchView.get() reads) — all three widget instances (public form, pending-queue row, Sites Needing Review row) share the same underlying markup-construction pattern per 22-02-PLAN.md/22-03-PLAN.md, so a fix to the shared widget construction should resolve all three occurrences at once. Could not proceed to observe the actual CR-01 warning-and-retry banner behavior because no suggestion could be picked to drive a resolution."
   severity: major
   test: 3
@@ -124,4 +126,5 @@ blocked: 0
       issue: "ApprovalQueueTable._render_site_search_widget() (lines ~212-245), called from render_site() (lines ~247-281) for both pending and resolve-mode rows — input name is site_selection, no q-keyed value"
   missing:
     - "Same fix as test 1's gap — a single shared widget-construction fix should resolve both test 1 and test 3 simultaneously"
-  debug_session: .planning/debug/site-search-widget-query-param-mismatch.md
+  debug_session: .planning/debug/resolved/site-search-widget-query-param-mismatch.md
+  resolution: "Fixed by 22-04-PLAN.md (commit dba220d), same fix as test 1's gap."

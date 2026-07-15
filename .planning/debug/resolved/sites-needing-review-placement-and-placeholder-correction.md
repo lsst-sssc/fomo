@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "Investigate issue: sites-needing-review-placement-and-placeholder-correction — The \"Sites Needing Review\" table is positioned confusingly on the approval-queue page, and a row whose site is a placeholder Observatory has no way to correct it."
 created: 2026-07-15T19:15:00Z
-updated: 2026-07-15T19:30:00Z
----
+updated: 2026-07-15T20:30:00Z
+resolution: "Placement (2A) fixed by 22-05-PLAN.md: Sites Needing Review wrapped in a distinct border-warning action-required card while preserving D-07's locked table order (commit 936f565). Placeholder correction (2B) fixed by 22-06-PLAN.md: NEEDS_REVIEW_NAME_PREFIX + is_placeholder_observatory() helper, render_site() correction widget for placeholder sites, and _resolve_site() placeholder-replacement path (commits ef97bd2, 03bb0e9, 7bd649e). A follow-up deep code review then found and fixed 2 further Critical gaps this fix exposed one layer down (resolve_site() misreporting a placeholder hit as genuine, and placeholders polluting the search candidate pool) — see 22-REVIEW.md / 22-REVIEW-FIX.md."
 
 ## Current Focus
 <!-- OVERWRITE on each update - reflects NOW -->
