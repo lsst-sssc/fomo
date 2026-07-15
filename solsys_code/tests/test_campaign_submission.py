@@ -238,3 +238,43 @@ class TestStaffNotification(CampaignSubmissionTestBase):
         self.staff_with_email.save()
         self.client.post(self.submit_url(), data=self.minimal_valid_data())
         self.assertEqual(len(mail.outbox), 0)
+
+
+class TestSubmissionFormSiteSearchWidget(CampaignSubmissionTestBase):
+    """D-09/D-10/22-REVIEWS.md findings 1 and 7: the public form's site_raw field is a
+    live-search widget wired to campaigns:site_search, with NO create-new-site escape
+    hatch (that stays staff-only on the approval queue -- Task 2).
+    """
+
+    def test_form_renders_hx_get_and_corrected_trigger_grammar(self):
+        response = self.client.get(self.submit_url())
+        self.assertContains(response, 'hx-get')
+        self.assertContains(response, reverse('campaigns:site_search'))
+        # Django HTML-escapes widget attribute values (`>` -> `&gt;`, `"` -> `&quot;`), so
+        # assert on escaping-immune substrings either side of the event-filter bracket.
+        self.assertContains(response, 'hx-trigger="input[this.value.length')
+        self.assertContains(response, '] changed delay:300ms"')
+        # 22-REVIEWS.md finding 1: the malformed filter-after-delay ordering must never
+        # regress back in.
+        self.assertNotContains(response, 'delay:300ms[')
+
+    def test_form_renders_suggestions_container(self):
+        response = self.client.get(self.submit_url())
+        self.assertContains(response, '<div id="site-suggestions-id_site_raw"')
+
+    def test_form_has_no_create_new_observatory_link(self):
+        """D-09: public submitters never get a site-creation path."""
+        response = self.client.get(self.submit_url())
+        self.assertNotContains(response, 'Create new Observatory')
+
+    def test_click_to_fill_wiring_uses_one_consistent_id(self):
+        """22-REVIEWS.md finding 7: the input id, hx-target/container suffix, and hx-vals
+        input_id value must all derive from the same 'id_site_raw' string, or the
+        endpoint's onclick fill silently breaks.
+        """
+        response = self.client.get(self.submit_url())
+        content = response.content.decode()
+        self.assertIn('id="id_site_raw"', content)
+        self.assertIn('hx-target="#site-suggestions-id_site_raw"', content)
+        self.assertIn('<div id="site-suggestions-id_site_raw"', content)
+        self.assertIn('&quot;input_id&quot;: &quot;id_site_raw&quot;', content)

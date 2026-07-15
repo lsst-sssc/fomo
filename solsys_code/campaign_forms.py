@@ -8,8 +8,9 @@ Explicit `required=False` on every non-`campaign` field sidesteps this entirely.
 
 from crispy_forms.bootstrap import FormActions
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Div, Fieldset, Layout, Submit
+from crispy_forms.layout import HTML, Div, Fieldset, Layout, Submit
 from django import forms
+from django.urls import reverse_lazy
 from tom_targets.models import Target, TargetList
 
 from solsys_code.campaign_utils import parse_obs_window
@@ -21,7 +22,29 @@ class CampaignRunSubmissionForm(forms.Form):
 
     campaign = forms.ModelChoiceField(queryset=TargetList.objects.all(), required=True)
     telescope_instrument = forms.CharField(max_length=255, required=False, label='Telescope / instrument')
-    site_raw = forms.CharField(max_length=255, required=False, label='Observing site')
+    # D-09: live-search widget, no create-new-site link (public submitters never get a
+    # site-creation path; unmatched free text is allowed and never blocks submission).
+    # NOTE (htmx hx-trigger grammar): the `[...]` event filter goes IMMEDIATELY AFTER the
+    # event name, with modifiers (`changed`, `delay:300ms`) following -- 22-REVIEWS.md
+    # finding 1. Do NOT reorder this to `input changed delay:300ms[...]`; htmx does not
+    # parse a filter placed after the modifiers.
+    site_raw = forms.CharField(
+        max_length=255,
+        required=False,
+        label='Observing site',
+        widget=forms.TextInput(
+            attrs={
+                'hx-get': reverse_lazy('campaigns:site_search'),
+                'hx-trigger': 'input[this.value.length >= 2] changed delay:300ms',
+                'hx-target': '#site-suggestions-id_site_raw',
+                'hx-swap': 'innerHTML',
+                'hx-vals': '{"input_id": "id_site_raw"}',
+                'autocomplete': 'off',
+                'placeholder': 'MPC code or site name…',
+                'class': 'form-control',
+            }
+        ),
+    )
     # A3: collapses to a single observing-date free-text field -- the window schema has no
     # time-of-night component, so the UT start/end DateTimeField inputs have no home here
     # and are dropped entirely (not repurposed). This is now free text parsed by
@@ -107,6 +130,7 @@ class CampaignRunSubmissionForm(forms.Form):
                 'Run details',
                 'telescope_instrument',
                 'site_raw',
+                HTML('<div id="site-suggestions-id_site_raw" class="mt-2"></div>'),
                 'obs_date',
                 'filters_bandpass',
                 'observation_details',
