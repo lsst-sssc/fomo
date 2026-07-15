@@ -254,9 +254,9 @@ class ApprovalQueueTable(CampaignRunTable):
         A resolve-mode row (``self.mode == 'resolve'``) whose site IS already set (the
         projection-failed retry state -- 22-REVIEWS.md finding 8c) also keeps the plain-text
         fallback: such a row's Resolve button alone re-attempts the projection, no site input
-        is needed. The pending-only ``not self.show_actions`` early-return must NOT suppress
-        the widget for resolve-mode rows (an APPROVED run's show_actions is independent of
-        whether it's actionable via Resolve).
+        is needed. ``not self.show_actions`` suppresses the widget in both pending and
+        resolve mode (WR-01, 22-REVIEW.md): a read-only table must never render live action
+        widgets regardless of ``self.mode``.
 
         Only overridden here (not on ``CampaignRunTable``): only ``ApprovalQueueTable``
         instances carry ``self.show_actions``/``self.candidate_pool``/``self.mode``, so
@@ -266,7 +266,11 @@ class ApprovalQueueTable(CampaignRunTable):
         site_short_name = Accessor('site__short_name').resolve(record, quiet=True)
         if site_short_name:
             return super().render_site(record)
-        if self.mode != 'resolve' and not self.show_actions:
+        # WR-01: show_actions must gate resolve-mode rendering too -- a hypothetical
+        # ApprovalQueueTable(..., mode='resolve', show_actions=False) (e.g. a future read-only
+        # "resolved sites" audit view) must fall back to the plain-text render, not the live
+        # search widget, the same way a pending-mode show_actions=False table already does.
+        if not self.show_actions:
             return super().render_site(record)
         pk = Accessor('pk').resolve(record, quiet=True)
         site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
@@ -281,6 +285,8 @@ class ApprovalQueueTable(CampaignRunTable):
         Resolve button (resolve mode, D-08), or nothing (decided-runs table). Single form
         (not two) so the Site column's ``form=`` input can target it via the HTML5 ``form=``
         attribute (D-04)."""
+        if not self.show_actions:
+            return ''
         decide_url = reverse('campaigns:decide', kwargs={'pk': record.pk})
         csrf_token = get_token(self.request) if self.request is not None else ''
         if self.mode == 'resolve':
@@ -295,8 +301,6 @@ class ApprovalQueueTable(CampaignRunTable):
                 decide_url,
                 csrf_token,
             )
-        if not self.show_actions:
-            return ''
         form_id = f'decide-form-{record.pk}'
         return format_html(
             '<form id="{0}" method="post" action="{1}">'
