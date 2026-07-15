@@ -836,6 +836,34 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         self.assertContains(response, 'No sites currently need review.')
 
 
+class TestApprovalQueueSitesNeedingReviewGrouping(CampaignApprovalTestBase):
+    """UAT gap 2A closure (22-05): the Sites Needing Review section must be visually
+    differentiated from the historical Recently Decided table -- an actionable card, not
+    another plain DOM sibling -- while preserving D-07's locked document order (pending /
+    decided / sites-needing-review). This is presentation-only: no queryset/table/view
+    change, so these assertions hold even against empty tables.
+    """
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def test_sites_needing_review_renders_as_distinguishing_action_required_card(self):
+        response = self.client.get(reverse('campaigns:approval_queue'))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('border-warning', content)
+        self.assertIn('Sites Needing Review — action required', content)
+
+    def test_d07_order_preserved_decided_precedes_sites_needing_review(self):
+        response = self.client.get(reverse('campaigns:approval_queue'))
+        content = response.content.decode()
+        decided_index = content.index('Recently Decided')
+        review_index = content.index('Sites Needing Review')
+        self.assertLess(decided_index, review_index)
+        self.assertIn('Pending Review', content)
+        self.assertIn('Recently Decided', content)
+
+
 def _extract_create_observatory_form_fields(html_content: str, form_action_fragment: str) -> dict[str, str]:
     """Extract ``name`` -> ``value`` for every ``<input>`` inside the
     ``observatory_create.html`` form whose ``action`` attribute contains
