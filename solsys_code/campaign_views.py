@@ -757,9 +757,24 @@ class SiteSearchView(View):
         # D-02/Pitfall 5: staff triaging the approval queue must never trip the
         # anonymous-abuse throttle meant for the public form (Assumption A3) -- exempt
         # authenticated staff from the per-IP counter entirely.
-        client_ip = request.META.get('REMOTE_ADDR', '')
-        if not request.user.is_staff and not _check_and_increment_throttle(client_ip):
-            return HttpResponse(status=429)
+        client_ip = request.META.get('REMOTE_ADDR')
+        if not request.user.is_staff:
+            if client_ip:
+                if not _check_and_increment_throttle(client_ip):
+                    return HttpResponse(status=429)
+            else:
+                # WR-02 (22-REVIEW.md): a missing REMOTE_ADDR must never fall back to an
+                # empty-string cache key -- that would silently collapse every such
+                # anonymous client into one shared throttle bucket (cross-client
+                # interference). Treat "no client IP available" as "no throttle key
+                # available" instead: skip throttling for this request and log it, so the
+                # failure mode is "no rate limit" rather than one client's usage 429-ing
+                # unrelated clients.
+                logger.warning(
+                    'SiteSearchView: REMOTE_ADDR missing from request.META; skipping the '
+                    'per-IP throttle for this anonymous request rather than sharing a '
+                    'single empty-string bucket across all such clients.'
+                )
 
         # 22-REVIEWS.md finding 2: validate input_id server-side against a conservative
         # DOM-id allowlist before it ever reaches the template context -- HTML

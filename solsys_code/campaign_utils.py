@@ -393,10 +393,19 @@ def _check_and_increment_throttle(client_ip: str) -> bool:
     same IP this soft-throttle can under-count by a few, which is acceptable at this
     project's single-dev-server deployment scale ("abuse protection", not a hard SLA).
     ``REMOTE_ADDR`` is the only client-IP source used by the caller (Assumption A2) -- no
-    reverse-proxy/``X-Forwarded-For`` handling is configured in this project.
+    reverse-proxy/``X-Forwarded-For`` handling is configured in this project. Multiple
+    clients sharing one IP (e.g. behind the same reverse proxy) still share one bucket --
+    that's the documented Assumption A2 limitation. WR-02 (22-REVIEW.md): the caller is
+    responsible for never passing a falsy ``client_ip`` here (e.g. a missing
+    ``REMOTE_ADDR``) -- doing so would silently collapse every IP-less client into one
+    ``site_search_throttle:`` bucket, which is a step beyond A2's known limitation. The
+    caller (``SiteSearchView.get()``) skips calling this function entirely when
+    ``REMOTE_ADDR`` is absent, rather than passing an empty string through.
 
     Args:
-        client_ip: the requesting client's IP address (typically ``request.META['REMOTE_ADDR']``).
+        client_ip: the requesting client's IP address (typically ``request.META['REMOTE_ADDR']``);
+            must be truthy -- callers should skip throttling entirely rather than pass a falsy
+            value (see WR-02 note above).
 
     Returns:
         bool: ``True`` if this request is within the per-window limit, ``False`` once the
