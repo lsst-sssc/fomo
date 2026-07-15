@@ -1,11 +1,12 @@
 from datetime import datetime
 from math import radians
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 
 # Import models to test
-from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.solsys_code_observatory.models import NEEDS_REVIEW_NAME_PREFIX, Observatory
 
 
 class TestObservatory(TestCase):
@@ -20,6 +21,35 @@ class TestObservatory(TestCase):
     def test_creation_noname(self):
         with self.assertRaises(IntegrityError):
             bad = Observatory.objects.create(obscode='X05')  # noqa: F841
+
+    def test_clean_rejects_reserved_needs_review_name_prefix(self):
+        """WR-02 (Phase 22 22-REVIEW.md re-review): a form-validated save (full_clean(), e.g.
+        the Django admin change form) must reject a name starting with the reserved
+        NEEDS_REVIEW_NAME_PREFIX -- campaign_utils.is_placeholder_observatory()'s marker for
+        a tier-3 placeholder -- so a genuine Observatory can never be created/renamed to look
+        like one by accident. Calls clean() directly (not full_clean()) to isolate this
+        check from the unrelated required-field validation on lat/lon."""
+        observatory = Observatory(obscode='X05', name=f'{NEEDS_REVIEW_NAME_PREFIX}Something Real')
+        with self.assertRaises(ValidationError) as ctx:
+            observatory.clean()
+        self.assertIn('name', ctx.exception.message_dict)
+
+    def test_clean_allows_ordinary_name(self):
+        """A genuine name never sharing the reserved prefix passes clean() unaffected --
+        full_clean() still raises for the unrelated required geodetic fields (lat/lon) left
+        at their null default, proving this isn't a false-positive on unrelated fields."""
+        observatory = Observatory(obscode='X05', name='Simonyi Survey Telescope, Rubin Observatory')
+        try:
+            observatory.clean()
+        except ValidationError:
+            self.fail('clean() must not reject a name without the reserved prefix.')
+
+    def test_tier3_placeholder_create_bypasses_full_clean(self):
+        """WR-02: resolve_site()'s tier-3 fallback creates placeholders via a plain
+        Observatory.objects.create() (bypassing full_clean()), so this guard never blocks
+        the legitimate placeholder-creation path itself."""
+        placeholder = Observatory.objects.create(obscode='DCT', name=f'{NEEDS_REVIEW_NAME_PREFIX}DCT', short_name='DCT')
+        self.assertEqual(placeholder.name, f'{NEEDS_REVIEW_NAME_PREFIX}DCT')
 
     def test_creation_X05(self):
         expected_parallax_consts = (0.864981, -0.500958)

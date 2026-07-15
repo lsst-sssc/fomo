@@ -3,9 +3,20 @@ from math import atan2, cos, degrees, radians, sin
 import astropy.units as u
 import erfa
 from astropy.coordinates import EarthLocation
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone as django_timezone
+
+# WR-02 (Phase 22 22-REVIEW.md re-review): campaign_utils.resolve_site()'s tier-3
+# placeholder fallback names a fabricated Observatory f'NEEDS REVIEW: {code}' and
+# is_placeholder_observatory() detects any Observatory carrying that exact prefix on its
+# `name`. Duplicated here (not imported from solsys_code.campaign_utils, which is this
+# module's own single source of truth) to avoid a circular import: campaign_utils imports
+# Observatory from this module. Observatory.clean() below rejects the prefix on any
+# form-validated save (e.g. the Django admin change form) so a genuine, fully-configured
+# Observatory can never be created/renamed to look like a tier-3 placeholder by accident.
+NEEDS_REVIEW_NAME_PREFIX = 'NEEDS REVIEW: '
 
 
 class Observatory(models.Model):
@@ -69,6 +80,28 @@ class Observatory(models.Model):
 
     def __str__(self) -> str:
         return f'{self.obscode}: {self.name}'
+
+    def clean(self):
+        """Reject the reserved tier-3-placeholder name prefix on any form-validated save.
+
+        WR-02: ``NEEDS_REVIEW_NAME_PREFIX`` is ``campaign_utils.resolve_site()``'s marker
+        for a fabricated placeholder Observatory (``campaign_utils.is_placeholder_observatory()``
+        checks for it). Without this guard, a staff member creating or renaming a genuine,
+        fully-configured Observatory to start with that same prefix (e.g. copy-pasting a
+        Sites Needing Review row's display text) would make the campaign-approval UI treat
+        it as an eligible-for-replacement placeholder forever -- the inverse of the
+        never-re-resolve-a-genuine-site invariant that prefix convention exists to protect.
+
+        Only runs on form-validated paths (``full_clean()``, e.g. the Django admin change
+        form) -- ``resolve_site()``'s own tier-3 fallback creates placeholders via a plain
+        ``Observatory.objects.create()``, which bypasses ``full_clean()``, so this guard
+        never blocks the legitimate placeholder-creation path itself.
+        """
+        super().clean()
+        if self.name and self.name.startswith(NEEDS_REVIEW_NAME_PREFIX):
+            raise ValidationError(
+                {'name': f"Observatory name may not start with the reserved '{NEEDS_REVIEW_NAME_PREFIX}' prefix."}
+            )
 
     def from_parallax_constants(self, elong: float, rho_cos_phi: float, rho_sin_phi: float):
         """Convert from MPC parallax constants rho_cos_phi, rho_sin_phi to
