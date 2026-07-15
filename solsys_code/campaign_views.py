@@ -41,6 +41,7 @@ from .campaign_tables import ApprovalQueueTable, CampaignRunTable
 from .campaign_utils import (
     _check_and_increment_throttle,
     build_site_candidates,
+    is_placeholder_observatory,
     resolve_site,
     substring_or_fuzzy_match_candidates,
 )
@@ -556,6 +557,12 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         surface) instead of vanishing into a dead end. The site write itself is a single
         conditional queryset update (not a plain re-fetch + in-Python check) so two racing
         staff POSTs cannot both claim the write.
+
+        22-06 gap closure (UAT gap 2B): a tier-3 PLACEHOLDER site (``resolve_site()``'s
+        ``create_placeholder`` fallback -- name prefixed ``NEEDS REVIEW: ``) is not a
+        genuine resolution, so it's also eligible for replacement here, alongside the
+        site=None case -- see ``is_placeholder_observatory()`` below. A genuinely-resolved
+        (non-placeholder) site is still never re-resolved (D-06).
         """
         # Pitfall 2: re-fetch fresh from the DB -- never trust a stale in-memory instance.
         run = get_object_or_404(CampaignRun, pk=pk)
@@ -566,11 +573,18 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             messages.warning(request, 'This run is not awaiting site resolution.')
             return redirect('campaigns:approval_queue')
 
-        # D-06 never-re-resolve guard: only resolve when the site isn't already set. A run
-        # with site already set + site_needs_review still True is the projection-failed
-        # retry state (finding 8c) -- resolve_site is never called again for it; it falls
-        # straight through to the projection retry below.
-        if run.site is None:
+        # 22-06: capture the pre-read site pk (None when unresolved, the placeholder
+        # Observatory's own pk when a placeholder) BEFORE any write -- the conditional
+        # claim below keys on this exact value so two racing staff POSTs can never
+        # double-write (D-06).
+        previous_site_id = run.site_id
+
+        # D-06 never-re-resolve guard, extended for 22-06: only resolve when the site
+        # isn't set yet, OR is a tier-3 placeholder (not a genuine resolution). A run with
+        # a REAL Observatory already set + site_needs_review still True is the
+        # projection-failed retry state (finding 8c) -- resolve_site is never called again
+        # for it; it falls straight through to the projection retry below.
+        if run.site is None or is_placeholder_observatory(run.site):
             # SITE-02: prefer the staff-submitted site_selection over the originally-
             # submitted site_raw, falling back to site_raw when blank.
             selection = request.POST.get('site_selection', '').strip() or run.site_raw
@@ -580,8 +594,10 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             obscode_selection = build_site_candidates().get(selection, selection)
             site, needs_review = resolve_site(obscode_selection, create_placeholder=False)
             if site is None:
-                # Nothing was written -- the flag is already True, the row stays in the
-                # review table for another attempt.
+                # Nothing was written -- D-09: never fabricate a second placeholder from
+                # unresolvable input. The flag is already True, the row (still pointing at
+                # its existing placeholder, if any) stays in the review table for another
+                # attempt.
                 messages.error(
                     request,
                     'Could not resolve that site. Try a different search term or an exact '
@@ -596,11 +612,17 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             # projection). Not using transaction.atomic()+select_for_update() here -- the
             # conditional-update claim is this codebase's established guard and behaves
             # uniformly on SQLite.
+            #
+            # 22-06: keyed on `site_id=previous_site_id` (not the old hard-coded
+            # `site__isnull=True`) so the same conditional-claim guard covers both the
+            # unresolved case (Django treats `site_id=None` as IS NULL -- byte-equivalent
+            # to the old filter) and the placeholder-replacement case: a competing POST
+            # that already changed the site away from `previous_site_id` matches zero rows.
             claimed = CampaignRun.objects.filter(
                 pk=pk,
                 approval_status=CampaignRun.ApprovalStatus.APPROVED,
                 site_needs_review=True,
-                site__isnull=True,
+                site_id=previous_site_id,
             ).update(site=site)
             if claimed == 0:
                 # A racing staff POST resolved (or is resolving) this run first -- the

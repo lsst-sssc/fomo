@@ -29,7 +29,7 @@ from tom_targets.models import TargetList
 
 from solsys_code import campaign_utils
 from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
-from solsys_code.campaign_utils import resolve_site
+from solsys_code.campaign_utils import NEEDS_REVIEW_NAME_PREFIX, resolve_site
 from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
@@ -834,6 +834,205 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
     def test_review_table_empty_state_renders_configured_copy(self):
         response = self.client.get(reverse('campaigns:approval_queue'))
         self.assertContains(response, 'No sites currently need review.')
+
+
+class TestIsPlaceholderObservatory(TestCase):
+    """Unit coverage for campaign_utils.is_placeholder_observatory() (22-06 Task 1) --
+    the pure, DB-free string check both render_site() and _resolve_site() key off of."""
+
+    def test_placeholder_observatory_detected(self):
+        placeholder = Observatory.objects.create(obscode='DCT', name=f'{NEEDS_REVIEW_NAME_PREFIX}DCT', short_name='DCT')
+        self.assertTrue(campaign_utils.is_placeholder_observatory(placeholder))
+
+    def test_real_observatory_not_placeholder(self):
+        real = Observatory.objects.create(obscode='F65', name='Faulkes Telescope South', short_name='FTS')
+        self.assertFalse(campaign_utils.is_placeholder_observatory(real))
+
+    def test_none_is_not_placeholder(self):
+        self.assertFalse(campaign_utils.is_placeholder_observatory(None))
+
+    def test_tier3_create_uses_shared_prefix_constant(self):
+        """No behavioral change (Task 1): resolve_site()'s tier-3 fallback still produces
+        the exact same name shape, now built from NEEDS_REVIEW_NAME_PREFIX."""
+        site, needs_review = resolve_site('ZZZ')
+        self.assertTrue(needs_review)
+        self.assertEqual(site.name, f'{NEEDS_REVIEW_NAME_PREFIX}ZZZ')
+        self.assertTrue(campaign_utils.is_placeholder_observatory(site))
+
+
+class TestPlaceholderSiteReplacement(CampaignApprovalTestBase):
+    """22-06 gap closure (UAT gap 2B): a Sites Needing Review row whose site is a tier-3
+    PLACEHOLDER Observatory now surfaces the correction widget (render_site()) and can be
+    replaced via resolve_site (view), while D-06 (never re-resolve a genuine site, racing
+    protection) and D-09 (never fabricate from unresolvable input) both stay intact.
+
+    Fixture convention mirrors TestSitesNeedingReview: a Tier-1-resolvable ground
+    Observatory ('F65') so resolution never needs a live MPC API call.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.ground_site = Observatory.objects.create(
+            obscode='F65',
+            name='Faulkes Telescope South',
+            short_name='FTS',
+            lat=-31.2727,
+            lon=149.0644,
+            altitude=1149.0,
+            timezone='Australia/Sydney',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def _make_placeholder_observatory(self, obscode='DCT'):
+        """A tier-3 placeholder Observatory shaped exactly like resolve_site()'s fallback --
+        NEEDS_REVIEW_NAME_PREFIX name, blank timezone (model default)."""
+        return Observatory.objects.create(
+            obscode=obscode, name=f'{NEEDS_REVIEW_NAME_PREFIX}{obscode}', short_name=obscode
+        )
+
+    def _make_placeholder_run(self, **overrides):
+        """An APPROVED run whose site is a placeholder Observatory (site_needs_review=True).
+
+        Only creates its own default placeholder Observatory when the caller doesn't
+        already supply a ``site=`` override -- avoids creating a second, unwanted
+        placeholder (obscode/name collision) when the caller already made one.
+        """
+        kwargs = {
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'site_needs_review': True,
+        }
+        if 'site' not in overrides:
+            kwargs['site'] = self._make_placeholder_observatory()
+        kwargs.update(overrides)
+        return self._make_pending_run(**kwargs)
+
+    def test_placeholder_row_renders_live_search_widget_not_plain_text(self):
+        """render_site() (Task 2): a resolve-mode row whose site is a placeholder falls
+        through to the correction widget, distinguishing it from the genuine-site retry
+        state covered by test_retry_row_renders_plain_text_site_and_resolve_button_no_input."""
+        run = self._make_placeholder_run(site_raw='DCT')
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertIn(f'id="site-input-{run.pk}"', content)
+        self.assertIn('name="site_selection"', content)
+        self.assertIn(f'form="resolve-form-{run.pk}"', content)
+        self.assertIn('Create new Observatory', content)
+
+    def test_placeholder_row_read_only_table_never_renders_widget(self):
+        """WR-01: even a placeholder-site row must never render the live widget in a
+        show_actions=False table, regardless of self.mode -- constructed directly since no
+        live show_actions=False + mode='resolve' view exists yet (a hypothetical future
+        read-only "resolved sites" audit view, per render_site()'s own docstring)."""
+        run = self._make_placeholder_run(site_raw='DCT', approval_status=CampaignRun.ApprovalStatus.APPROVED)
+        table = ApprovalQueueTable([run], show_actions=False, mode='resolve')
+
+        rendered = table.render_site(run)
+
+        self.assertNotIn('site_selection', str(rendered))
+        self.assertIn('DCT', str(rendered))
+
+    def test_placeholder_replacement_repoints_site_and_clears_review_flag(self):
+        """Placeholder replacement: a real site_selection replaces the placeholder site and,
+        since preconditions are met (single-night window + telescope_instrument), the flag
+        clears and the calendar event projects."""
+        placeholder = self._make_placeholder_observatory()
+        run = self._make_placeholder_run(site=placeholder, site_raw='DCT')
+
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 1)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('Site resolved — run added to the calendar.', messages_list)
+
+    def test_placeholder_replacement_failure_fabricates_no_second_placeholder(self):
+        """D-09: an unresolvable site_selection on a placeholder-site row must write
+        nothing new -- no second placeholder Observatory, the run keeps pointing at its
+        existing placeholder, and stays in Sites Needing Review."""
+        placeholder = self._make_placeholder_observatory()
+        run = self._make_placeholder_run(site=placeholder, site_raw='DCT')
+        observatory_count_before = Observatory.objects.count()
+
+        with patch(
+            'solsys_code.campaign_utils.MPCObscodeFetcher.query',
+            side_effect=requests.exceptions.RequestException,
+        ):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site', 'site_selection': 'NOWHERE'},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Observatory.objects.count(), observatory_count_before)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, placeholder.pk)
+        self.assertTrue(run.site_needs_review)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn(
+            'Could not resolve that site. Try a different search term or an exact MPC code, '
+            'or use Create new Observatory.',
+            messages_list,
+        )
+
+    def test_genuine_site_still_never_re_resolved_when_replacing_placeholder_would_apply(self):
+        """D-06 preserved: a genuinely-resolved (non-placeholder) site is never re-resolved
+        by this same placeholder-replacement path -- resolve_site is not called, matching
+        the existing finding-8c coverage in TestSitesNeedingReview."""
+        run = self._make_placeholder_run(site=self.ground_site, site_raw='F65')
+        with patch('solsys_code.campaign_views.resolve_site') as mock_resolve_site:
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site'},
+            )
+        self.assertEqual(response.status_code, 302)
+        mock_resolve_site.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+
+    def test_racing_second_resolve_after_placeholder_replacement_does_not_double_write(self):
+        """Racing-guard shape: once a placeholder has been replaced by a real site, a
+        second resolve_site POST for the same (now-real-site) run must not re-resolve --
+        it falls straight to the never-re-resolve path (D-06), never a second write."""
+        placeholder = self._make_placeholder_observatory()
+        run = self._make_placeholder_run(site=placeholder, site_raw='DCT')
+
+        first_response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+        self.assertEqual(first_response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+
+        # Simulate the retry surface: force the flag back on (as a failed-projection retry
+        # row would have it) without touching site, then re-POST resolve_site.
+        CampaignRun.objects.filter(pk=run.pk).update(site_needs_review=True)
+        with patch('solsys_code.campaign_views.resolve_site') as mock_resolve_site:
+            second_response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site', 'site_selection': 'F65'},
+                follow=True,
+            )
+        self.assertEqual(second_response.status_code, 200)
+        mock_resolve_site.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
 
 
 class TestApprovalQueueSitesNeedingReviewGrouping(CampaignApprovalTestBase):
