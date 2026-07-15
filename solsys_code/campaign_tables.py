@@ -198,39 +198,31 @@ class ApprovalQueueTable(CampaignRunTable):
             '...',
         )
 
-    def __init__(self, *args, show_actions=True, request=None, candidate_pool=None, **kwargs):
+    def __init__(self, *args, show_actions=True, request=None, candidate_pool=None, mode='pending', **kwargs):
         self.show_actions = show_actions
         self.request = request
         self.candidate_pool = candidate_pool
+        # D-07/D-10: extends the show_actions convention rather than replacing it.
+        # 'pending' (default) is the existing pending-review row; 'resolve' is the new
+        # Sites Needing Review row (Task 2). show_actions=False (decided table) still wins
+        # over either mode in render_site()'s early-return below.
+        self.mode = mode
         super().__init__(*args, **kwargs)
 
-    def render_site(self, record):
-        """Unresolved actionable pending row: inline live-search site input (backed by
-        campaigns:site_search, D-10) + an always-visible "Create new Observatory" link
-        (SITE-01/D-04), submitted into the row's single decide-form via the HTML5 ``form=``
-        attribute. Resolved rows and the read-only decided table (``show_actions=False``)
-        keep CampaignRunTable's existing plain-text ``render_site`` rendering unchanged.
-
-        Only overridden here (not on ``CampaignRunTable``): only ``ApprovalQueueTable``
-        instances carry ``self.show_actions``/``self.candidate_pool``, so overriding on the
-        parent would raise ``AttributeError`` for the per-campaign ``CampaignRunTable``.
+    def _render_site_search_widget(self, *, site_raw, input_id, form_id):
+        """Shared live-search widget markup (hx-get to campaigns:site_search, D-10) used by
+        both the pending row and the resolve-mode row -- differs only in which form the
+        input's HTML5 ``form=`` attribute targets.
 
         NOTE (htmx hx-trigger grammar): the ``[...]`` event filter goes IMMEDIATELY AFTER
         the event name, with modifiers (``changed``, ``delay:300ms``) following --
-        22-REVIEWS.md finding 1, same corrected string as the public form's widget (Task 1).
-        Do NOT reorder this to ``input changed delay:300ms[...]``; htmx does not parse a
-        filter placed after the modifiers. Because this trigger string lives in the LITERAL
-        part of the format_html template (not a substituted argument), it is NOT
-        entity-escaped in the rendered table.
+        22-REVIEWS.md finding 1, same corrected string as the public form's widget. Do NOT
+        reorder this to ``input changed delay:300ms[...]``; htmx does not parse a filter
+        placed after the modifiers. Because this trigger string lives in the LITERAL part of
+        the format_html template (not a substituted argument), it is NOT entity-escaped in
+        the rendered table.
         """
-        site_short_name = Accessor('site__short_name').resolve(record, quiet=True)
-        if site_short_name or not self.show_actions:
-            return super().render_site(record)
-        pk = Accessor('pk').resolve(record, quiet=True)
-        site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
-        input_id = f'site-input-{pk}'
         container_id = f'site-suggestions-{input_id}'
-        form_id = f'decide-form-{pk}'
         site_search_url = reverse('campaigns:site_search')
         create_url = '{}?{}'.format(
             reverse('solsys_code_observatory:create'),
@@ -252,15 +244,57 @@ class ApprovalQueueTable(CampaignRunTable):
             create_url,
         )
 
+    def render_site(self, record):
+        """Unresolved actionable row: inline live-search site input (backed by
+        campaigns:site_search, D-10) + an always-visible "Create new Observatory" link
+        (SITE-01/D-04), submitted into the row's single decide-form via the HTML5 ``form=``
+        attribute. Resolved rows and the read-only decided table (``show_actions=False``)
+        keep CampaignRunTable's existing plain-text ``render_site`` rendering unchanged.
+
+        A resolve-mode row (``self.mode == 'resolve'``) whose site IS already set (the
+        projection-failed retry state -- 22-REVIEWS.md finding 8c) also keeps the plain-text
+        fallback: such a row's Resolve button alone re-attempts the projection, no site input
+        is needed. The pending-only ``not self.show_actions`` early-return must NOT suppress
+        the widget for resolve-mode rows (an APPROVED run's show_actions is independent of
+        whether it's actionable via Resolve).
+
+        Only overridden here (not on ``CampaignRunTable``): only ``ApprovalQueueTable``
+        instances carry ``self.show_actions``/``self.candidate_pool``/``self.mode``, so
+        overriding on the parent would raise ``AttributeError`` for the per-campaign
+        ``CampaignRunTable``.
+        """
+        site_short_name = Accessor('site__short_name').resolve(record, quiet=True)
+        if site_short_name:
+            return super().render_site(record)
+        if self.mode != 'resolve' and not self.show_actions:
+            return super().render_site(record)
+        pk = Accessor('pk').resolve(record, quiet=True)
+        site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
+        input_id = f'site-input-{pk}'
+        form_id = f'decide-form-{pk}'
+        return self._render_site_search_widget(site_raw=site_raw, input_id=input_id, form_id=form_id)
+
     def render_actions(self, record):
-        """Render one form (Approve/Reject as named submit buttons), or nothing
-        (decided-runs table). Single form (not two) so the Site column's ``form=`` input
-        can target it via the HTML5 ``form=`` attribute (D-04)."""
-        if not self.show_actions:
-            return ''
+        """Render one form: Approve/Reject named submit buttons (pending mode), a single
+        Resolve button (resolve mode, D-08), or nothing (decided-runs table). Single form
+        (not two) so the Site column's ``form=`` input can target it via the HTML5 ``form=``
+        attribute (D-04)."""
         decide_url = reverse('campaigns:decide', kwargs={'pk': record.pk})
         csrf_token = get_token(self.request) if self.request is not None else ''
         form_id = f'decide-form-{record.pk}'
+        if self.mode == 'resolve':
+            return format_html(
+                '<form id="{0}" method="post" action="{1}">'
+                '<input type="hidden" name="csrfmiddlewaretoken" value="{2}">'
+                '<button type="submit" name="action" value="resolve_site" '
+                'class="btn btn-sm btn-primary">Resolve</button>'
+                '</form>',
+                form_id,
+                decide_url,
+                csrf_token,
+            )
+        if not self.show_actions:
+            return ''
         return format_html(
             '<form id="{0}" method="post" action="{1}">'
             '<input type="hidden" name="csrfmiddlewaretoken" value="{2}">'

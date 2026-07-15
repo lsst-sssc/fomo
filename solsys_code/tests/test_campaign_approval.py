@@ -645,9 +645,13 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         self.assertTrue(run.site_needs_review)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertTrue(any('calendar entry' in m for m in messages_list))
-        # NOTE: the "still listed in review_table" assertion (22-REVIEWS.md finding 3) is
-        # added in Task 2's extension of this test, once ApprovalQueueView actually builds
-        # review_table -- until then this test only proves the model-level retry state.
+
+        # Finding 3: the retry surface is preserved -- a subsequent staff GET of the
+        # approval queue still lists the run in review_table's underlying data (not just
+        # the model field).
+        queue_response = self.client.get(reverse('campaigns:approval_queue'))
+        review_table = queue_response.context['review_table']
+        self.assertIn(run.pk, [row.record.pk for row in review_table.rows])
 
     def test_resolve_lost_race_no_op_warns(self):
         """Finding 5: a concurrent resolution landing between the fresh fetch and the site
@@ -731,6 +735,62 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
             'or use Create new Observatory.',
             messages_list,
         )
+
+    def test_review_table_context_lists_only_approved_needs_review_runs(self):
+        """D-07: review_table lists APPROVED+site_needs_review=True runs only -- not
+        pending, not resolved-approved -- INCLUDING a projection-failed retry row (site set,
+        flag still True), since the filter is on the flag alone."""
+        self._make_pending_run(site_raw='F65')  # PENDING_REVIEW -- must not appear
+        self._make_needs_review_run(site_raw='F65', window_start=date(2026, 8, 2), window_end=date(2026, 8, 2))
+        resolved_approved = self._make_needs_review_run(
+            site=self.ground_site,
+            site_needs_review=False,
+            window_start=date(2026, 8, 3),
+            window_end=date(2026, 8, 3),
+        )
+        retry_row = self._make_needs_review_run(
+            site=self.ground_site, window_start=date(2026, 8, 4), window_end=date(2026, 8, 4)
+        )
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        review_table = response.context['review_table']
+        review_pks = {row.record.pk for row in review_table.rows}
+        self.assertNotIn(resolved_approved.pk, review_pks)
+        self.assertIn(retry_row.pk, review_pks)
+
+    def test_unresolved_review_row_renders_live_search_widget_and_resolve_button(self):
+        run = self._make_needs_review_run(site_raw='F65')
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertIn('Sites Needing Review', content)
+        self.assertIn('name="site_selection"', content)
+        self.assertIn(f'form="decide-form-{run.pk}"', content)
+        self.assertIn('hx-get', content)
+        self.assertIn(reverse('campaigns:site_search'), content)
+        self.assertIn('input[this.value.length >= 2] changed delay:300ms', content)
+        self.assertIn('Create new Observatory', content)
+        self.assertIn('value="resolve_site"', content)
+        self.assertIn('btn-primary', content)
+
+    def test_retry_row_renders_plain_text_site_and_resolve_button_no_input(self):
+        """Finding 8c: a run with site already set (flag still True) shows its resolved
+        site as plain text, no site-selection input, but still carries the Resolve button."""
+        run = self._make_needs_review_run(site=self.ground_site)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertNotIn(f'id="site-input-{run.pk}"', content)
+        self.assertIn('FTS', content)
+        self.assertIn(f'id="decide-form-{run.pk}"', content)
+        self.assertIn('value="resolve_site"', content)
+
+    def test_review_table_empty_state_renders_configured_copy(self):
+        response = self.client.get(reverse('campaigns:approval_queue'))
+        self.assertContains(response, 'No sites currently need review.')
 
 
 def _extract_create_observatory_form_fields(html_content: str, form_action_fragment: str) -> dict[str, str]:

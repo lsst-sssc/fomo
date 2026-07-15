@@ -337,10 +337,33 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
             empty_text='No decisions recorded yet.',
             order_by=(),
         )
+        # D-07: approved runs whose site never resolved -- the "dead end" this phase closes.
+        # Deliberately NO row cap (unlike decided_qs's [:20] audit-log cap): this is a live
+        # work queue of items genuinely needing staff action, and capping it would hide
+        # actionable rows. Naturally includes the projection-failed retry state (site set,
+        # flag still True) since the filter is on site_needs_review alone.
+        review_qs = (
+            CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.APPROVED, site_needs_review=True)
+            .select_related('campaign', 'site')
+            .order_by('-pk')
+        )
+        review_table = ApprovalQueueTable(
+            list(review_qs),
+            prefix='review-',
+            request=self.request,
+            # Pitfall 5: reuse the SAME candidate_pool already computed above for
+            # pending_table -- never call build_site_candidates() a second time per request.
+            candidate_pool=candidate_pool,
+            mode='resolve',
+            empty_text='No sites currently need review.',
+            order_by=(),
+        )
         RequestConfig(self.request).configure(pending_table)
         RequestConfig(self.request).configure(decided_table)
+        RequestConfig(self.request).configure(review_table)
         context['pending_table'] = pending_table
         context['decided_table'] = decided_table
+        context['review_table'] = review_table
         return context
 
 
