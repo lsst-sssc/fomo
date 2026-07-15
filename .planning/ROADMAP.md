@@ -247,7 +247,7 @@ Next: `/gsd-plan-phase 18`
 **Goal:** Close the Phase 21 functionality gap: submitters and staff get live fuzzy matching against the merged local `Observatory` + full MPC candidate pool wherever a site is entered, and approved runs with unresolved sites get a resolution workflow instead of a dead end. (1) The public 'Submit an Observing Run' form's Observing site field becomes an HTMX live-search autocomplete backed by a new endpoint running `fuzzy_match_candidates()` over `build_site_candidates()`, replacing the bare free-text CharField; the same live-search widget replaces the approval queue's static per-row datalist (currently only the ≤5 fuzzy matches of the originally-submitted `site_raw`). (2) Post-approval resolution: keep "site failure never blocks approval", but add a "Sites needing review" surface listing approved runs with `site_needs_review=True`, with the same inline resolve input; resolving a site then triggers the deferred CalendarEvent projection that approval skipped.
 **Requirements**: TBD
 **Depends on:** Phase 21 (reuses `resolve_site`/`build_site_candidates`/`fuzzy_match_candidates` and the approval-queue decide flow)
-**Plans:** 3/3 plans complete + 3 gap-closure plans (UAT)
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -266,9 +266,9 @@ Plans:
 
 *Gap-closure Wave 1*
 
-- [ ] 22-04-PLAN.md — Query-param fix (UAT tests 1 & 3): `SiteSearchView.get()` resolves the search term from `q` → `site_raw` → `site_selection` so the widgets' htmx `hx-get` requests (keyed by the input's own `name`) actually render suggestions; view-only, no widget markup change (D-03/D-09/D-10)
-- [ ] 22-05-PLAN.md — Sites Needing Review visual grouping (UAT test 2A): presentation-only card/section styling so the actionable section is distinct from the historical "Recently Decided" table, preserving D-07's locked document order (D-07)
+- [x] 22-04-PLAN.md — Query-param fix (UAT tests 1 & 3): `SiteSearchView.get()` resolves the search term from `q` → `site_raw` → `site_selection` so the widgets' htmx `hx-get` requests (keyed by the input's own `name`) actually render suggestions; view-only, no widget markup change (D-03/D-09/D-10)
+- [x] 22-05-PLAN.md — Sites Needing Review visual grouping (UAT test 2A): presentation-only card/section styling so the actionable section is distinct from the historical "Recently Decided" table, preserving D-07's locked document order (D-07)
 
 *Gap-closure Wave 2* *(depends on 22-04, 22-05 — shared files)*
 
-- [ ] 22-06-PLAN.md — Placeholder-site correction (UAT test 2B): `NEEDS_REVIEW_NAME_PREFIX` + `is_placeholder_observatory()` helper, `render_site()` shows the correction widget for a placeholder site, `_resolve_site()` replaces a placeholder site via a pre-read-site-keyed conditional claim — D-06 racing/never-re-resolve, CR-01 non-revert, and D-09 never-fabricate all preserved (D-06/D-08/D-09)
+- [x] 22-06-PLAN.md — Placeholder-site correction (UAT test 2B): `NEEDS_REVIEW_NAME_PREFIX` + `is_placeholder_observatory()` helper, `render_site()` shows the correction widget for a placeholder site, `_resolve_site()` replaces a placeholder site via a pre-read-site-keyed conditional claim — D-06 racing/never-re-resolve, CR-01 non-revert, and D-09 never-fabricate all preserved (D-06/D-08/D-09)
