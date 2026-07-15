@@ -845,9 +845,11 @@ class TestSiteFuzzyMatch(TestCase):
         self.assertEqual(matches, [])
 
 
-class TestApprovalQueueSiteDisambiguationUI(CampaignApprovalTestBase):
-    """SITE-01/D-04 rendering + stored-XSS coverage for the inline site input +
-    datalist + "Create new Observatory" link (Plan 21-03).
+class TestApprovalQueueSiteSearchWidget(CampaignApprovalTestBase):
+    """D-10/22-REVIEWS.md findings 1 and 7: the approval queue's pending-row Site column is
+    a live-search widget (hx-get to campaigns:site_search), replacing the static datalist
+    from Plan 21-03, while keeping the "Create new Observatory" link and stored-XSS
+    escaping coverage.
 
     ``build_site_candidates`` is patched at the view's import site
     (``solsys_code.campaign_views.build_site_candidates``) so every case here is
@@ -866,18 +868,38 @@ class TestApprovalQueueSiteDisambiguationUI(CampaignApprovalTestBase):
     def tearDown(self):
         cache.clear()
 
-    def test_unresolved_pending_row_renders_site_input_datalist_and_create_link(self):
+    def test_unresolved_pending_row_renders_live_search_widget_and_create_link(self):
         run = self._make_pending_run(site=None, site_raw='F65', site_needs_review=False)
 
         response = self.client.get(reverse('campaigns:approval_queue'))
 
         content = response.content.decode()
         self.assertIn('name="site_selection"', content)
-        self.assertIn(f'list="site-candidates-{run.pk}"', content)
         self.assertIn(f'form="decide-form-{run.pk}"', content)
-        self.assertIn(f'<datalist id="site-candidates-{run.pk}">', content)
-        self.assertIn('<option value=', content)
+        self.assertIn('hx-get', content)
+        self.assertIn(reverse('campaigns:site_search'), content)
+        # The raw corrected trigger string (unescaped -- it sits in the format_html
+        # literal, not a substituted attribute) -- 22-REVIEWS.md finding 1.
+        self.assertIn('input[this.value.length >= 2] changed delay:300ms', content)
+        self.assertNotIn('delay:300ms[', content)
+        self.assertIn(f'<div id="site-suggestions-site-input-{run.pk}"', content)
         self.assertIn('Create new Observatory', content)
+        self.assertNotIn('<datalist', content)
+
+    def test_click_to_fill_wiring_uses_one_consistent_id(self):
+        """22-REVIEWS.md finding 7: for the row's actual pk, 'site-input-{pk}' must appear
+        as ALL of -- the input id, the hx-target value, the container div id, and the
+        hx-vals input_id value -- or the endpoint's onclick fill silently breaks."""
+        run = self._make_pending_run(site=None, site_raw='F65', site_needs_review=False)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        input_id = f'site-input-{run.pk}'
+        self.assertIn(f'id="{input_id}"', content)
+        self.assertIn(f'hx-target="#site-suggestions-{input_id}"', content)
+        self.assertIn(f'<div id="site-suggestions-{input_id}"', content)
+        self.assertIn(f'"input_id": "{input_id}"', content)
 
     def test_site_raw_script_injection_is_escaped_not_rendered_raw(self):
         """T-21-01: format_html auto-escaping must neutralize a stored-XSS attempt in
@@ -905,7 +927,7 @@ class TestApprovalQueueSiteDisambiguationUI(CampaignApprovalTestBase):
         response = self.client.get(reverse('campaigns:approval_queue'))
 
         content = response.content.decode()
-        self.assertNotIn(f'list="site-candidates-{run.pk}"', content)
+        self.assertNotIn(f'id="site-input-{run.pk}"', content)
         self.assertIn('FTS', content)
 
     def test_decided_table_renders_no_site_selection_input(self):
