@@ -789,7 +789,16 @@ class SiteSearchView(View):
         # MPCObscodeFetcher().query_all(), and the widgets' client-side 2-char
         # hx-trigger filter only gates browser-originated requests, not a direct
         # anonymous GET. Gate here, AFTER the throttle check but BEFORE any pool access.
-        query = request.GET.get('q', '')
+        #
+        # gap_closure (22-04, debug/site-search-widget-query-param-mismatch.md): htmx's
+        # hx-get serializes only the triggering element's own name-keyed value plus
+        # hx-vals -- never an enclosing form's other fields, unlike POST. Neither widget
+        # sends `q`: the public submission form's field is `name="site_raw"`
+        # (campaign_forms.py) and the approval-queue/Sites-Needing-Review widgets are
+        # `name="site_selection"` (campaign_tables.py). Resolve the term from `q` first
+        # (so every existing `?q=` caller/test is unaffected), then `site_raw`, then
+        # `site_selection`, preferring the first non-empty value.
+        query = request.GET.get('q', '') or request.GET.get('site_raw', '') or request.GET.get('site_selection', '')
         if len(query.strip()) < 2:
             return render(
                 request,
