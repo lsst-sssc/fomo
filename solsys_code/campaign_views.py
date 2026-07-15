@@ -371,11 +371,17 @@ def _project_calendar_event(run: CampaignRun) -> bool:
     """CAL-01/CAL-02 CalendarEvent projection (D-08), extracted from the approve branch.
 
     Returns True when ``insert_or_create_calendar_event()`` was actually called (an event was
-    created/updated), False when projection was skipped by design (range/TBD run, missing
-    telescope_instrument/site, or a sun_event() ValueError skip) -- 22-REVIEWS.md finding 6:
-    this bool drives the resolve_site action's two distinct success messages. MAY RAISE on
-    unexpected failure (e.g. insert_or_create_calendar_event() itself failing) -- this helper
-    does NO error-handling of its own; callers own revert-vs-non-revert behavior.
+    created/updated), False when projection was skipped by design (range/TBD run, or missing
+    telescope_instrument/site) -- 22-REVIEWS.md finding 6: this bool drives the resolve_site
+    action's two distinct success messages. RAISES ValueError when ``sun_event()`` fails (e.g.
+    a Tier-2-resolved site with a blank ``timezone`` -- CR-01), and MAY RAISE on any other
+    unexpected failure (e.g. ``insert_or_create_calendar_event()`` itself failing) -- this
+    helper does NO error-handling of its own for genuine failures; callers own
+    revert-vs-non-revert behavior. ``resolve_site()`` must treat any raise here as "projection
+    attempted but failed" (keep ``site_needs_review=True``, warn instead of claiming success);
+    ``approve()`` has no retry surface to protect and instead catches-and-swallows the
+    ValueError case specifically at its call site to preserve its original behavior (approval
+    still succeeds even when the calendar entry couldn't be projected).
     """
     # D-06/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- only project a
     # single concrete night (window_start == window_end); a resolved site is required to
@@ -402,7 +408,8 @@ def _project_calendar_event(run: CampaignRun) -> bool:
     # Ground-based observatory: reuse the same dip-corrected sunset/sunrise convention the
     # rest of the calendar feature already uses (kind='sun', not 'dark' -- Pitfall 6). A
     # ValueError (e.g. blank site.timezone, or no 2 sun-altitude crossings) is logged and
-    # skipped, matching campaign_gap.observable_dates()'s established discipline.
+    # re-raised (CR-01) -- callers decide whether that's a by-design skip (approve()) or a
+    # real failure that must keep the retry surface open (resolve_site()).
     #
     # IN-02 (19-REVIEW.md): this branch also catches OCCULTATION_OBSTYPE and RADAR_OBSTYPE
     # sites, not just OPTICAL_OBSTYPE -- every non-SATELLITE Observatory.OBSTYPE_CHOICES
@@ -414,11 +421,12 @@ def _project_calendar_event(run: CampaignRun) -> bool:
         sunset, sunrise = sun_event(run.site, run.window_start, kind='sun')
     except ValueError:
         logger.debug(
-            'sun_event(sun) raised for site=%s date=%s; skipping projection.',
+            'sun_event(sun) raised for site=%s date=%s; re-raising so callers that need the '
+            'retry guarantee (resolve_site) see this as a failure, not a by-design skip.',
             run.site,
             run.window_start,
         )
-        return False
+        raise  # CR-01: never silently swallow this -- see docstring above.
     event_fields['start_time'] = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     event_fields['end_time'] = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
@@ -489,9 +497,25 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     run.save(update_fields=['site', 'site_needs_review'])
 
                 # Projection extracted into the shared _project_calendar_event() helper
-                # (22-REVIEWS.md finding 6); the approve branch ignores its bool return --
-                # this except block's revert-on-failure behavior is unchanged either way.
-                _project_calendar_event(run)
+                # (22-REVIEWS.md finding 6); the approve branch ignores its bool return.
+                # CR-01: _project_calendar_event() now raises ValueError when sun_event()
+                # fails (e.g. a Tier-2-resolved site with a blank timezone) so resolve_site()
+                # can treat it as a real failure. approve() has no retry surface to protect
+                # (unlike resolve_site()'s "Sites Needing Review" row), so it swallows
+                # specifically this expected-failure-mode ValueError here to preserve its
+                # original behavior: the approval still succeeds without a CalendarEvent.
+                # Anything else _project_calendar_event() raises (e.g.
+                # insert_or_create_calendar_event() itself failing) is a genuine unexpected
+                # failure and still falls through to the broader except Exception below,
+                # which reverts the approval.
+                try:
+                    _project_calendar_event(run)
+                except ValueError:
+                    logger.debug(
+                        'Calendar projection skipped for CampaignRun %s on approve '
+                        '(sun_event ValueError, e.g. blank site timezone).',
+                        pk,
+                    )
             except Exception:
                 # CR-01: the conditional .update() above is its own auto-committed statement,
                 # so the APPROVED transition has already landed. If site resolution (a network

@@ -653,6 +653,49 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         review_table = queue_response.context['review_table']
         self.assertIn(run.pk, [row.record.pk for row in review_table.rows])
 
+    def test_resolve_blank_timezone_site_keeps_review_flag_and_creates_no_event(self):
+        """CR-01 (22-REVIEW.md): resolving to a site whose ``timezone`` is blank -- exactly
+        what ``MPCObscodeFetcher.to_observatory()`` (Tier 2) produces, since it never sets
+        ``timezone`` -- must not silently report success. ``sun_event()`` raises ``ValueError``
+        for a blank timezone, and ``_project_calendar_event()`` must now re-raise it (rather
+        than swallowing it into a bare ``False``) so ``_resolve_site()``'s existing
+        non-reverting except block treats this the same as any other projection failure:
+        keep ``site_needs_review=True``, warn instead of claiming success, and create no
+        ``CalendarEvent``. Fixtured directly as a local Observatory (Tier 1 hit) with a blank
+        ``timezone`` rather than mocking the MPC fetch -- CR-01 only cares about the blank
+        timezone, not which tier produced it."""
+        blank_tz_site = Observatory.objects.create(
+            obscode='T99',
+            name='Blank Timezone Site',
+            short_name='BTS',
+            lat=-30.0,
+            lon=149.0,
+            altitude=1000.0,
+            timezone='',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run = self._make_needs_review_run(site_raw='T99')
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'T99'},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, blank_tz_site.pk)
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertTrue(run.site_needs_review)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertNotIn('Site resolved.', messages_list)
+        self.assertTrue(any('calendar entry' in m for m in messages_list))
+
+        # Finding 3 (still holds under CR-01): the retry surface is preserved -- the run
+        # stays listed in review_table's underlying data.
+        queue_response = self.client.get(reverse('campaigns:approval_queue'))
+        review_table = queue_response.context['review_table']
+        self.assertIn(run.pk, [row.record.pk for row in review_table.rows])
+
     def test_resolve_lost_race_no_op_warns(self):
         """Finding 5: a concurrent resolution landing between the fresh fetch and the site
         write must make the loser's claim update match 0 rows -- no write, no projection."""
