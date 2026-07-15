@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 # field itself (not hardcoded) so a future schema change can't silently desync this guard.
 _MAX_OBSCODE_LEN = Observatory._meta.get_field('obscode').max_length
 
+# 22-06 gap closure: single source of truth for the tier-3 placeholder Observatory's name
+# prefix. resolve_site()'s tier-3 fallback builds the name from this constant, and
+# is_placeholder_observatory() below detects any Observatory carrying it -- so the two
+# never drift out of sync (previously an ad-hoc string literal duplicated in each caller).
+NEEDS_REVIEW_NAME_PREFIX = 'NEEDS REVIEW: '
+
 # D-02/A2: the MPC obscode list changes far less often than gap-analysis results, so this
 # mirrors campaign_gap.py's cache pattern (GAP_CACHE_TTL_SECONDS = 3600) with a much
 # longer TTL. Single global pool -> a fixed cache key, no per-request parameters needed.
@@ -202,7 +208,7 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
     try:
         placeholder = Observatory.objects.create(
             obscode=code,
-            name=f'NEEDS REVIEW: {code}',
+            name=f'{NEEDS_REVIEW_NAME_PREFIX}{code}',
             short_name=code,
         )
     except IntegrityError:
@@ -211,6 +217,23 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
         # for this obscode. Re-fetch instead of crashing the import.
         return Observatory.objects.get(obscode=code), True
     return placeholder, True
+
+
+def is_placeholder_observatory(observatory: Observatory | None) -> bool:
+    """Whether ``observatory`` is a tier-3 placeholder created by ``resolve_site()``.
+
+    A pure, DB-free string check on the already-loaded ``name`` field -- callers pass
+    ``select_related('site')`` instances, so this must never trigger a query of its own.
+
+    Args:
+        observatory: an ``Observatory`` instance, or ``None`` for an unresolved run.
+
+    Returns:
+        bool: True when ``observatory`` is truthy and its ``name`` starts with
+            ``NEEDS_REVIEW_NAME_PREFIX``; False for ``None`` or a genuinely-resolved
+            Observatory.
+    """
+    return bool(observatory) and observatory.name.startswith(NEEDS_REVIEW_NAME_PREFIX)
 
 
 def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
