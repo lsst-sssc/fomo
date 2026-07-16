@@ -103,6 +103,28 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 26, tzinfo=timezone.utc))
         self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 52, 50, tzinfo=timezone.utc))
 
+    def test_to_observatory_backfills_timezone_from_coordinates(self):
+        obs = self.fetcher.to_observatory()
+
+        self.assertEqual(obs.timezone, 'Australia/Sydney')
+
+    def test_to_observatory_does_not_clobber_existing_timezone(self):
+        self.fetcher.obs_data['timezone'] = 'America/New_York'
+
+        obs = self.fetcher.to_observatory()
+
+        self.assertEqual(obs.timezone, 'America/New_York')
+
+    @patch('solsys_code.solsys_code_observatory.utils._get_timezone_finder')
+    def test_to_observatory_leaves_timezone_blank_when_unresolvable(self, mock_get_finder):
+        mock_finder = MagicMock()
+        mock_finder.timezone_at.return_value = None
+        mock_get_finder.return_value = mock_finder
+
+        obs = self.fetcher.to_observatory()
+
+        self.assertEqual(obs.timezone, '')
+
     def test_to_radar_observatory(self):
         self.fetcher.obs_data = {
             'created_at': 'Sat, 25 May 2019 00:11:21 GMT',
