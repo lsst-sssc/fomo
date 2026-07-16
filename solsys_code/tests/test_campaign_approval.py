@@ -2124,3 +2124,85 @@ class TestResolveSiteI11GeminiSouth(TestCase):
         self.assertEqual(observatory.timezone, 'America/Santiago')
         self.assertFalse(needs_review)
         self.assertEqual(Observatory.objects.filter(obscode='I11').count(), 1)
+
+
+class TestGeminiFtScenario(CampaignApprovalTestBase):
+    """D-06/D-07: the real Gemini Fast-Turnaround GS-2026A-FT-115 informational run flows
+    through the SAME approve -> mark-status mechanism as any Magellan run, with no
+    special-casing. Its window is a 4-day range (2026-07-13..2026-07-16), so approving it
+    projects NO ``CAMPAIGN:{pk}`` ``CalendarEvent`` (range-window skip-by-design); marking
+    it weathered, then cancelled, must set ``run_status`` only and never crash or
+    fabricate an event (RESEARCH Pitfall 1, T-23-07). This scenario creates no new
+    production code -- it exercises Plan 02's already-built ``_set_run_status()``
+    end-to-end against the real D-06 seed values.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.didymos_campaign = TargetList.objects.create(name='Didymos 2026')
+        # Tier-1-resolvable so approve's site resolution never needs a live MPC call --
+        # Task 1 above (TestResolveSiteI11GeminiSouth) separately proves the Tier-2
+        # resolver path for I11; this scenario's point is the run_status /
+        # no-event-fabrication mechanism, not re-proving site resolution.
+        cls.gemini_south = Observatory.objects.create(
+            obscode='I11',
+            name='Gemini South Observatory, Cerro Pachon',
+            short_name='Gemini South',
+            lat=-30.2407,
+            lon=-70.7366,
+            altitude=2722.0,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def test_gemini_ft115_range_window_flows_through_same_mechanism_no_event_fabricated(self):
+        run = self._make_pending_run(
+            campaign=self.didymos_campaign,
+            telescope_instrument='Gemini-South GMOS-S',
+            site_raw='I11',
+            window_start=date(2026, 7, 13),
+            window_end=date(2026, 7, 16),
+            contact_person='Thomas-Osip',
+            observation_details=(
+                'GS-2026A-FT-115, 6.50 awarded hours (informational only -- not a real Gemini ODB submission)'
+            ),
+            target=None,
+        )
+
+        # (a) Approve: because the window is a 4-day range, no CalendarEvent is projected
+        # (range-window projection is skipped by design).
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(run.site_id, self.gemini_south.pk)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+
+        # (b)/(c)/(d) mark_weather_failure: normal redirect (no 500/IntegrityError),
+        # run_status set to WEATHER_TECH_FAILURE, still no CalendarEvent fabricated.
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_weather_failure'}
+        )
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.WEATHER_TECH_FAILURE)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+
+        # A follow-up mark_cancelled is a REAL transition (WEATHER_TECH_FAILURE ->
+        # CANCELLED are two distinct RunStatus values, not an idempotent no-op --
+        # REVIEW finding, Codex MEDIUM); still no CalendarEvent fabricated.
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+
+        # Source assertion anchor (exact D-06 seed values, target left unset):
+        self.assertEqual(run.telescope_instrument, 'Gemini-South GMOS-S')
+        self.assertEqual(run.contact_person, 'Thomas-Osip')
+        self.assertEqual(run.campaign.name, 'Didymos 2026')
+        self.assertIsNone(run.target)
