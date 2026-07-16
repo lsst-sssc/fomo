@@ -29,6 +29,7 @@ from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
 from django_tables2 import RequestConfig
 from django_tables2.views import SingleTableMixin
+from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -369,6 +370,23 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
         return context
 
 
+# D-03: two distinct title prefixes for the two terminal run_status outcomes staff can set
+# from the Decided table. Keyed on the RunStatus enum member (never derived from raw request
+# text -- V5 Input Validation); must stay byte-identical to the '[WEATHERED]' string appended
+# to calendar_display_extras._TERMINAL_PREFIXES (Task 3) so the box-shadow ring applies.
+_RUN_STATUS_CALENDAR_PREFIX = {
+    CampaignRun.RunStatus.CANCELLED: '[CANCELLED]',
+    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: '[WEATHERED]',
+}
+
+# T-23-05: fixed whitelist mapping a POST action value to the RunStatus it sets -- the
+# run_status value written is always looked up here, never taken from raw request text.
+_ACTION_TO_RUN_STATUS = {
+    'mark_cancelled': CampaignRun.RunStatus.CANCELLED,
+    'mark_weather_failure': CampaignRun.RunStatus.WEATHER_TECH_FAILURE,
+}
+
+
 def _project_calendar_event(run: CampaignRun) -> bool:
     """CAL-01/CAL-02 CalendarEvent projection (D-08), extracted from the approve branch.
 
@@ -452,10 +470,12 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
     def post(self, request, pk):
         """Atomically transition a CampaignRun and, on approve, project a CalendarEvent."""
         action = request.POST.get('action')
-        if action not in ('approve', 'reject', 'resolve_site'):
+        if action not in ('approve', 'reject', 'resolve_site', 'mark_cancelled', 'mark_weather_failure'):
             return HttpResponseBadRequest()
         if action == 'resolve_site':
             return self._resolve_site(request, pk)
+        if action in ('mark_cancelled', 'mark_weather_failure'):
+            return self._set_run_status(request, pk, action)
         new_status = CampaignRun.ApprovalStatus.APPROVED if action == 'approve' else CampaignRun.ApprovalStatus.REJECTED
         updated_count = CampaignRun.objects.filter(
             pk=pk, approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
@@ -681,6 +701,63 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             messages.success(request, 'Site resolved — run added to the calendar.')
         else:
             messages.success(request, 'Site resolved.')
+        return redirect('campaigns:approval_queue')
+
+    def _set_run_status(self, request, pk, action):
+        """D-03/D-04/D-05: mark an already-APPROVED run cancelled or weathered, and update
+        its linked CAMPAIGN:{pk} CalendarEvent in place if (and only if) one already exists.
+
+        Mirrors ``_resolve_site()``'s shape: a server-side business-logic guard (never trust
+        the Decided-table button was only rendered for an APPROVED row -- T-23-01), then a
+        staleness-safe conditional queryset ``.update()`` (T-23-04/REVIEW finding #1) whose
+        returned row count is checked BEFORE ``run.refresh_from_db()`` or the calendar-sync
+        branch -- a concurrent approval_status change or row delete between the guard read
+        and the write must never reach ``refresh_from_db()`` (which would raise
+        ``CampaignRun.DoesNotExist`` on a deleted row) or silently report false success.
+
+        A run whose window/site never projected a CAMPAIGN:{pk} event (a range/TBD run, or
+        one with an unresolved site) still gets its run_status set, but is never handed to
+        ``insert_or_create_calendar_event()`` -- that helper's create-path requires
+        non-nullable start_time/end_time this call deliberately omits, and would raise
+        (T-23-06/RESEARCH Pitfall 1). ``_project_calendar_event()`` itself is never called or
+        modified here.
+        """
+        run = get_object_or_404(CampaignRun, pk=pk)
+
+        # T-23-01: business-logic bypass guard -- only an already-APPROVED run may have its
+        # run_status changed via this endpoint.
+        if run.approval_status != CampaignRun.ApprovalStatus.APPROVED:
+            messages.warning(request, 'This run has not been approved yet.')
+            return redirect('campaigns:approval_queue')
+
+        new_run_status = _ACTION_TO_RUN_STATUS[action]
+        updated_count = CampaignRun.objects.filter(pk=pk, approval_status=CampaignRun.ApprovalStatus.APPROVED).update(
+            run_status=new_run_status
+        )
+        if updated_count == 0:
+            # REVIEW finding #1/T-23-04: the row was concurrently changed or deleted between
+            # the guard read above and this conditional update -- never reach
+            # refresh_from_db() (CampaignRun.DoesNotExist on a deleted row) or the
+            # calendar-sync branch below.
+            messages.warning(request, "This run's status could not be updated (it may have been modified or deleted).")
+            return redirect('campaigns:approval_queue')
+
+        run.refresh_from_db()
+
+        # D-05/T-23-06: only touch the linked CalendarEvent if one already exists -- never
+        # fabricate one for a run that never had a projected event (range/TBD/unresolved-site
+        # runs never reach _project_calendar_event()'s single-night+resolved-site branch).
+        if CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').exists():
+            prefix = _RUN_STATUS_CALENDAR_PREFIX[new_run_status]
+            insert_or_create_calendar_event(
+                {'url': f'CAMPAIGN:{run.pk}'},
+                fields={
+                    'title': f'{prefix} {run.campaign.name}: {run.telescope_instrument}',
+                    'description': f'{run.observation_details}\nRun status: {run.get_run_status_display()}',
+                },
+            )
+
+        messages.success(request, 'Run status updated.')
         return redirect('campaigns:approval_queue')
 
 

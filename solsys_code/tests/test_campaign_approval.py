@@ -380,6 +380,141 @@ class TestCalendarProjection(CampaignApprovalTestBase):
         self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
 
 
+class TestRunStatusChange(CampaignApprovalTestBase):
+    """D-03/D-04/D-05: staff mark an APPROVED run cancelled or weathered from the Decided
+    table, and the linked CAMPAIGN:{pk} CalendarEvent (if one exists) updates in place with
+    a distinct terminal title prefix. A range/TBD/unresolved-site run that never had a
+    projected event is handled without crashing or fabricating one (RESEARCH Pitfall 1). A
+    non-APPROVED run, and a lost-update race between the guard read and the conditional
+    write (REVIEW finding #1), are both rejected/short-circuited server-side without a 500
+    or a calendar mutation.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        # Tier-1-resolvable ground Observatory so a single-night run's approval projects a
+        # CAMPAIGN:{pk} event deterministically, without a live MPC API call (mirrors
+        # TestCalendarProjection's ground_site fixture).
+        cls.ground_site = Observatory.objects.create(
+            obscode='F65',
+            name='Faulkes Telescope South',
+            short_name='FTS',
+            lat=-31.2727,
+            lon=149.0644,
+            altitude=1149.0,
+            timezone='Australia/Sydney',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def _make_approved_single_night_run(self, **overrides):
+        """Create+approve a single-night, resolved-site run so a CAMPAIGN:{pk} event exists."""
+        run = self._make_pending_run(**overrides)
+        self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        run.refresh_from_db()
+        return run
+
+    def test_mark_cancelled_single_night_updates_existing_event_in_place(self):
+        run = self._make_approved_single_night_run()
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 1)
+
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
+        events = CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}')
+        self.assertEqual(events.count(), 1)
+        event = events.get()
+        self.assertTrue(event.title.startswith('[CANCELLED] '))
+        # REVIEW finding #3: the description reflects the status change, not byte-identical
+        # to the original projection description.
+        self.assertIn('Run status: Cancelled', event.description)
+
+    def test_mark_weather_failure_uses_distinct_weathered_prefix(self):
+        run = self._make_approved_single_night_run()
+
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_weather_failure'}
+        )
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.WEATHER_TECH_FAILURE)
+        event = CalendarEvent.objects.get(url=f'CAMPAIGN:{run.pk}')
+        self.assertTrue(event.title.startswith('[WEATHERED] '))
+        self.assertFalse(event.title.startswith('[CANCELLED]'))
+        self.assertIn('Run status: Weather/Technical Failure', event.description)
+
+    def test_mark_range_window_run_does_not_crash_and_creates_no_event(self):
+        run = self._make_approved_single_night_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+
+    def test_mark_status_on_non_approved_run_rejected(self):
+        run = self._make_pending_run()  # still PENDING_REVIEW -- never approved
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'}, follow=True
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.REQUESTED)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('This run has not been approved yet.', messages_list)
+
+    def test_mark_status_lost_update_race_warns_no_calendar_mutation(self):
+        """REVIEW finding #1 backstop: the guard read sees APPROVED (a stale in-memory
+        object), but the DB row's approval_status has actually changed to PENDING_REVIEW by
+        the time the conditional `.update()` runs -- mirrors _resolve_site()'s
+        `claimed == 0` guard. Must not raise CampaignRun.DoesNotExist / 500, must not
+        mutate the DB run_status, and must not touch any CalendarEvent.
+        """
+        run = self._make_approved_single_night_run()
+        event_count_before = CalendarEvent.objects.count()
+        stale_run = CampaignRun.objects.get(pk=run.pk)
+        # Simulate the race after the stale read: the row is no longer APPROVED.
+        CampaignRun.objects.filter(pk=run.pk).update(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+
+        with patch('solsys_code.campaign_views.get_object_or_404', return_value=stale_run):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'}, follow=True
+            )
+        self.assertEqual(response.status_code, 200)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('could not be updated' in m for m in messages_list))
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.REQUESTED)
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+
+    def test_unknown_action_still_bad_request(self):
+        run = self._make_approved_single_night_run()
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_bogus'})
+        self.assertEqual(response.status_code, 400)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.REQUESTED)
+
+    def test_mark_status_anonymous_or_non_staff_makes_no_change(self):
+        run = self._make_approved_single_night_run()
+        self.client.logout()
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.REQUESTED)
+
+        self.client.login(username='regularobserver', password='pw')
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.REQUESTED)
+
+
 class TestApprovalQueueColumns(TestCase):
     """UAT Test 14 gap closure (16-05): ApprovalQueueTable is trimmed/reordered for triage,
     CampaignRunTable stays spreadsheet-parity (Phase 15 D-09 regression guard).
