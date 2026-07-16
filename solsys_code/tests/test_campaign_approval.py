@@ -1361,6 +1361,92 @@ class TestSiteFuzzyMatch(TestCase):
             self.assertEqual(pool.get(rec['short_name']), obscode)
 
     @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_folds_list_valued_old_names(self, mock_query_all):
+        """Regression (debug/site-search-mpc-no-match): the live MPC bulk API returns
+        `old_names` as a JSON *list* (e.g. G96 -> ['Mt. Lemmon Survey']), not a string. The
+        pre-fix _flatten_mpc_candidates() used the list as a dict key/membership operand and
+        raised TypeError: unhashable type: 'list', which build_site_candidates() silently
+        swallowed -- discarding the ENTIRE MPC pool and degrading to local-only. Every MPC
+        record here has a real name and a list old_names; all must survive, and each prior
+        name must be an independently-matchable candidate mapped back to its obscode."""
+        fixture = {
+            'G96': {
+                'name_utf8': 'University of Arizona Mt. Lemmon Survey',
+                'short_name': 'University of Arizona Mt. Lemmon Survey',
+                'old_names': ['Mt. Lemmon Survey'],
+                'observations_type': 'optical',
+                'longitude': 249.21128,
+            },
+            '061': {
+                'name_utf8': 'Uzhhorod',
+                'short_name': 'Uzh',
+                'old_names': ['Uzhgorod', 'Uzhorod'],
+                'observations_type': 'optical',
+                'longitude': 22.3,
+            },
+        }
+        mock_query_all.return_value = fixture
+
+        pool = campaign_utils.build_site_candidates()
+
+        # The whole MPC pool survived (no swallowed TypeError -> no local-only degradation).
+        self.assertEqual(pool.get('G96'), 'G96')
+        self.assertEqual(pool.get('061'), '061')
+        self.assertEqual(pool.get('University of Arizona Mt. Lemmon Survey'), 'G96')
+        # Each list-valued old name is its own candidate, resolving back to the obscode.
+        self.assertEqual(pool.get('Mt. Lemmon Survey'), 'G96')
+        self.assertEqual(pool.get('Uzhgorod'), '061')
+        self.assertEqual(pool.get('Uzhorod'), '061')
+        # End-to-end: typing the historical name surfaces the current obscode as a suggestion.
+        matches = campaign_utils.substring_or_fuzzy_match_candidates('Mt. Lemmon', pool)
+        self.assertIn(('Mt. Lemmon Survey', 'G96'), matches)
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_flatten_mpc_candidates_tolerates_string_and_missing_old_names(self, mock_query_all):
+        """The list fix must not regress the string / None / missing old_names shapes that
+        the single-code query() endpoint and existing fixtures use."""
+        fixture = {
+            'AAA': {'name_utf8': 'Alpha Obs', 'short_name': 'Alpha', 'old_names': 'Legacy Alpha'},
+            'BBB': {'name_utf8': 'Beta Obs', 'short_name': 'Beta', 'old_names': None},
+            'CCC': {'name_utf8': 'Gamma Obs', 'short_name': 'Gamma'},  # old_names key absent
+        }
+        pool = campaign_utils._flatten_mpc_candidates(fixture)
+
+        self.assertEqual(pool.get('Legacy Alpha'), 'AAA')  # string old_names still folded in
+        self.assertEqual(pool.get('Beta Obs'), 'BBB')  # None old_names simply skipped, no crash
+        self.assertEqual(pool.get('Gamma Obs'), 'CCC')  # missing old_names key, no crash
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_degraded_pool_uses_short_ttl(self, mock_query_all):
+        """A local-only fallback pool (MPC fetch failed) must be cached only briefly, so a
+        transient MPC outage cannot poison every site search for the full 24h TTL (the
+        amplifier that turned a swallowed error into a persistent, cross-restart outage)."""
+        mock_query_all.side_effect = requests.exceptions.RequestException
+        Observatory.objects.create(
+            obscode='Q64', name='El Sauce Observatory', short_name='El Sauce', lat=-30.47, lon=-70.77, altitude=1500.0
+        )
+
+        with patch('solsys_code.campaign_utils.cache.set') as mock_set:
+            campaign_utils.build_site_candidates()
+
+        _args, kwargs = mock_set.call_args
+        self.assertEqual(kwargs.get('timeout'), campaign_utils.MPC_CANDIDATE_FALLBACK_TTL_SECONDS)
+        self.assertLess(
+            campaign_utils.MPC_CANDIDATE_FALLBACK_TTL_SECONDS, campaign_utils.MPC_CANDIDATE_CACHE_TTL_SECONDS
+        )
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
+    def test_build_site_candidates_full_pool_uses_long_ttl(self, mock_query_all):
+        """The happy path (MPC fetch succeeded) still caches for the full 24h TTL."""
+        mock_query_all.return_value = BULK_MPC_FIXTURE
+
+        with patch('solsys_code.campaign_utils.cache.set') as mock_set:
+            campaign_utils.build_site_candidates()
+
+        _args, kwargs = mock_set.call_args
+        self.assertEqual(kwargs.get('timeout'), campaign_utils.MPC_CANDIDATE_CACHE_TTL_SECONDS)
+
+    @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
     def test_build_site_candidates_caches_result_under_fixed_key(self, mock_query_all):
         mock_query_all.return_value = BULK_MPC_FIXTURE
 

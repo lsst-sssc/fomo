@@ -42,6 +42,15 @@ NEEDS_REVIEW_NAME_PREFIX = 'NEEDS REVIEW: '
 MPC_CANDIDATE_CACHE_TTL_SECONDS = 86400  # 24h
 _MPC_CANDIDATE_CACHE_KEY = 'mpc_obscode_candidates'
 
+# When the MPC bulk fetch fails, build_site_candidates() still returns a usable local-only
+# pool -- but it must NOT be cached for the full 24h TTL, or a single transient MPC blip
+# poisons every site search for a whole day (the exact failure that shipped in Phase 22:
+# a swallowed error degraded the pool and the degraded pool was then cached for 24h). Cache
+# the degraded pool for only a short retry window so the next request re-attempts the MPC
+# fetch, honoring build_site_candidates()'s documented "degrades gracefully" contract
+# (graceful, not persistent, degradation).
+MPC_CANDIDATE_FALLBACK_TTL_SECONDS = 60  # 1 min
+
 # UT Time Range formats confirmed against the real 3I/ATLAS sheet export (RESEARCH.md
 # "Real 3I/ATLAS Sheet -- Verified Shape"): 'HH:MM - HH:MM' (tolerant of a ';' typo in
 # place of ':'), a tilde-prefixed approximate hour ('~1 am', '~7:00:00 AM'), and a bare
@@ -253,13 +262,47 @@ def is_placeholder_observatory(observatory: Observatory | None) -> bool:
     return bool(observatory) and observatory.name.startswith(NEEDS_REVIEW_NAME_PREFIX)
 
 
+def _old_name_strings(old_names: Any) -> list[str]:
+    """Normalize an MPC record's ``old_names`` field into a list of candidate strings.
+
+    The live MPC bulk obscodes API returns ``old_names`` as a JSON **list** of prior
+    names (confirmed live: 60 of 2,712 records, e.g. ``G96 -> ['Mt. Lemmon Survey']``),
+    or ``null`` for the vast majority. The single-record ``query()`` endpoint and older
+    fixtures have also been seen to carry a bare string. This helper collapses all three
+    shapes (list, str, None/missing) into a flat list of non-empty strings so callers can
+    treat every prior name as an independent fuzzy-match candidate.
+
+    Passing a list straight through to the caller's ``candidate not in mapping`` /
+    ``mapping[candidate] = code`` dict operations previously raised
+    ``TypeError: unhashable type: 'list'`` (an unhashable list can be neither a dict key
+    nor a membership-test operand), which ``build_site_candidates()`` silently swallowed --
+    discarding the entire MPC candidate pool.
+
+    Args:
+        old_names: the record's raw ``old_names`` value -- a list of strings, a single
+            string, ``None``, or missing (any other type is treated as "no old names").
+
+    Returns:
+        list[str]: zero or more non-empty prior-name strings. Never raises.
+    """
+    if isinstance(old_names, str):
+        return [old_names] if old_names else []
+    if isinstance(old_names, list):
+        return [name for name in old_names if isinstance(name, str) and name]
+    return []
+
+
 def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
     """Flatten a bulk MPC obscodes dict into a fuzzy-matchable ``{string: obscode}`` map.
 
     Per RESEARCH.md Pattern 3 / Open Question 2: each record contributes its obscode,
-    ``name_utf8``, ``short_name``, and ``old_names`` (as one whole string, not split) as
-    candidate display strings. First-seen wins on collision (rare -- distinct sites
-    practically never share a name); blank/falsy strings are skipped.
+    ``name_utf8``, ``short_name``, and each of its ``old_names`` as candidate display
+    strings. First-seen wins on collision (rare -- distinct sites practically never share
+    a name); blank/falsy strings are skipped. ``old_names`` is normalized via
+    ``_old_name_strings()`` because the live bulk API returns it as a **list** (not a
+    string) -- each prior name becomes its own independent candidate rather than being
+    concatenated, so e.g. typing ``'Mt. Lemmon'`` matches ``G96``'s historical
+    ``'Mt. Lemmon Survey'`` name.
 
     Args:
         obscode_dict: dict keyed by 3-char obscode, as returned by
@@ -267,11 +310,13 @@ def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
 
     Returns:
         dict[str, str]: candidate display string -> obscode. Never raises for expected
-            messy data (a missing/None field is treated as an empty string and skipped).
+            messy data (a missing/None field is treated as absent and skipped).
     """
     mapping: dict[str, str] = {}
     for code, rec in obscode_dict.items():
-        for candidate in (code, rec.get('name_utf8') or '', rec.get('short_name') or '', rec.get('old_names') or ''):
+        candidates = [code, rec.get('name_utf8') or '', rec.get('short_name') or '']
+        candidates.extend(_old_name_strings(rec.get('old_names')))
+        for candidate in candidates:
             if candidate and candidate not in mapping:
                 mapping[candidate] = code
     return mapping
@@ -328,9 +373,11 @@ def build_site_candidates() -> dict[str, str]:
         return cached
 
     mpc_candidates: dict[str, str] = {}
+    mpc_ok = False
     try:
         obscode_dict = MPCObscodeFetcher().query_all()
         mpc_candidates = _flatten_mpc_candidates(obscode_dict)
+        mpc_ok = True
     except (requests.exceptions.RequestException, ValueError, KeyError, TypeError, AttributeError):
         # WR-style fallback (mirrors resolve_site()'s tier-2 network-failure handling):
         # an MPC outage must never break the approval-queue page render -- fall through to
@@ -346,7 +393,11 @@ def build_site_candidates() -> dict[str, str]:
     for candidate, obscode in _local_observatory_candidates().items():
         merged.setdefault(candidate, obscode)
 
-    cache.set(_MPC_CANDIDATE_CACHE_KEY, merged, timeout=MPC_CANDIDATE_CACHE_TTL_SECONDS)
+    # A full pool (MPC fetch succeeded) is cached for the long TTL; a degraded local-only
+    # pool (MPC fetch failed) is cached only briefly so the next request retries the MPC
+    # fetch instead of serving the degraded pool for a whole day.
+    ttl = MPC_CANDIDATE_CACHE_TTL_SECONDS if mpc_ok else MPC_CANDIDATE_FALLBACK_TTL_SECONDS
+    cache.set(_MPC_CANDIDATE_CACHE_KEY, merged, timeout=ttl)
     return merged
 
 
