@@ -115,13 +115,45 @@ class TestTelescopeRuns(TestCase):
     def test_horizon_dip(self):
         self.assertAlmostEqual(horizon_dip(2402).to_value(u.deg), 1.44, delta=0.02)
 
-    def test_horizon_dip_raises_on_negative_altitude(self):
-        with self.assertRaises(ValueError):
-            horizon_dip(-10)
+    def test_horizon_dip_zero_at_sea_level(self):
+        # An observer at sea level has no elevated horizon to depress.
+        self.assertEqual(horizon_dip(0).to_value(u.arcmin), 0.0)
+
+    def test_horizon_dip_zero_for_below_sea_level_altitude(self):
+        # A small negative geodetic height is physically normal for real,
+        # near-sea-level MPC sites (e.g. obscode 434 "S. Benedetto Po" round-
+        # trips to -18.83 m through MPC's 5-decimal parallax constants). The dip
+        # is 0 there, not a crash -- otherwise the site's calendar projection is
+        # permanently stranded. See debug/negative-altitude-horizon-dip.
+        self.assertEqual(horizon_dip(-18.834226888866702).to_value(u.arcmin), 0.0)
+        self.assertEqual(horizon_dip(-10).to_value(u.arcmin), 0.0)
 
     def test_horizon_dip_raises_on_none_altitude(self):
         with self.assertRaises(ValueError):
             horizon_dip(None)
+
+    def test_sun_event_succeeds_for_below_sea_level_site(self):
+        # Regression for debug/negative-altitude-horizon-dip: resolving the real
+        # MPC obscode 434 "S. Benedetto Po" wrote a placeholder-replacing
+        # Observatory whose parallax-derived altitude is -18.83 m (a rounding
+        # artifact of MPC's 5-decimal parallax constants for a ~19 m real site).
+        # horizon_dip() used to raise ValueError on that, so sun_event() crashed
+        # and the run was stranded in Sites Needing Review. It must now compute a
+        # normal sunset/sunrise (dip=0) instead.
+        site = Observatory.objects.create(
+            obscode='434',
+            name='S. Benedetto Po',
+            short_name='S. Benedetto Po',
+            lat=45.05201000489035,
+            lon=10.9206,
+            altitude=-18.834226888866702,
+            timezone='Europe/Rome',
+        )
+        sunset, sunrise = sun_event(site, date(2026, 6, 10), 'sun')
+        self.assertIsInstance(sunset, Time)
+        self.assertIsInstance(sunrise, Time)
+        # Chronological (set then rise) within the 24 h post-noon window.
+        self.assertLess(sunset.to_datetime(), sunrise.to_datetime())
 
     def test_sun_event_sun(self):
         site = get_site('Magellan-Clay')

@@ -141,17 +141,36 @@ def horizon_dip(altitude_m: float) -> u.Quantity:
     see docs/design/telescope_runs_calendar.rst ("Astronomy: Night
     Boundaries") for the derivation.
 
+    The sqrt(2h/R) model only describes the depression of the visible horizon
+    for an observer *elevated above* the reference surface (h > 0). At or below
+    sea level there is no such depression, so the dip is 0. A small negative
+    altitude is physically normal for real, near-sea-level MPC observatories:
+    the MPC publishes parallax constants to only 5 decimal places (~64 m of
+    altitude granularity, see Observatory.from_parallax_constants), so a genuine
+    near-sea-level site — e.g. obscode 434 "S. Benedetto Po" at ~19 m real
+    elevation — round-trips to a small negative geodetic height (-18.83 m).
+    Rejecting those would strand the site's calendar projection, so any
+    altitude <= 0 is treated as sea level (dip = 0).
+
     Args:
-        altitude_m: Observer altitude above sea level, in metres.
+        altitude_m: Observer altitude above sea level, in metres. Values <= 0
+            (at or below sea level) yield a 0 dip.
 
     Returns:
-        u.Quantity: dip angle (e.g. 1.4376 deg for 2402 m).
+        u.Quantity: dip angle (e.g. 1.4376 deg for 2402 m; 0 arcmin at or below
+            sea level).
 
     Raises:
-        ValueError: if altitude_m is None or negative.
+        ValueError: if altitude_m is None (an unset altitude is a data error,
+            not a physical location).
     """
-    if altitude_m is None or altitude_m < 0:
-        raise ValueError(f'altitude_m must be a non-negative number, got {altitude_m!r}')
+    if altitude_m is None:
+        raise ValueError(f'altitude_m must be a number, got {altitude_m!r}')
+    # Clamp at/below-sea-level altitudes to a 0 dip: the sqrt(2h/R) model has no
+    # elevated horizon to depress there, and this keeps near-sea-level MPC sites
+    # (small negative parallax-derived heights) projectable rather than crashing.
+    if altitude_m <= 0:
+        return 0.0 * u.arcmin
     return 1.76 * sqrt(altitude_m) * u.arcmin
 
 
