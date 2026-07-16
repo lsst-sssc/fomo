@@ -22,6 +22,7 @@ or % interpolation to build this markup.
                var displayText = '{{ display|escapejs }}';
                var obscodeText = '{{ obscode|escapejs }}';
                inputEl.value = displayText + ' (' + obscodeText + ')';
+               inputEl.dataset.siteResolved = 'true';
                document.getElementById('site-suggestions-{{ input_id|escapejs }}').innerHTML = '';">
     {{ display }} ({{ obscode }})
   </li>

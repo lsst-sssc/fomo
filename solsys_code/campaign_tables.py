@@ -234,7 +234,8 @@ class ApprovalQueueTable(CampaignRunTable):
             'class="form-control form-control-sm" placeholder="MPC code or site name…" '
             'autocomplete="off" hx-get="{3}" '
             'hx-trigger="input[this.value.length >= 2] changed delay:300ms" '
-            'hx-target="#{4}" hx-swap="innerHTML" hx-vals=\'{{"input_id": "{1}"}}\'>'
+            'hx-target="#{4}" hx-swap="innerHTML" hx-vals=\'{{"input_id": "{1}"}}\' '
+            'data-site-resolved="false" oninput="this.dataset.siteResolved = \'false\';">'
             '<div id="{4}" class="mt-2"></div>'
             '<a href="{5}" class="small ml-1">Create new Observatory</a>',
             site_raw,
@@ -321,7 +322,11 @@ class ApprovalQueueTable(CampaignRunTable):
             '<form id="{0}" method="post" action="{1}">'
             '<input type="hidden" name="csrfmiddlewaretoken" value="{2}">'
             '<div class="d-flex" style="gap: 0.5rem;">'
-            '<button type="submit" name="action" value="approve" class="btn btn-sm btn-success">Approve</button>'
+            '<button type="submit" name="action" value="approve" class="btn btn-sm btn-success" '
+            "onclick=\"var el = document.getElementById('site-input-{3}'); "
+            "if (!el || el.value.trim() === '' || el.dataset.siteResolved === 'true') {{ return true; }} "
+            "return confirm('This observing site does not look resolved yet. Approve anyway? "
+            'It will land in Sites Needing Review.\');">Approve</button>'
             '<button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" '
             'onclick="return confirm(\'Reject this submission? '
             'The submitter will not be automatically notified.\')">Reject</button>'
@@ -329,4 +334,5 @@ class ApprovalQueueTable(CampaignRunTable):
             form_id,
             decide_url,
             csrf_token,
+            record.pk,
         )
