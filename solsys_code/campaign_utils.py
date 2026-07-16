@@ -318,6 +318,31 @@ def _candidate_str(value: Any) -> str:
     return value if isinstance(value, str) else ''
 
 
+def _normalize_candidate(value: str) -> str:
+    """Collapse a candidate display string to its visible-rendered form.
+
+    Runs of any whitespace are collapsed to a single space and leading/trailing whitespace
+    is stripped -- exactly the transformation a browser applies to a normal (non-``pre``)
+    HTML text node. This is the dedup key for the candidate pool: two byte-distinct strings
+    that differ only in whitespace runs (e.g. Z23's ``name_utf8`` ``'Nordic Optical
+    Telescope, La Palma'`` vs its ``old_names`` ``'Nordic Optical Telescope,     La Palma'``)
+    render byte-for-byte identically in the suggestion dropdown, so treating them as distinct
+    candidates surfaces the SAME site twice (debug/duplicate-mpc-candidate-match). Live audit:
+    32 of 2,712 MPC records carry an ``old_names`` whitespace-variant of their current name,
+    so this is a systemic dedup gap, not a Z23 one-off. Normalizing here is a visual no-op
+    (the browser already collapses the whitespace) that removes the redundant byte-variant
+    key at the pool's source, fixing every consumer -- substring match, difflib fuzzy match,
+    and ``selection_to_obscode()`` -- uniformly.
+
+    Args:
+        value: a raw candidate display string (already coerced to ``str`` by callers).
+
+    Returns:
+        str: the whitespace-normalized candidate. Never raises.
+    """
+    return ' '.join(value.split())
+
+
 def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
     """Flatten a bulk MPC obscodes dict into a fuzzy-matchable ``{string: obscode}`` map.
 
@@ -351,6 +376,11 @@ def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
         candidates = [code, _candidate_str(rec.get('name_utf8')), _candidate_str(rec.get('short_name'))]
         candidates.extend(_old_name_strings(rec.get('old_names')))
         for candidate in candidates:
+            # Normalize to the visible-rendered form BEFORE the first-seen dedup so two
+            # byte-distinct strings that render identically (e.g. name_utf8 vs an old_names
+            # whitespace-variant) collapse to one candidate rather than surfacing the same
+            # site twice (debug/duplicate-mpc-candidate-match).
+            candidate = _normalize_candidate(candidate)
             if candidate and candidate not in mapping:
                 mapping[candidate] = code
     return mapping
@@ -376,6 +406,11 @@ def _local_observatory_candidates() -> dict[str, str]:
     mapping: dict[str, str] = {}
     for obs in Observatory.objects.exclude(name__startswith=NEEDS_REVIEW_NAME_PREFIX):
         for candidate in (obs.obscode, obs.name or '', obs.short_name or '', obs.old_names or ''):
+            # Same whitespace normalization as _flatten_mpc_candidates() so a local row whose
+            # name is a whitespace-variant of its MPC name doesn't reintroduce a visual
+            # duplicate when the two pools merge in build_site_candidates()
+            # (debug/duplicate-mpc-candidate-match).
+            candidate = _normalize_candidate(candidate)
             if candidate and candidate not in mapping:
                 mapping[candidate] = obs.obscode
     return mapping

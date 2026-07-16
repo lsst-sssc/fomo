@@ -87,6 +87,64 @@ class SubstringOrFuzzyMatchCandidatesTest(TestCase):
         self.assertLessEqual(len(results), 5)
 
 
+class WhitespaceVariantDedupTest(TestCase):
+    """debug/duplicate-mpc-candidate-match: an ``old_names`` whitespace-variant of a record's
+    current name must NOT surface the same site twice in the suggestion dropdown.
+
+    The live MPC bulk data carries, for 32 of 2,712 records, an ``old_names`` entry that is
+    the current name with extra internal/trailing whitespace (e.g. Z23's ``name_utf8``
+    ``'Nordic Optical Telescope, La Palma'`` vs its ``old_names`` ``'Nordic Optical
+    Telescope,     La Palma'``). Those two byte-distinct strings render byte-for-byte
+    identically in HTML, so before the fix both appeared as separate, identical suggestion
+    rows. The candidate pool now dedups on the whitespace-normalized (visible-rendered) form.
+    """
+
+    # Z23-shaped: name_utf8/short_name single-spaced, old_names with a 5-space run -- the
+    # exact live shape captured in the debug session's reproduction.
+    Z23_INTERNAL_SPACE_FIXTURE = {
+        'Z23': {
+            'name_utf8': 'Nordic Optical Telescope, La Palma',
+            'short_name': 'Nordic Optical Telescope, La Palma',
+            'old_names': ['Nordic Optical Telescope,     La Palma'],
+            'observations_type': 'optical',
+            'longitude': 342.11492,
+        },
+    }
+
+    # The far more common live shape: old_names is the current name with a trailing space
+    # (e.g. obscode 434 'S. Benedetto Po ' vs 'S. Benedetto Po').
+    TRAILING_SPACE_FIXTURE = {
+        '434': {
+            'name_utf8': 'S. Benedetto Po',
+            'short_name': 'S. Benedetto Po',
+            'old_names': ['S. Benedetto Po '],
+            'observations_type': 'fixed',
+            'longitude': 10.9,
+        },
+    }
+
+    def test_flatten_collapses_internal_whitespace_variant_to_one_candidate(self):
+        flat = campaign_utils._flatten_mpc_candidates(self.Z23_INTERNAL_SPACE_FIXTURE)
+        name_keys = [k for k, code in flat.items() if code == 'Z23' and 'nordi' in k.lower()]
+        self.assertEqual(name_keys, ['Nordic Optical Telescope, La Palma'])
+
+    def test_flatten_collapses_trailing_whitespace_variant_to_one_candidate(self):
+        flat = campaign_utils._flatten_mpc_candidates(self.TRAILING_SPACE_FIXTURE)
+        name_keys = [k for k, code in flat.items() if code == '434' and 'benedetto' in k.lower()]
+        self.assertEqual(name_keys, ['S. Benedetto Po'])
+
+    def test_search_returns_single_suggestion_for_whitespace_variant_record(self):
+        pool = campaign_utils._flatten_mpc_candidates(self.Z23_INTERNAL_SPACE_FIXTURE)
+        results = substring_or_fuzzy_match_candidates('Nordi', pool)
+        self.assertEqual(results, [('Nordic Optical Telescope, La Palma', 'Z23')])
+
+    def test_normalize_candidate_matches_html_whitespace_collapsing(self):
+        normalize = campaign_utils._normalize_candidate
+        self.assertEqual(normalize('Nordic Optical,     La Palma'), 'Nordic Optical, La Palma')
+        self.assertEqual(normalize('S. Benedetto Po '), 'S. Benedetto Po')
+        self.assertEqual(normalize('  a\t b\n c  '), 'a b c')
+
+
 @override_settings(CACHES=ISOLATED_TEST_CACHES)
 class ThrottleTest(TestCase):
     """D-02: per-IP fixed-window throttle via django.core.cache.
