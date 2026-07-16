@@ -20,6 +20,12 @@ from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, ParsedRun, get_si
 # single telescope+instrument, so it can never merge two genuinely different nights.
 _START_TIME_MATCH_TOLERANCE = timedelta(minutes=5)
 
+# Classical-schedule status -> title prefix (D-02). Only 'cancelled' has a visible
+# prefix today, mirroring sync_lco_observation_calendar's _FAILURE_PREFIX_BY_STATUS
+# idiom; '[CANCELLED]' is already a member of calendar_display_extras._TERMINAL_PREFIXES
+# so the terminal box-shadow ring is inherited with no templatetag change.
+_CLASSICAL_STATUS_PREFIX = {'cancelled': '[CANCELLED]'}
+
 
 def _resolve_window_time(window: str, sunset, sunrise, evening_date: date) -> datetime:
     """Convert a window token to a UTC datetime for a single observing night.
@@ -136,7 +142,12 @@ class Command(BaseCommand):
                     dark_start_dt = dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
                     dark_end_dt = dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
 
-                    title = f'{parsed.telescope} {parsed.instrument}'
+                    prefix = _CLASSICAL_STATUS_PREFIX.get(parsed.status)
+                    title = (
+                        f'{prefix} {parsed.telescope} {parsed.instrument}'
+                        if prefix
+                        else f'{parsed.telescope} {parsed.instrument}'
+                    )
                     description = (
                         f'Dark window (-15 deg, UTC): {dark_start_dt.isoformat()} to {dark_end_dt.isoformat()}\n'
                         f'Status: {parsed.status}\n'

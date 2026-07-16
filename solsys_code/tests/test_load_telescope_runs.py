@@ -161,6 +161,58 @@ class TestLoadTelescopeRuns(TestCase):
             # Source line text
             self.assertIn('NTT EFOSC2 allocation 9-13 July', desc)
 
+    def test_cancelled_line_gets_bracket_cancelled_title_prefix(self):
+        """D-02: a cancelled classical run gets a '[CANCELLED] ' title prefix; description unchanged."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 9-13 July (cancelled)'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            events = CalendarEvent.objects.all()
+            self.assertGreater(events.count(), 0)
+            event = events.first()
+            self.assertEqual(event.title, '[CANCELLED] NTT EFOSC2')
+            self.assertIn('Status: cancelled', event.description)
+
+    def test_non_cancelled_statuses_keep_unprefixed_title(self):
+        """D-02: the other four KNOWN_STATUSES words leave the title unprefixed.
+
+        REVIEW finding #4: each status gets its own night so the four statuses don't
+        collide on the (telescope, instrument, start_time) natural key and update a
+        single event in place.
+        """
+        lines = [
+            'NTT EFOSC2 allocation 9-10 July',
+            'NTT EFOSC2 proposed 10-11 July',
+            'NTT EFOSC2 confirmed 11-12 July',
+            'NTT EFOSC2 12-13 July (not confirmed)',
+        ]
+        path, tmpdir_ctx = self._write_schedule_file(lines)
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            events = CalendarEvent.objects.all()
+            self.assertEqual(events.count(), 4)
+            for event in events:
+                with self.subTest(title=event.title):
+                    self.assertEqual(event.title, 'NTT EFOSC2')
+
+    def test_reingest_without_cancelled_reverts_title_prefix(self):
+        """RESEARCH Pitfall 4: re-ingesting after the 'cancelled' word is removed reverts the
+        title to unprefixed, with no stale prefix, no duplicate row, and no double prefix."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 9-13 July (cancelled)'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            cancelled_count = CalendarEvent.objects.count()
+            cancelled_pks = set(CalendarEvent.objects.values_list('pk', flat=True))
+            for event in CalendarEvent.objects.all():
+                self.assertTrue(event.title.startswith('[CANCELLED] '))
+
+        path2, tmpdir_ctx2 = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx2:
+            call_command('load_telescope_runs', path2, stdout=io.StringIO(), stderr=io.StringIO())
+            self.assertEqual(CalendarEvent.objects.count(), cancelled_count)
+            self.assertEqual(set(CalendarEvent.objects.values_list('pk', flat=True)), cancelled_pks)
+            for event in CalendarEvent.objects.all():
+                self.assertEqual(event.title, 'NTT EFOSC2')
+
     def test_idempotent_rerun_no_duplicates(self):
         """INGEST-03: running command twice on same file leaves total CalendarEvent count unchanged (still 4)."""
         path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
