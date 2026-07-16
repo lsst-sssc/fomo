@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 Phase: 22
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-15 — Phase 22 complete
+Last activity: 2026-07-16 — Completed quick task 260716-h8c: Backfill Observatory.timezone from lat/lon via timezonefinder
 
 ## Roadmap Summary (v2.1)
 
@@ -199,6 +199,7 @@ None. Roadmap created; Phase 18 ready to plan via `/gsd-plan-phase 18`.
 | 260711-o71 | Measure solsys_code test coverage, add permanent CR-01/CR-02 regression tests to test_campaign_approval.py (closing the gap left by the phase 21 verifier's temporary tests), re-measure and report the diff | 2026-07-11 | adcd59a | Complete | [260711-o71-measure-current-test-coverage-for-solsys](./quick/260711-o71-measure-current-test-coverage-for-solsys/) |
 | 260714-ilz | Close date-format gap on public campaign-run submission form: obs_date now accepts single date/range/blank via parse_obs_window(), closing the hard Django date-validation failure that blocked multi-night range submissions (SUBMIT-01) | 2026-07-14 | f7b3ca0 | Complete | [260714-ilz-close-date-format-gap-on-public-campaign](./quick/260714-ilz-close-date-format-gap-on-public-campaign/) |
 | 260714-jpd | Register CampaignRun and CalendarEventTelescopeLabel in solsys_code/admin.py: approval_status read-only (no admin bypass of CampaignRunDecisionView.post()'s calendar projection + D-06 guard), contact PII excluded from the change-list but editable in detail, proven via a new admin test-client suite | 2026-07-14 | b6ae100 | Complete | [260714-jpd-add-calendareventtelescopelabel-and-camp](./quick/260714-jpd-add-calendareventtelescopelabel-and-camp/) |
+| 260716-h8c | Backfill Observatory.timezone from lat/lon in MPCObscodeFetcher.to_observatory() (Tier-2 MPC site-code lookup) using timezonefinder, closing the CR-01 gap where Tier-2-resolved sites always got a blank timezone and needed a manual admin edit before a Sites Needing Review calendar-projection retry could succeed | 2026-07-16 | 75962de | Complete | [260716-h8c-backfill-observatory-timezone-from-lat-l](./quick/260716-h8c-backfill-observatory-timezone-from-lat-l/) |
 
 ## Deferred Items
 
