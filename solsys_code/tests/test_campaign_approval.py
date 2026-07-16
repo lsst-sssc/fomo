@@ -515,6 +515,50 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         self.assertEqual(run.run_status, CampaignRun.RunStatus.REQUESTED)
 
 
+class TestDecidedTableStatusActions(CampaignApprovalTestBase):
+    """D-04 (Plan 02): the Decided table's Mark Cancelled/Mark Weathered action is gated by
+    the independent ``status_actions`` flag, never by flipping ``show_actions`` -- the Site
+    column's plain-text fallback (RESEARCH Pitfall 3) must stay completely untouched.
+    """
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def test_decided_table_renders_status_actions_for_approved_run(self):
+        self._make_pending_run(approval_status=CampaignRun.ApprovalStatus.APPROVED)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertIn('name="action" value="mark_cancelled"', content)
+        self.assertIn('name="action" value="mark_weather_failure"', content)
+        self.assertIn('Mark Cancelled', content)
+        self.assertIn('Mark Weathered', content)
+
+    def test_decided_table_no_status_actions_for_rejected_run(self):
+        self._make_pending_run(approval_status=CampaignRun.ApprovalStatus.REJECTED)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertNotIn('name="action" value="mark_cancelled"', content)
+        self.assertNotIn('name="action" value="mark_weather_failure"', content)
+
+    def test_decided_table_site_column_stays_plain_text(self):
+        # REJECTED (not APPROVED) so this row can never also land in review_table -- keeps
+        # the assertion scoped purely to the Decided table's own render_site() output.
+        run = self._make_pending_run(
+            approval_status=CampaignRun.ApprovalStatus.REJECTED, site=None, site_raw='DCT', site_needs_review=False
+        )
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertIn('DCT', content)
+        self.assertNotIn(f'id="site-input-{run.pk}"', content)
+        self.assertNotIn('name="site_selection"', content)
+
+
 class TestApprovalQueueColumns(TestCase):
     """UAT Test 14 gap closure (16-05): ApprovalQueueTable is trimmed/reordered for triage,
     CampaignRunTable stays spreadsheet-parity (Phase 15 D-09 regression guard).

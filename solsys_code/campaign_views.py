@@ -337,6 +337,8 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
             list(decided_qs),
             prefix='decided-',
             show_actions=False,
+            status_actions=True,
+            request=self.request,
             empty_text='No decisions recorded yet.',
             order_by=(),
         )

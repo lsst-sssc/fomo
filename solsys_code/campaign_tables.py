@@ -199,7 +199,16 @@ class ApprovalQueueTable(CampaignRunTable):
             '...',
         )
 
-    def __init__(self, *args, show_actions=True, request=None, candidate_pool=None, mode='pending', **kwargs):
+    def __init__(
+        self,
+        *args,
+        show_actions=True,
+        request=None,
+        candidate_pool=None,
+        mode='pending',
+        status_actions=False,
+        **kwargs,
+    ):
         self.show_actions = show_actions
         self.request = request
         self.candidate_pool = candidate_pool
@@ -208,6 +217,11 @@ class ApprovalQueueTable(CampaignRunTable):
         # Sites Needing Review row (Task 2). show_actions=False (decided table) still wins
         # over either mode in render_site()'s early-return below.
         self.mode = mode
+        # D-04 (Plan 02): independent of show_actions -- gates the Decided table's new
+        # Mark Cancelled/Mark Weathered action, which must render WITHOUT flipping
+        # show_actions to True (RESEARCH Pitfall 3: that would also leak the live-search
+        # site widget into the read-only Decided table's unresolved-site rows).
+        self.status_actions = status_actions
         super().__init__(*args, **kwargs)
 
     def _render_site_search_widget(self, *, site_raw, input_id, form_id):
@@ -302,6 +316,31 @@ class ApprovalQueueTable(CampaignRunTable):
         (not two) so the Site column's ``form=`` input can target it via the HTML5 ``form=``
         attribute (D-04)."""
         if not self.show_actions:
+            # D-04 (Plan 02): the Decided table's Mark Cancelled/Mark Weathered action is
+            # gated by the independent status_actions flag, never by flipping show_actions
+            # -- render_site()'s existing plain-text fallback (the `elif not self.show_actions`
+            # branch above) stays completely untouched (RESEARCH Pitfall 3).
+            if (
+                self.status_actions
+                and Accessor('approval_status').resolve(record, quiet=True) == CampaignRun.ApprovalStatus.APPROVED
+            ):
+                decide_url = reverse('campaigns:decide', kwargs={'pk': record.pk})
+                csrf_token = get_token(self.request) if self.request is not None else ''
+                # Buttons render for ANY APPROVED row regardless of current run_status (RESEARCH
+                # Open Question 1) -- a mis-click is correctable via the same UI and re-clicking
+                # is a harmless idempotent no-op; no revert button.
+                return format_html(
+                    '<form method="post" action="{0}">'
+                    '<input type="hidden" name="csrfmiddlewaretoken" value="{1}">'
+                    '<div class="d-flex" style="gap: 0.5rem;">'
+                    '<button type="submit" name="action" value="mark_cancelled" '
+                    'class="btn btn-sm btn-outline-secondary">Mark Cancelled</button>'
+                    '<button type="submit" name="action" value="mark_weather_failure" '
+                    'class="btn btn-sm btn-outline-secondary">Mark Weathered</button>'
+                    '</div></form>',
+                    decide_url,
+                    csrf_token,
+                )
             return ''
         decide_url = reverse('campaigns:decide', kwargs={'pk': record.pk})
         csrf_token = get_token(self.request) if self.request is not None else ''
