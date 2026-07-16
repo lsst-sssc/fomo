@@ -9,6 +9,28 @@ from solsys_code.solsys_code_observatory.models import Observatory
 logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)
 
+_timezone_finder = None
+
+
+def _get_timezone_finder():
+    """Return a lazily-constructed, module-cached ``TimezoneFinder`` instance.
+
+    ``TimezoneFinder`` loads its boundary-polygon data on construction, which is
+    relatively expensive, so it is built once here and reused across every
+    ``to_observatory()`` call rather than per-call. The import itself is deferred
+    to inside this function (rather than module level) so that importing
+    ``utils.py`` -- which happens broadly across the codebase -- doesn't pay the
+    polygon-data load cost unless a timezone lookup is actually needed.
+
+    :returns: shared ``TimezoneFinder`` instance
+    """
+    global _timezone_finder
+    if _timezone_finder is None:
+        from timezonefinder import TimezoneFinder
+
+        _timezone_finder = TimezoneFinder()
+    return _timezone_finder
+
 
 class MPCObscodeFetcher:
     """
@@ -103,6 +125,17 @@ class MPCObscodeFetcher:
             obs.lon = elong
             # Convert parallax constants to longitude (again), latitude and altitude
             obs.from_parallax_constants(elong, float(self.obs_data['rhocosphi']), float(self.obs_data['rhosinphi']))
+            # Backfill timezone from the resolved coordinates when the MPC record doesn't
+            # supply one (it never does in live data). A value already present on the record
+            # is authoritative and is never overwritten by the coordinate lookup.
+            obs.timezone = self.obs_data.get('timezone', '') or ''
+            if not obs.timezone and obs.lat is not None and obs.lon is not None:
+                tz_name = _get_timezone_finder().timezone_at(lat=obs.lat, lng=obs.lon)
+                # A coordinate with no timezone polygon (e.g. open ocean) leaves timezone
+                # blank rather than fabricating a guess, preserving the CR-01
+                # resolve-fails-gracefully / stays-retryable behavior.
+                if tz_name:
+                    obs.timezone = tz_name
             try:
                 created_time = datetime.strptime(self.obs_data['created_at'], '%a, %d %b %Y %H:%M:%S %Z')
                 created_time = created_time.replace(tzinfo=timezone.utc)
