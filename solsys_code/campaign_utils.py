@@ -292,6 +292,32 @@ def _old_name_strings(old_names: Any) -> list[str]:
     return []
 
 
+def _candidate_str(value: Any) -> str:
+    """Coerce an MPC record field to a candidate string, treating any non-string as absent.
+
+    Defence-in-depth against the bug #1 failure family (debug/site-search-mpc-no-match): the
+    live MPC bulk API has been observed to return an unexpectedly-shaped field -- ``old_names``
+    arrives as a JSON **list** for 60/2,712 records. Passing a non-string straight into
+    ``_flatten_mpc_candidates()``'s dict-key / membership operations raises
+    ``TypeError: unhashable type: 'list'``, which ``build_site_candidates()``'s broad ``except``
+    silently swallows -- discarding the ENTIRE MPC candidate pool for one malformed field.
+    ``old_names`` is normalized by ``_old_name_strings()``; this guards ``name_utf8`` /
+    ``short_name`` the same way, so a future shape surprise in ANY scalar candidate field
+    degrades to "skip that one field" rather than to a whole-pool drop. A live field-shape
+    audit (debug/site-search-degraded-pool-recurrence) confirmed all 2,712 records currently
+    carry str ``name_utf8``/``short_name`` -- this is purely forward-looking hardening and is a
+    no-op for every field shape seen in live data today (``str`` passes through unchanged,
+    ``None``/missing become ``''`` exactly as the previous ``... or ''`` did).
+
+    Args:
+        value: the raw record field value -- a string, ``None``, or (defensively) any other type.
+
+    Returns:
+        str: ``value`` when it is a string, else ``''``. Never raises.
+    """
+    return value if isinstance(value, str) else ''
+
+
 def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
     """Flatten a bulk MPC obscodes dict into a fuzzy-matchable ``{string: obscode}`` map.
 
@@ -302,7 +328,10 @@ def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
     ``_old_name_strings()`` because the live bulk API returns it as a **list** (not a
     string) -- each prior name becomes its own independent candidate rather than being
     concatenated, so e.g. typing ``'Mt. Lemmon'`` matches ``G96``'s historical
-    ``'Mt. Lemmon Survey'`` name.
+    ``'Mt. Lemmon Survey'`` name. ``name_utf8``/``short_name`` are coerced via
+    ``_candidate_str()`` and a non-dict record is skipped, so a single field- or record-shape
+    surprise in the live bulk data can never abort the whole flatten and silently drop all
+    ~2,712 candidates (the bug #1 failure family; debug/site-search-degraded-pool-recurrence).
 
     Args:
         obscode_dict: dict keyed by 3-char obscode, as returned by
@@ -310,11 +339,16 @@ def _flatten_mpc_candidates(obscode_dict: dict) -> dict[str, str]:
 
     Returns:
         dict[str, str]: candidate display string -> obscode. Never raises for expected
-            messy data (a missing/None field is treated as absent and skipped).
+            messy data (a missing/None/wrong-typed field is treated as absent and skipped).
     """
     mapping: dict[str, str] = {}
     for code, rec in obscode_dict.items():
-        candidates = [code, rec.get('name_utf8') or '', rec.get('short_name') or '']
+        if not isinstance(rec, dict):
+            # A single malformed record must never abort the whole flatten -- that would
+            # discard every other record's candidates via build_site_candidates()'s broad
+            # except (the bug #1 whole-pool-drop failure mode). Skip it and keep the rest.
+            continue
+        candidates = [code, _candidate_str(rec.get('name_utf8')), _candidate_str(rec.get('short_name'))]
         candidates.extend(_old_name_strings(rec.get('old_names')))
         for candidate in candidates:
             if candidate and candidate not in mapping:
@@ -399,6 +433,55 @@ def build_site_candidates() -> dict[str, str]:
     ttl = MPC_CANDIDATE_CACHE_TTL_SECONDS if mpc_ok else MPC_CANDIDATE_FALLBACK_TTL_SECONDS
     cache.set(_MPC_CANDIDATE_CACHE_KEY, merged, timeout=ttl)
     return merged
+
+
+# The site-search suggestion widget (site_search_results.html) writes the COMBINED display
+# string `f'{display} ({obscode})'` into the site_selection input on click (e.g.
+# 'Lowell Discovery Telescope (G37)'). selection_to_obscode() recovers the obscode from that
+# trailing ' (obscode)' token. Greedy `.*` for the display part so a display that itself
+# contains parentheses keeps everything up to the LAST group; `[^()]+` forbids nested parens
+# in the obscode token so only a genuine trailing '(...)' is peeled off.
+_SELECTION_DISPLAY_OBSCODE_RE = re.compile(r'^(?P<display>.*) \((?P<obscode>[^()]+)\)$')
+
+
+def selection_to_obscode(selection: str) -> str:
+    """Map a site-search widget selection string back to its MPC obscode.
+
+    The approval-queue site-search widgets submit whatever text is in the ``site_selection``
+    input. When a staff member *clicks a suggestion*, the fragment's onclick handler
+    (``site_search_results.html``) sets that input to the COMBINED
+    ``f'{display} ({obscode})'`` string (e.g. ``'Lowell Discovery Telescope (G37)'``) --
+    but ``build_site_candidates()``'s pool is keyed on the bare display strings and bare
+    obscodes only, never the combined form. A plain ``pool.get(selection)`` therefore MISSES
+    on every suggestion-selected value and the whole 30+ character combined string is passed
+    through to ``resolve_site()`` as a literal obscode, which rejects it as oversized
+    (``len > _MAX_OBSCODE_LEN``) and returns ``(None, True)`` -- surfacing as the generic
+    "Could not resolve that site" message (debug/site-resolve-list-old-names). This helper
+    resolves the selection robustly, in order:
+
+        1. Exact pool hit on the whole selection -- a bare obscode or bare display string
+           typed/selected verbatim -> its obscode.
+        2. Otherwise, if the selection ends in a parenthesized token (the widget's
+           ``display (obscode)`` contract), recover that trailing token as the obscode,
+           preferring a pool hit on the leading display part when it is itself a candidate.
+        3. Otherwise, return the selection unchanged (``resolve_site()`` will tier-1/2 it,
+           or reject it) -- backward-compatible with the previous
+           ``build_site_candidates().get(selection, selection)`` behavior.
+
+    Args:
+        selection: the raw ``site_selection`` value (callers pass it already stripped).
+
+    Returns:
+        str: the resolved obscode, or the original selection when it cannot be mapped.
+    """
+    pool = build_site_candidates()
+    if selection in pool:
+        return pool[selection]
+    match = _SELECTION_DISPLAY_OBSCODE_RE.fullmatch(selection)
+    if match:
+        display, obscode = match.group('display'), match.group('obscode')
+        return pool.get(display, obscode)
+    return selection
 
 
 def fuzzy_match_candidates(site_raw: str, candidate_pool: dict[str, str], n: int = 5) -> list[tuple[str, str]]:

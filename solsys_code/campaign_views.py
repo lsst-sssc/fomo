@@ -43,6 +43,7 @@ from .campaign_utils import (
     build_site_candidates,
     is_placeholder_observatory,
     resolve_site,
+    selection_to_obscode,
     substring_or_fuzzy_match_candidates,
 )
 from .mixins import StaffRequiredMixin
@@ -488,15 +489,16 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     # an unresolved site simply means no CalendarEvent yet, not a blocked
                     # approval).
                     selection = request.POST.get('site_selection', '').strip() or run.site_raw
-                    # CR-01: the datalist offered on the row (ApprovalQueueTable.render_site)
-                    # lists MPC-sourced display strings (name_utf8/short_name/old_names), not
-                    # obscodes -- resolve the submitted text back to its obscode via the same
-                    # candidate pool the datalist was built from before calling resolve_site(),
-                    # which otherwise treats its argument as a literal obscode. An exact match
-                    # in the pool (e.g. the staff member picked/typed a datalist option
-                    # verbatim) maps to its obscode; anything else (a value that was never a
-                    # candidate, including a genuinely-typed obscode) passes through unchanged.
-                    obscode_selection = build_site_candidates().get(selection, selection)
+                    # CR-01: the live-search widget offered on the row
+                    # (ApprovalQueueTable.render_site -> _render_site_search_widget) surfaces
+                    # MPC-sourced display strings (name_utf8/short_name/old_names), not
+                    # obscodes -- resolve the submitted text back to its obscode before calling
+                    # resolve_site(), which otherwise treats its argument as a literal obscode.
+                    # selection_to_obscode() maps an exact pool hit (a display string or
+                    # obscode picked/typed verbatim) AND the suggestion widget's COMBINED
+                    # 'display (obscode)' click value (debug/site-resolve-list-old-names) back
+                    # to the obscode; anything else passes through unchanged.
+                    obscode_selection = selection_to_obscode(selection)
                     site, needs_review = resolve_site(obscode_selection, create_placeholder=False)
                     run.site, run.site_needs_review = site, needs_review
                     run.save(update_fields=['site', 'site_needs_review'])
@@ -592,10 +594,12 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             # SITE-02: prefer the staff-submitted site_selection over the originally-
             # submitted site_raw, falling back to site_raw when blank.
             selection = request.POST.get('site_selection', '').strip() or run.site_raw
-            # CR-01: map the display-string selection back to its obscode via the same
-            # candidate pool the widget was built from, before calling resolve_site(), which
-            # otherwise treats its argument as a literal obscode.
-            obscode_selection = build_site_candidates().get(selection, selection)
+            # Map the widget selection back to its obscode before calling resolve_site(),
+            # which otherwise treats its argument as a literal obscode. selection_to_obscode()
+            # handles the suggestion widget's COMBINED 'display (obscode)' input value (the
+            # exact 'Could not resolve that site' bug in debug/site-resolve-list-old-names) as
+            # well as a bare obscode / bare display string typed or picked verbatim.
+            obscode_selection = selection_to_obscode(selection)
             site, needs_review = resolve_site(obscode_selection, create_placeholder=False)
             if site is None:
                 # Nothing was written -- D-09: never fabricate a second placeholder from
