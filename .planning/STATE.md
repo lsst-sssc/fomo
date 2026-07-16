@@ -4,10 +4,10 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 22
 status: verifying
-stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-07-15T22:03:27.276Z"
-last_activity: 2026-07-15
-last_activity_desc: Phase 22 complete
+stopped_at: "Completed quick task 260716-js7: confirm-before-approve guard for unresolved site rows"
+last_updated: "2026-07-16T13:30:29.289Z"
+last_activity: 2026-07-16
+last_activity_desc: "Completed quick task 260716-js7: confirm-before-approve guard for unresolved site rows"
 progress:
   total_phases: 5
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 Phase: 22
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-16 — Completed quick task 260716-h8c: Backfill Observatory.timezone from lat/lon via timezonefinder
+Last activity: 2026-07-16 — Completed quick task 260716-js7: confirm-before-approve guard for unresolved site rows
 
 ## Roadmap Summary (v2.1)
 
@@ -175,6 +175,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 22 P03]: _project_calendar_event() bool return distinguishes event-created from skipped-by-design, driving resolve_site's two success messages; approve branch ignores the return
 - [Phase ?]: [Phase 22 P03]: site_needs_review clears only after a successful projection -- the conditional site-claim update writes site only, preserving the review-table retry surface
 - [Phase ?]: [Phase 22 P03]: resolve-mode forms use their own resolve-form-{pk} id, distinct from the pending row's decide-form-{pk}
+- [Phase ?]: [Quick 260716-js7]: known-resolved state tracked via a data-site-resolved attribute on the site_selection input, set true only by the suggestion fragment's onclick and cleared by an oninput handler on manual typing; Approve button's confirm-guard only fires for a non-blank, not-known-resolved value (D-06 preserved, no server-side change)
 
 ### Pending Todos
 
@@ -200,6 +201,7 @@ None. Roadmap created; Phase 18 ready to plan via `/gsd-plan-phase 18`.
 | 260714-ilz | Close date-format gap on public campaign-run submission form: obs_date now accepts single date/range/blank via parse_obs_window(), closing the hard Django date-validation failure that blocked multi-night range submissions (SUBMIT-01) | 2026-07-14 | f7b3ca0 | Complete | [260714-ilz-close-date-format-gap-on-public-campaign](./quick/260714-ilz-close-date-format-gap-on-public-campaign/) |
 | 260714-jpd | Register CampaignRun and CalendarEventTelescopeLabel in solsys_code/admin.py: approval_status read-only (no admin bypass of CampaignRunDecisionView.post()'s calendar projection + D-06 guard), contact PII excluded from the change-list but editable in detail, proven via a new admin test-client suite | 2026-07-14 | b6ae100 | Complete | [260714-jpd-add-calendareventtelescopelabel-and-camp](./quick/260714-jpd-add-calendareventtelescopelabel-and-camp/) |
 | 260716-h8c | Backfill Observatory.timezone from lat/lon in MPCObscodeFetcher.to_observatory() (Tier-2 MPC site-code lookup) using timezonefinder, closing the CR-01 gap where Tier-2-resolved sites always got a blank timezone and needed a manual admin edit before a Sites Needing Review calendar-projection retry could succeed | 2026-07-16 | 75962de | Complete | [260716-h8c-backfill-observatory-timezone-from-lat-l](./quick/260716-h8c-backfill-observatory-timezone-from-lat-l/) |
+| 260716-js7 | Add a client-side confirm-before-approve guard on the approval queue's Pending Review row: nudge staff before they Approve an unresolved Observing Site, mirroring the existing Reject confirmation pattern (D-06 preserved, no server-side change) | 2026-07-16 | 24d1d94 | Complete | [260716-js7-give-staff-clear-inline-feedback-guardra](./quick/260716-js7-give-staff-clear-inline-feedback-guardra/) |
 
 ## Deferred Items
 
@@ -218,9 +220,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-15T09:31:00.880Z
-Stopped at: Phase 22 UI-SPEC approved
-Resume file: .planning/phases/22-site-matching-at-submission-and-unmatched-site-resolution-wo/22-UI-SPEC.md
+Last session: 2026-07-16T13:29:39.957Z
+Stopped at: Completed quick task 260716-js7: confirm-before-approve guard for unresolved site rows
+Resume file: None
 
 ## Operator Next Steps
 
