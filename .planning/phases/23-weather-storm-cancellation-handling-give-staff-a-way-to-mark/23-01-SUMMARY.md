@@ -126,3 +126,7 @@ None - no external service configuration required.
 ---
 *Phase: 23-weather-storm-cancellation-handling-give-staff-a-way-to-mark*
 *Completed: 2026-07-16*
+
+## Self-Check: PASSED
+
+All created/modified files found on disk; all task commit hashes (5254c3c, 49873fa, 1f58c51) found in git log.

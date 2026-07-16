@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
-current_phase: 22
+current_phase: 23
+current_phase_name: weather-storm-cancellation-handling-give-staff-a-way-to-mark
 status: executing
-stopped_at: Phase 23 context gathered
-last_updated: "2026-07-16T18:16:34.164Z"
+stopped_at: Completed 23-01-PLAN.md
+last_updated: "2026-07-16T21:11:45.465Z"
 last_activity: 2026-07-16
-last_activity_desc: "Completed quick task 260716-js7: confirm-before-approve guard for unresolved site rows"
+last_activity_desc: Phase 23 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 23
+  completed_plans: 21
   percent: 83
-current_phase_name: site-matching-at-submission-and-unmatched-site-resolution-wo
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: site-matching-at-submission-and-unmatched-site-resolution-wo
 See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Phase 22 — site-matching-at-submission-and-unmatched-site-resolution-wo
+**Current focus:** Phase 23 — weather-storm-cancellation-handling-give-staff-a-way-to-mark
 
 ## Current Position
 
-Phase: 22
-Plan: Not started
+Phase: 23 (weather-storm-cancellation-handling-give-staff-a-way-to-mark) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-16 — Completed quick task 260716-js7: confirm-before-approve guard for unresolved site rows
+Last activity: 2026-07-16 — Phase 23 execution started
 
 ## Roadmap Summary (v2.1)
 
@@ -109,6 +109,11 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 22 P02 | 15min | 2 tasks | 4 files |
 | Phase 22 P03 | 35min | 2 tasks | 4 files |
 | 22 | 6 | - | - |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 23 P01 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -176,6 +181,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 22 P03]: site_needs_review clears only after a successful projection -- the conditional site-claim update writes site only, preserving the review-table retry surface
 - [Phase ?]: [Phase 22 P03]: resolve-mode forms use their own resolve-form-{pk} id, distinct from the pending row's decide-form-{pk}
 - [Phase ?]: [Quick 260716-js7]: known-resolved state tracked via a data-site-resolved attribute on the site_selection input, set true only by the suggestion fragment's onclick and cleared by an oninput handler on manual typing; Approve button's confirm-guard only fires for a non-blank, not-known-resolved value (D-06 preserved, no server-side change)
+- [Phase ?]: [Phase 23 P01]: Title recomputed fresh from parsed.status/telescope/instrument every ingest (never appended to event.title), routed through insert_or_create_calendar_event()'s existing field-diff update -- reverts [CANCELLED] cleanly when the status word is removed, no new code path needed
 
 ### Pending Todos
 
@@ -220,9 +226,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T17:20:07.032Z
-Stopped at: Phase 23 context gathered
-Resume file: .planning/phases/23-weather-storm-cancellation-handling-give-staff-a-way-to-mark/23-CONTEXT.md
+Last session: 2026-07-16T21:11:45.423Z
+Stopped at: Completed 23-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
