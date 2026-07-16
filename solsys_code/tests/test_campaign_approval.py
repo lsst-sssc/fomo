@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.template.loader import render_to_string
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
@@ -1845,3 +1846,44 @@ class TestApprovalQueueSiteSearchWidget(CampaignApprovalTestBase):
         response = self.client.get(reverse('campaigns:approval_queue'))
 
         self.assertNotIn('name="site_selection"', response.content.decode())
+
+    def test_pending_unresolved_row_renders_confirm_guard_and_flag(self):
+        """Quick task 260716-js7: a pending row whose site was never clicked from the
+        dropdown must carry both the known-resolved-tracking attribute/handler on the
+        input and the confirm-guard onclick on the Approve button, keyed on the row pk."""
+        run = self._make_pending_run(site=None, site_raw='F65', site_needs_review=False)
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertIn('data-site-resolved="false"', content)
+        self.assertIn('this.dataset.siteResolved', content)
+        self.assertIn(f"getElementById('site-input-{run.pk}')", content)
+        self.assertIn('dataset.siteResolved', content)
+        self.assertIn('does not look resolved yet', content)
+
+    def test_decided_row_has_no_guard_and_no_flag(self):
+        """A read-only decided row (show_actions=False) must render neither the
+        known-resolved flag nor the confirm-guard message -- WR-01 read-only convention."""
+        self._make_pending_run(
+            site=None,
+            site_raw='F65',
+            site_needs_review=False,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        response = self.client.get(reverse('campaigns:approval_queue'))
+
+        content = response.content.decode()
+        self.assertNotIn('data-site-resolved', content)
+        self.assertNotIn('does not look resolved yet', content)
+
+    def test_suggestion_fragment_sets_known_resolved_flag(self):
+        """Clicking a suggestion in site_search_results.html must flip the paired
+        input's known-resolved flag so a following Approve click skips the confirm."""
+        rendered = render_to_string(
+            'campaigns/partials/site_search_results.html',
+            {'candidates': [('Lowell Discovery Telescope', 'G37')], 'input_id': 'site-input-1', 'query': 'low'},
+        )
+
+        self.assertIn("inputEl.dataset.siteResolved = 'true';", rendered)
