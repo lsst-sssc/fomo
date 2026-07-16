@@ -40,10 +40,11 @@ NEUTRAL_SLOT_COLOR = '#5a6268'
 # D-06: human-readable label for classical-schedule (empty-proposal) legend entry.
 CLASSICAL_SCHEDULE_LABEL = 'Classical schedule'
 
-# Title-prefix vocabulary emitted by sync_lco_observation_calendar.py (confirmed live).
-# Terminal states: observations that reached an unrecoverable failure state.
-# [QUEUED] is handled separately (its own branch in status_border_css).
-_TERMINAL_PREFIXES = ('[EXPIRED]', '[CANCELLED]', '[FAILED]')
+# Title-prefix vocabulary emitted by sync_lco_observation_calendar.py (confirmed live), plus
+# '[WEATHERED]' (D-03, campaign_views._RUN_STATUS_CALENDAR_PREFIX, Phase 23 Plan 02) --
+# both must stay byte-identical. Terminal states: observations that reached an
+# unrecoverable failure state. [QUEUED] is handled separately (its own branch below).
+_TERMINAL_PREFIXES = ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[WEATHERED]')
 
 
 @register.simple_tag

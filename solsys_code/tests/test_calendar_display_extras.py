@@ -76,6 +76,11 @@ class StatusBorderCssTest(TestCase):
         # D-08: [FAILED]-prefixed title → terminal-failure ring.
         self.assertEqual(status_border_css('[FAILED] x'), TERMINAL_BOX_SHADOW)
 
+    def test_weathered_returns_terminal_box_shadow(self):
+        # D-03/D-08 (Phase 23 Plan 02): [WEATHERED]-prefixed title → terminal-failure ring,
+        # same as [CANCELLED] -- both CampaignRun terminal run_status outcomes get the ring.
+        self.assertEqual(status_border_css('[WEATHERED] x'), TERMINAL_BOX_SHADOW)
+
     def test_unverified_returns_empty_string(self):
         # D-09: placed bucket → '' (Phase 8's dashed border owns this distinction).
         self.assertEqual(status_border_css('[UNVERIFIED] x'), '')
@@ -97,6 +102,7 @@ class StatusBorderCssTest(TestCase):
         self.assertNotIn('dashed', status_border_css('[EXPIRED] x'))
         self.assertNotIn('dashed', status_border_css('[CANCELLED] x'))
         self.assertNotIn('dashed', status_border_css('[FAILED] x'))
+        self.assertNotIn('dashed', status_border_css('[WEATHERED] x'))
 
     def test_no_dashed_in_placed_result(self):
         # D-09: placed events return '' — inherently no dashed.
