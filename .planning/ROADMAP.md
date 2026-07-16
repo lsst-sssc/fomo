@@ -276,10 +276,16 @@ Plans:
 ### Phase 23: Weather/Storm Cancellation Handling
 
 **Goal:** Give staff a way to mark scheduled telescope time as weathered-out/cancelled and have that status visibly reflected wherever it's tracked. Classical-schedule CalendarEvents (load_telescope_runs, e.g. Magellan Baade/Clay) currently recognize a 'cancelled' status word but only embed it as inert description text with zero visual differentiation on the calendar -- needs a visible cancelled/weathered treatment analogous to the LCO sync's [CANCELLED]/[EXPIRED] title-prefix mechanism. CampaignRun.run_status already has CANCELLED and WEATHER_TECH_FAILURE choices but is only editable via Django admin -- needs a staff-facing way to set it from the approval queue or per-campaign table, with the calendar-side CalendarEvent kept in sync when a run's status changes post-approval. Triggered by a real incoming storm expected to affect two scheduled Magellan runs (Baade IMACS 17-18 July, Clay Lightspeed 18-20 July) plus a Gemini FT program (GS-2026A-FT-115, 13-16 July) noted informally in Didymos_runs pending this feature.
-**Requirements**: TBD
+**Requirements**: none mapped (organic phase outside v2.1 REQ scope; effective requirement set is CONTEXT.md D-01..D-07)
 **Depends on:** Phase 22
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
+**Wave 1** *(parallel — no file overlap)*
 
-- [ ] TBD (run /gsd-plan-phase 23 to break down)
+- [ ] 23-01-PLAN.md — Classical-schedule `[CANCELLED]` title prefix in load_telescope_runs + tests + demo notebook (D-01/D-02)
+- [ ] 23-02-PLAN.md — CampaignRun status-change staff UI (`_set_run_status` + Decided-table action) + in-place calendar sync + `[WEATHERED]` box-shadow ring (D-03/D-04/D-05)
+
+**Wave 2** *(depends on 23-02 — shares test_campaign_approval.py + exercises `_set_run_status()`)*
+
+- [ ] 23-03-PLAN.md — Gemini FT-115 informational run + I11 site resolution + end-to-end no-special-casing scenario (D-06/D-07)
