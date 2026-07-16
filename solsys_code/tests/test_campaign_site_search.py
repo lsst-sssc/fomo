@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from solsys_code import campaign_utils
@@ -24,7 +24,7 @@ from solsys_code.campaign_utils import (
     fuzzy_match_candidates,
     substring_or_fuzzy_match_candidates,
 )
-from solsys_code.tests.test_campaign_approval import BULK_MPC_FIXTURE
+from solsys_code.tests.test_campaign_approval import BULK_MPC_FIXTURE, ISOLATED_TEST_CACHES
 
 
 class SubstringOrFuzzyMatchCandidatesTest(TestCase):
@@ -87,8 +87,14 @@ class SubstringOrFuzzyMatchCandidatesTest(TestCase):
         self.assertLessEqual(len(results), 5)
 
 
+@override_settings(CACHES=ISOLATED_TEST_CACHES)
 class ThrottleTest(TestCase):
-    """D-02: per-IP fixed-window throttle via django.core.cache."""
+    """D-02: per-IP fixed-window throttle via django.core.cache.
+
+    Cache-isolated (bug #3, debug/site-search-degraded-pool-recurrence): writes throttle keys
+    and calls ``cache.clear()`` -- pinned to an in-memory LocMemCache so it never wipes the
+    shared /tmp file cache the dev runserver serves site-search from.
+    """
 
     def setUp(self):
         cache.clear()
@@ -107,8 +113,14 @@ class ThrottleTest(TestCase):
         self.assertTrue(_check_and_increment_throttle('2.2.2.2'))
 
 
+@override_settings(CACHES=ISOLATED_TEST_CACHES)
 class SiteSearchViewTest(TestCase):
-    """D-01/D-03: anonymous, throttled, HTML-fragment live-search endpoint."""
+    """D-01/D-03: anonymous, throttled, HTML-fragment live-search endpoint.
+
+    Cache-isolated (bug #3, debug/site-search-degraded-pool-recurrence): calls ``cache.clear()``
+    in setUp and exercises the throttle -- pinned to an in-memory LocMemCache so it never wipes
+    the shared /tmp file cache the dev runserver serves site-search from.
+    """
 
     @classmethod
     def setUpTestData(cls):

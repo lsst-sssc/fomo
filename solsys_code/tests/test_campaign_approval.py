@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
@@ -37,6 +37,23 @@ from solsys_code.telescope_runs import sun_event
 
 CONTACT_PERSON = 'Jane Coordinator'
 CONTACT_EMAIL = 'jane@example.org'
+
+# debug/site-search-degraded-pool-recurrence (bug #3): settings.CACHES is a FileBasedCache at
+# tempfile.gettempdir() (/tmp), SHARED across processes -- and Django does NOT swap the cache
+# backend for tests the way it swaps the database. Without this override, every cache.clear()
+# in setUp/tearDown and every real build_site_candidates() call in the tests below reads,
+# writes, and WIPES the same cache key ('mpc_obscode_candidates') the dev runserver serves
+# site-search from. That is exactly the bug #3 regression: running this suite to verify a fix
+# silently wiped the runserver's warmed ~5,700-entry MPC candidate pool, so the live
+# site-search reverted to "No matches" until the next successful cold rebuild. Pinning the
+# cache-touching test classes to an isolated in-memory LocMemCache keeps ALL test cache traffic
+# off the shared file cache the runserver depends on.
+ISOLATED_TEST_CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'campaign-tests-isolated',
+    }
+}
 
 # Wave-0 fixture (SITE-01, RESEARCH.md Pattern 2/3): a small, representative slice of the
 # real MPC bulk obscodes response shape ({obscode: {name_utf8, short_name, old_names,
@@ -90,8 +107,17 @@ BULK_MPC_FIXTURE = {
 }
 
 
+@override_settings(CACHES=ISOLATED_TEST_CACHES)
 class CampaignApprovalTestBase(TestCase):
-    """Shared fixture: one campaign, one staff user, one non-staff user."""
+    """Shared fixture: one campaign, one staff user, one non-staff user.
+
+    Cache-isolated (bug #3, debug/site-search-degraded-pool-recurrence): the decide-endpoint
+    POST path resolves a site_selection via ``selection_to_obscode()`` ->
+    ``build_site_candidates()``, which reads/writes the ``mpc_obscode_candidates`` cache key.
+    The ``@override_settings(CACHES=ISOLATED_TEST_CACHES)`` here (inherited by every subclass)
+    keeps that traffic on an in-memory LocMemCache instead of the shared /tmp file cache the
+    dev runserver serves live site-search from.
+    """
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -535,8 +561,8 @@ class TestSiteSelectionNameCandidateResolution(CampaignApprovalTestBase):
     """Permanent CR-01 regression (21-REVIEW-FIX.md / 21-VERIFICATION.md): a name/
     short_name/old_names display-string ``site_selection`` candidate -- NOT a literal
     obscode -- submitted through the real ``campaigns:decide`` POST resolves ``run.site``
-    via ``CampaignRunDecisionView.post()``'s ``build_site_candidates().get(selection,
-    selection)`` obscode mapping. ``TestSiteSelectionResolution`` above only exercises the
+    via ``CampaignRunDecisionView.post()``'s ``selection_to_obscode()`` obscode mapping
+    (``campaign_utils``). ``TestSiteSelectionResolution`` above only exercises the
     literal-obscode case (``'G37'`` passes through the mapping unchanged), so it never
     proves the display-string lookup itself works. The verifier independently confirmed
     this behavior with a temporary end-to-end test (written, run, then removed per
@@ -565,7 +591,10 @@ class TestSiteSelectionNameCandidateResolution(CampaignApprovalTestBase):
             'LDT': 'G37',
             'Historic Lowell Reflector': 'G37',
         }
-        patcher = patch('solsys_code.campaign_views.build_site_candidates', return_value=candidate_pool)
+        # The selection->obscode mapping lives in campaign_utils.selection_to_obscode(), which
+        # calls campaign_utils.build_site_candidates() -- patch it at that layer (not the view
+        # import site) so the decide POST's mapping sees this deterministic pool.
+        patcher = patch('solsys_code.campaign_utils.build_site_candidates', return_value=candidate_pool)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -903,6 +932,50 @@ class TestIsPlaceholderObservatory(TestCase):
         self.assertTrue(campaign_utils.is_placeholder_observatory(site))
 
 
+class TestSelectionToObscode(TestCase):
+    """Unit coverage for campaign_utils.selection_to_obscode() (debug/site-resolve-list-old-names).
+
+    The site-search suggestion fragment (site_search_results.html) writes a COMBINED
+    ``'{display} ({obscode})'`` value into the site_selection input when a suggestion is
+    clicked. The approve/resolve handlers must map that combined form -- and a bare display
+    string or bare obscode typed/picked verbatim -- back to an obscode; anything unmappable
+    passes through unchanged (so resolve_site() can tier-1/2 it, or reject it).
+    """
+
+    POOL = {
+        'G37': 'G37',
+        'Lowell Discovery Telescope': 'G37',
+        'G96': 'G96',
+        'University of Arizona Mt. Lemmon Survey': 'G96',
+    }
+
+    def setUp(self):
+        patcher = patch('solsys_code.campaign_utils.build_site_candidates', return_value=self.POOL)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_combined_display_obscode_widget_value_maps_to_obscode(self):
+        # The exact string site_search_results.html writes into the input on click.
+        self.assertEqual(campaign_utils.selection_to_obscode('Lowell Discovery Telescope (G37)'), 'G37')
+
+    def test_bare_obscode_maps_via_exact_pool_hit(self):
+        self.assertEqual(campaign_utils.selection_to_obscode('G37'), 'G37')
+
+    def test_bare_display_string_maps_via_exact_pool_hit(self):
+        self.assertEqual(campaign_utils.selection_to_obscode('University of Arizona Mt. Lemmon Survey'), 'G96')
+
+    def test_display_containing_parens_keeps_only_trailing_obscode_group(self):
+        # A display that itself contains parentheses: only the LAST '(...)' is the obscode.
+        self.assertEqual(campaign_utils.selection_to_obscode('Weird (Annex) Site (G96)'), 'G96')
+
+    def test_combined_form_with_unknown_display_falls_back_to_parenthesized_obscode(self):
+        # Display part not in the pool -> recover the parenthesized obscode token directly.
+        self.assertEqual(campaign_utils.selection_to_obscode('Some Brand New Scope (X99)'), 'X99')
+
+    def test_unmappable_free_text_passes_through_unchanged(self):
+        self.assertEqual(campaign_utils.selection_to_obscode('Totally Unknown Site'), 'Totally Unknown Site')
+
+
 class TestPlaceholderSiteReplacement(CampaignApprovalTestBase):
     """22-06 gap closure (UAT gap 2B): a Sites Needing Review row whose site is a tier-3
     PLACEHOLDER Observatory now surfaces the correction widget (render_site()) and can be
@@ -1000,6 +1073,43 @@ class TestPlaceholderSiteReplacement(CampaignApprovalTestBase):
         self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 1)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('Site resolved — run added to the calendar.', messages_list)
+
+    def test_placeholder_replacement_via_combined_widget_selection_resolves(self):
+        """Regression (debug/site-resolve-list-old-names): the site-search suggestion
+        fragment (site_search_results.html) writes the COMBINED ``'{display} ({obscode})'``
+        string into the ``site_selection`` input when a staff member clicks a suggestion --
+        e.g. ``'Faulkes Telescope South (F65)'``, exactly what the user selected for the
+        DCT/G37 row. The pre-fix handler mapped it via
+        ``build_site_candidates().get(selection, selection)``, whose pool has no key for the
+        combined form, so the 30+ char string reached ``resolve_site()`` and was rejected as
+        an oversized obscode (``len > _MAX_OBSCODE_LEN``) -> ``(None, True)`` -> the generic
+        "Could not resolve that site" error. ``selection_to_obscode()`` must now round-trip
+        the combined value back to F65 and replace the placeholder."""
+        placeholder = self._make_placeholder_observatory()
+        run = self._make_placeholder_run(site=placeholder, site_raw='DCT')
+        # A controlled pool so the mapping is deterministic and no live MPC call is made --
+        # keyed on the bare display string and bare obscode only (the real pool's shape),
+        # NOT the combined 'display (obscode)' form the widget actually submits.
+        pool = {'F65': 'F65', 'Faulkes Telescope South': 'F65', 'FTS': 'F65'}
+        with patch('solsys_code.campaign_utils.build_site_candidates', return_value=pool):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}),
+                {'action': 'resolve_site', 'site_selection': 'Faulkes Telescope South (F65)'},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('Site resolved — run added to the calendar.', messages_list)
+        # The exact pre-fix failure must be gone.
+        self.assertNotIn(
+            'Could not resolve that site. Try a different search term or an exact '
+            'MPC code, or use Create new Observatory.',
+            messages_list,
+        )
 
     def test_placeholder_replacement_deletes_orphaned_placeholder_observatory(self):
         """WR-03 (22-REVIEW.md re-review): once a placeholder Observatory is successfully
@@ -1310,8 +1420,16 @@ class TestCalendarNoChurn(CampaignApprovalTestBase):
         self.assertEqual(event.modified, modified_after_first_approve)
 
 
+@override_settings(CACHES=ISOLATED_TEST_CACHES)
 class TestSiteFuzzyMatch(TestCase):
     """Wave-0 scaffold (SITE-01): cached MPC candidate pool + difflib fuzzy matching.
+
+    Cache-isolated (bug #3, debug/site-search-degraded-pool-recurrence): this class calls the
+    REAL ``build_site_candidates()`` (writing the pool to the ``mpc_obscode_candidates`` cache
+    key) and ``cache.clear()`` in setUp/tearDown. Pinned to an in-memory LocMemCache so those
+    writes/clears never touch the shared /tmp file cache the dev runserver serves site-search
+    from -- without this, running this class wiped the runserver's warmed pool (the bug #3
+    regression).
 
     Not-yet-existing helpers (``MPCObscodeFetcher.query_all``, ``campaign_utils.
     build_site_candidates``, ``campaign_utils.fuzzy_match_candidates``) are referenced via
@@ -1415,6 +1533,49 @@ class TestSiteFuzzyMatch(TestCase):
         self.assertEqual(pool.get('Legacy Alpha'), 'AAA')  # string old_names still folded in
         self.assertEqual(pool.get('Beta Obs'), 'BBB')  # None old_names simply skipped, no crash
         self.assertEqual(pool.get('Gamma Obs'), 'CCC')  # missing old_names key, no crash
+
+    def test_flatten_mpc_candidates_survives_shape_surprise_in_any_field(self):
+        """Generalized robustness (debug/site-search-degraded-pool-recurrence, bug #3): the bug
+        #1 fix normalized only `old_names`, but the SAME failure family applies to every
+        candidate field. The live MPC bulk API has already shipped one field (`old_names`) as a
+        surprising JSON *list*; if `name_utf8`/`short_name` ever arrive non-str (or a whole
+        record is non-dict), the pre-hardening flatten would use the value in a dict-key /
+        membership operation and raise `TypeError: unhashable type: 'list'`, which
+        build_site_candidates() silently swallows -- dropping the ENTIRE ~2,712-code pool for
+        one malformed field. This feeds a fixture where EVERY candidate field takes each
+        surprising shape (list, dict, int, None, missing) and asserts (a) flatten never raises,
+        and (b) the one well-formed record still resolves -- so a single future shape surprise
+        degrades to "skip that field/record", never to a whole-pool drop that reverts live
+        site-search to 'No matches'. A live audit confirmed all 2,712 records currently carry
+        str name_utf8/short_name, so this is forward-looking hardening, not a current-data fix."""
+        fixture = {
+            # A genuinely well-formed record must still survive alongside the malformed ones.
+            'G37': {'name_utf8': 'Lowell Discovery Telescope', 'short_name': 'LDT', 'old_names': None},
+            'LST': {'name_utf8': ['a', 'list'], 'short_name': 'ListName', 'old_names': None},  # list name_utf8
+            'DCT': {'name_utf8': 'Dict Name', 'short_name': {'k': 'v'}, 'old_names': None},  # dict short_name
+            'INT': {'name_utf8': 12345, 'short_name': 67890, 'old_names': None},  # int scalars
+            'LON': {'name_utf8': 'Long Names Site', 'short_name': 'LNS', 'old_names': ['prior', ['nested']]},
+            'NON': 'this record is not a dict at all',  # non-dict record
+            'EMP': {},  # empty record, every candidate field missing
+        }
+
+        # Must not raise despite every shape surprise above.
+        pool = campaign_utils._flatten_mpc_candidates(fixture)
+
+        # The well-formed record and every well-formed field are intact.
+        self.assertEqual(pool.get('G37'), 'G37')
+        self.assertEqual(pool.get('Lowell Discovery Telescope'), 'G37')
+        self.assertEqual(pool.get('LDT'), 'G37')
+        # A non-str field is treated as absent, but the record's other good fields still fold in.
+        self.assertEqual(pool.get('ListName'), 'LST')  # str short_name survives a list name_utf8
+        self.assertEqual(pool.get('Dict Name'), 'DCT')  # str name_utf8 survives a dict short_name
+        self.assertEqual(pool.get('Long Names Site'), 'LON')
+        self.assertEqual(pool.get('prior'), 'LON')  # str element of a mixed old_names list folds in
+        # The obscode itself is always a (str) candidate, even when every scalar field is bad.
+        self.assertEqual(pool.get('INT'), 'INT')
+        self.assertEqual(pool.get('EMP'), 'EMP')
+        # No non-str value ever leaked in as a key (the exact unhashable-type crash vector).
+        self.assertTrue(all(isinstance(k, str) for k in pool))
 
     @patch('solsys_code.solsys_code_observatory.utils.MPCObscodeFetcher.query_all')
     def test_build_site_candidates_degraded_pool_uses_short_ttl(self, mock_query_all):
@@ -1528,6 +1689,64 @@ class TestSiteFuzzyMatch(TestCase):
         matches = campaign_utils.fuzzy_match_candidates('DCT', pool)
 
         self.assertEqual(matches, [])
+
+
+@override_settings(CACHES=ISOLATED_TEST_CACHES)
+class TestSiteSearchCacheIsolationRegression(TestCase):
+    """Regression (debug/site-search-degraded-pool-recurrence, bug #3): the campaign test suite
+    must NEVER read, write, or clear the shared FileBasedCache the dev runserver serves live
+    site-search from.
+
+    Root cause of bug #3: settings.CACHES is a FileBasedCache at tempfile.gettempdir() (/tmp),
+    shared across processes, and Django does NOT swap the cache backend for tests the way it
+    swaps the database. So the campaign tests -- which call cache.clear() in setUp/tearDown and
+    the real build_site_candidates() (writing the 'mpc_obscode_candidates' key) -- were
+    read/writing/wiping the exact cache entry the runserver depends on. Running the suite to
+    verify a fix WIPED the runserver's warmed ~5,700-entry MPC candidate pool, so live
+    site-search reverted to "No matches" until the next successful cold rebuild.
+
+    This test writes a sentinel directly into the real /tmp FileBasedCache (a fresh handle,
+    deliberately NOT the overridden default alias -- so it points at the runserver's actual
+    cache), then performs the exact cache operations the suite performs under
+    @override_settings(CACHES=ISOLATED_TEST_CACHES), and asserts the sentinel is untouched.
+    Without the isolation decorators this fails: cache.clear() on the shared FileBasedCache
+    wipes the sentinel (and the runserver's real pool) too.
+    """
+
+    def _runserver_file_cache(self):
+        # A direct FileBasedCache handle at the real settings location -- unaffected by this
+        # class's CACHES override (which only rebinds the `caches` registry / default proxy).
+        import tempfile
+
+        from django.core.cache.backends.filebased import FileBasedCache
+
+        return FileBasedCache(tempfile.gettempdir(), {})
+
+    def test_suite_cache_operations_do_not_touch_the_shared_runserver_file_cache(self):
+        import uuid
+
+        runserver_cache = self._runserver_file_cache()
+        sentinel_key = f'runserver_warmed_pool_sentinel_{uuid.uuid4().hex}'
+        sentinel_value = {'G37': 'G37', 'Lowell Discovery Telescope': 'G37'}
+        runserver_cache.set(sentinel_key, sentinel_value, timeout=300)
+        try:
+            # Confirm the isolation override is actually in effect for the default cache the
+            # tests (and campaign_utils) use -- a LocMemCache, not the shared FileBasedCache.
+            from django.core.cache import caches
+            from django.core.cache.backends.locmem import LocMemCache
+
+            self.assertIsInstance(caches['default'], LocMemCache)
+
+            # The exact operations the campaign test classes perform every run:
+            cache.clear()  # setUp/tearDown of TestSiteFuzzyMatch / ThrottleTest / SiteSearchViewTest
+            cache.set(campaign_utils._MPC_CANDIDATE_CACHE_KEY, {'X': 'X'})  # a real build_site_candidates() write
+            cache.set('site_search_throttle:1.2.3.4', 1)  # a throttle write
+
+            # Under isolation all of the above hit LocMemCache; the runserver's real /tmp pool
+            # is untouched. Without the isolation decorators, cache.clear() would have wiped it.
+            self.assertEqual(runserver_cache.get(sentinel_key), sentinel_value)
+        finally:
+            runserver_cache.delete(sentinel_key)
 
 
 class TestApprovalQueueSiteSearchWidget(CampaignApprovalTestBase):
