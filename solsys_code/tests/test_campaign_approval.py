@@ -30,7 +30,7 @@ from tom_targets.models import TargetList
 
 from solsys_code import campaign_utils
 from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
-from solsys_code.campaign_utils import NEEDS_REVIEW_NAME_PREFIX, resolve_site
+from solsys_code.campaign_utils import NEEDS_REVIEW_NAME_PREFIX, is_placeholder_observatory, resolve_site
 from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
@@ -2066,3 +2066,61 @@ class TestApprovalQueueSiteSearchWidget(CampaignApprovalTestBase):
         )
 
         self.assertIn("inputEl.dataset.siteResolved = 'true';", rendered)
+
+
+def _stub_i11_to_observatory():
+    """Create-and-return a ground-based Gemini South Observatory row, mirroring what a
+    real MPC-backed ``MPCObscodeFetcher.to_observatory()`` call would do for the real
+    ``'I11'`` obscode -- used to fake a successful Tier-2 MPC lookup without hitting the
+    live MPC API. Cerro Pachón coordinates are realistic values (RESEARCH.md Code
+    Examples); exact lat/lon/altitude precision is not load-bearing for this test."""
+    return Observatory.objects.create(
+        obscode='I11',
+        name='Gemini South Observatory, Cerro Pachon',
+        short_name='Gemini South',
+        lat=-30.2407,
+        lon=-70.7366,
+        altitude=2722.0,
+        timezone='America/Santiago',
+        observations_type=Observatory.OPTICAL_OBSTYPE,
+    )
+
+
+class TestResolveSiteI11GeminiSouth(TestCase):
+    """D-06: ``resolve_site('I11')`` must resolve the real Gemini South Observatory as a
+    ground-based site with a real timezone via the resolver's ACTUAL Tier-2 single-code
+    path, with no manual admin edit needed and no live MPC network call.
+
+    REVIEW finding #2 (HIGH, Codex): ``resolve_site()`` walks Tier 1
+    (``Observatory.objects.get(obscode=code)``) then Tier 2 (single-code
+    ``MPCObscodeFetcher.query()`` -> ``to_observatory()`` at ``campaign_utils.py:184-200``)
+    -- it never calls ``query_all()``/``build_site_candidates()``, so a ``BULK_MPC_FIXTURE``
+    ``'I11'`` entry (which only feeds the bulk fuzzy-match candidate-pool widget path) would
+    not influence this resolver at all, and is deliberately NOT added here. Instead this
+    mirrors the Phase 21 P04 precedent (STATE.md: "Mocked MPCObscodeFetcher.to_observatory()
+    directly (side_effect creating a real Observatory row), since to_observatory() reads
+    several MPC-response dict keys with no defaults and a bare query() mock would raise
+    MissingDataException"): both ``MPCObscodeFetcher.query`` (a no-op MagicMock, so the
+    Tier-2 network call never raises) and ``MPCObscodeFetcher.to_observatory`` (a
+    ``side_effect`` creating a real ground-based ``I11`` Observatory row) are patched.
+    """
+
+    def test_resolve_site_i11_resolves_gemini_south_ground_based(self):
+        with (
+            patch('solsys_code.campaign_utils.MPCObscodeFetcher.query'),
+            patch(
+                'solsys_code.campaign_utils.MPCObscodeFetcher.to_observatory',
+                side_effect=_stub_i11_to_observatory,
+            ),
+        ):
+            observatory, needs_review = resolve_site('I11')
+
+        self.assertIsNotNone(observatory)
+        self.assertFalse(is_placeholder_observatory(observatory))
+        self.assertFalse(observatory.name.startswith(NEEDS_REVIEW_NAME_PREFIX))
+        self.assertIn('Gemini South', observatory.name)
+        self.assertIn('Gemini South', observatory.short_name)
+        self.assertEqual(observatory.observations_type, Observatory.OPTICAL_OBSTYPE)
+        self.assertEqual(observatory.timezone, 'America/Santiago')
+        self.assertFalse(needs_review)
+        self.assertEqual(Observatory.objects.filter(obscode='I11').count(), 1)
