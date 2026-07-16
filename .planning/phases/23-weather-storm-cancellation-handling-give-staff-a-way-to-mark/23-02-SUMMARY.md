@@ -166,7 +166,11 @@ None - no external service configuration required.
 ## Next Phase Readiness
 - Plan 23-01 (classical-run title-prefix cancellation) and Plan 23-02 (this plan, CampaignRun weather/cancellation) both complete for Wave 1 of Phase 23.
 - `python manage.py test solsys_code.tests.test_campaign_approval` (104 tests) and `solsys_code.tests.test_calendar_display_extras` (28 tests) both green; `ruff check .`/`ruff format --check .` clean on all five files this plan touched.
-- A full `python manage.py test solsys_code` run was kicked off to confirm no cross-module regressions at wave merge; see the phase-level verification step for its result.
+- Full `python manage.py test solsys_code` run confirmed at wave merge: **534 tests, all pass** (no cross-module regressions from either Plan 01 or Plan 02).
+
+## Self-Check: PASSED
+
+All 5 modified source/test files and the SUMMARY.md itself confirmed present on disk; all 4 commit hashes (`11cd4c6`, `dea7e76`, `e65ba86`, `8a2dcec`) confirmed present in `git log`.
 
 ---
 *Phase: 23-weather-storm-cancellation-handling-give-staff-a-way-to-mark*

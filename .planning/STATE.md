@@ -5,15 +5,15 @@ milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 23
 current_phase_name: weather-storm-cancellation-handling-give-staff-a-way-to-mark
 status: executing
-stopped_at: Completed 23-01-PLAN.md
-last_updated: "2026-07-16T21:11:45.465Z"
+stopped_at: Completed 23-02-PLAN.md
+last_updated: "2026-07-16T21:26:23.569Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 23 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 23
-  completed_plans: 21
+  completed_plans: 22
   percent: 83
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 23 (weather-storm-cancellation-handling-give-staff-a-way-to-mark) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-16 — Phase 23 execution started
 
@@ -114,6 +114,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 23 P01 | 15min | 2 tasks | 3 files |
+| Phase 23 P02 | 10min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,8 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 22 P03]: resolve-mode forms use their own resolve-form-{pk} id, distinct from the pending row's decide-form-{pk}
 - [Phase ?]: [Quick 260716-js7]: known-resolved state tracked via a data-site-resolved attribute on the site_selection input, set true only by the suggestion fragment's onclick and cleared by an oninput handler on manual typing; Approve button's confirm-guard only fires for a non-blank, not-known-resolved value (D-06 preserved, no server-side change)
 - [Phase ?]: [Phase 23 P01]: Title recomputed fresh from parsed.status/telescope/instrument every ingest (never appended to event.title), routed through insert_or_create_calendar_event()'s existing field-diff update -- reverts [CANCELLED] cleanly when the status word is removed, no new code path needed
+- [Phase ?]: [Phase 23 P02]: _set_run_status() mirrors _resolve_site()'s guard -> conditional-update -> updated_count-checked-short-circuit -> refresh_from_db() shape rather than inventing a new pattern
+- [Phase ?]: [Phase 23 P02]: status_actions is a new independent ApprovalQueueTable flag (not a repurposed show_actions) so the Decided table's Site column keeps its plain-text fallback while gaining the new Mark Cancelled/Mark Weathered action
 
 ### Pending Todos
 
@@ -226,8 +229,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T21:11:45.423Z
-Stopped at: Completed 23-01-PLAN.md
+Last session: 2026-07-16T21:26:23.553Z
+Stopped at: Completed 23-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
