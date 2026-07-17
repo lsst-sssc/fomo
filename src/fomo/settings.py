@@ -216,6 +216,14 @@ FACILITIES = {
         'portal_url': 'https://observe.lco.global',
         'api_key': '',
     },
+    # SOAR authenticates against the same LCO Observation Portal credentials (D-05),
+    # so this entry mirrors 'LCO' exactly. It exists so SOARSettings('SOAR') resolves
+    # a real 'api_key' key (D-04); 'portal_url' already resolves via LCOSettings'
+    # inherited default even without this entry.
+    'SOAR': {
+        'portal_url': 'https://observe.lco.global',
+        'api_key': '',
+    },
     'GEM': {
         'portal_url': {
             'GS': 'https://139.229.34.15:8443',
@@ -372,6 +380,11 @@ REST_FRAMEWORK = {
 # Default Plotly theme setting, can set to any valid theme:
 # 'plotly', 'plotly_white', 'plotly_dark', 'ggplot2', 'seaborn', 'simple_white', 'none'
 PLOTLY_THEME = 'plotly_white'
+
+# Dev default: prints emails to the runserver console instead of hanging on a real SMTP
+# connection to localhost:25. Production must set a real EMAIL_BACKEND/EMAIL_HOST/
+# EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/DEFAULT_FROM_EMAIL in local_settings.py (below).
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 try:
     from local_settings import *  # noqa
