@@ -4,16 +4,16 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 23
 status: completed
-stopped_at: Completed quick task 260717-iae
-last_updated: "2026-07-17T12:21:20.034Z"
+stopped_at: Phase 25 context gathered
+last_updated: "2026-07-17T15:38:43.346Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 23 complete
 progress:
-  total_phases: 6
+  total_phases: 8
   completed_phases: 6
   total_plans: 23
   completed_plans: 23
-  percent: 100
+  percent: 75
 current_phase_name: weather-storm-cancellation-handling-give-staff-a-way-to-mark
 ---
 
@@ -234,9 +234,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T12:21:01.345Z
-Stopped at: Completed quick task 260717-iae
-Resume file: None
+Last session: 2026-07-17T15:38:43.297Z
+Stopped at: Phase 25 context gathered
+Resume file: .planning/phases/25-range-window-calendarevent-projection-allow-approved-site-re/25-CONTEXT.md
 
 ## Operator Next Steps
 
