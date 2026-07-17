@@ -300,3 +300,14 @@ Plans:
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 24 to break down)
+
+### Phase 25: Range-window CalendarEvent projection: allow approved, site-resolved range-window CampaignRuns (e.g. Gemini FT-115-style awarded allocations) to project a multi-day CalendarEvent instead of being silently invisible, per the diagnosed root cause and before/after spec in .planning/debug/range-window-calendar-event.md -- fix the guard's window_start==window_end clause in _project_calendar_event(), add ground-branch multi-day date-math (the satellite branch is already correct), and deliberately revise the Phase 19/23 tests that currently encode the zero-event behavior as correct.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 24
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 25 to break down)
