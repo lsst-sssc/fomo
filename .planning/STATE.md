@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
-current_phase: 23
-status: completed
-stopped_at: Phase 25 context gathered
-last_updated: "2026-07-17T15:38:43.346Z"
+current_phase: 25
+current_phase_name: range-window-calendarevent-projection-allow-approved-site-re
+status: executing
+stopped_at: Completed 25-01-PLAN.md
+last_updated: "2026-07-17T22:07:57.350Z"
 last_activity: 2026-07-17
-last_activity_desc: Phase 23 complete
+last_activity_desc: Phase 25 execution started
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 23
-  completed_plans: 23
+  total_plans: 25
+  completed_plans: 24
   percent: 75
-current_phase_name: weather-storm-cancellation-handling-give-staff-a-way-to-mark
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: weather-storm-cancellation-handling-give-staff-a-way-to-mark
 See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Phase 23 — weather-storm-cancellation-handling-give-staff-a-way-to-mark
+**Current focus:** Phase 25 — range-window-calendarevent-projection-allow-approved-site-re
 
 ## Current Position
 
-Phase: 23
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-07-17 — Phase 23 complete
+Phase: 25 (range-window-calendarevent-projection-allow-approved-site-re) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-17 — Phase 25 execution started
 
 ## Roadmap Summary (v2.1)
 
@@ -116,6 +116,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 |------|----------|-------|-------|
 | Phase 23 P01 | 15min | 2 tasks | 3 files |
 | Phase 23 P02 | 10min | 3 tasks | 5 files |
+| Phase 25 P01 | 25min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -189,6 +190,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 23 P02]: _set_run_status() mirrors _resolve_site()'s guard -> conditional-update -> updated_count-checked-short-circuit -> refresh_from_db() shape rather than inventing a new pattern
 - [Phase ?]: [Phase 23 P02]: status_actions is a new independent ApprovalQueueTable flag (not a repurposed show_actions) so the Decided table's Site column keeps its plain-text fallback while gaining the new Mark Cancelled/Mark Weathered action
 - [Phase ?]: Quick 260717-iae: Wired the five pre-executed demo notebooks into docs/notebooks.rst's toctree (Demonstration Notebooks section), matching docs/design/design.rst's section+toctree pattern; verified with the full non-excluding sphinx-build (mirrors CI/ReadTheDocs).
+- [Phase ?]: [Phase 25 P01]: _project_calendar_event()/_set_run_status() share one title-building helper (_calendar_event_title) so the D-06 window suffix can never drift between creation and status-change; _set_run_status() looks up events via a trailing-colon Q(url=...) | Q(url__startswith=...) queryset to avoid a pk-digit-prefix collision
 
 ### Pending Todos
 
@@ -234,9 +236,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T15:38:43.297Z
-Stopped at: Phase 25 context gathered
-Resume file: .planning/phases/25-range-window-calendarevent-projection-allow-approved-site-re/25-CONTEXT.md
+Last session: 2026-07-17T22:07:57.337Z
+Stopped at: Completed 25-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
