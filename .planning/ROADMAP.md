@@ -303,11 +303,17 @@ Plans:
 
 ### Phase 25: Range-window CalendarEvent projection: allow approved, site-resolved range-window CampaignRuns (e.g. Gemini FT-115-style awarded allocations) to project a multi-day CalendarEvent instead of being silently invisible, per the diagnosed root cause and before/after spec in .planning/debug/range-window-calendar-event.md -- fix the guard's window_start==window_end clause in _project_calendar_event(), add ground-branch multi-day date-math (the satellite branch is already correct), and deliberately revise the Phase 19/23 tests that currently encode the zero-event behavior as correct.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Approved, site-resolved range-window CampaignRuns (window_start != window_end) become visible on the campaign calendar: a ground run projects one dip-corrected CalendarEvent per night (mirroring load_telescope_runs' E-S+1 idiom), a satellite run keeps its single whole-day span, and each range event's title carries a window-context suffix. Marking such a run cancelled/weathered updates every night's event, and a one-off backfill command gives already-approved runs (the real GS-2026A-FT-115 pk=34) their events. The four Phase 19/23 tests that encoded the zero-event behavior are deliberately revised.
+**Requirements**: FIX-01..FIX-08 (phase-local; gap-closure phase from `/gsd-debug`, no REQUIREMENTS.md mapping)
 **Depends on:** Phase 24
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 25 to break down)
+**Wave 1**
+
+- [ ] 25-01-PLAN.md — `campaign_views.py` rewrite: `_calendar_event_title()` shared helper, D-01 guard fix + D-02/D-03 per-night ground projection in `_project_calendar_event()`, D-04 multi-event `_set_run_status()`; plus the 4 flipping tests (counts 15/15/4/15), satellite-range + genuine-TBD + partial-projection tests, and docstring fixes (FIX-01..FIX-07)
+
+**Wave 2** *(depends on 25-01)*
+
+- [ ] 25-02-PLAN.md — D-07 one-off `backfill_range_calendar_events` management command (with `--dry-run`) + its test suite (FIX-08)
