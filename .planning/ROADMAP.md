@@ -289,3 +289,14 @@ Plans:
 **Wave 2** *(depends on 23-02 — shares test_campaign_approval.py + exercises `_set_run_status()`)*
 
 - [x] 23-03-PLAN.md — Gemini FT-115 informational run + I11 site resolution + end-to-end no-special-casing scenario (D-06/D-07)
+
+### Phase 24: Operator and usage runbook documentation for the telescope-runs-calendar management commands and staff workflows (load_telescope_runs, sync_lco_observation_calendar, sync_gemini_observation_calendar, import_campaign_csv, the approval queue's status-change actions from Phase 23) -- publish general, discoverable how-to-run documentation beyond design rationale and --help text, since none currently exists.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 23
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 24 to break down)
