@@ -4,8 +4,8 @@ milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 23
 status: completed
-stopped_at: Completed 23-02-PLAN.md
-last_updated: "2026-07-17T06:21:06.154Z"
+stopped_at: Completed quick task 260717-iae
+last_updated: "2026-07-17T12:21:20.034Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 23 complete
 progress:
@@ -186,6 +186,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 23 P01]: Title recomputed fresh from parsed.status/telescope/instrument every ingest (never appended to event.title), routed through insert_or_create_calendar_event()'s existing field-diff update -- reverts [CANCELLED] cleanly when the status word is removed, no new code path needed
 - [Phase ?]: [Phase 23 P02]: _set_run_status() mirrors _resolve_site()'s guard -> conditional-update -> updated_count-checked-short-circuit -> refresh_from_db() shape rather than inventing a new pattern
 - [Phase ?]: [Phase 23 P02]: status_actions is a new independent ApprovalQueueTable flag (not a repurposed show_actions) so the Decided table's Site column keeps its plain-text fallback while gaining the new Mark Cancelled/Mark Weathered action
+- [Phase ?]: Quick 260717-iae: Wired the five pre-executed demo notebooks into docs/notebooks.rst's toctree (Demonstration Notebooks section), matching docs/design/design.rst's section+toctree pattern; verified with the full non-excluding sphinx-build (mirrors CI/ReadTheDocs).
 
 ### Pending Todos
 
@@ -212,6 +213,7 @@ None. Roadmap created; Phase 18 ready to plan via `/gsd-plan-phase 18`.
 | 260714-jpd | Register CampaignRun and CalendarEventTelescopeLabel in solsys_code/admin.py: approval_status read-only (no admin bypass of CampaignRunDecisionView.post()'s calendar projection + D-06 guard), contact PII excluded from the change-list but editable in detail, proven via a new admin test-client suite | 2026-07-14 | b6ae100 | Complete | [260714-jpd-add-calendareventtelescopelabel-and-camp](./quick/260714-jpd-add-calendareventtelescopelabel-and-camp/) |
 | 260716-h8c | Backfill Observatory.timezone from lat/lon in MPCObscodeFetcher.to_observatory() (Tier-2 MPC site-code lookup) using timezonefinder, closing the CR-01 gap where Tier-2-resolved sites always got a blank timezone and needed a manual admin edit before a Sites Needing Review calendar-projection retry could succeed | 2026-07-16 | 75962de | Complete | [260716-h8c-backfill-observatory-timezone-from-lat-l](./quick/260716-h8c-backfill-observatory-timezone-from-lat-l/) |
 | 260716-js7 | Add a client-side confirm-before-approve guard on the approval queue's Pending Review row: nudge staff before they Approve an unresolved Observing Site, mirroring the existing Reject confirmation pattern (D-06 preserved, no server-side change) | 2026-07-16 | 24d1d94 | Complete | [260716-js7-give-staff-clear-inline-feedback-guardra](./quick/260716-js7-give-staff-clear-inline-feedback-guardra/) |
+| 260717-iae | Wire the five existing pre-executed demo notebooks into docs/notebooks.rst's Sphinx toctree so they appear in the published Notebooks section (previously orphaned, no toctree reference) | 2026-07-17 | 6b3c145 | Complete | [260717-iae-wire-the-existing-pre-executed-demo-note](./quick/260717-iae-wire-the-existing-pre-executed-demo-note/) |
 
 ## Deferred Items
 
@@ -230,8 +232,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T21:26:23.553Z
-Stopped at: Completed 23-02-PLAN.md
+Last session: 2026-07-17T12:21:01.345Z
+Stopped at: Completed quick task 260717-iae
 Resume file: None
 
 ## Operator Next Steps
