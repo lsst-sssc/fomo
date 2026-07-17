@@ -21,7 +21,7 @@ from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
-from django.db.models import Case, CharField, Count, EmailField, F, Value, When
+from django.db.models import Case, CharField, Count, EmailField, F, Q, Value, When
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -739,7 +739,7 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
 
     def _set_run_status(self, request, pk, action):
         """D-03/D-04/D-05: mark an already-APPROVED run cancelled or weathered, and update
-        its linked CAMPAIGN:{pk} CalendarEvent in place if (and only if) one already exists.
+        EVERY CalendarEvent belonging to this run in place, if (and only if) any already exist.
 
         Mirrors ``_resolve_site()``'s shape: a server-side business-logic guard (never trust
         the Decided-table button was only rendered for an APPROVED row -- T-23-01), then a
@@ -749,12 +749,13 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         and the write must never reach ``refresh_from_db()`` (which would raise
         ``CampaignRun.DoesNotExist`` on a deleted row) or silently report false success.
 
-        A run whose window/site never projected a CAMPAIGN:{pk} event (a range/TBD run, or
-        one with an unresolved site) still gets its run_status set, but is never handed to
+        A run whose window/site never projected any CalendarEvent (a TBD run, or one with an
+        unresolved site) still gets its run_status set, but is never handed to
         ``insert_or_create_calendar_event()`` -- that helper's create-path requires
         non-nullable start_time/end_time this call deliberately omits, and would raise
         (T-23-06/RESEARCH Pitfall 1). ``_project_calendar_event()`` itself is never called or
-        modified here.
+        modified here. A range-window run now has one-or-more per-night events, all of which
+        get updated here via the combined trailing-colon queryset (D-04).
         """
         run = get_object_or_404(CampaignRun, pk=pk)
 
@@ -778,18 +779,29 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
 
         run.refresh_from_db()
 
-        # D-05/T-23-06: only touch the linked CalendarEvent if one already exists -- never
-        # fabricate one for a run that never had a projected event (range/TBD/unresolved-site
-        # runs never reach _project_calendar_event()'s single-night+resolved-site branch).
-        if CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').exists():
+        # D-04/T-23-06: find and update EVERY CalendarEvent belonging to this run -- the
+        # legacy bare single-night key AND any new per-night keys. The trailing colon on the
+        # startswith prefix is required (Pitfall 2): without it, run.pk=3 would also match
+        # CAMPAIGN:34:... events belonging to a different run. Never fabricate an event for a
+        # run that never projected one (range/TBD/unresolved-site runs never reach
+        # _project_calendar_event()'s date-math branch).
+        matching_events = CalendarEvent.objects.filter(
+            Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:')
+        )
+        if matching_events.exists():
             prefix = _RUN_STATUS_CALENDAR_PREFIX[new_run_status]
-            insert_or_create_calendar_event(
-                {'url': f'CAMPAIGN:{run.pk}'},
-                fields={
-                    'title': f'{prefix} {run.campaign.name}: {run.telescope_instrument}',
-                    'description': f'{run.observation_details}\nRun status: {run.get_run_status_display()}',
-                },
-            )
+            for event in matching_events:
+                insert_or_create_calendar_event(
+                    {'url': event.url},
+                    fields={
+                        # Pitfall 1: reuse the shared _calendar_event_title() helper -- a
+                        # re-derived inline f-string here would differ from the stored range
+                        # title, get treated as a real change by the no-churn diff, and
+                        # silently strip the D-06 window suffix from every night's event.
+                        'title': f'{prefix} {_calendar_event_title(run)}',
+                        'description': f'{run.observation_details}\nRun status: {run.get_run_status_display()}',
+                    },
+                )
 
         messages.success(request, 'Run status updated.')
         return redirect('campaigns:approval_queue')
