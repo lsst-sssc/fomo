@@ -3,11 +3,12 @@
 Covers: staff-only gating on both the approval-queue GET and the decision-endpoint POST
 (never a soft-filter -- a redirect, never 200-with-pending-content, per 16-RESEARCH.md Pitfall
 7); the atomic conditional approve/reject transition and its proven double-approve no-op
-(SUBMIT-03); the D-06 hybrid CAMPAIGN:{pk} CalendarEvent projection that fires only for a
-single concrete night (window_start == window_end) with a resolved site -- a dip-corrected
-sun_event() window for a ground site, a midnight-UTC placeholder for a space site
-(CAL-01/CAL-02); no duplicate event and no ``modified`` churn on re-approve (CAL-03); and the
-reject path (no event created).
+(SUBMIT-03); CalendarEvent projection for a resolved-site, resolved-window run -- a single
+night gets one dip-corrected/midnight-UTC event under the bare CAMPAIGN:{pk} key, a ground
+range window gets one dip-corrected event per night under CAMPAIGN:{pk}:{date} keys, and a
+satellite range window gets one whole-day-span event under the bare key (Phase 25 FIX-01..07);
+no duplicate event and no ``modified`` churn on re-approve (CAL-03); and the reject path (no
+event created).
 
 Uses ``TargetList.objects.create(...)`` for the campaign container and plain
 ``CampaignRun.objects.create(...)`` fixtures. This module never fixtures an individual
@@ -22,6 +23,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.db.models import Q
 from django.template.loader import render_to_string
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -298,11 +300,15 @@ class TestApproval(CampaignApprovalTestBase):
 
 
 class TestCalendarProjection(CampaignApprovalTestBase):
-    """D-06/CAL-01/CAL-02: approving a single-night run with a resolved site projects a
-    CAMPAIGN:{pk} event -- a dip-corrected sun_event() window for a ground site, a
-    midnight-UTC placeholder for a space site. A range, TBD run, missing
-    telescope_instrument, or a sun_event() ValueError all project nothing (the last of
-    these without reverting the already-committed approval).
+    """CAL-01/CAL-02/Phase 25 FIX-01..04: approving a resolved-site run with a resolved
+    window projects CalendarEvent(s) -- a single-night ground/space run gets one event under
+    the bare CAMPAIGN:{pk} key (dip-corrected sun_event() window for ground, midnight-UTC
+    placeholder for space); a ground range-window run gets one dip-corrected event per night
+    under CAMPAIGN:{pk}:{date} keys; a satellite range-window run still gets exactly one
+    whole-day-span event under the bare key. Only a TBD run, a run missing
+    telescope_instrument, or a sun_event() ValueError project nothing (the last of these
+    without reverting the already-committed approval; a mid-window ValueError leaves the
+    earlier nights' already-created events in place -- partial projection, no rollback).
     """
 
     @classmethod
@@ -346,12 +352,71 @@ class TestCalendarProjection(CampaignApprovalTestBase):
         self.assertEqual(event.start_time, datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc))
         self.assertEqual(event.end_time, datetime(2026, 8, 1, 23, 59, tzinfo=timezone.utc))
 
-    def test_approve_range_run_creates_no_calendar_event(self):
+    def test_approve_range_run_creates_one_event_per_night(self):
+        """FIX-01/FIX-02/FIX-03: a ground range-window run projects one dip-corrected
+        CalendarEvent per night, keyed CAMPAIGN:{pk}:{date}, with the first night's
+        start_time and the last night's end_time matching sun_event() for window_start/
+        window_end respectively, and every event's title carrying the D-06 window suffix.
+        """
         run = self._make_pending_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
         self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
-        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        combined = CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+        self.assertEqual(combined.count(), 15)
+
+        first_event = CalendarEvent.objects.get(url=f'CAMPAIGN:{run.pk}:2026-08-01')
+        expected_sunset, _ = sun_event(self.ground_site, date(2026, 8, 1), kind='sun')
+        self.assertEqual(
+            first_event.start_time, expected_sunset.to_datetime(timezone=timezone.utc).replace(microsecond=0)
+        )
+        self.assertIn('(window 2026-08-01..2026-08-15)', first_event.title)
+
+        last_event = CalendarEvent.objects.get(url=f'CAMPAIGN:{run.pk}:2026-08-15')
+        _, expected_sunrise = sun_event(self.ground_site, date(2026, 8, 15), kind='sun')
+        self.assertEqual(
+            last_event.end_time, expected_sunrise.to_datetime(timezone=timezone.utc).replace(microsecond=0)
+        )
+
+    def test_approve_range_run_space_site_creates_single_whole_day_span_event(self):
+        """FIX-04: a satellite range-window run still projects exactly one whole-day-span
+        event under the bare key (D-05 date-math unchanged), with the D-06 window suffix
+        applied to its title (Open Question 1 / Assumption A2, resolved uniformly)."""
+        space_site = Observatory.objects.create(
+            obscode='250',
+            name='Test Space Telescope',
+            short_name='TST',
+            observations_type=Observatory.SATELLITE_OBSTYPE,
+        )
+        run = self._make_pending_run(
+            site_raw=space_site.obscode, window_start=date(2026, 8, 1), window_end=date(2026, 8, 15)
+        )
+        self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        combined = CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+        self.assertEqual(combined.count(), 1)
+        event = CalendarEvent.objects.get(url=f'CAMPAIGN:{run.pk}')
+        self.assertEqual(event.start_time, datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(event.end_time, datetime(2026, 8, 15, 23, 59, tzinfo=timezone.utc))
+        self.assertIn('(window 2026-08-01..2026-08-15)', event.title)
+
+    def test_approve_range_run_partial_projection_on_mid_window_sun_event_error(self):
+        """RESEARCH Open Question 2 / Assumption A3 lock: a sun_event() ValueError partway
+        through a range projects the earlier nights' events and leaves them in place --
+        approve() swallows the raise, and there is no transaction.atomic() rollback."""
+        real_sun_event = sun_event
+
+        def _side_effect(site, night, kind='sun'):
+            if night == date(2026, 8, 3):
+                raise ValueError('no crossings')
+            return real_sun_event(site, night, kind=kind)
+
+        run = self._make_pending_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 4))
+        with patch('solsys_code.campaign_views.sun_event', side_effect=_side_effect):
+            self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        combined = CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+        self.assertEqual(combined.count(), 2)
 
     def test_approve_tbd_run_creates_no_calendar_event(self):
         run = self._make_pending_run(window_start=None, window_end=None)
@@ -381,13 +446,14 @@ class TestCalendarProjection(CampaignApprovalTestBase):
 
 
 class TestRunStatusChange(CampaignApprovalTestBase):
-    """D-03/D-04/D-05: staff mark an APPROVED run cancelled or weathered from the Decided
-    table, and the linked CAMPAIGN:{pk} CalendarEvent (if one exists) updates in place with
-    a distinct terminal title prefix. A range/TBD/unresolved-site run that never had a
-    projected event is handled without crashing or fabricating one (RESEARCH Pitfall 1). A
-    non-APPROVED run, and a lost-update race between the guard read and the conditional
-    write (REVIEW finding #1), are both rejected/short-circuited server-side without a 500
-    or a calendar mutation.
+    """D-03/D-04/D-05/Phase 25 FIX-05: staff mark an APPROVED run cancelled or weathered
+    from the Decided table, and every CalendarEvent belonging to it (the bare-key single
+    event, or all of a range run's per-night events) updates in place with a distinct
+    terminal title prefix, with the D-06 window suffix surviving the prefix transition. A
+    TBD/unresolved-site run that never had a projected event is handled without crashing or
+    fabricating one (RESEARCH Pitfall 1). A non-APPROVED run, and a lost-update race between
+    the guard read and the conditional write (REVIEW finding #1), are both rejected/
+    short-circuited server-side without a 500 or a calendar mutation.
     """
 
     @classmethod
@@ -447,15 +513,23 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         self.assertFalse(event.title.startswith('[CANCELLED]'))
         self.assertIn('Run status: Weather/Technical Failure', event.description)
 
-    def test_mark_range_window_run_does_not_crash_and_creates_no_event(self):
+    def test_mark_range_window_run_updates_every_night_event(self):
+        """FIX-05: approving a 15-night range projects 15 events; marking it cancelled
+        updates every one of them in place, and the D-06 window suffix survives the
+        [CANCELLED] prefix transition (Pitfall 1)."""
         run = self._make_approved_single_night_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
-        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        combined = CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+        self.assertEqual(combined.count(), 15)
 
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
-        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        combined = CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+        self.assertEqual(combined.count(), 15)
+        for event in combined:
+            self.assertTrue(event.title.startswith('[CANCELLED] '))
+            self.assertIn('(window 2026-08-01..2026-08-15)', event.title)
 
     def test_mark_status_on_non_approved_run_rejected(self):
         run = self._make_pending_run()  # still PENDING_REVIEW -- never approved
@@ -994,7 +1068,9 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('This run is not awaiting site resolution.', messages_list)
 
-    def test_resolve_range_tbd_run_clears_flag_with_no_calendar_event(self):
+    def test_resolve_range_run_projects_per_night_calendar_events(self):
+        """FIX-06: resolving a range run's site retroactively projects one event per night
+        and reports the 'added to the calendar' success message."""
         run = self._make_needs_review_run(site_raw='F65', window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
         response = self.client.post(
             reverse('campaigns:decide', kwargs={'pk': run.pk}),
@@ -1005,7 +1081,27 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.site_id, self.ground_site.pk)
         self.assertFalse(run.site_needs_review)
-        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        combined = CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+        self.assertEqual(combined.count(), 15)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertIn('Site resolved — run added to the calendar.', messages_list)
+
+    def test_resolve_tbd_run_clears_flag_with_no_calendar_event(self):
+        """Genuine TBD-resolve case (window_start/window_end both None): resolving the site
+        clears the review flag but projects zero events -- preserves the coverage the old
+        misnamed range test never actually exercised."""
+        run = self._make_needs_review_run(site_raw='F65', window_start=None, window_end=None)
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+        combined = CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+        self.assertEqual(combined.count(), 0)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('Site resolved.', messages_list)
 
@@ -2127,14 +2223,15 @@ class TestResolveSiteI11GeminiSouth(TestCase):
 
 
 class TestGeminiFtScenario(CampaignApprovalTestBase):
-    """D-06/D-07: the real Gemini Fast-Turnaround GS-2026A-FT-115 informational run flows
-    through the SAME approve -> mark-status mechanism as any Magellan run, with no
-    special-casing. Its window is a 4-day range (2026-07-13..2026-07-16), so approving it
-    projects NO ``CAMPAIGN:{pk}`` ``CalendarEvent`` (range-window skip-by-design); marking
-    it weathered, then cancelled, must set ``run_status`` only and never crash or
-    fabricate an event (RESEARCH Pitfall 1, T-23-07). This scenario creates no new
-    production code -- it exercises Plan 02's already-built ``_set_run_status()``
-    end-to-end against the real D-06 seed values.
+    """D-06/D-07/Phase 25 FIX-02/FIX-05: the real Gemini Fast-Turnaround GS-2026A-FT-115
+    informational run flows through the SAME approve -> mark-status mechanism as any
+    Magellan run, with no special-casing. Its window is a 4-day range
+    (2026-07-13..2026-07-16), so approving it projects 4 per-night ``CalendarEvent``s;
+    marking it weathered, then cancelled, sets ``run_status`` and updates every one of
+    those 4 events in place with the matching terminal prefix, preserving the D-06 window
+    suffix (RESEARCH Pitfall 1, T-23-07). This scenario exercises the real, rewritten
+    ``_project_calendar_event()``/``_set_run_status()`` end-to-end against the real D-06
+    seed values.
     """
 
     @classmethod
@@ -2159,7 +2256,7 @@ class TestGeminiFtScenario(CampaignApprovalTestBase):
     def setUp(self):
         self.client.login(username='staffcoordinator', password='pw')
 
-    def test_gemini_ft115_range_window_flows_through_same_mechanism_no_event_fabricated(self):
+    def test_gemini_ft115_range_window_projects_per_night_events(self):
         run = self._make_pending_run(
             campaign=self.didymos_campaign,
             telescope_instrument='Gemini-South GMOS-S',
@@ -2173,33 +2270,44 @@ class TestGeminiFtScenario(CampaignApprovalTestBase):
             target=None,
         )
 
-        # (a) Approve: because the window is a 4-day range, no CalendarEvent is projected
-        # (range-window projection is skipped by design).
+        def _combined():
+            return CalendarEvent.objects.filter(Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:'))
+
+        # (a) Approve: the 4-day window projects 4 per-night CalendarEvents.
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
         self.assertEqual(run.site_id, self.gemini_south.pk)
-        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        self.assertEqual(_combined().count(), 4)
 
         # (b)/(c)/(d) mark_weather_failure: normal redirect (no 500/IntegrityError),
-        # run_status set to WEATHER_TECH_FAILURE, still no CalendarEvent fabricated.
+        # run_status set to WEATHER_TECH_FAILURE, all 4 events updated with the
+        # [WEATHERED] prefix and the window suffix preserved.
         response = self.client.post(
             reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_weather_failure'}
         )
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.WEATHER_TECH_FAILURE)
-        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        combined = _combined()
+        self.assertEqual(combined.count(), 4)
+        for event in combined:
+            self.assertTrue(event.title.startswith('[WEATHERED] '))
+            self.assertIn('(window 2026-07-13..2026-07-16)', event.title)
 
         # A follow-up mark_cancelled is a REAL transition (WEATHER_TECH_FAILURE ->
         # CANCELLED are two distinct RunStatus values, not an idempotent no-op --
-        # REVIEW finding, Codex MEDIUM); still no CalendarEvent fabricated.
+        # REVIEW finding, Codex MEDIUM); all 4 events updated with [CANCELLED].
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
-        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 0)
+        combined = _combined()
+        self.assertEqual(combined.count(), 4)
+        for event in combined:
+            self.assertTrue(event.title.startswith('[CANCELLED] '))
+            self.assertIn('(window 2026-07-13..2026-07-16)', event.title)
 
         # Source assertion anchor (exact D-06 seed values, target left unset):
         self.assertEqual(run.telescope_instrument, 'Gemini-South GMOS-S')
