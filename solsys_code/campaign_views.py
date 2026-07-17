@@ -783,8 +783,8 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         # legacy bare single-night key AND any new per-night keys. The trailing colon on the
         # startswith prefix is required (Pitfall 2): without it, run.pk=3 would also match
         # CAMPAIGN:34:... events belonging to a different run. Never fabricate an event for a
-        # run that never projected one (range/TBD/unresolved-site runs never reach
-        # _project_calendar_event()'s date-math branch).
+        # run that never projected one (a TBD run, or one with an unresolved site or missing
+        # telescope_instrument never reaches _project_calendar_event()'s date-math branch).
         matching_events = CalendarEvent.objects.filter(
             Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:')
         )
