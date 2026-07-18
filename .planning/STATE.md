@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 24
-status: completed
-stopped_at: Phase 24 context gathered
-last_updated: "2026-07-18T06:21:05.892Z"
+current_phase_name: operator-and-usage-runbook-documentation-for-the-telescope-r
+status: verifying
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-07-18T07:24:57.703Z"
 last_activity: 2026-07-18
-last_activity_desc: Phase 25 complete; Phase 24 still outstanding
+last_activity_desc: Phase 24 execution started
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 25
-  completed_plans: 25
-  percent: 88
-current_phase_name: range-window-calendarevent-projection-allow-approved-site-re
+  completed_phases: 8
+  total_plans: 26
+  completed_plans: 26
+  percent: 100
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 ## Current Position
 
-Phase: 24
-Plan: 1 plan (24-01-PLAN.md), not yet executed
-Status: Ready to execute (Phase 24 now planned — 1 plan, wave 1; plan-checker passed, 13/13 CONTEXT.md decisions covered. Phase 25 was executed out of declared dependency order; milestone v2.1 still not complete until Phase 24 executes)
-Last activity: 2026-07-18 — Phase 24 planned (1 plan, wave 1); ready to execute
+Phase: 24 (operator-and-usage-runbook-documentation-for-the-telescope-r) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-07-18 — Phase 24 execution started
 
 ## Roadmap Summary (v2.1)
 
@@ -119,6 +119,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 23 P02 | 10min | 3 tasks | 5 files |
 | Phase 25 P01 | 25min | 3 tasks | 2 files |
 | Phase 25 P02 | 20min | 2 tasks | 2 files |
+| Phase 24 P01 | 10min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 - [Phase ?]: [Phase 25 P01]: _project_calendar_event()/_set_run_status() share one title-building helper (_calendar_event_title) so the D-06 window suffix can never drift between creation and status-change; _set_run_status() looks up events via a trailing-colon Q(url=...) | Q(url__startswith=...) queryset to avoid a pk-digit-prefix collision
 - [Phase ?]: backfill_range_calendar_events command name + --dry-run flag locked (D-07); candidate query intentionally not scoped by observations_type since _project_calendar_event() already branches correctly
 - [Phase ?]: candidates materialized as list(...) before iterating so the closing summary reflects the original candidate set, not a re-evaluated queryset after mid-loop writes
+- [Phase ?]: [Phase 24 P01]: Both RESEARCH.md open questions resolved as specified -- backfill_range_calendar_events included in the runbook; Django-onboarding content appended to docs/installation.rst rather than a new file
 
 ### Pending Todos
 
@@ -240,9 +242,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T06:21:05.881Z
-Stopped at: Phase 24 context gathered
-Resume file: .planning/phases/24-operator-and-usage-runbook-documentation-for-the-telescope-r/24-CONTEXT.md
+Last session: 2026-07-18T07:24:57.689Z
+Stopped at: Completed 24-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

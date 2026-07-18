@@ -295,13 +295,13 @@ Plans:
 **Goal:** Publish a discoverable, task-oriented operator runbook (new Sphinx page under `docs/runbooks/`) for the telescope-runs-calendar management commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`, `import_campaign_csv`, `backfill_range_calendar_events`) and the approval-queue `mark_cancelled`/`mark_weather_failure` staff actions — organized by "How do I...?" tasks, with a quick-reference cheat-sheet, a troubleshooting section covering real observed failure modes (including the Observatory-missing-timezone gap), and a Django/`manage.py` onboarding subsection appended to `docs/installation.rst` — all wired into the `docs/index.rst` toctree. Documentation-only: zero source/notebook changes, zero new dependencies.
 **Requirements**: none mapped (documentation phase outside v2.1 REQ scope; effective scope is CONTEXT.md D-01..D-13)
 **Depends on:** Phase 23
-**Plans:** 1 plan
+**Plans:** 1/1 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 24-01-PLAN.md — Onboarding subsection (`docs/installation.rst`) + consolidated task-oriented runbook page (`docs/runbooks/telescope_runs_calendar.rst`, all 5 commands + folded-in mark_cancelled/mark_weathered actions + cheat-sheet + troubleshooting) + `docs/index.rst` toctree wiring (D-01..D-13)
+- [x] 24-01-PLAN.md — Onboarding subsection (`docs/installation.rst`) + consolidated task-oriented runbook page (`docs/runbooks/telescope_runs_calendar.rst`, all 5 commands + folded-in mark_cancelled/mark_weathered actions + cheat-sheet + troubleshooting) + `docs/index.rst` toctree wiring (D-01..D-13)
 
 ### Phase 25: Range-window CalendarEvent projection: allow approved, site-resolved range-window CampaignRuns (e.g. Gemini FT-115-style awarded allocations) to project a multi-day CalendarEvent instead of being silently invisible, per the diagnosed root cause and before/after spec in .planning/debug/range-window-calendar-event.md -- fix the guard's window_start==window_end clause in _project_calendar_event(), add ground-branch multi-day date-math (the satellite branch is already correct), and deliberately revise the Phase 19/23 tests that currently encode the zero-event behavior as correct.
 
