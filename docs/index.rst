@@ -21,5 +21,6 @@ FOMO, which stands for Follow-up Observations of Moving Objects is a Target and 
    Home page <self>
    Installation and Getting Started <installation>
    Design <design/design>
+   Runbooks <runbooks/telescope_runs_calendar>
    API Reference <autoapi/index>
    Notebooks <notebooks>
