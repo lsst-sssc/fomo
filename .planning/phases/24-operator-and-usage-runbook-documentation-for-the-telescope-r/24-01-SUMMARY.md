@@ -131,3 +131,7 @@ This was Phase 24's only plan. With this phase complete, all four v2.1 roadmap p
 ---
 *Phase: 24-operator-and-usage-runbook-documentation-for-the-telescope-r*
 *Completed: 2026-07-18*
+
+## Self-Check: PASSED
+
+All created/modified files confirmed present on disk (`docs/runbooks/telescope_runs_calendar.rst`, `docs/installation.rst`, `docs/index.rst`, this SUMMARY.md); all four task/summary commit hashes (`e220f21`, `746440b`, `6bd0482`, `795f654`) confirmed present in `git log`.
