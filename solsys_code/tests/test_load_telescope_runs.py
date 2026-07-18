@@ -308,6 +308,26 @@ class TestLoadTelescopeRuns(TestCase):
             self.assertIn('2', err, 'Expected line number in stderr error message')
             self.assertIn('Magellan IMACS 13-19 July (proposed)', err)
 
+    def test_cross_month_line_logged_and_skipped(self):
+        """PR-REVIEW-F2: a genuine cross-month run line is rejected at parse time (fail-fast)
+        and logged to stderr with its line number, not crashed on; the valid line still
+        processes into its CalendarEvents."""
+        path, tmpdir_ctx = self._write_schedule_file(
+            [
+                'NTT EFOSC2 28 December-2 January',
+                'NTT EFOSC2 allocation 9-13 July',
+            ]
+        )
+        with tmpdir_ctx:
+            stderr_buf = io.StringIO()
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=stderr_buf)
+            # The cross-month line should produce no events; the valid NTT line should still
+            # create 4 events (ESO noon-to-noon: nights 9-12 July).
+            self.assertEqual(CalendarEvent.objects.count(), 4)
+            err = stderr_buf.getvalue()
+            self.assertIn('1', err, 'Expected line number in stderr error message')
+            self.assertIn('NTT EFOSC2 28 December-2 January', err)
+
     def test_partial_night_bon_to_hhmm_sets_end_time(self):
         """INGEST-WIN-01: a BoN-HHMM window line sets end_time to HHMM UTC on d+1 morning."""
         path, tmpdir_ctx = self._write_schedule_file(['Magellan-Clay Lightspeed 18-20 July BoN-0626'])

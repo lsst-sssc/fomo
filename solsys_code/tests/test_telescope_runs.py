@@ -358,13 +358,19 @@ class TestTelescopeRuns(TestCase):
         result = parse_run_line('FTS Spectral confirmed 5-7 Jan')
         self.assertEqual(result.year, date.today().year)
 
-    def test_parse_run_line_december_january_rolls_over_year(self):
-        """ROADMAP SC4 / PARSE-03: a late-December-start range rolls year to current year + 1."""
-        result = parse_run_line('NTT EFOSC2 28 December-2 January')
-        self.assertEqual(result.year, date.today().year + 1)
-        self.assertEqual(result.month, 12)
-        self.assertEqual(result.day1, 28)
-        self.assertEqual(result.day2, 2)
+    def test_parse_run_line_cross_month_range_raises(self):
+        """PR-REVIEW-F2: a genuine cross-month range now fails fast at parse time instead of
+        being parsed into a ParsedRun the loader always rejects downstream."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_run_line('NTT EFOSC2 28 December-2 January')
+        self.assertIn('Cross-month', str(ctx.exception))
+
+    def test_parse_run_line_partial_night_token_with_garbage_prefix_raises(self):
+        """PR-REVIEW-F3: fullmatch anchoring rejects a partial-night token with surrounding
+        garbage (e.g. 'xBoN-0626') instead of substring-matching the well-formed 'BoN-0626'
+        inside it."""
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay Lightspeed 18-20 July xBoN-0626')
 
     def test_parse_run_line_no_status_defaults_to_allocation(self):
         """D-05: a run line with no status defaults to status='allocation'."""
