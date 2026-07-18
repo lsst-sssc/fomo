@@ -133,6 +133,8 @@ with no database writes:
 The command is safe to re-run: a run that already has a calendar event is
 skipped, so running it again after a real backfill is a no-op.
 
+.. _command-cheat-sheet:
+
 Command cheat-sheet
 -----------------------
 
@@ -158,3 +160,90 @@ Command cheat-sheet
    * - ``backfill_range_calendar_events``
      - ``--dry-run`` (optional)
      - One-off backfill of CalendarEvents for older approved range-window runs.
+
+Troubleshooting
+------------------
+
+These are failure modes that have actually been observed running these
+commands against real data -- not a speculative list of every possible
+exception. Every example below uses synthetic placeholder names, emails,
+and telescope/instrument strings; no real contact information appears
+anywhere on this page.
+
+Observatory missing timezone
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Any command that needs to compute sunset/sunrise or the -15 deg dark
+window for a site (``sync_lco_observation_calendar``,
+``backfill_range_calendar_events``, and any future projection over that
+Observatory) will fail with an error like this, observed running a real
+backfill against the dev database:
+
+.. code-block:: console
+
+   Observatory 'FTN' (obscode=F65) has no timezone set
+
+**Fix:** the ``Observatory`` record for that site is missing its
+``timezone`` field. Set it to a valid IANA timezone name -- for example
+``"America/Santiago"`` -- via the Django admin, or via the
+``CreateObservatory`` form, then re-run the sync/backfill command for that
+site. Until the field is set, every projection or backfill attempt against
+that ``Observatory`` record will keep failing with the same error; it is
+not a one-time fluke.
+
+Per-line / per-record skip-and-log behaviour
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Each ingest/sync command follows the same shared invariant: **one bad row
+never aborts the whole run.** A problem with a single line or record is
+logged and skipped, and the command continues to the end, reporting a
+summary count.
+
+* ``load_telescope_runs`` skips and logs any schedule line it cannot parse,
+  or whose telescope name doesn't resolve to a known ``Observatory``
+  (a caught ``ValueError``/``Observatory.DoesNotExist``), and reports a
+  ``skipped: N`` count in its final summary line, e.g.::
+
+      Line 12: Observatory 'XYZ' (obscode=???) has no timezone set (line text: 'XYZ Instrument 1-5 July')
+      Done. lines processed: 20, created: 95, updated: 0, unchanged: 0, skipped: 1
+
+* ``sync_lco_observation_calendar`` falls back to a coarse, clearly-labelled
+  ``[UNVERIFIED]`` telescope name (instead of skipping the record) when its
+  per-record live telescope-label API call times out or returns an
+  unmapped site/telescope code. This is tracked as its own
+  ``telescope_api_failed`` counter, separate from ``skipped``, and the
+  record still gets a ``CalendarEvent``.
+
+* ``backfill_range_calendar_events`` skips a candidate run on a
+  ``ValueError`` (for example, the Observatory-timezone gap above) and
+  continues to the next candidate, never aborting the whole backfill.
+
+``import_campaign_csv`` unresolved rows
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A row whose ``Site Code`` cell doesn't resolve to a known ``Observatory``,
+or whose ``Obs. Date`` cell doesn't parse into a concrete window, is never
+silently dropped. Instead, the row still imports (or updates) as a
+``CampaignRun``, flagged with ``site_needs_review`` and/or
+``window_needs_review``, and both counts appear in the command's final
+summary line, e.g.::
+
+   Done. created: 12, updated: 3, unchanged: 40, skipped: 1, site_needs_review: 2, window_needs_review: 1
+
+Rows flagged ``site_needs_review`` surface in the approval queue's "Sites
+Needing Review" card so staff can resolve them without re-running the
+import.
+
+Also recall the re-import ``target``-reset gotcha covered above under "How
+do I bootstrap-import a campaign from a CSV?": re-running
+``import_campaign_csv`` over the same ``--campaign`` always resets every
+row's ``target`` back to its auto-resolved value, silently overwriting any
+manual correction made since the previous import.
+
+See also
+-----------
+
+* The :ref:`command cheat-sheet <command-cheat-sheet>` above for exact flag
+  syntax.
+* :doc:`/design/telescope_runs_calendar` for the astronomy and data-model
+  rationale behind these commands.
