@@ -756,6 +756,12 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         (T-23-06/RESEARCH Pitfall 1). ``_project_calendar_event()`` itself is never called or
         modified here. A range-window run now has one-or-more per-night events, all of which
         get updated here via the combined trailing-colon queryset (D-04).
+
+        The calendar-sync loop below is wrapped in a non-reverting try/except (PR-REVIEW-F1):
+        ``run_status`` is already committed by the conditional ``.update()`` above by the time
+        the loop runs, so a sync failure (DB/network/runtime) never reverts it and never
+        surfaces as an uncaught 500 -- it logs the exception and warns the user that the status
+        change was saved but the calendar entry needs a retry of the same action.
         """
         run = get_object_or_404(CampaignRun, pk=pk)
 
@@ -789,19 +795,31 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:')
         )
         if matching_events.exists():
-            prefix = _RUN_STATUS_CALENDAR_PREFIX[new_run_status]
-            for event in matching_events:
-                insert_or_create_calendar_event(
-                    {'url': event.url},
-                    fields={
-                        # Pitfall 1: reuse the shared _calendar_event_title() helper -- a
-                        # re-derived inline f-string here would differ from the stored range
-                        # title, get treated as a real change by the no-churn diff, and
-                        # silently strip the D-06 window suffix from every night's event.
-                        'title': f'{prefix} {_calendar_event_title(run)}',
-                        'description': f'{run.observation_details}\nRun status: {run.get_run_status_display()}',
-                    },
+            # PR-REVIEW-F1: run_status is already committed above -- this loop is wrapped in a
+            # non-reverting try/except (mirrors _resolve_site()'s projection guard) so a sync
+            # failure never reverts the status change and never bubbles up as an uncaught 500.
+            try:
+                prefix = _RUN_STATUS_CALENDAR_PREFIX[new_run_status]
+                for event in matching_events:
+                    insert_or_create_calendar_event(
+                        {'url': event.url},
+                        fields={
+                            # Pitfall 1: reuse the shared _calendar_event_title() helper -- a
+                            # re-derived inline f-string here would differ from the stored range
+                            # title, get treated as a real change by the no-churn diff, and
+                            # silently strip the D-06 window suffix from every night's event.
+                            'title': f'{prefix} {_calendar_event_title(run)}',
+                            'description': f'{run.observation_details}\nRun status: {run.get_run_status_display()}',
+                        },
+                    )
+            except Exception:
+                logger.exception('Calendar sync failed for CampaignRun %s during _set_run_status.', pk)
+                messages.warning(
+                    request,
+                    'Run status was updated, but the calendar entry could not be synced -- '
+                    'retry the same action to sync the calendar.',
                 )
+                return redirect('campaigns:approval_queue')
 
         messages.success(request, 'Run status updated.')
         return redirect('campaigns:approval_queue')

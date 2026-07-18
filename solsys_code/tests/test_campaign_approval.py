@@ -588,6 +588,27 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.REQUESTED)
 
+    def test_mark_cancelled_survives_calendar_sync_failure(self):
+        """PR-REVIEW-F1: run_status is committed by the conditional `.update()` before the
+        calendar-sync loop runs, so a sync exception must never revert to a 500 -- it should
+        redirect (200 after follow) with the status change intact and a warning message.
+        """
+        run = self._make_approved_single_night_run()
+        self.assertEqual(CalendarEvent.objects.filter(url=f'CAMPAIGN:{run.pk}').count(), 1)
+
+        with patch(
+            'solsys_code.campaign_views.insert_or_create_calendar_event',
+            side_effect=Exception('simulated calendar sync failure'),
+        ):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'}, follow=True
+            )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('could not be synced' in m for m in messages_list))
+
 
 class TestDecidedTableStatusActions(CampaignApprovalTestBase):
     """D-04 (Plan 02): the Decided table's Mark Cancelled/Mark Weathered action is gated by
