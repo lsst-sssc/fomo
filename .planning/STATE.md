@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 ## Current Position
 
 Phase: 24
-Plan: Not started
-Status: Ready to plan (Phase 24 never planned — Phase 25 was executed out of declared dependency order; milestone v2.1 is NOT complete)
-Last activity: 2026-07-18 — Phase 25 complete; Phase 24 still outstanding
+Plan: 1 plan (24-01-PLAN.md), not yet executed
+Status: Ready to execute (Phase 24 now planned — 1 plan, wave 1; plan-checker passed, 13/13 CONTEXT.md decisions covered. Phase 25 was executed out of declared dependency order; milestone v2.1 still not complete until Phase 24 executes)
+Last activity: 2026-07-18 — Phase 24 planned (1 plan, wave 1); ready to execute
 
 ## Roadmap Summary (v2.1)
 
