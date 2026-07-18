@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
-current_phase: 25
+current_phase: 24
 status: completed
-stopped_at: Completed 25-02-PLAN.md
-last_updated: "2026-07-18T05:57:30.981Z"
+stopped_at: Phase 24 context gathered
+last_updated: "2026-07-18T06:21:05.892Z"
 last_activity: 2026-07-18
-last_activity_desc: Phase 25 complete
+last_activity_desc: Phase 25 complete; Phase 24 still outstanding
 progress:
   total_phases: 8
   completed_phases: 7
@@ -240,9 +240,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T06:15:00.000Z
-Stopped at: Phase 25 complete (UAT passed, security verified). Phase 24 (never planned) is next — milestone v2.1 is not yet complete.
-Resume file: None
+Last session: 2026-07-18T06:21:05.881Z
+Stopped at: Phase 24 context gathered
+Resume file: .planning/phases/24-operator-and-usage-runbook-documentation-for-the-telescope-r/24-CONTEXT.md
 
 ## Operator Next Steps
 
