@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
-current_phase: 24
-current_phase_name: operator-and-usage-runbook-documentation-for-the-telescope-r
-status: verifying
+current_phase: 25
+current_phase_name: e.g. Gemini FT-115-style awarded allocations
+status: planning
 stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-07-18T07:24:57.703Z"
+last_updated: "2026-07-18T07:53:49.435Z"
 last_activity: 2026-07-18
-last_activity_desc: Phase 24 execution started
+last_activity_desc: Phase 24 complete, transitioned to Phase 25
 progress:
   total_phases: 8
   completed_phases: 8
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 ## Current Position
 
-Phase: 24 (operator-and-usage-runbook-documentation-for-the-telescope-r) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
-Last activity: 2026-07-18 — Phase 24 execution started
+Phase: 25 — Range-window CalendarEvent projection: allow approved, site-resolved range-window CampaignRuns (e.g. Gemini FT-115-style awarded allocations) to project a multi-day CalendarEvent instead of being silently invisible, per the diagnosed root cause and before/after spec in .planning/debug/range-window-calendar-event.md -- fix the guard's window_start==window_end clause in _project_calendar_event(), add ground-branch multi-day date-math (the satellite branch is already correct), and deliberately revise the Phase 19/23 tests that currently encode the zero-event behavior as correct.
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-18 — Phase 24 complete, transitioned to Phase 25
 
 ## Roadmap Summary (v2.1)
 
@@ -111,6 +111,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 22 | 6 | - | - |
 | 23 | 3 | - | - |
 | 25 | 2 | - | - |
+| 24 | 1 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
