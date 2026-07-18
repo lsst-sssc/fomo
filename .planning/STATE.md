@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 Phase: 25 — Range-window CalendarEvent projection: allow approved, site-resolved range-window CampaignRuns (e.g. Gemini FT-115-style awarded allocations) to project a multi-day CalendarEvent instead of being silently invisible, per the diagnosed root cause and before/after spec in .planning/debug/range-window-calendar-event.md -- fix the guard's window_start==window_end clause in _project_calendar_event(), add ground-branch multi-day date-math (the satellite branch is already correct), and deliberately revise the Phase 19/23 tests that currently encode the zero-event behavior as correct.
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-07-18 — Phase 24 complete, transitioned to Phase 25
+Last activity: 2026-07-18 - Completed quick task 260718-dih: Fix PR review findings from .planning/Findings.md
 
 ## Roadmap Summary (v2.1)
 
@@ -225,6 +225,7 @@ None. Roadmap created; Phase 18 ready to plan via `/gsd-plan-phase 18`.
 | 260716-h8c | Backfill Observatory.timezone from lat/lon in MPCObscodeFetcher.to_observatory() (Tier-2 MPC site-code lookup) using timezonefinder, closing the CR-01 gap where Tier-2-resolved sites always got a blank timezone and needed a manual admin edit before a Sites Needing Review calendar-projection retry could succeed | 2026-07-16 | 75962de | Complete | [260716-h8c-backfill-observatory-timezone-from-lat-l](./quick/260716-h8c-backfill-observatory-timezone-from-lat-l/) |
 | 260716-js7 | Add a client-side confirm-before-approve guard on the approval queue's Pending Review row: nudge staff before they Approve an unresolved Observing Site, mirroring the existing Reject confirmation pattern (D-06 preserved, no server-side change) | 2026-07-16 | 24d1d94 | Complete | [260716-js7-give-staff-clear-inline-feedback-guardra](./quick/260716-js7-give-staff-clear-inline-feedback-guardra/) |
 | 260717-iae | Wire the five existing pre-executed demo notebooks into docs/notebooks.rst's Sphinx toctree so they appear in the published Notebooks section (previously orphaned, no toctree reference) | 2026-07-17 | 6b3c145 | Complete | [260717-iae-wire-the-existing-pre-executed-demo-note](./quick/260717-iae-wire-the-existing-pre-executed-demo-note/) |
+| 260718-dih | Fix PR review findings from .planning/Findings.md: guard the unreverted calendar-sync loop in CampaignRunDecisionView._set_run_status with a non-reverting try/except, make parse_run_line fail fast on cross-month run ranges instead of the loader rejecting them later, anchor the partial-night token match with fullmatch, add regression tests for all three, and correct Findings.md's line-number citations | 2026-07-18 | 01dbc2a | Complete | [260718-dih-fix-pr-review-findings-unguarded-calenda](./quick/260718-dih-fix-pr-review-findings-unguarded-calenda/) |
 
 ## Deferred Items
 
