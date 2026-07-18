@@ -1,6 +1,10 @@
+---
+status: resolved
+---
+
 # GSD Debug Knowledge Base
 
-Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypotheses at the start of new investigations.
+Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypotheses at the start of new investigations. This file itself is a permanent index, not a debug session -- the `status: resolved` frontmatter above exists only so the milestone-close open-artifact audit doesn't flag it as an unresolved session.
 
 ---
 
@@ -49,4 +53,13 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Root cause:** `horizon_dip()` (telescope_runs.py) raised `ValueError('altitude_m must be a non-negative number')` for any negative altitude, but `Observatory.from_parallax_constants()` legitimately produces a small NEGATIVE geodetic height (-18.834226888866702 m) for the real near-sea-level MPC site obscode 434 "S. Benedetto Po" (~19 m real elevation, lat 45.052, lon 10.92). This is NOT a conversion bug: MPC publishes parallax constants to only 5 decimal places (1 LSB = _r*1e-5 = 63.78 m of altitude), so a genuine near-sea-level site cannot be distinguished from a slightly-below-ellipsoid one — round-tripping real altitudes of 0/10/19/24 m all reproduce the published (0.70765, 0.70419) constants and convert back to -18.83 m. When `_resolve_site()` replaced the placeholder Observatory with this real record and ran `_project_calendar_event()` -> `sun_event(kind='sun')` -> `horizon_dip(site.altitude)`, the guard raised. That raise was CORRECTLY caught by `_resolve_site()`'s non-reverting `try/except Exception` (CR-01) and logged via `logger.exception` (the traceback in the runserver log was that logging, NOT an unhandled 500), but because every retry hit the same guard the site could never be projected — permanently stuck in Sites Needing Review.
 - **Fix:** Relaxed `horizon_dip()` to return a 0 dip for any altitude <= 0 instead of raising. Physically correct: the Nautical Almanac dip model `1.76'*sqrt(h) = sqrt(2h/R)` only describes horizon depression for an observer ELEVATED above the reference surface; at/below sea level there is no elevated horizon to depress, so dip = 0 (the discarded sub-arcminute correction for a near-sea-level site is far inside the <=2 min sun-event tolerance). The `None` guard is retained (an unset altitude is a genuine data error, not a physical location). Updated the two Stage-1 tests that encoded the reject-negative contract and added an end-to-end `sun_event` regression for a below-sea-level site.
 - **Files changed:** solsys_code/telescope_runs.py, solsys_code/tests/test_telescope_runs.py
+---
+
+## range-window-calendar-event — approved, site-resolved range-window CampaignRuns never projected a CalendarEvent because a single equality sub-clause in the projection guard forced an early return
+- **Date:** 2026-07-17 (diagnosed) / 2026-07-18 (resolved, Phase 25)
+- **Error patterns:** _project_calendar_event, window_start, window_end, range-window CampaignRun, zero-event, CalendarEvent count 0, silent-by-design, Gemini FT-115, GS-2026A-FT-115, awarded telescope time, ground branch, satellite branch, sun_event, dip-corrected, backfill, TestGeminiFtScenario, D-06 behavior preservation
+- **Root cause:** `_project_calendar_event()`'s guard included `run.window_start == run.window_end`, so any run whose window was a genuine date range (not a single concrete night) returned False before the projection branch ever ran — confirmed for the real GS-2026A-FT-115 Gemini South run (CampaignRun pk=34), approved and site-resolved yet with zero CalendarEvents. Not a model limitation (CalendarEvent.start_time/end_time are plain non-nullable DateTimeFields with no inter-field constraint) and not an intentional product rule — traced to a Phase 19 D-06 behavior-preservation choice that deliberately deferred range projection as out-of-scope, never revisited by Phases 20-23. A secondary finding: the ground branch (the real Gemini I11 OPTICAL case) computed both event timestamps from a single `sun_event(window_start)` call and never read `window_end`, so a bare guard flip alone would have mislabelled a multi-day allocation as its first night only.
+- **Fix:** Phase 25 dropped the equality sub-clause (kept both `window_start`/`window_end` non-null), gave the ground branch real per-night dip-corrected date-math (one CalendarEvent per night, per-night title/description synced by `_set_run_status()`), kept the satellite branch's existing whole-day span, added a window-context title suffix via a shared title helper, and added a one-off `backfill_range_calendar_events` command to catch already-approved runs (including the real pk=34 case) that predate the fix.
+- **Files changed:** solsys_code/campaign_views.py, solsys_code/tests/test_campaign_approval.py, solsys_code/management/commands/backfill_range_calendar_events.py (new), solsys_code/tests/test_backfill_range_calendar_events.py (new)
+- **Full diagnosis:** .planning/debug/resolved/range-window-calendar-event.md
 ---

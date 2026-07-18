@@ -1,8 +1,25 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "User disagrees with the behavior that range-window CampaignRun approvals never project a CalendarEvent, even for real, competed-for/awarded telescope time. Concrete case: the real GS-2026A-FT-115 Gemini South run (CampaignRun pk=34, 65803 Didymos, Gemini-South GMOS-S, 6.50 awarded hours, window 2026-07-13..2026-07-16, resolved to the real Gemini South Observatory via I11) was created, approved, and resolved -- CalendarEvent.objects.filter(url='CAMPAIGN:34').count() confirmed 0. User's stated reasoning: this was competed-for and awarded time which followers of the campaign would want to know about and which would (likely) have got observed if not for the storm -- per the Gemini South website (https://www.gemini.edu/news/science-operations-announcements/gemini-south-shutdown-advanced-one-week), the shutdown was brought forward because of the storm, so no observations from July 13 onwards. This is a design-goal investigation, not a functional-bug hunt: diagnose only, produce a Root Cause Report plus a clear before/after behavior spec for a future planning phase -- do not modify code or tests in this session."
 created: 2026-07-17T13:00:00Z
-updated: 2026-07-17T14:30:00Z
+updated: 2026-07-18T09:30:00Z
+implemented_in: |
+  Phase 25 (range-window-calendarevent-projection-allow-approved-site-re), plans 25-01 and
+  25-02, following this file's before/after spec almost exactly:
+  - 25-01 (efbd366, df676f1, 5187e4b, e2f703a, a6de37f): rewrote _project_calendar_event()'s
+    guard to drop the window_start == window_end equality term (kept both-non-null), gave the
+    ground branch real per-night dip-corrected date-math (one CalendarEvent per night, going
+    further than the spec's Option A whole-day-span recommendation), kept the satellite
+    branch's existing whole-day span, added the window-context title suffix via a shared
+    title helper, and updated _set_run_status() so every night's event gets synced. All four
+    tests this file identified as needing to flip (0 -> 1) were revised per the spec.
+  - 25-02 (1fb56ae, 0ff4a70, 4a889d7, d2ef1dc): added `backfill_range_calendar_events`, a
+    one-off management command that finds already-APPROVED, site-resolved range-window
+    CampaignRuns with no existing CalendarEvent (exactly the disputed real case, pk=34
+    GS-2026A-FT-115) and projects them by delegating to the rewritten
+    _project_calendar_event() -- closing the gap left by projection only firing on the
+    approve/resolve_site POST actions.
+  Phase 25 verification passed (25-VERIFICATION.md, status: passed).
 ---
 
 ## Current Focus
