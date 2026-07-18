@@ -306,7 +306,7 @@ Plans:
 **Goal:** Approved, site-resolved range-window CampaignRuns (window_start != window_end) become visible on the campaign calendar: a ground run projects one dip-corrected CalendarEvent per night (mirroring load_telescope_runs' E-S+1 idiom), a satellite run keeps its single whole-day span, and each range event's title carries a window-context suffix. Marking such a run cancelled/weathered updates every night's event, and a one-off backfill command gives already-approved runs (the real GS-2026A-FT-115 pk=34) their events. The four Phase 19/23 tests that encoded the zero-event behavior are deliberately revised.
 **Requirements**: FIX-01..FIX-08 (phase-local; gap-closure phase from `/gsd-debug`, no REQUIREMENTS.md mapping)
 **Depends on:** Phase 24
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 

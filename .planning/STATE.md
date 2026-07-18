@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 current_phase: 25
-current_phase_name: range-window-calendarevent-projection-allow-approved-site-re
-status: verifying
+status: completed
 stopped_at: Completed 25-02-PLAN.md
-last_updated: "2026-07-18T02:34:39.442Z"
-last_activity: 2026-07-17
-last_activity_desc: Phase 25 execution started
+last_updated: "2026-07-18T05:57:30.981Z"
+last_activity: 2026-07-18
+last_activity_desc: Phase 25 complete
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 25
   completed_plans: 25
   percent: 88
+current_phase_name: range-window-calendarevent-projection-allow-approved-site-re
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Phase 25 — range-window-calendarevent-projection-allow-approved-site-re
+**Current focus:** Phase 24 — operator-and-usage-runbook-documentation-for-the-telescope-r
 
 ## Current Position
 
-Phase: 25 (range-window-calendarevent-projection-allow-approved-site-re) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-07-17 — Phase 25 execution started
+Phase: 24
+Plan: Not started
+Status: Ready to plan (Phase 24 never planned — Phase 25 was executed out of declared dependency order; milestone v2.1 is NOT complete)
+Last activity: 2026-07-18 — Phase 25 complete; Phase 24 still outstanding
 
 ## Roadmap Summary (v2.1)
 
@@ -110,6 +110,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 22 P03 | 35min | 2 tasks | 4 files |
 | 22 | 6 | - | - |
 | 23 | 3 | - | - |
+| 25 | 2 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
@@ -239,8 +240,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T02:34:39.427Z
-Stopped at: Completed 25-02-PLAN.md
+Last session: 2026-07-18T06:15:00.000Z
+Stopped at: Phase 25 complete (UAT passed, security verified). Phase 24 (never planned) is next — milestone v2.1 is not yet complete.
 Resume file: None
 
 ## Operator Next Steps
