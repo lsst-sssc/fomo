@@ -2,38 +2,38 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
-current_phase: 25
-current_phase_name: e.g. Gemini FT-115-style awarded allocations
-status: planning
+status: Awaiting next milestone
 stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-07-18T07:53:49.435Z"
+last_updated: "2026-07-18T09:30:32.069Z"
 last_activity: 2026-07-18
-last_activity_desc: Phase 24 complete, transitioned to Phase 25
+last_activity_desc: Milestone v2.1 completed and archived
 progress:
   total_phases: 8
   completed_phases: 8
   total_plans: 26
   completed_plans: 26
   percent: 100
+current_phase: 25
+current_phase_name: e.g. Gemini FT-115-style awarded allocations
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-05 — v2.1 milestone opened)
+See: .planning/PROJECT.md (updated 2026-07-18 — v2.1 milestone closed, full evolution review performed)
 
 **Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Phase 24 — operator-and-usage-runbook-documentation-for-the-telescope-r
+**Current focus:** Awaiting next milestone — v2.1 shipped 2026-07-18 (8 phases, 26 plans, 13/13 v1 requirements)
 
 ## Current Position
 
-Phase: 25 — Range-window CalendarEvent projection: allow approved, site-resolved range-window CampaignRuns (e.g. Gemini FT-115-style awarded allocations) to project a multi-day CalendarEvent instead of being silently invisible, per the diagnosed root cause and before/after spec in .planning/debug/range-window-calendar-event.md -- fix the guard's window_start==window_end clause in _project_calendar_event(), add ground-branch multi-day date-math (the satellite branch is already correct), and deliberately revise the Phase 19/23 tests that currently encode the zero-event behavior as correct.
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-18 - Completed quick task 260718-dih: Fix PR review findings from .planning/Findings.md
+Phase: Milestone v2.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-18 — Milestone v2.1 completed and archived
 
-## Roadmap Summary (v2.1)
+## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
 | Phase | Goal | Requirements |
 |-------|------|--------------|
@@ -41,10 +41,12 @@ Last activity: 2026-07-18 - Completed quick task 260718-dih: Fix PR review findi
 | 19. Window-Schema Migration | Replace single-night `obs_date`/`ut_start`/`ut_end` with a nullable `window_start`/`window_end` pair; migrate existing rows with no data loss | SCHED-02..05 |
 | 20. Range/TBD Import & Asset-Aware Coverage Gap | Import range/TBD `Obs. Date` rows into the window representation; make coverage-gap analysis distinguish ground vs. space-mission runs | IMPORT-01..02, ASSET-01..02 |
 | 21. Site Disambiguation & Submitter Contact Opt-In | Staff-facing fuzzy-match site-resolution UI in the approval queue; submitter contact opt-in flag | SITE-01..03, VIEW-05 |
+| 22. Site Matching at Submission & Unmatched-Site Resolution | Live in-browser fuzzy search (public form + approval queue) and a "Sites Needing Review" resolution surface — closes the Phase 21 functionality gap | none mapped (added mid-milestone) |
+| 23. Weather/Storm Cancellation Handling | Staff can mark an approved run cancelled/weathered; calendar syncs `[CANCELLED]`/`[WEATHERED]` in place | none mapped (organic phase) |
+| 24. Operator and Usage Runbook Documentation | Task-oriented Sphinx runbook for all five management commands + Phase 23 staff actions | none mapped (docs-only) |
+| 25. Range-Window CalendarEvent Projection | Approved range-window runs (e.g. real Gemini FT-115) project per-night calendar events instead of staying invisible; backfill command for already-approved runs | none mapped (gap-closure phase from `/gsd-debug`) |
 
-Coverage: 13/13 v1 requirements mapped, no orphans.
-
-**Dependency spine:** 18 (spike) → 19 (window migration, largest blast radius) → 20 (import + asset-gap consumers). Phase 21 (site UI + opt-in) is structurally independent of the scheduling work and depends only on Phase 18's fuzzy-library decision — can run in parallel with 19-20.
+Coverage: 13/13 v1 requirements mapped, no orphans. Full phase detail archived at `.planning/milestones/v2.1-ROADMAP.md`; requirements archived at `.planning/milestones/v2.1-REQUIREMENTS.md`.
 
 ## Roadmap Summary (v2.0 — shipped 2026-07-05)
 
@@ -132,72 +134,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 ### Decisions
 
-All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
-
-**v2.1 roadmap decisions:**
-
-- Four-phase structure (18-21) for the 13 v1 requirements, aligned with `coarse` granularity. The pre-correction research SUMMARY suggested a 7-phase split (spike + obscode-widening + schema + gap + CSV + site + opt-in). Two compressions were applied: (a) the standalone "`Observatory.obscode` max-length widening" phase was dropped entirely — the operator-caught post-research correction established that real space-observatory MPC codes (250/274/289) are standard 3-char codes that already fit `max_length=4`; obscode widening is very likely NOT needed, so it becomes a spike question (default answer: no) inside Phase 18 rather than its own phase; (b) the two schema-consumer phases (CSV range/TBD import + asset-aware gap analysis) were folded into a single Phase 20, since both are consumers of the Phase 19 window schema, can run concurrently, and neither is large enough to stand alone under coarse granularity.
-- Phase ordering follows the research dependency spine: spike first (settles window schema, TBD natural key, CSV parsing rules, fuzzy-library choice), then the window-schema migration (largest blast radius) as its own phase before any consumer touches the new schema, then the consumers (import + gap), with the independent site-UI + opt-in track able to run in parallel.
-- Phase 21 (SITE-01..03 + VIEW-05) grouped together because both are structurally independent of the scheduling-representation work — they touch `Observatory` resolution and the submission form, not the window schema. Per research, the `CampaignRunDecisionView.post()` re-resolution guard (SITE-03) must ship in the same phase as the new fuzzy-match resolution UI (SITE-01/02), never split.
-- `Observatory.obscode` length widening is explicitly out of scope (Out of Scope table in REQUIREMENTS.md) unless the Phase 18 spike finds a real code that doesn't fit.
-
-**Carried from v2.0 (still live for v2.1):**
-
-- [Phase 14]: parse_obs_window uses three narrowly-scoped regexes (not a permissive general date parser) so a stray date-range or garbage UT Time Range cell never succeeds into a wrong-but-plausible time — Phase 20's range/TBD parsing must extend this pattern-per-shape approach, not replace it with a generic parser.
-- [Phase 14]: resolve_site length-checks and blank-checks the raw Site Code before any tier attempt, flagging oversized/blank codes for review with site=None rather than fabricating (D-08/D-09/Pitfall 2) — quick task 260705-l1v extended this "never fabricate" invariant; Phase 21's fuzzy-match UI must preserve it (never auto-select).
-- [Phase 17]: Multi-target campaign target=None CampaignRuns are collected into a separate unattributed_runs list, never counted as claiming either target's date — Phase 20's asset-aware claimed_dates() rewrite must preserve this bucketing.
-- [Phase 18]: rapidfuzz package legitimacy confirmed by human (Task 1 checkpoint approved) — the automated SUS verdict was a documented download-lookup false-positive
-- [Phase 18]: probe script fuzzy_match_probe.py never staged/committed (per D-08); only 18-DECISION.md is a committed deliverable from this plan
-- [Phase 18]: resolve_site() cannot currently resolve 250/274/289 via its MPC Tier 2 path due to a null-longitude TypeError in MPCObscodeFetcher.to_observatory() for satellite-type MPC records (real live-test finding, flagged for Phase 19/21 awareness, no fix in this phase)
-- [Phase 18]: SCHED-01 criterion 1 (window schema): confirmed as-is - nullable window_start/window_end DateField pair, validated against every real cell shape
-- [Phase 18]: SCHED-01 criterion 4 (fuzzy library): split verdict - difflib primary/default, rapidfuzz deferred until a real advantage is demonstrated
-- [Phase 18]: SCHED-01 criterion 5 (obscode widening): no widening needed, confirmed against live Observatory.obscode max_length=4
-- [Phase 18]: SCHED-01 criterion 2 (TBD natural key): fold contact_person into the natural key for null-window rows via a partial/conditional UniqueConstraint (Phase 19 to design mechanism)
-- [Phase 18]: SCHED-01 criterion 3 (CSV range/TBD parsing): extend parse_obs_window()'s pattern-per-shape discipline to Obs. Date, checking both Obs. Date and UT Time Range (Phase 20 to implement)
-- [Phase 19]: Resolved-window UniqueConstraint keys on all four fields (campaign, telescope_instrument, window_start, window_end), not window_start alone, so a future date range starting the same day as an existing single-night row won't false-collide
-- [Phase 19]: TBD UniqueConstraint deliberately excludes window_start/window_end from its fields tuple (always NULL under its own condition) and keys on contact_person instead
-- [Phase 19]: [Phase 19] Deleted _observing_night_date() outright rather than deprecating it -- window_start/window_end are already plain dates, no time-of-day-to-night-boundary conversion needed
-- [Phase 19]: [Phase 19] Deleted test_ut_start_only_keys_to_site_local_observing_night rather than renaming it -- the code path it tested no longer exists under the window schema
-- [Phase 19]: render_window_start() returns the literal '-&gt;' HTML entity (not a plain hyphen/en-dash) for a range row, per D-05's exact wording
-- [Phase 19]: TestApproval/TestCalendarNoChurn each got their own scoped ground-Observatory fixture (not added to the shared CampaignApprovalTestBase) so D-06's site-required calendar projection doesn't break TestApprovalSiteResolution's Observatory.objects.count()==0 assertions
-- [Phase 19]: [Phase 19] import_campaign_csv's window-key collision check now runs for every row (not just ut_needs_review fallback rows), since window_start collapses to date granularity -- any same-telescope/same-date pair collides on the natural key — window_start is a DateField; time-of-day no longer disambiguates the natural key
-- [Phase 19]: [Phase 19] Applied migration 0004_campaignrun_window_schema to the real dev DB (src/fomo_db.sqlite3), previously deferred by Plan 01, so the import_campaign_csv_demo notebook could execute against the live schema — Notebook connects directly to the dev DB, not a test DB; backfill/dedup outcome matched Plan 01's smoke test exactly (16 -> 14 rows)
-- [Phase 19]: [Phase 19] Demo notebook's approval-lifecycle cell switched from unconditional CampaignRun.objects.create() to update_or_create() keyed on (campaign, telescope_instrument, contact_person) — Plan 01's new partial TBD UniqueConstraint on those same fields made repeat notebook execution crash with IntegrityError once the dev DB was actually migrated
-- [Phase 20]: claimed_dates() computes ground-vs-space classification once from the site parameter before the per-run loop (is_space_mission), never per-row from run.site, preserving the PII-minimizing .only('pk','window_start','window_end') queryset — Avoids N+1 reads and keeps the existing PII-minimization invariant intact (Pitfall 3)
-- [Phase 20]: pending_narrowing_runs is a distinct bucket from undated_runs -- TBD runs always land in undated_runs regardless of site type; only a space-mission run with an un-narrowed range lands in pending_narrowing_runs — D-09 explicit distinction between 'no info at all' and 'a real space-mission run with a range, just not scheduled tight enough yet'
-- [Phase 20]: original_obs_date_raw is CharField(max_length=255), not TextField -- mirrors site_raw exactly per RESEARCH field-type resolution
-- [Phase 20]: render_window_start()'s TBD-badge tooltip resolves original_obs_date_raw via Accessor(...).resolve(record, quiet=True) or '', guarding for blank, and interpolates via format_html positional argument (never mark_safe/f-string) -- reusable pattern for future dict-vs-model tooltips on this table
-- [Phase 20]: parse_obs_window() order-of-attempts parser (exact date -> full-date range regex -> compact-range regex with rollover -> TBD catch-all) never raises for any Obs. Date input (D-13) -- stdlib date()'s own ValueError validation is the never-raise mechanism, no manual day-count guard needed
-- [Phase 20]: import_campaign_csv's natural key branches on window_start is None (resolved-window vs TBD lookup/collision-key shape), matching CampaignRun.Meta.constraints' two partial UniqueConstraints exactly -- contact_person is pulled out of the unconditional fields dict and only set via lookup for the TBD branch
-- [Phase 20]: range/TBD rows skip UT-Time-Range parsing entirely (ut_start=ut_end=None, ut_needs_review=False) per RESEARCH.md's A1 assumption -- no current CampaignRun field stores these values for a multi-night window
-- [Phase 20]: Demo notebook's new range/TBD demonstration cell placed after the existing generic inspection cell (not immediately after the import call_command cell) so it reuses the notebook's already-established CampaignRun.objects.get(...) query style
-- [Phase 21]: [Phase 21 P01]: old_names included as one whole string (not split) per RESEARCH.md Open Question 2 recommendation
-- [Phase 21]: [Phase 21 P01]: local Observatory candidates merge in after the MPC pool via dict.setdefault(), so an already-vetted local record's display string wins any first-seen collision over raw MPC bulk data
-- [Phase 21]: [Phase 21 P02]: Reordered Django .values()-before-.annotate() to alias a Case/When annotation over a real model field name (contact_person/contact_email) -- Django rejects the collision unless .values() has already narrowed the field list
-- [Phase 21]: [Phase 21 P02]: VIEW-05 changes the non-staff .values() dict shape from 'no contact keys at all' to 'always present, blank unless opted in' -- updated Phase 15's TestContactFieldGating assertion to match
-- [Phase 21]: [Phase 21 P03]: render_site() override placed on ApprovalQueueTable (not CampaignRunTable) since only the former carries show_actions/candidate_pool
-- [Phase 21]: [Phase 21 P03]: Only the candidate display string (not obscode) is emitted per <option value>; obscode resolution happens server-side in Plan 21-04
-- [Phase 21]: [Phase 21 P04]: Kept the except Exception revert block byte-for-byte unchanged -- the D-06 fix is purely the new if run.site is None guard placed before resolve_site(), not a change to the failure-recovery contract
-- [Phase 21]: [Phase 21 P04]: Mocked MPCObscodeFetcher.to_observatory() directly (side_effect creating a real Observatory row) for the CreateObservatory round-trip tests, since to_observatory() reads several MPC-response dict keys with no defaults and a bare query() mock would raise MissingDataException
-- [Phase ?]: [Quick 260714-ilz]: Widened parse_obs_window()'s date-range separator regex to accept a double-hyphen (-{1,2}), enabling the public form's genuine multi-night range examples to parse; non-regressive against existing single-hyphen/en-dash/em-dash/'to' shapes and the CSV importer.
-- [Phase ?]: [Quick 260714-jpd]: readonly_fields (not exclude) used to keep CampaignRun.approval_status visible-but-non-editable in admin, preventing an admin path to APPROVED that bypasses CampaignRunDecisionView.post()'s side effects
-- [Phase ?]: [Phase 22 P01]: substring_or_fuzzy_match_candidates() placed below fuzzy_match_candidates() in campaign_utils.py, not replacing it; fuzzy_match_candidates() gained a backward-compatible optional n=5 parameter
-- [Phase ?]: [Phase 22 P01]: _check_and_increment_throttle() stays in campaign_utils.py (not campaign_views.py) per 22-REVIEWS.md finding 8a disposition
-- [Phase ?]: [Phase 22 P01]: SiteSearchView exempts request.user.is_staff from the anonymous per-IP throttle so staff triaging the approval queue never trip the public-abuse limit
-- [Phase ?]: [Phase 22 P02]: input event (not keyup) chosen for both site-entry widgets' hx-trigger per 22-REVIEWS.md finding 1 -- also fires on paste/autocomplete/IME input
-- [Phase ?]: [Phase 22 P02]: fuzzy_match_candidates import removed from campaign_tables.py -- its sole caller (the datalist branch) was deleted
-- [Phase ?]: [Phase 22 P03]: _project_calendar_event() bool return distinguishes event-created from skipped-by-design, driving resolve_site's two success messages; approve branch ignores the return
-- [Phase ?]: [Phase 22 P03]: site_needs_review clears only after a successful projection -- the conditional site-claim update writes site only, preserving the review-table retry surface
-- [Phase ?]: [Phase 22 P03]: resolve-mode forms use their own resolve-form-{pk} id, distinct from the pending row's decide-form-{pk}
-- [Phase ?]: [Quick 260716-js7]: known-resolved state tracked via a data-site-resolved attribute on the site_selection input, set true only by the suggestion fragment's onclick and cleared by an oninput handler on manual typing; Approve button's confirm-guard only fires for a non-blank, not-known-resolved value (D-06 preserved, no server-side change)
-- [Phase ?]: [Phase 23 P01]: Title recomputed fresh from parsed.status/telescope/instrument every ingest (never appended to event.title), routed through insert_or_create_calendar_event()'s existing field-diff update -- reverts [CANCELLED] cleanly when the status word is removed, no new code path needed
-- [Phase ?]: [Phase 23 P02]: _set_run_status() mirrors _resolve_site()'s guard -> conditional-update -> updated_count-checked-short-circuit -> refresh_from_db() shape rather than inventing a new pattern
-- [Phase ?]: [Phase 23 P02]: status_actions is a new independent ApprovalQueueTable flag (not a repurposed show_actions) so the Decided table's Site column keeps its plain-text fallback while gaining the new Mark Cancelled/Mark Weathered action
-- [Phase ?]: Quick 260717-iae: Wired the five pre-executed demo notebooks into docs/notebooks.rst's toctree (Demonstration Notebooks section), matching docs/design/design.rst's section+toctree pattern; verified with the full non-excluding sphinx-build (mirrors CI/ReadTheDocs).
-- [Phase ?]: [Phase 25 P01]: _project_calendar_event()/_set_run_status() share one title-building helper (_calendar_event_title) so the D-06 window suffix can never drift between creation and status-change; _set_run_status() looks up events via a trailing-colon Q(url=...) | Q(url__startswith=...) queryset to avoid a pk-digit-prefix collision
-- [Phase ?]: backfill_range_calendar_events command name + --dry-run flag locked (D-07); candidate query intentionally not scoped by observations_type since _project_calendar_event() already branches correctly
-- [Phase ?]: candidates materialized as list(...) before iterating so the closing summary reflects the original candidate set, not a re-evaluated queryset after mid-loop writes
-- [Phase ?]: [Phase 24 P01]: Both RESEARCH.md open questions resolved as specified -- backfill_range_calendar_events included in the runbook; Django-onboarding content appended to docs/installation.rst rather than a new file
+All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive per-plan v2.1 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 18-25 plan) has been cleared now that v2.1 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (backfilled at close for Phases 18/19/20/21/23/24, which already had rows for 14/22/25), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.1-phases/`.
 
 ### Pending Todos
 
@@ -212,7 +149,7 @@ All v1.0-v1.7 decisions logged in PROJECT.md Key Decisions table.
 
 ### Blockers/Concerns
 
-None. Roadmap created; Phase 18 ready to plan via `/gsd-plan-phase 18`.
+None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next cycle.
 
 ### Quick Tasks Completed
 
@@ -250,4 +187,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd-plan-phase 18`
+- Start the next milestone with /gsd-new-milestone
