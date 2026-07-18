@@ -92,9 +92,9 @@
   "granularity": "coarse",
   "graphify": {
     "auto_update": false,
-    "enabled": false
+    "enabled": true
   },
   "intel": {
-    "enabled": false
+    "enabled": true
   }
 }
