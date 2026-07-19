@@ -377,6 +377,56 @@
 
 ---
 
+## Milestone: v2.1 — Uncertain Scheduling & Site Disambiguation
+
+**Shipped:** 2026-07-18
+**Phases:** 8 (18-25) | **Plans:** 26 | **Sessions:** ~10 (2026-07-08 → 2026-07-18)
+
+### What Was Built
+
+- Phase 18: Investigation spike deciding the window-schema approach (`window_start`/`window_end` replacing `obs_date`/`ut_start`/`ut_end`) for representing uncertain/range/TBD scheduling.
+- Phase 19: `CampaignRun` window-schema migration (data-preserving), including a TBD natural-key partial `UniqueConstraint`.
+- Phase 20: Range/TBD run import via a 4-attempt `parse_obs_window` parser, plus asset-aware coverage-gap computation for the new window shapes.
+- Phase 21: Site disambiguation stack (`resolve_site()`/`fuzzy_match_candidates()`/`build_site_candidates()`) and submitter contact opt-in; a clobbering-bug guard added mid-phase (SITE-03).
+- Phase 22: Site matching at submission time plus a staff-facing unmatched-site resolution workflow (largest phase, 6 plans).
+- Phase 23: Weather/storm cancellation handling — `_set_run_status()` mirrors `_resolve_site()`'s existing try/except-around-side-effects pattern so a calendar-sync failure can't corrupt run status.
+- Phase 24: Operator/usage runbook appended to `docs/installation.rst`.
+- Phase 25: Range-window `CalendarEvent` projection fix — approved, site-resolved range-window `CampaignRun`s were never being projected to the calendar; root-caused and fixed via a dedicated debug session.
+- Post-close: a PR review (`.planning/Findings.md`) surfaced one High-severity finding (an unguarded calendar-sync call in `_set_run_status()`, mirroring the exact class of bug Phase 23 had already guarded elsewhere) plus two coverage gaps; all fixed via quick task `260718-dih` before milestone close (guard the loop, fail-fast cross-month rejection, anchored partial-night token matching, 3 new regression tests).
+- 13/13 v1 requirements shipped (100%); all 8 phases verified `passed`; 544 tests pass at close.
+
+### What Worked
+
+- Reusing the exact `_resolve_site()` try/except-around-side-effects pattern for `_set_run_status()` in Phase 23 was the right shape, but the loop that actually called `insert_or_create_calendar_event()` was left unguarded — a near-miss caught not by that phase's own verification but by a later, independent PR review. The pattern itself was sound; the gap was in applying it to every call site consistently.
+- Running a PR-style Findings.md review as a distinct step before milestone close (separate from phase verification and the audit) caught a real High-severity gap that 544 green tests and 8 `passed` verifications had missed — same shape of catch as v2.0's manual UAT pass, different mechanism (structured code review vs. click-through).
+- A dedicated debug session for the range-window calendar-projection gap (Phase 25) produced a detailed root-cause + before/after spec that made the eventual fix, and later the retroactive bookkeeping (marking it `resolved` at milestone close), straightforward to verify against.
+
+### What Was Inefficient
+
+- The debug session for the range-window calendar-projection issue was fixed by Phase 25's shipped commits but its frontmatter was never updated from `status: diagnosed` to `status: resolved` — it surfaced as an open pre-close audit item that required manual cross-referencing against Phase 25's SUMMARY.md to confirm the fix actually matched the session's spec before it could be closed out.
+- `knowledge-base.md` (a permanent debug-knowledge index file, not a session) has no frontmatter by convention and was flagged as an "open debug session" by the pre-close audit scanner — a second bookkeeping false-positive requiring investigation of `audit.cjs`'s exact matching rule before a targeted fix (adding `status: resolved` frontmatter) could be applied.
+- The quick-task executor's worktree-isolation dispatch again forked from a stale, diverged `origin/main` rather than the local feature branch — the same failure mode recorded in v2.0's retrospective — caught cleanly by the fail-closed guard but requiring the same non-isolated fallback re-dispatch.
+
+### Patterns Established
+
+- When a bugfix phase (like Phase 23's calendar-sync guard) establishes a defensive pattern for one call site, treat every other call site with the same side-effect shape as in-scope for the same guard, or explicitly flag the others as follow-up — don't rely on a later PR review to catch the ones left out.
+- A debug session's `status:` frontmatter must be updated the moment its fix ships, not left for milestone close to discover — tie it to the shipping phase's own SUMMARY step rather than treating it as separate bookkeeping.
+- Permanent, sessionless files living inside a directory an audit scanner treats as "sessions by default" (like `.planning/debug/knowledge-base.md`) need an explicit `status: resolved`-equivalent marker from the start, not added reactively after the first false-positive.
+
+### Key Lessons
+
+1. A defensive pattern proven correct at one call site (Phase 23's `_resolve_site()`-style guard) does not automatically propagate to structurally identical call sites in the same phase — an explicit sweep for "other places this same side-effect happens unguarded" belongs in the phase's own verification, not left to a later independent review to catch.
+2. Structured post-verification review (PR-style Findings.md) and manual UAT (v2.0) are two different, non-redundant nets that both catch real gaps a 100%-green test suite and passed phase verifications miss — a milestone with either one is safer than a milestone with neither.
+3. Debug sessions and permanent knowledge-base files sharing one directory need their frontmatter conventions (`status: resolved`) treated as load-bearing for the audit scanner, not optional — both categories caused false or stale audit findings at this milestone's close, mirroring v0/v2.0's recurring "todo/status bookkeeping gap at close" lesson.
+4. Worktree-isolation base-mismatch against a stale `origin/main` is now a twice-repeated pattern (v2.0's quick task `260705-l1v`, v2.1's quick task `260718-dih`) — the fail-closed guard keeps recovering it safely, but a pre-dispatch `worktree.base-check` should be run by default for single-task quick dispatches rather than discovered reactively each time.
+
+### Cost Observations
+
+- Sessions: ~10 (2026-07-08 → 2026-07-18); 8 phases, 26 plans, 60 tasks.
+- Notable: this was the largest milestone by phase count so far (8, vs. v2.0's 4), spanning an investigation spike, a schema migration, two feature phases, a documentation phase, and two post-hoc gap-closure phases (23 weather handling was itself organic scope growth, 25 was a debug-driven fix) — the milestone absorbed real production-shaped surprises (site disambiguation edge cases, the range-window projection gap) without a scope reset.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -392,6 +442,7 @@
 | v1.6 | ~2 | 2 | First pure-refactor + polish milestone (zero new models/migrations); `insert_or_create_calendar_event` shared helper; WCAG text color + N+1 prefetch fix; parallel-worktree collision recovered; `summary-extract` one-liner issue recurred (3rd time) |
 | v1.7 | ~1 | 1 | First investigation-only milestone (no sync command shipped); live production ESO P2 API probe; decision doc verdict (Bypass) grounded in captured real-API evidence; upstream `tom_eso` bug filed (`#55`) + 4 more parked as a dormant seed; STATE.md `status` field found stale relative to authoritative verification data |
 | v2.0 | ~4 | 4 | First milestone with a second, independent feature area (campaign coordination, distinct from calendar sync); deep code review caught critical bugs pre-close in 3 of 4 phases; first milestone audit generated before its own last (deferrable) phase completed, requiring a freshness re-check at close; first quick-task fix triggered by manual UAT immediately before close, not by automated verification; first worktree-isolation base-mismatch caught by the fail-closed guard, recovered via non-isolated fallback |
+| v2.1 | ~10 | 8 | Largest milestone by phase count; investigation spike + schema migration + organic gap-closure phases (weather handling, range-window projection debug fix); first PR-style Findings.md review pass done as a distinct pre-close step, catching a High-severity unguarded-calendar-sync gap 544 green tests missed; second recurrence of worktree-isolation base-mismatch (v2.0, v2.1); two debug-session bookkeeping false positives/staleness caught and fixed at close |
 
 ### Cumulative Quality
 
@@ -406,6 +457,7 @@
 | v1.6 | +8 (WCAG text color unit × 4, N+1 regression, integration × 3; all 194 under `./manage.py test solsys_code`) | - | 0 |
 | v1.7 | +0 (investigation-only; no code/tests shipped — deliverable is a decision doc) | - | 0 |
 | v2.0 | +138 (model + import + read-path + write-path + coverage-gap + pre-close quick-task fix; all 332 under `./manage.py test solsys_code`) | - | 0 |
+| v2.1 | +212 (spike + migration + import/gap + site disambiguation + submission matching + weather handling + runbook + range-window fix + pre-close quick-task fix; all 544 under `./manage.py test solsys_code`) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -421,4 +473,5 @@
 9. Close todos at the phase boundary that resolves them — a todo left open after the delivering phase ships becomes an open-artifact-audit finding at milestone close, forcing an acknowledge step that should have been a clean verified_closeout (v1.6 close).
 10. The `gsd-tools.cjs summary-extract` one-liner field picks up any paragraph-level text in a SUMMARY, not only the plan's accomplishment description. Three consecutive milestones (v1.4, v1.5, v1.6) required manual MILESTONES.md correction — fix at the SUMMARY authoring step by using a dedicated `one_liner:` frontmatter field rather than relying on paragraph parsing.
 11. STATE.md's `status` field can go stale relative to the authoritative `gsd-tools query init.progress`/`init.manager` verification data — a phase can be fully executed and verified while STATE.md still says `status: verifying` and points at a stale "next step". Cross-check with `/gsd-progress` before trusting STATE.md's status in isolation (v1.7 close).
+12. Worktree-isolation base-mismatch against a stale `origin/main` has now recurred twice (v2.0 quick task `260705-l1v`, v2.1 quick task `260718-dih`) — the fail-closed guard always recovers it safely via a non-isolated fallback dispatch, but running the `worktree.base-check` pre-check by default before dispatching single-task quick executors would avoid the wasted round-trip entirely. ✓ Validated (2×).
 12. Investigation-only/spike milestones should define success criteria as documented findings + an explicit recommendation, never as shipped code — this framing (established at v1.7's roadmap stage) kept the phase from scope-creeping into premature implementation before the Bridge-vs-Bypass question was answered.
