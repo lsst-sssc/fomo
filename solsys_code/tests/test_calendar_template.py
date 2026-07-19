@@ -141,6 +141,18 @@ class CalendarTemplateTest(TestCase):
         response = self._get_calendar()
         self.assertEqual(response.status_code, 200)
 
+    def test_calendar_partial_data_url_carries_utc_offset(self):
+        """Regression for BUGFIX-CAL-UTC: the calRefresh reload URL must carry utc_offset.
+
+        A non-zero offset proves the user's actual selection is threaded through the
+        data-url (not just that a literal '0' happens to appear).
+        """
+        response = self.client.get(
+            reverse('calendar:calendar'), {'year': self.year, 'month': self.month, 'utc_offset': 5}
+        )
+        url = reverse('calendar:calendar')
+        self.assertContains(response, f'data-url="{url}?month=6&year=2026&utc_offset=5"')
+
     def test_fallback_events_get_dashed_border_and_tooltip(self):
         response = self._get_calendar()
         self.assertContains(response, DASHED_BORDER_MARKER)
