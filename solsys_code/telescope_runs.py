@@ -417,8 +417,10 @@ def parse_run_line(line: str) -> ParsedRun:
     Raises:
         ValueError: if line is empty, the telescope token does not resolve to
             exactly one SITES key (D-01), the status is unrecognized (D-06),
-            no date range can be found, or the trailing window token is present
-            but malformed.
+            no date range can be found, a genuine cross-month range is present
+            (PR-REVIEW-F2: not yet supported -- rejected at parse time instead
+            of being parsed into a ParsedRun the loader always rejects), or the
+            trailing window token is present but malformed.
     """
     stripped = line.strip()
     if not stripped:
@@ -426,32 +428,34 @@ def parse_run_line(line: str) -> ParsedRun:
 
     status, remainder = _resolve_status(stripped)
 
-    # Date range: try month-after-range ('Jul 8-12'), cross-month
-    # ('28 December-2 January'), then month-before-range ('9-13 July').
+    # Date range: try month-after-range ('Jul 8-12') first, then check for a
+    # genuine cross-month range ('28 December-2 January') and reject it
+    # immediately (PR-REVIEW-F2: fail fast at parse time -- cross-month ranges
+    # are not yet supported, so there is no point building a ParsedRun the
+    # loader would always reject downstream), then fall back to
+    # month-before-range ('9-13 July').
     match = _MONTH_AFTER_RANGE.search(remainder)
     if match:
         day1 = int(match.group('day1'))
         day2 = int(match.group('day2'))
         month = _MONTH_NAMES[match.group('month1').lower()]
     else:
-        match = _CROSS_MONTH_RANGE.search(remainder)
-        if match:
-            day1 = int(match.group('day1'))
-            day2 = int(match.group('day2'))
-            month = _MONTH_NAMES[match.group('month1').lower()]
-        else:
-            match = _MONTH_BEFORE_RANGE.search(remainder)
-            if not match:
-                raise ValueError(f'Could not find a date range (e.g. "9-13 July" or "Jul 8-12") in {line!r}')
-            day1 = int(match.group('day1'))
-            day2 = int(match.group('day2'))
-            month = _MONTH_NAMES[match.group('month1').lower()]
+        cross_month_match = _CROSS_MONTH_RANGE.search(remainder)
+        if cross_month_match:
+            raise ValueError(f'Cross-month run ranges not yet supported: {line!r}')
+        match = _MONTH_BEFORE_RANGE.search(remainder)
+        if not match:
+            raise ValueError(f'Could not find a date range (e.g. "9-13 July" or "Jul 8-12") in {line!r}')
+        day1 = int(match.group('day1'))
+        day2 = int(match.group('day2'))
+        month = _MONTH_NAMES[match.group('month1').lower()]
 
-    # Year (PARSE-03): default to current year; roll over to next year if the
-    # run starts in December and ends in January (cross-year range).
+    # Year (PARSE-03): default to current year. The previous December-to-
+    # January rollover here only ever served a genuine cross-month range,
+    # which now fails fast above; any remaining descending same-month range
+    # that reaches this point (e.g. a typo like '20-5 December') is always
+    # rejected downstream by _iter_run_nights, so no rollover is observable.
     year = date_cls.today().year
-    if month == 12 and day2 < day1:
-        year += 1
 
     # Telescope (token 0) and instrument (token 1, possibly hyphenated).
     before_range = remainder[: match.start()]
@@ -475,7 +479,10 @@ def parse_run_line(line: str) -> ParsedRun:
     window_tokens = after_range.split()
     start_window = end_window = None
     if len(window_tokens) == 1:
-        window_match = _PARTIAL_NIGHTS.search(window_tokens[0])
+        # PR-REVIEW-F3: fullmatch (not search) so a token with surrounding garbage
+        # (e.g. 'xBoN-0626') is rejected rather than substring-matched into a
+        # plausible-but-wrong window.
+        window_match = _PARTIAL_NIGHTS.fullmatch(window_tokens[0])
         if window_match:
             start_window = window_match.group(1)
             end_window = window_match.group(2)

@@ -69,12 +69,15 @@ def _iter_run_nights(parsed: ParsedRun) -> list[date]:
         list[date]: evening dates for each night of the run.
 
     Raises:
-        ValueError: if day2 < day1 (cross-month ranges are not supported in
-            Phase 3), or if an ESO noon-to-noon range leaves no observing nights
-            after dropping its closing boundary (day2 <= day1).
+        ValueError: if day2 < day1 (a descending or malformed same-month day
+            range -- e.g. a typo like '20-5 July' -- that parse_run_line does
+            not reject upstream; genuine cross-month ranges are already
+            rejected at parse time by parse_run_line, PR-REVIEW-F2), or if an
+            ESO noon-to-noon range leaves no observing nights after dropping
+            its closing boundary (day2 <= day1).
     """
     if parsed.day2 < parsed.day1:
-        raise ValueError(f'Cross-month run ranges not yet supported in Phase 3: {parsed!r}')
+        raise ValueError(f'Invalid or descending same-month day range (day2 < day1): {parsed!r}')
     n_nights = parsed.day2 - parsed.day1 + 1
     if parsed.telescope in ESO_NOON_TO_NOON_SITES:
         # Tatoo's End date is the closing noon boundary of the last night, not an
