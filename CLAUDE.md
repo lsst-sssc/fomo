@@ -16,18 +16,18 @@ ephemerides for non-sidereal targets and ingests minor-body orbits from JPL.
 ./.setup_dev.sh
 
 # Run the Django dev server / any admin task. Settings module is src.fomo.settings (set by manage.py).
-./manage.py runserver
-./manage.py migrate
-./manage.py createsuperuser
+# Always invoke as `python manage.py ...` — `./manage.py` is not a supported entry point.
+python manage.py runserver
+python manage.py migrate
+python manage.py createsuperuser
 
 # Custom management command: query JPL SBDB and create Targets from new matches
-./manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
-./manage.py fetch_jplsbdb_objects --orbit_class IEO
+python manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
+python manage.py fetch_jplsbdb_objects --orbit_class IEO
 
-# Tests — there are TWO independent test suites (see "Testing" below):
-python -m pytest                          # pytest suite: tests/, src/, docs/ only
-./manage.py test                          # Django app tests (solsys_code et al.)
-./manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
+# Tests — the Django test runner is the only functioning suite (see "Testing" below):
+python manage.py test                          # Django app tests (solsys_code et al.)
+python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
 
 # Lint / format (also enforced by pre-commit). Single quotes, 120-col line length.
 ruff check . --fix
@@ -79,10 +79,13 @@ target-detail buttons are injected via the app-config integration hooks (`nav_it
 
 ## Testing
 
-`pyproject.toml` sets `testpaths = ["tests", "src", "docs"]`, so **`python -m pytest` does NOT collect
-the Django app tests** under `solsys_code/`. Those use `django.test.TestCase` and run under the Django
-test runner (`./manage.py test`). When adding tests, put pure-Python/packaging tests under `tests/` and
-Django/DB-dependent tests under the relevant app's `tests/` package.
+**The Django test runner (`python manage.py test`) is the only functioning test setup.** All real tests
+live under `solsys_code/` and use `django.test.TestCase`. Add new tests there, in the relevant app's
+`tests/` package.
+
+The pytest configuration in `pyproject.toml` (`testpaths = ["tests", "src", "docs"]`) and the tests
+under `tests/fomo/` are a legacy of the LINCC project template. `python -m pytest` does not collect the
+Django app tests, and that suite will likely be removed — do not add tests to it.
 
 ## Conventions
 
