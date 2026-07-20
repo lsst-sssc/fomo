@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 status: Awaiting next milestone
-stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-07-18T09:30:32.069Z"
+stopped_at: Completed 260719-rmx quick task (tomtoolkit 3.0.0 final + Bootstrap 5 upgrade)
+last_updated: "2026-07-20T03:16:12.621Z"
 last_activity: 2026-07-18
 last_activity_desc: Milestone v2.1 completed and archived
+current_phase: 25
+current_phase_name: e.g. Gemini FT-115-style awarded allocations
 progress:
   total_phases: 8
   completed_phases: 8
   total_plans: 26
   completed_plans: 26
   percent: 100
-current_phase: 25
-current_phase_name: e.g. Gemini FT-115-style awarded allocations
 ---
 
 # Project State
@@ -136,6 +136,8 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive per-plan v2.1 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 18-25 plan) has been cleared now that v2.1 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (backfilled at close for Phases 18/19/20/21/23/24, which already had rows for 14/22/25), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.1-phases/`.
 
+- [Phase ?]: Quick task 260719-rmx: upgraded tomtoolkit 3.0.0a9 -> 3.0.0 final, migrated Bootstrap 4 -> 5 (django_bootstrap5/crispy_bootstrap5), fixed the alerts URL namespace and BS4-only buttons tag regressions surfaced by the upgrade, migrated dev DB (tom_dataproducts 0015-0017/tom_common 0004) with all 70 ReducedDatum rows preserved
+
 ### Pending Todos
 
 - `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename
@@ -163,6 +165,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260716-js7 | Add a client-side confirm-before-approve guard on the approval queue's Pending Review row: nudge staff before they Approve an unresolved Observing Site, mirroring the existing Reject confirmation pattern (D-06 preserved, no server-side change) | 2026-07-16 | 24d1d94 | Complete | [260716-js7-give-staff-clear-inline-feedback-guardra](./quick/260716-js7-give-staff-clear-inline-feedback-guardra/) |
 | 260717-iae | Wire the five existing pre-executed demo notebooks into docs/notebooks.rst's Sphinx toctree so they appear in the published Notebooks section (previously orphaned, no toctree reference) | 2026-07-17 | 6b3c145 | Complete | [260717-iae-wire-the-existing-pre-executed-demo-note](./quick/260717-iae-wire-the-existing-pre-executed-demo-note/) |
 | 260718-dih | Fix PR review findings from .planning/Findings.md: guard the unreverted calendar-sync loop in CampaignRunDecisionView._set_run_status with a non-reverting try/except, make parse_run_line fail fast on cross-month run ranges instead of the loader rejecting them later, anchor the partial-night token match with fullmatch, add regression tests for all three, and correct Findings.md's line-number citations | 2026-07-18 | 01dbc2a | Complete | [260718-dih-fix-pr-review-findings-unguarded-calenda](./quick/260718-dih-fix-pr-review-findings-unguarded-calenda/) |
+| 260719-rmx | Upgrade FOMO to tomtoolkit 3.0.0 final and Bootstrap 5 (GitHub issue #45): dependency pins, BS4->BS5 migration in settings/templates/forms, tom_eso hard-break fix, DB migration with ReducedDatum rows preserved | 2026-07-19 | 2d68c61 | Complete | [260719-rmx-upgrade-to-tomtoolkit-3-0-0-final-and-bo](./quick/260719-rmx-upgrade-to-tomtoolkit-3-0-0-final-and-bo/) |
 
 ## Deferred Items
 
@@ -178,11 +181,12 @@ Items acknowledged and carried forward from previous milestone close:
 | todo | `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename `calendar_utils.py`'s private helpers to reflect shared-module status | Low-priority style cleanup; no functional impact | v2.0 close |
 | seed | SEED-001 — file upstream `tom_eso` feature requests | Still dormant | v2.0 close |
 | seed | SEED-002 — ESO ObservationRecord-centric future intent | Still dormant | v2.0 close |
+| todo | ruff version drift — repo's `.pre-commit-config.yaml` pins `astral-sh/ruff-pre-commit` at `v0.2.1` (2+ years old) vs. modern `ruff` (0.12.9) installed in the dev venv; the two disagree on some formatting choices | Low priority; noted during quick task 260719-rmx while chasing a repo-wide ruff-clean gate | quick-260719-rmx |
 
 ## Session Continuity
 
-Last session: 2026-07-18T07:24:57.689Z
-Stopped at: Completed 24-01-PLAN.md
+Last session: 2026-07-20T03:15:30.302Z
+Stopped at: Completed 260719-rmx quick task (tomtoolkit 3.0.0 final + Bootstrap 5 upgrade)
 Resume file: None
 
 ## Operator Next Steps
