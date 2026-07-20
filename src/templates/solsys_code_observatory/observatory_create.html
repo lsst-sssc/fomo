@@ -15,15 +15,15 @@
   {% csrf_token %}
   {% bootstrap_form form %}
 
-  {% buttons %}
-  <button type="submit" class="btn btn-primary">
-    {% if object %}
-      Update
-    {% else %}
-      Create Observatory
-    {% endif %}
-  </button>
-  {% endbuttons %}
+  <div class="mb-3">
+    <button type="submit" class="btn btn-primary">
+      {% if object %}
+        Update
+      {% else %}
+        Create Observatory
+      {% endif %}
+    </button>
+  </div>
 
 </form>
 {% endblock %}
