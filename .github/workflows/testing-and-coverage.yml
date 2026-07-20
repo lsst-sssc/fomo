@@ -37,3 +37,31 @@ jobs:
       uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+
+  functional-tests:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+    - name: Cache SPICE kernels
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/sorcha
+        key: sorcha-kernels-v1
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Install Playwright chromium
+      run: |
+        playwright install --with-deps chromium
+    - name: Run Playwright functional tests
+      run: |
+        python manage.py test solsys_code.tests.test_bootstrap5_rendering
