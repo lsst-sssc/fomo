@@ -107,6 +107,12 @@ TEMPLATES = [
     },
 ]
 
+# django-crispy-forms validates the {% crispy %} tag's template_pack against
+# CRISPY_ALLOWED_TEMPLATE_PACKS, which defaults to ('uni_form', 'bootstrap3', 'bootstrap4') --
+# 'bootstrap5' must be added explicitly or every {% crispy form %} render raises
+# TemplateSyntaxError (missed during the BS4->BS5 migration; surfaced by the Playwright
+# ephemeris-form functional test).
+CRISPY_ALLOWED_TEMPLATE_PACKS = ('bootstrap4', 'bootstrap5')
 CRISPY_TEMPLATE_PACK = 'bootstrap5'
 
 WSGI_APPLICATION = 'fomo.wsgi.application'
