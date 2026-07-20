@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 status: Awaiting next milestone
-stopped_at: Completed 260719-rmx quick task (tomtoolkit 3.0.0 final + Bootstrap 5 upgrade)
-last_updated: "2026-07-20T03:16:12.621Z"
+stopped_at: "Completed 260720-9wm quick task (Playwright functional test suite for BS5 rendering, issue #45)"
+last_updated: "2026-07-20T14:28:52.917Z"
 last_activity: 2026-07-18
 last_activity_desc: Milestone v2.1 completed and archived
 current_phase: 25
@@ -137,6 +137,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive per-plan v2.1 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 18-25 plan) has been cleared now that v2.1 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (backfilled at close for Phases 18/19/20/21/23/24, which already had rows for 14/22/25), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.1-phases/`.
 
 - [Phase ?]: Quick task 260719-rmx: upgraded tomtoolkit 3.0.0a9 -> 3.0.0 final, migrated Bootstrap 4 -> 5 (django_bootstrap5/crispy_bootstrap5), fixed the alerts URL namespace and BS4-only buttons tag regressions surfaced by the upgrade, migrated dev DB (tom_dataproducts 0015-0017/tom_common 0004) with all 70 ReducedDatum rows preserved
+- [Phase ?]: Quick task 260720-9wm: added Playwright functional test suite (StaticLiveServerTestCase) for BS5 rendering; fixed a live crispy_forms CRISPY_ALLOWED_TEMPLATE_PACKS gap from the prior BS4->BS5 migration that had left the makeephem page broken
 
 ### Pending Todos
 
@@ -166,6 +167,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260717-iae | Wire the five existing pre-executed demo notebooks into docs/notebooks.rst's Sphinx toctree so they appear in the published Notebooks section (previously orphaned, no toctree reference) | 2026-07-17 | 6b3c145 | Complete | [260717-iae-wire-the-existing-pre-executed-demo-note](./quick/260717-iae-wire-the-existing-pre-executed-demo-note/) |
 | 260718-dih | Fix PR review findings from .planning/Findings.md: guard the unreverted calendar-sync loop in CampaignRunDecisionView._set_run_status with a non-reverting try/except, make parse_run_line fail fast on cross-month run ranges instead of the loader rejecting them later, anchor the partial-night token match with fullmatch, add regression tests for all three, and correct Findings.md's line-number citations | 2026-07-18 | 01dbc2a | Complete | [260718-dih-fix-pr-review-findings-unguarded-calenda](./quick/260718-dih-fix-pr-review-findings-unguarded-calenda/) |
 | 260719-rmx | Upgrade FOMO to tomtoolkit 3.0.0 final and Bootstrap 5 (GitHub issue #45): dependency pins, BS4->BS5 migration in settings/templates/forms, tom_eso hard-break fix, DB migration with ReducedDatum rows preserved | 2026-07-19 | 2d68c61 | Complete | [260719-rmx-upgrade-to-tomtoolkit-3-0-0-final-and-bo](./quick/260719-rmx-upgrade-to-tomtoolkit-3-0-0-final-and-bo/) |
+| 260720-9wm | Add Playwright functional test suite for Bootstrap 5 rendering verification (issue #45): StaticLiveServerTestCase driving headless chromium against navbar dropdown JS, ephemeris-form crispy BS5 layout, and observatory create; fixed a live CRISPY_ALLOWED_TEMPLATE_PACKS regression it caught; added a dedicated functional-tests CI job | 2026-07-20 | 1879144 | Complete | [260720-9wm-add-playwright-functional-test-suite-for](./quick/260720-9wm-add-playwright-functional-test-suite-for/) |
 
 ## Deferred Items
 
@@ -185,8 +187,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-20T03:15:30.302Z
-Stopped at: Completed 260719-rmx quick task (tomtoolkit 3.0.0 final + Bootstrap 5 upgrade)
+Last session: 2026-07-20T14:28:47.046Z
+Stopped at: Completed 260720-9wm quick task (Playwright functional test suite for BS5 rendering, issue #45)
 Resume file: None
 
 ## Operator Next Steps
