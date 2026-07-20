@@ -10,6 +10,7 @@ https://docs.djangoproject.com/en/2.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.1/ref/settings/
 """
+
 import os
 import tempfile
 
@@ -47,8 +48,8 @@ INSTALLED_APPS = [
     'guardian',
     'tom_common',
     'django_comments',
-    'bootstrap4',
-    'crispy_bootstrap4',
+    'django_bootstrap5',
+    'crispy_bootstrap5',
     'crispy_forms',
     'rest_framework',
     'rest_framework.authtoken',
@@ -106,7 +107,7 @@ TEMPLATES = [
     },
 ]
 
-CRISPY_TEMPLATE_PACK = 'bootstrap4'
+CRISPY_TEMPLATE_PACK = 'bootstrap5'
 
 WSGI_APPLICATION = 'fomo.wsgi.application'
 
