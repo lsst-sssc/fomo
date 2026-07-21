@@ -62,6 +62,30 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertEqual(self.bad_code_resp, result)
         self.assertIsNone(self.fetcher.obs_data)
 
+    @patch('requests.get')
+    def test_query_passes_default_timeout(self, mock_get):
+        """WR-01: query() must pass an explicit timeout through to requests.get by default."""
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = self.fetcher.obs_data
+        mock_get.return_value = mock_response
+
+        self.fetcher.query('E10')
+
+        _, kwargs = mock_get.call_args
+        self.assertIn('timeout', kwargs)
+        self.assertIsNotNone(kwargs['timeout'])
+
+    @patch('requests.get')
+    def test_query_passes_explicit_timeout(self, mock_get):
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = self.fetcher.obs_data
+        mock_get.return_value = mock_response
+
+        self.fetcher.query('E10', timeout=3)
+
+        _, kwargs = mock_get.call_args
+        self.assertEqual(kwargs['timeout'], 3)
+
     def test_to_observatory(self):
         obs = self.fetcher.to_observatory()
 
@@ -78,6 +102,28 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertEqual(obs.uses_two_line_obs, False)
         self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 26, tzinfo=timezone.utc))
         self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 52, 50, tzinfo=timezone.utc))
+
+    def test_to_observatory_backfills_timezone_from_coordinates(self):
+        obs = self.fetcher.to_observatory()
+
+        self.assertEqual(obs.timezone, 'Australia/Sydney')
+
+    def test_to_observatory_does_not_clobber_existing_timezone(self):
+        self.fetcher.obs_data['timezone'] = 'America/New_York'
+
+        obs = self.fetcher.to_observatory()
+
+        self.assertEqual(obs.timezone, 'America/New_York')
+
+    @patch('solsys_code.solsys_code_observatory.utils._get_timezone_finder')
+    def test_to_observatory_leaves_timezone_blank_when_unresolvable(self, mock_get_finder):
+        mock_finder = MagicMock()
+        mock_finder.timezone_at.return_value = None
+        mock_get_finder.return_value = mock_finder
+
+        obs = self.fetcher.to_observatory()
+
+        self.assertEqual(obs.timezone, '')
 
     def test_to_radar_observatory(self):
         self.fetcher.obs_data = {

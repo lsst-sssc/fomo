@@ -13,6 +13,9 @@
 </p>
 <form action="{% url 'solsys_code_observatory:create' %}" enctype="multipart/form-data" method="POST">
   {% csrf_token %}
+  {% if request.GET.next %}
+  <input type="hidden" name="next" value="{{ request.GET.next }}">
+  {% endif %}
   {% bootstrap_form form %}
 
   {% buttons %}

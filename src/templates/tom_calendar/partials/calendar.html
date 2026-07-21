@@ -1,0 +1,285 @@
+<style>
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .cal-day {
+    min-height: 110px;
+    background-color: var(--light);
+    color: var(--secondary);
+  }
+  .cal-day.is-current-month {
+    background-color: transparent;
+    color: inherit;
+  }
+  .cal-day:hover {
+    background-color: rgba(0, 0, 0, .06);
+  }
+  .cal-day.is-current-month:hover {
+    background-color: rgba(0, 0, 0, .04);
+  }
+  .day-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    font-size: 0.80rem;
+    font-weight: 500;
+    border-radius: 50%;
+    margin-bottom: 0.15rem;
+  }
+  .cal-day.is-current-month.today .day-num {
+    background-color: var(--primary);
+    color: var(--white);
+    font-weight: 700;
+  }
+  .moon-phase {
+    font-size: 0.9rem;
+    cursor: default;
+    float: right;
+  }
+  .cal-event {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    cursor: pointer;
+  }
+  .cal-event a {
+    color: inherit;
+  }
+  .cal-event-timed {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .cal-event-timed .cal-event-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cal-event-timed .cal-event-bullet {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+  .cal-event-timed .cal-event-time {
+    flex-shrink: 0;
+    white-space: nowrap;
+    opacity: 0.55;
+    font-size: 0.68rem;
+  }
+  .cal-event-all-day-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 2px;
+  }
+  .cal-event-all-day {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .cal-event-all-day a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .cal-event-all-day a:hover {
+    text-decoration: underline;
+  }
+  .cal-legend-swatch {
+    cursor: pointer;
+    user-select: none;
+    font-size: 1rem;
+    line-height: 1;
+    transition: opacity 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .cal-legend-swatch.is-active {
+    font-weight: 700;
+    text-decoration: underline;
+  }
+  .cal-event {
+    transition: opacity 0.2s, filter 0.2s;
+  }
+  #calendar-partial.cal-filtering .cal-event {
+    opacity: 0.18;
+    filter: grayscale(50%);
+  }
+  #calendar-partial.cal-filtering .cal-event.cal-filter-match {
+    opacity: 1;
+    filter: none;
+  }
+</style>
+
+{% load tz calendar_tags calendar_display_extras %}
+
+<div id="calendar-partial"
+     data-url="{% url 'calendar:calendar' %}?month={{ month }}&year={{ year }}">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <button class="btn btn-outline-secondary btn-sm"
+              hx-get="{% url 'calendar:calendar' %}?month={{ prev_month }}&year={{ prev_year }}&utc_offset={{ utc_offset }}"
+              hx-target="#calendar-partial"
+              hx-swap="outerHTML">
+        &laquo; Prev
+      </button>
+      <button class="btn btn-outline-secondary btn-sm"
+              hx-get="{% url 'calendar:calendar' %}?month={{ next_month }}&year={{ next_year }}&utc_offset={{ utc_offset }}"
+              hx-target="#calendar-partial"
+              hx-swap="outerHTML">
+        Next &raquo;
+      </button>
+      <button class="btn btn-outline-secondary btn-sm"
+              hx-get="{% url 'calendar:calendar' %}?month={% now "n" %}&year={% now "Y" %}&utc_offset={{ utc_offset }}"
+              hx-target="#calendar-partial"
+              hx-swap="outerHTML">
+        Today
+      </button>
+    </div>
+    <h4 class="mb-0">{{ month_name }}</h4>
+    <button class="btn btn-outline-secondary btn-sm"
+            hx-get="{% url 'calendar:create-event' %}"
+            hx-target="#cal-modal-body"
+            hx-on::after-request="$('#cal-modal').modal('show');"
+    >
+      + New Event
+    </button>
+  </div>
+
+  <div class="cal-grid border-top border-left">
+    {% for name in day_names %}
+      <div class="cal-day-header text-center bg-light font-weight-bold text-secondary border-right border-bottom p-2">{{ name }}</div>
+    {% endfor %}
+
+    {% for week in weeks %}
+      {% for day in week %}
+        <div class="cal-day{% if day.date.month == month %} is-current-month{% endif %}{% if day.date == today %} today{% endif %} border-right border-bottom p-1"
+             hx-get="{% url 'calendar:create-event' %}?date={{ day.date|date:'Y-m-d' }}"
+             hx-target="#cal-modal-body"
+             hx-on::after-request="$('#cal-modal').modal('show');"
+        >
+          <span class="day-num">{{ day.date.day }}</span>
+          <span class="moon-phase" title="{% widthratio day.moon.illumination 1 100 %}% illuminated">{{ day.moon.emoji }}</span>
+          <div hx-target="#cal-modal-body"
+               hx-on::after-request="$('#cal-modal').modal('show');"
+               hx-on:click="event.stopPropagation()">
+            {% for event in day.all_day_events %}
+              {% proposal_color event.proposal as bg_color %}
+              {% status_border_css event.title as status_border %}
+              {% text_color_for_bg bg_color as text_color %}
+              <div class="cal-event cal-event-all-day-row"
+                   data-proposal="{{ bg_color }}"
+                   hx-get="{% url 'calendar:update-event' event.id %}"
+              >
+                {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
+                {% if event.telescope_label_meta.is_verified == False %}
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
+                     title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
+                {% else %}
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}">
+                {% endif %}
+                  {{ event.title|truncatechars:18 }}
+                  {% if event.active_todo_count %}
+                  ({{ event.active_todo_count }})
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+            {% for event in day.events %}
+              {% proposal_color event.proposal as bg_color %}
+              {% status_border_css event.title as status_border %}
+              {% if event.telescope_label_meta.is_verified == False %}
+              <div class="cal-event cal-event-timed"
+                   data-proposal="{{ bg_color }}"
+                   style="{{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
+                   hx-get="{% url 'calendar:update-event' event.id %}"
+                   title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
+              {% else %}
+              <div class="cal-event cal-event-timed"
+                   data-proposal="{{ bg_color }}"
+                   style="{{ status_border }}"
+                   hx-get="{% url 'calendar:update-event' event.id %}"
+              >
+              {% endif %}
+                {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
+                <span class="cal-event-bullet" style="color: {{ bg_color }};">▌</span>
+                <span class="cal-event-title">
+                  {{ event.title|truncatechars:16 }}
+                  {% if event.active_todo_count %}
+                  ({{ event.active_todo_count }})
+                  {% endif %}
+                </span>
+                <span class="cal-event-time">{{ event.start_time|offset_time:utc_offset|time:"H:i" }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+  <div class="d-flex justify-content-between align-items-center mt-1">
+    <div>
+      {% for target_list in target_lists %}
+        {% include 'tom_calendar/partials/target_list_block.html' with target_list=target_list %}
+        <a class="text-secondary mr-2" href="{% url 'targets:list' %}?targetlist__name={{ target_list.id }}">
+            <small>{{ target_list.name }}</small>
+        </a>
+      {% endfor %}
+      {% visible_proposals weeks as proposal_legend %}
+      {% for entry in proposal_legend %}
+        <span class="cal-legend-swatch mr-3" role="button" aria-pressed="false" data-proposal="{{ entry.color }}">
+          <span style="color: {{ entry.color }};">▌</span>
+          <small class="text-secondary">{{ entry.label }}</small>
+        </span>
+      {% endfor %}
+    </div>
+    <select name="utc_offset"
+            hx-get="{% url 'calendar:calendar' %}"
+            hx-trigger="change"
+            hx-target="#calendar-partial"
+            hx-swap="outerHTML"
+            hx-vals='{"month": "{{ month }}", "year": "{{ year }}"}'>
+      {% for i in utc_offset_choices %}
+      <option value="{{ i }}" {% if i == utc_offset %}selected{% endif %}>UTC{% if i >= 0 %}+{% endif %}{{ i }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <script>
+  (function () {
+    var container = document.getElementById('calendar-partial');
+    if (!container) return;
+    var activeProposal = null;
+    container.addEventListener('click', function (e) {
+      var swatch = e.target.closest('.cal-legend-swatch');
+      if (!swatch) return;
+      var proposal = swatch.dataset.proposal;
+      if (activeProposal === proposal) {
+        activeProposal = null;
+        container.classList.remove('cal-filtering');
+        container.querySelectorAll('.cal-event').forEach(function (el) { el.classList.remove('cal-filter-match'); });
+        container.querySelectorAll('.cal-legend-swatch').forEach(function (el) { el.classList.remove('is-active'); });
+      } else {
+        activeProposal = proposal;
+        container.classList.add('cal-filtering');
+        container.querySelectorAll('.cal-event').forEach(function (el) {
+          el.classList.toggle('cal-filter-match', (el.dataset.proposal || '') === proposal);
+        });
+        container.querySelectorAll('.cal-legend-swatch').forEach(function (el) {
+          el.classList.toggle('is-active', (el.dataset.proposal || '') === proposal);
+        });
+      }
+    });
+  }());
+  </script>
+</div>

@@ -1,0 +1,24 @@
+{% extends 'tom_common/base.html' %}
+{% load render_table from django_tables2 %}
+{% block title %}Approval Queue{% endblock %}
+
+{% block content %}
+<h4 class="font-weight-bold mb-4">Approval Queue</h4>
+
+<h5 class="font-weight-bold mb-3">Pending Review</h5>
+{% render_table pending_table %}
+
+<h5 class="font-weight-bold mb-3 mt-4">Recently Decided</h5>
+{% render_table decided_table %}
+
+<div class="card border-warning mt-4">
+  <div class="card-header bg-warning text-dark font-weight-bold">Sites Needing Review — action required</div>
+  <div class="card-body">
+    <p class="mb-3">
+      Approved runs whose observing site still needs a staff member to resolve it before it
+      lands on the calendar.
+    </p>
+    {% render_table review_table %}
+  </div>
+</div>
+{% endblock %}

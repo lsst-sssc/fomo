@@ -32,3 +32,15 @@ Component
 
 .. image:: /design/SSSC-Followup_Observations_of_Moving_Objects-Component.png
     :alt: Component diagram for FOMO
+
+Design Notes
+------------
+
+.. toctree::
+   :maxdepth: 1
+
+   telescope_runs_calendar
+   tom_calendar_vs_yse_pz_calendar
+   gsd_experiment
+   eso_feasibility_spike
+   uncertain_scheduling_spike

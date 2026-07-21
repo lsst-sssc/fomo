@@ -42,6 +42,15 @@ copybutton_selector = 'div:not(.no-copybutton) > div.highlight > pre'
 templates_path = []
 exclude_patterns = ['_build', '**.ipynb_checkpoints']
 
+# The pre-commit sphinx-build hook overrides exclude_patterns to skip
+# notebooks/* for speed (avoids executing/rendering .ipynb files on every
+# commit). That intentionally leaves docs/notebooks.rst's toctree entry
+# pointing at an excluded document during local pre-commit builds, which
+# would otherwise emit a 'toctree contains reference to excluded document'
+# warning on every commit. Full builds (ReadTheDocs, CI) don't apply that
+# override, so this only ever suppresses the pre-commit-local false positive.
+suppress_warnings = ['toc.excluded']
+
 # This assumes that sphinx-build is called from the root directory
 master_doc = 'index'
 # Remove 'view source code' from top of page (for html, not python)
@@ -56,3 +65,5 @@ autoapi_add_toc_tree_entry = False
 autoapi_member_order = 'bysource'
 
 html_theme = 'sphinx_rtd_theme'
+# Add following to allow notebook execution errors (e.g. interactive cells)
+nbsphinx_allow_errors = True

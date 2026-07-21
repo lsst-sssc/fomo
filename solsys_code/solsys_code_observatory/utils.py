@@ -9,6 +9,28 @@ from solsys_code.solsys_code_observatory.models import Observatory
 logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)
 
+_timezone_finder = None
+
+
+def _get_timezone_finder():
+    """Return a lazily-constructed, module-cached ``TimezoneFinder`` instance.
+
+    ``TimezoneFinder`` loads its boundary-polygon data on construction, which is
+    relatively expensive, so it is built once here and reused across every
+    ``to_observatory()`` call rather than per-call. The import itself is deferred
+    to inside this function (rather than module level) so that importing
+    ``utils.py`` -- which happens broadly across the codebase -- doesn't pay the
+    polygon-data load cost unless a timezone lookup is actually needed.
+
+    :returns: shared ``TimezoneFinder`` instance
+    """
+    global _timezone_finder
+    if _timezone_finder is None:
+        from timezonefinder import TimezoneFinder
+
+        _timezone_finder = TimezoneFinder()
+    return _timezone_finder
+
 
 class MPCObscodeFetcher:
     """
@@ -29,7 +51,7 @@ class MPCObscodeFetcher:
                 non_field_errors.append(f'{k}: {v}')
         return non_field_errors
 
-    def query(self, obscode: str, dbg: bool = False):
+    def query(self, obscode: str, dbg: bool = False, timeout: float = 10):
         """Query the MPC obscodes API for the specific <obscode>.
         If successful, the JSON response data is stored in self.obs_data.
 
@@ -37,10 +59,16 @@ class MPCObscodeFetcher:
         :type term: str
         :param dbg: Turns on basic print dump of the key-value pairs (or error response)
         :type term: bool
+        :param timeout: request timeout in seconds, passed through to ``requests.get``.
+            Callers that need "never hang" behavior (e.g. a synchronous per-row import
+            loop) should rely on this rather than the default of no timeout at all.
+        :type timeout: float
         """
         self.obs_data = None
 
-        response = requests.get('https://data.minorplanetcenter.net/api/obscodes', json={'obscode': obscode})
+        response = requests.get(
+            'https://data.minorplanetcenter.net/api/obscodes', json={'obscode': obscode}, timeout=timeout
+        )
 
         if response.ok:
             self.obs_data = response.json()
@@ -54,6 +82,27 @@ class MPCObscodeFetcher:
             if dbg:
                 print('Error: ', response.status_code, self._flatten_error_dict(json_resp))
             return json_resp
+
+    def query_all(self, timeout: float = 30) -> dict:
+        """Query the MPC obscodes API for every registered observatory code (bulk mode).
+
+        Omitting the ``obscode`` key from the POST body triggers the bulk-list response
+        (confirmed live: 2,710 codes, ~1.5 MB, ~1.3s as of 2026-07-11). Stores the result
+        on ``self.obs_data`` like ``query()`` does, but here it is a dict keyed by 3-char
+        obscode rather than a single flat observatory dict -- do **not** call
+        ``to_observatory()`` on a ``query_all()`` result, its ``self.obs_data`` shape
+        contract is for ``query()`` only. This is a distinct, sibling method: ``query()``
+        itself is unmodified.
+
+        :param timeout: request timeout in seconds, passed through to ``requests.get``.
+        :type timeout: float
+        :returns: dict keyed by obscode, e.g. {'X09': {'name_utf8': ..., 'longitude': ..., ...}}
+        :rtype: dict
+        """
+        response = requests.get('https://data.minorplanetcenter.net/api/obscodes', json={}, timeout=timeout)
+        response.raise_for_status()
+        self.obs_data = response.json()
+        return self.obs_data
 
     def to_observatory(self):
         """
@@ -76,6 +125,17 @@ class MPCObscodeFetcher:
             obs.lon = elong
             # Convert parallax constants to longitude (again), latitude and altitude
             obs.from_parallax_constants(elong, float(self.obs_data['rhocosphi']), float(self.obs_data['rhosinphi']))
+            # Backfill timezone from the resolved coordinates when the MPC record doesn't
+            # supply one (it never does in live data). A value already present on the record
+            # is authoritative and is never overwritten by the coordinate lookup.
+            obs.timezone = self.obs_data.get('timezone', '') or ''
+            if not obs.timezone and obs.lat is not None and obs.lon is not None:
+                tz_name = _get_timezone_finder().timezone_at(lat=obs.lat, lng=obs.lon)
+                # A coordinate with no timezone polygon (e.g. open ocean) leaves timezone
+                # blank rather than fabricating a guess, preserving the CR-01
+                # resolve-fails-gracefully / stays-retryable behavior.
+                if tz_name:
+                    obs.timezone = tz_name
             try:
                 created_time = datetime.strptime(self.obs_data['created_at'], '%a, %d %b %Y %H:%M:%S %Z')
                 created_time = created_time.replace(tzinfo=timezone.utc)

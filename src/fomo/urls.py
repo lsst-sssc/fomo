@@ -13,6 +13,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.urls import include, path
 
 from solsys_code.views import Ephemeris, MakeEphemerisView
@@ -21,5 +22,7 @@ urlpatterns = [
     path('observatory/', include('solsys_code.solsys_code_observatory.urls', namespace='solsys_code_observatory')),
     path('ephem/<int:pk>/', Ephemeris.as_view(), name='ephem'),
     path('targets/<int:pk>/makeephem/', MakeEphemerisView.as_view(), name='makeephem'),
+    path('calendar/', include('solsys_code.calendar_urls', namespace='calendar')),  # DISPLAY-09 — before tom_common
+    path('campaigns/', include('solsys_code.campaign_urls', namespace='campaigns')),  # VIEW-01 — before tom_common
     path('', include('tom_common.urls')),
 ]

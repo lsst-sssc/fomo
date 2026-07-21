@@ -115,3 +115,36 @@ You can import new Targets into FOMO by clicking on Targets->Targets in the menu
 
 In addition sidereal targets can be imported from Simbad and TNS.
 FOMO will then fetch the details from the selected service and display the details for review and user modification (if desired). Otherwise you can hit the `Submit` button to create the Target. You will then be redirected to the Target detail page.
+
+.. _running-management-commands:
+
+Running FOMO Management Commands
+--------------------------------------
+
+Beyond the ``migrate`` and ``createsuperuser`` commands above, FOMO ships a
+number of custom management commands (for example, syncing telescope
+schedules onto the shared calendar, or importing a campaign coordination
+CSV). All of them are invoked the same way: with the project's virtual
+environment (or conda/mamba environment) activated, run
+``python3 manage.py <command>`` from the repository root.
+
+.. code-block:: console
+
+   >> source ~/path-to-new-venv/bin/activate
+   >> python3 manage.py <command> [options]
+
+Every management command supports ``--help``, which prints its usage, its
+positional arguments, and any optional flags:
+
+.. code-block:: console
+
+   >> python3 manage.py <command> --help
+
+If a command's underlying data model has changed (for example, after
+upgrading FOMO to a newer release), you may need to re-apply
+``python3 manage.py migrate`` -- see "Initializing FOMO and the database"
+above -- before running the command again.
+
+For a task-oriented walkthrough of the specific commands and staff actions
+that keep the telescope runs calendar and campaign coordination up to date,
+see the Telescope Runs Calendar Operator Runbook.
