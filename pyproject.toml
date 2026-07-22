@@ -33,6 +33,7 @@ dependencies = [
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 [project.optional-dependencies]
 dev = [
+    "factory_boy", # Provides tom_targets.tests.factories used by test_bootstrap5_rendering.py
     "ipython",
     "jupyter", # Clears output from Jupyter notebooks
     "playwright", # Headless-browser functional tests (solsys_code/tests/test_bootstrap5_rendering.py)
