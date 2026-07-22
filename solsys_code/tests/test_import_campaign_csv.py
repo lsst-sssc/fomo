@@ -923,3 +923,42 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
 
         self.assertIn('Telescope / Instrument', str(ctx.exception))
         self.assertEqual(CampaignRun.objects.count(), 0)
+
+    def test_skips_leading_comment_and_blank_rows_before_header(self):
+        """The real 3I/ATLAS sheet export prepends a free-text attribution row and an
+        entirely blank row before the real 14-column header -- the command must scan
+        past them rather than treating row 1 as the header.
+        """
+        tmpdir_ctx = tempfile.TemporaryDirectory()
+        path = pathlib.Path(tmpdir_ctx.name) / 'campaign.csv'
+        with path.open('w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['This spreadsheet is for coordination purposes only.'] + [''] * (len(_HEADERS) - 1))
+            writer.writerow([''] * len(_HEADERS))
+            writer.writerow(_HEADERS)
+            writer.writerow(
+                [
+                    _row(
+                        **{
+                            'Telescope / Instrument': 'FTN/MuSCAT3',
+                            'Obs. Date': '2025-07-04',
+                            'UT Time Range': '08:50 - 11:50',
+                        }
+                    )[h]
+                    for h in _HEADERS
+                ]
+            )
+
+        with tmpdir_ctx:
+            stdout_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv',
+                '--campaign',
+                'Test Campaign',
+                str(path),
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertIn('created: 1', stdout_buf.getvalue())
