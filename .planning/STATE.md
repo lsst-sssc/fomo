@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-18 — v2.1 milestone closed, full ev
 Phase: Milestone v2.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-19 - Completed quick task 260719-d18: Fix calendar data-url missing utc_offset query param causing timezone selection to reset on calRefresh
+Last activity: 2026-07-22 - Completed quick task 260722-hpw: Fix import_campaign_csv to skip leading comment/blank rows before the real CSV header
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -164,6 +164,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260716-js7 | Add a client-side confirm-before-approve guard on the approval queue's Pending Review row: nudge staff before they Approve an unresolved Observing Site, mirroring the existing Reject confirmation pattern (D-06 preserved, no server-side change) | 2026-07-16 | 24d1d94 | Complete | [260716-js7-give-staff-clear-inline-feedback-guardra](./quick/260716-js7-give-staff-clear-inline-feedback-guardra/) |
 | 260717-iae | Wire the five existing pre-executed demo notebooks into docs/notebooks.rst's Sphinx toctree so they appear in the published Notebooks section (previously orphaned, no toctree reference) | 2026-07-17 | 6b3c145 | Complete | [260717-iae-wire-the-existing-pre-executed-demo-note](./quick/260717-iae-wire-the-existing-pre-executed-demo-note/) |
 | 260718-dih | Fix PR review findings from .planning/Findings.md: guard the unreverted calendar-sync loop in CampaignRunDecisionView._set_run_status with a non-reverting try/except, make parse_run_line fail fast on cross-month run ranges instead of the loader rejecting them later, anchor the partial-night token match with fullmatch, add regression tests for all three, and correct Findings.md's line-number citations | 2026-07-18 | 01dbc2a | Complete | [260718-dih-fix-pr-review-findings-unguarded-calenda](./quick/260718-dih-fix-pr-review-findings-unguarded-calenda/) |
+| 260722-hpw | Fix import_campaign_csv to skip leading comment/blank rows before the real CSV header, so it can consume the real 3I/ATLAS sheet export unchanged | 2026-07-22 | 990bfb9 | Complete | [260722-hpw-fix-import-campaign-csv-to-skip-leading-](./quick/260722-hpw-fix-import-campaign-csv-to-skip-leading-/) |
 
 ## Deferred Items
 
