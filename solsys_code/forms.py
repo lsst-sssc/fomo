@@ -67,7 +67,7 @@ class EphemerisForm(forms.Form):
                         'full_precision',
                         css_class='col',
                     ),
-                    css_class='form-row',
+                    css_class='row',
                 ),
             ),
             FormActions(

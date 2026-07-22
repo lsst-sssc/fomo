@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% load bootstrap4 %}
+{% load django_bootstrap5 %}
 {% block title %}Create Observatory from MPC Code{% endblock %}
 
 {% block content %}
@@ -15,15 +15,15 @@
   {% csrf_token %}
   {% bootstrap_form form %}
 
-  {% buttons %}
-  <button type="submit" class="btn btn-primary">
-    {% if object %}
-      Update
-    {% else %}
-      Create Observatory
-    {% endif %}
-  </button>
-  {% endbuttons %}
+  <div class="mb-3">
+    <button type="submit" class="btn btn-primary">
+      {% if object %}
+        Update
+      {% else %}
+        Create Observatory
+      {% endif %}
+    </button>
+  </div>
 
 </form>
 {% endblock %}
