@@ -96,3 +96,11 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
 - pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, builds Sphinx
   docs, and runs the pytest suite. CI (`.github/workflows/`) tests Python 3.10–3.12.
+- **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
+  `merge`, `cherry-pick`, `commit --amend`, etc.) — these operate on whatever `HEAD` currently
+  points to, not the branch name mentioned in a prior command. `git push origin <branch>` in
+  particular does **not** require `<branch>` to be checked out, so a push followed by a rebase
+  targeting a *different* branch can silently rebase whatever is actually checked out. Run `git
+  branch --show-current` (or `git status`) immediately before any such command whenever a session
+  has touched more than one local branch, especially right after a `git push origin <branch>` that
+  didn't require a checkout.
