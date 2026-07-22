@@ -19,6 +19,7 @@ from solsys_code.campaign_utils import (
     parse_obs_window,
     resolve_site,
 )
+from solsys_code.management.commands.import_campaign_csv import _MAX_HEADER_SCAN
 from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
 
@@ -909,6 +910,114 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
             writer = csv.DictWriter(f, fieldnames=bad_headers)
             writer.writeheader()
             writer.writerow(dict.fromkeys(bad_headers, ''))
+
+        with tmpdir_ctx:
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    'import_campaign_csv',
+                    '--campaign',
+                    'Test Campaign',
+                    str(path),
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+
+        self.assertIn('Telescope / Instrument', str(ctx.exception))
+        self.assertEqual(CampaignRun.objects.count(), 0)
+
+    def test_skips_leading_comment_and_blank_rows_before_header(self):
+        """The real 3I/ATLAS sheet export prepends a free-text attribution row and an
+        entirely blank row before the real 14-column header -- the command must scan
+        past them rather than treating row 1 as the header.
+        """
+        tmpdir_ctx = tempfile.TemporaryDirectory()
+        path = pathlib.Path(tmpdir_ctx.name) / 'campaign.csv'
+        with path.open('w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['This spreadsheet is for coordination purposes only.'] + [''] * (len(_HEADERS) - 1))
+            writer.writerow([''] * len(_HEADERS))
+            writer.writerow(_HEADERS)
+            writer.writerow(
+                [
+                    _row(
+                        **{
+                            'Telescope / Instrument': 'FTN/MuSCAT3',
+                            'Obs. Date': '2025-07-04',
+                            'UT Time Range': '08:50 - 11:50',
+                        }
+                    )[h]
+                    for h in _HEADERS
+                ]
+            )
+
+        with tmpdir_ctx:
+            stdout_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv',
+                '--campaign',
+                'Test Campaign',
+                str(path),
+                stdout=stdout_buf,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertIn('created: 1', stdout_buf.getvalue())
+
+    def test_no_header_row_within_scan_cap_raises_command_error(self):
+        """T-hpw-02: a file with only comment/blank rows and rows missing required
+        columns (no real header anywhere) fails fast with a CommandError, not a silent
+        per-row skip.
+        """
+        tmpdir_ctx = tempfile.TemporaryDirectory()
+        path = pathlib.Path(tmpdir_ctx.name) / 'campaign.csv'
+        with path.open('w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['This spreadsheet is for coordination purposes only.'] + [''] * (len(_HEADERS) - 1))
+            writer.writerow([''] * len(_HEADERS))
+            # Renamed 'Telescope / Instrument' -> 'Telescope' -- never a valid header.
+            bad_headers = [h if h != 'Telescope / Instrument' else 'Telescope' for h in _HEADERS]
+            writer.writerow(bad_headers)
+            writer.writerow([''] * len(_HEADERS))
+
+        with tmpdir_ctx:
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    'import_campaign_csv',
+                    '--campaign',
+                    'Test Campaign',
+                    str(path),
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+
+        self.assertIn('Telescope / Instrument', str(ctx.exception))
+        self.assertEqual(CampaignRun.objects.count(), 0)
+
+    def test_header_beyond_scan_cap_fails_fast(self):
+        """T-hpw-01: a valid header more than _MAX_HEADER_SCAN rows in is never found --
+        the scan is capped so a malformed/wrong file fails fast instead of scanning the
+        whole file.
+        """
+        tmpdir_ctx = tempfile.TemporaryDirectory()
+        path = pathlib.Path(tmpdir_ctx.name) / 'campaign.csv'
+        with path.open('w', newline='') as f:
+            writer = csv.writer(f)
+            for _ in range(_MAX_HEADER_SCAN + 1):
+                writer.writerow(['leading comment row'] + [''] * (len(_HEADERS) - 1))
+            writer.writerow(_HEADERS)
+            writer.writerow(
+                [
+                    _row(
+                        **{
+                            'Telescope / Instrument': 'FTN/MuSCAT3',
+                            'Obs. Date': '2025-07-04',
+                            'UT Time Range': '08:50 - 11:50',
+                        }
+                    )[h]
+                    for h in _HEADERS
+                ]
+            )
 
         with tmpdir_ctx:
             with self.assertRaises(CommandError) as ctx:

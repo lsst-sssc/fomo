@@ -17,6 +17,12 @@ from solsys_code.models import CampaignRun
 # skipped one-by-one with no single top-level diagnostic that the header shape is wrong.
 _REQUIRED_HEADERS = ('Telescope / Instrument', 'Obs. Date', 'UT Time Range')
 
+# The real 3I/ATLAS sheet export prepends a free-text attribution row and an entirely
+# blank row before the real header, so the header isn't always row 1. Cap the leading-row
+# scan so a genuinely malformed/wrong file (no header anywhere) fails fast instead of
+# scanning the whole file.
+_MAX_HEADER_SCAN = 10
+
 
 class Command(BaseCommand):
     """Bootstrap-import a campaign coordination CSV (e.g. the 3I/ATLAS sheet) into CampaignRun rows."""
@@ -94,20 +100,30 @@ class Command(BaseCommand):
 
         try:
             with open(filepath, encoding='utf-8', newline='') as f:
-                reader = csv.DictReader(f)
-                # WR-09: fail fast on the header shape itself rather than silently
-                # skipping every row one-by-one if a required column is missing/renamed.
-                missing_headers = [h for h in _REQUIRED_HEADERS if h not in (reader.fieldnames or [])]
-                if missing_headers:
-                    raise CommandError(
-                        f'Campaign CSV {filepath!r} is missing required column(s): {missing_headers!r}. '
-                        f'Found columns: {reader.fieldnames!r}'
-                    )
-                rows = list(reader)
+                lines = f.readlines()
         except OSError as exc:
             raise CommandError(f'Cannot open campaign CSV {filepath!r}: {exc}') from exc
 
-        for row_num, row in enumerate(rows, start=2):  # header is row 1
+        # Scan up to _MAX_HEADER_SCAN leading rows for the real header (see the constant's
+        # comment) rather than assuming row 1 is the header -- fail fast (WR-09) if none of
+        # the scanned rows contains every required column.
+        header_idx = None
+        for idx, parsed_row in enumerate(csv.reader(lines[:_MAX_HEADER_SCAN])):
+            if all(h in parsed_row for h in _REQUIRED_HEADERS):
+                header_idx = idx
+                break
+
+        if header_idx is None:
+            raise CommandError(
+                f'Campaign CSV {filepath!r}: no header row containing all required column(s) '
+                f'{_REQUIRED_HEADERS!r} was found within the first {_MAX_HEADER_SCAN} rows.'
+            )
+
+        reader = csv.DictReader(lines[header_idx:])
+        rows = list(reader)
+
+        # Header is at file line header_idx + 1, first data row at header_idx + 2.
+        for row_num, row in enumerate(rows, start=header_idx + 2):
             telescope_instrument = (row.get('Telescope / Instrument', '') or '').strip()
             if not telescope_instrument:
                 # D-07: the one remaining true natural-key failure -- WR-06: log only the
