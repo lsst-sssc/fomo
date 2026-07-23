@@ -131,10 +131,13 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
 
     Returns:
         dict[str, Any]: keyword args for CalendarEvent (url, title, description,
-            start_time, end_time, telescope, instrument, proposal), plus a
-            'telescope_api_failed' bool key that the caller (Command.handle()) pops
-            before constructing CalendarEvent kwargs, exactly like 'url' is already
-            popped.
+            start_time, end_time, telescope, instrument, proposal, target_list),
+            plus a 'telescope_api_failed' bool key that the caller (Command.handle())
+            pops before constructing CalendarEvent kwargs, exactly like 'url' is
+            already popped. 'target_list' is the record's Target's campaign
+            TargetList, picked deterministically by name (alphabetically first) when
+            the Target belongs to more than one, or None if the Target belongs to
+            none.
 
     Raises:
         KeyError: if a required parameters key (proposal/start/end) is missing.
@@ -176,6 +179,10 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
     url = facility.get_observation_url(record.observation_id)
     start_time, end_time = _time_window(record)
     title = _title_for(record, telescope, instrument, facility, label_was_fallback)
+    # Campaign TargetList association: picked deterministically by name (alphabetically
+    # first) when the Target belongs to more than one, None if the Target belongs to
+    # none -- CalendarEvent.target_list is a nullable FK, so None is a safe value.
+    target_list = record.target.targetlist_set.order_by('name').first()
     description = (
         f'Proposal: {proposal}\n'
         f'Status: {record.status}\n'
@@ -195,6 +202,7 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
         'telescope': telescope,
         'instrument': instrument,
         'proposal': proposal,
+        'target_list': target_list,
         # D-02 scope: True only for a PLACED record whose label was a fallback --
         # never True for a banner-stage record. Popped by handle() before
         # constructing CalendarEvent kwargs, mirroring 'url'.
