@@ -1,4 +1,5 @@
 from django.contrib import admin
+from tom_targets.models import Target
 
 from solsys_code.models import CalendarEventTelescopeLabel, CampaignRun
 
@@ -30,5 +31,13 @@ class CalendarEventTelescopeLabelAdmin(admin.ModelAdmin):  # noqa: D101
     search_fields = ['event__title']
 
 
+class TargetAdmin(admin.ModelAdmin):  # noqa: D101
+    list_display = ['name', 'type', 'ra', 'dec']
+    list_filter = ['type']
+    search_fields = ['name']
+
+
 admin.site.register(CampaignRun, CampaignRunAdmin)
 admin.site.register(CalendarEventTelescopeLabel, CalendarEventTelescopeLabelAdmin)
+admin.site.unregister(Target)
+admin.site.register(Target, TargetAdmin)
