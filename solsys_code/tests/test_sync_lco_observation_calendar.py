@@ -14,6 +14,7 @@ from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
+from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.calendar_utils import (
@@ -1092,6 +1093,92 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertNotIn('[UNVERIFIED]', event.title)
         self.assertEqual(event.telescope, '1m0')
         self.assertIn('telescope_api_failed: 0', stdout_buf.getvalue())
+
+    def test_target_list_01_single_membership_sets_target_list(self):
+        """A record whose Target belongs to exactly one TargetList gets that
+        TargetList on the synced CalendarEvent."""
+        target_list = TargetList.objects.create(name='Solo Campaign')
+        target_list.targets.add(self.target)
+        self._create_record('920001', proposal='TLONE')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLONE',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.target_list, target_list)
+
+    def test_target_list_02_zero_membership_sets_none_no_crash(self):
+        """A record whose Target belongs to no TargetList gets target_list=None,
+        with no exception raised by .first() on an empty queryset."""
+        self._create_record('920002', proposal='TLZERO')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLZERO',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        event = CalendarEvent.objects.get()
+        self.assertIsNone(event.target_list)
+
+    def test_target_list_03_multi_membership_picks_alphabetically_first(self):
+        """A record whose Target belongs to two TargetLists deterministically gets
+        the alphabetically-first-by-name one, not merely one-of-the-two."""
+        first_list = TargetList.objects.create(name='Alpha Campaign')
+        second_list = TargetList.objects.create(name='Beta Campaign')
+        first_list.targets.add(self.target)
+        second_list.targets.add(self.target)
+        self._create_record('920003', proposal='TLMULTI')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLMULTI',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.target_list, first_list)
+        self.assertEqual(event.target_list.pk, first_list.pk)
+
+    def test_target_list_04_no_churn_on_unchanged_fk_field(self):
+        """Re-syncing an unchanged record whose target_list already matches reports
+        'unchanged', not 'updated' (no-churn preserved for the new FK field)."""
+        target_list = TargetList.objects.create(name='Nochurn Campaign')
+        target_list.targets.add(self.target)
+        self._create_record('920004', proposal='TLNOCHURN')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLNOCHURN',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        event = CalendarEvent.objects.get()
+        modified_before = event.modified
+
+        stdout2 = io.StringIO()
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLNOCHURN',
+            stdout=stdout2,
+            stderr=io.StringIO(),
+        )
+
+        event.refresh_from_db()
+        self.assertEqual(event.target_list, target_list)
+        self.assertEqual(event.modified, modified_before)
+        self.assertIn('unchanged: 1', stdout2.getvalue())
 
     def test_telescope_03_block_missing_site_or_telescope_falls_back_not_skipped(self):
         """T-07-03: a COMPLETED block returned by the API but missing the 'site' key
