@@ -13,7 +13,8 @@ admin test client rather than by eyeballing the ModelAdmin class definitions:
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
-from tom_targets.models import TargetList
+from tom_targets.models import Target, TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory, SiderealTargetFactory
 
 from solsys_code.models import CampaignRun
 
@@ -74,3 +75,48 @@ class AdminRegistrationAndGatingTests(TestCase):
         self.assertNotIn(PII_CONTACT_PERSON, content)
         self.assertNotIn(PII_CONTACT_EMAIL, content)
         self.assertIn('LCO-1m-Sinistro', content)
+
+
+class TargetAdminChangelistAndTypeFilterTests(TestCase):
+    """quick-260722-uhh: the Target change-list loads and the 'By type' filter separates
+    SIDEREAL from NON_SIDEREAL rows (tom_targets' own bare ModelAdmin has neither)."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='targetadminuser', email='targetadmin@example.test', password='pw'
+        )
+        cls.sidereal_target = SiderealTargetFactory(name='Test Sidereal Star')
+        cls.non_sidereal_target = NonSiderealTargetFactory(name='Test NonSidereal Comet')
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def _target_changelist_url_name(self) -> str:
+        # Target = get_target_model_class() (tom_targets/models.py), which resolves to
+        # BaseTarget here (no TARGET_MODEL_CLASS override in settings.py) -- so the admin
+        # URL name is keyed off app_label/model_name ('tom_targets'/'basetarget'), not the
+        # literal string 'target'.
+        return f'admin:{Target._meta.app_label}_{Target._meta.model_name}_changelist'
+
+    def test_target_changelist_loads(self) -> None:
+        response = self.client.get(reverse(self._target_changelist_url_name()))
+        self.assertEqual(response.status_code, 200)
+
+    def test_type_filter_shows_only_sidereal(self) -> None:
+        response = self.client.get(
+            reverse(self._target_changelist_url_name()), {'type__exact': self.sidereal_target.type}
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(self.sidereal_target.name, content)
+        self.assertNotIn(self.non_sidereal_target.name, content)
+
+    def test_type_filter_shows_only_non_sidereal(self) -> None:
+        response = self.client.get(
+            reverse(self._target_changelist_url_name()), {'type__exact': self.non_sidereal_target.type}
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(self.non_sidereal_target.name, content)
+        self.assertNotIn(self.sidereal_target.name, content)
