@@ -8,13 +8,29 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 
 
 def _configuration(
-    instrument_type='1M0-SCICAM-SINISTRO', target_name='Didymos', target_type='ORBITAL_ELEMENTS', ra=None, dec=None
+    instrument_type='1M0-SCICAM-SINISTRO',
+    target_name='Didymos',
+    target_type='ORBITAL_ELEMENTS',
+    ra=None,
+    dec=None,
+    epoch=None,
+    pm_ra=None,
+    pm_dec=None,
+    parallax=None,
 ):
     target = {'name': target_name, 'type': target_type}
     if ra is not None:
         target['ra'] = ra
     if dec is not None:
         target['dec'] = dec
+    if epoch is not None:
+        target['epoch'] = epoch
+    if pm_ra is not None:
+        target['proper_motion_ra'] = pm_ra
+    if pm_dec is not None:
+        target['proper_motion_dec'] = pm_dec
+    if parallax is not None:
+        target['parallax'] = parallax
     return {
         'type': 'EXPOSE',
         'instrument_type': instrument_type,
@@ -23,18 +39,53 @@ def _configuration(
     }
 
 
-def _request(request_id, target_name='Didymos', state='COMPLETED', target_type='ORBITAL_ELEMENTS', ra=None, dec=None):
+def _request(
+    request_id,
+    target_name='Didymos',
+    state='COMPLETED',
+    target_type='ORBITAL_ELEMENTS',
+    ra=None,
+    dec=None,
+    epoch=None,
+    pm_ra=None,
+    pm_dec=None,
+    parallax=None,
+):
     return {
         'id': request_id,
         'state': state,
         'windows': [{'start': '2026-07-01T00:00:00', 'end': '2026-07-02T00:00:00'}],
-        'configurations': [_configuration(target_name=target_name, target_type=target_type, ra=ra, dec=dec)],
+        'configurations': [
+            _configuration(
+                target_name=target_name,
+                target_type=target_type,
+                ra=ra,
+                dec=dec,
+                epoch=epoch,
+                pm_ra=pm_ra,
+                pm_dec=pm_dec,
+                parallax=parallax,
+            )
+        ],
     }
 
 
-def _field_request(request_id, target_name, ra=170.1, dec=-24.3, state='COMPLETED'):
+def _field_request(
+    request_id, target_name, ra=170.1, dec=-24.3, state='COMPLETED', epoch=None, pm_ra=None, pm_dec=None, parallax=None
+):
     """Build a request for a fixed-sky field target, carrying ra/dec like a real ICRS pointing."""
-    return _request(request_id, target_name=target_name, state=state, target_type='ICRS', ra=ra, dec=dec)
+    return _request(
+        request_id,
+        target_name=target_name,
+        state=state,
+        target_type='ICRS',
+        ra=ra,
+        dec=dec,
+        epoch=epoch,
+        pm_ra=pm_ra,
+        pm_dec=pm_dec,
+        parallax=parallax,
+    )
 
 
 def _request_group(group_id, name, proposal='LCO2026A-003', requests=None):
@@ -263,3 +314,80 @@ class TestBackfillLcoObservationRecords(TestCase):
         self.assertFalse(Target.objects.filter(name=self.FIELD_NAME).exists())
         self.assertEqual(self.campaign.targets.count(), campaign_target_count_before)
         self.assertFalse(ObservationRecord.objects.exists())
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_flag_on_creates_new_field_target_with_epoch_pm_parallax(self, mock_make_request):
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - COJ',
+                    requests=[
+                        _field_request(10, self.FIELD_NAME, epoch=2451545.0, pm_ra=12.3, pm_dec=-45.6, parallax=7.89)
+                    ],
+                )
+            ]
+        )
+
+        call_command(
+            'backfill_lco_observation_records',
+            '--proposal=LCO2026A-003',
+            '--name-prefix=Didymos',
+            '--campaign=Didymos 2026 Campaign',
+            '--create-missing-targets',
+        )
+
+        field_target = Target.objects.get(name=self.FIELD_NAME)
+        self.assertEqual(field_target.epoch, 2451545.0)
+        self.assertEqual(field_target.pm_ra, 12.3)
+        self.assertEqual(field_target.pm_dec, -45.6)
+        self.assertEqual(field_target.parallax, 7.89)
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_flag_on_creates_new_field_target_without_epoch_pm_parallax(self, mock_make_request):
+        mock_make_request.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - COJ', requests=[_field_request(10, self.FIELD_NAME)])]
+        )
+
+        call_command(
+            'backfill_lco_observation_records',
+            '--proposal=LCO2026A-003',
+            '--name-prefix=Didymos',
+            '--campaign=Didymos 2026 Campaign',
+            '--create-missing-targets',
+        )
+
+        field_target = Target.objects.get(name=self.FIELD_NAME)
+        self.assertIsNone(field_target.epoch)
+        self.assertIsNone(field_target.pm_ra)
+        self.assertIsNone(field_target.pm_dec)
+        self.assertIsNone(field_target.parallax)
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_flag_on_reuse_never_overwrites_epoch_pm_parallax(self, mock_make_request):
+        existing_field_target = Target.objects.create(name=self.FIELD_NAME, type=Target.SIDEREAL, ra=170.1, dec=-24.3)
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - COJ',
+                    requests=[
+                        _field_request(10, self.FIELD_NAME, epoch=2451545.0, pm_ra=12.3, pm_dec=-45.6, parallax=7.89)
+                    ],
+                )
+            ]
+        )
+
+        call_command(
+            'backfill_lco_observation_records',
+            '--proposal=LCO2026A-003',
+            '--name-prefix=Didymos',
+            '--campaign=Didymos 2026 Campaign',
+            '--create-missing-targets',
+        )
+
+        existing_field_target.refresh_from_db()
+        self.assertIsNone(existing_field_target.epoch)
+        self.assertIsNone(existing_field_target.pm_ra)
+        self.assertIsNone(existing_field_target.pm_dec)
+        self.assertIsNone(existing_field_target.parallax)
