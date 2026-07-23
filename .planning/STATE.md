@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 status: Awaiting next milestone
-stopped_at: "Completed quick task 260722-uyz: Populate CalendarEvent.target_list in sync_lco_observation_calendar from the record's Target's campaign TargetList membership"
-last_updated: "2026-07-23T05:50:00.000Z"
+stopped_at: "Completed quick task 260723-02e: Add --campaign flag to load_telescope_runs, associating CalendarEvent.target_list with a TargetList"
+last_updated: "2026-07-23T07:25:25.179Z"
 last_activity: 2026-07-23
-last_activity_desc: "Completed quick task 260722-ux0: Fix backfill_lco_observation_records perpetual [QUEUED] calendar bug via post-create update_observation_status() refresh"
+last_activity_desc: "Completed quick task 260722-uyz: Populate CalendarEvent.target_list in sync_lco_observation_calendar from the record's Target's campaign TargetList membership"
 current_phase: 25
 current_phase_name: e.g. Gemini FT-115-style awarded allocations
 progress:
@@ -128,6 +128,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase quick-260722-uhh P01 | 12min | 2 tasks | 2 files |
 | Phase quick-260722-ux0 P01 | ~15min | 3 tasks | 2 files |
 | Phase quick-260722-uyz P01 | ~20min | 3 tasks | 3 files |
+| Phase 260723-02e P01 | 22min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,7 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase quick-260722-uhh]: Target's admin URL/reverse name is `tom_targets_basetarget_changelist`, not `tom_targets_target_changelist` — `Target = get_target_model_class()` resolves to `BaseTarget` (no `TARGET_MODEL_CLASS` override in settings.py); tests derive the app_label/model_name dynamically rather than hardcoding either string
 - [Phase quick-260722-ux0]: `facility.update_observation_status()` uses its own module-level `make_request` binding (`tom_observations.facilities.ocs.make_request`), separate from the one a caller module imports and patches — a test suite calling code that transitively invokes `update_observation_status()` must patch `LCOFacility.update_observation_status` itself (or the `ocs` module's `make_request`), not the caller's imported `make_request` name, or it will make a real live HTTP call
 - [Phase quick-260722-uyz]: sync_lco_observation_calendar never populated CalendarEvent.target_list since its original Phase 04 implementation (confirmed via git log -p) — fixed by deriving it from record.target.targetlist_set.order_by('name').first() (deterministic alphabetically-first pick when a Target is in 2+ campaigns, None if in none); applies uniformly to both LCO and SOAR records since they share _build_event_fields()
+- [Phase ?]: Quick 260723-02e: load_telescope_runs --campaign duplicates only the explicit-name TargetList lookup branch of backfill's _resolve_campaign (no interactive prompt); 'target_list' key always present in the fields dict for consistent no-churn FK diffing
 
 ### Pending Todos
 
@@ -182,6 +184,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260722-uhh | Register a custom Django admin for tom_targets' Target model in solsys_code/admin.py with list_filter on type (sidereal vs non-sidereal), so staff can filter Targets by type in the admin change-list | 2026-07-22 | fac8a61 | Complete | [260722-uhh-register-a-custom-django-admin-for-tom-t](./quick/260722-uhh-register-a-custom-django-admin-for-tom-t/) |
 | 260722-ux0 | Fix backfill_lco_observation_records: refresh scheduled_start/scheduled_end via facility.update_observation_status() immediately after creating a new ObservationRecord, closing the perpetual [QUEUED] calendar-title bug for backfilled terminal records | 2026-07-23 | 6c5b205 | Complete | [260722-ux0-fix-backfill-lco-observation-records-pop](./quick/260722-ux0-fix-backfill-lco-observation-records-pop/) |
 | 260722-uyz | Fix sync_lco_observation_calendar: populate CalendarEvent.target_list from the record's Target's campaign TargetList membership (deterministic first match by name), closing a gap present since the command's original Phase 04 implementation | 2026-07-23 | ac5f0ac | Complete | [260722-uyz-fix-sync-lco-observation-calendar-set-ca](./quick/260722-uyz-fix-sync-lco-observation-calendar-set-ca/) |
+| 260723-02e | Add optional --campaign flag to load_telescope_runs: resolve a tom_targets.TargetList once upfront (explicit-name-only, fail-fast) and associate it with every created/updated CalendarEvent.target_list, matching backfill_lco_observation_records and sync_lco_observation_calendar precedent | 2026-07-23 | b3c4cd8 | Complete | [260723-02e-add-an-optional-campaign-flag-to-load-te](./quick/260723-02e-add-an-optional-campaign-flag-to-load-te/) |
 
 ## Deferred Items
 
@@ -200,8 +203,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23T05:50:00.000Z
-Stopped at: Completed quick task 260722-uyz: Populate CalendarEvent.target_list in sync_lco_observation_calendar from the record's Target's campaign TargetList membership
+Last session: 2026-07-23T07:25:25.155Z
+Stopped at: Completed quick task 260723-02e: Add --campaign flag to load_telescope_runs, associating CalendarEvent.target_list with a TargetList
 Resume file: None
 
 ## Operator Next Steps
