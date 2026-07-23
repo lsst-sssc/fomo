@@ -141,6 +141,13 @@ class Command(BaseCommand):
     if missing, otherwise reuse the existing Target of that name found anywhere in FOMO),
     added to the campaign, and is then processed normally. Combined with --dry-run, it
     reports what would be created/reused and added without writing anything.
+
+    Immediately after a newly created ObservationRecord is saved (non-dry-run only), the
+    command makes a live best-effort call to facility.update_observation_status(observation_id)
+    -- the same TOM Toolkit method periodic polling uses -- so the new record's status,
+    scheduled_start, and scheduled_end are populated from LCO right away instead of staying
+    unset until the next poll. A failure of that call is skip-and-logged (never fatal, never
+    rolls back the already-created record) and counted in the status_sync_failed summary count.
     """
 
     help = 'Backfill ObservationRecords from LCO RequestGroups submitted directly at the LCO portal'
@@ -218,6 +225,7 @@ class Command(BaseCommand):
         skipped_existing = 0
         skipped_unmatched_target = 0
         skipped_no_config = 0
+        status_sync_failed = 0
 
         for request_group in _matching_request_groups(facility, proposal, name_prefix):
             for request in request_group.get('requests', []):
@@ -273,12 +281,17 @@ class Command(BaseCommand):
                         status=request.get('state', ''),
                         parameters=parameters,
                     )
+                    try:
+                        facility.update_observation_status(observation_id)
+                    except Exception as exc:
+                        self.stderr.write(f'Failed to refresh status for observation_id={observation_id!r}: {exc}')
+                        status_sync_failed += 1
                 created += 1
 
         summary = (
             f'{"Would create" if dry_run else "Created"}: {created}, already existed: {skipped_existing}, '
             f'unmatched target: {skipped_unmatched_target}, no usable configuration: {skipped_no_config}, '
-            f'created field targets: {created_targets}'
+            f'created field targets: {created_targets}, status sync failed: {status_sync_failed}'
         )
         self.stdout.write(summary)
         return summary
