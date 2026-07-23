@@ -3,6 +3,7 @@ from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from tom_targets.models import TargetList
 
 from solsys_code.calendar_utils import insert_or_create_calendar_event
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -93,9 +94,17 @@ def _iter_run_nights(parsed: ParsedRun) -> list[date]:
 
 
 class Command(BaseCommand):
-    """Load classical telescope run lines from a file and create or update CalendarEvents."""
+    """Load classical telescope run lines from a file and create or update CalendarEvents.
 
-    help = 'Load classical telescope run lines from a file and create/update CalendarEvents'
+    An optional --campaign associates every CalendarEvent created or updated from the
+    file with the named campaign (a tom_targets.TargetList); when omitted, target_list
+    is left unset (None) on every event, matching prior behavior exactly.
+    """
+
+    help = (
+        'Load classical telescope run lines from a file and create/update CalendarEvents. '
+        'Optionally associate every event with a campaign (tom_targets.TargetList) via --campaign.'
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Parse command line arguments."""
@@ -104,19 +113,57 @@ class Command(BaseCommand):
             type=str,
             help='Path to a text file of classical run lines (one per line)',
         )
+        parser.add_argument(
+            '--campaign',
+            required=False,
+            help=(
+                'Name of the campaign (tom_targets.TargetList) to associate every CalendarEvent '
+                'from this file with. If omitted, no campaign is set.'
+            ),
+        )
         # No return statement — BaseCommand.add_arguments() returns None
+
+    def _resolve_campaign(self, campaign_name: str | None) -> TargetList | None:
+        """Resolve --campaign to a TargetList by exact name match, or None if omitted.
+
+        Mirrors only the explicit-name lookup branch of
+        backfill_lco_observation_records.Command._resolve_campaign() -- deliberately
+        no interactive prompt-when-omitted branch, since omitting --campaign here means
+        "no campaign", not "ask me".
+
+        Args:
+            campaign_name: the --campaign value, or None if the flag was omitted.
+
+        Returns:
+            TargetList | None: the resolved campaign, or None if campaign_name is None.
+
+        Raises:
+            CommandError: no TargetList by that name exists, or more than one does.
+        """
+        if not campaign_name:
+            return None
+        matches = TargetList.objects.filter(name=campaign_name)
+        if not matches.exists():
+            raise CommandError(f'No campaign (TargetList) named {campaign_name!r} found.')
+        if matches.count() > 1:
+            raise CommandError(f'Multiple campaigns (TargetLists) named {campaign_name!r} found.')
+        return matches.first()
 
     def handle(self, *args: Any, **options: Any) -> str | None:
         """Load classical schedule lines and create or update CalendarEvents.
 
         For each observing night derived from a run line: create a new CalendarEvent
         if one does not exist, or update the existing event if any fields have changed,
-        or leave it untouched if nothing has changed.
+        or leave it untouched if nothing has changed. If --campaign is given, it is
+        resolved once upfront (fail fast on a bad name before any line is processed)
+        and associated with every created/updated event via CalendarEvent.target_list;
+        if omitted, target_list is left unset (None) on every event.
 
         Returns:
             str | None: None on completion.
         """
         filepath = options['filepath']
+        campaign = self._resolve_campaign(options.get('campaign'))
         created_count = 0
         updated_count = 0
         unchanged_count = 0
@@ -159,7 +206,12 @@ class Command(BaseCommand):
 
                     event, action = insert_or_create_calendar_event(
                         {'telescope': parsed.telescope, 'instrument': parsed.instrument, 'start_time': start_time},
-                        {'end_time': end_time, 'title': title, 'description': description},
+                        {
+                            'end_time': end_time,
+                            'title': title,
+                            'description': description,
+                            'target_list': campaign,
+                        },
                         start_time_tolerance=_START_TIME_MATCH_TOLERANCE,
                     )
                     if action == 'created':
