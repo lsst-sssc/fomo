@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 status: Awaiting next milestone
-stopped_at: "Completed quick task 260722-uhh: Register custom TargetAdmin (list_filter on type) for tom_targets' Target model"
-last_updated: "2026-07-23T05:12:00.000Z"
-last_activity: 2026-07-22
-last_activity_desc: "Completed quick task 260722-twe: Extend backfill_lco_observation_records --create-missing-targets to pull epoch/pm_ra/pm_dec/parallax from the LCO request target dict when present"
+stopped_at: "Completed quick task 260722-ux0: Fix backfill_lco_observation_records perpetual [QUEUED] calendar bug via post-create update_observation_status() refresh"
+last_updated: "2026-07-23T05:24:17.671Z"
+last_activity: 2026-07-23
+last_activity_desc: "Completed quick task 260722-ux0: Fix backfill_lco_observation_records perpetual [QUEUED] calendar bug via post-create update_observation_status() refresh"
 current_phase: 25
 current_phase_name: e.g. Gemini FT-115-style awarded allocations
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-18 — v2.1 milestone closed, full ev
 Phase: Milestone v2.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-22 - Completed quick task 260722-hpw: Fix import_campaign_csv to skip leading comment/blank rows before the real CSV header
+Last activity: 2026-07-23 - Completed quick task 260722-ux0: Fix backfill_lco_observation_records perpetual [QUEUED] calendar bug via post-create update_observation_status() refresh
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -143,6 +143,7 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase quick-260722-tkt]: created_targets counter only reflects actually-persisted creations (0 in --dry-run); per-request stdout line still reports would-create/would-reuse intent
 - [Phase quick-260722-twe]: epoch/pm_ra/pm_dec/parallax (from LCO wire keys epoch/proper_motion_ra/proper_motion_dec/parallax) are only set on newly-built field Targets, never on a reused existing Target — reuse never overwrites existing Target metadata
 - [Phase quick-260722-uhh]: Target's admin URL/reverse name is `tom_targets_basetarget_changelist`, not `tom_targets_target_changelist` — `Target = get_target_model_class()` resolves to `BaseTarget` (no `TARGET_MODEL_CLASS` override in settings.py); tests derive the app_label/model_name dynamically rather than hardcoding either string
+- [Phase quick-260722-ux0]: `facility.update_observation_status()` uses its own module-level `make_request` binding (`tom_observations.facilities.ocs.make_request`), separate from the one a caller module imports and patches — a test suite calling code that transitively invokes `update_observation_status()` must patch `LCOFacility.update_observation_status` itself (or the `ocs` module's `make_request`), not the caller's imported `make_request` name, or it will make a real live HTTP call
 
 ### Pending Todos
 
@@ -176,6 +177,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260722-tkt | Add opt-in --create-missing-targets flag to backfill_lco_observation_records: auto-create-or-reuse a SIDEREAL field Target from the request's RA/Dec, add it to the campaign, and process the request normally instead of skipping it | 2026-07-22 | 73581b0 | Complete | [260722-tkt-add-create-missing-targets-flag-to-backf](./quick/260722-tkt-add-create-missing-targets-flag-to-backf/) |
 | 260722-twe | Extend backfill_lco_observation_records --create-missing-targets to also pull epoch/pm_ra/pm_dec/parallax from the LCO request target dict when present, mapped onto newly-built field Targets only (reused Targets untouched) | 2026-07-22 | ba59d0f | Complete | [260722-twe-extend-backfill-lco-observation-records-](./quick/260722-twe-extend-backfill-lco-observation-records-/) |
 | 260722-uhh | Register a custom Django admin for tom_targets' Target model in solsys_code/admin.py with list_filter on type (sidereal vs non-sidereal), so staff can filter Targets by type in the admin change-list | 2026-07-22 | fac8a61 | Complete | [260722-uhh-register-a-custom-django-admin-for-tom-t](./quick/260722-uhh-register-a-custom-django-admin-for-tom-t/) |
+| 260722-ux0 | Fix backfill_lco_observation_records: refresh scheduled_start/scheduled_end via facility.update_observation_status() immediately after creating a new ObservationRecord, closing the perpetual [QUEUED] calendar-title bug for backfilled terminal records | 2026-07-23 | 6c5b205 | Complete | [260722-ux0-fix-backfill-lco-observation-records-pop](./quick/260722-ux0-fix-backfill-lco-observation-records-pop/) |
 
 ## Deferred Items
 
@@ -194,8 +196,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23T05:12:00.000Z
-Stopped at: Completed quick task 260722-uhh: Register custom TargetAdmin (list_filter on type) for tom_targets' Target model
+Last session: 2026-07-23T05:24:17.671Z
+Stopped at: Completed quick task 260722-ux0: Fix backfill_lco_observation_records perpetual [QUEUED] calendar bug via post-create update_observation_status() refresh
 Resume file: None
 
 ## Operator Next Steps
