@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 status: Awaiting next milestone
-stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-07-18T09:30:32.069Z"
-last_activity: 2026-07-18
-last_activity_desc: Milestone v2.1 completed and archived
+stopped_at: "Completed quick task 260722-tkt: Add --create-missing-targets flag to backfill_lco_observation_records"
+last_updated: "2026-07-23T04:27:47.630Z"
+last_activity: 2026-07-22
+last_activity_desc: "Completed quick task 260722-hpw: Fix import_campaign_csv to skip leading comment/blank rows before the real CSV header"
+current_phase: 25
+current_phase_name: e.g. Gemini FT-115-style awarded allocations
 progress:
   total_phases: 8
   completed_phases: 8
   total_plans: 26
   completed_plans: 26
   percent: 100
-current_phase: 25
-current_phase_name: e.g. Gemini FT-115-style awarded allocations
 ---
 
 # Project State
@@ -123,6 +123,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 25 P01 | 25min | 3 tasks | 2 files |
 | Phase 25 P02 | 20min | 2 tasks | 2 files |
 | Phase 24 P01 | 10min | 3 tasks | 3 files |
+| Phase quick-260722-tkt P01 | 25min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,9 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 ### Decisions
 
 All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive per-plan v2.1 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 18-25 plan) has been cleared now that v2.1 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (backfilled at close for Phases 18/19/20/21/23/24, which already had rows for 14/22/25), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.1-phases/`.
+
+- [Phase quick-260722-tkt]: Field Targets created by --create-missing-targets are always type=SIDEREAL (fixed-sky pointings), distinct from the campaign's non-sidereal moving-object target by design
+- [Phase quick-260722-tkt]: created_targets counter only reflects actually-persisted creations (0 in --dry-run); per-request stdout line still reports would-create/would-reuse intent
 
 ### Pending Todos
 
@@ -165,6 +169,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260717-iae | Wire the five existing pre-executed demo notebooks into docs/notebooks.rst's Sphinx toctree so they appear in the published Notebooks section (previously orphaned, no toctree reference) | 2026-07-17 | 6b3c145 | Complete | [260717-iae-wire-the-existing-pre-executed-demo-note](./quick/260717-iae-wire-the-existing-pre-executed-demo-note/) |
 | 260718-dih | Fix PR review findings from .planning/Findings.md: guard the unreverted calendar-sync loop in CampaignRunDecisionView._set_run_status with a non-reverting try/except, make parse_run_line fail fast on cross-month run ranges instead of the loader rejecting them later, anchor the partial-night token match with fullmatch, add regression tests for all three, and correct Findings.md's line-number citations | 2026-07-18 | 01dbc2a | Complete | [260718-dih-fix-pr-review-findings-unguarded-calenda](./quick/260718-dih-fix-pr-review-findings-unguarded-calenda/) |
 | 260722-hpw | Fix import_campaign_csv to skip leading comment/blank rows before the real CSV header, so it can consume the real 3I/ATLAS sheet export unchanged | 2026-07-22 | 990bfb9 | Complete | [260722-hpw-fix-import-campaign-csv-to-skip-leading-](./quick/260722-hpw-fix-import-campaign-csv-to-skip-leading-/) |
+| 260722-tkt | Add opt-in --create-missing-targets flag to backfill_lco_observation_records: auto-create-or-reuse a SIDEREAL field Target from the request's RA/Dec, add it to the campaign, and process the request normally instead of skipping it | 2026-07-22 | 73581b0 | Complete | [260722-tkt-add-create-missing-targets-flag-to-backf](./quick/260722-tkt-add-create-missing-targets-flag-to-backf/) |
 
 ## Deferred Items
 
@@ -183,8 +188,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T07:24:57.689Z
-Stopped at: Completed 24-01-PLAN.md
+Last session: 2026-07-23T04:25:39.012Z
+Stopped at: Completed quick task 260722-tkt: Add --create-missing-targets flag to backfill_lco_observation_records
 Resume file: None
 
 ## Operator Next Steps
