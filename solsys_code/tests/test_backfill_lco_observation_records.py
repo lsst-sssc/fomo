@@ -113,6 +113,15 @@ class TestBackfillLcoObservationRecords(TestCase):
         cls.campaign = TargetList.objects.create(name='Didymos 2026 Campaign')
         cls.campaign.targets.add(cls.target)
 
+    def setUp(self):
+        # Prevent every non-dry-run test from making a real live API call via the new
+        # post-create facility.update_observation_status(observation_id) call (260722-ux0)
+        # -- patched at the class level since the command constructs its own LCOFacility()
+        # instance. Tests that care about call count/args/side effects override this mock.
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.update_observation_status')
+        self.mock_update_observation_status = patcher.start()
+        self.addCleanup(patcher.stop)
+
     @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
     def test_creates_record_for_matching_group_and_target(self, mock_make_request):
         mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
@@ -391,3 +400,82 @@ class TestBackfillLcoObservationRecords(TestCase):
         self.assertIsNone(existing_field_target.pm_ra)
         self.assertIsNone(existing_field_target.pm_dec)
         self.assertIsNone(existing_field_target.parallax)
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_created_record_triggers_status_refresh(self, mock_make_request):
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        def _refresh_status(observation_id):
+            record = ObservationRecord.objects.get(facility='LCO', observation_id=observation_id)
+            record.scheduled_start = '2026-07-01T00:10:00+00:00'
+            record.scheduled_end = '2026-07-01T00:20:00+00:00'
+            record.save()
+
+        self.mock_update_observation_status.side_effect = _refresh_status
+
+        call_command(
+            'backfill_lco_observation_records',
+            '--proposal=LCO2026A-003',
+            '--name-prefix=Didymos',
+            '--campaign=Didymos 2026 Campaign',
+        )
+
+        self.mock_update_observation_status.assert_called_once_with('10')
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertIsNotNone(record.scheduled_start)
+        self.assertIsNotNone(record.scheduled_end)
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_dry_run_makes_zero_status_refresh_calls(self, mock_make_request):
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        call_command(
+            'backfill_lco_observation_records',
+            '--proposal=LCO2026A-003',
+            '--name-prefix=Didymos',
+            '--campaign=Didymos 2026 Campaign',
+            '--dry-run',
+        )
+
+        self.mock_update_observation_status.assert_not_called()
+        self.assertFalse(ObservationRecord.objects.exists())
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_skipped_existing_record_makes_zero_status_refresh_calls(self, mock_make_request):
+        ObservationRecord.objects.create(
+            target=self.target, facility='LCO', observation_id='10', status='COMPLETED', parameters={}
+        )
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        call_command(
+            'backfill_lco_observation_records',
+            '--proposal=LCO2026A-003',
+            '--name-prefix=Didymos',
+            '--campaign=Didymos 2026 Campaign',
+        )
+
+        self.mock_update_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_status_refresh_failure_is_non_fatal_and_does_not_roll_back(self, mock_make_request):
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - ELP',
+                    requests=[_request(10), _request(11)],
+                )
+            ]
+        )
+        self.mock_update_observation_status.side_effect = Exception('LCO API unavailable')
+
+        call_command(
+            'backfill_lco_observation_records',
+            '--proposal=LCO2026A-003',
+            '--name-prefix=Didymos',
+            '--campaign=Didymos 2026 Campaign',
+        )
+
+        self.assertEqual(self.mock_update_observation_status.call_count, 2)
+        self.assertTrue(ObservationRecord.objects.filter(facility='LCO', observation_id='10').exists())
+        self.assertTrue(ObservationRecord.objects.filter(facility='LCO', observation_id='11').exists())
