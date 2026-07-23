@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 status: Awaiting next milestone
-stopped_at: "Completed quick task 260722-twe: Extend backfill_lco_observation_records --create-missing-targets to pull epoch/pm_ra/pm_dec/parallax from the LCO request target dict when present"
-last_updated: "2026-07-23T04:39:00.000Z"
+stopped_at: "Completed quick task 260722-uhh: Register custom TargetAdmin (list_filter on type) for tom_targets' Target model"
+last_updated: "2026-07-23T05:12:00.000Z"
 last_activity: 2026-07-22
-last_activity_desc: "Completed quick task 260722-tkt: Add --create-missing-targets flag to backfill_lco_observation_records"
+last_activity_desc: "Completed quick task 260722-twe: Extend backfill_lco_observation_records --create-missing-targets to pull epoch/pm_ra/pm_dec/parallax from the LCO request target dict when present"
 current_phase: 25
 current_phase_name: e.g. Gemini FT-115-style awarded allocations
 progress:
@@ -125,6 +125,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 24 P01 | 10min | 3 tasks | 3 files |
 | Phase quick-260722-tkt P01 | 25min | 3 tasks | 2 files |
 | Phase quick-260722-twe P01 | 4min | 2 tasks | 2 files |
+| Phase quick-260722-uhh P01 | 12min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,7 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase quick-260722-tkt]: Field Targets created by --create-missing-targets are always type=SIDEREAL (fixed-sky pointings), distinct from the campaign's non-sidereal moving-object target by design
 - [Phase quick-260722-tkt]: created_targets counter only reflects actually-persisted creations (0 in --dry-run); per-request stdout line still reports would-create/would-reuse intent
 - [Phase quick-260722-twe]: epoch/pm_ra/pm_dec/parallax (from LCO wire keys epoch/proper_motion_ra/proper_motion_dec/parallax) are only set on newly-built field Targets, never on a reused existing Target — reuse never overwrites existing Target metadata
+- [Phase quick-260722-uhh]: Target's admin URL/reverse name is `tom_targets_basetarget_changelist`, not `tom_targets_target_changelist` — `Target = get_target_model_class()` resolves to `BaseTarget` (no `TARGET_MODEL_CLASS` override in settings.py); tests derive the app_label/model_name dynamically rather than hardcoding either string
 
 ### Pending Todos
 
@@ -173,6 +175,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260722-hpw | Fix import_campaign_csv to skip leading comment/blank rows before the real CSV header, so it can consume the real 3I/ATLAS sheet export unchanged | 2026-07-22 | 990bfb9 | Complete | [260722-hpw-fix-import-campaign-csv-to-skip-leading-](./quick/260722-hpw-fix-import-campaign-csv-to-skip-leading-/) |
 | 260722-tkt | Add opt-in --create-missing-targets flag to backfill_lco_observation_records: auto-create-or-reuse a SIDEREAL field Target from the request's RA/Dec, add it to the campaign, and process the request normally instead of skipping it | 2026-07-22 | 73581b0 | Complete | [260722-tkt-add-create-missing-targets-flag-to-backf](./quick/260722-tkt-add-create-missing-targets-flag-to-backf/) |
 | 260722-twe | Extend backfill_lco_observation_records --create-missing-targets to also pull epoch/pm_ra/pm_dec/parallax from the LCO request target dict when present, mapped onto newly-built field Targets only (reused Targets untouched) | 2026-07-22 | ba59d0f | Complete | [260722-twe-extend-backfill-lco-observation-records-](./quick/260722-twe-extend-backfill-lco-observation-records-/) |
+| 260722-uhh | Register a custom Django admin for tom_targets' Target model in solsys_code/admin.py with list_filter on type (sidereal vs non-sidereal), so staff can filter Targets by type in the admin change-list | 2026-07-22 | fac8a61 | Complete | [260722-uhh-register-a-custom-django-admin-for-tom-t](./quick/260722-uhh-register-a-custom-django-admin-for-tom-t/) |
 
 ## Deferred Items
 
@@ -191,8 +194,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23T04:39:00.000Z
-Stopped at: Completed quick task 260722-twe: Extend backfill_lco_observation_records --create-missing-targets to pull epoch/pm_ra/pm_dec/parallax from the LCO request target dict when present
+Last session: 2026-07-23T05:12:00.000Z
+Stopped at: Completed quick task 260722-uhh: Register custom TargetAdmin (list_filter on type) for tom_targets' Target model
 Resume file: None
 
 ## Operator Next Steps
