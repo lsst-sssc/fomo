@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
@@ -6,7 +7,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
-from tom_targets.models import TargetList
+from tom_targets.models import Target, TargetList
 
 
 def _matching_request_groups(facility: LCOFacility, proposal: str, name_prefix: str):
@@ -35,13 +36,38 @@ def _matching_request_groups(facility: LCOFacility, proposal: str, name_prefix: 
         url = payload.get('next')
 
 
-def _request_target_name(request: dict[str, Any]) -> str | None:
-    """Return the target name of a request's first configuration that has one."""
+@dataclass
+class RequestTargetInfo:
+    """The target name and coordinates read from a request's first named-target configuration."""
+
+    name: str
+    ra: float | None
+    dec: float | None
+
+
+def _request_target_info(request: dict[str, Any]) -> RequestTargetInfo | None:
+    """Return the name and ra/dec of a request's first configuration that has a named target.
+
+    Args:
+        request: a single request from request_group['requests'].
+
+    Returns:
+        RequestTargetInfo | None: name/ra/dec for the first configuration whose 'target'
+            dict has a name, or None if no configuration has a named target. 'ra'/'dec' are
+            float degrees as returned by the LCO API, or None if absent (e.g. non-sidereal
+            targets that carry orbital elements instead of coordinates).
+    """
     for configuration in request.get('configurations', []):
         target = configuration.get('target') or {}
         if target.get('name'):
-            return target['name']
+            return RequestTargetInfo(name=target['name'], ra=target.get('ra'), dec=target.get('dec'))
     return None
+
+
+def _request_target_name(request: dict[str, Any]) -> str | None:
+    """Return the target name of a request's first configuration that has one."""
+    info = _request_target_info(request)
+    return info.name if info else None
 
 
 def _build_parameters(request_group: dict[str, Any], request: dict[str, Any]) -> dict[str, Any] | None:
@@ -92,7 +118,12 @@ class Command(BaseCommand):
 
     Each request's target is matched by name against the Targets already belonging to
     a chosen campaign (a tom_targets.TargetList) -- a request whose target name isn't a
-    member of that campaign is skipped and logged, never guessed at.
+    member of that campaign is skipped and logged, never guessed at, unless
+    --create-missing-targets is passed. With that flag set, an unmatched request instead
+    gets a SIDEREAL field Target created from the request's own RA/Dec (create the Target
+    if missing, otherwise reuse the existing Target of that name found anywhere in FOMO),
+    added to the campaign, and is then processed normally. Combined with --dry-run, it
+    reports what would be created/reused and added without writing anything.
     """
 
     help = 'Backfill ObservationRecords from LCO RequestGroups submitted directly at the LCO portal'
@@ -127,6 +158,17 @@ class Command(BaseCommand):
             action='store_true',
             help='Report what would be created without writing any ObservationRecord rows.',
         )
+        parser.add_argument(
+            '--create-missing-targets',
+            action='store_true',
+            help=(
+                'For a request whose target name is not a campaign member, auto-create a SIDEREAL '
+                "Target from the request's RA/Dec (reusing an existing Target of that name if one "
+                'exists anywhere in FOMO), add it to the campaign, then process the request '
+                'normally instead of skipping it. Default off. Combined with --dry-run, reports '
+                'what would be created/reused and added without writing anything.'
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
         """Fetch matching RequestGroups and create ObservationRecords for their requests.
@@ -137,6 +179,7 @@ class Command(BaseCommand):
         proposal = options['proposal']
         name_prefix = options['name_prefix']
         dry_run = options['dry_run']
+        create_missing_targets = options['create_missing_targets']
 
         user = None
         if options.get('username'):
@@ -154,6 +197,7 @@ class Command(BaseCommand):
         facility.set_user(user)
 
         created = 0
+        created_targets = 0
         skipped_existing = 0
         skipped_unmatched_target = 0
         skipped_no_config = 0
@@ -165,15 +209,30 @@ class Command(BaseCommand):
                     skipped_existing += 1
                     continue
 
-                target_name = _request_target_name(request)
+                target_info = _request_target_info(request)
+                target_name = target_info.name if target_info else None
                 target = targets_by_name.get(target_name)
                 if target is None:
-                    self.stderr.write(
-                        f'Skipping request {observation_id} (group {request_group.get("name")!r}): '
-                        f'target {target_name!r} is not a member of campaign {campaign.name!r}.'
-                    )
-                    skipped_unmatched_target += 1
-                    continue
+                    if not create_missing_targets:
+                        self.stderr.write(
+                            f'Skipping request {observation_id} (group {request_group.get("name")!r}): '
+                            f'target {target_name!r} is not a member of campaign {campaign.name!r}.'
+                        )
+                        skipped_unmatched_target += 1
+                        continue
+
+                    target, is_new_target = self._resolve_or_build_field_target(target_info)
+                    if dry_run:
+                        self.stdout.write(
+                            f'Would {"create" if is_new_target else "reuse"} field Target {target.name!r} '
+                            f'and add it to campaign {campaign.name!r}.'
+                        )
+                    else:
+                        if is_new_target:
+                            target.save()
+                            created_targets += 1
+                        campaign.targets.add(target)
+                        targets_by_name[target.name] = target
 
                 parameters = _build_parameters(request_group, request)
                 if parameters is None:
@@ -201,7 +260,8 @@ class Command(BaseCommand):
 
         summary = (
             f'{"Would create" if dry_run else "Created"}: {created}, already existed: {skipped_existing}, '
-            f'unmatched target: {skipped_unmatched_target}, no usable configuration: {skipped_no_config}'
+            f'unmatched target: {skipped_unmatched_target}, no usable configuration: {skipped_no_config}, '
+            f'created field targets: {created_targets}'
         )
         self.stdout.write(summary)
         return summary
@@ -241,3 +301,23 @@ class Command(BaseCommand):
             return target_lists[selected_index]
         except (ValueError, IndexError) as exc:
             raise CommandError(f'Invalid selection: {choice!r}') from exc
+
+    def _resolve_or_build_field_target(self, target_info: RequestTargetInfo | None) -> tuple[Target, bool]:
+        """Find or build a SIDEREAL field Target for an unmatched --create-missing-targets request.
+
+        Reuses an existing Target of that name found anywhere in FOMO (create the Target if
+        missing, otherwise reuse it in place); the caller is responsible for saving a newly
+        built Target and adding it to the campaign (or skipping both in --dry-run).
+
+        Args:
+            target_info: the name/ra/dec read from the request's target configuration.
+
+        Returns:
+            tuple[Target, bool]: the existing-or-new Target, and whether it is newly built
+                (True) and not yet saved, versus reused and already persisted (False).
+        """
+        field_name = target_info.name
+        existing = Target.objects.filter(name=field_name).first()
+        if existing is not None:
+            return existing, False
+        return Target(name=field_name, type=Target.SIDEREAL, ra=target_info.ra, dec=target_info.dec), True
