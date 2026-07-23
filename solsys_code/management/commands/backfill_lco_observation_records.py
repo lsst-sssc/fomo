@@ -38,29 +38,46 @@ def _matching_request_groups(facility: LCOFacility, proposal: str, name_prefix: 
 
 @dataclass
 class RequestTargetInfo:
-    """The target name and coordinates read from a request's first named-target configuration."""
+    """The target name, coordinates, epoch, proper motion, and parallax read from a
+    request's first named-target configuration."""
 
     name: str
     ra: float | None
     dec: float | None
+    epoch: float | None
+    pm_ra: float | None
+    pm_dec: float | None
+    parallax: float | None
 
 
 def _request_target_info(request: dict[str, Any]) -> RequestTargetInfo | None:
-    """Return the name and ra/dec of a request's first configuration that has a named target.
+    """Return the name/coordinates/epoch/proper motion/parallax of a request's first
+    configuration that has a named target.
 
     Args:
         request: a single request from request_group['requests'].
 
     Returns:
-        RequestTargetInfo | None: name/ra/dec for the first configuration whose 'target'
-            dict has a name, or None if no configuration has a named target. 'ra'/'dec' are
-            float degrees as returned by the LCO API, or None if absent (e.g. non-sidereal
-            targets that carry orbital elements instead of coordinates).
+        RequestTargetInfo | None: name/ra/dec/epoch/pm_ra/pm_dec/parallax for the first
+            configuration whose 'target' dict has a name, or None if no configuration has a
+            named target. 'ra'/'dec' are float degrees as returned by the LCO API, or None if
+            absent (e.g. non-sidereal targets that carry orbital elements instead of
+            coordinates). 'epoch', 'pm_ra' (from the LCO wire key 'proper_motion_ra'),
+            'pm_dec' (from 'proper_motion_dec'), and 'parallax' are likewise None if the
+            request's target dict omits them.
     """
     for configuration in request.get('configurations', []):
         target = configuration.get('target') or {}
         if target.get('name'):
-            return RequestTargetInfo(name=target['name'], ra=target.get('ra'), dec=target.get('dec'))
+            return RequestTargetInfo(
+                name=target['name'],
+                ra=target.get('ra'),
+                dec=target.get('dec'),
+                epoch=target.get('epoch'),
+                pm_ra=target.get('proper_motion_ra'),
+                pm_dec=target.get('proper_motion_dec'),
+                parallax=target.get('parallax'),
+            )
     return None
 
 
@@ -320,4 +337,16 @@ class Command(BaseCommand):
         existing = Target.objects.filter(name=field_name).first()
         if existing is not None:
             return existing, False
-        return Target(name=field_name, type=Target.SIDEREAL, ra=target_info.ra, dec=target_info.dec), True
+        return (
+            Target(
+                name=field_name,
+                type=Target.SIDEREAL,
+                ra=target_info.ra,
+                dec=target_info.dec,
+                epoch=target_info.epoch,
+                pm_ra=target_info.pm_ra,
+                pm_dec=target_info.pm_dec,
+                parallax=target_info.parallax,
+            ),
+            True,
+        )
