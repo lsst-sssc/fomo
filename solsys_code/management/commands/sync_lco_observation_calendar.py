@@ -75,7 +75,14 @@ def _title_for(
     prefix = _failure_prefix(record.status, facility)
     if prefix is not None:
         return f'{prefix} {telescope} {instrument}'
-    if record.scheduled_start is None:
+    # D-06 (same reasoning as the failure-prefix branch above): a record whose status
+    # is already a successful-terminal state (e.g. COMPLETED) must never carry a
+    # prefix implying the observation hasn't happened yet, even if scheduled_start
+    # was never resolved (no observation block reported COMPLETED at the block level).
+    # LCOFacility/SOARFacility expose no get_successful_observing_states() method, so
+    # the successful-terminal set is derived as terminal states minus failure states.
+    successful_states = set(facility.get_terminal_observing_states()) - set(facility.get_failed_observing_states())
+    if record.scheduled_start is None and record.status not in successful_states:
         return f'[QUEUED] {telescope} {instrument}'
     if label_was_fallback:
         return f'[UNVERIFIED] {telescope} {instrument}'

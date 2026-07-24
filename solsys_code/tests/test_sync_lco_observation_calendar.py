@@ -168,6 +168,38 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertEqual(event.end_time, datetime(2026, 7, 2, 0, 0, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(event.title, '[QUEUED] 2m0 2M0-SCICAM-MUSCAT')
 
+    def test_d06_completed_with_unresolved_scheduled_start_gets_clean_title(self):
+        """D-06: COMPLETED status with scheduled_start=None still gets a clean title, no '[QUEUED]'.
+
+        TOM Toolkit can leave a request-level-COMPLETED record with scheduled_start=None
+        (no observation block reported COMPLETED at the block level). Because COMPLETED is a
+        terminal state, the record is never re-fetched, so its title must not get stuck reading
+        '[QUEUED]' forever. This is a banner-stage record (no live API call, coarse fallback
+        label), mirroring test_sync_02's fixture setup but with status='COMPLETED'.
+        """
+        self._create_record(
+            '444445',
+            proposal='MATCHCODE',
+            status='COMPLETED',
+            scheduled_start=None,
+            scheduled_end=None,
+            start='2026-07-01T00:00:00',
+            end='2026-07-02T00:00:00',
+            site='coj',
+            instrument_type='2M0-SCICAM-MUSCAT',
+        )
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'MATCHCODE',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.title, '2m0 2M0-SCICAM-MUSCAT')
+        for prefix in ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[QUEUED]', '[UNVERIFIED]'):
+            self.assertNotIn(prefix, event.title)
+
     def test_sync_03_d03_placed_uses_scheduled_times_and_clean_title(self):
         """SYNC-03/D-03: scheduled_start/end populated -> those times, clean title (no [QUEUED]).
 
