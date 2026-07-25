@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Uncertain Scheduling & Site Disambiguation
 status: Awaiting next milestone
-stopped_at: "Completed quick task 260723-r5g: Fix sync_lco_observation_calendar COMPLETED-unresolved [QUEUED] title bug"
-last_updated: "2026-07-24T02:43:28.627Z"
+stopped_at: "Completed quick task 260724-tiz: Improve telescope stripe/legend contrast"
+last_updated: "2026-07-25T04:22:17.157Z"
 last_activity: 2026-07-24
-last_activity_desc: "Completed quick task 260723-r5g: Fix sync_lco_observation_calendar COMPLETED-unresolved [QUEUED] title bug"
+last_activity_desc: "Completed quick task 260724-tiz: Improve telescope stripe/legend contrast"
 current_phase: 25
 current_phase_name: e.g. Gemini FT-115-style awarded allocations
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-18 — v2.1 milestone closed, full ev
 Phase: Milestone v2.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-24 - Completed quick task 260723-r5g: Fix sync_lco_observation_calendar COMPLETED-unresolved [QUEUED] title bug
+Last activity: 2026-07-24 - Completed quick task 260724-tiz: Improve telescope stripe/legend contrast
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -129,6 +129,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase quick-260722-ux0 P01 | ~15min | 3 tasks | 2 files |
 | Phase quick-260722-uyz P01 | ~20min | 3 tasks | 3 files |
 | Phase 260723-02e P01 | 22min | 3 tasks | 3 files |
+| Phase quick-260724-tiz P01 | ~12min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,7 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase quick-260722-uyz]: sync_lco_observation_calendar never populated CalendarEvent.target_list since its original Phase 04 implementation (confirmed via git log -p) — fixed by deriving it from record.target.targetlist_set.order_by('name').first() (deterministic alphabetically-first pick when a Target is in 2+ campaigns, None if in none); applies uniformly to both LCO and SOAR records since they share _build_event_fields()
 - [Phase ?]: Quick 260723-02e: load_telescope_runs --campaign duplicates only the explicit-name TargetList lookup branch of backfill's _resolve_campaign (no interactive prompt); 'target_list' key always present in the fields dict for consistent no-churn FK diffing
 - [Phase ?]: [Quick 260723-r5g]: sync_lco_observation_calendar's LCOFacility/SOARFacility expose no get_successful_observing_states() method — the successful-terminal state set must be derived as get_terminal_observing_states() minus get_failed_observing_states()
+- [Phase ?]: [Quick 260724-tiz]: Added a separate TELESCOPE_PALETTE (brighter dark-surface set) rather than modifying PROPOSAL_PALETTE; per-telescope stripe re-implemented as a ::before pseudo-element (cal-event-classical + --tel-color) to avoid colliding with status_border_css's box-shadow ring on the same style attribute
 
 ### Pending Todos
 
@@ -187,6 +189,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260722-uyz | Fix sync_lco_observation_calendar: populate CalendarEvent.target_list from the record's Target's campaign TargetList membership (deterministic first match by name), closing a gap present since the command's original Phase 04 implementation | 2026-07-23 | ac5f0ac | Complete | [260722-uyz-fix-sync-lco-observation-calendar-set-ca](./quick/260722-uyz-fix-sync-lco-observation-calendar-set-ca/) |
 | 260723-02e | Add optional --campaign flag to load_telescope_runs: resolve a tom_targets.TargetList once upfront (explicit-name-only, fail-fast) and associate it with every created/updated CalendarEvent.target_list, matching backfill_lco_observation_records and sync_lco_observation_calendar precedent | 2026-07-23 | b3c4cd8 | Complete | [260723-02e-add-an-optional-campaign-flag-to-load-te](./quick/260723-02e-add-an-optional-campaign-flag-to-load-te/) |
 | 260723-r5g | Fix sync_lco_observation_calendar: guard [QUEUED] title prefix so a COMPLETED record with unresolved scheduled_start gets a clean title instead of being stuck [QUEUED] forever | 2026-07-24 | 0917927 | Complete | [260723-r5g-fix-sync-lco-observation-calendar-comple](./quick/260723-r5g-fix-sync-lco-observation-calendar-comple/) |
+| 260724-tiz | Improve telescope stripe/legend contrast: switch telescope_color() to a brighter TELESCOPE_PALETTE, re-implement the classical-event stripe via a CSS pseudo-element (avoids status-ring box-shadow collision), enlarge both legends into filled chip swatches | 2026-07-24 | 9f7bfae | Complete | [260724-tiz-improve-telescope-stripe-legend-contrast](./quick/260724-tiz-improve-telescope-stripe-legend-contrast/) |
 
 ## Deferred Items
 
@@ -205,8 +208,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T02:42:47.529Z
-Stopped at: Completed quick task 260723-r5g: Fix sync_lco_observation_calendar COMPLETED-unresolved [QUEUED] title bug
+Last session: 2026-07-25T04:22:17.150Z
+Stopped at: Completed quick task 260724-tiz: Improve telescope stripe/legend contrast
 Resume file: None
 
 ## Operator Next Steps
