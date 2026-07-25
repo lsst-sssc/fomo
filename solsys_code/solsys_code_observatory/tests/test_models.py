@@ -106,6 +106,53 @@ class TestObservatory(TestCase):
         self.assertAlmostEqual(expected_llh[1], llh[1], self.precision)
         self.assertAlmostEqual(expected_llh[2], llh[2], self.precision)
 
+    def test_to_earth_location_ground_site(self):
+        """No-regression anchor: a fully-positioned ground site still round-trips through
+        to_earth_location() to the same lon/lat/height."""
+        rubin, created = Observatory.objects.get_or_create(
+            obscode='X05',
+            name='Simonyi Survey Telescope, Rubin Observatory',
+            lat=-30.244600455,
+            lon=-70.749420000,
+            altitude=2683.57596,
+        )
+
+        earth_location = rubin.to_earth_location()
+
+        self.assertAlmostEqual(earth_location.lon.deg, -70.749420000, places=6)
+        self.assertAlmostEqual(earth_location.lat.deg, -30.244600455, places=6)
+        self.assertAlmostEqual(earth_location.height.to_value('m'), 2683.57596, places=6)
+
+    def test_to_earth_location_raises_for_space_based_site(self):
+        """A satellite Observatory (no fixed position on Earth) must raise an actionable
+        ValueError naming the obscode, not a bare TypeError from None * u.deg."""
+        hst = Observatory(
+            obscode='250',
+            name='Hubble Space Telescope',
+            short_name='HST',
+            lon=None,
+            lat=None,
+            altitude=None,
+            observations_type=Observatory.SATELLITE_OBSTYPE,
+        )
+
+        with self.assertRaisesRegex(ValueError, '250'):
+            hst.to_earth_location()
+
+    def test_to_earth_location_raises_when_altitude_missing(self):
+        """A row with coordinates present but altitude null (e.g. a Django admin edit --
+        altitude is null=True) must also raise ValueError, not TypeError."""
+        observatory = Observatory(
+            obscode='X05',
+            name='Simonyi Survey Telescope, Rubin Observatory',
+            lat=-30.244600455,
+            lon=-70.749420000,
+            altitude=None,
+        )
+
+        with self.assertRaises(ValueError):
+            observatory.to_earth_location()
+
     def test_ObservatoryXYZ_X05(self):
         expected_XYZ = [+0.2851834, -0.8166132, -0.5009568]
 
