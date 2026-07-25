@@ -13,11 +13,16 @@ from solsys_code.templatetags.calendar_display_extras import (
     CLASSICAL_SCHEDULE_LABEL,
     NEUTRAL_SLOT_COLOR,
     PROPOSAL_PALETTE,
+    STRIPE_OUTER_EDGE_COLOR,
     TELESCOPE_PALETTE,
+    TELESCOPE_STRIPE_PALETTE,
+    _contrast_ratio,
+    _relative_luminance,
     neutral_slot_color,
     proposal_color,
     status_border_css,
     telescope_color,
+    telescope_stripe_color,
     text_color_for_bg,
     visible_classical_telescopes,
     visible_proposals,
@@ -285,3 +290,107 @@ class VisibleClassicalTelescopesTest(TestCase):
         result = visible_classical_telescopes(weeks)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]['label'], 'NTT')
+
+
+class TestTelescopeStripeContrast(TestCase):
+    """quick-260724-vb0: WCAG contrast audit gating TELESCOPE_PALETTE (vs #ffffff, the
+    legend chip's only background), TELESCOPE_STRIPE_PALETTE (vs NEUTRAL_SLOT_COLOR, the
+    stripe's only fill neighbour) and STRIPE_OUTER_EDGE_COLOR, plus a live-arithmetic
+    proof that one 8-color palette cannot clear 3:1 against both backgrounds at once.
+    """
+
+    def test_contrast_ratio_white_vs_black_is_21(self):
+        # quick-260724-vb0: formula sanity check -- maximum possible contrast.
+        self.assertAlmostEqual(_contrast_ratio('#ffffff', '#000000'), 21.0, places=1)
+
+    def test_contrast_ratio_self_is_one(self):
+        # quick-260724-vb0: a color against itself has no contrast.
+        self.assertAlmostEqual(_contrast_ratio('#3987e5', '#3987e5'), 1.0, places=6)
+
+    def test_contrast_ratio_is_order_independent(self):
+        # quick-260724-vb0: (L1+0.05)/(L2+0.05) with L1/L2 as lighter/darker means
+        # swapping arguments must not change the result.
+        self.assertAlmostEqual(
+            _contrast_ratio('#3987e5', '#ffffff'),
+            _contrast_ratio('#ffffff', '#3987e5'),
+            places=6,
+        )
+
+    def test_white_vs_neutral_slot_color_is_6_21(self):
+        # quick-260724-vb0: verified starting value from the plan's key_finding table.
+        self.assertAlmostEqual(_contrast_ratio('#ffffff', NEUTRAL_SLOT_COLOR), 6.21, places=2)
+
+    def test_stripe_palette_clears_neutral_slot_gate(self):
+        # quick-260724-vb0: every TELESCOPE_STRIPE_PALETTE entry clears 3.4:1 against
+        # NEUTRAL_SLOT_COLOR -- the stripe's only fill neighbour (its right/inner edge).
+        # This passes on the values TELESCOPE_STRIPE_PALETTE ships with in this task.
+        for hex_color in TELESCOPE_STRIPE_PALETTE:
+            with self.subTest(hex_color=hex_color):
+                self.assertGreaterEqual(_contrast_ratio(hex_color, NEUTRAL_SLOT_COLOR), 3.4)
+
+    def test_legend_palette_clears_white_gate(self):
+        # quick-260724-vb0: this is the RED gate. Four TELESCOPE_PALETTE entries
+        # (#199e70, #c98500, #9085e9, #e66767) measure 3.41/3.07/3.13/3.23 against
+        # white on the palette as shipped by quick-260724-tiz -- Task 2 retunes them.
+        # Do not weaken this threshold to make it pass prematurely.
+        for hex_color in TELESCOPE_PALETTE:
+            with self.subTest(hex_color=hex_color):
+                self.assertGreaterEqual(_contrast_ratio(hex_color, '#ffffff'), 3.5)
+
+    def test_stripe_outer_edge_clears_white_gate(self):
+        # quick-260724-vb0: the opaque outward-facing edge must read as a line
+        # against the white day cell.
+        self.assertGreaterEqual(_contrast_ratio(STRIPE_OUTER_EDGE_COLOR, '#ffffff'), 3.0)
+
+    def test_palettes_are_parallel_arrays(self):
+        # quick-260724-vb0: equal length, and a telescope name resolves to the same
+        # index in both palettes -- the two lists are one hash away from each other,
+        # not independently shuffled sets.
+        self.assertEqual(len(TELESCOPE_PALETTE), len(TELESCOPE_STRIPE_PALETTE))
+        for name in ('NTT', 'FTS', 'DUPONT', 'Aqawan 1: Turbina', 'SOAR'):
+            with self.subTest(name=name):
+                legend_idx = TELESCOPE_PALETTE.index(telescope_color(name))
+                stripe_idx = TELESCOPE_STRIPE_PALETTE.index(telescope_stripe_color(name))
+                self.assertEqual(legend_idx, stripe_idx)
+
+    def test_stripe_color_normalization_mirrors_telescope_color(self):
+        # quick-260724-vb0: casing and surrounding-whitespace variants of one name
+        # return one stripe color, same normalization contract as telescope_color.
+        self.assertEqual(telescope_stripe_color('NTT'), telescope_stripe_color('ntt'))
+        self.assertEqual(telescope_stripe_color('NTT'), telescope_stripe_color('NTT '))
+
+    def test_stripe_color_blank_returns_neutral_slot(self):
+        # quick-260724-vb0: blank/None telescope -> a deliberately invisible stripe
+        # (NEUTRAL_SLOT_COLOR matches the chip's own fill). The >= 3.4:1 gate above
+        # covers palette entries only, never this fallback.
+        self.assertEqual(telescope_stripe_color(''), NEUTRAL_SLOT_COLOR)
+        self.assertEqual(telescope_stripe_color('   '), NEUTRAL_SLOT_COLOR)
+        self.assertEqual(telescope_stripe_color(None), NEUTRAL_SLOT_COLOR)
+
+    def test_legend_and_stripe_resolve_to_different_hex_for_same_telescope(self):
+        # quick-260724-vb0: a classical chip renders a TELESCOPE_STRIPE_PALETTE member
+        # while the legend chip renders a TELESCOPE_PALETTE member -- for the same
+        # telescope these are two different hex values.
+        self.assertNotEqual(telescope_color('NTT'), telescope_stripe_color('NTT'))
+
+    def test_one_palette_cannot_clear_both_backgrounds(self):
+        # quick-260724-vb0 key_finding: derive the luminance bands live from
+        # _relative_luminance rather than hardcoding the ceiling/floor, so this stays
+        # true if NEUTRAL_SLOT_COLOR is ever revisited.
+        l_white = _relative_luminance('#ffffff')
+        l_neutral = _relative_luminance(NEUTRAL_SLOT_COLOR)
+
+        # 3:1 against white requires L <= (l_white + 0.05) / 3 - 0.05.
+        max_l_for_white_gate = (l_white + 0.05) / 3 - 0.05
+        # 3:1 against NEUTRAL_SLOT_COLOR on the lighter side requires
+        # L >= 3 * (l_neutral + 0.05) - 0.05.
+        min_l_for_neutral_lighter_side = 3 * (l_neutral + 0.05) - 0.05
+        # The lighter band never intersects the white constraint.
+        self.assertLess(max_l_for_white_gate, min_l_for_neutral_lighter_side)
+
+        # The darker-side band (L <= (l_neutral + 0.05) / 3 - 0.05) is effectively
+        # black-only: the darkest fully-saturated sRGB primary (#0000ff) already
+        # exceeds that ceiling, so no set of 8 mutually distinguishable hues fits.
+        max_l_for_neutral_darker_side = (l_neutral + 0.05) / 3 - 0.05
+        l_pure_blue = _relative_luminance('#0000ff')
+        self.assertGreater(l_pure_blue, max_l_for_neutral_darker_side)

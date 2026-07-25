@@ -209,7 +209,7 @@
               {% proposal_color event.proposal as bg_color %}
               {% status_border_css event.title as status_border %}
               {% text_color_for_bg bg_color as text_color %}
-              {% telescope_color event.telescope as tel_color %}
+              {% telescope_stripe_color event.telescope as tel_color %}
               <div class="cal-event cal-event-all-day-row"
                    data-proposal="{{ bg_color }}"
                    hx-get="{% url 'calendar:update-event' event.id %}"

@@ -20,7 +20,7 @@ from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
 from solsys_code.models import CalendarEventTelescopeLabel
-from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color
+from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color, telescope_stripe_color
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
 TOOLTIP_SUBSTRING = 'estimate'
@@ -319,8 +319,13 @@ class CalendarTemplateTest(TestCase):
 
     def test_osc_classical_event_renders_telescope_stripe(self):
         """quick-260724-tiz: classical-schedule all-day event gets the cal-event-classical
-        class and a --tel-color custom property (pseudo-element stripe, no inline border-left)."""
-        tel_hex = telescope_color('NTT')
+        class and a --tel-color custom property (pseudo-element stripe, no inline border-left).
+
+        quick-260724-vb0: --tel-color is fed from telescope_stripe_color()
+        (TELESCOPE_STRIPE_PALETTE), not telescope_color() -- the stripe and the legend
+        chip now resolve through different palettes gated against different backgrounds.
+        """
+        tel_hex = telescope_stripe_color('NTT')
         response = self._get_calendar()
         content = response.content.decode()
         div_html = self._event_div_html(content, self.classical_with_telescope)
@@ -371,3 +376,21 @@ class CalendarTemplateTest(TestCase):
         tag_html = content[tag_start:tag_end]
         self.assertNotIn('data-proposal', tag_html)
         self.assertNotIn('cal-legend-swatch', tag_html)
+
+    # --- quick-260724-vb0: two-palette split (legend vs stripe) ---
+
+    def test_vb0_legend_and_stripe_render_different_hex_for_same_telescope(self):
+        """quick-260724-vb0: the legend chip renders telescope_color() (TELESCOPE_PALETTE,
+        gated against white) while the stripe renders telescope_stripe_color()
+        (TELESCOPE_STRIPE_PALETTE, gated against the gray fill) -- for the same telescope
+        name these must resolve to two different hex values, so a future accidental
+        re-merge of the two paths fails loudly here rather than silently."""
+        legend_hex = telescope_color('NTT')
+        stripe_hex = telescope_stripe_color('NTT')
+        self.assertNotEqual(legend_hex, stripe_hex)
+
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn(f'<span class="cal-legend-chip" style="background-color: {legend_hex};">', content)
+        div_html = self._event_div_html(content, self.classical_with_telescope)
+        self.assertIn(f'--tel-color: {stripe_hex};', div_html)

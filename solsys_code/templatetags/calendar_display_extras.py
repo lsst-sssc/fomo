@@ -6,6 +6,8 @@ Provides simple_tags consumed by calendar.html (Plan 02):
 - status_border_css: title-prefix → box-shadow CSS fragment (DISPLAY-06)
 - visible_proposals: current-month legend data grouped by color (DISPLAY-07)
 - telescope_color: deterministic palette color keyed by telescope name (quick-260724-osc)
+- telescope_stripe_color: deterministic stripe-palette color keyed by telescope name,
+  parallel to telescope_color but gated against the gray fill (quick-260724-vb0)
 - visible_classical_telescopes: current-month classical-schedule telescope legend data (quick-260724-osc)
 - neutral_slot_color: assignment tag exposing NEUTRAL_SLOT_COLOR to templates (quick-260724-osc)
 
@@ -51,6 +53,34 @@ TELESCOPE_PALETTE = [
     '#9085e9',
     '#e66767',
 ]
+
+# quick-260724-vb0: stripe-only palette for the classical-schedule left-edge stripe
+# (.cal-event-classical::before), whose only background neighbour is its own chip's
+# NEUTRAL_SLOT_COLOR fill on its right (inner) edge. Gated against NEUTRAL_SLOT_COLOR
+# at >= 3.4:1 by _contrast_ratio, not against white -- TELESCOPE_PALETTE above is the
+# one gated against white, because the legend chip is its only background. This is a
+# parallel array to TELESCOPE_PALETTE: same length, same shared hashing helper
+# (_hash_to_palette_color), so a given telescope name resolves to the same index --
+# and therefore the same hue family -- in both palettes. See TestTelescopeStripeContrast
+# for the live luminance-band arithmetic proving one 8-color palette cannot clear 3:1
+# against both white and NEUTRAL_SLOT_COLOR at once.
+TELESCOPE_STRIPE_PALETTE = [
+    '#8ac9ff',
+    '#ffb370',
+    '#33dba1',
+    '#ffb524',
+    '#f8bfce',
+    '#5dea3e',
+    '#c9bfe3',
+    '#ffb09e',
+]
+
+# quick-260724-vb0: single source of truth for the stripe's outward-facing (left/top/
+# bottom) opaque edge line, mirrored by the .cal-event-classical::before CSS rule in
+# calendar.html. Deliberately absent on the fill-facing (right) edge -- every
+# TELESCOPE_STRIPE_PALETTE entry already clears 3:1 against NEUTRAL_SLOT_COLOR there on
+# its own, so no separator is needed on that side (see TestTelescopeStripeContrast).
+STRIPE_OUTER_EDGE_COLOR = '#343a40'
 
 # D-05: dedicated neutral slot for calendar events with no proposal code.
 # Separate from PROPOSAL_PALETTE so an empty-string hash cannot accidentally
@@ -136,12 +166,33 @@ def _relative_luminance(hex_color: str) -> float:
     return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
 
 
+def _contrast_ratio(hex_a: str, hex_b: str) -> float:
+    """Return the WCAG 2.1 contrast ratio between two '#rrggbb' colors.
+
+    Implements the SC 1.4.11 (Non-text Contrast) / SC 1.4.3 (Contrast) formula:
+    (L1 + 0.05) / (L2 + 0.05), where L1 is the lighter color's relative luminance
+    and L2 the darker's -- order-independent and always >= 1.0. Source:
+    https://www.w3.org/TR/WCAG21/#contrast-minimum (formula shared by 1.4.3 and 1.4.11).
+
+    Args:
+        hex_a: A '#rrggbb' hex color string.
+        hex_b: A '#rrggbb' hex color string.
+
+    Returns:
+        The contrast ratio: 1.0 for identical/no-contrast colors, 21.0 for black
+        against white.
+    """
+    lum_a, lum_b = _relative_luminance(hex_a), _relative_luminance(hex_b)
+    lighter, darker = max(lum_a, lum_b), min(lum_a, lum_b)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
 @register.simple_tag
 def text_color_for_bg(hex_color: str) -> str:
     """Return '#fff' or '#000' — whichever achieves WCAG AA 4.5:1 contrast against hex_color (DISPLAY-08).
 
-    Uses the WCAG 2.1 relative luminance formula. White text achieves 4.5:1 against
-    any background with luminance <= 0.183; all PROPOSAL_PALETTE and NEUTRAL_SLOT_COLOR
+    Uses _contrast_ratio against white. White text achieves 4.5:1 against any
+    background with luminance <= 0.183; all PROPOSAL_PALETTE and NEUTRAL_SLOT_COLOR
     entries are dark, so '#fff' is returned for all current palette members.
 
     Args:
@@ -150,8 +201,7 @@ def text_color_for_bg(hex_color: str) -> str:
     Returns:
         '#fff' if white text achieves >= 4.5:1 contrast; '#000' otherwise.
     """
-    lum = _relative_luminance(hex_color)
-    white_contrast = 1.05 / (lum + 0.05)
+    white_contrast = _contrast_ratio(hex_color, '#ffffff')
     return '#fff' if white_contrast >= 4.5 else '#000'
 
 
@@ -232,15 +282,42 @@ def neutral_slot_color() -> str:
     return NEUTRAL_SLOT_COLOR
 
 
+def _hash_to_palette_color(value: str, palette: list[str]) -> str:
+    """Normalize a raw telescope-like string and hash it into a palette index.
+
+    Shared by telescope_color and telescope_stripe_color (quick-260724-vb0) so a
+    given telescope name always resolves to the same index regardless of which
+    palette it indexes into -- TELESCOPE_PALETTE and TELESCOPE_STRIPE_PALETTE are
+    parallel arrays for exactly this reason. Uses hashlib.sha256 for deterministic
+    output across process restarts (see STATE.md Key Technical Notes -- the
+    per-process-salted built-in is forbidden here). The return value is always a
+    fixed palette constant or NEUTRAL_SLOT_COLOR, never derived from caller-supplied
+    color data (T-vb0-01 mitigation).
+
+    Args:
+        value: Raw telescope string (may be blank, mixed-case, or have surrounding
+            whitespace).
+        palette: The palette list to index into.
+
+    Returns:
+        A hex color string from palette, or NEUTRAL_SLOT_COLOR for blank/missing
+        input.
+    """
+    normalized = (value or '').strip().upper()
+    if not normalized:
+        return NEUTRAL_SLOT_COLOR
+    digest = hashlib.sha256(normalized.encode()).hexdigest()
+    return palette[int(digest, 16) % len(palette)]
+
+
 @register.simple_tag
 def telescope_color(telescope: str) -> str:
     """Return a deterministic hex color for a telescope name (quick-260724-osc).
 
-    Mirrors proposal_color's exact normalization/hashing approach so the two tags
-    share one mental model: .strip().upper() before hashing, TELESCOPE_PALETTE (a
-    brighter palette chosen for contrast against the gray classical fill,
-    quick-260724-tiz), NEUTRAL_SLOT_COLOR as the defensive blank/None fallback so
-    the tag cannot raise on unexpected data (T-osc-02).
+    Delegates to the shared _hash_to_palette_color helper with TELESCOPE_PALETTE
+    (quick-260724-vb0) -- see telescope_stripe_color for the parallel stripe-palette
+    tag that resolves the same telescope name to the same index in a different
+    palette.
 
     Args:
         telescope: Raw telescope string from CalendarEvent.telescope (may be blank,
@@ -250,11 +327,30 @@ def telescope_color(telescope: str) -> str:
         A hex color string from TELESCOPE_PALETTE, or NEUTRAL_SLOT_COLOR for
         blank/missing telescopes.
     """
-    normalized = (telescope or '').strip().upper()
-    if not normalized:
-        return NEUTRAL_SLOT_COLOR
-    digest = hashlib.sha256(normalized.encode()).hexdigest()
-    return TELESCOPE_PALETTE[int(digest, 16) % len(TELESCOPE_PALETTE)]
+    return _hash_to_palette_color(telescope, TELESCOPE_PALETTE)
+
+
+@register.simple_tag
+def telescope_stripe_color(telescope: str) -> str:
+    """Return a deterministic hex color from TELESCOPE_STRIPE_PALETTE (quick-260724-vb0).
+
+    Delegates to the same _hash_to_palette_color helper as telescope_color, so a
+    telescope name always resolves to the same index in both palettes -- one hue
+    family shared by the legend chip and the stripe, even though the two palettes
+    hold different hex values tuned for their own background (TELESCOPE_PALETTE
+    against white for the legend chip; TELESCOPE_STRIPE_PALETTE against
+    NEUTRAL_SLOT_COLOR for the stripe's fill neighbour). See TestTelescopeStripeContrast
+    for the arithmetic proving one palette cannot serve both.
+
+    Args:
+        telescope: Raw telescope string from CalendarEvent.telescope (may be blank,
+            mixed-case, or have surrounding whitespace).
+
+    Returns:
+        A hex color string from TELESCOPE_STRIPE_PALETTE, or NEUTRAL_SLOT_COLOR for
+        blank/missing telescopes.
+    """
+    return _hash_to_palette_color(telescope, TELESCOPE_STRIPE_PALETTE)
 
 
 @register.simple_tag
