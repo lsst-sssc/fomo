@@ -13,9 +13,12 @@ from solsys_code.templatetags.calendar_display_extras import (
     CLASSICAL_SCHEDULE_LABEL,
     NEUTRAL_SLOT_COLOR,
     PROPOSAL_PALETTE,
+    neutral_slot_color,
     proposal_color,
     status_border_css,
+    telescope_color,
     text_color_for_bg,
+    visible_classical_telescopes,
     visible_proposals,
 )
 
@@ -187,3 +190,97 @@ class TextColorForBgTest(TestCase):
     def test_pure_black_returns_white(self):
         # DISPLAY-08: pure black background yields white text (maximum contrast).
         self.assertEqual(text_color_for_bg('#000000'), '#fff')
+
+
+class NeutralSlotColorTagTest(TestCase):
+    def test_returns_neutral_slot_color(self):
+        # quick-260724-osc: assignment tag exposes NEUTRAL_SLOT_COLOR to templates
+        # without a magic literal, so calendar.html can compare bg_color against it.
+        self.assertEqual(neutral_slot_color(), NEUTRAL_SLOT_COLOR)
+
+
+class TelescopeColorTest(TestCase):
+    def test_same_input_same_output(self):
+        # quick-260724-osc: deterministic — same telescope always returns the same color.
+        self.assertEqual(telescope_color('NTT'), telescope_color('NTT'))
+
+    def test_normalization_case_insensitive(self):
+        # quick-260724-osc: .strip().upper() applied before hashing.
+        self.assertEqual(telescope_color('NTT'), telescope_color('ntt'))
+
+    def test_normalization_trailing_space(self):
+        # quick-260724-osc: whitespace stripped before hashing.
+        self.assertEqual(telescope_color('NTT'), telescope_color('NTT '))
+
+    def test_empty_string_returns_neutral_slot(self):
+        # quick-260724-osc: empty telescope → dedicated neutral slot, mirrors proposal_color.
+        self.assertEqual(telescope_color(''), NEUTRAL_SLOT_COLOR)
+
+    def test_blank_string_returns_neutral_slot(self):
+        # quick-260724-osc: whitespace-only telescope → neutral slot after .strip().
+        self.assertEqual(telescope_color('   '), NEUTRAL_SLOT_COLOR)
+
+    def test_none_returns_neutral_slot(self):
+        # quick-260724-osc: None telescope → neutral slot (defensive fallback).
+        self.assertEqual(telescope_color(None), NEUTRAL_SLOT_COLOR)
+
+    def test_nonempty_telescope_returns_palette_member(self):
+        # quick-260724-osc: non-empty telescopes map to one of the PROPOSAL_PALETTE entries.
+        color = telescope_color('NTT')
+        self.assertIn(color, PROPOSAL_PALETTE)
+
+
+def _make_classical_weeks(entries):
+    """Build a minimal fake weeks structure from a flat list of (proposal, telescope) tuples."""
+    events = [SimpleNamespace(proposal=p, telescope=t) for p, t in entries]
+    day = SimpleNamespace(all_day_events=events, events=[])
+    return [[day]]
+
+
+class VisibleClassicalTelescopesTest(TestCase):
+    def test_only_classical_events_contribute(self):
+        # quick-260724-osc: proposal-having events are excluded even when their
+        # telescope field is set.
+        weeks = _make_classical_weeks([('', 'NTT'), ('LTP2025A-004', 'FTS')])
+        result = visible_classical_telescopes(weeks)
+        all_labels = ' '.join(e['label'] for e in result)
+        self.assertIn('NTT', all_labels)
+        self.assertNotIn('FTS', all_labels)
+
+    def test_groups_by_color_with_collision_handling(self):
+        # quick-260724-osc: colliding telescope names share one legend entry.
+        # Build expected mapping dynamically so the test is robust regardless
+        # of whether the chosen telescopes actually collide.
+        telescopes = ['NTT', 'FTS', 'DUPONT']
+        entries = [('', t) for t in telescopes]
+        weeks = _make_classical_weeks(entries)
+
+        expected_by_color = {}
+        for t in telescopes:
+            color = telescope_color(t)
+            normalized = t.strip().upper()
+            expected_by_color.setdefault(color, set()).add(normalized)
+
+        result = visible_classical_telescopes(weeks)
+        self.assertEqual(len(result), len(expected_by_color))
+
+        for entry in result:
+            self.assertIn(entry['color'], expected_by_color)
+            actual_labels = set(entry['label'].split(', '))
+            self.assertEqual(actual_labels, expected_by_color[entry['color']])
+
+    def test_absent_telescope_not_in_result(self):
+        # quick-260724-osc: telescopes absent from the visible weeks do not appear.
+        weeks = _make_classical_weeks([('', 'NTT')])
+        result = visible_classical_telescopes(weeks)
+        all_labels = ' '.join(e['label'] for e in result)
+        self.assertNotIn('FTS', all_labels)
+
+    def test_supports_dict_based_day_objects(self):
+        # quick-260724-osc: mirrors visible_proposals's dual dict-vs-attribute support.
+        event = SimpleNamespace(proposal='', telescope='NTT')
+        day = {'all_day_events': [event], 'events': []}
+        weeks = [[day]]
+        result = visible_classical_telescopes(weeks)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['label'], 'NTT')

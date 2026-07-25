@@ -1,14 +1,18 @@
 """Django template tag library for proposal color and status visual encoding.
 
-Provides three simple_tags consumed by calendar.html (Plan 02):
+Provides simple_tags consumed by calendar.html (Plan 02):
 
 - proposal_color: deterministic, colorblind-vetted palette color keyed by proposal code (DISPLAY-04)
 - status_border_css: title-prefix → box-shadow CSS fragment (DISPLAY-06)
 - visible_proposals: current-month legend data grouped by color (DISPLAY-07)
+- telescope_color: deterministic palette color keyed by telescope name (quick-260724-osc)
+- visible_classical_telescopes: current-month classical-schedule telescope legend data (quick-260724-osc)
+- neutral_slot_color: assignment tag exposing NEUTRAL_SLOT_COLOR to templates (quick-260724-osc)
 
-All values returned by proposal_color and status_border_css are drawn from fixed
-internal constants — the raw proposal/title string is used only as a hash input or
-startswith test and is never echoed into the output (T-09-01/T-09-02 mitigations).
+All values returned by proposal_color, telescope_color, and status_border_css are drawn
+from fixed internal constants — the raw proposal/telescope/title string is used only as
+a hash input or startswith test and is never echoed into the output (T-09-01/T-09-02,
+T-osc-01/T-osc-02 mitigations).
 """
 
 import hashlib
@@ -190,6 +194,96 @@ def visible_proposals(weeks) -> list[dict]:
         result.append(
             {
                 'color': NEUTRAL_SLOT_COLOR,
+                'codes': sorted(codes),
+                'label': ', '.join(sorted(codes)),
+            }
+        )
+
+    return result
+
+
+@register.simple_tag
+def neutral_slot_color() -> str:
+    """Expose NEUTRAL_SLOT_COLOR to templates without a magic literal (quick-260724-osc).
+
+    Lets calendar.html compare an already-computed bg_color to this value to decide
+    whether an all-day event is classical-schedule (no proposal) vs. proposal-having,
+    without re-deriving that distinction a second way.
+
+    Returns:
+        The NEUTRAL_SLOT_COLOR hex string.
+    """
+    return NEUTRAL_SLOT_COLOR
+
+
+@register.simple_tag
+def telescope_color(telescope: str) -> str:
+    """Return a deterministic hex color for a telescope name (quick-260724-osc).
+
+    Mirrors proposal_color's exact normalization/hashing approach so the two tags
+    share one mental model: .strip().upper() before hashing, PROPOSAL_PALETTE reused
+    (no second palette), NEUTRAL_SLOT_COLOR as the defensive blank/None fallback so
+    the tag cannot raise on unexpected data (T-osc-02).
+
+    Args:
+        telescope: Raw telescope string from CalendarEvent.telescope (may be blank,
+            mixed-case, or have surrounding whitespace).
+
+    Returns:
+        A hex color string from PROPOSAL_PALETTE, or NEUTRAL_SLOT_COLOR for
+        blank/missing telescopes.
+    """
+    normalized = (telescope or '').strip().upper()
+    if not normalized:
+        return NEUTRAL_SLOT_COLOR
+    digest = hashlib.sha256(normalized.encode()).hexdigest()
+    return PROPOSAL_PALETTE[int(digest, 16) % len(PROPOSAL_PALETTE)]
+
+
+@register.simple_tag
+def visible_classical_telescopes(weeks) -> list[dict]:
+    """Compute the set of telescopes visible in the currently-rendered month, classical-schedule only.
+
+    Mirrors visible_proposals's weeks iteration and dual dict/attribute day support, but
+    scoped to classical-schedule events only (empty proposal) — proposal-having events
+    already encode identity via their proposal fill and are excluded here even when their
+    telescope field is set. Groups by resulting color so hash-colliding telescopes share
+    one legend entry, same collision handling as visible_proposals.
+
+    Args:
+        weeks: The weeks context list passed to calendar.html — a list of lists of day
+            objects, each with .all_day_events and .events attributes containing objects
+            with .proposal and .telescope attributes.
+
+    Returns:
+        List of dicts with keys 'color' (hex string), 'codes' (sorted list of normalized
+        telescope strings), and 'label' (comma-joined string for display). Sorted by
+        color hex ascending.
+    """
+    by_color: dict[str, set[str]] = defaultdict(set)
+    for week in weeks:
+        for day in week:
+            # Support both dict-based days (tom_calendar view) and attribute-based
+            # stubs (unit tests using SimpleNamespace or similar objects).
+            if isinstance(day, dict):
+                all_day = day['all_day_events']
+                timed = day['events']
+            else:
+                all_day = day.all_day_events
+                timed = day.events
+            for event in list(all_day) + list(timed):
+                normalized_proposal = (event.proposal or '').strip().upper()
+                if normalized_proposal:
+                    continue  # only classical-schedule (empty-proposal) events contribute
+                normalized_telescope = (event.telescope or '').strip().upper()
+                color = telescope_color(event.telescope)
+                by_color[color].add(normalized_telescope)
+
+    result = []
+    for color, codes in sorted(by_color.items()):
+        result.append(
+            {
+                'color': color,
                 'codes': sorted(codes),
                 'label': ', '.join(sorted(codes)),
             }
