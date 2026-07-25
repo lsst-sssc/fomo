@@ -524,9 +524,11 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                 # below reverts approval_status back to PENDING_REVIEW while leaving run.site
                 # set, a second approve POST would otherwise re-hit resolve_site()
                 # unconditionally (RESEARCH.md Pitfall 3, the live clobbering bug this closes).
-                # A satellite-type site_selection (250/274/289) still falls through to
-                # (None, True) via resolve_site()'s to_observatory() TypeError path -- expected,
-                # pre-existing behavior, not a Phase 21 regression (RESEARCH.md Pitfall 4).
+                # A satellite-type site_selection (250/274/289) now resolves through Tier 2
+                # to a real SATELLITE_OBSTYPE Observatory (quick task 260725-kn4 removed the
+                # to_observatory() TypeError that used to make this fall through to a Tier-3
+                # placeholder). _project_calendar_event()'s satellite branch above (line 437)
+                # handles it with a whole-day-span event, not the ground sun_event() path.
                 # WR-01 (22-REVIEW.md re-review): mirrors _resolve_site()'s placeholder-aware
                 # guard below -- a run whose site is already a tier-3 placeholder (e.g. from
                 # CSV import) is not a genuine resolution either, so it must still re-enter

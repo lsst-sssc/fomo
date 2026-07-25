@@ -121,10 +121,26 @@ class MPCObscodeFetcher:
             obs.short_name = self.obs_data['short_name']
             if self.obs_data['old_names']:
                 obs.old_names = self.obs_data['old_names']
-            elong = float(self.obs_data['longitude'])
-            obs.lon = elong
-            # Convert parallax constants to longitude (again), latitude and altitude
-            obs.from_parallax_constants(elong, float(self.obs_data['rhocosphi']), float(self.obs_data['rhosinphi']))
+            longitude = self.obs_data['longitude']
+            rhocosphi = self.obs_data['rhocosphi']
+            rhosinphi = self.obs_data['rhosinphi']
+            # The MPC obscodes API returns null for longitude/rhocosphi/rhosinphi on every
+            # space-based site (verified live for obscode 250, Hubble Space Telescope; also
+            # 258 Gaia, C51 NEOWISE). Observatory.lon/.lat/.altitude are all null=True, so a
+            # position-less row is a valid model state rather than a crash: guard on all
+            # three (not just longitude) since a partially-specified position can't be
+            # converted either way and produces the same coordinate-less record. altitude is
+            # left as None (not the model's 0.0 default) -- 0.0 would be the false claim
+            # "sea level", whereas None honestly states "unknown/not applicable".
+            if longitude is None or rhocosphi is None or rhosinphi is None:
+                obs.lon = None
+                obs.lat = None
+                obs.altitude = None
+            else:
+                elong = float(longitude)
+                obs.lon = elong
+                # Convert parallax constants to longitude (again), latitude and altitude
+                obs.from_parallax_constants(elong, float(rhocosphi), float(rhosinphi))
             # Backfill timezone from the resolved coordinates when the MPC record doesn't
             # supply one (it never does in live data). A value already present on the record
             # is authoritative and is never overwritten by the coordinate lookup.
