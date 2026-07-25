@@ -169,7 +169,22 @@ class Observatory(models.Model):
 
         Returns:
             EarthLocation: built from this observatory's lon, lat, altitude
+
+        Raises:
+            ValueError: if lon, lat or altitude is None. A coordinate-less Observatory is a
+                legitimate model state -- lon, lat and altitude are all null=True, and
+                MPCObscodeFetcher.to_observatory() now produces exactly such a row for a
+                space-based/satellite MPC obscode (e.g. 250 HST, 258 Gaia, C51 NEOWISE),
+                which has no fixed location on Earth. See Observatory.SATELLITE_OBSTYPE for
+                handling that site type separately from this ground-based calculation.
         """
+        if self.lon is None or self.lat is None or self.altitude is None:
+            raise ValueError(
+                f'Observatory {self.short_name} ({self.obscode}) has no geodetic position '
+                '(lon/lat/altitude) -- cannot build an EarthLocation. Space-based/satellite '
+                'MPC sites (e.g. 250 HST, 258 Gaia, C51 NEOWISE) have no fixed location on '
+                'Earth; see Observatory.SATELLITE_OBSTYPE for handling that site type separately.'
+            )
         return EarthLocation(lon=self.lon * u.deg, lat=self.lat * u.deg, height=self.altitude * u.m)
 
     def ObservatoryXYZ(self) -> tuple[float, float, float]:
