@@ -2243,6 +2243,50 @@ class TestResolveSiteI11GeminiSouth(TestCase):
         self.assertEqual(Observatory.objects.filter(obscode='I11').count(), 1)
 
 
+class TestResolveSiteSatelliteObscode(TestCase):
+    """Quick task 260725-kn4: before the null-coordinate fix in
+    ``MPCObscodeFetcher.to_observatory()``, ``resolve_site('250')`` fell through Tier 2 --
+    ``to_observatory()`` raised ``TypeError`` from ``float(None)`` on the space-based
+    site's null longitude/rhocosphi/rhosinphi, campaign_utils.py's WR-04
+    ``except (KeyError, ValueError, TypeError)`` swallowed it, and the code fell through to
+    a Tier-3 ``NEEDS REVIEW: 250`` placeholder. It now resolves the real, correctly-typed
+    ``SATELLITE_OBSTYPE`` Observatory instead -- an emergent consequence of the fix, with
+    ``campaign_utils.py`` itself untouched. Unlike ``TestResolveSiteI11GeminiSouth`` (which
+    stubs ``to_observatory`` directly), this test patches ``requests.get`` so the REAL,
+    now-fixed ``to_observatory()`` is exercised end-to-end through the actual Tier-2 path.
+    """
+
+    def test_resolve_site_250_resolves_real_satellite_observatory(self):
+        satellite_payload = {
+            'created_at': 'Sat, 25 May 2019 00:11:21 GMT',
+            'longitude': None,
+            'name_utf8': 'Hubble Space Telescope',
+            'obscode': '250',
+            'observations_type': 'satellite',
+            'old_names': None,
+            'rhocosphi': None,
+            'rhosinphi': None,
+            'short_name': 'Hubble Space Telescope',
+            'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+            'uses_two_line_observations': True,
+        }
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = satellite_payload
+
+        with patch('requests.get', return_value=mock_response):
+            observatory, needs_review = resolve_site('250')
+
+        self.assertIsNotNone(observatory)
+        self.assertFalse(needs_review)
+        self.assertEqual(observatory.obscode, '250')
+        self.assertEqual(observatory.name, 'Hubble Space Telescope')
+        self.assertFalse(is_placeholder_observatory(observatory))
+        self.assertFalse(observatory.name.startswith(NEEDS_REVIEW_NAME_PREFIX))
+        self.assertEqual(observatory.observations_type, Observatory.SATELLITE_OBSTYPE)
+        self.assertIsNone(observatory.lon)
+        self.assertEqual(Observatory.objects.filter(obscode='250').count(), 1)
+
+
 class TestGeminiFtScenario(CampaignApprovalTestBase):
     """D-06/D-07/Phase 25 FIX-02/FIX-05: the real Gemini Fast-Turnaround GS-2026A-FT-115
     informational run flows through the SAME approve -> mark-status mechanism as any
