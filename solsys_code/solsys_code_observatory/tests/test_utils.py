@@ -125,6 +125,64 @@ class TestMPCObscodeFetcher(TestCase):
 
         self.assertEqual(obs.timezone, '')
 
+    def test_to_satellite_observatory(self):
+        """Live-verified obscode-250 (Hubble Space Telescope) payload: all three of
+        longitude/rhocosphi/rhosinphi are null for a space-based site. to_observatory() must
+        return and save an Observatory with lon/lat/altitude all None rather than raising
+        TypeError from float(None)."""
+        self.fetcher.obs_data = {
+            'created_at': 'Sat, 25 May 2019 00:11:21 GMT',
+            'longitude': None,
+            'name_utf8': 'Hubble Space Telescope',
+            'obscode': '250',
+            'observations_type': 'satellite',
+            'old_names': None,
+            'rhocosphi': None,
+            'rhosinphi': None,
+            'short_name': 'Hubble Space Telescope',
+            'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+            'uses_two_line_observations': True,
+        }
+
+        obs = self.fetcher.to_observatory()
+
+        self.assertIsNone(obs.lon)
+        self.assertIsNone(obs.lat)
+        self.assertIsNone(obs.altitude)
+        self.assertEqual(obs.obscode, '250')
+        self.assertEqual(obs.name, 'Hubble Space Telescope')
+        self.assertEqual(obs.short_name, 'Hubble Space Telescope')
+        self.assertEqual(obs.old_names, '')
+        self.assertEqual(obs.observations_type, Observatory.SATELLITE_OBSTYPE)
+        self.assertIs(obs.uses_two_line_obs, True)
+        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 21, tzinfo=timezone.utc))
+        self.assertEqual(obs.modified, datetime(2026, 5, 26, 20, 34, 56, tzinfo=timezone.utc))
+        self.assertIsNotNone(obs.pk)
+
+    @patch('solsys_code.solsys_code_observatory.utils._get_timezone_finder')
+    def test_to_satellite_observatory_leaves_timezone_blank_without_lookup(self, mock_get_finder):
+        """The existing lat/lon guard (obs.lat is not None and obs.lon is not None) must
+        short-circuit for a null-coordinate satellite record -- the timezonefinder must never
+        even be constructed, not merely return None."""
+        self.fetcher.obs_data = {
+            'created_at': 'Sat, 25 May 2019 00:11:21 GMT',
+            'longitude': None,
+            'name_utf8': 'Hubble Space Telescope',
+            'obscode': '250',
+            'observations_type': 'satellite',
+            'old_names': None,
+            'rhocosphi': None,
+            'rhosinphi': None,
+            'short_name': 'Hubble Space Telescope',
+            'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+            'uses_two_line_observations': True,
+        }
+
+        obs = self.fetcher.to_observatory()
+
+        self.assertEqual(obs.timezone, '')
+        mock_get_finder.assert_not_called()
+
     def test_to_radar_observatory(self):
         self.fetcher.obs_data = {
             'created_at': 'Sat, 25 May 2019 00:11:21 GMT',
