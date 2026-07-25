@@ -20,7 +20,7 @@ from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
 from solsys_code.models import CalendarEventTelescopeLabel
-from solsys_code.templatetags.calendar_display_extras import proposal_color
+from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
 TOOLTIP_SUBSTRING = 'estimate'
@@ -126,6 +126,17 @@ class CalendarTemplateTest(TestCase):
             end_time=datetime(2026, 6, 27, 11, 0, tzinfo=dt_timezone.utc),
         )
         CalendarEventTelescopeLabel.objects.create(event=self.queued_fallback_timed, is_verified=False)
+
+        # quick-260724-osc fixture: classical-schedule (empty-proposal) all-day event with
+        # a telescope set — exercises the per-telescope left-edge stripe + legend.
+        # June 1-2 is a free date range not touched by any other fixture above.
+        self.classical_with_telescope = CalendarEvent.objects.create(
+            title='Classical NTT run',
+            proposal='',
+            telescope='NTT',
+            start_time=datetime(2026, 6, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 6, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
 
         # The all-day fallback event spans 2 calendar days (Jun 10-11), so the calendar
         # view's day-cell bucketing (offset_date(start) <= d <= offset_date(end)) renders
@@ -293,3 +304,56 @@ class CalendarTemplateTest(TestCase):
         content = response.content.decode()
         # DISPLAY-09: the todo count parenthetical must appear in the rendered output.
         self.assertIn('(1)', content)
+
+    # --- quick-260724-osc: per-telescope left-edge stripe + legend ---
+
+    def _event_div_html(self, content, event, window=500):
+        """Return a slice of rendered HTML starting at the given event's update-event link.
+
+        Isolates one event's markup so stripe assertions can be scoped to a single
+        event's div rather than the whole page.
+        """
+        marker = f'/calendar/update/{event.id}/"'
+        idx = content.index(marker)
+        return content[idx : idx + window]
+
+    def test_osc_classical_event_renders_telescope_stripe(self):
+        """quick-260724-osc: classical-schedule all-day event gets a per-telescope stripe."""
+        tel_hex = telescope_color('NTT')
+        response = self._get_calendar()
+        content = response.content.decode()
+        div_html = self._event_div_html(content, self.classical_with_telescope)
+        self.assertIn(f'border-left: 4px solid {tel_hex};', div_html)
+
+    def test_osc_proposal_having_event_has_no_telescope_stripe(self):
+        """quick-260724-osc: proposal-having all-day events render no border-left stripe."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        for event in (self.queued_event, self.terminal_event):
+            with self.subTest(event=event.title):
+                div_html = self._event_div_html(content, event)
+                self.assertNotIn('border-left: 4px solid', div_html)
+
+    def test_osc_telescope_legend_renders_when_classical_event_visible(self):
+        """quick-260724-osc: the display-only telescope legend renders and decodes NTT."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn('cal-legend-telescope', content)
+        self.assertIn('NTT', content)
+
+    def test_osc_telescope_legend_is_not_click_to_filter_wired(self):
+        """quick-260724-osc: the telescope legend must not hook into the proposal
+        click-to-filter JS (no data-proposal attribute, no cal-legend-swatch class)."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        # Skip the <style> block's own class-definition occurrence and find the
+        # first rendered <span class="cal-legend-telescope..."> markup instance.
+        body_start = content.index('</style>')
+        idx = content.index('cal-legend-telescope', body_start)
+        # Look at the opening <span ...> tag containing the class to confirm it
+        # carries no data-proposal attribute and isn't also tagged cal-legend-swatch.
+        tag_start = content.rindex('<span', 0, idx)
+        tag_end = content.index('>', idx)
+        tag_html = content[tag_start:tag_end]
+        self.assertNotIn('data-proposal', tag_html)
+        self.assertNotIn('cal-legend-swatch', tag_html)

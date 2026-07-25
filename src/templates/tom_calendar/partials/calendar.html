@@ -109,6 +109,13 @@
     font-weight: 700;
     text-decoration: underline;
   }
+  .cal-legend-telescope {
+    font-size: 1rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
   .cal-event {
     transition: opacity 0.2s, filter 0.2s;
   }
@@ -174,20 +181,22 @@
           <div hx-target="#cal-modal-body"
                hx-on::after-request="$('#cal-modal').modal('show');"
                hx-on:click="event.stopPropagation()">
+            {% neutral_slot_color as neutral_color %}
             {% for event in day.all_day_events %}
               {% proposal_color event.proposal as bg_color %}
               {% status_border_css event.title as status_border %}
               {% text_color_for_bg bg_color as text_color %}
+              {% telescope_color event.telescope as tel_color %}
               <div class="cal-event cal-event-all-day-row"
                    data-proposal="{{ bg_color }}"
                    hx-get="{% url 'calendar:update-event' event.id %}"
               >
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
                 {% if event.telescope_label_meta.is_verified == False %}
-                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);{% if bg_color == neutral_color %} border-left: 4px solid {{ tel_color }};{% endif %}"
                      title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
                 {% else %}
-                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}">
+                <div class="cal-event-all-day" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}{% if bg_color == neutral_color %} border-left: 4px solid {{ tel_color }};{% endif %}">
                 {% endif %}
                   {{ event.title|truncatechars:18 }}
                   {% if event.active_todo_count %}
@@ -239,6 +248,13 @@
       {% visible_proposals weeks as proposal_legend %}
       {% for entry in proposal_legend %}
         <span class="cal-legend-swatch mr-3" role="button" aria-pressed="false" data-proposal="{{ entry.color }}">
+          <span style="color: {{ entry.color }};">▌</span>
+          <small class="text-secondary">{{ entry.label }}</small>
+        </span>
+      {% endfor %}
+      {% visible_classical_telescopes weeks as telescope_legend %}
+      {% for entry in telescope_legend %}
+        <span class="cal-legend-telescope mr-3">
           <span style="color: {{ entry.color }};">▌</span>
           <small class="text-secondary">{{ entry.label }}</small>
         </span>
