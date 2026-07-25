@@ -342,6 +342,17 @@ class TestTelescopeStripeContrast(TestCase):
         # against the white day cell.
         self.assertGreaterEqual(_contrast_ratio(STRIPE_OUTER_EDGE_COLOR, '#ffffff'), 3.0)
 
+    def test_stripe_outer_edge_clears_terminal_ring_adjacency(self):
+        """quick-260724-vb0 Task 3: status_border_css's terminal branch emits an
+        outward box-shadow ring on .cal-event-all-day, painted outside the chip's
+        border box -- so on a [CANCELLED]/[EXPIRED]/[FAILED]/[WEATHERED] classical
+        chip, the ring's inner neighbour along the chip's left flank is the stripe's
+        outward-facing edge (STRIPE_OUTER_EDGE_COLOR), not the fill-facing side.
+        rgba(160, 0, 0, 0.55) composited over the white day cell is #cb7373; the
+        outer edge must clear 3:1 against that composited color."""
+        ring_composited_over_white = '#cb7373'
+        self.assertGreaterEqual(_contrast_ratio(STRIPE_OUTER_EDGE_COLOR, ring_composited_over_white), 3.0)
+
     def test_palettes_are_parallel_arrays(self):
         # quick-260724-vb0: equal length, and a telescope name resolves to the same
         # index in both palettes -- the two lists are one hash away from each other,

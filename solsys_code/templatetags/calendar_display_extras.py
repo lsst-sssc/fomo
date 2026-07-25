@@ -155,6 +155,13 @@ def status_border_css(title: str) -> str:
     if title.startswith('[QUEUED] '):
         return 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
     if any(title.startswith(p) for p in _TERMINAL_PREFIXES):
+        # quick-260724-vb0: this ring is painted outside the chip's border box, so on
+        # a classical chip its inner neighbour along the chip's left flank is the
+        # stripe's outward-facing edge (STRIPE_OUTER_EDGE_COLOR). rgba(160, 0, 0, 0.55)
+        # composited over the white day cell is #cb7373 (3.37:1 vs white on its own);
+        # STRIPE_OUTER_EDGE_COLOR clears 3:1 against that composited color (see
+        # TestTelescopeStripeContrast), which is what keeps the ring from merging into
+        # a bare stripe entry (a bare entry there would measure ~1.87:1).
         return 'box-shadow: 0 0 0 3px rgba(160, 0, 0, 0.55);'
     return ''
 
