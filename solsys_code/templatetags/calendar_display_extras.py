@@ -38,20 +38,29 @@ PROPOSAL_PALETTE = [
     '#7a4500',
 ]
 
-# quick-260724-tiz: brighter dark-surface categorical set chosen for against-gray-fill
-# stripe contrast (measured ~1.3-2.0:1, a ~50-70% improvement over the reused dark
-# PROPOSAL_PALETTE), validated via the dataviz skill's palette validator against the
-# #5a6268 gray fill. Legal as a sub-3:1 WARN because the telescope name always carries
-# the identity in the event title and legend label (never color-alone).
+# quick-260724-vb0: legend-only palette for the telescope legend chip (.cal-legend-chip),
+# whose only background is the page's white background -- gated against #ffffff at
+# >= 3.5:1 by _contrast_ratio (see TestTelescopeStripeContrast). This was previously
+# documented as "chosen for against-gray-fill stripe contrast" (quick-260724-tiz), but a
+# contrast audit found that claim false: it was only ever validated against white, and
+# 4 of its 8 entries measured 1.26-2.02:1 against the gray classical-fill it was
+# actually rendered on. That fill-facing case is now TELESCOPE_STRIPE_PALETTE below,
+# a separate array -- one 8-color palette cannot clear 3:1 against both white and the
+# gray fill at once (see TestTelescopeStripeContrast for the luminance-band proof).
+# quick-260724-vb0 also retuned 4 entries that measured 3.07-3.41 against white here
+# (green, mustard, purple, red) to same-hue-family values that clear 3.5:1; the other 4
+# already cleared it and are unchanged. Both this palette and TELESCOPE_STRIPE_PALETTE
+# were re-screened for mutual distinguishability under simulated protanopia/deuteranopia
+# and hold at or above the shipped palette's floor (see 260724-vb0-SUMMARY.md).
 TELESCOPE_PALETTE = [
     '#3987e5',
     '#d95926',
-    '#199e70',
-    '#c98500',
+    '#008a55',
+    '#a18245',
     '#d55181',
     '#008300',
-    '#9085e9',
-    '#e66767',
+    '#7b5ff7',
+    '#c0736d',
 ]
 
 # quick-260724-vb0: stripe-only palette for the classical-schedule left-edge stripe
@@ -314,10 +323,12 @@ def _hash_to_palette_color(value: str, palette: list[str]) -> str:
 def telescope_color(telescope: str) -> str:
     """Return a deterministic hex color for a telescope name (quick-260724-osc).
 
-    Delegates to the shared _hash_to_palette_color helper with TELESCOPE_PALETTE
-    (quick-260724-vb0) -- see telescope_stripe_color for the parallel stripe-palette
-    tag that resolves the same telescope name to the same index in a different
-    palette.
+    Delegates to the shared _hash_to_palette_color helper with TELESCOPE_PALETTE, which
+    is gated against #ffffff -- the legend chip that consumes this tag's output is the
+    only place TELESCOPE_PALETTE is rendered, and its only background is the page's
+    white background (quick-260724-vb0). See telescope_stripe_color for the parallel
+    stripe-palette tag that resolves the same telescope name to the same index in a
+    different, fill-gated palette.
 
     Args:
         telescope: Raw telescope string from CalendarEvent.telescope (may be blank,

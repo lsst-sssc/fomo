@@ -97,17 +97,27 @@
   }
   .cal-event-classical {
     position: relative;
-    padding-left: 9px;
+    padding-left: 10px;
   }
   .cal-event-classical::before {
+    /* quick-260724-vb0: the stripe's outward-facing sides (left/top/bottom, which
+       border the white day cell -- and, on a terminal-status chip, the composited
+       status ring) get a 1px opaque edge in STRIPE_OUTER_EDGE_COLOR (#343a40, the
+       Python-side mirror of this color). The fill-facing (right) side gets none,
+       because every TELESCOPE_STRIPE_PALETTE entry already clears 3:1 against the
+       chip's own NEUTRAL_SLOT_COLOR fill there on its own -- see
+       TestTelescopeStripeContrast for the band arithmetic that justifies leaving
+       that side bare. */
     content: '';
     position: absolute;
     left: 0;
     top: 0;
     bottom: 0;
-    width: 6px;
+    width: 7px;
     background-color: var(--tel-color);
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
+    box-shadow:
+      inset 1px 1px 0 0 #343a40,
+      inset 0 -1px 0 0 #343a40;
     border-radius: 3px 0 0 3px;
   }
   .cal-legend-chip {
