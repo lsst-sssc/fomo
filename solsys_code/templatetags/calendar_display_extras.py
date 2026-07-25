@@ -36,6 +36,22 @@ PROPOSAL_PALETTE = [
     '#7a4500',
 ]
 
+# quick-260724-tiz: brighter dark-surface categorical set chosen for against-gray-fill
+# stripe contrast (measured ~1.3-2.0:1, a ~50-70% improvement over the reused dark
+# PROPOSAL_PALETTE), validated via the dataviz skill's palette validator against the
+# #5a6268 gray fill. Legal as a sub-3:1 WARN because the telescope name always carries
+# the identity in the event title and legend label (never color-alone).
+TELESCOPE_PALETTE = [
+    '#3987e5',
+    '#d95926',
+    '#199e70',
+    '#c98500',
+    '#d55181',
+    '#008300',
+    '#9085e9',
+    '#e66767',
+]
+
 # D-05: dedicated neutral slot for calendar events with no proposal code.
 # Separate from PROPOSAL_PALETTE so an empty-string hash cannot accidentally
 # collide with this value (see 09-RESEARCH Pitfall 1).
@@ -221,8 +237,9 @@ def telescope_color(telescope: str) -> str:
     """Return a deterministic hex color for a telescope name (quick-260724-osc).
 
     Mirrors proposal_color's exact normalization/hashing approach so the two tags
-    share one mental model: .strip().upper() before hashing, PROPOSAL_PALETTE reused
-    (no second palette), NEUTRAL_SLOT_COLOR as the defensive blank/None fallback so
+    share one mental model: .strip().upper() before hashing, TELESCOPE_PALETTE (a
+    brighter palette chosen for contrast against the gray classical fill,
+    quick-260724-tiz), NEUTRAL_SLOT_COLOR as the defensive blank/None fallback so
     the tag cannot raise on unexpected data (T-osc-02).
 
     Args:
@@ -230,14 +247,14 @@ def telescope_color(telescope: str) -> str:
             mixed-case, or have surrounding whitespace).
 
     Returns:
-        A hex color string from PROPOSAL_PALETTE, or NEUTRAL_SLOT_COLOR for
+        A hex color string from TELESCOPE_PALETTE, or NEUTRAL_SLOT_COLOR for
         blank/missing telescopes.
     """
     normalized = (telescope or '').strip().upper()
     if not normalized:
         return NEUTRAL_SLOT_COLOR
     digest = hashlib.sha256(normalized.encode()).hexdigest()
-    return PROPOSAL_PALETTE[int(digest, 16) % len(PROPOSAL_PALETTE)]
+    return TELESCOPE_PALETTE[int(digest, 16) % len(TELESCOPE_PALETTE)]
 
 
 @register.simple_tag

@@ -13,6 +13,7 @@ from solsys_code.templatetags.calendar_display_extras import (
     CLASSICAL_SCHEDULE_LABEL,
     NEUTRAL_SLOT_COLOR,
     PROPOSAL_PALETTE,
+    TELESCOPE_PALETTE,
     neutral_slot_color,
     proposal_color,
     status_border_css,
@@ -225,9 +226,9 @@ class TelescopeColorTest(TestCase):
         self.assertEqual(telescope_color(None), NEUTRAL_SLOT_COLOR)
 
     def test_nonempty_telescope_returns_palette_member(self):
-        # quick-260724-osc: non-empty telescopes map to one of the PROPOSAL_PALETTE entries.
+        # quick-260724-tiz: non-empty telescopes map to one of the TELESCOPE_PALETTE entries.
         color = telescope_color('NTT')
-        self.assertIn(color, PROPOSAL_PALETTE)
+        self.assertIn(color, TELESCOPE_PALETTE)
 
 
 def _make_classical_weeks(entries):
