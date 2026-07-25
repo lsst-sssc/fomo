@@ -318,21 +318,35 @@ class CalendarTemplateTest(TestCase):
         return content[idx : idx + window]
 
     def test_osc_classical_event_renders_telescope_stripe(self):
-        """quick-260724-osc: classical-schedule all-day event gets a per-telescope stripe."""
+        """quick-260724-tiz: classical-schedule all-day event gets the cal-event-classical
+        class and a --tel-color custom property (pseudo-element stripe, no inline border-left)."""
         tel_hex = telescope_color('NTT')
         response = self._get_calendar()
         content = response.content.decode()
         div_html = self._event_div_html(content, self.classical_with_telescope)
-        self.assertIn(f'border-left: 4px solid {tel_hex};', div_html)
+        self.assertIn('cal-event-classical', div_html)
+        self.assertIn(f'--tel-color: {tel_hex};', div_html)
 
     def test_osc_proposal_having_event_has_no_telescope_stripe(self):
-        """quick-260724-osc: proposal-having all-day events render no border-left stripe."""
+        """quick-260724-tiz: proposal-having all-day events render neither the
+        cal-event-classical class nor a --tel-color custom property."""
         response = self._get_calendar()
         content = response.content.decode()
         for event in (self.queued_event, self.terminal_event):
             with self.subTest(event=event.title):
                 div_html = self._event_div_html(content, event)
-                self.assertNotIn('border-left: 4px solid', div_html)
+                self.assertNotIn('cal-event-classical', div_html)
+                self.assertNotIn('--tel-color', div_html)
+
+    def test_tiz_legends_render_chip_swatches(self):
+        """quick-260724-tiz: both legends render .cal-legend-chip swatches with the
+        correct background-color, replacing the thin ▌ glyph."""
+        tel_hex = telescope_color('NTT')
+        prop_hex = proposal_color(self.queued_event.proposal)
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn(f'<span class="cal-legend-chip" style="background-color: {tel_hex};">', content)
+        self.assertIn(f'<span class="cal-legend-chip" style="background-color: {prop_hex};">', content)
 
     def test_osc_telescope_legend_renders_when_classical_event_visible(self):
         """quick-260724-osc: the display-only telescope legend renders and decodes NTT."""
