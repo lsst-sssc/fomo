@@ -30,6 +30,22 @@ logger = logging.getLogger(__name__)
 # field itself (not hardcoded) so a future schema change can't silently desync this guard.
 _MAX_OBSCODE_LEN = Observatory._meta.get_field('obscode').max_length
 
+# Quick task 260726-fqb: JPL Horizons/SPICE observer notation (`500@<NAIF SPK ID>` --
+# "geocentric observer at body N") names a spacecraft, not an MPC obscode --
+# `.planning/PROJECT.md:120` records the operator-caught correction that `500@-170` is
+# Horizons notation, and that `Observatory.obscode`'s `max_length=4` deliberately does
+# NOT need widening to fit it. The real 3I/ATLAS campaign sheet carries `500@-170` in
+# three `CampaignRun`s. Each entry below was verified on BOTH sides on 2026-07-26 --
+# NAIF ID -> spacecraft via the JPL Horizons API (ssd.jpl.nasa.gov/api/horizons.api),
+# obscode -> the same spacecraft via the MPC obscodes API. Extension rule: verify BOTH
+# sides before adding a row -- never infer a mapping from the NAIF ID alone.
+HORIZONS_OBSERVER_TO_OBSCODE: dict[str, str] = {
+    '500@-170': '274',  # James Webb Space Telescope
+    '500@-48': '250',  # Hubble Space Telescope
+    '500@-163': 'C51',  # WISE Spacecraft
+    '500@-95': 'C57',  # TESS
+}
+
 # 22-06 gap closure: single source of truth for the tier-3 placeholder Observatory's name
 # prefix. resolve_site()'s tier-3 fallback builds the name from this constant, and
 # is_placeholder_observatory() below detects any Observatory carrying it -- so the two
@@ -134,15 +150,20 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
     Obscodes API via ``MPCObscodeFetcher`` and create an ``Observatory`` row if found.
     Tier 3: create a placeholder ``Observatory`` row, flagged for manual review -- unless
     ``create_placeholder`` is False, in which case tier 3 is skipped entirely and the code
-    is flagged for manual review with no Observatory row created. A blank or oversized
-    (> ``Observatory.obscode``'s max length) code never reaches tier 1/2/3 at all -- it is
-    flagged immediately with no Observatory row created, so a code that can't possibly be
-    a real MPC obscode (e.g. JWST's 8-character spacecraft-style ``'500@-170'``) is never
-    truncated or fabricated (D-09/Pitfall 2).
+    is flagged for manual review with no Observatory row created. A **recognized** JPL
+    Horizons/SPICE observer-notation form (see the module-level alias table above
+    ``resolve_site``) is translated to its real MPC obscode first, so
+    ``resolve_site('500@-170')`` behaves exactly like ``resolve_site('274')``. Anything
+    else over-length -- including an **unrecognized** ``500@<naif>`` such as
+    ``'500@-999'`` -- never reaches tier 1/2/3 at all: it is flagged immediately with no
+    Observatory row created, so a non-obscode is never truncated or fabricated
+    (D-09/Pitfall 2).
 
     Args:
         site_code_raw: the CSV row's raw ``Site Code`` cell value (may be blank, ``None``,
-            or contain leading/trailing whitespace).
+            or contain leading/trailing whitespace). A recognized Horizons observer-notation
+            form (see the module-level alias table) is translated to its MPC obscode before
+            any tier runs.
         create_placeholder: whether tier 3 may fabricate a placeholder ``Observatory`` row
             when tiers 1 and 2 both miss. Defaults to ``True`` so the existing CSV-import
             caller (already-vetted sheet data) is unaffected. Pass ``False`` for
@@ -158,9 +179,20 @@ def resolve_site(site_code_raw: str, *, create_placeholder: bool = True) -> tupl
     if not code:
         return None, True  # no code at all -- flag, no placeholder possible
 
+    # Quick task 260726-fqb (D-03): translate a recognized Horizons observer-notation form
+    # to its real MPC obscode BEFORE the length guard runs, never instead of it -- a plain
+    # exact-match lookup (D-01: no case-folding, no whitespace normalization, no '500@'
+    # prefix/regex parsing). Anything not in the table falls through unchanged to the guard
+    # below and is flagged, never guessed (D-09).
+    translated = HORIZONS_OBSERVER_TO_OBSCODE.get(code, code)
+    if translated != code:
+        logger.debug(f"resolve_site: translated Horizons observer notation '{code}' -> '{translated}'")
+        code = translated
+
     if len(code) > _MAX_OBSCODE_LEN:
-        # e.g. JWST's '500@-170' -- can't fit Observatory.obscode; don't fabricate a
-        # truncated/wrong site. Flag for manual review instead (Pitfall 2).
+        # e.g. an unrecognized Horizons form like '500@-999' -- can't fit Observatory.obscode
+        # and isn't in the alias table above; don't fabricate a truncated/wrong site.
+        # Flag for manual review instead (Pitfall 2).
         return None, True
 
     # Tier 1: existing Observatory record. CR-01 (22-REVIEW.md re-review): the matched row
