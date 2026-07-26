@@ -70,6 +70,62 @@ The required ``--proposal`` flag accepts:
    >> python3 manage.py sync_lco_observation_calendar --proposal LCO2026A-001
    >> python3 manage.py sync_lco_observation_calendar --proposal ALL
 
+How do I backfill ObservationRecords for LCO observations submitted outside FOMO?
+------------------------------------------------------------------------------------
+
+``backfill_lco_observation_records`` queries the LCO Observation Portal's "Get
+All RequestGroups" API for a proposal, keeps only RequestGroups whose name
+starts with ``--name-prefix``, and creates one ``ObservationRecord`` per child
+request. A request that already has an ``ObservationRecord`` is skipped, so
+the command is safe to re-run.
+
+It exists to create the ObservationRecords for observations submitted
+directly at the LCO portal rather than through FOMO -- those records are what
+``sync_lco_observation_calendar`` above then projects onto the calendar, so
+run this command first, then the sync.
+
+The required ``--proposal <code>`` (exact match) and ``--name-prefix
+<string>`` flags select which RequestGroups to backfill.
+
+``--campaign <name>`` is optional here too, but omitting it means something
+different from omitting it on ``load_telescope_runs``: each request's target
+is matched **by name** against the Targets already belonging to this
+campaign, and a request whose target isn't a member is skipped and logged,
+never guessed at -- but if ``--campaign`` itself is omitted, the command
+prints the available campaigns and prompts for a selection interactively.
+
+``--create-missing-targets`` is opt-in, default off. It changes the
+unmatched-target case from "skip" to: reuse an existing Target of that name
+if one exists anywhere in FOMO, otherwise build a new SIDEREAL field Target
+from the request's own RA/Dec -- carrying across epoch, proper motion, and
+parallax when the request supplies them -- then add it to the campaign and
+process the request normally. A *reused* Target is left untouched; only
+newly built ones get those fields populated. This is the single most
+surprising detail of the flag.
+
+``--username <user>`` optionally attributes created records to that user;
+default is unattributed. An unknown username is a hard error.
+
+Always run with ``--dry-run`` first to see what would be created --
+including which field Targets would be created versus reused -- without
+writing anything, in the same spirit as ``backfill_range_calendar_events``
+above:
+
+.. code-block:: console
+
+   >> python3 manage.py backfill_lco_observation_records --proposal LCO2026A-001 --name-prefix "3I/ATLAS" --campaign "3I/ATLAS" --dry-run
+   >> python3 manage.py backfill_lco_observation_records --proposal LCO2026A-001 --name-prefix "3I/ATLAS" --campaign "3I/ATLAS"
+
+Immediately after each new record is saved (non-dry-run only), the command
+makes one live best-effort status call to LCO so the record's status,
+``scheduled_start``, and ``scheduled_end`` are populated right away instead
+of staying unset until the next poll. If that call fails it is logged and
+counted, never fatal, and the already-created record is not rolled back.
+
+The final summary line reports these counters::
+
+   Created: 4, already existed: 12, unmatched target: 1, no usable configuration: 0, created field targets: 1, status sync failed: 0
+
 How do I sync Gemini queue observations?
 -------------------------------------------
 
@@ -170,6 +226,10 @@ Command cheat-sheet
    * - ``sync_lco_observation_calendar``
      - ``--proposal <code|A,B,C|ALL>`` (required)
      - Sync LCO/SOAR queue ObservationRecords to CalendarEvents.
+   * - ``backfill_lco_observation_records``
+     - ``--proposal <code>``, ``--name-prefix <str>`` (both required); ``--campaign <name>``,
+       ``--username <user>``, ``--create-missing-targets``, ``--dry-run`` (optional)
+     - Backfill ObservationRecords for LCO RequestGroups submitted outside FOMO.
    * - ``sync_gemini_observation_calendar``
      - (none)
      - Sync every Gemini ToO ObservationRecord to CalendarEvents.
