@@ -27,15 +27,34 @@ updates only the affected nights.
 
    >> python3 manage.py load_telescope_runs path/to/schedule.txt
 
+An optional ``--campaign <name>`` flag associates every ``CalendarEvent`` the
+file creates or updates with a named campaign (a ``tom_targets.TargetList``),
+matched by exact name. It is genuinely optional: if you omit it, no campaign
+association is set on any event -- the same behavior this command had before
+the flag existed. The name is resolved once, up front, before any schedule
+line is processed, so an unknown or ambiguous campaign name fails
+immediately rather than half-way through the file.
+
+.. code-block:: console
+
+   >> python3 manage.py load_telescope_runs path/to/schedule.txt --campaign "3I/ATLAS"
+
+.. note::
+   Don't confuse this optional ``--campaign`` with ``import_campaign_csv``'s
+   ``--campaign`` (below): here, omitting it means "no campaign"; on
+   ``import_campaign_csv`` the flag is **required**.
+
 How do I sync LCO/SOAR queue observations?
 ---------------------------------------------
 
 ``sync_lco_observation_calendar`` syncs LCO and SOAR queue
 ``ObservationRecord`` rows onto the calendar as one ``CalendarEvent`` per
 record, keyed on the LCO portal URL. A record still awaiting placement by
-the LCO scheduler becomes a ``[QUEUED]`` scheduling-window banner; once the
-scheduler places it, re-running the command updates the same event in
-place to the real placed block times.
+the LCO scheduler becomes a ``[QUEUED]`` scheduling-window banner, unless its
+status is already a successful terminal state (for example ``COMPLETED``) --
+such a record is never bannered as still queued, even if no placement block
+was ever resolved for it. Once the scheduler places it, re-running the
+command updates the same event in place to the real placed block times.
 
 The required ``--proposal`` flag accepts:
 
@@ -146,7 +165,7 @@ Command cheat-sheet
      - Key flags
      - One-line description
    * - ``load_telescope_runs``
-     - ``<filepath>`` (positional)
+     - ``<filepath>`` (positional), ``--campaign <name>`` (optional)
      - Ingest a classical-schedule text file into per-night CalendarEvents.
    * - ``sync_lco_observation_calendar``
      - ``--proposal <code|A,B,C|ALL>`` (required)
