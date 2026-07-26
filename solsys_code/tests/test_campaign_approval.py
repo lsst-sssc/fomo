@@ -32,7 +32,12 @@ from tom_targets.models import TargetList
 
 from solsys_code import campaign_utils
 from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
-from solsys_code.campaign_utils import NEEDS_REVIEW_NAME_PREFIX, is_placeholder_observatory, resolve_site
+from solsys_code.campaign_utils import (
+    HORIZONS_OBSERVER_TO_OBSCODE,
+    NEEDS_REVIEW_NAME_PREFIX,
+    is_placeholder_observatory,
+    resolve_site,
+)
 from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
@@ -2285,6 +2290,151 @@ class TestResolveSiteSatelliteObscode(TestCase):
         self.assertEqual(observatory.observations_type, Observatory.SATELLITE_OBSTYPE)
         self.assertIsNone(observatory.lon)
         self.assertEqual(Observatory.objects.filter(obscode='250').count(), 1)
+
+
+# Horizons/SPICE observer-notation alias fixtures verified 2026-07-26 (see
+# campaign_utils.HORIZONS_OBSERVER_TO_OBSCODE), one full MPC record per mapped obscode,
+# each shaped exactly like TestResolveSiteSatelliteObscode's satellite_payload above
+# (observations_type='satellite', null longitude/rhocosphi/rhosinphi).
+HORIZONS_MPC_PAYLOADS = {
+    '274': {
+        'created_at': 'Wed, 30 Sep 2020 00:00:00 GMT',
+        'longitude': None,
+        'name_utf8': 'James Webb Space Telescope',
+        'obscode': '274',
+        'observations_type': 'satellite',
+        'old_names': None,
+        'rhocosphi': None,
+        'rhosinphi': None,
+        'short_name': 'James Webb Space Telescope',
+        'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+        'uses_two_line_observations': True,
+    },
+    '250': {
+        'created_at': 'Sat, 25 May 2019 00:11:21 GMT',
+        'longitude': None,
+        'name_utf8': 'Hubble Space Telescope',
+        'obscode': '250',
+        'observations_type': 'satellite',
+        'old_names': None,
+        'rhocosphi': None,
+        'rhosinphi': None,
+        'short_name': 'Hubble Space Telescope',
+        'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+        'uses_two_line_observations': True,
+    },
+    'C51': {
+        'created_at': 'Mon, 01 Jan 2018 00:00:00 GMT',
+        'longitude': None,
+        'name_utf8': 'WISE',
+        'obscode': 'C51',
+        'observations_type': 'satellite',
+        'old_names': None,
+        'rhocosphi': None,
+        'rhosinphi': None,
+        'short_name': 'WISE',
+        'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+        'uses_two_line_observations': True,
+    },
+    'C57': {
+        'created_at': 'Thu, 18 Apr 2018 00:00:00 GMT',
+        'longitude': None,
+        'name_utf8': 'TESS',
+        'obscode': 'C57',
+        'observations_type': 'satellite',
+        'old_names': None,
+        'rhocosphi': None,
+        'rhosinphi': None,
+        'short_name': 'TESS',
+        'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+        'uses_two_line_observations': True,
+    },
+}
+
+
+class TestResolveSiteHorizonsObserverNotation(TestCase):
+    """Horizons/SPICE observer notation (``500@<NAIF SPK ID>`` = "geocentric observer at
+    body N") names a spacecraft that already has a real, short MPC obscode. Quick task
+    260726-fqb teaches ``resolve_site()`` to translate the four mappings below -- each
+    verified on BOTH sides on 2026-07-26 (NAIF ID -> spacecraft via the JPL Horizons API,
+    obscode -> the same spacecraft via the MPC obscodes API) -- before the existing
+    over-length guard runs. Translation is exact-whole-string-match only (D-01): no
+    case-folding, no whitespace normalization, no ``500@`` prefix/regex parsing. Anything
+    not in the table -- including any other ``500@<naif>`` form -- still falls through to
+    the unchanged ``_MAX_OBSCODE_LEN`` guard: never guess.
+    """
+
+    def test_alias_map_is_the_four_verified_mappings(self):
+        self.assertEqual(
+            HORIZONS_OBSERVER_TO_OBSCODE,
+            {'500@-170': '274', '500@-48': '250', '500@-163': 'C51', '500@-95': 'C57'},
+        )
+
+    def test_every_alias_has_a_payload_fixture(self):
+        self.assertEqual(set(HORIZONS_OBSERVER_TO_OBSCODE.values()), set(HORIZONS_MPC_PAYLOADS))
+
+    def test_every_alias_resolves_to_its_mpc_obscode(self):
+        for horizons_form, expected_obscode in HORIZONS_OBSERVER_TO_OBSCODE.items():
+            with self.subTest(horizons=horizons_form):
+                mock_response = MagicMock(ok=True)
+                mock_response.json.return_value = HORIZONS_MPC_PAYLOADS[expected_obscode]
+                with patch('requests.get', return_value=mock_response):
+                    observatory, needs_review = resolve_site(horizons_form)
+
+                self.assertIsNotNone(observatory)
+                self.assertEqual(observatory.obscode, expected_obscode)
+                self.assertFalse(needs_review)
+                self.assertFalse(is_placeholder_observatory(observatory))
+                self.assertEqual(observatory.observations_type, Observatory.SATELLITE_OBSTYPE)
+                self.assertIsNone(observatory.lon)
+
+    def test_unknown_naif_id_is_flagged_not_guessed(self):
+        with patch(
+            'requests.get',
+            side_effect=AssertionError('resolve_site must not reach the network for an unknown NAIF id'),
+        ):
+            observatory, needs_review = resolve_site('500@-999')
+
+        self.assertIsNone(observatory)
+        self.assertTrue(needs_review)
+        self.assertEqual(Observatory.objects.count(), 0)
+
+    def test_bare_naif_id_is_not_translated(self):
+        mock_response = MagicMock(ok=False, status_code=501)
+        with patch('requests.get', return_value=mock_response):
+            observatory, needs_review = resolve_site('-170')
+
+        self.assertEqual(observatory.obscode, '-170')
+        self.assertTrue(needs_review)
+        self.assertTrue(is_placeholder_observatory(observatory))
+
+    def test_internal_whitespace_variant_is_not_translated(self):
+        with patch(
+            'requests.get',
+            side_effect=AssertionError('resolve_site must not reach the network for an internal-whitespace variant'),
+        ):
+            observatory, needs_review = resolve_site('500 @ -170')
+
+        self.assertIsNone(observatory)
+        self.assertTrue(needs_review)
+
+    def test_surrounding_whitespace_is_tolerated(self):
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = HORIZONS_MPC_PAYLOADS['274']
+        with patch('requests.get', return_value=mock_response):
+            observatory, needs_review = resolve_site('  500@-170  ')
+
+        self.assertEqual(observatory.obscode, '274')
+        self.assertFalse(needs_review)
+
+    def test_plain_obscode_is_unaffected(self):
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = HORIZONS_MPC_PAYLOADS['274']
+        with patch('requests.get', return_value=mock_response):
+            observatory, needs_review = resolve_site('274')
+
+        self.assertEqual(observatory.obscode, '274')
+        self.assertFalse(needs_review)
 
 
 class TestGeminiFtScenario(CampaignApprovalTestBase):

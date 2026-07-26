@@ -94,11 +94,21 @@ class TestCampaignUtils(TestCase):
         self.assertTrue(needs_review)
         self.assertEqual(Observatory.objects.count(), 0)
 
-    def test_resolve_site_oversized_returns_none_needs_review(self):
-        # JWST's spacecraft-style designation -- 8 chars, exceeds obscode's max_length=4.
-        site, needs_review = resolve_site('500@-170')
-        self.assertIsNone(site)
-        self.assertTrue(needs_review)
+    def test_resolve_site_oversized_or_unknown_horizons_returns_none_needs_review(self):
+        # '500@-170' is no longer an example of an unresolvable over-length code -- quick
+        # task 260726-fqb translates it to JWST's real MPC obscode '274' before this guard
+        # runs. An *unrecognized* Horizons observer form ('500@-999') and plain over-length
+        # free text still hit the guard immediately: flagged, no Observatory row, no
+        # network call (patched with an AssertionError to prove it).
+        for oversized_or_unknown in ('500@-999', 'Lowell Discovery Telescope (G37)'):
+            with self.subTest(site_code=oversized_or_unknown):
+                with patch(
+                    'requests.get',
+                    side_effect=AssertionError('resolve_site must not reach the network for an over-length code'),
+                ):
+                    site, needs_review = resolve_site(oversized_or_unknown)
+                self.assertIsNone(site)
+                self.assertTrue(needs_review)
         self.assertEqual(Observatory.objects.count(), 0)
 
     def test_resolve_site_existing_observatory_hit(self):
@@ -550,13 +560,13 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertFalse(run.site_needs_review)
 
     def test_unresolvable_site_flags_needs_review_without_skipping_row(self):
-        """D-09: JWST's oversized Site Code doesn't skip the row -- just flags it."""
+        """D-09: an *unknown* Horizons observer form doesn't skip the row -- just flags it."""
         path, ctx = self._write_csv(
             [
                 _row(
                     **{
                         'Telescope / Instrument': 'JWST',
-                        'Site Code': '500@-170',
+                        'Site Code': '500@-999',
                         'Obs. Date': '2025-08-06',
                         'UT Time Range': '11:01 - 11:20',
                     }
@@ -572,6 +582,51 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         run = CampaignRun.objects.first()
         self.assertIsNone(run.site)
         self.assertTrue(run.site_needs_review)
+        self.assertEqual(run.site_raw, '500@-999')
+
+    def test_horizons_site_code_resolves_via_alias_map(self):
+        """Quick task 260726-fqb: a real JWST Horizons-notation Site Code resolves to its
+        MPC obscode via the alias map, and CampaignRun.site_raw still carries the verbatim
+        submitted text -- translation is a resolution detail, never a rewrite of what the
+        submitter typed.
+        """
+        jwst_payload = {
+            'created_at': 'Wed, 30 Sep 2020 00:00:00 GMT',
+            'longitude': None,
+            'name_utf8': 'James Webb Space Telescope',
+            'obscode': '274',
+            'observations_type': 'satellite',
+            'old_names': None,
+            'rhocosphi': None,
+            'rhosinphi': None,
+            'short_name': 'James Webb Space Telescope',
+            'updated_at': 'Tue, 26 May 2026 20:34:56 GMT',
+            'uses_two_line_observations': True,
+        }
+        mock_response = MagicMock(ok=True)
+        mock_response.json.return_value = jwst_payload
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'JWST',
+                        'Site Code': '500@-170',
+                        'Obs. Date': '2025-08-06',
+                        'UT Time Range': '11:01 - 11:20',
+                    }
+                )
+            ]
+        )
+        with ctx, patch('requests.get', return_value=mock_response):
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        run = CampaignRun.objects.first()
+        self.assertEqual(run.site.obscode, '274')
+        self.assertFalse(run.site_needs_review)
         self.assertEqual(run.site_raw, '500@-170')
 
     def test_duplicate_unparseable_ut_time_rows_do_not_merge(self):
