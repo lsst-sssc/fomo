@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-18 — v2.1 milestone closed, full ev
 Phase: Milestone v2.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-25 - Completed quick task 260725-kn4: Guard MPCObscodeFetcher and to_earth_location against null coordinates for space-based obscodes
+Last activity: 2026-07-26 - Completed quick task 260726-fqb: Map JPL Horizons NAIF observer notation to MPC obscodes in resolve_site
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -194,6 +194,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260724-tiz | Improve telescope stripe/legend contrast: switch telescope_color() to a brighter TELESCOPE_PALETTE, re-implement the classical-event stripe via a CSS pseudo-element (avoids status-ring box-shadow collision), enlarge both legends into filled chip swatches | 2026-07-24 | 9f7bfae | Complete | [260724-tiz-improve-telescope-stripe-legend-contrast](./quick/260724-tiz-improve-telescope-stripe-legend-contrast/) |
 | 260724-vb0 | Fix telescope stripe/legend contrast against every background: split TELESCOPE_PALETTE into two parallel palettes (legend vs white, TELESCOPE_STRIPE_PALETTE vs gray fill), add a one-sided opaque STRIPE_OUTER_EDGE_COLOR edge, and a programmatic WCAG contrast audit (TestTelescopeStripeContrast) so this cannot silently regress a third time | 2026-07-25 | 280bc18 | Complete | [260724-vb0-fix-telescope-stripe-contrast-against-ev](./quick/260724-vb0-fix-telescope-stripe-contrast-against-ev/) |
 | 260725-kn4 | Guard MPCObscodeFetcher and to_earth_location against null coordinates for space-based obscodes: to_observatory() no longer raises TypeError on satellite MPC sites (250 HST, 258 Gaia, C51 NEOWISE) whose longitude/rhocosphi/rhosinphi are all null, storing a coordinate-less row instead; to_earth_location() now raises an actionable ValueError rather than TypeError-ing on None * u.deg | 2026-07-25 | 4336653 | Complete | [260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc](./quick/260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc/) |
+| 260726-fqb | Map JPL Horizons NAIF observer notation to MPC obscodes in resolve_site: add HORIZONS_OBSERVER_TO_OBSCODE (500@-170 to 274 JWST, 500@-48 to 250 HST, 500@-163 to C51 WISE, 500@-95 to C57 TESS, each verified against both the Horizons and MPC APIs) applied before the _MAX_OBSCODE_LEN guard rather than instead of it, so an unrecognized 500@<naif> is still flagged for review and Observatory.obscode stays max_length=4 | 2026-07-26 | 6357b7f | Complete | [260726-fqb-map-jpl-horizons-naif-observer-notation-](./quick/260726-fqb-map-jpl-horizons-naif-observer-notation-/) |
 
 ## Deferred Items
 
