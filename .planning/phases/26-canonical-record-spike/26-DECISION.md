@@ -315,6 +315,124 @@ test modules) is individually `ruff check`/`ruff format --check` clean. Logged t
 `.planning/phases/26-canonical-record-spike/deferred-items.md` per the scope-boundary rule
 rather than fixed here.
 
+### SPIKE-04 criterion 4 (c) — manual /calendar/ load
+
+A human loaded `http://127.0.0.1:8765/calendar/?year=2026&month=7` in a browser against the
+migrated scratch copy (`tmp/26-spike-db-copy.sqlite3`, confirmed by the DB-path guard
+immediately before `runserver` started), with `CalendarEventMeta` row pk=53 (event id 53,
+`CampaignRun` pk=1's `[CANCELLED] 2m0 2M0-SCICAM-MUSCAT` event) temporarily flipped to
+`is_verified=False` on the scratch copy beforehand.
+
+**Pass conditions met, reported verbatim by the human:** the page "rendered fine ... 11 LCO
+events appear as expected, along with the classical events. ... the event on July 7 does
+appear with [CANCELLED], dashed border and the hover text says (paraphrasing) 'Telescope
+label is an estimate - could not be verified against LCO API'." HTTP status, event count, and
+dashed-border result all matched expectation. The hover text is a second, independent signal
+that the flipped row actually took the unverified-label template branch, not merely a border
+CSS coincidence.
+
+**Two observations recorded as observed-and-out-of-scope, not findings against the rename:**
+1. The browser's address bar normalized `?year=2026&month=7` to `?year=2026` during the load.
+   The rename touched no URL routing or view-parameter handling, so this is pre-existing
+   `/calendar/` view behavior, unrelated to D-02/D-03's model rename.
+2. The human's browser (Konqueror) did not surface event `url` values on hover/click. This is
+   not one of the three pass conditions (HTTP status, event count, dashed-border) and is not
+   rename-related; it evidences only that this particular browser's UI doesn't expose the
+   `url` field visually, nothing about `prefetch_related('telescope_label_meta')` or the
+   `event.telescope_label_meta` accessor (integration points #3/#4), which the 200 status and
+   the correctly-rendered dashed border already confirm still resolve.
+
+**Confidence tag:** the HTTP-200/event-count/no-traceback portion of this result is
+**Confirmed against real rows** (`CampaignRun` pk=1's real 11 LCO events plus the real
+classical events, all unmodified). The dashed-border portion specifically rests on a
+**deliberately-constructed check** — `CalendarEventMeta` row pk=53 was temporarily flipped to
+`is_verified=False` on the scratch copy for this load and restored to `True` immediately
+afterward — not a real-row observation, because D-20 confirms all 11 real companion rows are
+`is_verified=1` and so zero real rows currently exercise that branch. Plan 26-01's
+`django.test.Client()`-based fetch of the same URL (also returning HTTP 200) is a corroborating
+non-interactive second data point recorded there, not a replacement for this manual load — this
+manual browser load is the one step in the phase with no automated substitute (26-VALIDATION.md
+"Manual-Only Verifications").
+
+The temporarily-flipped row was restored to `is_verified=True` (confirmed:
+`CalendarEventMeta.objects.filter(is_verified=False).count() == 0` immediately afterward) and
+the background `runserver` process was stopped before any further write in this plan; `src/
+fomo_db.sqlite3`'s fingerprint (`946176 1785094461`) was unchanged throughout.
+
+### SPIKE-01 criterion 1 — source vocabulary and constraint coexistence
+
+Executed via `tmp/26_integrity_check.py` (`python manage.py shell < tmp/26_integrity_check.py`,
+captured verbatim to `tmp/26-integrity-check.txt`) against the migrated scratch copy, after
+confirming the DB-path guard. Four blocks, five PASS lines, zero FAIL lines:
+
+```
+=== Block (A): constraint inventory ===
+  UniqueConstraint name='unique_campaign_run_resolved_window' fields=('campaign', 'telescope_instrument', 'window_start', 'window_end') condition=<Q: (AND: ('window_start__isnull', False))>
+  UniqueConstraint name='unique_campaign_run_tbd_natural_key' fields=('campaign', 'telescope_instrument', 'contact_person') condition=<Q: (AND: ('window_start__isnull', True))>
+  CheckConstraint name='campaign_run_window_start_end_null_together' condition=<Q: (OR: (AND: ('window_end__isnull', True), ('window_start__isnull', True)), (AND: ('window_end__isnull', False), ('window_start__isnull', False)))>
+CNAMES: ['campaign_run_window_start_end_null_together', 'unique_campaign_run_resolved_window', 'unique_campaign_run_tbd_natural_key']
+NEWFIELD_IN_CONSTRAINTS: False
+PASS: neither source nor telescope_class appears in any CampaignRun constraint field set.
+
+=== Block (B): positive case -- source + run-FK coexistence ===
+BEFORE: pk=1 source field value = 'legacy'
+PASS: CampaignRun pk=1 source=LEGACY saved, no IntegrityError.
+LINKED 11
+PASS: linked 11 companion rows to run pk=1 with no IntegrityError.
+
+=== Block (C): negative control -- unique_campaign_run_resolved_window ===
+PASS: unique_campaign_run_resolved_window still fires unmodified (source is not in its key): UNIQUE constraint failed: solsys_code_campaignrun.campaign_id, solsys_code_campaignrun.telescope_instrument, solsys_code_campaignrun.window_start, solsys_code_campaignrun.window_end
+
+=== Block (D): negative control -- unique_campaign_run_tbd_natural_key ===
+Using TBD-window run pk=4 as the natural-key source (contact_person copied, never printed).
+PASS: unique_campaign_run_tbd_natural_key still fires unmodified (source is not in its key): UNIQUE constraint failed: solsys_code_campaignrun.campaign_id, solsys_code_campaignrun.telescope_instrument, solsys_code_campaignrun.contact_person
+
+=== Summary ===
+AFTER: pk=1 source field value = 'legacy'
+AFTER: CalendarEventMeta rows with run_id=1: 11
+```
+
+**Constraint names and field tuples, quoted verbatim from `solsys_code/models.py:120-160`:**
+`unique_campaign_run_resolved_window` — `fields=('campaign', 'telescope_instrument',
+'window_start', 'window_end')`, condition `window_start__isnull=False`; and
+`unique_campaign_run_tbd_natural_key` — `fields=('campaign', 'telescope_instrument',
+'contact_person')`, condition `window_start__isnull=True`. Block (A)'s printed boolean
+confirms neither `source` nor `telescope_class` was added to either constraint's field tuple
+(nor to the third, `campaign_run_window_start_end_null_together`, which is a `CheckConstraint`
+with no field tuple at all) — **attribution (the `run` FK), not the constraint, is what
+connects same-physical-run rows from different sources**, exactly as CONTEXT.md's locked
+constraint states.
+
+Block (B) is SPIKE-01's literal positive case: `CampaignRun` pk=1 given an explicit
+`source=LEGACY` value, and all 11 of its real LCO-sourced companion rows (matched by
+`event__url__startswith='https://observe.lco.global'`) given a `run` FK back to pk=1 — both
+writes committed for real against the disposable scratch copy, zero `IntegrityError`s. This is
+also the attribution state plan 26-02's own task 3 (D-11 prototype) depends on, per the plan's
+explicit instruction not to skip or roll this step back.
+
+Blocks (C) and (D) are the two negative controls SPIKE-01's wording requires — both existing
+partial unique constraints still fire, unmodified, on a genuine duplicate differing only by
+`source`, proving `source` was never silently absorbed into either constraint's key. Each
+`transaction.atomic()` wrapper exists only so the expected `IntegrityError` doesn't poison the
+connection for the next statement — the failed insert left no row behind in either case
+(re-running the whole script a second time in this session reproduced the identical five
+PASS/zero FAIL result, confirming no partial row was left over from either negative control).
+
+**Evidence posture, restated for this specific check:** unlike Phase 18's rolled-back
+`transaction.atomic()` pattern (used because that spike ran against the live `Observatory`
+table), this script writes for real against `tmp/26-spike-db-copy.sqlite3`, a disposable file
+copy — there is no rollback anywhere in the positive-case writes, only in the two
+negative-control blocks, and only to protect the connection from a poisoned transaction, not to
+undo the writes.
+
+Tag: **Confirmed against real rows** (real `CampaignRun` pk=1, its real 11 LCO-sourced
+companion rows, and the real TBD-window run pk=4 used for the second negative control). `src/
+fomo_db.sqlite3`'s fingerprint (`946176 1785094461`) was unchanged throughout this task.
+
+### SPIKE-03 criterion 3 — canonical event key and the adopt-vs-gap-fill comparison
+
+<!-- completed by task 3 of this plan -->
+
 ## Recommendation
 
 <!-- completed in plan 26-03 -->
