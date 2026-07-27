@@ -136,7 +136,12 @@
   4. The doc states the migration and attribution strategy, naming every integration point the companion-record rename touches as a checklist (admin registration, LCO sync command, view `prefetch_related` string, calendar template), with the `related_name='telescope_label_meta'`-stays-unchanged decision recorded
   5. The decisions are durable and readable outside `.planning/` — a `docs/design/` page carries the settled vocabulary, key scheme and rename checklist forward for whoever builds Phases 27-29
 
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 26-01-PLAN.md — Scratch environment, date-pinned real-DB snapshot, SPIKE-02 adapter identity mapping, hand-authored throwaway migration, and the measured companion-record rename blast radius
+- [ ] 26-02-PLAN.md — Manual `/calendar/` confirmation, SPIKE-01's executable coexistence + constraint negative controls, and the three-way adopt / gap-fill / rejected-baseline prototype
+- [ ] 26-03-PLAN.md — Adopt-vs-gap-fill decision, the completed `26-DECISION.md` Recommendation for SPIKE-01..04, the durable `docs/design/canonical_record_spike.rst` page, and full discard of every throwaway artifact
 
 ### Phase 27: The Canonical Run Record
 
@@ -219,7 +224,7 @@
 | 23. Weather/Storm Cancellation Handling | v2.1 | 3/3 | Complete | 2026-07-16 |
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
-| 26. Canonical-Record Spike | v2.2 | 0/TBD | Not started | - |
+| 26. Canonical-Record Spike | v2.2 | 0/3 | Not started | - |
 | 27. The Canonical Run Record | v2.2 | 0/TBD | Not started | - |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
