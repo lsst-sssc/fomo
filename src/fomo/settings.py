@@ -26,7 +26,9 @@ SECRET_KEY = '1c1nvy&amp;t@z+wq16gbfag8_-t&amp;e#mppk4h=syp*i*fs^hi&amp;7ihi'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'tlister-thinkmate.lco.gtn',
+]
 
 
 # Application definition
@@ -259,6 +261,8 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
     'tom_eso.eso.ESOFacility',
+    #    'fomo.facilities.rubin.VROFacility',
+    #    'fomo.facilities.LDT.LDTFacility'
 ]
 
 TOM_REGISTRATION = {
