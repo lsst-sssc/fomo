@@ -13,7 +13,7 @@ Settles the questions milestone questioning deliberately left open. Blocks every
 
 - [x] **SPIKE-01**: A decision doc settles the `source` vocabulary and how it interacts with `CampaignRun`'s two existing partial unique constraints, demonstrated by the real `CampaignRun` pk=1 and its 11 LCO-sourced calendar events coexisting without an `IntegrityError`
 - [x] **SPIKE-02**: A decision doc settles how each ingest adapter's existing calendar-event identity key maps onto a run — classical `(telescope, instrument, start_time ±5 min)`, LCO request URL, `GEM:{prog}/{obsid}`, and `CAMPAIGN:{pk}[:{date}]`
-- [x] **SPIKE-03**: A decision doc settles whether a class-wide (stage 2) run produces one event per candidate site or a single class-wide event, and states the reconciler's canonical event-key scheme, stable across all four pipeline stages
+- [x] **SPIKE-03**: A decision doc settles whether a class-wide (stage 2) run produces one event per candidate site or a single class-wide event, and states the reconciler's canonical event-key scheme, stable across all four pipeline stages for both classically-scheduled and queue-scheduled runs — a queue-scheduled run (site-resolved or class-wide) gets one whole-window `RUN:{run_pk}` container event, coexisting with the per-observation events its existing sync commands already produce
 - [x] **SPIKE-04**: A decision doc settles the migration and attribution strategy for the existing calendar events and runs, naming every integration point the companion-record rename touches
 
 ### Canonical Record
@@ -31,8 +31,8 @@ The model changes that make `CampaignRun` the single canonical observing-run rec
 Calendar events become a function of run state instead of a side effect of a staff click.
 
 - [ ] **RECON-01**: Staff can run one command that projects and refreshes calendar events for every run, regardless of window length, source, or site-resolution state; running it a second time changes nothing (no new rows, no `modified` churn)
-- [ ] **RECON-02**: A run resolved to a specific telescope produces one calendar event per night, spanning that site's sunset-to-sunrise twilight for that night (stage 1)
-- [ ] **RECON-03**: A run allocated only to a telescope class produces one calendar event per day, spanning 00:00–23:59 (stage 2)
+- [ ] **RECON-02**: A classically-scheduled run resolved to a specific telescope produces one calendar event per night, spanning that site's sunset-to-sunrise twilight for that night (stage 1); a queue-scheduled run resolved to a specific telescope instead produces a single whole-window `RUN:{run_pk}` container event, coexisting with the per-observation events its existing sync command already produces
+- [ ] **RECON-03**: A run allocated only to a telescope class produces a single whole-window `RUN:{run_pk}` container event (stage 2) — every class-wide run measured to date is queue-scheduled, not one calendar event per day
 - [ ] **RECON-04**: A night whose `ObservationRecord` has been scheduled narrows to that record's window (stage 3), and a completed observation shows the final observed time range marked COMPLETED (stage 4)
 - [ ] **RECON-05**: The reconciler never creates, modifies, or deletes a calendar event it does not own — hand-created entries, conference and proposal-deadline events, and un-attributed sync-command events are left untouched
 - [ ] **RECON-06**: `--dry-run` reports exactly what would change with no writes; a run that fails to reconcile is reported and skipped rather than aborting the batch
@@ -95,7 +95,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 |-------------|-------|--------|
 | SPIKE-01 | Phase 26 — Canonical-Record Spike | Complete |
 | SPIKE-02 | Phase 26 — Canonical-Record Spike | Complete |
-| SPIKE-03 | Phase 26 — Canonical-Record Spike | Partial — key scheme settled for classical runs; queue-run projection open |
+| SPIKE-03 | Phase 26 — Canonical-Record Spike | Complete — key scheme settled for both classically-scheduled and queue-scheduled runs |
 | SPIKE-04 | Phase 26 — Canonical-Record Spike | Complete |
 | CANON-01 | Phase 27 — The Canonical Run Record | Pending |
 | CANON-02 | Phase 27 — The Canonical Run Record | Pending |

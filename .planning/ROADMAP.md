@@ -106,7 +106,7 @@
 
 **Milestone Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
 
-- [ ] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme is settled for classically-scheduled runs only, gap closure pending)
+- [ ] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events)
 - [ ] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link
 - [ ] **Phase 28: Operator-Assisted Attribution** - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
 - [ ] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear
@@ -136,7 +136,7 @@
   4. The doc states the migration and attribution strategy, naming every integration point the companion-record rename touches as a checklist (admin registration, LCO sync command, view `prefetch_related` string, calendar template), with the `related_name='telescope_label_meta'`-stays-unchanged decision recorded
   5. The decisions are durable and readable outside `.planning/` — a `docs/design/` page carries the settled vocabulary, key scheme and rename checklist forward for whoever builds Phases 27-29
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 Plans:
 **Wave 1**
 
@@ -156,7 +156,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 26-05-PLAN.md — Queue-run projection decision, the amended `26-DECISION.md` Criterion 3 and Domain-correction sections, the mirrored `docs/design/canonical_record_spike.rst` update, and the ROADMAP/REQUIREMENTS wording sync
+- [x] 26-05-PLAN.md — Queue-run projection decision, the amended `26-DECISION.md` Criterion 3 and Domain-correction sections, the mirrored `docs/design/canonical_record_spike.rst` update, and the ROADMAP/REQUIREMENTS wording sync
 
 ### Phase 27: The Canonical Run Record
 
@@ -200,7 +200,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
 
   1. Staff run one command that projects and refreshes calendar events for every run regardless of window length, source, or site-resolution state; running it a second time against unchanged state changes nothing — no new rows and no `modified` churn
-  2. A site-resolved run shows one event per night spanning that site's sunset-to-sunrise twilight; a class-wide run shows one 00:00–23:59 event per day; a night whose observation record has been scheduled narrows to that record's window; and a completed observation shows the final observed time range marked COMPLETED
+  2. A classically-scheduled, site-resolved run shows one event per night spanning that site's sunset-to-sunrise twilight; a queue-scheduled run (site-resolved or class-wide) shows a single whole-window `RUN:{run_pk}` container event, with its already-scheduled or already-observed nights shown by their own separate, real `ObservationRecord`-derived events; a night whose observation record has been scheduled narrows to that record's window; and a completed observation shows the final observed time range marked COMPLETED
   3. Events the reconciler does not own — hand-created entries, conferences, proposal deadlines, and un-attributed sync-command events — are never created, modified, or deleted by it, proven against a fixture that deliberately puts one in the same date window as a run being reconciled
   4. `--dry-run` reports exactly what would change and writes nothing, and a run that fails to reconcile (e.g. the known blank-`Observatory.timezone` rows) is reported and skipped while the rest of the batch completes
   5. The 19 approved, site-resolved 3I/ATLAS runs that no existing command can project are visible on the calendar; approve / resolve_site / mark_cancelled / mark_weather_failure each reconcile their run immediately; and `backfill_range_calendar_events` no longer exists in the codebase or the operator runbook
@@ -239,7 +239,7 @@ Plans:
 | 23. Weather/Storm Cancellation Handling | v2.1 | 3/3 | Complete | 2026-07-16 |
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
-| 26. Canonical-Record Spike | v2.2 | 4/5 | In Progress|  |
+| 26. Canonical-Record Spike | v2.2 | 5/5 | Gap closure |  |
 | 27. The Canonical Run Record | v2.2 | 0/TBD | Not started | - |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
