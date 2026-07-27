@@ -1,193 +1,168 @@
-# Research Summary — FOMO v2.1 "Uncertain Scheduling & Site Disambiguation"
+# Research Summary: FOMO v2.2 "One Canonical Run Record"
 
-**Project:** FOMO (Follow-up Observations of Moving Objects)  
-**Milestone:** v2.1 "Uncertain Scheduling & Site Disambiguation"  
-**Domain:** Django/TOM Toolkit campaign-coordination feature for space-mission scheduling representation  
-**Researched:** 2026-07-05  
-**Overall Confidence:** MEDIUM-HIGH
+**Project:** FOMO Telescope Runs Calendar — v2.2 Milestone  
+**Domain:** Django/TOM Toolkit; idempotent calendar reconciler retrofit onto a live system with multi-source ingest and operator data  
+**Researched:** 2026-07-26  
+**Confidence:** HIGH (direct source inspection; MEDIUM on Django edge-case behavior from web search)
 
-## POST-RESEARCH CORRECTION (operator-provided, 2026-07-05)
-
-**Every finding below about `Observatory.obscode` needing to widen from 4 to 8+ characters is built on a false premise and should NOT be treated as a blocker.** The `'500@-170'` string this research (and the pre-existing `campaign_utils.py` docstring it was quoting) treated as "JWST's MPC obscode" is actually JPL Horizons/SPICE observer notation (`500` = geocentric-observer flag, `@-170` = JWST's NAIF SPK ID) — **not an MPC observatory code at all.**
-
-Per the official MPC Observatory Codes list (https://www.minorplanetcenter.net/iau/lists/ObsCodes.html), real space telescopes already have standard, short MPC obscodes: **250 = Hubble, 274 = JWST, 289 = Nancy Grace Roman** — all 3 characters, well within the existing `Observatory.obscode` `max_length=4`.
-
-**Practical effect on scope:** `Observatory.obscode` widening is very likely NOT required. The actual open questions for the phase-time spike are narrower: (a) confirm `resolve_site()`'s tier 1/tier 2 (exact match, then live MPC Obscodes API query) correctly resolves these real space-observatory codes the same way it resolves ground codes — no evidence yet either way; (b) `CreateObservatoryForm`'s hardcoded `max_length=3, min_length=3` may need to become `max_length=4` (matching the model) only if some real code needs the 4th character, not 8. Treat "does the obscode length need to change at all" as a spike question with a *default answer of no*, not a presumed P1 blocker. Everywhere below that frames the obscode length as "the hardest blocking dependency in the whole milestone" should be read with this correction in mind.
+---
 
 ## Executive Summary
 
-FOMO v2.1 must extend the existing campaign-coordination system to handle space-mission scheduling workflows, where observation dates are uncertain during early proposal stages and narrow over time from wide windows to fixed dates. This is a genuine schema and integration challenge, not a simple feature add: the current `CampaignRun` model assumes a single `obs_date` with optional UTC time bounds, a representation that fails entirely for "TBD pending Cycle 2" rows or "Aug 1-15" ranges — exactly the rows the real 3I/ATLAS community sheet currently contains for JWST/HST observations and that v2.0 silently drops.
+FOMO v2.2 consolidates observing runs into a single canonical `CampaignRun` record from which calendar events and observation-record linkages are derived — moving calendar projection from a side effect of a staff click to an idempotent reconciler function. The architecture is pure Django ORM with no new dependencies; the hard work is in (1) a careful migration strategy for the companion record's rename and FK addition that preserves the four existing integration points (admin, management commands, template, view prefetch), (2) settling natural-key semantics and attribution strategy in a spike before building the reconciler, and (3) building the reconciler's four-stage window pipeline with strict ownership scoping so it never silently deletes or mutates unowned calendar events.
 
-Research across reference systems (JWST APT, HST Long Range Plan, space-mission ToO literature) confirms that every professional scheduler uses the same pattern: representing uncertain dates as windows that narrow over time, never as single-point null fields. FOMO's approach mirrors this exactly — replacing `obs_date` with `window_start`/`window_end` DateField pairs (both nullable to represent "TBD, no dates yet"), and adding an asset-type distinction (`Observatory.observations_type`) so ground runs claim every date in their window while space missions claim nothing until scheduling narrows them to a single concrete night.
+**Recommended approach:** Execute the spike first to settle `source`-field identity semantics and the per-adapter mapping strategy. Then sequence migrations (rename + companion-record generalization, then `source`/`telescope_class`, then `ObservationRecord` M2M) as three separate migration files. Build the reconciler in a new `campaign_reconciler.py` logic-layer module (peer to existing `campaign_gap.py`/`campaign_utils.py`, not a views-module helper) to resolve an existing anti-pattern where `backfill_range_calendar_events` imports a private `_project_calendar_event` function from views. Wire the reconciler into both `CampaignRunDecisionView` (per-run on staff actions) and a new `reconcile_campaign_runs` management command (batch sweep), and build the attribution surface last.
 
-**Core technical decisions:** One new package (`rapidfuzz` for fuzzy-match quality) is recommended, though stdlib `difflib` is a viable alternative to avoid a new dependency — this disagreement is explicitly flagged for the spike to decide. Four critical integration hazards emerged that must be guarded in implementation: (1) making `window_start` nullable while keeping the existing `UniqueConstraint` unchanged reopens the exact duplicate-row race Phase 14 already fixed — requires a `condition=Q()` partial-index constraint; (2) widening `Observatory.obscode` in the model alone is insufficient, the `CreateObservatoryForm` has independent hardcoded `max_length=3` that must be updated in parallel; (3) `CampaignRunDecisionView.post()` unconditionally re-resolves sites, silently clobbering a staff member's manual disambiguation choice — needs a guard; (4) any fuzzy-match layer that auto-selects the top candidate undermines the exact "never fabricate, always flag" invariant quick task 260705-l1v established. These are not hypotheticals — each is grounded in current production code and the milestone's own constraints.
+**Key risks:** (1) The companion-record rename breaks template/prefetch/admin/command references silently if not re-verified after migration — this is the canonical test case for the spike's deliverable. (2) Stage transitions between the four-window-pipeline stages introduce churn if the key scheme drifts — must design one stable key scheme across all stages and prove idempotency with two consecutive runs. (3) Attribution heuristics will fail silently on the measured real-world case (FTS/MuSCAT4 pk=1 vs. 11 LCO queue events with date-off-by-one and instrument-string mismatch) unless built against that fixture from day one. (4) The reconciler's ownership scoping must be airtight — it must never touch an unattributed hand-created event or a pre-reconciler sync-command event in the same date window, proven by an explicit test fixture.
+
+---
 
 ## Key Findings
 
 ### Recommended Stack
 
-A **single new third-party package** is necessary, with a deliberate choice between quality and zero-new-dependencies tradeoffs:
+**No new runtime or development dependencies are warranted.** Every piece of v2.2 — companion-record generalization, `ObservationRecord` linkage, the reconciler, its idempotency tests — is built from Django's own ORM (`ForeignKey`, `ManyToManyField` with custom `through`, migrations `RenameModel`/`AddField`) and the ecosystem already installed for this project (Django 5.2.13 via `tomtoolkit==3.0.0a9`). This is a **milestone addendum**, not a full-project stack review; prior milestones' technologies (astropy, sorcha, ASSIST, SPICE) remain unchanged and in force.
 
-**DISAGREEMENT FLAGGED:** STACK.md recommends `rapidfuzz>=3.9` for superior fuzzy-match quality (handles transposed/reordered names, partial matches; MIT-licensed, zero runtime dependencies, prebuilt wheels). ARCHITECTURE.md recommends stdlib `difflib.SequenceMatcher` + `get_close_matches` to avoid any new dependency — a slower but sufficient approach for "a few hundred Observatory rows" scaled per-request, matching this project's existing bias toward stdlib. **Action for spike:** decide this explicitly based on match-quality testing against the real 3I sheet's actual site-name messy input; both are viable, choose deliberately.
+**Core technologies (all pre-installed, no action needed):**
+- **Django 5.2.13** — ORM relations, migrations, test framework (`ForeignKey`, `ManyToManyField(through=...)`, `RenameModel`, `CaptureQueriesContext`)
+- **`tomtoolkit==3.0.0a9`** (bundles `tom_calendar`, `tom_observations`) — source models (`CalendarEvent`, `ObservationRecord`) are plain Django models with no custom managers or hooks; sidecar/through-model approach is the only attachment point
+- **Django test utilities** (`CaptureQueriesContext`) — proves reconciler idempotency (zero writes on second pass), already precedented in this codebase (`test_calendar_template.py:272-289`)
 
-**Everything else is existing Django:**
-- `DateField(null=True, blank=True)` pair for window boundaries (no new DB-specific field type needed)
-- `UniqueConstraint(fields=[...], condition=Q(...))` for the nullable natural key (requires django.db.models.Q, not a new package)
-- Plain `forms.Form` (not ModelForm) for the site-disambiguation dropdown, following the existing `CampaignRunSubmissionForm` convention
-- Existing `django_htmx` (already installed, used by Phase 12's calendar work) — optional for future "live re-search" interactions, not required for MVP
+**What NOT to use (explicitly rejected by research):**
+- `django-dirtyfields`, `FieldTracker` — the explicit field-diff logic in `calendar_utils._update_or_unchanged()` already solves this, auditably
+- `django-fsm`, `django-tasks`/Celery — reconciler is a synchronous management command matching existing sync-command conventions
+- `rapidfuzz` — stdlib `difflib` proved sufficient in v2.1 (Phase 18/21 precedent); no match-quality need here
+- `GenericForeignKey` — both link targets (`CalendarEvent`, `ObservationRecord`) are fixed and known; loses JOIN, prefetch, admin ergonomics
+- Zero-downtime `db_table` pinning — not this project's situation (SQLite dev DB, `DEBUG=True`, no concurrent-deploy constraint)
 
 ### Expected Features
 
-**Table stakes (everything must-have for space-mission rows to be importable at all):**
-- Window-first scheduling (replace single `obs_date` with `window_start`/`window_end` pair; single classical night modeled as `start == end`)
-- Explicit "TBD" state (both fields `NULL`, orthogonal to `contact_person` attribution — a row can be TBD and still have a named person accountable)
-- CSV/form intake that accepts ranges ("Aug 1-15") and TBD strings ("TBD pending Cycle 2") instead of silently dropping them
-- Natural key that survives nullable `window_start` (current `(campaign, telescope_instrument, ut_start)` constraint breaks entirely)
-- Ground vs. space-mission asset distinction via `Observatory.observations_type` (derived at read-time, no new field)
-- `Observatory.obscode` length expansion from 4 to 8+ characters (hard blocker: JWST's `500@-170` cannot exist as a row without this)
+**Must have (table stakes for canonical-run model):**
+- Single durable `CampaignRun` record per awarded allocation, separate from its executions
+- Calendar visibility for every awarded run without a bespoke backfill command per gap (the reconciler solves this)
+- Progressive window resolution (site → class → scheduled → completed) matching real facility behavior
+- Idempotent, non-destructive reconciliation safe to re-run
+- Operator-assisted attribution (suggested, not automatic, links) — the measured real case is FTS pk=1 vs. 11 LCO events with date/instrument mismatch; must be surfaced with confidence scores and per-candidate evidence
 
-**Differentiators (next-level competitive advantage):**
-- Asset-aware coverage-gap analysis (ground window claims every date in range; space mission claims none until window narrows to `start == end`)
-- Approval-queue site-disambiguation UI (fuzzy-ranked `Observatory` candidates + free-text resolve-or-create, never auto-fabricating)
+**Should have (competitive advantage):**
+- `source` provenance field (web submission / classical file / LCO queue / Gemini queue / CSV import) with approval gating per source
+- `telescope_class` field to distinguish "legitimately class-wide" from "site failed to resolve" (today both are `site=None`, structurally ambiguous)
 
-**Explicitly deferred (out of v2.1 scope):**
-- Full JWST-style visit-status vocabulary (duplicates existing `run_status`/`approval_status` fields FOMO already has)
-- Auto-narrowing via APT/Visit-Status scraping (out-of-scope "scheduler integration" anti-pattern, per milestone intent)
-- Continuous confidence-score field (no reference system uses this; discrete window/null-window model is sufficient)
+**Defer to v2.3 (explicitly out of scope):**
+- Unified status vocabulary across all four ingest sources (LCO, Gemini, classical, campaign CSV)
+- Adapter rewrite to write `CampaignRun` natively instead of events
+- Provenance-blind coverage-gap analysis (count LCO/Gemini/classical events, not just runs)
 
 ### Architecture Approach
 
-The schema change is the foundation: replace `obs_date` (single DateField) with `window_start`/`window_end` (pair of nullable DateFields), and add `window_needs_review` boolean sidecar-flag (matching the existing `site_needs_review` pattern already on `CampaignRun`). Keep `ut_start`/`ut_end` as optional DateTimeFields — they serve a *different* purpose (precise time for calendar projection) and must not be conflated with the date window. Replace the natural-key constraint `UniqueConstraint(campaign, telescope_instrument, ut_start)` with `UniqueConstraint(campaign, telescope_instrument, window_start)`, but crucially add a `condition=Q(window_start__isnull=False)` to avoid the NULL uniqueness trap (see Pitfalls section).
+The v2.2 reconciler extends an established pattern already in this codebase: `campaign_gap.py` and `campaign_utils.py` are pure-logic modules with zero Django-request concerns, imported by views — not the other way around. The reconciler is the third member of this family, living in a new `solsys_code/campaign_reconciler.py` module (not a views-module helper). This resolves an existing anti-pattern where `backfill_range_calendar_events` imports a private `_project_calendar_event()` function from the views layer — both the reconciler and any future management command should import shared logic from the same logic-layer home.
 
-Three major integration patterns emerge:
+**Major components:**
 
-1. **`campaign_gap.claimed_dates()` asset-aware rewrite** — currently it expands a single `obs_date` into a one-day claim; the new version must distinguish ground vs. space-mission runs: ground claims every date in `[window_start, window_end]`, space missions claim nothing unless `window_start == window_end` (narrowed to a single night). This is the real differentiator work.
-2. **CSV import range/TBD parsing** — `parse_obs_window()` currently raises on any non-`YYYY-MM-DD` input; must now accept ranges ("Aug 1-15", "2026-08-01 to 2026-08-15") and TBD prose ("TBD pending Cycle 2"), setting `window_needs_review=True` for anything not exactly matched and never raising (no more "true natural-key failure" skip-and-log — TBD rows are *valid* entries with `window_start=NULL`).
-3. **Fuzzy-match site-disambiguation UI** — add `fuzzy_match_observatories()` helper and interactive `render_site()` branch to `ApprovalQueueTable`, gated on the `show_actions` flag already used by the read-only decided table; generates ranked `Observatory` candidates for a staff member to click, never auto-selecting.
+1. **`campaign_reconciler.py` (new)** — Four-stage window pipeline: `_stage_for()` dispatcher (pure `if`/`elif`, no query), stage-specific window functions (`_site_window()`, `_class_wide_window()`, `_record_window()`), bulk query strategy (3 queries total to fetch runs + prefetch records + bulk-load existing companion rows, independent of run count), and write path (delegates unchanged to existing `insert_or_create_calendar_event()` with no new create-or-update code). Never imports `solsys_code.views` or `solsys_code.ephem_utils` (same SPICE-avoidance contract `campaign_gap.py` already states).
 
-**Critical integration bug to fix in parallel:** `CampaignRunDecisionView.post()` unconditionally re-calls `resolve_site()` on every approve, overwriting `run.site`/`run.site_needs_review` regardless of whether a human already resolved it. Must add a guard: `if run.site_id is None: run.site = resolve_site(...)`  — this fix is essential to ship with the new site-disambiguation UI, or staff disambiguation gets silently clobbered.
+2. **Generalized companion record** — `CalendarEventTelescopeLabel` gains a nullable `run` FK to `CampaignRun` (`on_delete=SET_NULL`), giving runs a one-to-many relation to events via the existing OneToOne sidecar. The event↔companion relation itself stays OneToOne (no cardinality change there); many-to-one comes from many companion rows pointing at the same run. **Critical: The related_name `telescope_label_meta` stays unchanged** — renaming it breaks template/prefetch strings with no static check. The model class itself is renamed (closing the pending naming todo), but the `related_name` doesn't need to change.
 
-### Critical Pitfalls (Risk Mitigation Required)
+3. **Attribution surface (new)** — Staff-facing "suggested associations" queue modeled on existing `ApprovalQueueView` pattern. Never auto-confirms; per-candidate evidence (matched telescope/date/campaign, visible date-overlap/string-similarity signals) required. Uses a through-model carrying `is_confirmed` flag (not a plain M2M), reusing the one-bit-flag idiom already established by `CalendarEventTelescopeLabel.is_verified`.
 
-**Pitfall 1: NULL window_start defeats `UniqueConstraint` — reopens Phase 14's WR-05 race condition.** Both SQLite and PostgreSQL treat NULL as never-equal-to-itself, so two `CampaignRun` rows with identical `(campaign, telescope_instrument)` and `window_start=NULL` do not collide — unlimited duplicate TBD rows can silently accumulate under concurrent imports. **Fix:** Use `condition=Q(window_start__isnull=False)` on the constraint; TBD rows need a *different* dedup key (e.g. `window_start` itself is no longer the full story, a spike decision needed). Without this, the migration phase must explicitly test the "two TBD rows don't silently merge" scenario.
+4. **Wire into callers** — `CampaignRunDecisionView.post()` (approve/resolve_site/mark_cancelled/mark_weather_failure branches) calls `reconcile_run(run)`. New `reconcile_campaign_runs` management command wraps `reconcile_runs()` with `--dry-run` flag.
 
-**Pitfall 2: Widening `Observatory.obscode` model field alone is insufficient.** `solsys_code_observatory/forms.py`'s `CreateObservatoryForm` independently declares `max_length=3, min_length=3` (hardcoded, not derived from the model). After a migration widens the model field, a staff member trying to create an `Observatory` for JWST's `500@-170` through the web form still gets a validation error. Also, `resolve_site()`'s call to `MPCObscodeFetcher.query()` tier 2 will uselessly hit the MPC API for every spacecraft code (which can never resolve). **Fix:** Update `CreateObservatoryForm` to accept the new max length *in parallel* with the model migration; short-circuit tier 2 for codes that don't look like real MPC codes (contain `@`, exceed the traditional 3-4 char convention).
+### Critical Pitfalls (Top 5)
 
-**Pitfall 3: Fuzzy-match UI must never auto-select.** The temptation is to auto-select the top-scoring candidate above a threshold (fewer clicks for staff). This silently reintroduces the exact "fabricate a placeholder" bug quick task 260705-l1v just fixed, except now it's "silently pick the wrong existing site" which looks correct everywhere downstream (ephemeris, timezone, coverage-gap) with no warning flag. Ambiguous names like "VLT" or truncated spellings are exactly where fuzzy matching fails most, and they're exactly the inputs a public submitter (unvetted free text on the form) will provide. **Fix:** Fuzzy-match must always present *candidates for a human to pick*, never auto-select. Keep `resolve_site()`'s exact-match and API tiers as the only code paths that set `site` without human interaction; fuzzy is UI-only.
+1. **Companion-record rename breaks silent integration points** — Four integration points reference the old name or its `related_name`: `admin.py` import, `sync_lco_observation_calendar.py` import, `views.py` prefetch string, `calendar.html` template lookups. Must re-verify all four in the same commit as the rename migration. Prevention: grep-verify the checklist, prefer keeping `related_name` unchanged (safest).
 
-**Pitfall 4: Natural-key dedup mechanism breaks for TBD rows if reusing CR-02's offset hack.** Phase 14's CR-02 workaround adds a per-batch second-offset to `ut_start` to dedup rows that both fail UT-time parsing (making them look different). Once TBD rows genuinely have `ut_start=NULL`, there's nothing to offset — the same rows collide again. **Fix:** CSV import needs an explicit TBD-row disambiguator separate from the offset trick (e.g. a content-hash of the raw cells), decided in the spike.
+2. **`run` FK added as required/CASCADE or NULL** — Existing `CalendarEventTelescopeLabel` rows (all LCO/SOAR/Gemini/classical-sync rows) have no `CampaignRun` at all. Must be `null=True, blank=True, on_delete=SET_NULL` so migration is a no-op data-wise; `CASCADE` destroys operator verification history. Prevention: migration reviewed for `null=True`/`SET_NULL`; no `RunPython` backfill.
 
-**Pitfall 5: New window fields can break `insert_or_create_campaign_run()`'s `lookup` / `fields` contract.** The function treats `lookup` (natural key) and `fields` (update-only) as disjoint sets by contract. Once the natural key changes and new fields are added, it's easy to accidentally include a field in both dicts without noticing. **Fix:** Re-derive the full field list for the CSV import call site explicitly before implementation; verify no field name appears in both `lookup` and `fields` dicts via a test assertion at the actual call site.
+3. **`source` field collides with existing unique constraints** — Adding `source` to constraint keys risks false collisions on future adapter writes. Keep `source` purely descriptive; let attribution (not the constraint) connect same-physical-run rows from different sources. Prevention: spike tests pk=1/11-LCO-events (both coexist without `IntegrityError`).
+
+4. **Attribution auto-links on loose heuristics** — Date+telescope overlap alone misses the measured case (pk=1 has one-day date discrepancy, instrument strings don't match). Must design against that fixture from day one. Hard filter on target/campaign. Prevention: attribution test includes pk=1 pair; dry run surfaces it with visible evidence.
+
+5. **Reconciler not actually idempotent across stage transitions** — Must design one canonical key scheme per run stable across all stages. Route every write through `insert_or_create_calendar_event()`. Prevention: run twice; assert zero `CalendarEvent.objects.count()` change and zero `modified` churn.
+
+---
 
 ## Implications for Roadmap
 
-Research indicates a clear, dependency-ordered build sequence. The milestone explicitly includes a phase-time investigation spike (not a separate preceding research phase) — everything below assumes the spike confirms the architecture recommendations.
+Based on research, suggested phase structure (6 phases):
 
-### Suggested Phase Sequence
+### Phase 26: Spike — Natural Keys & Attribution Strategy
 
-**Phase 0: Investigation Spike (Within Milestone Scope)**
-- **Rationale:** Multiple open decisions (exact window schema, TBD natural-key replacement, CSV range/TBD parsing patterns, fuzzy-library choice, obscode max-length target) must be decided against real 3I sheet rows before implementation, not discovered afterward.
-- **Delivers:** Confirmations of: window field names/nullability, natural-key for TBD rows, space-mission "narrowing trigger" rule (when does `window_start == window_end` claim dates?), CSV range/TBD shapes found in the real sheet, fuzzy-library tradeoff decision, safe obscode length target (8 chars sufficient for all spacecraft?).
-- **Avoids:** Pitfalls 1, 2, 5 (all require spike-decided schema before implementation).
-- **Research flag:** None — spike is research by definition; proceed with the ARCHITECTURE.md recommendations as the default proposal to validate.
+**Rationale:** This must come first; every other phase depends on decisions here.  
+**Delivers:** Natural-key semantics under `source`, per-adapter identity mapping, migration/backfill strategy, attribution heuristic shape.  
+**Must-have:** Reproduce pk=1/11-LCO-events scenario as executable test; document source enum and constraints; settle companion-record rename decision with four integration-point checklist.
 
-**Phase 1: `Observatory.obscode` Max-Length Widening**
-- **Rationale:** Small, independent, hard-blocker for all space-mission work downstream. No space-mission `Observatory` row can exist (and no asset-type distinction can be validated) until this lands. Ship it *before* the `CampaignRun` schema migration to reduce blast radius.
-- **Delivers:** `Observatory.obscode` CharField widened (per spike confirmation, likely 8 chars); `CreateObservatoryForm.obscode` updated in parallel; tier-2 MPC API short-circuited for spacecraft-style codes; migration verified against existing `Observatory` rows.
-- **Implements:** ARCHITECTURE A1's "Blocking prerequisite" section, fully addressing Pitfall 3.
-- **Testing:** Manual/UAT — a staff user creates an `Observatory` for an 8-character spacecraft code through the actual web form (not just ORM), and `resolve_site()` respects it without re-querying the MPC API.
+### Phase 27: Schema Changes — `source`, `telescope_class`, Companion Generalization
 
-**Phase 2: `CampaignRun` Window-Field Schema Migration**
-- **Rationale:** Largest blast-radius change (touches `CampaignRunTable`, `ApprovalQueueTable`, `CampaignRunSubmissionForm`, `CampaignRunDecisionView`, import pipeline, gap analysis). Land it as its own phase before downstream features, per ARCHITECTURE A4's checklist. Prerequisite: Phase 1 complete (obscode has no dependency on this, so Phase 1 is truly independent; vice versa is not true).
-- **Delivers:** `window_start`/`window_end` DateFields added, `window_needs_review` sidecar flag; `obs_date` removed; `UniqueConstraint` replaced with window-keyed version + `condition=Q(window_start__isnull=False)` partial-index guard (both SQLite 3.8.0+ and PostgreSQL); data migration existing `obs_date` rows to `window_start=window_end=obs_date`; `ut_start`/`ut_end` retained and re-audited for dependencies; all consumers updated (table columns, form fields, view kwargs, import pipeline).
-- **Implements:** ARCHITECTURE A1 schema recommendation, addressing Pitfall 1.
-- **Testing:** Two explicit test cases: (a) a single TBD row round-trips correctly; (b) two distinct TBD rows for the same campaign+telescope via concurrent/re-run import both fail to merge into one row and don't silently duplicate under the DB constraint.
+**Rationale:** These three schema additions are independent and execute spike decisions directly.  
+**Delivers:** Three separate migrations (not combined); `source` + `telescope_class` on `CampaignRun`; `observation_records` M2M with through-model; companion rename/FK addition.  
+**Avoids Pitfalls:** 1 (re-verified integration points), 2 (`null=True`/`SET_NULL`), 3 (`source` out of constraints), 11 (non-web adapters' `approval_status` set explicitly).
 
-**Phase 3: Asset-Aware Coverage-Gap Analysis**
-- **Rationale:** Depends only on Phases 1 & 2 (needs window schema + asset-type to be checkable). Can run in parallel with Phase 4 (CSV parsing) once Phase 2 lands. This is the real differentiator work — the complex, value-add logic.
-- **Delivers:** `campaign_gap.claimed_dates()` rewritten to distinguish ground vs. space-mission runs; ground claims every date in window, space missions claim nothing unless narrowed to single night (per spike's narrowing-trigger decision). New `pending_narrowing_runs` list bucket surfaced in gap-analysis view alongside existing `undated_runs`/`unattributed_runs`.
-- **Implements:** ARCHITECTURE A2, Features differentiator "asset-aware coverage-gap analysis".
-- **Testing:** Gap analysis against a real mix of ground and space-mission rows shows ground dates claimed, space-mission wide windows not claimed, narrow windows claimed.
+### Phase 28: Reconciler Core — Four-Stage Pipeline
 
-**Phase 4: CSV Import Range/TBD Parsing**
-- **Rationale:** Depends only on Phase 2 (needs window schema). Can run in parallel with Phase 3. Mirrors the existing narrow-regex precedent from `_HHMM_RANGE`/`_APPROX_HOUR`/`_BARE_HOUR_UTC` — enumerate actual shapes from real 3I sheet during spike, one pattern per shape, fall back to `window_needs_review=True` never raise.
-- **Delivers:** `parse_obs_window()` rewritten to accept ranges and TBD text; "true natural-key failure" case eliminated (no more raises, TBD rows with `window_start=NULL` are valid); explicit TBD-row disambiguator (content-hash per spike) replaces CR-02's offset trick for the new case; paired demo notebook `import_campaign_csv_demo.ipynb` updated if behavior changes.
-- **Implements:** ARCHITECTURE A3, addressing Pitfall 2 and Pitfall 4.
-- **Testing:** Two distinct TBD rows in one CSV import produce two distinct `CampaignRun` rows (not merged); range like "Aug 1-15" parsed correctly; unrecognized text like "TBD pending Cycle 2" accepted with `window_needs_review=True`.
+**Rationale:** Blocks view wiring and attribution; must not be blocked by attribution.  
+**Delivers:** `campaign_reconciler.py` with stage dispatcher/window functions/bulk query strategy; `reconcile_campaign_runs.py` command; idempotency test (two runs, zero writes).  
+**Must-have:** Never imports views/ephem_utils; fixture with unrelated event proves it survives untouched; pk=1/11-LCO proves reconciler is blind to unlinked events; non-UTC-friendly sites in date-boundary tests.  
+**Avoids Pitfalls:** 5–7 (stable key, no-churn reuse, ownership scoping), 9–10 (bounds, batch isolation), 13 (timezone semantics).
 
-**Phase 5: Site-Disambiguation UI (Fuzzy-Match Dropdown)**
-- **Rationale:** Has *no dependency* on Phases 2-4 (it only touches `Observatory` resolution, not scheduling fields). Can run first, last, or in parallel with the window/asset work. The one hard rule: the `CampaignRunDecisionView.post()` guard fix (B4) must ship in the *same phase* as the new `CampaignRunSiteResolutionView` endpoint (B3), never split.
-- **Delivers:** `fuzzy_match_observatories()` helper in `campaign_utils.py` (using difflib or rapidfuzz per spike decision) accepting `name`/`short_name`/`old_names` candidates; `ApprovalQueueTable.render_site()` interactive branch gated on `show_actions`; new `CampaignRunSiteResolutionView` (StaffRequiredMixin, POST-only) for resolving a site to a fuzzy candidate or free-text fallback (→ existing `CreateObservatory` form with `?next=` back to approval queue); **critical fix**: `CampaignRunDecisionView.post()` guarded to skip `resolve_site()` if `run.site_id is not None` (avoid clobbering human choices).
-- **Implements:** ARCHITECTURE B1-B4, Features differentiator "approval-queue site-disambiguation UI", addressing Pitfall 3.
-- **Testing:** Ambiguous free-text site name (not exact typo) always requires explicit human click before `site` is set; `site_needs_review` never silently flips to `False` via auto-select. Staff can resolve a site via the UI, then click Approve without the site being clobbered.
+### Phase 29: Wire Reconciler into Views & Commands
 
-**Phase 6: VIEW-05 Submitter Contact Opt-In**
-- **Rationale:** Fully independent (one new form field + conditional submission logic). Good low-risk final phase or can run anywhere. No dependency on any above phases.
-- **Delivers:** New `contact_person_opt_in` (or equivalent) BooleanField on submission form; contact fields only populated if opt-in checked; submission-form and table-view logic updated.
-- **Implements:** Features table-stakes "VIEW-05 combined submitter contact opt-in".
-- **Testing:** Opting out omits contact from the submitted row; opting in populates it.
+**Rationale:** Depends on Phase 28 existing; uses Phase 27 schema.  
+**Delivers:** `CampaignRunDecisionView.post()` calls `reconcile_run(run)`; deletes old `_project_calendar_event()` and friends.  
+**Must-have:** All existing tests pass; 19 invisible 3I/ATLAS runs now have calendar events.
 
-### Phase Ordering Rationale
+### Phase 30: Attribution Surface — Operator-Assisted Linking
 
-1. **Spike first** (implicit, within milestone scope) — settles all open decisions.
-2. **Phase 1 (obscode)** is the true root blocker and smallest-blast-radius change; ship it independently before the big schema migration.
-3. **Phase 2 (window schema)** is the foundation every downstream feature depends on; land it early and thoroughly.
-4. **Phases 3-4 (gap analysis + CSV parsing)** can run in parallel once Phase 2 lands — both are "consumers" of the new schema, not interdependent.
-5. **Phase 5 (site UI)** and **Phase 6 (contact opt-in)** are independent of the above; can run any time, but Phase 5's B4 guard fix is entangled with B3 (must ship same phase).
+**Rationale:** Depends on Phase 27 schema + Phase 28 reconciler; needed before first production reconcile (see operational note below).  
+**Delivers:** Staff "Suggested Associations" queue with per-candidate evidence; confirm/reject actions; unlink affordance.  
+**Must-have:** pk=1 fixture surfaces with visible evidence; target-hard-filter prevents cross-target matches; confirmation is per-candidate and logged; reversible.  
+**Avoids Pitfalls:** 4 (fixture-driven attribution), 5 (undo implemented).
 
-### Parallelization Opportunity
+### Phase 31: Retire Old Code
 
-Once Phase 2 (schema migration) lands:
-- Phases 3 & 4 can run concurrently (asset-gap vs. CSV parsing, both ready immediately after schema).
-- Phase 5 & 6 can run any time, independent of everything else, even starting before Phase 2 if preferred.
+**Rationale:** Only after Phase 29 proves all reconciler call sites are in place.  
+**Delivers:** Delete `_project_calendar_event()`, related helpers, `backfill_range_calendar_events.py`.  
+**Must-have:** All tests pass after deletion.
+
+### Operational Note
+
+**Attribution must run before the first full production reconcile.** An unattributed first sweep will create fresh `CAMPAIGN:{pk}:{date}` events for nights that already have adapter-sourced events, producing visible double-booking until attribution links them. Run the attribution surface before or alongside the first `reconcile_campaign_runs` sweep.
+
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM | Fuzzy-library choice is explicitly disagreed between STACK.md and ARCHITECTURE.md (rapidfuzz quality vs. stdlib zero-dependency); both viable, spike must decide. Everything else (plain Django, DateFields, forms) is HIGH-confidence established pattern. |
-| Features | MEDIUM | Table-stakes features are well-grounded in reference systems and milestone intent (HIGH confidence). Differentiators (asset-gap, fuzzy UI) are less-commonly-implemented but well-understood pattern (MEDIUM confidence). Anti-features are sound (MEDIUM confidence). |
-| Architecture | HIGH | All findings grounded directly in this repo's current source code (models, views, forms, utils, migrations). No external ecosystem research — this is pure integration design against known dependencies. |
-| Pitfalls | HIGH | All pitfalls are grounded in repo code inspection and empirically verified against SQL NULL-uniqueness behavior. Cross-verified against Django documentation and existing Phase 14 decisions (WR-05). |
-| **Overall** | **MEDIUM-HIGH** | Roll-up of above. The spike (resolving the MEDIUM stack point and confirming architecture recommendations) is the only significant risk item before implementation can proceed with HIGH confidence. |
+| **Stack** | **HIGH** | Direct reads of installed tomtoolkit source; Django ORM operations are long-stable (predate Django 4). |
+| **Features** | **MEDIUM** | Cross-checked against LCO/Gemini/ESO/ALMA/JWST real systems. Attribution heuristics and stage-2 semantics drawn from domain research; spike will validate. |
+| **Architecture** | **HIGH** | Grounded in direct inspection of existing `solsys_code/` modules. Pattern (pure-logic modules, not views helpers) already established. |
+| **Pitfalls** | **HIGH** | Most from measured dev-DB hazards (19 invisible runs, pk=1/11-LCO collision, FTN timezone). Tier-3 pitfalls confirmed by code inspection. |
 
-## Gaps to Address
+**Overall:** **HIGH** — Spike is the only phase requiring new design; every subsequent phase executes established patterns.
 
-**During the phase-time investigation spike:**
-- Confirm window schema (field names, nullability, sidecar flags) against real 3I sheet rows imported with ranges/TBD text.
-- Decide the TBD-row natural key explicitly (is `window_start` alone sufficient, or does it need a secondary disambiguator?).
-- Enumerate actual CSV range/TBD text patterns in the real 3I sheet (don't guess a generic parser).
-- Decide fuzzy-library tradeoff (rapidfuzz quality vs. stdlib zero-dependency) via match-quality testing.
-- Confirm `Observatory.obscode` max-length target is safe for all real spacecraft codes (Gaia, Spitzer, JWST, HST, IceSat-2, etc. all use `@`-prefixed heliocentric/L2 MPC-style codes of similar length).
+### Gaps to Address
 
-**Before the site-disambiguation UI implementation phase:**
-- Establish logging/acceptance-rate tracking for fuzzy suggestions (for future threshold-tuning passes).
-- Document the "never auto-select, always require human click" rule explicitly in the plan's UAT criteria.
+1. **Stage-2 class-wide fan-out:** Does stage 2 create one event per candidate site or one class-wide event? Spike deliverable; impacts event count and presentation.
 
-**Before the gap-analysis phase:**
-- Decide the exact "narrowing trigger" rule (this document recommends `window_start == window_end`, but spike must validate against real JWST scheduling practices).
+2. **Per-run reconciliation-failed surface:** If reconciler runs as batch sweep (not just per-run), a retry queue is needed (like existing `site_needs_review`). Spike decision; Phase 28 implements accordingly.
 
-## Sources
-
-### Primary Research Files (HIGH confidence)
-
-- `.planning/research/STACK.md` — Technology stack recommendations for v2.1, including the rapidfuzz vs. difflib disagreement, version compatibility, and alternative considerations. Read 2026-07-05.
-- `.planning/research/FEATURES.md` — Feature landscape research covering table-stakes, differentiators, anti-features, reference-system comparisons (JWST APT, HST LRP, space-mission ToO literature). Read 2026-07-05.
-- `.planning/research/ARCHITECTURE.md` — Integration architecture for range/window scheduling, asset-type distinction, gap analysis, and fuzzy-match UI, grounded in current repo source. Read 2026-07-05.
-- `.planning/research/PITFALLS.md` — Five critical pitfalls with risk mitigation strategies, grounded in repo code inspection and SQL/Django documentation. Read 2026-07-05.
-
-### Project Context (HIGH confidence)
-
-- `.planning/PROJECT.md` — v2.1 milestone scope, Active requirements, Key Decisions log (D-04, D-05, D-08, D-09 re: natural keys; WR-01–WR-08 re: timeouts; CR-01, CR-02 re: offset disambiguation; 260705-l1v re: "never fabricate" invariant).
-- `solsys_code/models.py`, `solsys_code/campaign_*.py`, `solsys_code/solsys_code_observatory/models.py` — Current schema, views, forms, and utils (read 2026-07-05 for this research pass).
-
-### External Reference Systems (MEDIUM-LOW confidence)
-
-- [STScI Visit Status Help — JWST](https://www.stsci.edu/public/help/visit-help-JWST.html) — Official documentation for "plan window not yet assigned" state and ~8-week initial window. Used to validate the milestone's own window-narrowing architecture approach.
-- [JWST/HST documentation on scheduling windows and visit status](https://jwst-docs.stsci.edu, https://www.stsci.edu/hst/) — General web search, treated as MEDIUM-LOW confidence per this project's generic-webfetch-provider classification.
-- Space-mission ToO literature (JWST, ESO, Gemini public documentation) — Confirms response-time-class pattern (Rapid/Hard/Soft ToO) as orthogonal to this milestone's window-narrowing pattern; used to justify the "do not reuse Rap/Std model for community-submitted space-mission rows" anti-feature recommendation.
+3. **Date-boundary correctness:** Must test stage transitions against non-UTC-friendly real sites (Las Campanas, Siding Spring), not just UTC-convenient mocks. Phase 28 must include this.
 
 ---
 
-**Research completed:** 2026-07-05  
-**Ready for roadmap planning:** Yes — spike must precede all implementation phases to confirm the MEDIUM-confidence stack and architecture decisions.
+## Sources
+
+**PRIMARY (HIGH confidence):**
+- `.planning/research/STACK.md` — Direct inspection of installed package source; Django migration edge cases from community tickets
+- `.planning/research/ARCHITECTURE.md` — Direct reads of `solsys_code/` modules and management commands
+- `.planning/research/PITFALLS.md` — Measured dev-DB hazards; code-inspection confirmations; established precedents
+- `.planning/PROJECT.md` — Current Milestone v2.2 section, concrete defects (19 invisible runs, pk=1/11-LCO collision, FTN timezone gap)
+
+**SECONDARY (MEDIUM confidence):**
+- `.planning/research/FEATURES.md` — Facility tool research (LCO, Gemini, ESO, ALMA, JWST); OpenRefine reconciliation pattern
+
+---
+
+*Research completed: 2026-07-26*  
+*Confidence: HIGH*  
+*Ready for roadmap: YES*

@@ -1,234 +1,338 @@
 # Architecture Research
 
-**Domain:** Django/TOM-Toolkit campaign-coordination feature — v2.1 range/window scheduling, asset-type-aware gap analysis, and site-disambiguation UI
-**Researched:** 2026-07-05
-**Confidence:** HIGH (all findings grounded in current repo source, not external ecosystem research — this milestone is pure internal-integration design)
+**Domain:** Django/TOM Toolkit consolidation — canonical run record + idempotent calendar reconciler
+**Researched:** 2026-07-26
+**Confidence:** HIGH (grounded entirely in direct reads of `solsys_code/models.py`, `campaign_views.py`, `calendar_utils.py`, `campaign_gap.py`, `campaign_utils.py`, `telescope_runs.py`, `management/commands/backfill_range_calendar_events.py`, `sync_lco_observation_calendar.py`, `sync_gemini_observation_calendar.py`, and `tom_observations.facility.BaseObservationFacility` in the installed venv — no external/web sources needed for this question)
 
-This file supersedes the previous contents (dated 2026-07-02, about the v2.0 Campaign Coordination
-milestone's initial build) — that milestone shipped. This is a full rewrite scoped to the v2.1
-"Uncertain Scheduling & Site Disambiguation" milestone: how the new range/window scheduling,
-ground-vs-space-mission asset distinction, and fuzzy site-disambiguation UI integrate with the
-`CampaignRun`/`campaign_gap`/`ApprovalQueueTable` infrastructure v2.0 already shipped.
+This file supersedes the previous contents (dated 2026-07-05, about the v2.1 "Uncertain Scheduling &
+Site Disambiguation" milestone) — that milestone shipped. This is a full rewrite scoped to the v2.2
+"One Canonical Run Record" milestone: where the new companion-record generalization, `source`/
+`telescope_class` fields, `ObservationRecord` linkage, and the four-stage reconciler integrate with
+the `CampaignRun`/`campaign_views`/`calendar_utils` infrastructure v2.0-v2.1 already shipped.
 
 ## Standard Architecture
 
-### System Overview (current v2.0 state, annotated with where v2.1 lands)
+### Existing Layering (as built, verified by reading imports)
 
 ```
-+------------------------------------------------------------------------------+
-|                              Write path (staff)                              |
-|  ApprovalQueueView --renders--> ApprovalQueueTable (pending / decided)        |
-|        |                              |                                      |
-|        |                    [NEW v2.1] render_site() interactive branch      |
-|        |                    (fuzzy dropdown + free-text fallback)            |
-|        v                              v                                      |
-|  CampaignRunDecisionView       [NEW v2.1] CampaignRunSiteResolutionView       |
-|  (approve/reject, atomic       (POST site_pk or free-text, StaffRequired,    |
-|   conditional .update())        NOT gated on approval_status)                |
-|        |                              |                                      |
-|        +--------------+---------------+                                     |
-|                        v                                                     |
-|              CampaignRun.site / site_raw / site_needs_review                 |
-|              (via campaign_utils.resolve_site(create_placeholder=False))    |
-+------------------------------------------------------------------------------+
-                        |
-                        v
-+------------------------------------------------------------------------------+
-|                    CampaignRun (model) - schema change (v2.1)                |
-|  campaign, target, telescope_instrument, site, site_raw, site_needs_review   |
-|  [CHANGED] obs_date + ut_start + ut_end  ->  window_start/window_end (date)  |
-|            + ut_start/ut_end retained as OPTIONAL precise-time fields        |
-|  [CHANGED] UniqueConstraint(campaign, telescope_instrument, ut_start)        |
-|            ->  UniqueConstraint(campaign, telescope_instrument, window_start)|
-+------------------------------------------------------------------------------+
-                        |                                   |
-                        v                                   v
-+---------------------------------------+   +--------------------------------+
-|  campaign_gap.py - claimed_dates()     |   |  import_campaign_csv.py /      |
-|  [CHANGED] window expansion, gated on  |   |  campaign_utils.parse_obs_window|
-|  Observatory.observations_type ==      |   |  [CHANGED] range/TBD-tolerant  |
-|  SATELLITE_OBSTYPE (ground claims       |   |  parsing -> window_start/end,  |
-|  every date in window; space mission   |   |  window_needs_review flag       |
-|  claims none until window narrows)     |   |                                |
-+---------------------------------------+   +--------------------------------+
+┌───────────────────────────────────────────────────────────────────────┐
+│  VIEW LAYER (Django views — imports the logic layer, never the reverse)│
+│  campaign_views.py                                                     │
+│    - imports: calendar_utils, campaign_filters, campaign_forms,        │
+│      campaign_gap, campaign_tables, campaign_utils, mixins, models,    │
+│      telescope_runs                                                    │
+│    - does NOT import solsys_code.views / solsys_code.ephem_utils       │
+│      (explicit in its own module docstring — SPICE-avoidance contract) │
+├───────────────────────────────────────────────────────────────────────┤
+│  LOGIC LAYER ("campaign_*.py" pure-logic modules, no Django view deps) │
+│  calendar_utils.py   campaign_gap.py   campaign_utils.py               │
+│    - insert_or_create_  - claimed_dates()  - resolve_site()            │
+│      calendar_event()   - observable_dates() - parse_obs_window()      │
+│    - _extract_instrument - get_or_compute_gap() - build_site_candidates│
+│  telescope_runs.py (Stage 1 foundation: SITES, get_site(), sun_event())│
+├───────────────────────────────────────────────────────────────────────┤
+│  MANAGEMENT COMMANDS (import the logic layer directly — EXCEPT ONE)    │
+│  load_telescope_runs.py, sync_lco_observation_calendar.py,             │
+│  sync_gemini_observation_calendar.py, import_campaign_csv.py           │
+│    → import calendar_utils / campaign_utils. Correct pattern.          │
+│  backfill_range_calendar_events.py                                     │
+│    → `from solsys_code.campaign_views import _project_calendar_event`  │
+│    ⚠ THE ONE VIOLATOR: a management command importing a private        │
+│      (`_`-prefixed) symbol from a Django VIEWS module.                 │
+├───────────────────────────────────────────────────────────────────────┤
+│  MODEL LAYER                                                           │
+│  models.py: CalendarEventTelescopeLabel (1:1 sidecar on CalendarEvent),│
+│  CampaignRun (window_start/end, site FK, approval_status/run_status)   │
+│  Third-party: tom_calendar.CalendarEvent, tom_observations.            │
+│  ObservationRecord — FOMO can only extend these via its own sidecar/   │
+│  link models, never by editing the pip-installed model classes.        │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-### Component Responsibilities
+**Key structural fact confirmed by reading `campaign_gap.py`'s and `campaign_views.py`'s own module docstrings:** this codebase already has an established, working convention for exactly this kind of shared "logic core" module — `campaign_gap.py` states verbatim: *"a pure-logic helper module with no view/request concerns... must never import the heavy SPICE-loading ephemeris module... at module scope"* and is imported directly by `campaign_views.py` (`from .campaign_gap import clamp_date_range, get_or_compute_gap`). `campaign_utils.py` plays the identical role for site resolution / window parsing. The reconciler should be the third member of this family, not a private helper trapped inside `campaign_views.py`.
 
-| Component | Responsibility | New / Modified |
-|-----------|----------------|-----------------|
-| `solsys_code/models.py:CampaignRun` | Owns the scheduling fields and the natural-key `UniqueConstraint` | **Modified** — window fields + constraint change |
-| `solsys_code/solsys_code_observatory/models.py:Observatory` | `obscode` max length; `observations_type`/`SATELLITE_OBSTYPE` (already exists, reused not duplicated) | **Modified** — `obscode` max_length widened |
-| `solsys_code/campaign_gap.py` | Composes observable dates with claimed dates into a gap | **Modified** — `claimed_dates()` rewritten for windows + asset type |
-| `solsys_code/campaign_utils.py` | `resolve_site()` (unchanged contract, reused as-is), `parse_obs_window()` (rewritten), **new** `fuzzy_match_observatories()` | **Modified + new helper** |
-| `solsys_code/management/commands/import_campaign_csv.py` | Calls `parse_obs_window`, builds natural-key lookup for `insert_or_create_campaign_run` | **Modified** — call-site + natural-key lookup change |
-| `solsys_code/campaign_tables.py:CampaignRunTable` | Column definitions for `obs_date`/`ut_start`/`ut_end` | **Modified** — window columns replace date columns |
-| `solsys_code/campaign_tables.py:ApprovalQueueTable` | `render_site()` static badge | **Modified** — interactive dropdown branch, gated on `show_actions` |
-| `solsys_code/campaign_views.py:CampaignRunDecisionView` | Atomic approve/reject + calendar projection | **Modified** — guard against clobbering a manually-resolved site; CAL-01 field references re-checked against window fields |
-| `solsys_code/campaign_views.py` (new) | `CampaignRunSiteResolutionView` | **New** |
-| `solsys_code/campaign_forms.py:CampaignRunSubmissionForm` | Public intake fields | **Modified** — window fields replace `obs_date`/`ut_start`/`ut_end`; VIEW-05 opt-in flag added |
-| `solsys_code_observatory` `CreateObservatory` (existing CreateView) | Manual Observatory creation via MPC lookup | **Reused unchanged** as the "free-text -> create new Observatory" fallback destination, not reimplemented |
+### Component Responsibilities (existing, verified)
 
-## Part A — Range/Window Scheduling, Asset-Type Distinction, Gap Analysis
+| Component | Responsibility | File |
+|-----------|----------------|------|
+| `CampaignRun` | Canonical run record: campaign/target FKs, `telescope_instrument`, `site` FK (nullable), `window_start`/`window_end`, `approval_status`/`run_status` | `solsys_code/models.py:31` |
+| `CalendarEventTelescopeLabel` | 1:1 sidecar on `CalendarEvent` (`OneToOneField(primary_key=True)`), today only `is_verified` | `solsys_code/models.py:8` |
+| `_project_calendar_event()` | Builds and writes one `CalendarEvent` per night/day for a run (ground: per-night `sun_event()`; satellite: whole-window span). Raises `ValueError` on `sun_event()` failure (CR-01 contract) | `campaign_views.py:404` |
+| `_calendar_event_title()` | Single source of truth for event title text (base + window suffix) | `campaign_views.py:392` |
+| `_set_run_status()` | Updates every `CalendarEvent` whose `url` matches `CAMPAIGN:{pk}` or `CAMPAIGN:{pk}:*` when a run is marked cancelled/weathered | `campaign_views.py:742` |
+| `insert_or_create_calendar_event()` | No-churn create-or-update on an explicit `lookup` dict; used by all 4 writers today (classical, LCO, Gemini, campaign projection) | `calendar_utils.py:318` |
+| `sun_event(site, date, kind)` | Dip-corrected sunset/sunrise (`kind='sun'`) or -15° dark window (`kind='dark'`); raises `ValueError` if `site.timezone` unset or no 2 crossings | `telescope_runs.py:251` |
+| `claimed_dates()` | Reads `CampaignRun` only (window-based, asset-aware ground/satellite split); ignores `CalendarEvent`/`ObservationRecord` entirely | `campaign_gap.py:116` |
+| `backfill_range_calendar_events.py` | One-off command; per-run `.exists()` query in a Python loop (N+1 by construction); `.exclude(window_start=F('window_end'))` structurally skips every single-night run | `management/commands/backfill_range_calendar_events.py` |
 
-### A1. Recommended schema shape (feeds the milestone's phase-time spike, does not replace it)
+## Recommended Integration (v2.2)
 
-Replace `obs_date` (DateField) with `window_start`/`window_end` (both `DateField(null=True, blank=True)`):
+### New vs. Modified Components — explicit
 
-- A classically-scheduled single night imports as `window_start == window_end` (the "1-day window" the milestone explicitly calls for) — this is the *same* convention Stage 2's `load_telescope_runs` already uses conceptually for one-night-per-`CalendarEvent`, so it is not a new mental model for this codebase, just applied to `CampaignRun`.
-- A true range ("Aug 1-15") sets `window_start != window_end`.
-- A "TBD pending Cycle 2" row sets `window_start = window_end = None`, with a new `window_needs_review = BooleanField(default=False)` flag — this directly mirrors the existing `site_needs_review` sidecar-flag pattern already established on this same model, and the `ut_needs_review` return value `parse_obs_window()` already produces today. Reuse the pattern, don't invent a new one.
-- **Keep `ut_start`/`ut_end` as-is** (optional precise-time `DateTimeField`s). They are not part of "the range" the milestone is asking about — they exist for a *different* purpose: `CampaignRunDecisionView`'s CAL-01/CAL-02 calendar projection needs a precise `start_time`/`end_time` to create a `CalendarEvent`, which a date-only window cannot supply. Decoupling "what dates does this run claim" (window) from "does this run have a precise enough time to show on the calendar" (ut_start/ut_end) avoids conflating two different consumers of the same fields, and avoids forcing every range/TBD row to fabricate a fake time just to satisfy the calendar-projection code path.
+**New:**
+- `solsys_code/campaign_reconciler.py` — new pure-logic module, peer to `campaign_gap.py`/`campaign_utils.py`. Houses the four-stage pipeline: stage-decision function, per-stage window functions, the write path (delegates to `insert_or_create_calendar_event()`), and the bulk query/orchestration functions (`reconcile_run()`, `reconcile_runs()`). **Never imports `solsys_code.views` or `solsys_code.ephem_utils`** — same contract `campaign_gap.py`/`campaign_views.py` already state and test for (see Anti-Patterns/Sources below). Add a `TestNoHeavyEphemerisImport`-style static source-grep guard test mirroring `solsys_code/tests/test_campaign_gap.py:604`.
+- `solsys_code/management/commands/reconcile_campaign_runs.py` — new management command; thin CLI wrapper (`--dry-run`, optionally `--run <pk>`) around `campaign_reconciler.reconcile_runs()`. Replaces `backfill_range_calendar_events.py`.
+- Generalized companion model (rename/extend `CalendarEventTelescopeLabel`) — same table, additive nullable `run = models.ForeignKey(CampaignRun, null=True, blank=True, on_delete=models.SET_NULL, related_name='calendar_events')`. The event↔companion relation itself **stays `OneToOneField`** — it is the `run` FK on the companion, not the event↔companion cardinality, that turns "1 run → many events" real (many companion rows, one per event, can point at the same run). This is a low-risk additive-column migration, not a primary-key change.
+- `CampaignRun.source` (`TextChoices`: web submission / classical file / LCO queue / Gemini queue / CSV import) and `CampaignRun.telescope_class` (`2m0`/`1m0`/`0m4`, nullable) fields.
+- `CampaignRun.observation_records` — `ManyToManyField(ObservationRecord, blank=True, related_name='campaign_runs')` (per PROJECT.md's own stated design: "most likely a many-to-many declared on `CampaignRun`", since `ObservationRecord` is third-party and can't carry the FK itself).
+- Attribution surface (staff-facing "suggested associations" queue) — new view(s)/table analogous to the existing `ApprovalQueueView`/"Sites Needing Review" pattern already in `campaign_views.py`.
 
-**Natural key**: replace `UniqueConstraint(fields=['campaign', 'telescope_instrument', 'ut_start'])` with `UniqueConstraint(fields=['campaign', 'telescope_instrument', 'window_start'])`. This is a direct field swap, not a redesign — the constraint already relies on a nullable field today (`ut_start` is `null=True`), and SQL's NULL-is-distinct-from-NULL semantics already let multiple no-start-time `CampaignRun`s coexist without collision. `window_start` inherits that exact same nullable-natural-key behavior for TBD rows (multiple TBD rows for the same campaign+telescope simply never collide) — this is a continuation of existing behavior, not a new edge case introduced by this milestone. Phase 14's deterministic-offset hack (built to avoid two distinct unparseable-`ut_start` rows colliding) becomes unnecessary once `window_start=None` rows naturally don't collide — a net simplification worth calling out to whichever phase touches this.
+**Modified:**
+- `campaign_views.py`: `_project_calendar_event()` and the calendar-sync loop inside `_set_run_status()` are **deleted**; both the `approve`/`resolve_site` POST branches and `mark_cancelled`/`mark_weather_failure` call `campaign_reconciler.reconcile_run(run)` instead. `_calendar_event_title()` either moves into `campaign_reconciler.py` (preferred — it's pure title logic, no request/view concerns) or stays and is imported by the reconciler; either is fine, but it must have exactly one home, not two divergent copies (this is the exact class of bug CR-01/Pitfall-1 comments throughout this file already warn against).
+- `solsys_code/models.py`: `CampaignRun` gains `source`/`telescope_class`/`observation_records`; `CalendarEventTelescopeLabel` gains `run` (and probably gets renamed — see the milestone's "closes the pending 2026-07-02 naming todo" note; a rename is a `SeparateDatabaseAndState` migration concern, not a blocker, but do it in the same migration as the `run` FK addition to avoid two migrations touching the same table for the same conceptual change).
+- `campaign_gap.py`: **not modified in v2.2** (deliberately deferred — see Scaling/Anti-Patterns below). Must not be broken by the schema changes: `claimed_dates()` reads only `window_start`/`window_end`/`site`/`target`/`approval_status`/`run_status`, none of which change shape in v2.2.
+- `management/commands/backfill_range_calendar_events.py`: retired once `reconcile_campaign_runs.py` covers its cases (the milestone explicitly says the reconciler "retir[es] the backfill-command-per-gap pattern and `backfill_range_calendar_events` with it").
 
-**Blocking prerequisite**: `Observatory.obscode` is `CharField(max_length=4)`; `resolve_site()` already guards `len(code) > _MAX_OBSCODE_LEN` and refuses to create an Observatory for anything longer (flags `needs_review`, no row). JWST's `'500@-170'` (8 chars) can **never** resolve to an `Observatory` row until this field is widened via migration. Since the asset-type distinction (`Observatory.observations_type == SATELLITE_OBSTYPE`) is only checkable once `site` is a resolved FK, **no space-mission run can ever be asset-classified until this migration lands** — this is the single hardest dependency in the whole milestone and must be sequenced first (see Build Order).
+## Architectural Patterns
 
-### A2. `campaign_gap.claimed_dates()` — asset-aware window expansion
+### Pattern 1: Logic-layer module, not a views-module helper
 
-Current behavior (`solsys_code/campaign_gap.py:138-211`): one `CampaignRun` contributes at most one claimed date, derived from `obs_date` if set, else from `ut_start` via `_observing_night_date()` (a timezone-dependent local-noon convention that can raise for a blank-timezone site — the CR-02 fix already guards this with a log+skip).
+**What:** Shared business logic that must be callable from both a management command and a Django view lives in a standalone `campaign_*.py` module with zero Django-request/response concerns, imported *by* the views module — never the other way around.
 
-New behavior required:
+**When to use:** Any time a symbol needs two call sites where one is a management command. `backfill_range_calendar_events.py`'s `from solsys_code.campaign_views import _project_calendar_event` is the counter-example to fix, not a pattern to extend.
 
+**Why this resolves the "circular import" framing of the question:** there is no actual circularity risk once the reconciler lives in `campaign_reconciler.py`, because the dependency graph is already a DAG in this codebase (`campaign_views.py` → `{calendar_utils, campaign_gap, campaign_utils, telescope_runs}`, never the reverse). Adding `campaign_reconciler.py` as one more logic-layer module that `campaign_views.py` imports, and that management commands *also* import directly, keeps the graph a DAG:
+
+```
+campaign_reconciler.py  <-- campaign_views.py   (view calls reconciler)
+        ^
+        +----------------  reconcile_campaign_runs.py  (command calls reconciler)
+```
+
+No edge from `campaign_reconciler.py` back to `campaign_views.py` is ever needed — the reconciler doesn't need anything view-specific (no request, no messages framework, no redirect). The two current view-side error-handling differences (`approve()` swallows a `sun_event()` `ValueError` and keeps the approval; `resolve_site()` does not revert but leaves `site_needs_review=True` on failure) stay in `campaign_views.py` as thin try/except wrappers *around* calls to the reconciler's pure functions — the reconciler itself should raise, not decide UI-facing recovery behavior, exactly as `_project_calendar_event()` already documents it does today (its docstring: "this helper does NO error-handling of its own for genuine failures; callers own revert-vs-non-revert behavior").
+
+**Example (shape, not final code):**
 ```python
-def claimed_dates(campaign, target, site) -> tuple[set[date], list, list, list]:
+# solsys_code/campaign_reconciler.py
+def reconcile_run(run: CampaignRun) -> ReconcileResult:
+    """Idempotent: (re)computes and writes every CalendarEvent this run should have,
+    for its current stage. Never imports solsys_code.views/.ephem_utils."""
     ...
-    claimed: set[date] = set()
-    undated_runs: list[CampaignRun] = []       # window_start is None entirely
-    pending_narrowing_runs: list[CampaignRun] = []  # NEW: space-mission run with a real
-                                                      # but not-yet-narrowed window
-    for run in qs:
-        if run.window_start is None:
-            undated_runs.append(run)
-            continue
-        end = run.window_end or run.window_start           # 1-day window default
-        is_space_mission = site.observations_type == Observatory.SATELLITE_OBSTYPE
-        if is_space_mission and run.window_start != end:
-            # Recommendation: a space-mission run only "claims" once its window has
-            # narrowed to a single concrete day (window_start == window_end) -- a genuine
-            # multi-day/range window from a space mission claims nothing yet.
-            pending_narrowing_runs.append(run)
-            continue
-        d = run.window_start
-        while d <= end:
-            claimed.add(d)
-            d += timedelta(days=1)
-    return claimed, undated_runs, unattributed_runs, pending_narrowing_runs
+
+# campaign_views.py
+from .campaign_reconciler import reconcile_run
+...
+try:
+    reconcile_run(run)
+except ValueError:
+    ...  # existing approve()-specific swallow, unchanged in spirit
+
+# management/commands/reconcile_campaign_runs.py
+from solsys_code.campaign_reconciler import reconcile_runs
 ```
 
-Notes for whichever phase implements this:
-- `site` is already a required parameter to `claimed_dates()` (it's the campaign-scoped `Observatory` selected in the gap-analysis form), so `site.observations_type` is available with zero new plumbing — the asset-type check is a one-line addition to an already-passed argument, not a new dependency.
-- Since `window_start`/`window_end` are plain `DateField`s (no time-of-day), the whole `_observing_night_date()` helper (and its timezone lookup, `ZoneInfo`, and blank-timezone `ValueError` guard) becomes **dead code** once the schema migration lands — it existed only to derive a date from a `ut_start` *timestamp*; a *window* is already a date. Removing it is a real simplification opportunity, not just a nice-to-have — flag it to the plan-writer so it isn't left as unreachable code.
-- `pending_narrowing_runs` is a genuinely new bucket the gap-analysis view/template must surface (today the template already has a symmetric slot for `undated_runs`/`unattributed_runs` — see `campaignrun_gap_analysis.html:53-64` — so this is an additive third list in the same pattern, not a new UI concept).
-- `_compute_gap()`'s `gap = obs - claimed` computation itself does not change; only what feeds `claimed` changes. `observable_dates()` is untouched by this milestone entirely.
-- The exact space-mission "narrowing trigger" (`window_start == window_end` is this document's recommendation) is explicitly called out in PROJECT.md as a spike question — treat the code above as the default proposal to validate against real 3I sheet rows in the phase-time spike, not a settled decision.
+### Pattern 2: Four-stage window pipeline as pure functions over already-loaded data
 
-### A3. CSV import (`import_campaign_csv` / `campaign_utils.parse_obs_window`)
+**What:** One function per stage that takes already-fetched Python objects (never issues its own query) and returns an event window (or `None` if that stage doesn't apply), plus one dispatcher that picks the highest applicable stage per run/night.
 
-Current contract (`campaign_utils.py:186-244`): `obs_date_raw` **must** parse as `%Y-%m-%d` or the function raises (D-05 "true natural-key failure", causing `import_campaign_csv` to skip-and-log the row); `ut_range_raw` is always best-effort with a midnight-UTC fallback.
+**Decomposition, grounded in what already exists:**
 
-Required change: extend the same best-effort discipline to the date column itself, since the milestone explicitly states a range/TBD cell "must import ... instead of being silently dropped." Recommended shape:
+| Stage | Condition (from `run`/linked data, no new query) | Function | Reuses |
+|---|---|---|---|
+| 1 | `run.site` set (a specific `Observatory`, not class-wide) | `_site_window(run.site, night) -> (start, end)` | `sun_event(site, night, kind='sun')` — **identical** to the existing ground branch inside `_project_calendar_event()` (lines 468-486 today); this is a lift-and-shift, not new logic. |
+| 2 | `run.site is None and run.telescope_class` set | `_class_wide_window(day) -> (start, end)` | New, trivial: `datetime.combine(day, time(0,0), utc)` .. `datetime.combine(day, time(23,59), utc)` — same idiom `_project_calendar_event()` already uses for the satellite branch (line 442-443), just for a day instead of a whole window span. |
+| 3 | A linked `ObservationRecord` exists whose window overlaps `night`, and it is not yet in a facility terminal-success state | `_record_window(record) -> (start, end)` | `record.scheduled_start`/`scheduled_end` if set, else `record.parameters['start']`/`['end']` — this is exactly `sync_lco_observation_calendar._time_window()` and `sync_gemini_observation_calendar`'s window derivation generalized; since `ObservationRecord` fields are facility-agnostic (`scheduled_start`, `scheduled_end`, `parameters`), one function suffices across LCO/Gemini/(future ESO). |
+| 4 | The linked record's `status` is a **success** terminal state | reuses stage 3's window function (same field), plus a status→"COMPLETED" title/marker | `record.status == 'COMPLETED'` is the convention `sync_lco_observation_calendar.py`'s TERM-01 logic already special-cases (clean title on `COMPLETED`, `[EXPIRED]`/`[CANCELLED]`/`[FAILED]` prefixes on the other terminal states from `BaseObservationFacility.get_terminal_observing_states()`). **Caveat, verified by reading `tom_observations/facility.py`:** `get_terminal_observing_states()` is a per-facility abstract method — the exact string vocabulary is *not* unified across LCO/Gemini/ESO today. CLAUDE.md already flags unifying the three status vocabularies as explicitly deferred to v2.3. Do not build a general "success" classifier in v2.2 beyond `status == 'COMPLETED'`, which is the one value observed to already work for LCO; treat any other terminal status as "stage 3, not stage 4" and leave finer-grained mapping to v2.3. |
 
-- Exact `YYYY-MM-DD` → `window_start = window_end = date`, `window_needs_review = False` (unchanged from today's success path, just renamed).
-- A recognizable range pattern (e.g. `"Aug 1-15"`, `"2026-08-01 to 2026-08-15"`) → `window_start`/`window_end` distinct, `window_needs_review = False`.
-- Anything else non-blank ("TBD pending Cycle 2", free prose) → `window_start = window_end = None`, `window_needs_review = True`. This **removes** the current `raise ValueError` path entirely — under the new contract there is no longer a "true natural-key failure" case for the date column at all, since the natural key now keys on `window_start` and a `None` value is a valid (if maximally ambiguous) natural-key member per A1's nullable-key reasoning. This is a deliberate behavior change from today's D-05 wording and should be called out explicitly to the plan-writer/spike, since it changes `import_campaign_csv`'s skip-and-log counters (a "TBD" row moves from `skipped` to `created`/`updated` with `window_needs_review=True`).
-- Follow the exact same "add a narrow regex for each confirmed real-sheet shape, never a permissive general-purpose date parser" discipline `_HHMM_RANGE`/`_APPROX_HOUR`/`_BARE_HOUR_UTC` already establish for the UT-time column — the spike's job is to enumerate the *actual* range/TBD shapes in the real 3I sheet (mirroring how the existing UT-time patterns were derived from "RESEARCH.md 'Real 3I/ATLAS Sheet -- Verified Shape'"), not to guess a generic parser up front.
+**Dispatcher:** `_stage_for(run, night, linked_record) -> int` — pure `if`/`elif` over already-loaded attributes, no query. Per-run, per-night the dispatcher picks stage 4 > 3 > 2 > 1 (highest applicable), matching the milestone's framing ("a classical TAC-awarded run simply stops at stage 1 because it never acquires records").
 
-### A4. Consumers that must be updated in lockstep with the schema change
+**Trade-off:** stage 3/4's per-night matching (which `ObservationRecord`, if the run has several, belongs to which night) is new logic that doesn't exist today (today's LCO/Gemini sync commands each own exactly one record → one event, with no "which night of a multi-night run" question). Keep this matching rule simple and explicit in code (e.g. "the record's own scheduled/parameters window's date falls on `night`"), and treat ambiguous cases (a record spanning multiple nights of a range run) as a known v2.2-scope decision to make explicitly during planning, not an implicit behavior.
 
-Because `obs_date`/`ut_start` currently appear as literal field names in several places outside `campaign_gap.py`, the schema migration phase's `files_modified` must include all of:
-- `solsys_code/campaign_tables.py` — `CampaignRunTable.Meta.fields` lists `obs_date`, `ut_start`, `ut_end` explicitly (line ~58-60); `order_by = ('-obs_date',)` (D-10) needs a new ordering field.
-- `solsys_code/campaign_forms.py` — `CampaignRunSubmissionForm.obs_date`/`ut_start`/`ut_end` fields and their crispy `Fieldset` layout.
-- `solsys_code/campaign_views.py:CampaignRunSubmissionView.form_valid()` — the explicit `CampaignRun.objects.create(... obs_date=..., ut_start=..., ut_end=...)` kwargs.
-- `solsys_code/campaign_views.py:CampaignRunDecisionView.post()` — the CAL-01 gate `if run.telescope_instrument and run.ut_start and run.ut_end:` stays keyed on `ut_start`/`ut_end` (unchanged, since calendar projection is decoupled from the window per A1), but any code that assumed `ut_start` was always populated for a "scheduled" run must be re-audited now that a range/TBD row may have `ut_start=None` while still having a real `window_start`/`window_end`.
-- `solsys_code/campaign_utils.py:insert_or_create_campaign_run()`'s caller in `import_campaign_csv.py` — the `lookup` dict currently keyed on `ut_start` must switch to `window_start`.
-- Paired demo notebook: `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` is not one of the four modules CLAUDE.md's demo-notebook rule names explicitly, but the same spirit applies — if `import_campaign_csv`'s behavior changes (new range/TBD parsing), its existing demo notebook and fixture (`campaign_sample.csv`) should be checked for staleness even though it isn't in the enforced list.
+### Pattern 3: Bulk query strategy to avoid the current N+1
 
-## Part B — Fuzzy-Match Site-Disambiguation UI
+**What people do today (the pattern to fix):** `backfill_range_calendar_events.py`'s `handle()` loops over `candidates` and, **inside the loop**, issues `CalendarEvent.objects.filter(Q(url=...) | Q(url__startswith=...)).exists()` per run — one query per candidate run, i.e. N+1 by construction (visible at `management/commands/backfill_range_calendar_events.py:66-68`).
 
-### B1. Where it plugs into the existing table/view pair
-
-`ApprovalQueueTable.render_site()` (`campaign_tables.py:111-137`) currently renders one of three states from a **shared** subclass used by *both* the pending table (`show_actions=True`) and the decided table (`show_actions=False`, explicitly documented as read-only). The interactive dropdown must be gated on the same `self.show_actions` flag already threaded through `__init__` for the `actions` column — **no new constructor parameter needed**, direct reuse of an existing mechanism:
+**What the reconciler should do instead — 3 queries total, independent of run count, for the "which runs need which events" decision phase (the per-event *write* itself is necessarily one query per created/updated `CalendarEvent`, same cost the codebase already accepts everywhere else via `insert_or_create_calendar_event()`):**
 
 ```python
-def render_site(self, record):
-    site_short_name = Accessor('site__short_name').resolve(record, quiet=True)
-    if site_short_name:
-        return site_short_name          # resolved -- unchanged
-    site_raw = Accessor('site_raw').resolve(record, quiet=True) or ''
-    if not self.show_actions:
-        return <today's static badge>   # decided table -- stays read-only, unchanged
-    # pending table, unresolved site -- NEW interactive branch
-    return self._render_site_disambiguation(record, site_raw)
+# Query 1: candidate runs, with site/campaign already joined (select_related — no N+1
+# for run.site.observations_type / run.site.timezone / run.campaign.name reads later).
+runs = (CampaignRun.objects
+        .filter(approval_status=CampaignRun.ApprovalStatus.APPROVED)
+        .exclude(run_status__in=_EXCLUDED_RUN_STATUSES)   # mirror campaign_gap's set
+        .select_related('site', 'campaign'))
+
+# Query 2: bulk-prefetch every linked ObservationRecord for those runs in one extra
+# query (Django's prefetch_related issues a single WHERE ... IN (...) for the M2M
+# through-table), not one query per run.
+runs = runs.prefetch_related('observation_records')
+
+# Query 3: bulk-fetch every companion row (and its CalendarEvent) already linked to
+# any of these runs, in ONE query, then group by run_id in Python.
+from collections import defaultdict
+companions = (CalendarEventCompanion.objects
+              .filter(run_id__in=[r.pk for r in runs])
+              .select_related('event', 'run'))
+existing_by_run = defaultdict(list)
+for c in companions:
+    existing_by_run[c.run_id].append(c)
 ```
 
-### B2. Fuzzy-candidate generation — new pure-logic helper, no new dependency
+The stage/window decision and the "does this run+night already have an event" check then both run entirely against in-memory data (`runs`, the prefetched `.observation_records.all()`, and `existing_by_run[run.pk]`) — no query inside the per-run/per-night loop except the unavoidable `insert_or_create_calendar_event()` write itself. This is a strict improvement over today's per-run `.exists()` call and is the direct fix for the literal N+1 pattern named in the question.
 
-Add `fuzzy_match_observatories(site_raw: str, candidates: Iterable[Observatory], limit: int = 5, cutoff: float = 0.5) -> list[Observatory]` to `campaign_utils.py`, next to `resolve_site()` (same module, same "never raise, return a usable value" discipline). Use stdlib `difflib.SequenceMatcher`/`get_close_matches`, scored against each Observatory's `name`, `short_name`, and each newline/comma-split entry of `old_names` (a free `TextField`), keeping the best score per Observatory.
+**One nuance worth flagging for the phase planner:** query 3 above only finds events already linked via the *new* companion `run` FK. It will **not** find the pre-existing, unlinked LCO/Gemini/classical `CalendarEvent`s for the same nights (the Didymos pk=1 double-representation case) — by design, per PROJECT.md ("These are not duplicates to be merged... The fix is attribution, not deduplication"). The reconciler is correct to be blind to those until attribution links them; do not add a second, url-string-based existence check into the reconciler to "catch" them — that would resurrect the exact fragile string-matching (`CAMPAIGN:{pk}` / `CAMPAIGN:{pk}:{date}`) this milestone is trying to retire in favor of the FK.
 
-**Do not add `rapidfuzz`/`thefuzz` as a new dependency.** `rapidfuzz` happens to be present in this venv, but only as a transitive dependency of `poetry`'s `cleo` package (confirmed via `pip show rapidfuzz` → `Required-by: cleo`) — it is not a FOMO runtime dependency and pinning on its accidental presence would be fragile. `difflib` is stdlib, matching this project's existing preference for stdlib over new packages where sufficient (the `zoneinfo` precedent noted in this project's own Constraints section). Observatory table size is small (dozens to low hundreds of rows), so `SequenceMatcher`'s O(n*m) string comparison is not a performance concern.
+## Data Flow
 
-**N+1 avoidance**: fetch `Observatory.objects.all()` **once** in `ApprovalQueueView.get_context_data()` (or in `ApprovalQueueTable.__init__`) and pass the materialized list into the table, rather than having `fuzzy_match_observatories()` re-query per row inside `render_site()`. This mirrors the exact N+1 lesson this codebase already learned and fixed once (`fomo_render_calendar`'s DISPLAY-09 prefetch, v1.6) — worth flagging explicitly since `render_site()` runs once per table row.
+### Reconciler Invocation (both call sites end up in the same function)
 
-### B3. New endpoint — do not fold into `CampaignRunDecisionView`
+```
+CampaignRunDecisionView.post()            reconcile_campaign_runs (mgmt command)
+  (approve / resolve_site /                        |
+   mark_cancelled / mark_weather_failure)           |
+        |                                           |
+        +--------------+----------------------------+
+                        v
+          campaign_reconciler.reconcile_run(run)
+                        |
+        +---------------+--------------------+
+        v               v                    v
+  _stage_for()   _site_window()/       insert_or_create_calendar_event()
+  (pure, no      _class_wide_window()/        |
+   query)        _record_window()             v
+                 (pure, uses already-   CalendarEvent created/updated +
+                  loaded run/record      companion row (is_verified, run=run.pk)
+                  attributes)            created/updated
+```
 
-Add `CampaignRunSiteResolutionView` (`StaffRequiredMixin`, `View`, `http_method_names = ['post']`) as a sibling to `CampaignRunDecisionView`, **not** a new `action` value inside it, because:
+### Key Data Flows
 
-1. `CampaignRunDecisionView.post()`'s conditional `.update()` is gated on `approval_status=PENDING_REVIEW` — site resolution must be actionable on *any* row (including already-approved/rejected ones, since staff may need to correct a site after the fact), so it cannot share that gate.
-2. The natural-key `UniqueConstraint` does not include `site`, so a site-only update never risks a constraint collision — this endpoint is uniquely low-risk and does not need the same atomic-conditional-update pattern SUBMIT-03 requires; a plain `run.site, run.site_needs_review = ...; run.save(update_fields=[...])` suffices, no new transaction pattern needed.
-3. Conflating "decide" (approve/reject, one meaning per POST) with "resolve site" (a different, independently-repeatable action) would break the existing `action in ('approve', 'reject')` validation contract and complicate `updated_count`-based messaging that currently assumes exactly two possible transitions.
+1. **Live path (new/changed run):** staff approves or resolves a site → `reconcile_run(run)` runs the four-stage dispatcher for every night in `[window_start, window_end]`, writes/updates events via `insert_or_create_calendar_event()`, and stamps the companion row's `run` FK — so a run created by *any* path (not just approve/resolve_site) becomes visible by simply being picked up by the next `reconcile_campaign_runs` sweep, closing the "visible by construction rather than by remembering to run the right backfill command" goal stated in PROJECT.md.
+2. **Batch path (sweep):** `reconcile_campaign_runs` management command runs the same 3-query bulk fetch + per-run dispatch over every eligible `CampaignRun`, replacing the narrow `.exclude(window_start=F('window_end'))` filter that currently makes `backfill_range_calendar_events.py` invisible to single-night runs (the concrete defect PROJECT.md names: "its dry-run reports 1 candidate across the whole database").
+3. **Attribution path (separate, human-in-the-loop):** a staff-facing surface (new, modeled on the existing `ApprovalQueueView`'s "Sites Needing Review" table pattern) surfaces suspected pre-existing `CalendarEvent`/`ObservationRecord` matches for a run (e.g. window/site/telescope overlap heuristics — ideally reusing the reconciler's own `_site_window`/`_record_window` overlap logic as the *suggestion* engine, so match logic is written once) and writes the companion `run` FK / `observation_records` M2M only on explicit staff confirmation — never a silent merge, per the milestone's own constraint.
 
-Accepts either `site_pk` (one of the fuzzy candidates, or any Observatory at all if the dropdown lists "browse all") or `site_raw_override` (free text). Free-text path calls `resolve_site(text, create_placeholder=False)` (the exact same call already used by `CampaignRunDecisionView`, reused not duplicated) — if that also misses, redirect to the **existing** `CreateObservatory` `CreateView` (in `solsys_code_observatory`, already MPC-code-driven) with a `?next=` back to the approval queue, rather than building a second Observatory-creation form. This satisfies "free-text resolve-or-create fallback" using the app's existing vetted creation path, and keeps `create_placeholder=False`'s "never auto-fabricate" invariant (quick task `260705-l1v`) intact — a human explicitly choosing to create via `CreateObservatory` is categorically different from the code silently fabricating a placeholder.
+## Scaling Considerations
 
-### B4. Required fix in `CampaignRunDecisionView` — must ship together with B3
+Not a user-scale concern (FOMO is a small internal/community coordination tool) — the relevant "scale" axis here is **number of `CampaignRun`s × nights per sweep**, and query count per sweep, not concurrent users.
 
-`CampaignRunDecisionView.post()` **unconditionally** calls `resolve_site(run.site_raw, create_placeholder=False)` on every approve (`campaign_views.py:302`), overwriting `run.site`/`run.site_needs_review` regardless of whether a human already resolved it via the new disambiguation UI. Without a guard, a staff member who manually fixes a site via B3 and then clicks Approve would have their choice silently clobbered back to whatever the automated tier-1/tier-2 resolver produces (or `None`/`needs_review=True` if it produces nothing). Required change: only call `resolve_site()` when `run.site_id is None` (i.e., skip re-resolution if a site is already set, whether by CSV auto-import, MPC auto-match, or a human's B3 pick). **This guard fix is not optional polish — it must land in the same phase/commit set as the new disambiguation endpoint**, or there is a window where the UI exists but silently doesn't stick.
+| Scale | Current backfill command | Reconciler (v2.2) |
+|---|---|---|
+| ~20-50 runs (today's real dev-DB scale) | ~50 `.exists()` queries + per-run event writes | 3 bulk queries + per-event writes (same write cost, structural query-count fix) |
+| A future full re-ingest sweep (all 4 adapters writing runs instead of events, v2.3 scope) | N/A — command doesn't cover this today | Same 3-query shape scales linearly in run count for the read side; write side is inherently O(events), matching every other writer in this codebase (`insert_or_create_calendar_event()` has no batch-write variant anywhere yet) |
 
-## Anti-Patterns to Avoid
+### Scaling Priorities
 
-### Anti-Pattern 1: Deriving "is space mission" from a new `CampaignRun` field
+1. **First real bottleneck, if it ever appears:** the per-event write in `insert_or_create_calendar_event()` is one query per event (a `get_or_create` or a proximity-window `filter().first()`), same as every existing writer. This was already an accepted trade-off in v1.2-v2.1 and is not something v2.2 should try to batch — doing so would be a much larger, riskier rewrite of shared write-path code well outside this milestone's stated scope.
+2. **Second:** if `reconcile_campaign_runs` is ever run unconditionally over the full history (not just approved/active runs), narrow the query-1 filter (e.g. exclude terminal `run_status` states, as `campaign_gap._EXCLUDED_RUN_STATUSES` already does) so the sweep doesn't re-touch settled historical rows every time — this is a filter tweak, not an architecture change.
 
-**What people might do:** add an `is_space_mission = BooleanField()` directly on `CampaignRun`.
-**Why it's wrong:** the milestone explicitly calls for reusing `Observatory.observations_type` — a `CampaignRun`-level flag would drift out of sync with the resolved `site`'s actual type, require manual double-entry, and duplicate data already modeled on `Observatory`.
-**Do this instead:** always derive it at read time from `run.site.observations_type == Observatory.SATELLITE_OBSTYPE` (guarding `run.site is not None` first, since an unresolved site can't be classified either way — it just doesn't claim, same as today).
+## Anti-Patterns
 
-### Anti-Pattern 2: Folding site-resolution into the atomic approve/reject `.update()`
+### Anti-Pattern 1: Management command importing a views-module private symbol
 
-**What people might do:** add a `site_pk` POST param to the existing `CampaignRunDecisionView` and update both `approval_status` and `site` in the same conditional `.update()`.
-**Why it's wrong:** breaks the existing `action in ('approve', 'reject')` two-state contract, couples an unrelated field to the approval-status gate (so site fixes on already-decided rows become impossible), and complicates the `updated_count` messaging logic that currently cleanly maps to "approved / rejected / already-decided / doesn't-exist".
-**Instead:** a separate, ungated `CampaignRunSiteResolutionView` (see B3).
+**What people did:** `backfill_range_calendar_events.py: from solsys_code.campaign_views import _project_calendar_event` — a management command reaching into a Django views module and importing an underscore-prefixed (explicitly-private) function.
 
-### Anti-Pattern 3: A generic/permissive date-range parser for the CSV importer
+**Why it's wrong:** (a) layering violation — management commands and views are peer consumers of logic, not consumers of each other; (b) the leading underscore is this codebase's own signal that the symbol has no external-stability contract (its docstring is written in "extracted from the approve branch" terms, i.e. it documents itself as an implementation detail of that view); (c) it made retiring/changing `_project_calendar_event()`'s signature a two-file concern instead of a one-file concern the day this milestone needs to change it.
 
-**What people might do:** reach for `dateutil.parser.parse()` or a broad regex to handle "any" range/TBD text in one shot.
-**Why it's wrong:** this codebase's `_HHMM_RANGE`/`_APPROX_HOUR`/`_BARE_HOUR_UTC` precedent deliberately uses narrow, sheet-verified regexes so a stray unrelated string can never "succeed" into a wrong-but-plausible date — a permissive parser reintroduces exactly the risk that precedent was built to avoid (RESEARCH.md Anti-Patterns, referenced in `campaign_utils.py`'s own docstring).
-**Instead:** enumerate the actual range/TBD shapes found in the real 3I sheet during the phase-time spike, and add one narrow pattern per confirmed shape, falling back to `window_needs_review=True` (never a raise, never a guess) for anything else.
+**Do this instead:** define the shared function in a logic-layer module (`campaign_reconciler.py`), have `campaign_views.py` import it (view depends on logic — correct direction), and have every management command import it from the same place. This is exactly the pattern `campaign_gap.py`/`campaign_utils.py` already established and that `campaign_views.py` already follows for those two modules.
 
-## Build Order (dependency-ordered)
+### Anti-Pattern 2: Treating `site=None` as one condition instead of two
 
-1. **Phase-time investigation spike** (already scoped in PROJECT.md, not a separate build phase) — confirms the exact window field names/nullability, the natural-key replacement, the space-mission narrowing-trigger rule, and the CSV range/TBD shapes, against real 3I sheet rows. Everything below assumes its output; treat this document's A1/A2/A3 recommendations as the default answer to validate, not a bypass of the spike.
-2. **`Observatory.obscode` max_length migration** (widen past 4 chars). Small, independent, and the hardest blocking dependency: no space-mission `Observatory` row (JWST-style) can exist without it, so the asset-type distinction cannot be validated against real data until this lands. Do this first, even before the `CampaignRun` schema migration, since it touches a different model and carries no risk to existing `CampaignRun` rows.
-3. **`CampaignRun` window-field schema migration** (`window_start`/`window_end` + `window_needs_review`, replace natural-key constraint, data-migrate existing `obs_date` rows to `window_start=window_end=obs_date`). This is the single biggest-blast-radius change (touches `CampaignRunTable`, `ApprovalQueueTable`, `CampaignRunSubmissionForm`, `CampaignRunSubmissionView.form_valid()`, `import_campaign_csv.py`, `insert_or_create_campaign_run()`, `campaign_gap.py`) — land it as its own phase before anything downstream, per A4's checklist.
-4. **Asset-aware gap analysis** (`campaign_gap.claimed_dates()` rewrite, A2) — depends only on #2 and #3. Can proceed in parallel with #5.
-5. **CSV import range/TBD parsing** (`parse_obs_window` rewrite, A3) — depends only on #3. Can proceed in parallel with #4. Remember the paired-notebook convention for anything touching `import_campaign_csv.py`'s behavior.
-6. **Site-disambiguation UI** (`fuzzy_match_observatories()`, `ApprovalQueueTable.render_site()` interactive branch, `CampaignRunSiteResolutionView`, `CampaignRunDecisionView.post()` guard fix) — has **no dependency on #2/#3/#4/#5** (it only touches `Observatory` resolution, not scheduling fields), so it can be built first, last, or in parallel with the window/asset work. The one hard internal-ordering rule: the B4 guard fix must ship in the same phase as B3's new endpoint, never split across phases.
-7. **VIEW-05 submitter contact opt-in** — fully independent (one new form field + one `ALLOWED_FIELDS_FOR_NON_STAFF`-style conditional). No dependency on any of the above; good candidate for a low-risk first or last phase depending on scheduling preference.
+**What people did:** today, `_project_calendar_event()` checks `if not (run.telescope_instrument and run.site and run.window_start and run.window_end): return False` — a class-wide allocation and a genuinely-unresolved site are structurally indistinguishable (both `site=None`), so a class-wide run currently gets **zero** calendar presence, silently.
 
-Recommended parallelizable grouping if running multiple phases concurrently: {2, 3} must be sequential (2 before 3 is not a hard dependency but is lower-risk-first); {4, 5} can run in parallel once 3 lands; {6} and {7} can run any time, independent of everything else.
+**Why it's wrong:** this is precisely the ambiguity PROJECT.md calls out as the reason `telescope_class` needs to exist as its own field, and it's why stage 2 of the pipeline can't be built on the current schema at all.
+
+**Do this instead:** `telescope_class` must land (schema phase) before stage 2 can be written; the dispatcher then branches on `run.site is not None` (stage 1) vs. `run.site is None and run.telescope_class` (stage 2) vs. neither (genuinely unresolved — no projection, same as today, `site_needs_review` stays the correct signal).
+
+### Anti-Pattern 3: Reconciler re-deriving the no-churn write contract
+
+**What people might be tempted to do:** write a new create-or-update helper inside `campaign_reconciler.py` because the four-stage pipeline's write shape ("narrow the window as more info arrives") feels different from the existing writers'.
+
+**Why it's wrong:** `insert_or_create_calendar_event()` already handles exactly this — SYNC-02→SYNC-03's "banner narrows to placed block" transition in `sync_lco_observation_calendar.py` is the *same* narrowing shape as stage-2→stage-3→stage-4 (each stage just supplies a tighter `fields['start_time']`/`fields['end_time']` and calls the same lookup key). The milestone text itself says as much: "`sync_lco_observation_calendar` already implements stages 3→4... this milestone makes that the general mechanism."
+
+**Do this instead:** the reconciler's job per run/night is to compute `(lookup, fields)` for the current stage and hand it to the existing `insert_or_create_calendar_event()` unchanged — zero new write-path code.
+
+## Integration Points
+
+### Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| `campaign_views.py` ↔ `campaign_reconciler.py` (new) | Direct Python import, function call | View owns POST validation, messaging, and the approve-swallow/resolve_site-no-revert error-handling asymmetry; reconciler owns pure stage/window logic and the write. |
+| `reconcile_campaign_runs.py` (new command) ↔ `campaign_reconciler.py` | Direct Python import, function call | Command owns CLI args (`--dry-run`, output formatting); never talks to `campaign_views.py`. |
+| `campaign_reconciler.py` ↔ `calendar_utils.insert_or_create_calendar_event()` | Direct Python import, function call | Reused unchanged — no new write-path code (Anti-Pattern 3). |
+| `campaign_reconciler.py` ↔ `telescope_runs.sun_event()` | Direct Python import, function call | Reused unchanged for stage 1 — identical to `campaign_gap.py`'s existing dependency. |
+| `campaign_reconciler.py` ↔ `CampaignRun`/companion model/`ObservationRecord` | Django ORM, bulk `select_related`/`prefetch_related` (see Pattern 3) | The one genuinely new query-shape work in this milestone. |
+| `campaign_gap.claimed_dates()` ↔ v2.2 schema changes | None required in v2.2 | Reads only pre-existing `CampaignRun` fields; must keep working unmodified through the migration (verified: none of its read fields — `window_start`/`window_end`/`site`/`target`/`approval_status`/`run_status` — change shape). |
+
+### External Services (third-party models FOMO cannot modify directly)
+
+| Model | Integration Pattern | Notes |
+|---|---|---|
+| `tom_calendar.CalendarEvent` | FOMO-side companion row (`CalendarEventTelescopeLabel` → generalized, `run` FK) | Already the established pattern (v1.4); v2.2 just adds a field to the existing sidecar, doesn't invent a new mechanism. |
+| `tom_observations.ObservationRecord` | FOMO-side `ManyToManyField` on `CampaignRun` | No existing FOMO-side link model for `ObservationRecord` to extend (unlike `CalendarEvent`, which already had `CalendarEventTelescopeLabel`) — this is genuinely new, not a generalization of something existing. |
+| `tom_observations.facility.BaseObservationFacility.get_terminal_observing_states()` | Read-only, per-facility abstract method | Confirms status vocabularies are NOT unified across facilities today — bounds how ambitious stage 4's "success" detection can safely be in v2.2 (see Pattern 2, stage 4 row). |
+
+## claimed_dates() — what must not be precluded (v2.3 deferred, verify now)
+
+`claimed_dates()` (`campaign_gap.py:116`) is explicitly out of scope for v2.2 (PROJECT.md: "making coverage-gap analysis provenance-blind" is deferred to v2.3). What the v2.2 schema/reconciler design must NOT foreclose for that later work:
+
+1. **Provenance-blind future join.** v2.3 will presumably want `claimed_dates()` to also count `CalendarEvent`s that have no `CampaignRun` at all (the 20 pre-existing Didymos events) alongside `CampaignRun`-derived dates. That requires querying through the companion model's `run` FK (`CalendarEventCompanion.objects.filter(run__isnull=True, ...)` for "unattributed" events, or `run__campaign=...` for attributed ones). **v2.2 must give this FK a normal indexed column** (Django FKs are indexed by default — no special action needed beyond not overriding `db_index=False`).
+2. **Class-wide (`telescope_class`, `site=None`) runs are currently invisible to `claimed_dates()`.** Its query is `CampaignRun.objects.filter(campaign=campaign, site=site, ...)` — a run with `site=None` (stage-2 class-wide) will never match any concrete `site` argument. This is a real, foreseeable v2.3-scope gap, but v2.2 doesn't need to fix it — it only needs to avoid making `site` non-nullable or otherwise removing the class-wide representation's ability to exist. Confirmed: `site` stays nullable; `telescope_class` is purely additive. No structural change needed in v2.2, just don't let phase planning quietly make `site` required.
+3. **`source`** should be readable by a future `claimed_dates()` without needing a schema change — it's a plain `CharField`/`TextChoices`, trivially filterable (`.exclude(source=CampaignRun.Source.CSV_IMPORT)` etc. if v2.3 wants provenance-based weighting). No action needed beyond choosing a `TextChoices` (not a free-text field) so future filtering is exact-match safe.
+
+No `claimed_dates()` code changes are required in v2.2; the check above is "does the v2.2 schema keep the door open," and the answer is yes for all three items given the field choices already described.
+
+## Build Order
+
+Real blocking dependencies only (not a preferred narrative):
+
+```
+0. SPIKE (investigation, no code)
+   Settles: source's TextChoices values + natural-key implications, how each
+   adapter's existing identity key (5-min-tolerance start_time / LCO url /
+   GEM:{prog}/{obsid} / CAMPAIGN:{pk}[:date]) maps onto a CampaignRun, and the
+   migration + attribution strategy for pre-existing rows.
+   BLOCKS everything below -- every migration's backfill logic and the
+   attribution surface's matching rules depend on decisions made here.
+        |
+        v
+1. SCHEMA PHASE (3 additive migrations; no ordering dependency AMONG
+   themselves, but all depend on step 0's decisions)
+   1a. CampaignRun.source / CampaignRun.telescope_class
+   1b. Companion-record generalization: rename CalendarEventTelescopeLabel
+       (if the spike decides to) + add nullable `run` FK. Additive column,
+       NOT a primary-key change (event<->companion stays OneToOne) -- low risk.
+   1c. CampaignRun.observation_records (M2M to ObservationRecord)
+        |
+        v
+2. RECONCILER CORE (campaign_reconciler.py)
+   Stage-decision dispatcher + 3 window functions (site/class-wide/record) +
+   bulk query strategy (Pattern 3) + write path (delegates to existing
+   insert_or_create_calendar_event(), no new write code).
+   BLOCKED BY: 1a (needs telescope_class for stage 2), 1b (needs the run FK
+   for its bulk existence query and its write-time link), 1c (needs the M2M
+   for stage 3/4). NOT blocked by attribution (item 4 below).
+        |
+        +------------------------------+
+        v                              v
+3. WIRE INTO CALLERS               4. ATTRIBUTION SURFACE
+   campaign_views.py's approve/        Staff-facing suggested-match queue,
+   resolve_site/mark_cancelled/        modeled on the existing "Sites
+   mark_weather_failure branches       Needing Review" pattern.
+   call reconcile_run(); new           BLOCKED BY: 1b + 1c (schema to write
+   reconcile_campaign_runs command     into) and step 0 (matching strategy).
+   wraps reconcile_runs().             BENEFITS FROM (soft dependency, not a
+   BLOCKED BY: 2.                      hard block) step 2 existing first, so
+        |                              its "suggest a match" logic reuses the
+        v                              reconciler's window-overlap functions
+5. RETIRE OLD CODE                     instead of duplicating them.
+   Delete _project_calendar_event(),
+   _set_run_status()'s manual sync
+   loop, and backfill_range_calendar_
+   events.py.
+   BLOCKED BY: 3 (old code paths must
+   be fully replaced first).
+```
+
+**Operational note (rollout order, not a code dependency):** run the attribution pass (item 4) against the pre-existing Didymos/LCO/classical events *before or alongside* the first full `reconcile_campaign_runs` sweep over historical data. The reconciler is correct to be blind to unlinked pre-existing events (Pattern 3's nuance) — but that means an unattributed first sweep will create a fresh `CAMPAIGN:{pk}:{date}` event for nights that already have a "real" adapter-sourced event, producing visible double-booking-looking entries on the calendar until attribution links them. This doesn't block writing the reconciler; it's a rollout-sequencing recommendation for whoever runs the first production sweep.
 
 ## Sources
 
-- `solsys_code/models.py` (`CampaignRun`, `CalendarEventTelescopeLabel`)
-- `solsys_code/solsys_code_observatory/models.py` (`Observatory`, `OBSTYPE_CHOICES`, `SATELLITE_OBSTYPE`)
-- `solsys_code/campaign_gap.py` (coverage-gap computation core)
-- `solsys_code/campaign_utils.py` (`resolve_site`, `parse_obs_window`, `insert_or_create_campaign_run`)
-- `solsys_code/campaign_views.py` (`CampaignRunTableView`, `ApprovalQueueView`, `CampaignRunDecisionView`, `CampaignGapAnalysisView`)
-- `solsys_code/campaign_tables.py` (`CampaignRunTable`, `ApprovalQueueTable`)
-- `solsys_code/campaign_forms.py` (`CampaignRunSubmissionForm`, `CampaignGapAnalysisForm`)
-- `solsys_code/telescope_runs.py` (`sun_event`, `get_site`, `SITES`)
-- `.planning/PROJECT.md` (v2.1 milestone scope, v2.0 shipped decisions log)
-- Local environment check: `pip show rapidfuzz` (confirmed transitive-only via `poetry`/`cleo`, not a FOMO dependency)
+- Direct reads of `solsys_code/models.py`, `solsys_code/campaign_views.py`, `solsys_code/calendar_utils.py`, `solsys_code/campaign_gap.py`, `solsys_code/campaign_utils.py`, `solsys_code/telescope_runs.py`, `solsys_code/management/commands/backfill_range_calendar_events.py`, `solsys_code/management/commands/sync_lco_observation_calendar.py`, `solsys_code/management/commands/sync_gemini_observation_calendar.py`, `solsys_code/tests/test_campaign_gap.py` (existing SPICE-import-guard test precedent) — all in this repository, read 2026-07-26.
+- `.planning/PROJECT.md` "Current Milestone: v2.2 One Canonical Run Record" section (goal, four-stage pipeline table, key context, deferred-to-v2.3 list).
+- `/home/tlister/venv/devel_fomo311_venv/lib64/python3.11/site-packages/tom_observations/facility.py` (`BaseObservationFacility.get_terminal_observing_states()`) — confirms per-facility status vocabularies are not unified, bounding stage 4's design.
+- `/home/tlister/git/fomo_devel/CLAUDE.md` — SPICE heavy-import constraint (verbatim: "Heavy import side effect... importing `solsys_code.ephem_utils`... runs `fomo_furnish_spiceypy()`... ~1.6 GB").
 
 ---
-*Architecture research for: FOMO campaign-coordination v2.1 (range/window scheduling, asset-type gap analysis, site-disambiguation UI)*
-*Researched: 2026-07-05*
+*Architecture research for: FOMO v2.2 "One Canonical Run Record" milestone*
+*Researched: 2026-07-26*
