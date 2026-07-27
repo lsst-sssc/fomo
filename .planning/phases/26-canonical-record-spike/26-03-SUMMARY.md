@@ -213,3 +213,13 @@ migration are gone from every ref, and `src/fomo_db.sqlite3`'s fingerprint is un
 ---
 *Phase: 26-canonical-record-spike*
 *Completed: 2026-07-27*
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/26-canonical-record-spike/26-DECISION.md`
+- FOUND: `docs/design/canonical_record_spike.rst`
+- FOUND: `docs/design/design.rst`
+- FOUND: `.planning/phases/26-canonical-record-spike/26-03-SUMMARY.md`
+- FOUND commit: `8829dd6` (docs(26-03): complete 26-DECISION.md Recommendation)
+- FOUND commit: `eba1c83` (docs(26-03): publish canonical-record spike design page)
+- FOUND commit: `c57edc9` (docs(26-03): add plan summary)
