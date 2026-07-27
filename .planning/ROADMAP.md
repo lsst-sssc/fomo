@@ -137,10 +137,17 @@
   5. The decisions are durable and readable outside `.planning/` — a `docs/design/` page carries the settled vocabulary, key scheme and rename checklist forward for whoever builds Phases 27-29
 
 **Plans:** 3 plans
-
 Plans:
+**Wave 1**
+
 - [ ] 26-01-PLAN.md — Scratch environment, date-pinned real-DB snapshot, SPIKE-02 adapter identity mapping, hand-authored throwaway migration, and the measured companion-record rename blast radius
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 26-02-PLAN.md — Manual `/calendar/` confirmation, SPIKE-01's executable coexistence + constraint negative controls, and the three-way adopt / gap-fill / rejected-baseline prototype
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 26-03-PLAN.md — Adopt-vs-gap-fill decision, the completed `26-DECISION.md` Recommendation for SPIKE-01..04, the durable `docs/design/canonical_record_spike.rst` page, and full discard of every throwaway artifact
 
 ### Phase 27: The Canonical Run Record

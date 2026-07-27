@@ -4,7 +4,7 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: planning
 stopped_at: Phase 26 context gathered
-last_updated: "2026-07-27T05:48:14.592Z"
+last_updated: "2026-07-27T12:44:01.109Z"
 last_activity: 2026-07-26 — Milestone v2.2 roadmap created (4 phases, 24 requirements)
 progress:
   total_phases: 4
