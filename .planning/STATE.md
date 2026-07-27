@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: executing
-stopped_at: Completed 26-02-PLAN.md
-last_updated: "2026-07-27T16:07:43.631Z"
+status: verifying
+stopped_at: Completed 26-03-PLAN.md
+last_updated: "2026-07-27T17:42:26.136Z"
 last_activity: 2026-07-27 -- Phase 26 execution started
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 Phase: 26 (canonical-record-spike) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-27 -- Phase 26 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
@@ -130,6 +130,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase quick-260724-vb0 P01 | ~45min | 3 tasks | 4 files |
 | Phase 26 P01 | 50min | 3 tasks | 8 files |
 | Phase 26 P02 | ~35min | 3 tasks | 1 files |
+| Phase 26-canonical-record-spike P03 | 90min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,10 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase ?]: Phase 26 evidence posture differs from Phase 18: writes for real against a disposable scratch DB file copy (tmp/26-spike-db-copy.sqlite3) rather than rolling back transaction.atomic() blocks against the live DB
 - [Phase 26]: D-10 site-local-night derivation used simple timezone conversion + .date() (not a noon-anchored night-boundary heuristic), matching CONTEXT.md's own D-10 illustration
 - [Phase 26]: Measured gap: CampaignRun pk=1's real site (Observatory obscode E10) has a blank timezone field in the dev DB; D-11 prototype substitutes Australia/Sydney explicitly and flags this as a Phase 27 pre-migration backfill item
+- [Phase ?]: source vocabulary locked at six values (five roadmap values + LEGACY); source/telescope_class stay out of both existing CampaignRun partial unique constraints
+- [Phase ?]: Reconciler event key locked: RUN:{run_pk}:{date} with {date} always the site-local observing night, not the naive UTC date
+- [Phase ?]: Adopt-vs-gap-fill write strategy (D-11) deliberately deferred to Phase 29 per human decision at the 26-03 task-1 checkpoint, not locked
+- [Phase ?]: Migration shape locked: RenameModel CalendarEventTelescopeLabel->CalendarEventMeta then three AddField ops; rename checklist is six integration points, not four
 
 ### Pending Todos
 
@@ -217,8 +222,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T16:07:43.627Z
-Stopped at: Completed 26-02-PLAN.md
+Last session: 2026-07-27T17:42:26.132Z
+Stopped at: Completed 26-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

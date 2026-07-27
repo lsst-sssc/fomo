@@ -106,7 +106,7 @@
 
 **Milestone Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
 
-- [ ] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands
+- [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (completed 2026-07-27)
 - [ ] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link
 - [ ] **Phase 28: Operator-Assisted Attribution** - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
 - [ ] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear
@@ -136,7 +136,7 @@
   4. The doc states the migration and attribution strategy, naming every integration point the companion-record rename touches as a checklist (admin registration, LCO sync command, view `prefetch_related` string, calendar template), with the `related_name='telescope_label_meta'`-stays-unchanged decision recorded
   5. The decisions are durable and readable outside `.planning/` — a `docs/design/` page carries the settled vocabulary, key scheme and rename checklist forward for whoever builds Phases 27-29
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 **Wave 1**
 
@@ -148,7 +148,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 26-03-PLAN.md — Adopt-vs-gap-fill decision, the completed `26-DECISION.md` Recommendation for SPIKE-01..04, the durable `docs/design/canonical_record_spike.rst` page, and full discard of every throwaway artifact
+- [x] 26-03-PLAN.md — Adopt-vs-gap-fill decision, the completed `26-DECISION.md` Recommendation for SPIKE-01..04, the durable `docs/design/canonical_record_spike.rst` page, and full discard of every throwaway artifact
 
 ### Phase 27: The Canonical Run Record
 
@@ -231,7 +231,7 @@ Plans:
 | 23. Weather/Storm Cancellation Handling | v2.1 | 3/3 | Complete | 2026-07-16 |
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
-| 26. Canonical-Record Spike | v2.2 | 2/3 | In Progress|  |
+| 26. Canonical-Record Spike | v2.2 | 3/3 | Complete   | 2026-07-27 |
 | 27. The Canonical Run Record | v2.2 | 0/TBD | Not started | - |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
