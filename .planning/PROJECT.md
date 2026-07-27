@@ -105,7 +105,7 @@ v2.2 (One Canonical Run Record): An observing run exists once, as a `CampaignRun
 
 **Target features:**
 
-- **One companion record for calendar events** — `CalendarEventTelescopeLabel` generalises into a single FOMO companion record carrying `is_verified` plus a nullable `run` foreign key, giving `CampaignRun` a one-to-many relation to `CalendarEvent`. Also closes the pending 2026-07-02 naming todo.
+- **One companion record for calendar events** — `CalendarEventTelescopeLabel` generalises into a single FOMO companion record carrying `is_verified` plus a nullable `run` foreign key, giving `CampaignRun` a one-to-many relation to `CalendarEvent`.
 - **`source` and `telescope_class` on `CampaignRun`** — `source` distinguishes web submission / classical file / LCO queue / Gemini queue / CSV import, with approval required only for web submissions and contact fields nullable everywhere else; `telescope_class` (`2m0`/`1m0`/`0m4`) separates a legitimately class-wide run from a site that failed to resolve (today both look like `site=None`).
 - **`ObservationRecord` → `CampaignRun` linkage** — a run owns the records that realise it.
 - **Operator-assisted attribution** — suspected run/record/event associations in existing data are surfaced for staff to confirm; never a silent merge.

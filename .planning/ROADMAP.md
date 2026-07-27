@@ -116,7 +116,7 @@
 - **The spike blocks everything.** Phase 26 is investigation-only and gates all three implementation phases.
 - **Model work precedes the reconciler.** The reconciler needs a run to know its linked `ObservationRecord`s before it can decide which pipeline stage each night is at.
 - **Attribution precedes the first full reconcile sweep** (ATTRIB-06). Phase 28 ships before Phase 29 so the ordering is structural, not a rollout caveat — see the Phase 28/29 "Depends on" notes for the full rationale.
-- **`related_name='telescope_label_meta'` is not renamed.** Only the model class is renamed (closing the pending 2026-07-02 naming todo). Renaming the related_name would silently break the calendar template and the view's `prefetch_related()` with no static check.
+- **`related_name='telescope_label_meta'` is not renamed.** Only the model class is renamed. Renaming the related_name would silently break the calendar template and the view's `prefetch_related()` with no static check.
 - **No new dependencies.** Research explicitly rejected `django-dirtyfields`/`FieldTracker`, `django-fsm`, Celery, `rapidfuzz`, and `GenericForeignKey`.
 - **New logic lives in `solsys_code/campaign_reconciler.py`**, a peer of `campaign_gap.py`/`campaign_utils.py` — never a private helper inside `campaign_views.py`, and never importing `solsys_code.views` or `solsys_code.ephem_utils` (importing `ephem_utils` triggers a ~1.6 GB SPICE kernel download at module load). This also fixes the existing anti-pattern where `backfill_range_calendar_events` imports the private `_project_calendar_event` from the views module.
 
