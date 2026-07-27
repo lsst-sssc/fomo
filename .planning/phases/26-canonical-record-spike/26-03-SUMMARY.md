@@ -186,6 +186,52 @@ after teardown; the two lint gates' failures are pre-existing and already logged
 `deferred-items.md`, confirmed via empty `git diff` against commit `77e16b5` for every
 flagged file.
 
+## Post-Execution Correction
+
+**After this plan's tasks were committed and torn down, the project owner (a
+professional astronomer and the domain authority on this codebase) issued a correction
+that partially reframes the locked SPIKE-03 key-scheme verdict.** This is not a
+deviation Claude made — it is a domain correction from the human, applied as an
+amendment to the already-committed `26-DECISION.md` and `docs/design/canonical_record_spike.rst`.
+
+**The correction:** there is a fundamental difference between a classically scheduled
+run (a specific set of owned nights, each with known start/stop times) and a
+queue-scheduled run (ESO, SOAR, Gemini, and especially LCO's queue network), whose
+window is a span of time during which observations *could* happen, not a set of nights
+the run owns. For a queue run, a night inside the window with no scheduled observation is
+the normal, correct state — not a gap needing backfill. `CampaignRun` pk=1, the one real
+run this plan's SPIKE-03 prototype was built against, is itself an LCO queue run, not a
+classical one.
+
+**What this changes:**
+- The "4 uncovered nights" framing in the D-11 adopt-vs-gap-fill comparison is corrected:
+  those nights are ones LCO's queue scheduler simply did not use, not coverage gaps.
+- The locked `RUN:{run_pk}:{date}` event-key scheme is **rescoped, not unlocked** — it
+  remains the right key for classically scheduled runs (the site-local-night derivation
+  and its measurement stand unchanged); whether a queue run should be projected per-night
+  at all is now a second open question for Phase 29, alongside the original write-strategy
+  question.
+- D-05's 80x5=400 class-wide fan-out figure is flagged as very likely the same category
+  error one level up (a class-wide queue allocation treated as owned nights).
+- RECON-07's "19 runs become visible" goal is confirmed as still valid in intent; the
+  per-night-event *mechanism* is now open for queue runs specifically.
+- SPIKE-01's `source` vocabulary is confirmed as already sufficient for the reconciler to
+  branch on run type — unaffected by this correction.
+
+**Both files were amended** (`.planning/phases/26-canonical-record-spike/26-DECISION.md`
+gained a `### Domain correction — queue windows are not sets of owned nights` subsection
+placed immediately before the Criterion 3/SPIKE-03 material it qualifies, plus inline
+amendments to the fan-out and D-11 paragraphs; `docs/design/canonical_record_spike.rst`
+gained a matching `Domain correction` section and matching inline amendments) and
+recommitted as a distinct amendment commit, not folded into the original task commits.
+The Sphinx build and the plain-English (`upsert`) / no-email grep gates were re-run
+clean after the amendment.
+
+**Flagged, not fixed, per the correction's own scope boundary:** `26-CONTEXT.md`'s D-11
+framing and RECON-07's wording both still read as though every run's window is a set of
+owned nights needing full per-night coverage. A separate todo should be filed to correct
+that upstream framing before Phase 29 is planned — this plan does not edit those docs.
+
 ## User Setup Required
 
 None — no external service configuration required.
@@ -200,10 +246,12 @@ concrete, actionable prerequisite: backfill `Observatory.timezone` for obscode `
 Phase 28 (attribution UI) has the ownership rule (companion `run` FK, "not mine, never
 touch") and the locked event-key scheme to build against.
 
-Phase 29 (reconciler) has everything locked except one explicit open question — the
-adopt-vs-gap-fill write strategy — with both options fully measured, a concrete
-code-level risk finding for adopt, and a named trigger condition (v2.3's adapter
-rewiring) for when to revisit it.
+Phase 29 (reconciler) has everything locked for classically scheduled runs. For
+queue-scheduled runs, two questions are explicitly open per the post-execution domain
+correction above: the adopt-vs-gap-fill write strategy (both options fully measured, a
+concrete code-level risk finding for adopt, and a named trigger condition — v2.3's
+adapter rewiring — for when to revisit it), and, newly, whether a queue run should be
+projected per-night onto the calendar at all rather than as a single window span.
 
 No blockers. The repository is back to its pre-phase state apart from the two
 documentation deliverables — verified, not assumed: `git status --porcelain` is clean,
