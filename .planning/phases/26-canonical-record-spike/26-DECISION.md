@@ -198,7 +198,7 @@ against real rows** (the scratch copy is a real copy of the dev DB; the pre/post
 counts are the real 31 `CampaignRun`/20 `CalendarEvent`/11 companion rows, not factory
 fixtures).
 
-### SPIKE-04 criterion 4 (b) — measured rename blast radius (partial, completed by Task 3)
+### SPIKE-04 criterion 4 (b) — measured rename blast radius
 
 Before fixing either class-name consumer, `./manage.py check` was run against the
 migrated scratch copy (with the rename/field edits in place on `models.py` but
@@ -224,9 +224,96 @@ back to exit 0. Integration point #2
 (`solsys_code/management/commands/sync_lco_observation_calendar.py:18,369`) is confirmed
 the same way, at command import.
 
-The remaining rows of this checklist (integration points #3/#4, the admin reverse-URL-name
-consumer, and the test-module consumers) are measured and recorded by Task 3 below, along
-with the explicit verdict on D-02's prediction.
+The remaining checklist rows were measured by running the named, narrow seven-module test
+selection twice (`test_admin`, `test_sync_lco_observation_calendar`, `test_calendar_template`,
+`test_campaign_models`, `test_campaign_views`, `test_campaign_approval`,
+`test_load_telescope_runs` — deliberately excluding `test_ephem_utils.py`/`test_views.py`,
+per RESEARCH.md Pitfall 3's segfault finding) against the migrated scratch copy, once
+before touching any test file and once after applying the rename to the four affected
+test modules. Full output is captured verbatim in the throwaway
+`tmp/26-rename-measurement.txt`.
+
+**Pre-fix run: 177 tests collected, 5 errors.** Three modules failed to import outright
+(`test_sync_lco_observation_calendar`, `test_calendar_template`, `test_load_telescope_runs`
+— each still importing `CalendarEventTelescopeLabel` by name) and two individual tests in
+`test_admin.py` failed with `django.urls.exceptions.NoReverseMatch: Reverse for
+'solsys_code_calendareventtelescopelabel_changelist' not found` — Django derives an admin
+changelist's reverse-URL name from the model's lowercased class name, so the rename changes
+this name too, a consumer the original four-point checklist did not name.
+
+**Post-fix run (after renaming the class references in all four test modules, plus the
+reverse-URL target in `test_admin.py`): 265 tests, 0 failures, exit 0.**
+
+| # | Integration point | Predicted at risk | What actually happened | How it failed |
+|---|--------------------|--------------------|--------------------------|----------------|
+| 1 | `solsys_code/admin.py:4,28,41` (import, `ModelAdmin` subclass, `admin.site.register`) | Yes | `ImportError: cannot import name 'CalendarEventTelescopeLabel'` at Django startup (Task 2 evidence, reproduced here at command-import time too) | Loudly, at import |
+| 2 | `solsys_code/management/commands/sync_lco_observation_calendar.py:18,369` (import, `.objects.update_or_create(event=event, ...)`) | Yes | Same `ImportError`, at test-module import (`test_sync_lco_observation_calendar.py` failed to import for the same reason before its own rename) | Loudly, at import |
+| 3 | `solsys_code/views.py:114` `.prefetch_related('telescope_label_meta')` | No (safe by construction — `related_name` locked unchanged) | **Untouched.** `test_calendar_template.py`'s `self.client.get(reverse('calendar:calendar'))` tests pass post-fix; a separate non-test `django.test.Client()` fetch of `/calendar/?year=2026&month=7` (guard confirmed pointed at the scratch copy) returned **HTTP 200** | N/A — no failure |
+| 4 | `src/templates/tom_calendar/partials/calendar.html:228,244` `event.telescope_label_meta.is_verified` | No (safe by construction, same reason as #3) | **Untouched.** `test_calendar_template.py`'s dashed-border/`is_verified=False` fixture-based assertions pass post-fix (part of the seven-module suite) | N/A — no failure |
+| 5 (not in the original 4-point checklist) | `test_admin.py`'s `reverse('admin:solsys_code_calendareventtelescopelabel_changelist')` | Not named by RESEARCH.md's original grep | `NoReverseMatch` — Django derives this URL name from the model's lowercased class name, so it changes with the class rename even though nothing in `admin.py` had to change to fix it (the `ModelAdmin`'s own registration change is what shifts the derived name) | Loudly, per-test |
+| 6 (not in the original 4-point checklist) | Class-name references inside `test_load_telescope_runs.py`, `test_sync_lco_observation_calendar.py`, `test_calendar_template.py` themselves | Not named by RESEARCH.md's original grep (its own grep excluded `tests/`) | `ImportError` at test-module collection for the first two; `test_calendar_template.py` also directly constructs `CalendarEventTelescopeLabel.objects.create(...)` fixture rows that needed the rename applied | Loudly, at import/collection |
+
+**Verdict on D-02's analytical prediction: confirmed-with-additions.** The core prediction
+— that `related_name='telescope_label_meta'` being locked unchanged makes the view
+`prefetch_related()` string and the calendar template's accessor safe *by construction*,
+while the two class-name imports are the only things genuinely at risk, and both fail
+loudly — is **confirmed exactly**: rows #1-#4 above match the prediction precisely, and
+both real risks failed as loud `ImportError`s, never silently. The **addition** is that the
+four-point checklist, scoped to non-test application code, missed two more class-name
+consumers that also fail loudly once you include the test suite itself: the admin
+reverse-URL name (#5) and the four test modules' own direct references to the class (#6).
+Neither addition changes the underlying architectural conclusion (`related_name` is what
+matters, not the class name, for runtime behavior) — but a rename executed without
+updating these five additional sites would still leave the test suite red even after the
+two "real" application consumers are fixed. Phase 27's rename checklist should therefore
+name six sites, not four: `admin.py`, `sync_lco_observation_calendar.py`,
+`test_admin.py`'s reverse-URL target, and the class-name references inside
+`test_load_telescope_runs.py`/`test_sync_lco_observation_calendar.py`/
+`test_calendar_template.py`.
+
+**Confidence tagging, per VALIDATION.md's Evidence Map:** the green seven-module test run
+is tagged **Constructed-input code-path check** — Django's `TestCase` machinery builds its
+own isolated in-memory test database from factories/fixtures, so this proves the rename
+does not break *tested behaviors*, not that it held against the real 11 companion rows
+specifically. That second proof is Task 2's migration-application finding (criterion 4(a)
+above) plus plan 26-02's `IntegrityError` coexistence script — both run against the real
+scratch DB copy.
+
+The `django.test.Client()`-based `/calendar/?year=2026&month=7` fetch (run outside the test
+framework, `SERVER_NAME='localhost'` supplied because `ALLOWED_HOSTS=[]` in this project's
+`settings.py` does not include the test framework's default `testserver` host outside
+`manage.py test`) returned **HTTP 200** with **0** literal `telescope_label_meta`
+occurrences in the decoded response body — this 0 is expected, not a failure signal: the
+template only ever evaluates `event.telescope_label_meta.is_verified` inside an `{% if %}`
+conditional, never renders the accessor name itself as text. The actually-meaningful signal
+from this check is the 200 status itself: `prefetch_related('telescope_label_meta')`
+(integration point #3) raises a `FieldError` at query-execution time if the `related_name`
+were broken, and Django does not swallow that — a 200 here is real evidence the accessor
+still resolves. This is a non-interactive corroborating data point only, per RESEARCH.md;
+it does **not** replace the actual browser-based `/calendar/` load, which is plan 26-02's
+task 1.
+
+**Known gap, stated explicitly (VALIDATION.md's Manual-Only Verifications table):** every
+one of the 11 real companion rows currently has `is_verified=1` — zero real rows exercise
+the `is_verified=False` dashed-border fallback branch (`calendar.html:228,244`). This
+finding's evidence for that specific branch rests on **(b)** —
+`test_calendar_template.py`'s existing fixture-based coverage (which directly constructs
+`is_verified=False` rows and asserts the dashed-border CSS class appears), already exercised
+as part of the seven-module suite above — not on a temporarily-flipped real-copy row. Plan
+26-02's browser-based `/calendar/` load may still choose to construct such a row on the
+scratch copy for a second, visual confirmation; that is out of this task's scope.
+
+**Deferred, out-of-scope finding (not a Phase 26 deviation to fix):** `ruff check .` and
+`ruff format --check .` run against the full repository surface pre-existing failures in
+files this plan never touched — `src/fomo/settings.py`, four `docs/notebooks/pre_executed/*.ipynb`
+files, and two `.planning/quick/260619-f7u-*/` scripts — confirmed identical against the
+pre-Phase-26 commit (`77e16b5`), i.e. present before this plan started. Every file this
+plan actually created or edited (`solsys_code/models.py`,
+`solsys_code/migrations/0008_scratch_canonical_record_probe.py`, `solsys_code/admin.py`,
+`solsys_code/management/commands/sync_lco_observation_calendar.py`, and the four edited
+test modules) is individually `ruff check`/`ruff format --check` clean. Logged to
+`.planning/phases/26-canonical-record-spike/deferred-items.md` per the scope-boundary rule
+rather than fixed here.
 
 ## Recommendation
 
