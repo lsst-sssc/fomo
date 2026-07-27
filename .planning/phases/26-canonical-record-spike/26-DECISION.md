@@ -861,6 +861,13 @@ exactly why ownership lives on the companion record instead (criterion 3, below)
 astronomer and the domain authority on this codebase) — this qualifies the entire
 Criterion 3 / SPIKE-03 section below and must be read before it, not after.**
 
+**Closed 2026-07-27, by plan 26-05 task 1's human decision, grounded in the `###
+SPIKE-03 gap closure — queue-run projection, measured` Finding above (plan 26-04):**
+consequence 3 below — whether a queue-scheduled run should be projected onto the
+calendar at all, and under what key — is now settled, not an open question. See
+`#### Queue-run projection — settled` under Criterion 3 below for the full verdict; the
+domain correction itself is not retracted, only its open question closed.
+
 There is a fundamental difference between a **classically scheduled run** — a specific
 set of nights at a specific telescope, each with its own known start/stop times — and a
 **queue-scheduled run** (ESO, SOAR, Gemini, and particularly queue-scheduled networks
@@ -893,27 +900,38 @@ paragraphs below:
    site-local-night derivation mechanism they demonstrate is still correct); it
    invalidates the *interpretation* placed on those numbers as "uncovered nights that
    need filling."
-3. **The locked SPIKE-03 key-scheme verdict is rescoped below, not unlocked.**
-   `RUN:{run_pk}:{date}` with the site-local observing night remains the right key **for
-   runs that own specific nights (classical runs)**. Whether — and how — a queue run
-   should be projected onto the calendar per-night at all is now an **open question**,
-   not a settled one, alongside the already-open D-11 write-strategy question. The
-   site-local-night derivation rule and the D-10 measurement themselves remain valid and
-   locked wherever a per-night key is actually used; only the scope of *when* a per-night
-   key applies at all is now open.
-4. **This is very likely the root cause of D-05's alarming fan-out figure.** The computed
-   80-nights x 5-sites = 400-event figure for pk=29 (`LCO 1m`, class-wide) is exactly what
-   per-night minting produces when a queue window is treated as a set of owned nights.
-   That number is not a scaling curiosity — it is the symptom of this same category
-   error, one level up (class-wide queue allocation instead of a single resolved-site
-   queue run).
-5. **RECON-07 is affected.** "The 19 approved, site-resolved 3I/ATLAS runs become
-   visible on the calendar" (the RECON-07 Finding above) is a real, still-valid goal —
-   but *how* they become visible depends on run type. A queue run becoming visible
-   plausibly means **one span/banner across its window**, not N per-night events — the
-   roadmap already contemplates a stage concept along these lines. The requirement's
-   *intent* (the run is visible at all) is settled; the *mechanism* (per-night events) is
-   not, for queue runs.
+3. **The locked SPIKE-03 key-scheme verdict is rescoped, not unlocked, and is now
+   settled for both run types.** `RUN:{run_pk}:{date}` with the site-local observing
+   night remains the right key **for runs that own specific nights (classical runs)**.
+   For a **queue-scheduled run**, the settled verdict (below, `#### Queue-run projection
+   — settled`) is a second, coexisting key family: one bare `RUN:{run_pk}` whole-window
+   container event (no date component), owned and minted by the reconciler, plus the
+   run's real `ObservationRecord`-derived `CalendarEvent`s — already produced today by
+   the existing, unchanged LCO/Gemini queue-sync commands — supplying the per-night
+   detail as observations are scheduled and observed. The site-local-night derivation
+   rule and the D-10 measurement themselves remain valid and locked wherever a per-night
+   key is actually used (classical runs); they were never in question and are unaffected
+   by this closure.
+4. **D-05's 80x5=400 class-wide fan-out figure does not survive; it is replaced by a
+   single settled verdict.** `CampaignRun` pk=29 (`LCO 1m`) and pk=30 (`LCO 2m`) are both
+   QUEUE run-type (`#### Run-type inventory` Finding above), so both take the settled
+   queue-run form: one bare `RUN:{run_pk}` whole-window container event, not 80 per-day
+   events and not 400 per-site-per-day events. The **site-fanout half** of D-05 (a single
+   class-wide event, not one per candidate site) is independently verified against
+   `SITE_TELESCOPE_MAP` and stands unchanged — it was never in question. The **per-day
+   half** is the part this domain correction actually reopened, and it is now settled:
+   pk=29's real 80-night window produces **1** event under the locked verdict, not 80 and
+   not 400.
+5. **RECON-07's mechanism is now stated, not left open.** Of the 19 approved,
+   site-resolved 3I/ATLAS runs (the RECON-07 Finding above), the measured split
+   (`#### Run-type inventory` Finding above) is **8 QUEUE, 11 CLASSICAL, 0 SPACE**. The
+   11 CLASSICAL runs become visible via the existing, unchanged mechanism: one
+   `RUN:{run_pk}:{date}` event per owned night. The 8 QUEUE runs become visible via the
+   newly settled mechanism: one bare `RUN:{run_pk}` whole-window container event, with
+   per-night detail supplied by their real `ObservationRecord`-derived events as
+   observations are scheduled and observed (see `#### Queue-run projection — settled`
+   below). Both the requirement's *intent* (the run is visible at all) and its
+   *mechanism* (which key form, per run type) are now settled.
 6. **SPIKE-01's vocabulary already supports the fix.** `CampaignRun.source` already
    distinguishes `classical file` / `LCO queue` / `Gemini queue` / etc. (Criterion 1
    above), so the reconciler already has the information it needs to branch its
@@ -925,12 +943,13 @@ every run's window is a set of owned nights needing full per-night coverage. Thi
 does not edit those upstream planning docs — a separate todo should be filed to correct
 the "uncovered nights"/backfill framing there before Phase 29 is planned.
 
-### Criterion 3 / SPIKE-03 — the canonical event key (locked for classical runs) and the write strategy (deferred)
+### Criterion 3 / SPIKE-03 — the canonical event key (locked for classical and queue runs) and the write strategy (deferred)
 
-**Read the domain correction immediately above first — it rescopes this entire
-section.** The event-key scheme is locked, not deferred, but its scope is now
-**classical runs specifically**, not every run type; see point 3 above. The reconciler
-passes a namespaced
+**Read the domain correction immediately above first — it explains why this section
+states two coexisting key forms rather than one.** The event-key scheme is locked for
+both classically-scheduled and queue-scheduled runs, following the settled verdict
+recorded in `#### Queue-run projection — settled` immediately below. For a
+**classically-scheduled run**, the reconciler passes a namespaced
 `url` of the form **`RUN:{run_pk}:{date}`** as its `insert_or_create_calendar_event()`
 lookup, and `{date}` is **always the site-local observing night**, derived by converting
 the event's `start_time` into the site's timezone and taking the local calendar date —
@@ -940,6 +959,85 @@ This is grounded in the SPIKE-03 Finding's measured comparison: of `CampaignRun`
 of 2026-07-08 but a site-local night of 2026-07-09 (Sydney, UTC+10, no July DST) — a
 real, measured instance of the two derivations disagreeing, not a hypothetical one. The
 consequence: stages 3 and 4 change an event's *times* but never its *key*.
+
+#### Queue-run projection — settled
+
+**A queue-scheduled `CampaignRun` gets exactly two coexisting calendar-event key
+families, not one.** (1) The reconciler mints and owns a single bare `RUN:{run_pk}`
+whole-window container event — no date component — one per queue run, titled from the
+run's telescope/instrument and window (matching the human's own example framing, e.g.
+"FTS/MuSCAT4, 2026-07-07 to 2026-07-21"). (2) Per-night detail comes from the run's real
+`ObservationRecord`s, synced by the existing, unchanged LCO/Gemini queue-sync commands as
+their own separate, non-`RUN:`-namespaced `CalendarEvent`s — the reconciler never mints,
+and never needs to mint, a per-night `RUN:{run_pk}:{date}` entry for a queue run, because
+per-night precision arrives from a real scheduled/observed record instead of a guess
+about which nights of the window will be used.
+
+**Verified against live source before writing this verdict, not assumed**
+(`solsys_code/management/commands/sync_lco_observation_calendar.py`): `CampaignRun`
+pk=1's 11 real LCO `CalendarEvent`s are genuinely `ObservationRecord`-derived — keyed by
+`{'url': facility.get_observation_url(record.observation_id)}` (line 186, the LCO portal
+request URL, e.g. `https://observe.lco.global/requests/4229878`), with their
+`start_time`/`end_time` computed by `_time_window()` (lines 92-121): a banner-stage
+record (`scheduled_start is None`) uses `parameters['start']`/`['end']` (lines 107-110);
+once LCO's scheduler places it (`scheduled_start`/`scheduled_end` both set, line 112),
+the event narrows to the placed block. `_FAILURE_PREFIX_BY_STATUS` (lines 28-33) then
+gives a terminal record its `[EXPIRED]`/`[CANCELLED]`/`[FAILED]` title prefix (a clean
+title for `COMPLETED`, D-06's research correction). This is exactly the "narrow or refine
+as they get scheduled and observed" mechanism the human's decision names — it already
+ships today for LCO, and the equivalent Gemini sync command does the same for Gemini ToO
+records. Phase 29 does not need to build this half; it needs to leave it alone (the
+ownership rule below) and mint only the run-level container alongside it.
+
+**Why this is stable across all four pipeline stages.** A stage transition (allocation ->
+scheduled -> observed) can change a `CalendarEvent`'s *times* and *title*, but never its
+*key*, for either key family: the bare `RUN:{run_pk}` container has no date component for
+any stage to invalidate (measured `KEY_SET_STABLE=True` under a real window-narrowing
+edit in the `#### Three-way comparison against pk=1's real window` Finding above — only
+the container's own `start_time`/`end_time` changed, `updated=1`); the
+`ObservationRecord`-keyed events key on the LCO/Gemini portal identifier, which does not
+change as an observation moves from banner to placed to completed — only the fields
+`_time_window()`/`_build_event_fields()` compute from it do.
+
+**Ownership rule, unchanged, applying identically to both key families:** no companion
+record, or a companion record whose `run` link is unset, means "not mine, never touch."
+The reconciler's own bare `RUN:{run_pk}` container gets a companion record with `run` set
+at creation; the `ObservationRecord`-derived events keep whatever companion state
+attribution (Phase 28) gives them, and until attribution runs, the reconciler must not
+touch them regardless of key form.
+
+**Measured evidence this rests on** (`### SPIKE-03 gap closure — queue-run projection,
+measured` above, plan 26-04 — cited by heading, not re-derived here): the `span`
+candidate — a bare `RUN:1` whole-window event — measured `in-window count=12` (the 1
+container plus the 11 real LCO events), `LCO_ROWS_UNTOUCHED=True`, `created=1 updated=0
+unchanged=0`, an idempotent re-run (`created=0 updated=0`), and `KEY_SET_STABLE=True`
+under window-narrowing. This is exactly the coexistence the locked verdict above
+describes, already measured and already passing.
+
+**Rejected options, with their measured in-window counts (to D-11's completeness bar):**
+- **`none`** (mint nothing for the queue run): `in-window count=11` (the 11 real LCO
+  events only), `LCO_ROWS_UNTOUCHED=True`, trivially `KEY_SET_STABLE=True` (no `RUN:` key
+  ever exists). Rejected because it gives a queue run with a genuinely awarded window and
+  zero attributed events no calendar presence at all, unlike the container's "this run
+  holds this window" assertion.
+- **`per-night`** (mint `RUN:1:{date}` for each of the 4 site-local-uncovered nights):
+  `in-window count=15`, `created=4 updated=0 unchanged=0`, an idempotent re-run, but
+  measured **`KEY_SET_STABLE=False`** — `RUN:1:2026-07-21` was measured orphaned once a
+  real window-narrowing edit no longer covered that date. Rejected both because it is
+  measurably unstable and because it reintroduces the domain correction's own error:
+  asserting an observation happened on a specific night the queue scheduler never used.
+
+**Trigger condition for revisiting:** if a later milestone (v2.3's adapter rewiring,
+ADAPT-01..03) changes queue-run adapters so they no longer write per-night
+`ObservationRecord`-derived events directly (for example, folding that responsibility
+into the reconciler itself, or a new queue-scheduled facility's adapter shipping with no
+per-night `CalendarEvent` output at all), Phase 29 or a later phase should revisit
+whether the bare `RUN:{run_pk}` container alone remains sufficient, or whether the
+reconciler itself must start minting per-night detail for that facility.
+
+**Consuming phase:** 29 (reconciler implements both key families for queue runs); 27/28
+(event key and ownership rule for classical runs — closed, above, unaffected by this
+verdict).
 
 The identity-versus-ownership split (D-09) is two separate mechanisms: the namespaced
 `url` gives an event its identity (what the lookup matches on); the companion `run` FK
@@ -957,10 +1055,11 @@ values (not an executed check) that makes the alternative's cost concrete: naive
 per-site fan-out for that one run alone would be 400 events, four-fifths of them
 describing observations that will never happen at that site. Stage 3 narrows to the real
 site once an `ObservationRecord` appears, which is the pipeline working as designed.
-**Per the domain correction above (point 4), this 400-event figure is very likely the
-same category error one level up: pk=29 is a class-wide queue allocation, and 400 is what
-per-night minting produces when a queue window is treated as a set of owned nights
-rather than a "could happen anywhere in this window" span.**
+**Per the domain correction above (point 4) and the settled `#### Queue-run projection —
+settled` verdict above, this 400-event figure does not survive: pk=29 is QUEUE run-type,
+so it takes the settled bare `RUN:{run_pk}` whole-window container form, producing 1
+event for its 80-night window — not 80 per-day events and not 400 per-site-per-day
+events.**
 
 A space-mission run gets **one spanning event covering the whole window**, not one event
 per day (D-07) — the real instance is pk=26 (JUICE, 2025-11-02 through 2025-11-25),
@@ -986,7 +1085,7 @@ silently skipped. Real rows this covers: pk=4 (ESO VLT FORS2, site-resolved, app
 and pk=27/28 (JWST, no site). This gives RECON-06's "reported and skipped" a defined
 case.
 
-#### D-11 — the adopt-vs-gap-fill write strategy is deliberately left open for Phase 29 (and now doubly open, per the domain correction)
+#### D-11 — the adopt-vs-gap-fill write strategy is deliberately left open for Phase 29 (the queue-run projection question is now settled separately, see above)
 
 **This is not an oversight or a soft lean — it is a deliberate deferral made at the
 human's explicit direction** at this plan's task-1 checkpoint. The spike's job was to
@@ -1000,8 +1099,11 @@ correction, very likely nights that should not carry a calendar event at all for
 run like pk=1 — not nights genuinely missing coverage. Phase 29 should treat the table
 below as evidence about the *write-conflict* question (adopt vs. gap-fill on the 11 real
 LCO events) rather than as settled evidence that minting 4 new events is the right thing
-to do for a queue run in the first place; that second question is now open too (domain
-correction point 3).
+to do for a queue run in the first place; that second question — whether minting
+anything per-night for a queue run is right at all — is now settled: see `#### Queue-run
+projection — settled` above, which records the locked verdict (a bare whole-window
+container plus the run's real `ObservationRecord`-derived events) and states why a
+per-night `RUN:{run_pk}:{date}` key was rejected for queue runs specifically.
 
 **Both options are fully measured, and both are viable on the narrower write-conflict
 question.** Neither is a lean:
@@ -1047,9 +1149,10 @@ table. It measured 26 total in-window events (11 pre-existing LCO-keyed plus 15 
 already-covered nights): the concrete, counted instance of the visible double-booking
 ATTRIB-06 exists to prevent.
 
-**Consuming phase:** 29 (reconciler write strategy for classical runs — open; whether a
-queue run should be projected per-night at all — also open, per the domain correction);
-27/28 (event key and ownership rule for classical runs — closed, above).
+**Consuming phase:** 29 (reconciler write strategy — open; whether a queue run should be
+projected at all, and under what key, — now settled, see `#### Queue-run projection —
+settled` above); 27/28 (event key and ownership rule for classical runs — closed,
+above).
 
 ### Criterion 4 / SPIKE-04 — migration and attribution strategy
 

@@ -58,18 +58,23 @@ observation; the 11 real calendar events already on the calendar are what it act
 scheduled. The 4 remaining nights in that window are not "uncovered" — they are nights
 the queue scheduler simply did not use, exactly as expected for this kind of run.
 
+**Settled 2026-07-27, closing the one question this correction had left open:** a
+queue-scheduled run gets a single whole-window calendar entry, and its already-scheduled
+or already-observed nights keep showing up as their own separate, more detailed calendar
+entries exactly as they do today — see Key finding below for the full verdict.
+
 Two consequences that carry through the rest of this page:
 
 * The event-key scheme below (``RUN:{run_pk}:{date}``, one key per observing night) is
   the right fit for a **classically scheduled** run, where the run genuinely does own a
-  specific list of nights. Whether — and how — a **queue-scheduled** run should appear on
-  the calendar at all (most plausibly as a single span across its whole window, not one
-  entry per night) is a separate, still-open question for Phase 29, alongside the
-  write-strategy question below.
+  specific list of nights. A **queue-scheduled** run instead gets a single whole-window
+  calendar entry (keyed on the run alone, no date), coexisting with the individual
+  calendar entries its real observations already produce as they are scheduled and
+  observed — see Key finding below.
 * The very large fan-out number quoted further down for a class-wide queue allocation
-  (roughly 400 events for one run) is likely a symptom of this exact same mix-up, one
-  level up: treating a "could happen anywhere in this window" queue allocation as if it
-  were a list of owned nights.
+  (roughly 400 events for one run) does not survive this correction: a class-wide queue
+  allocation gets the same single whole-window entry as any other queue-scheduled run,
+  not 400 events and not 80.
 
 ``CampaignRun.source`` already distinguishes classical runs from LCO-queue, Gemini-queue
 and other run types, so the reconciler has what it needs to treat these differently —
@@ -78,18 +83,17 @@ that part of this spike's work is unaffected by this correction.
 Key finding
 -----------
 
-**Three of the four original questions are settled with a firm answer for classically
-scheduled runs. For queue-scheduled runs — including the one real run this spike
-measured against — two questions are now open rather than one: not just how the
-reconciler should treat a night that already has a calendar event (the original,
-still-open write-strategy question), but also whether a queue run should be projected
-onto the calendar per night at all (see the domain correction above).** Both candidate
-write-strategy answers below produce an identical calendar and the deciding factor
-between them — whether the reconciler and the existing LCO sync command fight over the
-same rows — only fully resolves once a later milestone rewires those sync commands; the
-per-night-projection question is separate again, and is Phase 29's to settle using the
-evidence on this page. The spike's job here was to produce the measured comparison, not
-to pick a winner prematurely.
+**All four original questions are now settled with a firm answer, for both classically
+scheduled and queue-scheduled runs.** A queue-scheduled run — including ``CampaignRun``
+pk 1, the one real run this spike measured against — gets a single whole-window calendar
+entry keyed on the run alone (no date), and its real observations keep showing up as
+their own separate calendar entries exactly as they do today, narrowing and refining as
+they are scheduled and then observed: nothing new needs to be built for that second half,
+only left alone. One question remains genuinely open, unrelated to run type: how the
+reconciler should treat an *already-existing* calendar entry it might otherwise want to
+rewrite (the write-strategy question below) — both candidate answers to that produce an
+identical calendar, and the deciding factor between them only fully resolves once a
+later milestone rewires the existing sync commands.
 
 Decisions
 ---------
@@ -125,7 +129,7 @@ Decisions
        distinction ``source`` already carries.
      - 27
 
-**The reconciler's calendar-event key and what it owns (classically scheduled runs)**
+**The reconciler's calendar-event key and what it owns (classically scheduled AND queue-scheduled runs)**
 
 .. list-table::
    :header-rows: 1
@@ -143,9 +147,13 @@ Decisions
        these can genuinely differ: one of the real events checked during this spike has
        a UTC timestamp that falls on 8 July but is already the night of 9 July at its
        site. Using the wrong date would silently create a duplicate event and orphan the
-       original on the next reconcile run. **This key scheme is settled for classically
-       scheduled runs specifically — see the domain correction above for why a
-       queue-scheduled run needs a separate answer, still open for Phase 29.**
+       original on the next reconcile run. **For a queue-scheduled run, the reconciler
+       instead creates or updates one whole-window calendar entry under the key
+       ``RUN:{run_pk}`` (no date at all), while its real observations continue to appear
+       as their own separate calendar entries produced by the existing LCO/Gemini sync
+       commands, narrowing and refining as they are scheduled and observed. Both key
+       forms are settled and stable: neither changes as a run moves through the four
+       pipeline stages.**
      - 27, 29
    * - Ownership rule
      - A calendar event belongs to the reconciler only if it carries the new companion
@@ -156,15 +164,12 @@ Decisions
      - 27, 29
    * - Class-wide runs
      - A run allocated to a whole telescope class (rather than one resolved site)
-       produces a **single class-wide event per day**, not one event per candidate site.
-       One real class-wide run's window, multiplied by how many sites can serve that
-       telescope class, works out to roughly 400 events for a single run if fanned out
-       per site and per day — nearly all of them describing observations that will never
-       actually happen there. **This is very likely the same domain-correction mix-up
-       one level up: a class-wide queue allocation is a "could happen anywhere in this
-       window" span, not a list of owned nights, so per-day minting overstates it the
-       same way per-night minting does for a single queue run.** The event narrows to
-       the real site once an actual observation record for that run appears.
+       produces a **single class-wide event**, not one event per candidate site and not
+       one event per day. Every real class-wide run in the current data is itself a
+       queue-scheduled run, so it takes the settled queue-run form above: one
+       whole-window entry for the whole run, not the roughly 400 events (or even 80) that
+       fanning out per site and per day would have produced. The event narrows to the
+       real site once an actual observation record for that run appears.
      - 29
    * - Space-mission runs
      - A run with no ground site at all (a space telescope) gets **one event spanning
@@ -229,11 +234,11 @@ rather than locked here. The condition that resolves it: once a later milestone 
 the LCO sync command so it no longer writes to these rows directly (folding that
 responsibility into the reconciler instead), the write-conflict risk that makes Adopt
 worth worrying about today disappears, and Phase 29 should record its own decision at
-that point. **A second, separate question is also open, per the domain correction above:
-whether a queue run like pk 1 should have per-night calendar entries minted for its
-unscheduled nights at all, rather than being represented as a single window span. Phase
-29 should settle that question first — it may make the adopt-vs-gap-fill choice moot for
-queue runs, since gap-fill would have nothing left to fill.**
+that point. **A second, separate question — whether a queue run like pk 1 should have
+per-night calendar entries minted for its unscheduled nights at all — is now settled:
+no. A queue run instead gets a single whole-window entry, and its unscheduled nights
+stay exactly as unscheduled, with no calendar entry minted for them at all. See the
+Domain correction section above for the settled verdict.**
 
 A third option — the reconciler always creating a fresh event for every night in the
 window regardless of what already exists — was measured too, but only as a rejected
@@ -293,10 +298,14 @@ rests on — including the real constraint-coexistence test results, the per-ada
 key-construction code citations, the measured rename blast radius (which test files
 needed updating and why), the exact code path (file and line) behind the Adopt
 write-conflict finding, and the full domain-correction subsection with all six of its
-consequences. These are recommendations for Phases 27-29 to implement, plus **two**
-still-open questions for Phase 29 to settle from the evidence above (the write-strategy
-choice for classical runs, and whether/how a queue run should be projected onto the
-calendar at all) — none of it is implemented in this spike.
+consequences. These are recommendations for Phases 27-29 to implement, plus **one**
+still-open question for Phase 29 to settle from the evidence above (the write-strategy
+choice for classical runs' already-existing calendar events) — none of it is implemented
+in this spike. The other question this domain correction had opened — whether, and
+under what key, a queue-scheduled run should be projected onto the calendar at all — is
+now settled (see the Domain correction and Decisions sections above): a single
+whole-window entry per queue run, coexisting with the per-observation entries the
+existing sync commands already produce.
 
 A related documentation gap this domain correction surfaced but does not fix here: the
 phase's own planning notes (its context document's write-up of the "4 uncovered nights"
