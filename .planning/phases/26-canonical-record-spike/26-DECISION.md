@@ -583,8 +583,272 @@ task.
 
 ## Recommendation
 
-<!-- completed in plan 26-03 -->
+Four of the five SPIKE-01..04 verdicts below are locked, falsifiable, and grounded
+directly in the Findings above. The write-strategy half of SPIKE-03 (adopt-vs-gap-fill)
+is the one exception: it is **deliberately left open for Phase 29** per an explicit
+human decision at this plan's task-1 checkpoint, not decided here. That deferral is
+scoped narrowly to the write strategy alone — the event-key scheme (also part of
+SPIKE-03) is fully locked below, not deferred.
+
+### Criterion 1 / SPIKE-01 — the source vocabulary and its constraint interaction
+
+**Locked.** The `source` vocabulary is fixed at **six values**: the five roadmap values
+(web submission, classical file, LCO queue, Gemini queue, CSV import) plus `LEGACY` for
+the 31 pre-milestone rows. The three adapter values (classical file, LCO queue, Gemini
+queue) are declared now but **not yet produced by any code path** — they wait on v2.3's
+ADAPT-01..03. Declaring the full set now costs nothing: Django `TextChoices` values are
+validation-only, so adding or removing one later is a no-op `AlterField` (D-13).
+
+`LEGACY` is the value the 31 pre-milestone rows get. Nothing in the data can
+discriminate provenance for them — `original_obs_date_raw` is set on only 2 of the 31
+rows, making it a parse-failure marker rather than an import signature, so any per-row
+inference would be guesswork. Blanket `CSV_IMPORT` was considered and rejected as an
+unverifiable assertion written into 31 rows, doubly uncertain for pk=1, which is on the
+Didymos 2026 campaign rather than 3I/ATLAS (D-12).
+
+`source` and the CANON-02 field (`telescope_class`) stay out of **both** existing
+partial unique constraints. This is not asserted — it is the SPIKE-01 Finding's
+executable proof: Block (A) of `26_integrity_check.py` printed
+`NEWFIELD_IN_CONSTRAINTS: False` against the real constraint definitions, and Blocks (C)
+and (D) then fired both `unique_campaign_run_resolved_window` and
+`unique_campaign_run_tbd_natural_key` unmodified on two genuine duplicates differing
+only by `source` — five PASS, zero FAIL overall. The consequence: **attribution (the new
+companion `run` FK), not either constraint, is what connects same-physical-run rows
+arriving from different sources.**
+
+The derivation rule is recorded verbatim as a rule downstream code reads, not
+re-invents: **`approval_status == APPROVED` and `source != WEB` means *no approval was
+required*, as distinct from *a human approved this*.** A fourth `NOT_REQUIRED` approval
+value was considered and rejected, because every existing reader of `approval_status` —
+the approval-queue filters, the non-staff visibility gate, `CampaignRunTable`,
+`ApprovalQueueTable`, and `CampaignRunDecisionView`'s conditional `.update()` — would
+have to handle it, for a distinction `source` already carries (D-14).
+
+**Correction for Phase 27's planning:** there are zero `PENDING_REVIEW` rows (D-17), and
+`import_campaign_csv.py:194` already writes `ApprovalStatus.APPROVED`. The importer's
+real behaviour change under CANON-01 is writing `source`, not changing what it writes
+for `approval_status`.
+
+**Consuming phase:** 27 (`CampaignRun` migration and importer changes).
+
+### Criterion 2 / SPIKE-02 — per-adapter identity key to run
+
+**Locked.** Four adapter mappings, carried forward with their confidence distinction
+intact rather than flattened:
+
+| Adapter | Lookup key passed to `insert_or_create_calendar_event()` | Confidence |
+|---|---|---|
+| Classical (`load_telescope_runs.py:207-216`) | `{'telescope': ..., 'instrument': ..., 'start_time': ...}` with a 5-minute tolerance — no `url` at all | Confirmed against real rows (9 real blank-`url` events) |
+| LCO (`sync_lco_observation_calendar.py:361`) | `{'url': <LCO portal request url>}` | Confirmed against real rows (11 real LCO-`url` events, pk=1's window) |
+| Gemini (`sync_gemini_observation_calendar.py:150`) | `{'url': f'GEM:{prog}/{obsid}'}` | Constructed-input code-path check — zero real `GEM:` rows exist to confirm against |
+| Campaign projection (`campaign_views.py:447,485`) | `{'url': f'CAMPAIGN:{run.pk}'}` or `{'url': f'CAMPAIGN:{run.pk}:{night}'}` for ranges | Constructed-input code-path check — zero real `CAMPAIGN:` rows exist to confirm against |
+
+For a reader who wants to take any existing calendar event and say which run it would
+belong to: an LCO event's `url` and a Gemini event's `url` both map directly; a
+classical event has no string identity at all and must be matched by
+telescope/instrument/date; a campaign-projection event's `url` decodes to a `run_pk`
+directly by prefix.
+
+**The consequence D-19 forces:** the classical adapter has no string identity key at
+all, so RECON-05's ownership scoping cannot lean on `url` for those 9 events — which is
+exactly why ownership lives on the companion record instead (criterion 3, below), not on
+`url`.
+
+**Consuming phase:** 27 (adapters are not rewired here — that's v2.3/ADAPT-01..03), 29
+(reconciler reads these mappings to decide ownership).
+
+### Criterion 3 / SPIKE-03 — the canonical event key (locked) and the write strategy (deferred)
+
+**The event-key scheme is locked, not deferred.** The reconciler passes a namespaced
+`url` of the form **`RUN:{run_pk}:{date}`** as its `insert_or_create_calendar_event()`
+lookup, and `{date}` is **always the site-local observing night**, derived by converting
+the event's `start_time` into the site's timezone and taking the local calendar date —
+never the naive UTC date of whatever `start_time` the current stage happens to produce.
+This is grounded in the SPIKE-03 Finding's measured comparison: of `CampaignRun` pk=1's
+11 real LCO events, event pk=54 (`start_time=2026-07-08T14:08:19Z`) has a naive-UTC date
+of 2026-07-08 but a site-local night of 2026-07-09 (Sydney, UTC+10, no July DST) — a
+real, measured instance of the two derivations disagreeing, not a hypothetical one. The
+consequence: stages 3 and 4 change an event's *times* but never its *key*.
+
+The identity-versus-ownership split (D-09) is two separate mechanisms: the namespaced
+`url` gives an event its identity (what the lookup matches on); the companion `run` FK
+gives it ownership. The hard rule: **no companion row, or a companion row whose `run`
+link is unset, means "not mine, never touch."** This is already provable against live
+data without any prototype write at all — the 9 classical events have no companion row
+whatsoever, so they are outside the ownership mechanism entirely, for any reconciler,
+present or future.
+
+**Stage-2 fan-out is answered explicitly:** a class-wide run produces a **single
+class-wide event per day** (00:00-23:59, labelled with the class, no site), **not** one
+event per candidate site. `CampaignRun` pk=29's real 80-night window, multiplied by
+`SITE_TELESCOPE_MAP`'s real 5-site `1m0` count, is a computed figure from real field
+values (not an executed check) that makes the alternative's cost concrete: naive
+per-site fan-out for that one run alone would be 400 events, four-fifths of them
+describing observations that will never happen at that site. Stage 3 narrows to the real
+site once an `ObservationRecord` appears, which is the pipeline working as designed.
+
+A space-mission run gets **one spanning event covering the whole window**, not one event
+per day (D-07) — the real instance is pk=26 (JUICE, 2025-11-02 through 2025-11-25),
+which becomes one 24-day event rather than 24 daily ones. This keeps the calendar
+consistent with `campaign_gap.claimed_dates()`'s asset-aware treatment, which already
+refuses to claim those dates at all; the uniform "treat every site-less run as daily
+00:00-23:59" alternative was rejected for exactly that reason.
+
+The CANON-02 field (`telescope_class`) carries a **three-meaning "why is there no site"
+vocabulary** — telescope-class allocation, space mission, and unresolved/failed-to-resolve
+— not a telescope-class-only vocabulary, because the live data has five space-mission
+rows (pk=8, 12, 13, 21, 26) against two class-wide ones (pk=29, 30). **Recommendation:
+keep the field named `telescope_class`** despite the widened meaning — renaming it is a
+larger, separate naming discussion that would delay Phase 27 for no functional benefit,
+and the widened *values* (not the field name) are what carries the new meaning; Phase 27
+should not have to make a naming call mid-implementation, so this recommendation settles
+it in advance.
+
+Stage 0, "allocated but unscheduled" (D-08): a run with no window start produces no
+calendar event, but the reconciler counts and reports it in its summary the way
+`import_campaign_csv` already reports `site_needs_review` — visibly pending rather than
+silently skipped. Real rows this covers: pk=4 (ESO VLT FORS2, site-resolved, approved)
+and pk=27/28 (JWST, no site). This gives RECON-06's "reported and skipped" a defined
+case.
+
+#### D-11 — the adopt-vs-gap-fill write strategy is deliberately left open for Phase 29
+
+**This is not an oversight or a soft lean — it is a deliberate deferral made at the
+human's explicit direction** at this plan's task-1 checkpoint. The spike's job was to
+produce the measurement; the human judged, correctly, that this specific verdict does
+not need to be locked now and that nothing downstream is blocked by leaving it open.
+Phase 29 makes this call when it writes the real reconciler, using the evidence below.
+
+**Both options are fully measured, and both are viable.** Neither is a lean:
+
+| Scenario | In-window count | Pass-1 tally | Companion `run`-FK count in window | Idempotent re-run |
+|---|---|---|---|---|
+| Adopt | 15 | `created=4, updated=11, unchanged=0` | 11 | `created=0 updated=0` |
+| Gap-fill | 15 | `created=4, updated=0, unchanged=0` | 11 | `created=0 updated=0` |
+
+Both scenarios produce the identical 15-event in-window result, the identical 4 minted
+keys (`RUN:1:2026-07-08`, `RUN:1:2026-07-13`, `RUN:1:2026-07-15`, `RUN:1:2026-07-21` —
+the site-local-uncovered nights), and the same 11 companion FKs. Both are idempotent on
+re-run. The two options are **indistinguishable on the rendered calendar** — they differ
+only in write surface: which code path is allowed to write to the 11 pre-existing LCO
+events.
+
+**The decisive piece of evidence Phase 29 should weigh**, verified directly in the code
+during the task-1 checkpoint (not previously recorded in this doc): `sync_lco_observation_
+calendar.py:361` calls `insert_or_create_calendar_event({'url': url}, fields)` on every
+sync run, and `calendar_utils._update_or_unchanged()` (`calendar_utils.py:297-315`) sets
+every key present in `fields` and saves with `update_fields=list(fields.keys()) +
+['modified']` whenever any field differs from its stored value. Under **adopt**, this
+means the LCO sync command would overwrite the reconciler's stamp on those 11 rows on
+its own next run, and the reconciler would then re-stamp them on its next run — a
+genuine two-writer churn loop that would report `updated: 11` on *every* reconcile
+cycle, not a one-time transitional cost. Under **gap-fill**, this cannot occur: the
+reconciler's write surface is limited to the 4 keys it minted itself, so RECON-05 ("the
+reconciler never creates, modifies, or deletes a calendar event it does not own") is
+satisfied literally rather than by interpreting "has a companion FK" as sufficient
+license to overwrite.
+
+**The condition that would settle it:** once v2.3 rewires the adapters so the LCO sync
+command no longer writes to these rows (folding that responsibility into the reconciler
+itself), the two-writer objection to adopt disappears entirely. That rewiring is the
+trigger for revisiting this choice — Phase 29 should record its own decision at that
+point rather than defaulting silently to whichever option is easier to implement first.
+
+The **rejected always-mint baseline** — the reconciler minting its own `RUN:1:{date}` key
+for all 15 window nights regardless of existing coverage — is not a third option on the
+table. It measured 26 total in-window events (11 pre-existing LCO-keyed plus 15 fresh
+`RUN:1:`-keyed, including a second, separate event for every one of the 11
+already-covered nights): the concrete, counted instance of the visible double-booking
+ATTRIB-06 exists to prevent.
+
+**Consuming phase:** 29 (reconciler write strategy — open); 27/28 (event key and
+ownership rule — closed, above).
+
+### Criterion 4 / SPIKE-04 — migration and attribution strategy
+
+**Locked.** The migration shape is proven, not proposed: one `RenameModel`
+(`CalendarEventTelescopeLabel` -> `CalendarEventMeta`) followed by three `AddField`
+operations (`CalendarEventMeta.run`, `CampaignRun.source`, `CampaignRun.telescope_class`),
+hand-authored rather than autodetected. Non-interactive autodetection cannot tell a
+rename from a delete-plus-create, and because the companion record's `event` field is
+its actual primary key (a `OneToOneField`), a `DeleteModel`/`CreateModel` pair would drop
+and recreate the table, destroying the 11 real companion rows this spike's coexistence
+evidence depends on. No data-migration backfill step is needed — `source` backfills via a
+single static field default (`default='legacy'`) — and the `run` link is nullable,
+blankable, and clears to null on run deletion. The Finding's identical before/after row
+counts (31/20/11, byte-identical) are the proof it preserved every real row.
+
+The rename checklist Phase 27 executes, six integration points (not four — the original
+research checklist, scoped to non-test application code, missed two):
+
+| # | Integration point | Broke? | How |
+|---|---|---|---|
+| 1 | `solsys_code/admin.py` (import, `ModelAdmin` subclass, `admin.site.register`) | Yes | Loudly, `ImportError` at Django startup |
+| 2 | `solsys_code/management/commands/sync_lco_observation_calendar.py` (import, `.objects.update_or_create(event=event, ...)`) | Yes | Loudly, `ImportError` at command import |
+| 3 | `solsys_code/views.py` `.prefetch_related('telescope_label_meta')` | No | Safe by construction (`related_name` unchanged) |
+| 4 | `src/templates/tom_calendar/partials/calendar.html` `event.telescope_label_meta.is_verified` | No | Safe by construction (same reason) |
+| 5 | `test_admin.py`'s `reverse('admin:solsys_code_calendareventtelescopelabel_changelist')` | Yes | Loudly, `NoReverseMatch` — Django derives the admin changelist URL name from the model's lowercased class name |
+| 6 | Class-name references inside `test_load_telescope_runs.py`, `test_sync_lco_observation_calendar.py`, `test_calendar_template.py` | Yes | Loudly, `ImportError` at test-module collection |
+
+**Verdict on the pre-spike analytical prediction: confirmed-with-additions.** The core
+prediction — that `related_name='telescope_label_meta'` staying unchanged makes the view
+prefetch and the calendar template safe by construction, while the two class-name
+imports are the only real risk and fail loudly — is confirmed exactly (rows 1-4 above).
+The addition: rows 5 and 6, both real, both loud, neither named by the original
+four-point checklist because it was scoped to non-test application code. A rename
+executed without fixing rows 5-6 would still leave the test suite red even after the two
+"real" application consumers are fixed.
+
+The **`related_name='telescope_label_meta'`-stays-unchanged decision** is what makes
+rows 3 and 4 safe by construction — renaming it would break both with no static check to
+catch it, unlike the class-name rename which the compiler and Django's own startup
+checks catch immediately. The renamed class name is `CalendarEventMeta`, chosen for
+generality (it absorbs `run`, `is_verified`, and whatever v2.3 adds, without a second
+rename) over a link-specific alternative like `CalendarEventRunLink`, which would
+misdescribe the 11 existing rows — pure telescope-label metadata, with no run link at
+all until attribution sets one.
+
+**Attribution strategy:** ownership lives on the companion record's `run` link; no
+automatic merging of suspected duplicates; per-candidate staff confirmation only;
+attribution completable before the first full reconcile sweep. Phase 28 builds the
+attribution queue; Phase 29's reconciler depends on attribution having already run for
+any window it should treat as covered.
+
+**Consuming phase:** 27 (migration and rename), 28 (attribution UI depends on the
+companion FK existing), 29 (reconciler ownership check).
+
+### Recorded findings that correct the planning docs
+
+PROJECT.md's Phase 25 paragraph does not reproduce against the live dev DB (D-16): the
+maximum `CampaignRun` pk is 31, no run's `telescope_instrument` contains `FT-115`, and
+there are 0 `CAMPAIGN:`-namespaced events — the dev DB was re-imported after Phase 25's
+UAT. **Phases 27-29 must not trust PROJECT.md's Phase 25 paragraph for any concrete pk or
+count.** Correcting PROJECT.md is deliberately a **separate todo**, outside this phase's
+investigation-only boundary — PROJECT.md is not edited by this phase.
+
+### Recommended naming posture for calendar_utils.py (folded todo)
+
+This is a recommendation, not code written here. Five cross-module-consumed helpers in
+`solsys_code/calendar_utils.py` still carry a leading underscore despite being a de
+facto shared API: `_aperture_class_from_telescope_code` (line 84), `_derive_telescope`
+(line 106), `_resolve_placement_block` (line 129), `_extract_instrument` (line 229), and
+`_coarse_telescope_label` (line 258). Their leading underscore now misrepresents a
+module with real cross-module consumers (`load_telescope_runs.py`,
+`sync_lco_observation_calendar.py`, `sync_gemini_observation_calendar.py`, and the test
+suite). **Recommendation: Phase 27, which will be editing these modules anyway for the
+migration and rename work, should drop the leading underscore on these five names as
+part of its own work, rather than as a separate cleanup pass.** The todo's second half
+also still stands: `calendar_utils.py`-owned tests still live in
+`test_sync_lco_observation_calendar.py` and belong in their own module.
+
+Recording this recommendation does **not** close the todo
+(`.planning/todos/pending/2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md`)
+— it stays open until code actually lands.
 
 ## Durable summary
 
-<!-- completed in plan 26-03 -->
+See `docs/design/canonical_record_spike.rst` for the durable, redaction-free summary of
+these decisions — written for Phases 27-29 to reference without digging into this
+findings record. `src/fomo_db.sqlite3` fingerprint at the time this Recommendation was
+completed: `946176 1785094461` (unchanged from the D-04 snapshot value recorded at the
+top of this document).
