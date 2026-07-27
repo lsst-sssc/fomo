@@ -106,7 +106,7 @@
 
 **Milestone Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
 
-- [ ] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events)
+- [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events) (completed 2026-07-27)
 - [ ] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link
 - [ ] **Phase 28: Operator-Assisted Attribution** - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
 - [ ] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear
@@ -239,7 +239,7 @@ Plans:
 | 23. Weather/Storm Cancellation Handling | v2.1 | 3/3 | Complete | 2026-07-16 |
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
-| 26. Canonical-Record Spike | v2.2 | 5/5 | Gap closure |  |
+| 26. Canonical-Record Spike | v2.2 | 5/5 | Complete   | 2026-07-27 |
 | 27. The Canonical Run Record | v2.2 | 0/TBD | Not started | - |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
