@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: planning
-stopped_at: Phase 26 context gathered
-last_updated: "2026-07-27T12:44:01.109Z"
-last_activity: 2026-07-26 — Milestone v2.2 roadmap created (4 phases, 24 requirements)
+status: executing
+stopped_at: Completed 26-01-PLAN.md
+last_updated: "2026-07-27T13:38:10.863Z"
+last_activity: 2026-07-27 -- Phase 26 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 26 — Canonical-Record Spike (v2.2, 4 phases, 24/24 requirements mapped)
+**Current focus:** Phase 26 — canonical-record-spike
 
 ## Current Position
 
-Phase: 26 — Canonical-Record Spike (not started)
-Plan: —
-Status: Roadmap approved, ready to plan Phase 26
-Last activity: 2026-07-26 — Milestone v2.2 roadmap created (4 phases, 24 requirements)
+Phase: 26 (canonical-record-spike) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-07-27 -- Phase 26 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -128,6 +128,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 260723-02e P01 | 22min | 3 tasks | 3 files |
 | Phase quick-260724-tiz P01 | ~12min | 2 tasks | 4 files |
 | Phase quick-260724-vb0 P01 | ~45min | 3 tasks | 4 files |
+| Phase 26 P01 | 50min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase ?]: [Quick 260723-r5g]: sync_lco_observation_calendar's LCOFacility/SOARFacility expose no get_successful_observing_states() method — the successful-terminal state set must be derived as get_terminal_observing_states() minus get_failed_observing_states()
 - [Phase ?]: [Quick 260724-tiz]: Added a separate TELESCOPE_PALETTE (brighter dark-surface set) rather than modifying PROPOSAL_PALETTE; per-telescope stripe re-implemented as a ::before pseudo-element (cal-event-classical + --tel-color) to avoid colliding with status_border_css's box-shadow ring on the same style attribute
 - [Phase ?]: [Quick 260724-vb0]: Split TELESCOPE_PALETTE into two parallel palettes (TELESCOPE_PALETTE for legend vs white, TELESCOPE_STRIPE_PALETTE for stripe vs #5a6268 gray fill) since no 8-hue palette can clear 3:1 against both backgrounds; fixed the stripe's remaining white-facing edge with a one-sided opaque STRIPE_OUTER_EDGE_COLOR line rather than a hue change
+- [Phase ?]: D-02 verdict confirmed-with-additions: the rename's two class-name imports (admin.py, sync_lco_observation_calendar.py) are the only real-code risks and both fail loudly, but the admin reverse-URL name and the four test modules' own class-name references are two more consumer sites the original four-point checklist missed
+- [Phase ?]: Phase 26 evidence posture differs from Phase 18: writes for real against a disposable scratch DB file copy (tmp/26-spike-db-copy.sqlite3) rather than rolling back transaction.atomic() blocks against the live DB
 
 ### Pending Todos
 
@@ -211,9 +214,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T05:48:14.580Z
-Stopped at: Phase 26 context gathered
-Resume file: .planning/phases/26-canonical-record-spike/26-CONTEXT.md
+Last session: 2026-07-27T13:38:10.851Z
+Stopped at: Completed 26-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
