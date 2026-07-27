@@ -58,10 +58,11 @@ observation; the 11 real calendar events already on the calendar are what it act
 scheduled. The 4 remaining nights in that window are not "uncovered" — they are nights
 the queue scheduler simply did not use, exactly as expected for this kind of run.
 
-**Settled 2026-07-27, closing the one question this correction had left open:** a
-queue-scheduled run gets a single whole-window calendar entry, and its already-scheduled
-or already-observed nights keep showing up as their own separate, more detailed calendar
-entries exactly as they do today — see Key finding below for the full verdict.
+**Queue-run projection — settled 2026-07-27, closing the one question this correction
+had left open:** a queue-scheduled run gets a single whole-window calendar entry, and
+its already-scheduled  or already-observed nights keep showing up as their own separate,
+more detailed calendar entries exactly as they do today — see Key finding below for the
+full verdict.
 
 Two consequences that carry through the rest of this page:
 
@@ -245,7 +246,7 @@ window regardless of what already exists — was measured too, but only as a rej
 baseline: it produces 26 events for this one run (11 originals plus 15 new ones,
 including a second, duplicate event for every one of the 11 already-covered nights) —
 the concrete, counted version of the double-booked calendar the attribution work (Phase
-28) exists to prevent.
+1)  exists to prevent.
 
 **Migration and the rename checklist**
 
