@@ -344,11 +344,12 @@ CSS coincidence.
 
 **Confidence tag:** the HTTP-200/event-count/no-traceback portion of this result is
 **Confirmed against real rows** (`CampaignRun` pk=1's real 11 LCO events plus the real
-classical events, all unmodified). The dashed-border portion specifically rests on a
-**deliberately-constructed check** — `CalendarEventMeta` row pk=53 was temporarily flipped to
-`is_verified=False` on the scratch copy for this load and restored to `True` immediately
-afterward — not a real-row observation, because D-20 confirms all 11 real companion rows are
-`is_verified=1` and so zero real rows currently exercise that branch. Plan 26-01's
+classical events, all unmodified). The dashed-border portion specifically is tagged
+**Constructed-input code-path check** — a deliberately-constructed check, not a real-row
+observation: `CalendarEventMeta` row pk=53 was temporarily flipped to `is_verified=False`
+on the scratch copy for this load and restored to `True` immediately afterward, because
+D-20 confirms all 11 real companion rows are `is_verified=1` and so zero real rows
+currently exercise that branch. Plan 26-01's
 `django.test.Client()`-based fetch of the same URL (also returning HTTP 200) is a corroborating
 non-interactive second data point recorded there, not a replacement for this manual load — this
 manual browser load is the one step in the phase with no automated substitute (26-VALIDATION.md
