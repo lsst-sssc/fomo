@@ -431,7 +431,154 @@ fomo_db.sqlite3`'s fingerprint (`946176 1785094461`) was unchanged throughout th
 
 ### SPIKE-03 criterion 3 — canonical event key and the adopt-vs-gap-fill comparison
 
-<!-- completed by task 3 of this plan -->
+Executed via `tmp/26_reconciler_prototype.py`, run once per scenario
+(`RECONCILER_SCENARIO=<adopt|gapfill|rejected-baseline> python manage.py shell <
+tmp/26_reconciler_prototype.py`) against its own copy of the post-task-2 scratch DB
+(`tmp/26-adopt-copy.sqlite3`, `tmp/26-gapfill-copy.sqlite3`,
+`tmp/26-rejected-baseline-copy.sqlite3`), with the DB-path guard re-run before each
+scenario's `local_settings.py` repoint. The script imports
+`insert_or_create_calendar_event()` from `solsys_code.calendar_utils` unchanged and
+defines no substitute write helper; `git diff --quiet -- solsys_code/calendar_utils.py`
+on the scratch branch confirms the shared helper was not modified. It imports neither
+`solsys_code.views` nor the ephemeris module, so it never triggers the SPICE furnish.
+
+**The `RUN:{run_pk}:{date}` key, D-09/D-10.** The reconciler's own key namespace is
+`RUN:{run_pk}:{date}`, where `{date}` is always the **site-local observing night**
+(D-10), derived by converting the event's `start_time` into the site's timezone and
+taking the local calendar date — never the naive UTC date of whatever timestamp the
+current stage happens to produce.
+
+**Measured gap, surfaced by running this for real (not part of D-10's own claim, a
+separate finding):** `CampaignRun` pk=1's real site (`Observatory` obscode `E10`,
+"Siding Spring-Faulkes Telescope South") has a **blank `timezone` field** in this dev DB
+copy — confirmed by direct query, not assumed. The prototype falls back to
+`'Australia/Sydney'` (this site's documented IANA zone, per `solsys_code/telescope_runs.py`'s
+own `SITES` mapping and CLAUDE.md's "Timezones" constraint) so the D-10 comparison below
+could still run against real event timestamps, and prints this substitution explicitly
+rather than silently assuming the field was populated. **Phase 27 should backfill
+`Observatory.timezone` for E10 before the real reconciler ships** — a blank timezone
+would make any real site-local-night derivation raise, the same way
+`solsys_code/telescope_runs.py`'s own `sun_event()` already guards against and raises
+`ValueError` for a blank `site.timezone`.
+
+**The measured UTC-vs-site-local comparison (D-10 evidence), identical across all three
+scenario copies since it reads the same 11 real, unmodified LCO events every time:**
+
+```
+event pk=53 start_time=2026-07-07T00:00:00+00:00 utc_date=2026-07-07 local_night=2026-07-07 [same]
+event pk=54 start_time=2026-07-08T14:08:19+00:00 utc_date=2026-07-08 local_night=2026-07-09 [DIFFERS]
+event pk=55 start_time=2026-07-10T00:00:00+00:00 utc_date=2026-07-10 local_night=2026-07-10 [same]
+event pk=56 start_time=2026-07-11T00:00:00+00:00 utc_date=2026-07-11 local_night=2026-07-11 [same]
+event pk=57 start_time=2026-07-12T00:00:00+00:00 utc_date=2026-07-12 local_night=2026-07-12 [same]
+event pk=58 start_time=2026-07-14T00:00:00+00:00 utc_date=2026-07-14 local_night=2026-07-14 [same]
+event pk=59 start_time=2026-07-16T00:00:00+00:00 utc_date=2026-07-16 local_night=2026-07-16 [same]
+event pk=60 start_time=2026-07-17T00:00:00+00:00 utc_date=2026-07-17 local_night=2026-07-17 [same]
+event pk=61 start_time=2026-07-18T00:00:00+00:00 utc_date=2026-07-18 local_night=2026-07-18 [same]
+event pk=62 start_time=2026-07-19T00:00:00+00:00 utc_date=2026-07-19 local_night=2026-07-19 [same]
+event pk=63 start_time=2026-07-20T00:00:00+00:00 utc_date=2026-07-20 local_night=2026-07-20 [same]
+UTC_COVERED (11): 2026-07-07, 2026-07-08, 2026-07-10, 2026-07-11, 2026-07-12, 2026-07-14, 2026-07-16, 2026-07-17, 2026-07-18, 2026-07-19, 2026-07-20
+LOCAL_COVERED (11): 2026-07-07, 2026-07-09, 2026-07-10, 2026-07-11, 2026-07-12, 2026-07-14, 2026-07-16, 2026-07-17, 2026-07-18, 2026-07-19, 2026-07-20
+COVERED_SETS_DIFFER: True
+UTC_UNCOVERED (4): 2026-07-09, 2026-07-13, 2026-07-15, 2026-07-21
+LOCAL_UNCOVERED (4): 2026-07-08, 2026-07-13, 2026-07-15, 2026-07-21
+UNCOVERED_SETS_DIFFER: True
+```
+
+Only event pk=54 (`start_time=2026-07-08T14:08:19Z`) diverges — its naive UTC date is
+2026-07-08 but its site-local night (Sydney, UTC+10, no July DST) is 2026-07-09, because
+14:08 UTC is after local midnight (00:08 local the next calendar day). This is the
+direct, measured instance of the exact D-10 mechanism CONTEXT.md describes for this
+site: a UTC-date key and a site-local-night key disagree for a real event's real
+timestamp. The knock-on effect: the two uncovered-night sets have the **same count (4)
+but a different specific member** — the naive UTC derivation calls 2026-07-09
+uncovered (because it thinks pk=54 covers 07-08), while the site-local derivation calls
+**2026-07-08** uncovered instead (because pk=54's site-local night is actually 07-09).
+D-11's predicted count of 4 held exactly under both derivations, but *which* night is
+the 4th uncovered one is derivation-dependent — precisely the measured evidence
+`UNCOVERED_SETS_DIFFER: True` records, turning D-10 from an assertion into something
+observed. The scenarios below key on the **site-local** uncovered set
+(`2026-07-08, 2026-07-13, 2026-07-15, 2026-07-21`), consistent with D-09/D-10.
+
+**Three-way comparison, measured exactly as D-11 predicted (15 / 15 / 26):**
+
+| Scenario | In-window count | Expected | Matches | Pass-1 tally | Pass-2 (idempotency) |
+|----------|-----------------|----------|---------|--------------|------------------------|
+| Adopt | 15 | 15 | Yes | `created=4, updated=11, unchanged=0` | `IDEMPOTENT_RERUN adopt created=0 updated=0` |
+| Gap-fill | 15 | 15 | Yes | `created=4, updated=0, unchanged=0` | `IDEMPOTENT_RERUN gapfill created=0 updated=0` |
+| Rejected baseline | 26 | 26 | Yes | `created=15, updated=0, unchanged=0` | `IDEMPOTENT_RERUN rejected-baseline created=0 updated=0` |
+
+**Adopt** — the 11 real LCO events were updated in place under their own existing
+`https://observe.lco.global/...` urls (an `updated` action each, since the adoption
+stamp written into `description` differs from the original LCO-sync text), and the 4
+site-local-uncovered nights were newly minted under `RUN:1:2026-07-08`,
+`RUN:1:2026-07-13`, `RUN:1:2026-07-15`, `RUN:1:2026-07-21`. Companion `run` FK count in
+window: 11 (all inherited from task 2's attribution write; the 4 freshly-minted events
+have no companion row at all, since this prototype never creates one for them — see the
+ownership discussion below). Key list: the 11 unchanged LCO urls plus the 4 `RUN:1:`
+keys.
+
+**Gap-fill** — the 11 real LCO events were **never touched at all** (0 created, 0
+updated against them); only the same 4 site-local-uncovered nights were newly minted
+under the identical `RUN:1:{date}` keys as the adopt scenario. Companion `run` FK count
+in window: 11 (unchanged from task 2's inherited state; this scenario's code path never
+writes to `CalendarEventMeta`, so the 11 originals' `modified` timestamp is never
+touched by the gap-fill path — stages 3-4 for those 11 nights would keep coming from the
+LCO sync command until v2.3 rewires the adapters, exactly as D-11 anticipates).
+
+**Rejected baseline** — the reconciler minted its own `RUN:1:{date}` key for **every one
+of the 15 window nights** regardless of existing LCO coverage, leaving the 11 originals
+untouched. Result: 26 total events in-window (11 pre-existing LCO-keyed + 15 fresh
+`RUN:1:{date}`-keyed, including a second, separate event for every one of the 11
+already-covered nights) — the concrete, counted instance of the visible double-booking
+ATTRIB-06 exists to prevent, not just an assertion.
+
+**Idempotency (D-09's stage-stable-key claim).** Each scenario was run a second time
+against the same copy; all three reported `created=0 updated=0` on the re-run
+(`IDEMPOTENT_RERUN <scenario> created=0 updated=0` above), and the in-window event count
+was identical before and after the re-run in every case. This holds because both
+`minted_fields()` and `adopted_fields()` are pure functions of `run1`/`night`/`event.pk`
+— none depend on wall-clock time or any other non-deterministic input — so a second call
+with the same lookup key always compares against identical stored values and takes the
+`unchanged` branch of `insert_or_create_calendar_event()`.
+
+**Identity vs. ownership (D-09).** The namespaced `url` gives an event its *identity*
+(what `insert_or_create_calendar_event()`'s `lookup` matches on); the companion `run` FK
+gives it *ownership*. The rule holds exactly as CONTEXT.md states it: **no companion
+row, or a companion row with `run` unset, means "not mine, never touch."** This is
+provable today without any prototype write at all — the 9 real classical `CalendarEvent`
+rows (blank `url`, `load_telescope_runs` adapter) have **no companion row whatsoever**,
+so neither this reconciler nor any future one may claim them via the `run` FK path; they
+are simply outside the ownership mechanism entirely. The adopt scenario's own newly
+minted `RUN:1:{date}` events are a related, smaller instance of the same point: this
+prototype never creates a `CalendarEventMeta` row for them, so under the "not mine"
+rule they are not owned by anything either, despite carrying a `RUN:1:`-namespaced url —
+namespace membership alone does not confer ownership; a real reconciler module would
+need to explicitly create/attach a companion row with `run` set for its own minted
+events if it wants to claim them, which this investigation-only prototype deliberately
+does not do (out of this plan's scope, per CONTEXT.md's Claude's Discretion note on how
+deep to take attribution-scoring prototyping).
+
+**On D-05's fan-out figure:** the 80×5=400 stage-2 class-wide fan-out number recorded in
+plan 26-01 (`CampaignRun` pk=29's real 80-night window × `SITE_TELESCOPE_MAP`'s real
+5-site `1m0` count) is a **computed figure from real field values**, not an executable
+check the way this task's three scenario runs are — worth restating that distinction
+here since both numbers appear in the same decision doc and could otherwise be read as
+equally "executed."
+
+**Confidence tags:** the adopt-vs-gap-fill-vs-rejected-baseline comparison itself is
+**Confirmed against real rows** (`CampaignRun` pk=1's real 15-night window, its real 11
+LCO events, run three times against three independent scratch copies). The
+`Australia/Sydney` timezone substitution is a stated, explicit fallback for a real,
+measured gap in the `Observatory` row (not itself a "confirmed against real rows"
+claim about the site's actual physical timezone — Siding Spring genuinely is UTC+10 in
+July, but the *dev-DB row* does not record it).
+
+**The recommendation between adopt and gap-fill is settled in plan 26-03, not here** —
+this task's job was to produce the measured comparison plan 26-03's `## Recommendation`
+section reasons from, per CONTEXT.md's "prototype both and recommend after" framing.
+
+`src/fomo_db.sqlite3`'s fingerprint (`946176 1785094461`) was unchanged throughout this
+task.
 
 ## Recommendation
 
