@@ -772,6 +772,13 @@ the date-bearing form is the one exposed to that risk, not the bare form. No ver
 *which* form a queue run should actually use is stated here -- that is plan 26-05 task 1's
 decision to lock.
 
+The real `src/fomo_db.sqlite3` size+mtime fingerprint (`946176 1785094461`) was checked
+before this plan's first probe ran and again immediately before `tmp/` was deleted at
+this plan's close -- identical both times, confirming no command in this plan ever wrote
+to the real dev DB. This value is recorded here, inside the committed decision doc,
+specifically so the check survives the deletion of `tmp/` (which held the only other copy
+of the pre-plan fingerprint, `tmp/26-realdb-fingerprint-before.txt`).
+
 ## Recommendation
 
 Four of the five SPIKE-01..04 verdicts below are locked, falsifiable, and grounded
