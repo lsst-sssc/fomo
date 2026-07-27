@@ -150,6 +150,14 @@ Plans:
 
 - [x] 26-03-PLAN.md — Adopt-vs-gap-fill decision, the completed `26-DECISION.md` Recommendation for SPIKE-01..04, the durable `docs/design/canonical_record_spike.rst` page, and full discard of every throwaway artifact
 
+**Wave 4** *(gap closure — blocked on Wave 3 completion)*
+
+- [ ] 26-04-PLAN.md — Measured closure of the SPIKE-03 gap: the queue-versus-classical run inventory and RECON-07 split, the existing `campaign_gap.claimed_dates()` over-claim, and the three-way span / none / per-night queue-run projection comparison against `CampaignRun` pk=1's real window
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 26-05-PLAN.md — Queue-run projection decision, the amended `26-DECISION.md` Criterion 3 and Domain-correction sections, the mirrored `docs/design/canonical_record_spike.rst` update, and the ROADMAP/REQUIREMENTS wording sync
+
 ### Phase 27: The Canonical Run Record
 
 **Goal**: Make `CampaignRun` canonical in the schema — it records how it was created, distinguishes a class-wide allocation from an unresolved site, owns the calendar events that show it, and owns the observation records that realise it — with every existing row and all four companion-record consumers surviving the change.
