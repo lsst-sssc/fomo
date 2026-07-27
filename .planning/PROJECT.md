@@ -83,7 +83,7 @@ This is a Stages-1-through-3b-complete implementation of the "telescope runs on 
 
 Validated in Phase 24: Phase 25's `Depends on: Phase 24` (ROADMAP.md) is now satisfied — Phase 24 is planned, executed, and verified.
 
-**Milestone v2.1 is now complete.** All phases (18-25) shipped; `/gsd-complete-milestone` can be run.
+**Milestone v2.1 is complete.** All phases (18-25) shipped. **Milestone v2.2 "One Canonical Run Record" started 2026-07-26**, continuing phase numbering at 26.
 
 ## Core Value
 
@@ -96,6 +96,42 @@ Stage 3 (v1.2): A `sync_lco_observation_calendar` management command syncs LCO q
 v2.0 (Campaign Coordination): When the next 4I-class object appears, FOMO replaces the ad-hoc Google Sheet as the community's campaign-coordination hub — target-linked observing runs, submission with oversight, and a per-object campaign view. This is now co-equal with the calendar-sync value above, not a extension of it — the two feature areas share infrastructure (`insert_or_create_calendar_event()`, `Observatory`) but serve distinct use cases (routine facility sync vs. ad-hoc community coordination for rare objects).
 
 v2.1 (Uncertain Scheduling & Site Disambiguation): Campaign coordination now handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — instead of silently dropping or mis-keying them. Staff get a real path to resolve an ambiguous or unmatched observing site instead of a dead end, and submitters can opt into public visibility of their contact info. This closes the two loose ends v2.0 shipped with (site disambiguation, contact opt-in) and, via two organic gap-closure phases found during real operation, also gives staff a way to mark weathered/cancelled time and makes real awarded range-window allocations (e.g. Gemini FT-115) visible on the calendar instead of silently invisible.
+
+v2.2 (One Canonical Run Record): An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it. Calendar projection stops being a side effect of a staff click and becomes a reconcilable function of run state, so a run created by any path is visible by construction rather than by remembering to run the right backfill command.
+
+## Current Milestone: v2.2 One Canonical Run Record
+
+**Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
+
+**Target features:**
+
+- **One companion record for calendar events** — `CalendarEventTelescopeLabel` generalises into a single FOMO companion record carrying `is_verified` plus a nullable `run` foreign key, giving `CampaignRun` a one-to-many relation to `CalendarEvent`. Also closes the pending 2026-07-02 naming todo.
+- **`source` and `telescope_class` on `CampaignRun`** — `source` distinguishes web submission / classical file / LCO queue / Gemini queue / CSV import, with approval required only for web submissions and contact fields nullable everywhere else; `telescope_class` (`2m0`/`1m0`/`0m4`) separates a legitimately class-wide run from a site that failed to resolve (today both look like `site=None`).
+- **`ObservationRecord` → `CampaignRun` linkage** — a run owns the records that realise it.
+- **Operator-assisted attribution** — suspected run/record/event associations in existing data are surfaced for staff to confirm; never a silent merge.
+- **The reconciler** — one idempotent command that projects and refreshes every run's calendar events through the four-stage window pipeline below, retiring the backfill-command-per-gap pattern and `backfill_range_calendar_events` with it.
+- **Spike** — settles what milestone questioning did not: natural keys under `source`, how each adapter's existing identity key maps onto a run, and the migration and attribution strategy for the existing events and runs.
+
+**The four-stage window pipeline** (the core model this milestone establishes):
+
+| Stage | Condition | Event window |
+|-------|-----------|--------------|
+| 1 | Allocated, resolved to a specific telescope (e.g. FTS) | sunset→sunrise twilight, that night, that site |
+| 2 | Allocated to a telescope class only (2m0/1m0/0m4, many sites worldwide) | 00:00→23:59 that day |
+| 3 | An `ObservationRecord` is scheduled for that night | narrowed to the record's window |
+| 4 | The observation succeeded | final observed time range, marked COMPLETED |
+
+Every run expands into per-night (or per-day) events; a classical TAC-awarded run simply stops at stage 1 because it never acquires records. `sync_lco_observation_calendar` already implements stages 3→4 (the `[QUEUED]` banner → placed-block transition, SYNC-02/03) — this milestone makes that the general mechanism, driven by the run, instead of an LCO-only one.
+
+**Key context:**
+
+- **The concrete defects this closes** (measured against the dev DB, 2026-07-26): 19 `CampaignRun`s for 3I/ATLAS are approved, site-resolved and windowed yet have zero calendar presence, and no existing command can project them — `backfill_range_calendar_events` filters `.exclude(window_start=F('window_end'))`, so single-night runs are excluded by design (its dry-run reports 1 candidate across the whole database). Gap analysis (`campaign_gap.claimed_dates()`) reads `CampaignRun` only, so the 20 Didymos 2026 calendar events (9 classical, 11 LCO queue) are invisible to it, and it would report ~19 nights of real allocated telescope time as unclaimed.
+- **Calendar projection is currently a side effect of a click**, not a function of run state: `_project_calendar_event()` has exactly three callers — the `approve` POST, the `resolve_site` POST, and the range-only backfill command. A run arriving by any other path (CSV import, and every future adapter) is silently eventless, and the remedy so far has been one bespoke backfill command per kind of gap.
+- **Double representation is already live:** `CampaignRun` pk=1 is FTS/MuSCAT4, 7–21 July, Siding Spring (E10); the 11 LCO queue events are `2m0`/`2M0-SCICAM-MUSCAT`, 7–20 July — the same instrument on the same telescope over the same nights. These are not duplicates to be merged: pk=1 is the run, and the records are how it was realised. The fix is attribution, not deduplication.
+- **`CalendarEvent` is general-purpose** — a run's nights are only one kind of event; conferences and proposal deadlines are events with no run at all. The link to `CampaignRun` is therefore nullable and frequently absent, and `CalendarEvent` can never be treated as a pure projection of runs.
+- **Both link targets are third-party:** `CalendarEvent` (`tom_calendar`) and `ObservationRecord` (`tom_observations`) are pip-installed, so every link must live on FOMO's side — the companion record for events, and most likely a many-to-many declared on `CampaignRun` for records.
+- **Deliberately deferred to v2.3:** unifying the three status vocabularies and prefix maps (`_CLASSICAL_STATUS_PREFIX`, `_FAILURE_PREFIX_BY_STATUS`, `_RUN_STATUS_CALENDAR_PREFIX`, all agreeing by convention with `calendar_display_extras._TERMINAL_PREFIXES`); rewiring the four ingest adapters to write runs instead of writing events directly; and making coverage-gap analysis provenance-blind. These follow once the canonical record is proven.
+- SEED-001/SEED-002 stay dormant — both ESO-triggered, no match to this scope.
 
 ## v2.1 Uncertain Scheduling & Site Disambiguation — SHIPPED 2026-07-18
 
@@ -289,9 +325,18 @@ v2.1 (Uncertain Scheduling & Site Disambiguation): Campaign coordination now han
 
 ### Active
 
-None yet — v2.1 shipped 2026-07-18 (all 8 phases, 13/13 v1 requirements complete; see the v2.1 shipped section above). Awaiting `/gsd-new-milestone` to define the next milestone's Active requirements.
+Building toward v2.2 One Canonical Run Record (see the Current Milestone section above). Formal REQ-IDs live in `.planning/REQUIREMENTS.md`:
 
-Not yet committed to any milestone (still candidates for a future one): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SCHED-06 (progressive-disclosure window-narrowing UI, deferred until the window schema is proven against real re-imported data); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup) — see `.planning/STATE.md` Deferred Items and `.planning/milestones/v2.1-REQUIREMENTS.md` v2 Requirements for full detail.
+- [ ] One FOMO companion record for `CalendarEvent`, carrying `is_verified` and a nullable `run` foreign key
+- [ ] `source` and `telescope_class` fields on `CampaignRun`, with approval required only for web submissions
+- [ ] `ObservationRecord` → `CampaignRun` linkage
+- [ ] Operator-assisted attribution of existing events and records to their parent runs
+- [ ] An idempotent reconciler implementing the four-stage window pipeline, retiring `backfill_range_calendar_events`
+- [ ] A spike settling natural keys under `source`, adapter identity mapping, and the migration/attribution strategy
+
+Not yet committed to any milestone (still candidates for a future one): Stage 4 full observation-record sync for all facilities; ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook, unblocked by Phase 13's Bypass verdict); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup) — see `.planning/STATE.md` Deferred Items and `.planning/milestones/v2.1-REQUIREMENTS.md` v2 Requirements for full detail.
+
+**SCHED-06** (progressive-disclosure window-narrowing UI) is largely subsumed by v2.2's four-stage window pipeline, which narrows a run's calendar window automatically as records are scheduled and completed. Re-scope whatever remains of it against the delivered pipeline rather than promoting it as originally written.
 
 ### Out of Scope
 
@@ -451,4 +496,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-18 — after v2.1 milestone completion (`/gsd-complete-milestone`). All 8 phases (18-25) shipped, 13/13 v1 requirements complete, 26 plans, 544 tests passing at close. Full evolution review performed: "What This Is" and "Core Value" extended with the v2.1 campaign-coordination maturation (window scheduling, site disambiguation, weather handling, range-window projection); Key Decisions table backfilled with the previously-missing Phase 18/19/20/21/23/24 rows; Active requirements cleared (awaiting `/gsd-new-milestone`); ROADMAP.md collapsed to a one-line v2.1 summary; REQUIREMENTS.md and the full phase directory archived to `.planning/milestones/v2.1-*`. Two pre-close bookkeeping items fixed inline (a debug session Phase 25 had already resolved, still flagged `diagnosed`; a false-positive audit flag on the debug knowledge-base index) — see the debug-session-resolution commit preceding this one. 4 pre-existing items (2 todos, 2 dormant ESO seeds) acknowledged as deferred, unrelated to v2.1 scope (tracked in STATE.md Deferred Items since v1.7/v2.0 close).*
+*Last updated: 2026-07-26 — after starting milestone v2.2 "One Canonical Run Record" (`/gsd-new-milestone`). Added the Current Milestone section (goal, six target features, the four-stage window pipeline, and the measured dev-DB evidence motivating it), a v2.2 Core Value paragraph, and rewrote Active requirements. Milestone questioning settled six decisions before any file was written: `CampaignRun` stays canonical and gains `source`; `CalendarEventTelescopeLabel` generalises into one companion record rather than gaining a second parallel sidecar; a class-only run gets an explicit `telescope_class` field instead of overloading `site=None`; `ObservationRecord` linkage lands in this milestone (which forces the model work ahead of the reconciler, reversing the originally-proposed order); expansion is a four-stage progressive window narrowing rather than an expand/don't-expand switch; and the existing Didymos double representation is an attribution problem, not a deduplication one. SCHED-06 flagged as largely subsumed by the window pipeline. Previous entry: 2026-07-18 — after v2.1 milestone completion (`/gsd-complete-milestone`). All 8 phases (18-25) shipped, 13/13 v1 requirements complete, 26 plans, 544 tests passing at close. Full evolution review performed: "What This Is" and "Core Value" extended with the v2.1 campaign-coordination maturation (window scheduling, site disambiguation, weather handling, range-window projection); Key Decisions table backfilled with the previously-missing Phase 18/19/20/21/23/24 rows; Active requirements cleared (awaiting `/gsd-new-milestone`); ROADMAP.md collapsed to a one-line v2.1 summary; REQUIREMENTS.md and the full phase directory archived to `.planning/milestones/v2.1-*`. Two pre-close bookkeeping items fixed inline (a debug session Phase 25 had already resolved, still flagged `diagnosed`; a false-positive audit flag on the debug knowledge-base index) — see the debug-session-resolution commit preceding this one. 4 pre-existing items (2 todos, 2 dormant ESO seeds) acknowledged as deferred, unrelated to v2.1 scope (tracked in STATE.md Deferred Items since v1.7/v2.0 close).*

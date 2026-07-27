@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.1
-milestone_name: Uncertain Scheduling & Site Disambiguation
-status: Awaiting next milestone
-stopped_at: "Completed quick task 260724-vb0: Fix telescope stripe/legend contrast against every background (two-palette split + one-sided edge)"
-last_updated: "2026-07-25T13:23:34.512Z"
-last_activity: 2026-07-25
-last_activity_desc: "Completed quick task 260724-vb0: Fix telescope stripe/legend contrast against every background (two-palette split + one-sided edge)"
-current_phase: 25
-current_phase_name: e.g. Gemini FT-115-style awarded allocations
+milestone: v2.2
+milestone_name: One Canonical Run Record
+status: planning
+last_updated: "2026-07-27T02:59:50.346Z"
+last_activity: 2026-07-27
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 26
-  completed_plans: 26
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-18 — v2.1 milestone closed, full ev
 
 ## Current Position
 
-Phase: Milestone v2.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-26 - Completed quick task 260726-kdp: Close operator runbook drift and scope the CLAUDE.md paired-deliverable rule to docs/runbooks/
+Status: Defining requirements
+Last activity: 2026-07-27 — Milestone v2.2 started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
