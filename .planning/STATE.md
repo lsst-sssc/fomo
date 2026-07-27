@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Completed 26-01-PLAN.md
-last_updated: "2026-07-27T13:38:10.863Z"
+stopped_at: Completed 26-02-PLAN.md
+last_updated: "2026-07-27T16:07:43.631Z"
 last_activity: 2026-07-27 -- Phase 26 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 26 (canonical-record-spike) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-27 -- Phase 26 execution started
 
@@ -129,6 +129,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase quick-260724-tiz P01 | ~12min | 2 tasks | 4 files |
 | Phase quick-260724-vb0 P01 | ~45min | 3 tasks | 4 files |
 | Phase 26 P01 | 50min | 3 tasks | 8 files |
+| Phase 26 P02 | ~35min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase ?]: [Quick 260724-vb0]: Split TELESCOPE_PALETTE into two parallel palettes (TELESCOPE_PALETTE for legend vs white, TELESCOPE_STRIPE_PALETTE for stripe vs #5a6268 gray fill) since no 8-hue palette can clear 3:1 against both backgrounds; fixed the stripe's remaining white-facing edge with a one-sided opaque STRIPE_OUTER_EDGE_COLOR line rather than a hue change
 - [Phase ?]: D-02 verdict confirmed-with-additions: the rename's two class-name imports (admin.py, sync_lco_observation_calendar.py) are the only real-code risks and both fail loudly, but the admin reverse-URL name and the four test modules' own class-name references are two more consumer sites the original four-point checklist missed
 - [Phase ?]: Phase 26 evidence posture differs from Phase 18: writes for real against a disposable scratch DB file copy (tmp/26-spike-db-copy.sqlite3) rather than rolling back transaction.atomic() blocks against the live DB
+- [Phase 26]: D-10 site-local-night derivation used simple timezone conversion + .date() (not a noon-anchored night-boundary heuristic), matching CONTEXT.md's own D-10 illustration
+- [Phase 26]: Measured gap: CampaignRun pk=1's real site (Observatory obscode E10) has a blank timezone field in the dev DB; D-11 prototype substitutes Australia/Sydney explicitly and flags this as a Phase 27 pre-migration backfill item
 
 ### Pending Todos
 
@@ -214,8 +217,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T13:38:10.851Z
-Stopped at: Completed 26-01-PLAN.md
+Last session: 2026-07-27T16:07:43.627Z
+Stopped at: Completed 26-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
