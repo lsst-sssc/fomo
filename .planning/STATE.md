@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Completed 26-03-PLAN.md
-last_updated: "2026-07-27T18:38:10.890Z"
+stopped_at: Completed 26-04-PLAN.md
+last_updated: "2026-07-27T19:28:29.259Z"
 last_activity: 2026-07-27 -- Phase 26 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 25
+  completed_phases: 0
+  total_plans: 5
+  completed_plans: 4
+  percent: 0
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 26 (canonical-record-spike) — EXECUTING
-Plan: 3 of 3
+Plan: 2 of 5
 Status: Ready to execute
 Last activity: 2026-07-27 -- Phase 26 execution started
 
@@ -131,6 +131,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 26 P01 | 50min | 3 tasks | 8 files |
 | Phase 26 P02 | ~35min | 3 tasks | 1 files |
 | Phase 26-canonical-record-spike P03 | 90min | 3 tasks | 4 files |
+| Phase 26-canonical-record-spike P04 | 90min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -162,6 +163,9 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase ?]: Reconciler event key locked: RUN:{run_pk}:{date} with {date} always the site-local observing night, not the naive UTC date
 - [Phase ?]: Adopt-vs-gap-fill write strategy (D-11) deliberately deferred to Phase 29 per human decision at the 26-03 task-1 checkpoint, not locked
 - [Phase ?]: Migration shape locked: RenameModel CalendarEventTelescopeLabel->CalendarEventMeta then three AddField ops; rename checklist is six integration points, not four
+- [Phase 26-canonical-record-spike]: Bare RUN:1 span key is measurably stable under a window-narrowing stage transition; the rejected per-night RUN:1:{date} key is not (one key orphaned) -- direct code-level answer for queue-run projection key form
+- [Phase 26-canonical-record-spike]: RECON-07 baseline splits 8 QUEUE / 11 CLASSICAL / 0 SPACE of 19 runs -- queue-run projection affects a substantial minority, not a corner case, of the flagship visibility criterion
+- [Phase 26-canonical-record-spike]: No verdict on span/none/per-night chosen here -- deliberately left for plan 26-05 task 1, mirroring D-11's write-strategy deferral
 
 ### Pending Todos
 
@@ -222,8 +226,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T17:42:26.132Z
-Stopped at: Completed 26-03-PLAN.md
+Last session: 2026-07-27T19:28:29.255Z
+Stopped at: Completed 26-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

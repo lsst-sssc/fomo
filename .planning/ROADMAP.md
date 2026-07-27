@@ -136,7 +136,7 @@
   4. The doc states the migration and attribution strategy, naming every integration point the companion-record rename touches as a checklist (admin registration, LCO sync command, view `prefetch_related` string, calendar template), with the `related_name='telescope_label_meta'`-stays-unchanged decision recorded
   5. The decisions are durable and readable outside `.planning/` — a `docs/design/` page carries the settled vocabulary, key scheme and rename checklist forward for whoever builds Phases 27-29
 
-**Plans:** 3/3 plans complete
+**Plans:** 4/5 plans executed
 Plans:
 **Wave 1**
 
@@ -152,7 +152,7 @@ Plans:
 
 **Wave 4** *(gap closure — blocked on Wave 3 completion)*
 
-- [ ] 26-04-PLAN.md — Measured closure of the SPIKE-03 gap: the queue-versus-classical run inventory and RECON-07 split, the existing `campaign_gap.claimed_dates()` over-claim, and the three-way span / none / per-night queue-run projection comparison against `CampaignRun` pk=1's real window
+- [x] 26-04-PLAN.md — Measured closure of the SPIKE-03 gap: the queue-versus-classical run inventory and RECON-07 split, the existing `campaign_gap.claimed_dates()` over-claim, and the three-way span / none / per-night queue-run projection comparison against `CampaignRun` pk=1's real window
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -239,7 +239,7 @@ Plans:
 | 23. Weather/Storm Cancellation Handling | v2.1 | 3/3 | Complete | 2026-07-16 |
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
-| 26. Canonical-Record Spike | v2.2 | 3/3 | Gap closure | —          |
+| 26. Canonical-Record Spike | v2.2 | 4/5 | In Progress|  |
 | 27. The Canonical Run Record | v2.2 | 0/TBD | Not started | - |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |

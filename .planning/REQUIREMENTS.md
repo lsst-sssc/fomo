@@ -13,7 +13,7 @@ Settles the questions milestone questioning deliberately left open. Blocks every
 
 - [x] **SPIKE-01**: A decision doc settles the `source` vocabulary and how it interacts with `CampaignRun`'s two existing partial unique constraints, demonstrated by the real `CampaignRun` pk=1 and its 11 LCO-sourced calendar events coexisting without an `IntegrityError`
 - [x] **SPIKE-02**: A decision doc settles how each ingest adapter's existing calendar-event identity key maps onto a run — classical `(telescope, instrument, start_time ±5 min)`, LCO request URL, `GEM:{prog}/{obsid}`, and `CAMPAIGN:{pk}[:{date}]`
-- [ ] **SPIKE-03**: A decision doc settles whether a class-wide (stage 2) run produces one event per candidate site or a single class-wide event, and states the reconciler's canonical event-key scheme, stable across all four pipeline stages
+- [x] **SPIKE-03**: A decision doc settles whether a class-wide (stage 2) run produces one event per candidate site or a single class-wide event, and states the reconciler's canonical event-key scheme, stable across all four pipeline stages
 - [x] **SPIKE-04**: A decision doc settles the migration and attribution strategy for the existing calendar events and runs, naming every integration point the companion-record rename touches
 
 ### Canonical Record
