@@ -670,6 +670,108 @@ domain correction reopened, and is not re-verdicted here -- the verdict on which
 three figures is right for a queue-scheduled class-wide run is plan 26-05's task 1
 decision.
 
+#### Three-way comparison against pk=1's real window
+
+Executed via `tmp/26_queue_projection_probe.py`, one run per scenario
+(`QUEUE_SCENARIO=<span|none|per-night> python manage.py shell < tmp/26_queue_projection_probe.py`)
+against its own disposable copy of the dev DB (`tmp/26-queue-span-copy.sqlite3`,
+`tmp/26-queue-none-copy.sqlite3`, `tmp/26-queue-pernight-copy.sqlite3`), with the DB-path
+guard printed and asserted before every write. The script imports
+`insert_or_create_calendar_event()` from `solsys_code.calendar_utils` unchanged and
+defines no substitute write helper; it imports neither `solsys_code.views`,
+`solsys_code.ephem_utils`, nor `solsys_code.campaign_views`, reproducing
+`_calendar_event_title()` (`campaign_views.py:392-401`) and the `event_fields` dict
+(`campaign_views.py:430-436`) inline. Tagged **Confirmed against real rows** throughout:
+real `CampaignRun` pk=1, its real 15-night window, its real 11 LCO events, three
+independent real copies of the dev DB.
+
+| Scenario | In-window count | Pass-1 tally | Idempotent re-run | `LCO_ROWS_UNTOUCHED` | `KEY_SET_STABLE` under narrowing |
+|---|---|---|---|---|---|
+| `span` (bare `RUN:1` key, whole-window span) | 12 | `created=1 updated=0 unchanged=0` | `IDEMPOTENT_RERUN span created=0 updated=0` | `True` | `True` (no orphaned keys) |
+| `none` (mint nothing for the queue run) | 11 | `created=0 updated=0 unchanged=0` | `IDEMPOTENT_RERUN none created=0 updated=0` | `True` | `True` (trivially -- no `RUN:` keys ever exist) |
+| `per-night` (rejected candidate, `RUN:1:{date}` per uncovered night) | 15 | `created=4 updated=0 unchanged=0` | `IDEMPOTENT_RERUN per-night created=0 updated=0` | `True` | **`False`** -- `RUN:1:2026-07-21` orphaned |
+
+**The window-narrowing key-stability probe is the direct, measured answer to which
+candidate actually satisfies SPIKE-03's "stable across all four pipeline stages" claim
+for a queue run.** After narrowing pk=1's window by one night at each end
+(`window_start` 2026-07-08, `window_end` 2026-07-20, a real staff window edit and the
+closest available stand-in for a stage-3 narrowing) and re-running each scenario once
+more: `span`'s single `RUN:1` key is untouched by the narrowing (only its `start_time`/
+`end_time` are updated to the narrowed window, an `updated=1` action, quoted verbatim
+from the probe's `PASS3_AFTER_NARROWING span created=0 updated=1 unchanged=0` line) --
+the key itself never depends on the window's edges. `per-night`'s uncovered-night set
+recomputes against the narrowed window as `2026-07-08, 2026-07-13, 2026-07-15` (three
+nights, `2026-07-21` having fallen outside the narrowed window) -- the row already minted
+under `RUN:1:2026-07-21` is now **orphaned**: present in the database but no longer
+corresponding to any night of the run's current window, with no mechanism in this
+prototype (or in the shipped `insert_or_create_calendar_event()` contract it reuses
+unchanged) that retires it. `none` has no `RUN:` key at all, so it is trivially stable by
+having nothing to destabilize.
+
+`LCO_ROWS_UNTOUCHED` is `True` for all three scenarios (quoted verbatim from each
+scenario's `LCO_ROWS_UNTOUCHED <scenario>=True` line, comparing the 11 real events'
+`modified` timestamps before the scenario and after its idempotent second pass) -- none
+of the three candidate queue-run projections touch the 11 pre-existing LCO-keyed events
+at all, unlike D-11's adopt-scenario prototype for classical-style per-night write
+strategy. This is a structural difference from D-11's adopt/gap-fill comparison, not an
+oversight: every candidate measured here mints under a `RUN:`-namespaced key entirely
+separate from the LCO events' own `url`s, so the two-writer-churn question D-11
+identified for classical per-night adoption does not arise for any of these three queue
+candidates.
+
+#### What a calendar reader actually sees
+
+Measured via `tmp/26_calendar_render_probe.py`, a `django.test.Client()` fetch of
+`/calendar/?year=2026&month=7` against each scenario copy after its scenario ran
+(`SERVER_NAME` set to an explicitly `ALLOWED_HOSTS`-permitted value for this environment,
+following the 26-01-PLAN.md precedent), HTTP 200 in all three cases.
+
+`span`'s single whole-window event (`RUN:1`) renders across **13** day cells after the
+window narrowing (one box per day the narrowed 2026-07-08..2026-07-20 span covers,
+counted by the exact per-event `hx-get="{% url 'calendar:update-event' event.id %}"`
+(`calendar.html:225`) URL token rather than by title text, since several distinct real
+rows share identical truncated title text). `per-night`'s four minted events render
+**1** cell each (**4** total) -- same-day events, not all-day spans, since each night's
+event has identical start/end dates. `none` renders **0** cells, having minted nothing.
+As corroboration against a genuinely real row: the real classical NTT/EFOSC2 event
+(pk=44, a genuine cross-midnight sunset-to-sunrise event, `start_time` date
+`2026-07-09` differing from `end_time` date `2026-07-10`) renders in exactly **2** day
+cells in every scenario copy, tagged **Confirmed against real rows** -- the direct,
+measured instance of `solsys_code/views.py:126-132`'s containment filter (`all_day_events`
+is every event whose `[start_date, end_date]` range contains the cell's date and whose
+start and end dates differ) placing a spanning event into every day cell its range
+covers.
+
+**What this means for the options, stated plainly:** a reader looking at the rendered
+grid cannot tell "one whole-window span row, rendered once per covered day" apart from
+"N per-night rows, one real row per night" -- both mechanisms place a box in exactly the
+same day cells, with the identical is_verified-gated visual treatment
+(`calendar.html:218-240`; the `span`/`per-night` tag on the underlying prototype rows
+itself is **Constructed-input code-path check**, the proposal under test, not an existing
+row). The actual difference between the options does not live on the calendar grid at
+all -- it lives in the **stored rows** (one event vs. N events for the same window), the
+**ownership surface** (one companion FK to manage vs. N), and **machine consumers** (any
+future code reading `CalendarEvent.objects.filter(url=...)` sees a different row count
+depending on which option is chosen, even though a human looking at `/calendar/` sees
+the identical picture either way).
+
+#### The key-scheme consequence
+
+From the measurements above, not from argument: a single canonical scheme covering both
+run types would have to let each run type take a **different key form** -- a
+classically-scheduled run's key is `RUN:{run_pk}:{date}` (date-bearing, one row per
+owned night), while a queue-scheduled run's key is the bare `RUN:{run_pk}` (no date
+component, one row for the whole window, the `span` candidate above). One ownership
+query already covers exactly this bare-key-plus-prefix pair without modification --
+`campaign_views.py:797`'s shipped `Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:')`
+is the direct precedent a `RUN:` analogue would mirror verbatim
+(`Q(url=f'RUN:{run.pk}') | Q(url__startswith=f'RUN:{run.pk}:')`). Only the date-bearing
+form has a component a stage transition (a window edit, a narrowing) can change -- and
+the measured `KEY_SET_STABLE=False`/orphaned-key result above is the direct evidence that
+the date-bearing form is the one exposed to that risk, not the bare form. No verdict on
+*which* form a queue run should actually use is stated here -- that is plan 26-05 task 1's
+decision to lock.
+
 ## Recommendation
 
 Four of the five SPIKE-01..04 verdicts below are locked, falsifiable, and grounded
