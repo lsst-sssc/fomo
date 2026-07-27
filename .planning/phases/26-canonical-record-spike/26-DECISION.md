@@ -581,6 +581,95 @@ section reasons from, per CONTEXT.md's "prototype both and recommend after" fram
 `src/fomo_db.sqlite3`'s fingerprint (`946176 1785094461`) was unchanged throughout this
 task.
 
+### SPIKE-03 gap closure — queue-run projection, measured
+
+26-VERIFICATION.md reopened SPIKE-03 because the locked `RUN:{run_pk}:{date}` key scheme
+was settled for classically-scheduled runs only, leaving open whether -- and how -- a
+queue-scheduled run should be projected onto the calendar at all. This subsection is the
+option-(b) measured closure the verification report's `missing` list named: the same kind
+of measured evidence D-11 produced for the write-strategy question, produced here for the
+queue-run projection question, against real `CampaignRun` pk=1 and the real dev DB.
+
+#### Run-type inventory (which runs this question actually affects)
+
+Probe run 2026-07-27 (`tmp/26_queue_inventory_probe.py`, read-only, against the
+unmodified real `src/fomo_db.sqlite3`). **Judgment applied to real field values, not an
+executed check** -- the `source` field that would decide this mechanically does not exist
+until Phase 27's CANON-01, so every row's `telescope_instrument`/`site_raw` was read by a
+human-auditable rule (full per-row inputs and assigned category recorded in
+`tmp/26-queue-inventory.txt`, not just totals) distinguishing a shared-queue-scheduled
+facility (LCO network, Gemini, SOAR, ESO VLT) from a run that owns a specific awarded
+night at one telescope (the NTT/EFOSC2/Magellan family plus every other single-facility
+ground run in this dev DB -- HCT, Palomar P200, Apache Point, IRTF, Deep Sky Chile, Joan
+Oró -- none of which schedule through a shared queue network) from a space mission with
+no ground site at all.
+
+As of 2026-07-27, of the 31 `CampaignRun` rows: **12 QUEUE**, **12 CLASSICAL**, **7
+SPACE**. `CampaignRun` pk=1 (`FTS/MuSCAT4`) and both class-wide rows pk=29 (`LCO 1m`) and
+pk=30 (`LCO 2m`) are all **QUEUE**.
+
+The RECON-07 baseline (the 19 approved, site-resolved, windowed `CampaignRun` rows on the
+3I/ATLAS campaign with no pre-existing blank-`url`-classical-style calendar presence --
+recomputed the same way the original RECON-07 Finding above did, and matching its figure
+of 19 exactly) splits **8 QUEUE, 11 CLASSICAL, 0 SPACE**. This is the figure that decides
+whether queue-run projection is a corner case or the dominant mechanism for the roadmap's
+flagship "19 invisible runs become visible" criterion: it is neither -- a genuine mixed
+population, where a majority (11/19) are classically-scheduled single-facility runs
+already covered by the locked per-night key scheme, and a substantial minority (8/19,
+including the phase goal's own anchor example pk=1) are queue-scheduled runs for which
+the projection mechanism was, until this closure, still an open question.
+
+#### The same category error already exists in campaign_gap.claimed_dates()
+
+Calling `claimed_dates()` (imported unchanged from `solsys_code.campaign_gap`, never
+modified by this investigation-only plan) with `CampaignRun` pk=1's own campaign, target,
+and resolved site (obscode `E10`) returns **15** claimed dates inside pk=1's 15-night
+window -- every night of the window. The 11 real LCO events actually cover only **11**
+site-local nights (converting each event's `start_time` into the site's timezone and
+taking the local calendar date, substituting `Australia/Sydney` explicitly because
+obscode `E10`'s `timezone` field is blank in this dev DB, exactly as the earlier SPIKE-03
+Finding above already recorded and flagged for a Phase 27 backfill). The set difference is
+the same 4 nights the D-11 prototype minted: `2026-07-08`, `2026-07-13`, `2026-07-15`,
+`2026-07-21`.
+
+The responsible code, `solsys_code/campaign_gap.py:207-209`'s ground-branch loop inside
+`claimed_dates()`, quoted verbatim with real line numbers read from the file:
+
+```
+207:        n_days = (run.window_end - run.window_start).days + 1
+208:        for i in range(n_days):
+209:            claimed.add(run.window_start + timedelta(days=i))
+```
+
+**This is the code-level distinguishing fact this closure needs.** For a ground run,
+`claimed_dates()`'s loop adds every date in the inclusive `[window_start, window_end]`
+range to `claimed` -- it does not distinguish a classically-scheduled run (which
+genuinely does own every night in its window) from a queue-scheduled run (whose window is
+a span during which observations *could* happen, not a set of owned nights). The same
+category error the domain correction identified in the reconciler's own key scheme
+already exists, today, in shipped code one module over from the calendar: a decision to
+stop minting per-night calendar events for queue runs does not by itself make
+`campaign_gap`'s coverage-gap analysis agree with the calendar. Correcting
+`claimed_dates()` is **not** this phase's work (investigation-only, flag-not-fix, per the
+same D-16/PROJECT.md precedent) -- the requirement that would own it is v2.3's GAPB-01.
+
+#### D-05's 400-event figure
+
+Computed figures from real field values, not an executed DB check (26-VALIDATION.md's own
+Evidence Map distinction): `CampaignRun` pk=29's real window is **80** nights inclusive;
+`SITE_TELESCOPE_MAP` (`solsys_code/calendar_utils.py:36-53`) carries `1m0` at **5** sites
+(`coj`, `cpt`, `elp`, `lsc`, `tfn`). The three arithmetic results a reader needs: naive
+per-site-per-night fan-out is **80 x 5 = 400**; per-day (one class-wide event per day,
+no site) is **80**; whole-window span (one event covering the entire window) is **1**.
+
+The **site-fanout half** of D-05 -- a single class-wide event, not one per candidate site
+-- is independently verified against the real `SITE_TELESCOPE_MAP` and is not in question
+here; it is not re-measured by this closure. The **per-day half** (whether pk=29's 80-day
+window should produce 80 daily events or a single spanning event) is exactly what the
+domain correction reopened, and is not re-verdicted here -- the verdict on which of these
+three figures is right for a queue-scheduled class-wide run is plan 26-05's task 1
+decision.
+
 ## Recommendation
 
 Four of the five SPIKE-01..04 verdicts below are locked, falsifiable, and grounded
