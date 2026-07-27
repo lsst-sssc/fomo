@@ -161,6 +161,73 @@ read-only probe; it does not yet account for LCO-url-based presence in the same 
 it should be read as "no classical-style calendar row currently exists for these runs,"
 consistent with how RECON-07's original figure was derived.)
 
+### SPIKE-04 criterion 4 (a) — the migration applies cleanly
+
+The throwaway migration (`solsys_code/migrations/0008_scratch_canonical_record_probe.py`,
+scratch branch `spike/26-canonical-record-probe` only, never committed to the real
+phase-26 branch) is **hand-authored**, not `makemigrations`-generated: non-interactive
+autodetection cannot tell a rename from a delete-plus-create, and because the OneToOne's
+`event_id` is the model's actual primary key, a `DeleteModel`/`CreateModel` pair would
+have dropped and recreated the table, destroying the 11 real companion rows this spike's
+coexistence evidence depends on (RESEARCH.md Pitfall 4). Its operation list, in order
+(migration state is cumulative within one `operations` list, so every operation after the
+rename refers to the model by its new name): one `RenameModel` (`CalendarEventTelescopeLabel`
+-> `CalendarEventMeta`), then three `AddField` operations — `CalendarEventMeta.run` (the
+D-11 prototype's ownership FK), `CampaignRun.source` (D-12/D-13, `default='legacy'`, no
+`RunPython` step needed since the backfill value is a single static default), and
+`CampaignRun.telescope_class` (D-06's widened vocabulary, nullable/blankable).
+
+Applied against `tmp/26-spike-db-copy.sqlite3` (a real copy of the dev DB) via
+`python manage.py migrate solsys_code`, verbatim output:
+
+```
+Operations to perform:
+  Apply all migrations: solsys_code
+Running migrations:
+  Applying solsys_code.0008_scratch_canonical_record_probe... OK
+```
+
+Row counts (`CampaignRun`, `CalendarEvent`, companion-record — via `tmp/26_row_counts.py`,
+which imports the companion model by its post-rename name first, falling back to the
+pre-rename name) before and after the migration: **31 20 11** both times, byte-identical
+— zero row loss, confirming `RenameModel` preserved the OneToOne-primary-key table rather
+than dropping and recreating it. This is the exact migration shape (`RenameModel` before
+`AddField`, referencing the post-rename name throughout) Phase 27 will write for real —
+proven here against a real copy of the dev DB, not just reasoned about. Tag: **Confirmed
+against real rows** (the scratch copy is a real copy of the dev DB; the pre/post row
+counts are the real 31 `CampaignRun`/20 `CalendarEvent`/11 companion rows, not factory
+fixtures).
+
+### SPIKE-04 criterion 4 (b) — measured rename blast radius (partial, completed by Task 3)
+
+Before fixing either class-name consumer, `./manage.py check` was run against the
+migrated scratch copy (with the rename/field edits in place on `models.py` but
+`admin.py`/`sync_lco_observation_calendar.py` still importing the old class name). It
+failed loudly, exactly as D-02's analytical prediction anticipated, via Django's admin
+autodiscovery (`app_config.ready()` -> `autodiscover_modules('admin', ...)` ->
+`import_module('solsys_code.admin')`), verbatim tail:
+
+```
+  File "/home/tlister/git/fomo_devel/solsys_code/admin.py", line 4, in <module>
+    from solsys_code.models import CalendarEventTelescopeLabel, CampaignRun
+ImportError: cannot import name 'CalendarEventTelescopeLabel' from 'solsys_code.models' (/home/tlister/git/fomo_devel/solsys_code/models.py)
+```
+
+This confirms integration point #1 (`solsys_code/admin.py:4,28,41`) fails loudly at
+Django startup, not silently — and because `manage.py migrate` itself calls the same
+system-check machinery, the rename would have blocked `migrate` too until fixed. Fixing
+`admin.py` (the import, the `ModelAdmin` subclass name, and the `admin.site.register`
+call) and `sync_lco_observation_calendar.py` (the import and the
+`.objects.update_or_create(event=event, ...)` call — only the class name changed; `event=`
+and every `related_name`/prefetch string were left untouched) brought `./manage.py check`
+back to exit 0. Integration point #2
+(`solsys_code/management/commands/sync_lco_observation_calendar.py:18,369`) is confirmed
+the same way, at command import.
+
+The remaining rows of this checklist (integration points #3/#4, the admin reverse-URL-name
+consumer, and the test-module consumers) are measured and recorded by Task 3 below, along
+with the explicit verdict on D-02's prediction.
+
 ## Recommendation
 
 <!-- completed in plan 26-03 -->
