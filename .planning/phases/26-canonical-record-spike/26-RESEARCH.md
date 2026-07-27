@@ -894,6 +894,130 @@ files** — no other claim needs user confirmation before the plan can proceed.
 
 **Missing dependencies with no fallback:** none.
 
+## Validation Architecture
+
+This phase ships no application code, so validation here means **how each claim in the decision
+doc gets evidenced** — an executable check's printed output, a real test-suite run's pass/fail
+result, or an explicit manual step — not application test coverage. Every runtime number below
+was measured directly this session against the live venv, not estimated.
+
+### Test Infrastructure
+
+This repo has **two independent test suites** (CLAUDE.md); this phase's own throwaway evidence
+scripts use neither directly (they run via `manage.py shell`, per Investigation Methodology
+items 1/3/4), but D-02's measurement step runs the second one, and the planner needs both
+characterized:
+
+| Property | pytest suite | Django (`solsys_code`) suite |
+|----------|--------------|-------------------------------|
+| Config | `pyproject.toml` `[tool.pytest.ini_options]`, `testpaths = ["tests", "src", "docs"]` — does **not** collect `solsys_code/` | Django settings module `src.fomo.settings` (no separate test-settings file; the test DB is Django's own isolated in-memory SQLite DB regardless of `DATABASES['default']['NAME']` — confirmed this session: no `test_*.sqlite3` file ever appeared on disk across every run) |
+| Scope relevant to Phase 26 | None — the whole suite is 1 test, unrelated to `solsys_code` (confirmed: `find tests/ src/ docs/ -name test_*.py` -> 1 file) | All of it — the four rename integration points live in `solsys_code/` |
+| Quick-run command | `python -m pytest` | `./manage.py test solsys_code.tests.test_calendar_template` (single most load-bearing module — covers integration points #3/#4, the two "safe by construction" ones the spike must actually confirm, not just #1/#2) |
+| Quick-run measured time | **0.6s wall** (0.08s test time) `[VERIFIED, this session]` | **21.7s wall** (12.7s test time, 24 tests; the ~9s gap is the fixed `manage.py check`→SPICE-furnish cost from "Measuring the Rename" above, paid once per process) `[VERIFIED, this session]` |
+| Full relevant-suite command | `python -m pytest` (same command — the suite is already this small) | The **named, narrow six-module list** from "Measuring the Rename" above (excludes `test_ephem_utils.py`/`test_views.py`) |
+| Full relevant-suite measured time | 0.6s wall | **2m 5.6s wall** (114.8s test time, 242 tests, all passing) `[VERIFIED, this session — this number corrects the "completes in seconds" framing in the "Measuring the Rename" narrative above: the accurate figure for the full six-module list is ~2 minutes, not seconds; the single-module quick-run above (~22s) is the genuinely fast per-edit smoke check]` |
+| **Literal** `./manage.py test solsys_code` (not recommended for this phase — see Pitfall 3) | N/A | Unsafe: timed out past 2 minutes on a first attempt, then **segfaulted** inside REBOUND/ASSIST on a second attempt (8-minute budget) before reaching a normal exit. Never run this for D-02's measurement; use the narrow list. |
+
+### Evidence Map (ROADMAP success criteria + SPIKE-01..04)
+
+| Criterion | Requirement | Evidence Artifact | Command | Confidence Level |
+|-----------|-------------|--------------------|---------|-------------------|
+| 1 | SPIKE-01 (`source` vocabulary + `IntegrityError` coexistence) | `tmp/26_integrity_check.py`'s printed PASS/FAIL lines (Investigation Methodology item 3) | `python manage.py shell < tmp/26_integrity_check.py` against the scratch DB copy | **Confirmed against real rows** — `CampaignRun` pk=1 and its real 11 LCO-sourced companion rows |
+| 2 | SPIKE-02 (per-adapter identity-key-to-run mapping) | The Fresh DB Snapshot query (Investigation Methodology item 2) for classical (blank `url`) and LCO (real portal `url`) rows; a source-code read of `sync_gemini_observation_calendar.py`'s `GEM:{prog}/{obsid}` key-construction for the Gemini case | `python manage.py shell -c "..."` **read-only** against the real `src/fomo_db.sqlite3` (no scratch copy needed — no write) for classical/LCO; direct source inspection for Gemini | Classical and LCO: **confirmed against real rows**. **Gemini's `GEM:` mapping is confirmed via constructed input / code reading only** — D-18 already establishes zero real `GEM:`-namespaced events exist in the dev DB, so this one row of the evidence map can never move to "confirmed against real rows" without a real Gemini sync having run; the decision doc must state this distinction explicitly per Phase 18's D-09 precedent, not present it with the same confidence as the classical/LCO rows |
+| 3 | SPIKE-03 (canonical event-key scheme + stage-2 fan-out) | The three-copy adopt/gap-fill/rejected-baseline event-count comparison (Investigation Methodology item 4) | The three `tmp/26_reconciler_prototype.py` runs, one per scratch copy | **Confirmed against real rows** for the adopt-vs-gap-fill comparison itself (real pk=1 window, real 11 LCO events). The stage-2 80×5=400 fan-out arithmetic (D-05) is a **computed figure from real field values** (`CampaignRun` pk=29's real window length × `SITE_TELESCOPE_MAP`'s real site count) rather than an executable DB check — worth stating that distinction too, since it is not literally "run something and observe an outcome" |
+| 4 | SPIKE-04 (migration + rename checklist) | (a) the throwaway migration applying cleanly to the scratch copy with no error; (b) the narrow six-module Django test-suite run's real pass/fail output; (c) the `/calendar/` dev-server manual load below | (a) `python manage.py migrate solsys_code`; (b) the narrow-list command from the Test Infrastructure table; (c) manual, see below | (a)/migration-applies: **confirmed against real rows** (the scratch copy is a real copy of the dev DB). (b)/test-suite pass: **confirmed via constructed input** — Django's `TestCase` machinery builds its own isolated in-memory test DB from factories/fixtures, not from the scratch copy of real data, so a green run proves the rename doesn't break the *tested behaviors*, not that it was proven against the real 11 companion rows specifically (that proof is (a) + the SPIKE-01 script instead). (c): manual, see below |
+| 5 | Durable `docs/design/` page | `sphinx-build` clean-build check + toctree entry present | `sphinx-build -M html ./docs ./_readthedocs -T -E -d ./docs/_build/doctrees -D exclude_patterns=notebooks/*,_build` (the exact pre-commit invocation, run manually before staging) | Not evidence of a decision — a build-tooling quality gate confirming the page is reachable and RST-valid, not a factual claim needing a confidence tier |
+
+### Sampling Guidance — what to re-run after each investigation step
+
+The goal is to catch a broken scratch copy or a leaked `local_settings.py` override immediately,
+not at phase close:
+
+1. **Immediately after writing/refreshing `local_settings.py`:** run the DB-path guard one-liner
+   (`python manage.py shell -c "from django.conf import settings; print(settings.DATABASES
+   ['default']['NAME'])"`) and confirm it ends in the scratch-copy filename. Re-run this same
+   one-liner before every subsequent `migrate` or write-script invocation for the rest of the
+   session (Pitfall 1) — it is cheap (well under a second) and is the single highest-value check
+   in the whole procedure.
+2. **Note on `manage.py test`:** the guard above does **not** need to be re-run before a
+   `manage.py test` invocation specifically — Django's test runner always uses its own isolated
+   in-memory test DB regardless of `DATABASES['default']['NAME']` (confirmed this session), so a
+   leaked/missing `local_settings.py` cannot cause `manage.py test` to touch real data. The guard
+   matters for `migrate`/`shell`-based writes and for `runserver`, not for `test`.
+3. **Immediately after applying the throwaway migration:** re-run the Fresh DB Snapshot query
+   (Investigation Methodology item 2) against the scratch copy and diff it against the real-DB
+   baseline captured before the migration (31 `CampaignRun`s, 20 `CalendarEvent`s, 11 companion
+   rows). A mismatch here — especially a companion-row count that dropped to 0 — is the signature
+   of Pitfall 4 (an autodetected `DeleteModel`/`CreateModel` instead of `RenameModel` silently
+   destroying the scratch copy's data); stop and re-author the migration by hand rather than
+   proceeding to the coexistence check with corrupted data.
+4. **After each `models.py`/migration edit, before running any test selection:** `python
+   manage.py check` (against the scratch-pointed settings) as a fast (~3.5s, per "Measuring the
+   Rename" above) syntax/import smoke test, before spending the ~22s or ~2min cost of an actual
+   test run.
+5. **After each D-11 prototype script run:** immediately diff the resulting `CalendarEvent`
+   count in pk=1's window against the expected number for that scenario (15 for adopt, 15 for
+   gap-fill, 26 for the rejected baseline) — don't batch this check until all three copies are
+   done; a script bug caught after one run is a one-line fix, caught after three is a
+   re-run-everything problem.
+6. **Before considering the session's evidence-gathering complete:** re-run the quick single-
+   module command (`test_calendar_template`, ~22s) one more time on the scratch branch as a
+   final confirmation nothing regressed since the last edit.
+7. **At discard (Pitfall 5):** `git status --porcelain` on the real phase-26 branch, **and**
+   explicitly confirm `local_settings.py` no longer exists (`ls local_settings.py` should error)
+   and `tmp/` is removed — a leaked override file left in place is invisible to `git status`
+   (it's gitignored), so checking for its literal absence on disk is a separate, necessary step,
+   not implied by a clean `git status`.
+
+### Manual-Only Verification: `/calendar/` dev-server load (D-02)
+
+This step is inherently manual — there is no automated assertion that substitutes for actually
+loading the rendered page, and CONTEXT.md's D-02 asks for it explicitly. Record it as manual,
+not as something to script around:
+
+1. Confirm the DB-path guard (Sampling Guidance step 1) before starting `runserver`.
+2. `python manage.py runserver` (with `local_settings.py` still pointed at the migrated scratch
+   copy) and load `/calendar/?year=2026&month=7` in a browser.
+3. **Pass condition:** HTTP 200, no traceback page, and the rendered month shows the same event
+   count as the Fresh DB Snapshot baseline (20 events for July 2026's relevant window — exact
+   count depends on the month's date range shown).
+4. **Known gap in this specific check, worth recording explicitly:** D-20 confirms all 11 real
+   companion rows currently have `is_verified=1` — **zero** real rows currently exercise the
+   `is_verified=False` dashed-border/fallback-label branch of the template
+   (`calendar.html:228,244`). A clean page load therefore proves the `prefetch_related()` string
+   and the `event.telescope_label_meta` accessor still resolve without error, but **cannot**
+   visually confirm the dashed-border CSS itself renders correctly, because no real row is
+   currently in that state. Two ways to close this gap, either acceptable: (a) on the **scratch
+   copy only**, temporarily flip one companion row's `is_verified` to `False` before this step,
+   reload, and confirm the dashed border appears, then note in the decision doc that this was a
+   deliberately-constructed check, not a real-row observation; or (b) rely on the existing
+   `test_calendar_template.py` suite instead, which already has fixture-based coverage of this
+   exact branch (see Don't Hand-Roll above) — cheaper, and already part of the quick-run command.
+   Either way, state explicitly in the decision doc which of the two the evidence rests on,
+   following the same "confirmed against real rows" vs. "confirmed via constructed input"
+   discipline as the rest of this map.
+5. Record verbatim: the HTTP status line and the visible event count (a screenshot, or —
+   preferable for a doc that should paste cleanly — the `django.test.Client()`-based text
+   substitute already given in Investigation Methodology item 2, run in the same session as a
+   corroborating, non-interactive second data point, not a replacement for the actual browser load).
+
+### Wave 0
+
+**None — existing infrastructure covers all phase requirements.** No new test framework, config,
+or fixture scaffolding needs to exist before investigation begins:
+
+- The Django test runner, its settings module, and the existing `solsys_code/tests/` suite are
+  already in place and already exercise all four rename-relevant integration points (Don't
+  Hand-Roll above).
+- `local_settings.py` is an existing, already-gitignored project mechanism (Investigation
+  Methodology item 1) — nothing to add to `.gitignore` or scaffold.
+- `insert_or_create_calendar_event()` — the one piece of application code every throwaway script
+  reuses — already exists and is unchanged by this phase.
+- The throwaway evidence scripts themselves (`tmp/26_integrity_check.py`,
+  `tmp/26_reconciler_prototype.py`) are investigation tooling created *during* the phase's own
+  execution, not scaffolding that must pre-exist — they are written, run, and discarded within
+  the same investigation session (item 1's discard mechanic), never a Wave 0 deliverable.
+
 ## Decision-Doc Shape (item 5)
 
 **Sphinx/RST conventions confirmed from both existing spike pages, this session:**
