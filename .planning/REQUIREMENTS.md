@@ -93,35 +93,37 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPIKE-01 | TBD | Pending |
-| SPIKE-02 | TBD | Pending |
-| SPIKE-03 | TBD | Pending |
-| SPIKE-04 | TBD | Pending |
-| CANON-01 | TBD | Pending |
-| CANON-02 | TBD | Pending |
-| CANON-03 | TBD | Pending |
-| CANON-04 | TBD | Pending |
-| CANON-05 | TBD | Pending |
-| RECON-01 | TBD | Pending |
-| RECON-02 | TBD | Pending |
-| RECON-03 | TBD | Pending |
-| RECON-04 | TBD | Pending |
-| RECON-05 | TBD | Pending |
-| RECON-06 | TBD | Pending |
-| RECON-07 | TBD | Pending |
-| RECON-08 | TBD | Pending |
-| RECON-09 | TBD | Pending |
-| ATTRIB-01 | TBD | Pending |
-| ATTRIB-02 | TBD | Pending |
-| ATTRIB-03 | TBD | Pending |
-| ATTRIB-04 | TBD | Pending |
-| ATTRIB-05 | TBD | Pending |
-| ATTRIB-06 | TBD | Pending |
+| SPIKE-01 | Phase 26 — Canonical-Record Spike | Pending |
+| SPIKE-02 | Phase 26 — Canonical-Record Spike | Pending |
+| SPIKE-03 | Phase 26 — Canonical-Record Spike | Pending |
+| SPIKE-04 | Phase 26 — Canonical-Record Spike | Pending |
+| CANON-01 | Phase 27 — The Canonical Run Record | Pending |
+| CANON-02 | Phase 27 — The Canonical Run Record | Pending |
+| CANON-03 | Phase 27 — The Canonical Run Record | Pending |
+| CANON-04 | Phase 27 — The Canonical Run Record | Pending |
+| CANON-05 | Phase 27 — The Canonical Run Record | Pending |
+| ATTRIB-01 | Phase 28 — Operator-Assisted Attribution | Pending |
+| ATTRIB-02 | Phase 28 — Operator-Assisted Attribution | Pending |
+| ATTRIB-03 | Phase 28 — Operator-Assisted Attribution | Pending |
+| ATTRIB-04 | Phase 28 — Operator-Assisted Attribution | Pending |
+| ATTRIB-05 | Phase 28 — Operator-Assisted Attribution | Pending |
+| ATTRIB-06 | Phase 28 — Operator-Assisted Attribution | Pending |
+| RECON-01 | Phase 29 — The Reconciler | Pending |
+| RECON-02 | Phase 29 — The Reconciler | Pending |
+| RECON-03 | Phase 29 — The Reconciler | Pending |
+| RECON-04 | Phase 29 — The Reconciler | Pending |
+| RECON-05 | Phase 29 — The Reconciler | Pending |
+| RECON-06 | Phase 29 — The Reconciler | Pending |
+| RECON-07 | Phase 29 — The Reconciler | Pending |
+| RECON-08 | Phase 29 — The Reconciler | Pending |
+| RECON-09 | Phase 29 — The Reconciler | Pending |
 
 **Coverage:**
 - v1 requirements: 24 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 24 ⚠️
+- Mapped to phases: 24
+- Unmapped: 0 ✓
+
+**Execution order:** 26 → 27 → 28 → 29. Attribution (28) is deliberately scheduled ahead of the reconciler (29): it is the only mechanism in v2.2 that creates run↔`ObservationRecord` links (adapter rewiring is deferred to v2.3), so without it the reconciler's stages 3 and 4 have no real data to act on — and it makes ATTRIB-06 structural rather than a rollout caveat.
 
 ---
 *Requirements defined: 2026-07-26*

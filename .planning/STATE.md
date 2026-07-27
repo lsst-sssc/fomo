@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-07-27T02:59:50.346Z"
 last_activity: 2026-07-27
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-18 — v2.1 milestone closed, full evolution review performed)
+See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
-**Core value:** Campaign coordination handles the real 3I/ATLAS sheet's harder rows — space-mission observations whose exact observing night isn't known yet, only a window or a still-pending schedule — while closing out submitter contact opt-in (VIEW-05) and a real staff-facing site-disambiguation UI.
-**Current focus:** Awaiting next milestone — v2.1 shipped 2026-07-18 (8 phases, 26 plans, 13/13 v1 requirements)
+**Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
+**Current focus:** Phase 26 — Canonical-Record Spike (v2.2, 4 phases, 24/24 requirements mapped)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 26 — Canonical-Record Spike (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-27 — Milestone v2.2 started
+Status: Roadmap approved, ready to plan Phase 26
+Last activity: 2026-07-26 — Milestone v2.2 roadmap created (4 phases, 24 requirements)
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
