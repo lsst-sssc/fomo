@@ -29,6 +29,12 @@
       </thead>
       <tbody>
         <tr class="table-primary">
+          <td><strong>Total Targets (no filters)</strong></td>
+          {% for count in total_targets_by_year %}
+          <td class="text-center"><strong>{{ count }}</strong></td>
+          {% endfor %}
+        </tr>
+        <tr class="table-primary">
           <td><strong>Combined (all filters)</strong></td>
           {% for count in combined_by_year %}
           <td class="text-center"><strong>{{ count }}</strong></td>

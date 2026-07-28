@@ -53,8 +53,9 @@ def _compute_first_pass_stats():
     not counted again. The year boundary resets the counter so a target that
     fails then passes again in a new year is counted for that new year.
 
-    Returns a list of ``{'year': int, 'combined': int, <filter_key>: int, ...}``
-    dicts, one per year with at least one event, sorted ascending by year.
+    Returns a list of ``{'year': int, 'total_targets': int, 'combined': int,
+    <filter_key>: int, ...}`` dicts, one per year with at least one event,
+    sorted ascending by year.
     """
     filter_keys = [key for key, _, _ in RUBIN_TOO_FILTERS]
     stats = defaultdict(lambda: defaultdict(int))
@@ -73,11 +74,16 @@ def _compute_first_pass_stats():
         prev_per_filter = {key: False for key in filter_keys}
         counted_combined_years: set = set()
         counted_filter_years: dict = defaultdict(set)
+        counted_target_years: dict = defaultdict(set)
 
         for row in rows:
             if row.last_run is None:
                 continue
             year = row.last_run.year
+            if year not in counted_target_years[target_id]:
+                stats[year]['total_targets'] += 1
+                counted_target_years[target_id].add(year)
+
             filter_results = evaluate_filters(row, abs_mag=abs_mag)
             combined = all(filter_results.values())
 
@@ -94,7 +100,12 @@ def _compute_first_pass_stats():
             prev_per_filter = dict(filter_results)
 
     return [
-        {'year': year, 'combined': year_data.get('combined', 0), **{key: year_data.get(key, 0) for key in filter_keys}}
+        {
+            'year': year,
+            'total_targets': year_data.get('total_targets', 0),
+            'combined': year_data.get('combined', 0),
+            **{key: year_data.get(key, 0) for key in filter_keys},
+        }
         for year, year_data in sorted(stats.items())
     ]
 
@@ -116,6 +127,7 @@ class RubinTooScoutStatsView(TemplateView):
         context = super().get_context_data(**kwargs)
         years_stats = _compute_first_pass_stats()
         context['years'] = [ys['year'] for ys in years_stats]
+        context['total_targets_by_year'] = [ys['total_targets'] for ys in years_stats]
         context['combined_by_year'] = [ys['combined'] for ys in years_stats]
         context['filter_rows'] = [
             {'key': key, 'label': label, 'counts': [ys[key] for ys in years_stats]}
