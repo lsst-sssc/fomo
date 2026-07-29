@@ -4,8 +4,8 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
 stopped_at: Phase 27 context gathered
-last_updated: "2026-07-29T17:58:19.309Z"
-last_activity: 2026-07-29
+last_updated: "2026-07-29T22:20:24.269Z"
+last_activity: 2026-07-29 -- Phase 27 planning complete
 progress:
   total_phases: 4
   completed_phases: 1
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 Phase: 27
 Plan: Not started
 Status: Ready to execute
-Last activity: 2026-07-29
+Last activity: 2026-07-29 -- Phase 27 planning complete
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 

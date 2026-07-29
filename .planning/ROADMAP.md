@@ -173,7 +173,7 @@ Plans:
   5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
 
 **Plans:** 6 plans
-Plans:
+
 **Wave 1**
 
 - [ ] 27-01-PLAN.md — `calendar_utils.py` as a real shared API: de-underscore its five cross-module helpers, add the one shared `derive_telescope_class()` (D-20) with D-12's subset assertion, and move the `calendar_utils`-owned tests into their own module
