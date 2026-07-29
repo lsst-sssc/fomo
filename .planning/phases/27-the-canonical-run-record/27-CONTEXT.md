@@ -224,6 +224,42 @@ depends on the spike's "three-meaning vocabulary" recommendation.**
   **Home:** `calendar_utils.py`, next to `_aperture_class_from_telescope_code` and
   `SITE_TELESCOPE_MAP`, which is where the class vocabulary already lives.
 
+### Resolved during planning (2026-07-29, after research)
+
+Research surfaced four open points that materially changed the plan. All four were decided by the
+project owner before the planner ran.
+
+- **D-21: `telescope_class` stores lowercase `2m0` / `1m0` / `0m4`.** Research found a
+  case-convention conflict: this document writes the vocabulary uppercase throughout D-11..D-20,
+  but `calendar_utils._aperture_class_from_telescope_code` already holds it lowercase
+  (`{'0m4', '1m0', '2m0', '4m0'}`). Since D-20 itself names `calendar_utils.py` as "where the
+  class vocabulary already lives", the lowercase form wins and this document's capitalisation is
+  prose styling, not a literal value. **Consequence:** D-12's subset assertion compares directly
+  with no case-folding, which keeps it a genuine drift detector — a casing divergence would be
+  caught rather than silently normalised. `TextChoices` *labels* may still render uppercase to
+  users; only the stored values are lowercase. `SPACE` is unaffected.
+
+- **D-22: D-16's repair task calls `resolve_site(..., create_placeholder=False)` for HST
+  (pk 8, 12).** `resolve_site`'s default is `True`, which on a tier-2 network failure would
+  fabricate a placeholder `Observatory` for HST rather than leaving the row flagged. With `False`,
+  a network failure leaves the row site-less and `site_needs_review` set — exactly the state D-17
+  says a genuine resolution failure should look like. This makes D-16a's accepted "not reproducible
+  offline" cost fail safe instead of fail silent: a bad day produces no row, not a fake one.
+
+- **D-23: Observatory `E10` (Siding Spring)'s blank `timezone` is backfilled in this phase, as its
+  own separately-committed task.** 26-DECISION.md's "Timezone gap found during this spike" section
+  asked Phase 27 to do this before the Phase 29 reconciler ships, which needs it for site-local-night
+  key derivation. It is a one-row update and has no CANON requirement behind it — the same standing
+  as D-16's repair task, and it is committed separately for the same reason.
+
+- **D-24: The `SITE_TELESCOPE_MAP` / instrument-extraction module split is dropped back out of this
+  phase.** It was the one folded todo flagged at selection time as having no CANON requirement, and
+  D-20 removed any dependency on it by homing the new derivation helper in `calendar_utils.py`.
+  Phase 27 already carries two model changes, a rename across six integration points, a new link
+  model, several migrations with backfills, admin inlines, a template override, and two data-repair
+  tasks. The todo stays open for a later cleanup pass. **The other three folded todos remain in
+  scope**, including the `calendar_utils.py` private-helper rename and its test-module split.
+
 ### Claude's Discretion
 
 - The exact name of the observation-link model (`CampaignRunObservation` is used throughout this
@@ -261,8 +297,8 @@ All four matched todos were folded into this phase's scope.
   `SITE_TELESCOPE_MAP` and instrument extraction into their own module. **Flagged at selection
   time as the one folded todo with no CANON requirement behind it, and it should be sized before
   it lands in the plan.** D-20 places the new derivation helper in `calendar_utils.py` rather
-  than in a new module, so this extraction is *not* a prerequisite for anything in Phase 27. If
-  it makes the phase materially larger, the planner should surface that rather than absorb it.
+  than in a new module, so this extraction is *not* a prerequisite for anything in Phase 27.
+  **Resolved: dropped from this phase by D-24.** The remaining three folded todos stay in scope.
 
 </decisions>
 
@@ -396,8 +432,8 @@ All four matched todos were folded into this phase's scope.
 - **Adding `telescope_class` to a unique constraint** — only if D-14's measurement shows a real
   colliding pair.
 - **Extracting `SITE_TELESCOPE_MAP` and instrument extraction into their own module** — folded in
-  as a todo, but D-20 removes any dependency on it, so it can be dropped back out if it inflates
-  the phase.
+  as a todo, but D-20 removed any dependency on it. **Dropped back out of Phase 27 by D-24**; the
+  todo stays open for a later cleanup pass.
 - **v2.3 items untouched here:** adapter rewiring (ADAPT-01..03), provenance-blind gap analysis
   (GAPB-01), status vocabulary unification (STATUS-01/02), unused-allocation display (UNUSED-01).
 - **The adopt-vs-gap-fill write strategy** — Phase 26 deferred it to Phase 29 by explicit human
