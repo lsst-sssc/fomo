@@ -91,7 +91,7 @@ def _build_parameters(request_group: dict[str, Any], request: dict[str, Any]) ->
     """Build a minimal flat ObservationRecord.parameters dict for a backfilled request.
 
     Matches the legacy single-config flat shape ('proposal', 'start', 'end',
-    'instrument_type') that solsys_code.calendar_utils._extract_instrument() falls back
+    'instrument_type') that solsys_code.calendar_utils.extract_instrument() falls back
     to when no c_N_*-prefixed multi-configuration keys are present -- deliberately not
     replicating the full submission-form c_N_* shape, since the RequestGroup API's
     'configurations' entries don't map 1:1 onto it.

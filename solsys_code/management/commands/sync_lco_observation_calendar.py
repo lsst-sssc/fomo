@@ -9,11 +9,11 @@ from tom_observations.models import ObservationRecord
 
 from solsys_code.calendar_utils import (
     InstrumentExtractionError,
-    _coarse_telescope_label,
-    _derive_telescope,
-    _extract_instrument,
-    _resolve_placement_block,
+    coarse_telescope_label,
+    derive_telescope,
+    extract_instrument,
     insert_or_create_calendar_event,
+    resolve_placement_block,
 )
 from solsys_code.models import CalendarEventTelescopeLabel
 
@@ -127,7 +127,7 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
     banner-stage record (scheduled_start is None) gets the coarse fallback label
     with no API call (D-01) and is never counted/flagged as a failure (D-02/D-07). A
     placed record attempts a single live API resolution via
-    _resolve_placement_block; an API failure/timeout AND a successfully-returned but
+    resolve_placement_block; an API failure/timeout AND a successfully-returned but
     unmapped (site, telescope_code) pair are the SAME fallback bucket (Pitfall 4) --
     both set label_was_fallback=True, route to the coarse label, and increment the
     same telescope_api_failed counter.
@@ -149,16 +149,16 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
     Raises:
         KeyError: if a required parameters key (proposal/start/end) is missing.
         ValueError: if parameters['start']/['end'] cannot be parsed as datetimes.
-        InstrumentExtractionError: if _extract_instrument (D-01..D-06) finds no
+        InstrumentExtractionError: if extract_instrument (D-01..D-06) finds no
             science config and no exposure-signal config anywhere in parameters.
     """
-    instrument = _extract_instrument(record.parameters)
+    instrument = extract_instrument(record.parameters)
     if instrument is None:
         raise InstrumentExtractionError(
             f'No recognized configuration_type or exposure signal found in observation_id='
             f'{record.observation_id!r} parameters'
         )
-    coarse = _coarse_telescope_label(instrument, record.facility)
+    coarse = coarse_telescope_label(instrument, record.facility)
 
     if record.scheduled_start is None:
         # D-01: banner stage -- no API call attempted; D-02/D-07: never counted as a
@@ -166,12 +166,12 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
         telescope = coarse
         label_was_fallback = False
     else:
-        block = _resolve_placement_block(record.observation_id, facility)
+        block = resolve_placement_block(record.observation_id, facility)
         # T-07-03: a malformed/tampered API block validates 'state' upstream but never
         # 'site'/'telescope' -- read via .get() so a missing key yields None and routes
         # to the same coarse-fallback bucket as an unmapped pair, instead of raising
         # KeyError into the generic except clause one layer up in handle().
-        resolved = _derive_telescope(block.get('site'), block.get('telescope')) if block is not None else None
+        resolved = derive_telescope(block.get('site'), block.get('telescope')) if block is not None else None
         if resolved is None:
             # Pitfall 4: an API call failure/timeout (block is None) and a
             # successfully-returned but unmapped (site, telescope_code) pair

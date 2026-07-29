@@ -74,14 +74,14 @@ _MUSCAT_CHANNEL_SUFFIXES = ('g', 'r', 'i', 'z')
 
 
 class InstrumentExtractionError(Exception):
-    """Raised when _extract_instrument finds no usable config (D-06 total extraction failure).
+    """Raised when extract_instrument finds no usable config (D-06 total extraction failure).
 
     Caught separately in handle() so a fully-malformed record is routed to the
     dedicated 'extraction_failed' counter, never silently merged into 'skipped'.
     """
 
 
-def _aperture_class_from_telescope_code(telescope_code: str | None) -> str | None:
+def aperture_class_from_telescope_code(telescope_code: str | None) -> str | None:
     """Extract the aperture-class token (D-04 vocabulary) from a 4-char telescope code.
 
     Args:
@@ -103,7 +103,7 @@ def _aperture_class_from_telescope_code(telescope_code: str | None) -> str | Non
     return None
 
 
-def _derive_telescope(site: str | None, telescope_code: str | None) -> str | None:
+def derive_telescope(site: str | None, telescope_code: str | None) -> str | None:
     """Map a resolved (site, telescope_code) pair to a verified label via SITE_TELESCOPE_MAP.
 
     Args:
@@ -120,13 +120,13 @@ def _derive_telescope(site: str | None, telescope_code: str | None) -> str | Non
             parsed -- caller falls back to the coarse instrument-class label
             (TELESCOPE-03). Never raises.
     """
-    aperture_class = _aperture_class_from_telescope_code(telescope_code)
+    aperture_class = aperture_class_from_telescope_code(telescope_code)
     if aperture_class is None:
         return None
     return SITE_TELESCOPE_MAP.get((site, aperture_class))
 
 
-def _resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[str, Any] | None:
+def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[str, Any] | None:
     """Call the LCO Observation Portal API once to resolve a placed record's block.
 
     Issues a single, timeout-bounded GET to /api/requests/{observation_id}/observations/
@@ -226,7 +226,7 @@ def _find_exposure_signal_config(parameters: dict[str, Any]) -> int | None:
     return None
 
 
-def _extract_instrument(parameters: dict[str, Any]) -> str | None:
+def extract_instrument(parameters: dict[str, Any]) -> str | None:
     """Extract the scientifically meaningful instrument_type from a record's parameters.
 
     Scans the real c_1..c_5-prefixed multi-configuration shape (D-01..D-06): first by
@@ -255,7 +255,7 @@ def _extract_instrument(parameters: dict[str, Any]) -> str | None:
     return parameters.get('instrument_type')
 
 
-def _coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
+def coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
     """Derive the coarse aperture-class fallback label from instrument_type and facility.
 
     LCO instrument type codes are prefixed with the aperture class token (e.g.
