@@ -239,7 +239,7 @@ Plans:
 | 23. Weather/Storm Cancellation Handling | v2.1 | 3/3 | Complete | 2026-07-16 |
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
-| 26. Canonical-Record Spike | v2.2 | 5/5 | Complete   | 2026-07-27 |
+| 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
 | 27. The Canonical Run Record | v2.2 | 0/TBD | Not started | - |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
