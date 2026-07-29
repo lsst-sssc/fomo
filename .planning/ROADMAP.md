@@ -172,7 +172,28 @@ Plans:
   4. A calendar event can carry a link to the run it belongs to, and an `ObservationRecord` can be linked to the run it realises with a record of whether a human confirmed it — and deleting a run never deletes calendar events, companion rows, or observation records
   5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
 
-**Plans**: TBD
+**Plans:** 6 plans
+Plans:
+**Wave 1**
+
+- [ ] 27-01-PLAN.md — `calendar_utils.py` as a real shared API: de-underscore its five cross-module helpers, add the one shared `derive_telescope_class()` (D-20) with D-12's subset assertion, and move the `calendar_utils`-owned tests into their own module
+- [ ] 27-02-PLAN.md — Data repair before the backfills: the `repair_stale_campaign_run_sites` command with offline mocked tier-2 tests plus its one-time live run (D-16/D-16a/D-22), and the coordinate-derived `Observatory.timezone` backfill (D-23)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 27-03-PLAN.md — CANON-03: hand-authored `RenameModel` to `CalendarEventMeta` plus its nullable `run` link, all six rename integration points, and a `MigrationExecutor` proof that the 11 real `is_verified` rows survive
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 27-04-PLAN.md — CANON-01/02/04 at the schema layer: `Source`/`TelescopeClass` vocabularies and fields, `is_publicly_visible`, the `CampaignRunObservation` link model with its named uniqueness constraint and audit fields, and the derived-rule `telescope_class` backfill (no constraint change — D-14)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 27-05-PLAN.md — CANON-05: two editable admin inlines with `save_formset` attribution stamping (D-06/D-07), the two new admin filters (D-19), `telescope_class` on the non-staff allow-list with `source` withheld (D-18), `source=WEB` on submissions, and the calendar-modal template override gated on `is_publicly_visible` (D-08/D-09/D-10)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 27-06-PLAN.md — `import_campaign_csv` writes `source` and `telescope_class`, the paired demo notebook and operator runbook are regenerated/updated, and the three folded planning-doc corrections land
 
 ### Phase 28: Operator-Assisted Attribution
 
@@ -240,7 +261,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 0/TBD | Not started | - |
+| 27. The Canonical Run Record | v2.2 | 0/6 | Planned | - |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
 
