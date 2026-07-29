@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Completed 26-04-PLAN.md
-last_updated: "2026-07-29T05:08:51.064Z"
+stopped_at: Phase 27 context gathered
+last_updated: "2026-07-29T17:58:19.309Z"
 last_activity: 2026-07-29
 progress:
   total_phases: 4
@@ -229,9 +229,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T22:48:39.618Z
-Stopped at: Completed 26-04-PLAN.md
-Resume file: None
+Last session: 2026-07-29T17:58:19.305Z
+Stopped at: Phase 27 context gathered
+Resume file: .planning/phases/27-the-canonical-run-record/27-CONTEXT.md
 
 ## Operator Next Steps
 
