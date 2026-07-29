@@ -128,7 +128,25 @@ class TestJPLSBDBQuery(TestCase):
     def setUp(self):
         self.query = JPLSBDBQuery(orbit_class='IEO', orbital_constraints=['q<1.3', 'i<10.5'])
         self.base_url = 'https://ssd-api.jpl.nasa.gov/sbdb_query.api'
-        self.fields = 'pdes,prefix,epoch_mjd,e,a,q,i,om,w,tp,H,G,M1,K1,condition_code,data_arc,n_obs_used'.split(',')
+        self.fields = [
+            'pdes',
+            'prefix',
+            'epoch_mjd',
+            'e',
+            'a',
+            'q',
+            'i',
+            'om',
+            'w',
+            'tp',
+            'H',
+            'G',
+            'M1',
+            'K1',
+            'condition_code',
+            'data_arc',
+            'n_obs_used',
+        ]
         self.maxDiff = None
 
         self.existing_target, _ = Target.objects.get_or_create(

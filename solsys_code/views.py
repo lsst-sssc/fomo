@@ -7,7 +7,7 @@ from csv import writer
 from datetime import timezone
 from io import StringIO
 from math import ceil
-from typing import Any, Optional
+from typing import Any
 
 import erfa
 import numpy as np
@@ -535,7 +535,7 @@ class JPLSBDBQuery:
         self.url = url
         return url
 
-    def run_query(self) -> Optional[dict[str, Any]]:
+    def run_query(self) -> dict[str, Any] | None:
         """
         Execute the query and return results as JSON (if successful).
         """
