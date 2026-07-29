@@ -40,3 +40,4 @@ Design Notes
    :maxdepth: 1
 
    target_origin_tracking
+   fink_sso_support

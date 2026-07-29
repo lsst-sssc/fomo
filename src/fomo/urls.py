@@ -25,5 +25,9 @@ urlpatterns = [
     path('targets/<int:pk>/makeephem/', MakeEphemerisView.as_view(), name='makeephem'),
     path('scout/rubin-too/', RubinTooScoutListView.as_view(), name='scout_rubin_too'),
     path('scout/rubin-too/stats/', RubinTooScoutStatsView.as_view(), name='scout_rubin_too_stats'),
+    # tomtoolkit 3.0.0 final dropped the 'alerts/' include from tom_common.urls (previously
+    # registered there in 2.x/3.0.0a9) -- tom_alerts is still an installed app, so its urls
+    # must now be wired up at the project level to keep the 'alerts' namespace resolvable.
+    path('alerts/', include('tom_alerts.urls', namespace='alerts')),
     path('', include('tom_common.urls')),
 ]
