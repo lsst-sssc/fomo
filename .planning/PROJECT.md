@@ -103,6 +103,10 @@ v2.2 (One Canonical Run Record): An observing run exists once, as a `CampaignRun
 
 **Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
 
+**Progress:**
+
+- ✅ **Phase 26** — Canonical-Record Spike (investigation only; no source changed). Settled all four spike questions against the real dev DB and published them durably in `docs/design/canonical_record_spike.rst` (full evidence in `26-DECISION.md`): the `source` vocabulary and its coexistence with both existing duplicate-prevention constraints; each adapter's existing identity key mapped onto a run; the migration and companion-record rename checklist (six integration points, not the four expected); and the reconciler event-key scheme. A domain correction from the project owner mid-phase reframed the key question — **a queue window is not a set of owned nights**, so a night inside it with no observation is the normal state, not a gap. The settled scheme is therefore **two coexisting key families**: `RUN:{run_pk}:{date}` for classically-scheduled runs, and a bare `RUN:{run_pk}` whole-window container for queue-scheduled runs, coexisting with the `ObservationRecord`-derived per-observation events that already ship today and narrow as observations are scheduled and observed. Consequences: the ~400-event class-wide fan-out figure does **not** survive (a class-wide queue allocation gets one whole-window entry), and a concrete Phase 27 prerequisite surfaced — Siding Spring (`E10`) has a blank timezone, which the site-local date derivation depends on. One question stays deliberately open for Phase 29: the adopt-vs-gap-fill write strategy for already-existing events (both produce an identical calendar; the deciding factor only resolves once v2.3 rewires the LCO sync command).
+
 **Target features:**
 
 - **One companion record for calendar events** — `CalendarEventTelescopeLabel` generalises into a single FOMO companion record carrying `is_verified` plus a nullable `run` foreign key, giving `CampaignRun` a one-to-many relation to `CalendarEvent`.
