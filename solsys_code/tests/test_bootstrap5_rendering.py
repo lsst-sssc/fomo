@@ -15,6 +15,8 @@ from django.urls import reverse
 from playwright.sync_api import sync_playwright
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.solsys_code_observatory.models import Observatory
+
 
 class TestBootstrap5Rendering(StaticLiveServerTestCase):
     """Functional suite proving BS5 JS behavior and crispy BS5 layout markup render correctly."""
@@ -75,11 +77,18 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
         assert self.page.locator('form .row').count() >= 1
 
     def test_observatory_create_form_submits_to_observatory_url(self):
-        """Submitting the obscode create form lands on a URL under /observatory/ either way."""
+        """Submitting the obscode create form creates the Observatory and lands on its detail page.
+
+        '/observatory/' alone is not a sufficient check: the create page itself lives at
+        '/observatory/create/', so a failed submission that just re-renders the form would also
+        satisfy that substring check. Assert the redirect left the create page, and that an
+        Observatory row actually exists, so a broken submit button/form is caught.
+        """
         self.page.goto(f'{self.live_server_url}{reverse("solsys_code_observatory:create")}')
 
         self.page.locator('input[name="obscode"]').fill('704')
         self.page.locator('button[type="submit"], input[type="submit"]').first.click()
         self.page.wait_for_load_state('networkidle')
 
-        assert '/observatory/' in self.page.url
+        assert '/observatory/create/' not in self.page.url
+        assert Observatory.objects.filter(obscode='704').exists()
