@@ -5,7 +5,11 @@ Observation-Status translation table, and the no-churn CampaignRun create-or-upd
 helper used by the ``import_campaign_csv`` management command. Mirrors
 ``calendar_utils.py``'s role for the three CalendarEvent sync commands: every function
 here is structured as "never raise for expected messy data; return a usable value plus
-an explicit flag" per the ``_derive_telescope_class`` precedent in ``calendar_utils.py``.
+an explicit flag" per the ``derive_telescope`` precedent in ``calendar_utils.py``.
+(IN-04: this used to cite ``_derive_telescope_class``, a name that never existed -- the
+intended reference was ``_derive_telescope``, un-privatised to ``derive_telescope`` in
+Phase 27 -- and which now collides with the real, differently-named
+``calendar_utils.derive_telescope_class`` added by that same phase.)
 """
 
 import difflib
