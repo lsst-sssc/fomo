@@ -270,6 +270,44 @@ with no database writes:
 The command is safe to re-run: a run that already has a calendar event is
 skipped, so running it again after a real backfill is a no-op.
 
+.. _campaign-run-block-manual-only:
+
+Why doesn't the calendar pop-up show a "Campaign run" block?
+----------------------------------------------------------------
+
+Clicking a calendar entry opens a pop-up that can show a **Campaign run**
+block naming the run that owns the event, its window, and its run status.
+That block appears only when the event carries a companion record whose
+owning-run link is filled in -- and **nothing in FOMO fills that link in
+automatically yet.**
+
+Approving a ``CampaignRun`` (or resolving its site from the approval queue)
+creates the calendar entries for it, but deliberately does not claim
+ownership of them. Writing the ownership link is the job of the
+reconciler planned for a later milestone, which is also what will keep the
+link correct as runs are re-approved, re-sited, or cancelled. Until then,
+the only way an event gets a "Campaign run" block is if a staff member
+links it by hand:
+
+1. Go to **Django admin -> Solsys code -> Campaign runs** and open the run.
+2. In the **Calendar event metas** inline at the bottom, add a row and pick
+   the calendar event that belongs to this run.
+3. Save. The pop-up for that event now shows the Campaign run block.
+
+Two things to know about that inline:
+
+* The **calendar event** field is frozen once a row is saved, because it is
+  that record's identity. To point the link at a different event, delete
+  the row and add a new one -- do not try to edit it in place.
+* Clearing the **owning campaign run** value un-owns the event without
+  deleting the companion record, so the event's telescope-label
+  verification history survives.
+
+An event with no companion record at all, or with the run link left blank,
+means "not owned by any campaign run" -- never "needs fixing". That is the
+normal state for classical-schedule nights, conferences, and proposal
+deadlines, and it is why those entries show no Campaign run block.
+
 .. _command-cheat-sheet:
 
 Command cheat-sheet

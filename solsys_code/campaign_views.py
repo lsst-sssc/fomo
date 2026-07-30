@@ -432,6 +432,19 @@ def _project_calendar_event(run: CampaignRun) -> bool:
     single-night run keeps its existing bare-key single event. Only TBD runs (window_start
     is None), unresolved-site runs, and missing-telescope_instrument runs are excluded from
     projection.
+
+    WR-03: this function deliberately writes NO ``CalendarEventMeta`` row, and therefore
+    never sets ``CalendarEventMeta.run``, even though it is the only code that creates
+    ``CalendarEvent``s for a ``CampaignRun``. The automatic writer for that ownership link
+    is deferred to the Phase 29 reconciler (see
+    ``docs/design/canonical_record_spike.rst``'s "Ownership rule" row), which also owns
+    keeping the link correct as runs are re-approved, re-sited or cancelled. The
+    consequence, which is a deferral and not an omission: for every event FOMO creates
+    today ``event.telescope_label_meta.run`` is unset, so the calendar modal's "Campaign
+    run" block only appears if a staff member hand-links the event through
+    ``CalendarEventMetaInline`` in the Django admin. That manual-only state is documented
+    for operators in ``docs/runbooks/telescope_runs_calendar.rst`` under "Why doesn't the
+    calendar pop-up show a 'Campaign run' block?".
     """
     # D-01/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- a concrete window
     # (both window_start and window_end set) and a resolved site are required to pick the

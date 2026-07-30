@@ -96,7 +96,15 @@
    ObjectDoesNotExist, which Django templates swallow (silent_variable_failure) -- the same
    mechanism calendar.html's own is_verified branches already rely on -- so a conference,
    proposal deadline, or any other event with no companion row at all renders exactly as it
-   does today, with no run block. #}
+   does today, with no run block.
+
+   WR-03: no production code writes CalendarEventMeta.run yet -- _project_calendar_event()
+   creates the events but deliberately does not claim ownership of them, and the automatic
+   writer is deferred to the Phase 29 reconciler (canonical_record_spike.rst, "Ownership
+   rule"). So today this block renders only for events a staff member has hand-linked via
+   CalendarEventMetaInline in the Django admin. Do NOT read "no block" as a bug; see
+   docs/runbooks/telescope_runs_calendar.rst, "Why doesn't the calendar pop-up show a
+   'Campaign run' block?". #}
 {% with run=event.telescope_label_meta.run %}
 {% if run.is_publicly_visible %}
     {# D-09/D-10: gated on the model's own visibility property so a run not yet approved
