@@ -2,7 +2,7 @@
 
 Several approved CampaignRun rows are site-less not because their site is genuinely
 unresolvable, but because they were imported before the JPL Horizons observer-notation
-alias table (``campaign_utils.HORIZONS_OBSERVER_TO_OBSCODE``) landed on 2026-07-26. This
+alias table (``observer_codes.HORIZONS_OBSERVER_TO_OBSCODE``) landed on 2026-07-26. This
 one-off command re-runs the real site-resolution path (``resolve_site()``) against every
 approved, site-less row, so those rows get a genuine chance to resolve before Phase 27's
 ``telescope_class`` backfill migration operates on them.
@@ -43,8 +43,9 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from solsys_code.campaign_utils import HORIZONS_OBSERVER_TO_OBSCODE, resolve_site
+from solsys_code.campaign_utils import resolve_site
 from solsys_code.models import CampaignRun
+from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 from solsys_code.solsys_code_observatory.models import Observatory
 
 logger = logging.getLogger(__name__)

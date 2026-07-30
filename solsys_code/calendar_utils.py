@@ -18,6 +18,8 @@ from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
 
+from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
+
 # (site, aperture_class) -> 'SITECODE-CLASS' telescope label (TELESCOPE-01/D-03/D-04).
 # Verified, real-data-grounded inventory of the 7 real LCO-network sites this
 # codebase's installed LCOSettings/SOARSettings actually confirm (tlv/Wise Observatory
@@ -148,7 +150,10 @@ def derive_telescope_class(site_raw: str | None, telescope_instrument: str | Non
 
     D-20: this helper takes only primitives (not a CampaignRun) so a data migration's
     RunPython step can import and call it without coupling to a model that keeps
-    changing through Phases 28-29. Both call sites (the Phase 27-04 backfill migration
+    changing through Phases 28-29. Note that this module still imports
+    ``tom_calendar.models.CalendarEvent`` at module scope, so "no live models" was never
+    literally true of the whole module -- what D-20 buys is that the *signature* stays
+    model-free. Both call sites (the Phase 27-04 backfill migration
     and Phase 27-06's import_campaign_csv) gate on "the run has no resolved site" --
     the migration filters site__isnull=True and the importer only calls this when
     resolve_site() returned None. A site-resolved run must never carry a
@@ -171,17 +176,17 @@ def derive_telescope_class(site_raw: str | None, telescope_instrument: str | Non
     """
     if site_raw:
         stripped_site = site_raw.strip()
-        if stripped_site.startswith('500@'):
-            # Function-local import (not module scope): campaign_utils imports
-            # solsys_code.models at module scope, and a module-scope import here would
-            # drag the live CampaignRun model into calendar_utils' import graph, which a
-            # data migration imports.
-            from solsys_code.campaign_utils import HORIZONS_OBSERVER_TO_OBSCODE
-
-            if stripped_site not in HORIZONS_OBSERVER_TO_OBSCODE:
-                # D-11: a Horizons observer code with no MPC-obscode alias is exactly
-                # what SPACE means.
-                return 'SPACE'
+        # WR-07: HORIZONS_OBSERVER_TO_OBSCODE comes from solsys_code.observer_codes (imported
+        # at module scope above), which imports no Django models at all. It used to be a
+        # function-local import from campaign_utils, with a comment claiming that kept the
+        # live CampaignRun model out of a data migration's import graph -- but a
+        # function-local import still executes at CALL time, and migration 0011 calls this
+        # function once per site-less row, so the very first '500@' row pulled
+        # solsys_code.models in mid-migration regardless. The claim is now true.
+        if stripped_site.startswith('500@') and stripped_site not in HORIZONS_OBSERVER_TO_OBSCODE:
+            # D-11: a Horizons observer code with no MPC-obscode alias is exactly
+            # what SPACE means.
+            return 'SPACE'
 
     if telescope_instrument:
         lowered = telescope_instrument.lower()

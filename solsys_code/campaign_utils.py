@@ -21,6 +21,7 @@ from django.db.utils import IntegrityError
 from tom_dataservices.dataservices import MissingDataException
 
 from solsys_code.models import CampaignRun
+from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
 
@@ -30,21 +31,11 @@ logger = logging.getLogger(__name__)
 # field itself (not hardcoded) so a future schema change can't silently desync this guard.
 _MAX_OBSCODE_LEN = Observatory._meta.get_field('obscode').max_length
 
-# Quick task 260726-fqb: JPL Horizons/SPICE observer notation (`500@<NAIF SPK ID>` --
-# "geocentric observer at body N") names a spacecraft, not an MPC obscode --
-# `.planning/PROJECT.md:120` records the operator-caught correction that `500@-170` is
-# Horizons notation, and that `Observatory.obscode`'s `max_length=4` deliberately does
-# NOT need widening to fit it. The real 3I/ATLAS campaign sheet carries `500@-170` in
-# three `CampaignRun`s. Each entry below was verified on BOTH sides on 2026-07-26 --
-# NAIF ID -> spacecraft via the JPL Horizons API (ssd.jpl.nasa.gov/api/horizons.api),
-# obscode -> the same spacecraft via the MPC obscodes API. Extension rule: verify BOTH
-# sides before adding a row -- never infer a mapping from the NAIF ID alone.
-HORIZONS_OBSERVER_TO_OBSCODE: dict[str, str] = {
-    '500@-170': '274',  # James Webb Space Telescope
-    '500@-48': '250',  # Hubble Space Telescope
-    '500@-163': 'C51',  # WISE Spacecraft
-    '500@-95': 'C57',  # TESS
-}
+# WR-07: HORIZONS_OBSERVER_TO_OBSCODE now lives in solsys_code.observer_codes, a module with
+# no Django model imports at all, so calendar_utils.derive_telescope_class() can reach it at
+# module scope without dragging the live CampaignRun model into a data migration's import
+# graph. It is imported (not redefined) here so `campaign_utils.HORIZONS_OBSERVER_TO_OBSCODE`
+# stays a valid reference for existing readers; observer_codes.py owns the extension rule.
 
 # 22-06 gap closure: single source of truth for the tier-3 placeholder Observatory's name
 # prefix. resolve_site()'s tier-3 fallback builds the name from this constant, and
