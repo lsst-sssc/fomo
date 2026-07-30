@@ -17,6 +17,10 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.models import CalendarEventMeta
 
+# IN-02: shared with test_calendar_utils via solsys_code/tests/helpers.py rather than being
+# imported across test modules.
+from solsys_code.tests.helpers import observations_block_response
+
 
 def _parameters(
     proposal: str = 'TESTCODE123',
@@ -52,29 +56,6 @@ def _parameters(
         params['site'] = site
     params.update(extra_params or {})
     return params
-
-
-def _observations_block_response(
-    site: str = 'lsc',
-    enclosure: str = 'doma',
-    telescope: str = '1m0a',
-    state: str = 'COMPLETED',
-) -> MagicMock:
-    """Build a mock make_request() response for /api/requests/{id}/observations/.
-
-    Args:
-        site: 3-letter site code for the single returned block.
-        enclosure: 4-char enclosure code for the single returned block.
-        telescope: 4-char telescope code for the single returned block.
-        state: the block's 'state' value (e.g. 'COMPLETED', 'PENDING').
-
-    Returns:
-        MagicMock: a response double whose .json() returns a one-element list
-            containing the block dict built from the given keyword args.
-    """
-    response = MagicMock()
-    response.json.return_value = [{'site': site, 'enclosure': enclosure, 'telescope': telescope, 'state': state}]
-    return response
 
 
 class TestSyncLcoObservationCalendar(TestCase):
@@ -210,7 +191,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -241,7 +222,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -294,7 +275,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='ogg', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='ogg', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -381,7 +362,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -455,7 +436,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -876,7 +857,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='lsc', telescope='1m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='lsc', telescope='1m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -948,7 +929,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             'solsys_code.calendar_utils.make_request',
             side_effect=[
                 requests.exceptions.Timeout,
-                _observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+                observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
             ],
         ):
             call_command(
@@ -1116,7 +1097,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         """T-07-03: a COMPLETED block returned by the API but missing the 'site' key
         (a malformed/tampered response shape -- only 'state' is validated upstream)
         still produces a coarse-fallback CalendarEvent, not a skipped record. The
-        existing _observations_block_response() helper always populates all four
+        existing observations_block_response() helper always populates all four
         keys together, so the malformed block is built inline here instead."""
         self._create_record(
             '800108',

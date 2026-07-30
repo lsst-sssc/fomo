@@ -19,10 +19,11 @@ from solsys_code.calendar_utils import (
 )
 from solsys_code.models import CampaignRun
 
-# Imported (not duplicated) from the sync command's test module -- that module still
-# owns _observations_block_response() since many command-behaviour tests there use it;
-# see this todo's SUMMARY for the "import vs. copy" call.
-from solsys_code.tests.test_sync_lco_observation_calendar import _observations_block_response
+# IN-02: imported (not duplicated) from the shared fixture module, not from
+# test_sync_lco_observation_calendar -- importing one test module from another meant any
+# import-time failure over there also failed this module, for a helper unrelated to the
+# sync command.
+from solsys_code.tests.helpers import observations_block_response
 
 # A fixed UTC sunset-like start time and a companion end time, used across the
 # drift-tolerance tests below.
@@ -347,9 +348,7 @@ class TestTelescopeLabelResolutionHelpers(TestCase):
 
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(
-                site='lsc', enclosure='doma', telescope='1m0a', state='COMPLETED'
-            ),
+            return_value=observations_block_response(site='lsc', enclosure='doma', telescope='1m0a', state='COMPLETED'),
         ):
             block = resolve_placement_block('12345', mock_facility)
 
