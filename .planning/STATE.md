@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Completed 27-01-PLAN.md
-last_updated: "2026-07-30T00:29:13.051Z"
+stopped_at: Completed 27-03-PLAN.md
+last_updated: "2026-07-30T00:50:19.795Z"
 last_activity: 2026-07-29 -- Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 7
+  completed_plans: 8
   percent: 25
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 27 (the-canonical-run-record) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-07-29 -- Phase 27 execution started
 
@@ -135,6 +135,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 26 P05 | 55min | 3 tasks | 5 files |
 | Phase 27 P01 | 25min | 3 tasks | 5 files |
 | Phase Phase 27 P02 P02 | 25min | 3 tasks | 4 files |
+| Phase 27 P03 | 20min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -177,6 +178,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 27-02]: D-22 mutation proof run manually: flipping create_placeholder to True fabricated a placeholder Observatory on network failure; reverted and confirmed byte-identical
 - [Phase 27-02]: Live repair (Task 2) intentionally produced no git commit -- dev DB is gitignored; evidence is the before/after table in the SUMMARY
 - [Phase 27-02]: MPC Obscodes API was reachable during the live run: HST (pk 8,12) and Swift (pk 13) resolved via genuine tier-2 lookups, creating 2 new real Observatory rows
+- [Phase 27-03]: related_name='telescope_label_meta' left byte-identical; run FK uses SET_NULL (not CASCADE) since the companion row also carries is_verified history
+- [Phase 27-03]: Migration 0009 (AddField run) kept separate from 0008 (RenameModel) so a rename regression and a new-field regression can never be confused for each other
 
 ### Pending Todos
 
@@ -237,8 +240,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T00:28:47.660Z
-Stopped at: Completed 27-01-PLAN.md
+Last session: 2026-07-30T00:50:19.791Z
+Stopped at: Completed 27-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
