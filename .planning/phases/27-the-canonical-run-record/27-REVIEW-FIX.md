@@ -19,7 +19,11 @@ status: partial
 
 - Findings in scope: 18 (fix scope: `all`)
 - Fixed: 16
-- Skipped: 2 (CR-01, WR-05 — both by explicit instruction; reasoning below)
+- Skipped: 2 (CR-01, WR-05 — both by explicit instruction; reasoning below). **Update
+  (quick task 260730-jty):** CR-01 is now recorded as REJECTED, not merely skipped — its
+  mutual-exclusivity premise was invalid, and the real defect it pointed at (classed runs
+  being flagged for site review) was fixed by that quick task instead of CR-01's suggested
+  edit. WR-05 remains skipped, unchanged.
 
 > **Count note.** 27-REVIEW.md's frontmatter records `info: 6, total: 17`, but the body
 > contains seven Info findings (IN-01 through IN-07). The true total is 18. This report
@@ -244,34 +248,36 @@ updated to match.
 
 ## Skipped Issues
 
-### CR-01: `telescope_class` is never cleared when a run's site later resolves
+### CR-01 (REJECTED): `telescope_class` is never cleared when a run's site later resolves
 
 **File:** `solsys_code/campaign_views.py:547-571`, `solsys_code/campaign_views.py:660-707`,
 `solsys_code/management/commands/repair_stale_campaign_run_sites.py:189-199`,
 `solsys_code/models.py:201-210`
-**Reason:** skipped by explicit instruction — design-level invariant question, the user's call.
+**Reason:** REJECTED by the user, not merely skipped — the finding's premise is invalid.
 
-**Reasoning, for the decision that needs making:** the finding's *diagnosis* is sound and I
-confirmed it in the code — all three site-resolution paths write `site`/`site_needs_review`
-without touching `telescope_class`, so the resolve-after-derive sequence really does persist a
-row with both a real `Observatory` and a class-wide allocation. What is genuinely undecided is
-whether clearing is the right response:
+**Decision (recorded, quick task 260730-jty):** CR-01's premise — that `telescope_class` and a
+resolved `site` are mutually exclusive, so the class must be cleared once a site resolves — is
+invalid. `telescope_class` is a PERMANENT, correct campaign-level fact (D-06,
+`.planning/phases/26-canonical-record-spike/26-CONTEXT.md:94`): it records *why there is no
+site* for the run, not a placeholder to be cleared once one becomes known. A class-wide campaign
+(e.g. a multi-site LCO 1m0 network allocation) legitimately keeps `site=None` forever at the
+run level; its per-site detail belongs on the linked `ObservationRecord` rows via
+`CampaignRunObservation` (CANON-04), never on the run itself. Applying CR-01's suggested
+three-site edit would have been a data-destroying write baking in an invalid premise — clearing
+a correctly-derived class the moment a site happens to resolve for the same run.
 
-- `models.py:201-203` says *"telescope_class is never inferred for a run whose site DID
-  resolve"*. That is a statement about **inference at write time**, which both writers already
-  honour. It does not by itself say a class-wide allocation that was correctly derived must be
-  **destroyed** when a site is later resolved.
-- There is a real case where clearing loses information: a run genuinely allocated to a
-  telescope *class* whose site is later pinned down. Under CANON-02 the two facts are being
-  treated as mutually exclusive, but that premise is exactly what D-11 already had to correct
-  once (it falsified the spike's "space missions are permanently site-less" premise).
-- The alternative reading — that `telescope_class` should survive and the mutual exclusivity
-  should be relaxed — would require changing the model docstring and possibly the admin
-  `list_filter` semantics instead of the three write paths.
-
-Applying the suggested three-site edit would silently pick one of those readings and bake it
-into a data-destroying write. That is a decision, not a fix. Whichever way it goes, the
-regression test the review asks for (resolve-after-derive) should land with it.
+The real defect CR-01's diagnosis pointed at was the *inverse* of what it proposed to fix: a
+class-carrying `CampaignRun` was being flagged with `site_needs_review=True` at every writer
+(`import_campaign_csv`, the approve/resolve-site paths in `campaign_views.py`, and
+`repair_stale_campaign_run_sites`), even though a non-blank `telescope_class` already answers
+"why is there no site" and is not a genuine resolution failure. That flagging bug — not a
+missing clear-the-class write — is what was closed by quick task 260730-jty (see
+`.planning/quick/260730-jty-stop-flagging-class-wide-and-space-runs-/`), which also corrected
+the `models.py`/`calendar_utils.py` docstrings that stated the now-rejected mutual-exclusivity
+premise, and added migration `0012_unflag_class_wide_campaignrun_site_review` to unflag the four
+live rows the bug had incorrectly flagged. The review's requested regression test
+(resolve-after-derive, proving the class survives a later site resolution) landed with that
+quick task, asserting the opposite of CR-01's proposed behaviour.
 
 ### WR-05: hardcoded, database-specific `site_raw` correction
 
