@@ -13,6 +13,12 @@ observing window fields, or ``target`` -- only ``site``, ``site_needs_review``, 
 event: reconciling site-repaired runs onto the calendar is Phase 29's reconciler, out of
 scope here (a repaired-but-unprojected run is the expected post-repair state, not a bug).
 
+D-06 (26-CONTEXT.md:94): a candidate row that already carries a ``telescope_class`` is
+permanently site-less by design -- the class IS the answer to "why is there no site", not a
+resolution failure -- so there is nothing for this command to repair. Such rows are skipped
+entirely (site, site_raw, and site_needs_review all left untouched) and reported under their
+own ``skipped_class_wide`` counter, distinct from ``skipped_no_site_code``.
+
 D-22: every ``resolve_site()`` call below passes ``create_placeholder=False`` (the
 function's own default is ``True``) -- a live tier-2 MPC network failure must leave the row
 site-less and flagged for review rather than fabricating a placeholder Observatory for a
@@ -118,7 +124,10 @@ class Command(BaseCommand):
         'target, and never projects a calendar event (Phase 29 reconciler scope). '
         '--dry-run performs only a tier-1 existence check and cannot predict the outcome of '
         'a live tier-2 MPC lookup -- rows that would need one are reported as "would query '
-        'MPC" rather than resolved, and no CampaignRun or Observatory row is written.'
+        'MPC" rather than resolved, and no CampaignRun or Observatory row is written. '
+        'A candidate row that already carries a telescope_class is skipped entirely (D-06: '
+        'the class is a permanent answer to "why is there no site", not a resolution '
+        'failure) and reported under its own skipped_class_wide counter.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -151,8 +160,26 @@ class Command(BaseCommand):
         resolved_count = 0
         still_flagged_count = 0
         skipped_no_site_code = 0
+        skipped_class_wide = 0
 
         for run in candidates:
+            # D-06 (26-CONTEXT.md:94): telescope_class is a permanent "why is there no site"
+            # fact, not a resolution failure -- a class-carrying row is site-less by design,
+            # so there is no site to repair. Skip it entirely (site, site_raw, and
+            # site_needs_review all untouched), mirroring the skipped_no_site_code pattern
+            # below with its own counter.
+            if run.telescope_class:
+                skipped_class_wide += 1
+                logger.info(
+                    'pk=%s: carries telescope_class=%r -- permanently site-less by design, skipped',
+                    run.pk,
+                    run.telescope_class,
+                )
+                self.stdout.write(
+                    f'pk={run.pk}: skipped (class-wide/space run; telescope_class={run.telescope_class!r})'
+                )
+                continue
+
             site_raw = (run.site_raw or '').strip()
             site_raw_changed = False
 
@@ -223,11 +250,13 @@ class Command(BaseCommand):
 
         if dry_run:
             self.stdout.write(
-                f'Done (dry run). candidates: {len(candidates)}, skipped_no_site_code: {skipped_no_site_code}'
+                f'Done (dry run). candidates: {len(candidates)}, skipped_no_site_code: {skipped_no_site_code}, '
+                f'skipped_class_wide: {skipped_class_wide}'
             )
         else:
             self.stdout.write(
                 f'Done. candidates: {len(candidates)}, resolved: {resolved_count}, '
-                f'still_flagged: {still_flagged_count}, skipped_no_site_code: {skipped_no_site_code}'
+                f'still_flagged: {still_flagged_count}, skipped_no_site_code: {skipped_no_site_code}, '
+                f'skipped_class_wide: {skipped_class_wide}'
             )
         return None

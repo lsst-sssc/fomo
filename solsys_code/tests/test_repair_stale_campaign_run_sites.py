@@ -8,6 +8,7 @@ coordinate-less path (quick task 260725-kn4) -- a fixture with real coordinates 
 reproduce the live behaviour these rows actually have.
 """
 
+import io
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -179,6 +180,34 @@ class TestRepairStaleCampaignRunSites(TestCase):
         self.assertIsNone(run.site)
         self.assertEqual(run.site_raw, '250')
         self.assertEqual(Observatory.objects.count(), before_obs_count)
+
+    def test_class_carrying_row_skipped_entirely(self):
+        """260730-jty/D-06: a candidate row that already carries a telescope_class is
+        permanently site-less by design (the class IS the answer to "why is there no
+        site") -- there is no site to repair, so it is skipped entirely: site, site_raw,
+        and site_needs_review are all left untouched, and it is reported under its own
+        skipped_class_wide counter rather than resolved/still_flagged/skipped_no_site_code.
+        """
+        run = self._make_run(
+            telescope_instrument='JUICE',
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.SPACE,
+            window_start=None,
+            window_end=None,
+            contact_person='Juice Requester',
+        )
+
+        stdout_buf = io.StringIO()
+        with patch('requests.get') as mock_get:
+            call_command('repair_stale_campaign_run_sites', stdout=stdout_buf)
+            mock_get.assert_not_called()
+
+        run.refresh_from_db()
+        self.assertIsNone(run.site)
+        self.assertEqual(run.site_raw, '')
+        self.assertTrue(run.site_needs_review)  # untouched -- migration 0012 clears this, not this command
+        self.assertEqual(run.telescope_class, CampaignRun.TelescopeClass.SPACE)
+        self.assertIn('skipped_class_wide: 1', stdout_buf.getvalue())
 
     def test_rejected_row_untouched(self):
         """D-15: a rejected row with a resolvable site_raw is never touched (not in scope)."""

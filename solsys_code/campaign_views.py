@@ -580,7 +580,15 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     # to the obscode; anything else passes through unchanged.
                     obscode_selection = selection_to_obscode(selection)
                     site, needs_review = resolve_site(obscode_selection, create_placeholder=False)
-                    run.site, run.site_needs_review = site, needs_review
+                    # D-06 (26-CONTEXT.md:94): telescope_class is a permanent "why is there no
+                    # site" fact, not cleared once a site is known -- a resolved run does not
+                    # stop needing review just because it now has a site if it never carried a
+                    # class, but a classed run was never a resolution failure in the first
+                    # place. Phase 27 code-review finding CR-01 proposed clearing
+                    # run.telescope_class here on resolution; the user REJECTED CR-01 because
+                    # its mutual-exclusivity premise is invalid (27-REVIEW-FIX.md). Do NOT add
+                    # 'telescope_class' to update_fields below.
+                    run.site, run.site_needs_review = site, needs_review and not run.telescope_class
                     run.save(update_fields=['site', 'site_needs_review'])
 
                 # Projection extracted into the shared _project_calendar_event() helper
@@ -655,6 +663,12 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
 
         # Business-logic bypass guard (Security "business-logic bypass" domain): validate
         # state server-side, never just trust the button was only offered on eligible rows.
+        # D-06 (26-CONTEXT.md:94): a classed run can no longer carry site_needs_review=True
+        # at all (every writer now honours telescope_class), so it is already ineligible
+        # here via this same guard -- no separate telescope_class check is needed. The
+        # conditional claim further below (the site-write .update()) must NOT gain a
+        # 'telescope_class': '' write; Phase 27 finding CR-01 proposed exactly that and the
+        # user REJECTED it (27-REVIEW-FIX.md) because telescope_class is never cleared.
         if run.approval_status != CampaignRun.ApprovalStatus.APPROVED or not run.site_needs_review:
             messages.warning(request, 'This run is not awaiting site resolution.')
             return redirect('campaigns:approval_queue')

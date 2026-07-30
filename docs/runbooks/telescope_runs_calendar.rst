@@ -208,9 +208,13 @@ into ``CampaignRun`` rows, one row per CSV line.
    ``Site Code`` does not resolve now also gets a derived
    ``telescope_class`` when its ``Telescope / Instrument`` text names a
    telescope class (``2m0``/``1m0``/``0m4``), or ``SPACE`` when it names a
-   space observatory with no MPC code, and stays blank otherwise -- blank
-   plus a flagged site (``site_needs_review``) is what a genuine resolution
-   failure looks like.
+   space observatory with no MPC code, and stays blank otherwise. A row that
+   gets a derived ``telescope_class`` is **deliberately NOT flagged** for
+   site review -- the class is the answer to "why is there no site", not a
+   resolution failure, and it is **permanent**: it is never cleared by any
+   command, even if a site is later resolved for the same row. Only a row
+   with no site *and* no derivable class is flagged (``site_needs_review``)
+   -- that combination is what a genuine resolution failure looks like.
 
 How do I re-resolve campaign run sites that have gone stale?
 ------------------------------------------------------------------
@@ -228,6 +232,13 @@ observing window, or ``target`` -- only ``site``, ``site_needs_review``,
 and (for one known stale row) ``site_raw`` are ever written -- and it
 never creates or updates a calendar event; reconciling a repaired run onto
 the calendar is Phase 29's reconciler.
+
+A candidate row that already carries a ``telescope_class`` is skipped
+entirely -- its site, ``site_raw``, and ``site_needs_review`` are all left
+untouched, and it is reported under its own ``skipped_class_wide`` counter
+in the summary line. A class-carrying row is permanently site-less by
+design (the class already answers "why is there no site"), so there is
+nothing for this command to repair.
 
 Always run with ``--dry-run`` first. Its limitation: it only performs a
 tier-1 (local ``Observatory``) existence check, so a row that would need a
@@ -414,7 +425,14 @@ summary line, e.g.::
 
 Rows flagged ``site_needs_review`` surface in the approval queue's "Sites
 Needing Review" card so staff can resolve them without re-running the
-import.
+import. Only rows with no derivable ``telescope_class`` signal surface
+there -- a row whose site failed to resolve but whose instrument text
+names a telescope class or a space observatory is not a genuine resolution
+failure, so it never appears in this queue and there is nothing to
+resolve for it. Per-site detail for a class-wide campaign (e.g. a
+multi-site LCO 1m0 network allocation) arrives later, per observation, on
+the linked ``ObservationRecord`` rows (CANON-04) -- never by resolving the
+run itself to a single site.
 
 If a previously-unresolvable ``Site Code`` has since become resolvable
 (for example, a Horizons observer-notation code added to the alias table

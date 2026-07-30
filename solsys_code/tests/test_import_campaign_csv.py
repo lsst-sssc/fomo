@@ -577,6 +577,11 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         derives '1m0' from its instrument text, matching the fixture row this behaviour is
         modelled on (docs/notebooks/pre_executed/fixtures/campaign_sample.csv's 'Fay Review'
         row).
+
+        D-06 (26-CONTEXT.md:94, quick task 260730-jty): a non-blank telescope_class answers
+        "why is there no site" -- it is NOT a resolution failure, so the row must not be
+        flagged for site review. This assertion was the opposite (site_needs_review=True)
+        before 260730-jty; that was the bug this quick task fixes.
         """
         path, ctx = self._write_csv(
             [
@@ -591,19 +596,25 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
             ]
         )
         with ctx:
+            stdout_buf = io.StringIO()
             call_command(
-                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout_buf, stderr=io.StringIO()
             )
 
         run = CampaignRun.objects.first()
         self.assertIsNone(run.site)
-        self.assertTrue(run.site_needs_review)
+        self.assertFalse(run.site_needs_review)
         self.assertEqual(run.telescope_class, '1m0')
         self.assertEqual(run.source, CampaignRun.Source.CSV_IMPORT)
+        # The printed summary counts only genuine review cases -- a classed row is not one.
+        self.assertIn('site_needs_review: 0', stdout_buf.getvalue())
 
     def test_reimport_keeps_source_and_telescope_class_stable(self):
         """A re-import over the same campaign leaves source and telescope_class stable --
         no churn, no flip to blank, on the second pass over an identical row.
+
+        260730-jty: also guards against a future regression that clears telescope_class or
+        re-flags site_needs_review on a class-carrying row when it is re-imported.
         """
         path, ctx = self._write_csv(
             [
@@ -624,6 +635,7 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
             first_run = CampaignRun.objects.get()
             self.assertEqual(first_run.source, CampaignRun.Source.CSV_IMPORT)
             self.assertEqual(first_run.telescope_class, '1m0')
+            self.assertFalse(first_run.site_needs_review)
 
             call_command(
                 'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
@@ -633,6 +645,7 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(second_run.pk, first_run.pk)
         self.assertEqual(second_run.source, CampaignRun.Source.CSV_IMPORT)
         self.assertEqual(second_run.telescope_class, '1m0')
+        self.assertFalse(second_run.site_needs_review)
 
     def test_reimport_preserves_web_source_and_approval_status(self):
         """WR-01/CANON-01: a CSV row colliding on the natural key with a run created by the
@@ -775,7 +788,17 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertFalse(run.site_needs_review)
 
     def test_unresolvable_site_flags_needs_review_without_skipping_row(self):
-        """D-09: an *unknown* Horizons observer form doesn't skip the row -- just flags it."""
+        """D-09: an *unknown* Horizons observer form doesn't skip the row.
+
+        260730-jty: an unrecognized ``500@-<negative NAIF id>`` form (any negative NAIF id
+        means "spacecraft", D-11) derives telescope_class='SPACE' rather than being a
+        genuine resolution failure -- so under the corrected D-06 rule this row is NOT
+        flagged for site review, it is classified. This replaces the pre-260730-jty
+        assertion (site_needs_review=True while ALSO carrying telescope_class='SPACE') that
+        was itself an instance of the bug this quick task fixes -- see
+        test_unresolvable_site_with_no_class_signal_flags_needs_review immediately below for
+        the genuine-failure sibling case this test used to (incorrectly) stand in for.
+        """
         path, ctx = self._write_csv(
             [
                 _row(
@@ -796,8 +819,40 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(CampaignRun.objects.count(), 1)
         run = CampaignRun.objects.first()
         self.assertIsNone(run.site)
-        self.assertTrue(run.site_needs_review)
+        self.assertEqual(run.telescope_class, 'SPACE')
+        self.assertFalse(run.site_needs_review)
         self.assertEqual(run.site_raw, '500@-999')
+
+    def test_unresolvable_site_with_no_class_signal_flags_needs_review(self):
+        """260730-jty genuine-failure control: a blank Site Code whose instrument text names
+        no telescope class and no space observatory derives telescope_class='' and is still
+        flagged for site review -- the corrected rule must not silently stop flagging
+        anything.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'Unassigned facility',
+                        'Site Code': '',
+                        'Obs. Date': '2025-08-07',
+                        'UT Time Range': '11:01 - 11:20',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            stdout_buf = io.StringIO()
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout_buf, stderr=io.StringIO()
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        run = CampaignRun.objects.first()
+        self.assertIsNone(run.site)
+        self.assertEqual(run.telescope_class, '')
+        self.assertTrue(run.site_needs_review)
+        self.assertIn('site_needs_review: 1', stdout_buf.getvalue())
 
     def test_horizons_site_code_resolves_via_alias_map(self):
         """Quick task 260726-fqb: a real JWST Horizons-notation Site Code resolves to its

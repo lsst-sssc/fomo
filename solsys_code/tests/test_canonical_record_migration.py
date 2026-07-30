@@ -224,3 +224,90 @@ class TestSourceAndTelescopeClassBackfill(TransactionTestCase):
         CampaignRun = self._campaign_run_model()
 
         self.assertEqual(CampaignRun.objects.get(pk=self.resolved_control_pk).telescope_class, '')
+
+
+class TestUnflagClassWideCampaignRunSiteReview(TransactionTestCase):
+    """260730-jty/D-06 (26-CONTEXT.md:94): regression coverage for migration 0012, which
+    unflags every CampaignRun that carries a telescope_class -- a class-carrying row is
+    never a genuine site-resolution failure, so it never belongs in the staff "Sites
+    Needing Review" queue.
+
+    Seeds rows directly against the historical (post-0011) model with
+    site_needs_review=True in three shapes -- one aperture class, one SPACE, one blank
+    class -- with telescope_class set explicitly rather than relying on 0011's own
+    derivation, since the migration under test here is 0012, not 0011.
+    """
+
+    migrate_from = [('solsys_code', '0011_backfill_campaignrun_telescope_class')]
+    migrate_to = [('solsys_code', '0012_unflag_class_wide_campaignrun_site_review')]
+
+    def setUp(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_from)
+        old_apps = executor.loader.project_state(self.migrate_from).apps
+
+        TargetList = old_apps.get_model('tom_targets', 'TargetList')
+        CampaignRun = old_apps.get_model('solsys_code', 'CampaignRun')
+
+        campaign = TargetList.objects.create(name='3I/ATLAS')
+
+        # Aperture-class row (e.g. a class-wide LCO 1m0 allocation) -- must be unflagged.
+        self.aperture_class_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m',
+            site_raw='',
+            telescope_class='1m0',
+            site_needs_review=True,
+            window_start='2025-07-01',
+            window_end='2025-07-01',
+        ).pk
+        # SPACE row (e.g. JUICE) -- must be unflagged.
+        self.space_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='JUICE',
+            site_raw='',
+            telescope_class='SPACE',
+            site_needs_review=True,
+            window_start='2025-07-02',
+            window_end='2025-07-02',
+        ).pk
+        # Blank-class row -- a genuine resolution failure -- must stay flagged.
+        self.blank_class_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Unassigned facility',
+            site_raw='',
+            telescope_class='',
+            site_needs_review=True,
+            window_start='2025-07-03',
+            window_end='2025-07-03',
+        ).pk
+
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(self.migrate_to)
+        self.new_apps = executor.loader.project_state(self.migrate_to).apps
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def _campaign_run_model(self):
+        return self.new_apps.get_model('solsys_code', 'CampaignRun')
+
+    def test_aperture_class_and_space_rows_unflagged(self):
+        CampaignRun = self._campaign_run_model()
+
+        self.assertFalse(CampaignRun.objects.get(pk=self.aperture_class_pk).site_needs_review)
+        self.assertFalse(CampaignRun.objects.get(pk=self.space_pk).site_needs_review)
+        # telescope_class is never touched by this migration.
+        self.assertEqual(CampaignRun.objects.get(pk=self.aperture_class_pk).telescope_class, '1m0')
+        self.assertEqual(CampaignRun.objects.get(pk=self.space_pk).telescope_class, 'SPACE')
+
+    def test_blank_class_row_stays_flagged(self):
+        """The genuine-failure control: a blank-telescope_class row is a real resolution
+        failure and this migration must not touch it."""
+        CampaignRun = self._campaign_run_model()
+
+        self.assertTrue(CampaignRun.objects.get(pk=self.blank_class_pk).site_needs_review)
+        self.assertEqual(CampaignRun.objects.get(pk=self.blank_class_pk).telescope_class, '')

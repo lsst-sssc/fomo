@@ -303,6 +303,25 @@ class TestApproval(CampaignApprovalTestBase):
         self.assertTrue(run.site_needs_review)
         self.assertEqual(Observatory.objects.filter(obscode=oversized).count(), 0)
 
+    def test_approve_resolving_site_never_clears_existing_telescope_class(self):
+        """Phase 27 code-review finding CR-01 proposed clearing ``run.telescope_class`` once
+        a site resolves for the same run, on the premise that a resolved site and a
+        telescope_class are mutually exclusive. The user REJECTED CR-01 (27-REVIEW-FIX.md,
+        quick task 260730-jty) -- D-06: telescope_class is a permanent "why is there no
+        site" fact, never cleared. Drive this through the real approve() code path: a
+        PENDING_REVIEW run that already carries a telescope_class and whose site_raw
+        ('F65', the fixture Observatory) DOES resolve on approve keeps telescope_class
+        unchanged.
+        """
+        run = self._make_pending_run(telescope_class=CampaignRun.TelescopeClass.ONE_M0)
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(run.site_id, Observatory.objects.get(obscode='F65').pk)
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(run.telescope_class, CampaignRun.TelescopeClass.ONE_M0)
+
 
 class TestCalendarProjection(CampaignApprovalTestBase):
     """CAL-01/CAL-02/Phase 25 FIX-01..04: approving a resolved-site run with a resolved
@@ -756,6 +775,42 @@ class TestApprovalSiteResolution(CampaignApprovalTestBase):
         self.assertEqual(site, placeholder)
         self.assertTrue(needs_review)
         self.assertEqual(Observatory.objects.count(), 1)  # no second placeholder fabricated
+
+    def test_approving_class_carrying_run_with_unresolvable_site_stays_unflagged(self):
+        """D-06 (260730-jty): a run that already carries a telescope_class is never flagged
+        for site review on approve, even when its site fails to resolve -- the class
+        already answers "why is there no site", so it does not surface in the approval
+        queue's 'Sites Needing Review' review_table.
+        """
+        run = self._make_pending_run(site_raw='DCT', telescope_class=CampaignRun.TelescopeClass.ONE_M0)
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertIsNone(run.site)
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(run.telescope_class, CampaignRun.TelescopeClass.ONE_M0)
+
+        review_response = self.client.get(reverse('campaigns:approval_queue'))
+        review_pks = {row.record.pk for row in review_response.context['review_table'].rows}
+        self.assertNotIn(run.pk, review_pks)
+
+    def test_approving_class_less_run_with_unresolvable_site_still_flags_and_appears_in_review_table(self):
+        """Control for the test above: a run with NO telescope_class and an unresolvable
+        site is still a genuine resolution failure and still surfaces for staff review.
+        """
+        run = self._make_pending_run(site_raw='DCT')
+        response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
+        self.assertEqual(response.status_code, 302)
+        run.refresh_from_db()
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+        self.assertEqual(run.telescope_class, '')
+
+        review_response = self.client.get(reverse('campaigns:approval_queue'))
+        review_pks = {row.record.pk for row in review_response.context['review_table'].rows}
+        self.assertIn(run.pk, review_pks)
 
 
 class TestSiteSelectionResolution(CampaignApprovalTestBase):

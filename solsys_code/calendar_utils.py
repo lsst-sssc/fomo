@@ -154,10 +154,13 @@ def derive_telescope_class(site_raw: str | None, telescope_instrument: str | Non
     ``tom_calendar.models.CalendarEvent`` at module scope, so "no live models" was never
     literally true of the whole module -- what D-20 buys is that the *signature* stays
     model-free. Both call sites (the Phase 27-04 backfill migration
-    and Phase 27-06's import_campaign_csv) gate on "the run has no resolved site" --
-    the migration filters site__isnull=True and the importer only calls this when
-    resolve_site() returned None. A site-resolved run must never carry a
-    telescope_class; that contract lives with the callers, not here.
+    and Phase 27-06's import_campaign_csv) gate derivation on "the run has no resolved
+    site" -- the migration filters site__isnull=True and the importer only calls this when
+    resolve_site() returned None. D-06 (26-CONTEXT.md:94): a non-blank return is the
+    ANSWER to "why is there no site", not a resolution failure -- callers still gate
+    derivation on "no resolved site", but nothing ever clears an already-derived class, and
+    a non-blank return means the caller must NOT flag the row for site review
+    (``site_needs_review``).
 
     Args:
         site_raw: the run's free-text site string (e.g. '500@-28', '250', '' or None).
