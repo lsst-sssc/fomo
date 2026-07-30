@@ -15,7 +15,7 @@ from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.models import CalendarEventTelescopeLabel
+from solsys_code.models import CalendarEventMeta
 
 
 def _parameters(
@@ -251,7 +251,7 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stderr=io.StringIO(),
             )
         event = CalendarEvent.objects.get()
-        self.assertTrue(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+        self.assertTrue(CalendarEventMeta.objects.get(event=event).is_verified)
 
     def test_display_01_fallback_record_creates_sidecar_row_is_verified_false(self):
         """DISPLAY-01: a placed record whose API call times out (fallback label) gets a
@@ -276,7 +276,7 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stderr=io.StringIO(),
             )
         event = CalendarEvent.objects.get()
-        self.assertFalse(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+        self.assertFalse(CalendarEventMeta.objects.get(event=event).is_verified)
 
     def test_sync_05_telescope_instrument_proposal_populated(self):
         """SYNC-05: telescope/instrument/proposal populated from the record.
@@ -464,7 +464,7 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stdout=io.StringIO(),
                 stderr=io.StringIO(),
             )
-            self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 1)
+            self.assertEqual(CalendarEventMeta.objects.count(), 1)
             event_pk_before = CalendarEvent.objects.get().pk
 
             call_command(
@@ -475,10 +475,10 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stderr=io.StringIO(),
             )
 
-        self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 1)
+        self.assertEqual(CalendarEventMeta.objects.count(), 1)
         event = CalendarEvent.objects.get()
         self.assertEqual(event.pk, event_pk_before)
-        self.assertTrue(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+        self.assertTrue(CalendarEventMeta.objects.get(event=event).is_verified)
 
     def test_sync_05_d05_description_contains_proposal_status_and_window(self):
         """SYNC-05/D-05: description contains proposal code, status, and the active time window."""

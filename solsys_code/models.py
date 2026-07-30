@@ -5,12 +5,18 @@ from tom_targets.models import Target, TargetList
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
-class CalendarEventTelescopeLabel(models.Model):
-    """Sidecar record of whether a CalendarEvent's telescope label was live-verified
-    against the LCO API or fallback-guessed (TELESCOPE-03/04). One row per
-    CalendarEvent at most; no row at all means "verified" by documented default
-    (e.g. classically-scheduled events from load_telescope_runs, which never go
-    through telescope-label resolution).
+class CalendarEventMeta(models.Model):
+    """General companion record for a CalendarEvent (Phase 27 CANON-03): carries whether the
+    event's telescope label was live-verified against the LCO API or fallback-guessed
+    (TELESCOPE-03/04), plus which CampaignRun, if any, owns this event. One row per
+    CalendarEvent at most; no row at all means "verified" by documented default (e.g.
+    classically-scheduled events from load_telescope_runs, which never go through
+    telescope-label resolution). 26-DECISION chose this general name over
+    `CalendarEventRunLink` precisely so a third field added in a future version needs no
+    second rename.
+
+    A row whose ``run`` is unset means "not owned by any CampaignRun" -- never "touch me".
+    This is the ownership rule the Phase 29 reconciler reads.
     """
 
     event = models.OneToOneField(
@@ -22,6 +28,19 @@ class CalendarEventTelescopeLabel(models.Model):
     )
     is_verified = models.BooleanField(
         default=True, verbose_name='Whether the telescope label was live-verified against the LCO API'
+    )
+    # D-05: deliberately a bare FK with no confirmed_by/confirmed_at. Phase 26 locked this
+    # shape and accepted the resulting audit asymmetry with the observation link (which does
+    # carry confirmed_by/confirmed_at) -- an event attribution records no who or when, and a
+    # future event-side undo will therefore be untraceable. This is a decision, not an
+    # omission -- do not "fix" it here.
+    run = models.ForeignKey(
+        'CampaignRun',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='calendar_event_metas',
+        verbose_name='Owning campaign run',
     )
 
     def __str__(self):

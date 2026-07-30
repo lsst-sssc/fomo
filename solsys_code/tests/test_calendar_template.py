@@ -2,7 +2,7 @@
 
 Asserts the DISPLAY-02/03 dashed-border + tooltip markers appear for fallback-labeled
 events only, on both the all-day and timed render branches, and that a CalendarEvent
-with no CalendarEventTelescopeLabel sidecar row renders without raising (DISPLAY-01
+with no CalendarEventMeta sidecar row renders without raising (DISPLAY-01
 read-side default, A1).
 
 Phase 9 additions cover DISPLAY-04/05/06/07: proposal-color fills, [QUEUED] override
@@ -19,7 +19,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
-from solsys_code.models import CalendarEventTelescopeLabel
+from solsys_code.models import CalendarEventMeta
 from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color, telescope_stripe_color
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
@@ -48,14 +48,14 @@ class CalendarTemplateTest(TestCase):
             start_time=datetime(2026, 6, 10, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 11, 6, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.all_day_fallback, is_verified=False)
+        CalendarEventMeta.objects.create(event=self.all_day_fallback, is_verified=False)
 
         self.all_day_verified = CalendarEvent.objects.create(
             title='All-day verified',
             start_time=datetime(2026, 6, 12, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 13, 6, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.all_day_verified, is_verified=True)
+        CalendarEventMeta.objects.create(event=self.all_day_verified, is_verified=True)
 
         self.all_day_no_row = CalendarEvent.objects.create(
             title='All-day no sidecar row',
@@ -69,14 +69,14 @@ class CalendarTemplateTest(TestCase):
             start_time=datetime(2026, 6, 16, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 16, 23, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.timed_fallback, is_verified=False)
+        CalendarEventMeta.objects.create(event=self.timed_fallback, is_verified=False)
 
         self.timed_verified = CalendarEvent.objects.create(
             title='Timed verified',
             start_time=datetime(2026, 6, 17, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 17, 23, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.timed_verified, is_verified=True)
+        CalendarEventMeta.objects.create(event=self.timed_verified, is_verified=True)
 
         self.timed_no_row = CalendarEvent.objects.create(
             title='Timed no sidecar row',
@@ -125,7 +125,7 @@ class CalendarTemplateTest(TestCase):
             start_time=datetime(2026, 6, 27, 10, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 27, 11, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.queued_fallback_timed, is_verified=False)
+        CalendarEventMeta.objects.create(event=self.queued_fallback_timed, is_verified=False)
 
         # quick-260724-osc fixture: classical-schedule (empty-proposal) all-day event with
         # a telescope set — exercises the per-telescope left-edge stripe + legend.

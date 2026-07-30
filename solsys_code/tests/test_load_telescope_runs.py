@@ -13,7 +13,7 @@ from tom_targets.models import TargetList
 
 from solsys_code import telescope_runs as tr
 from solsys_code.management.commands.load_telescope_runs import _iter_run_nights
-from solsys_code.models import CalendarEventTelescopeLabel
+from solsys_code.models import CalendarEventMeta
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import parse_run_line
 
@@ -281,14 +281,14 @@ class TestLoadTelescopeRuns(TestCase):
 
     def test_display_01_no_sidecar_row_for_classically_scheduled_event(self):
         """DISPLAY-01: load_telescope_runs never resolves a telescope label via the LCO
-        API, so events it creates have no CalendarEventTelescopeLabel row at all."""
+        API, so events it creates have no CalendarEventMeta row at all."""
         path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
         with tmpdir_ctx:
             call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
 
-        self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 0)
+        self.assertEqual(CalendarEventMeta.objects.count(), 0)
         event = CalendarEvent.objects.first()
-        with self.assertRaises(CalendarEventTelescopeLabel.DoesNotExist):
+        with self.assertRaises(CalendarEventMeta.DoesNotExist):
             _ = event.telescope_label_meta
 
     def test_unparseable_line_logged_and_skipped(self):

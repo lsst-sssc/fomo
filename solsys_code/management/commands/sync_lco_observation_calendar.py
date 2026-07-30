@@ -15,7 +15,7 @@ from solsys_code.calendar_utils import (
     insert_or_create_calendar_event,
     resolve_placement_block,
 )
-from solsys_code.models import CalendarEventTelescopeLabel
+from solsys_code.models import CalendarEventMeta
 
 # TERM-01/D-04: terminal-failure status -> title prefix. COMPLETED is deliberately
 # absent here (D-06 research correction) — it is terminal per
@@ -366,9 +366,7 @@ class Command(BaseCommand):
             # fields changed -- kept as a separate statement, never folded into
             # `fields` or `changed`. is_verified reflects the outcome of the most
             # recent sync run that included this record, not real-time state.
-            CalendarEventTelescopeLabel.objects.update_or_create(
-                event=event, defaults={'is_verified': not telescope_api_failed}
-            )
+            CalendarEventMeta.objects.update_or_create(event=event, defaults={'is_verified': not telescope_api_failed})
 
         # D-08: per-facility breakdown. Each facility's six counts use the same
         # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' /

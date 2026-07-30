@@ -1,13 +1,13 @@
 """Tests for solsys_code/admin.py -- proves the load-bearing admin constraints via the
 admin test client rather than by eyeballing the ModelAdmin class definitions:
 
-- CampaignRun and CalendarEventTelescopeLabel are both reachable under /admin/solsys_code/.
+- CampaignRun and CalendarEventMeta are both reachable under /admin/solsys_code/.
 - approval_status is visible-but-non-editable in the CampaignRun change form (T-jpd-01: no
   admin path to APPROVED that bypasses CampaignRunDecisionView.post()'s calendar projection
   + D-06 clobber guard).
 - contact_person/contact_email never appear in the CampaignRun change-list (T-jpd-02: PII is
   not scannable across rows) but remain editable in the detail/change view.
-- CalendarEventTelescopeLabel's event__title search path resolves without a FieldError.
+- CalendarEventMeta's event__title search path resolves without a FieldError.
 """
 
 from django.contrib.auth.models import User
@@ -46,14 +46,12 @@ class AdminRegistrationAndGatingTests(TestCase):
         response = self.client.get(reverse('admin:solsys_code_campaignrun_changelist'))
         self.assertEqual(response.status_code, 200)
 
-    def test_calendareventtelescopelabel_changelist_loads(self) -> None:
-        response = self.client.get(reverse('admin:solsys_code_calendareventtelescopelabel_changelist'))
+    def test_calendareventmeta_changelist_loads(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_changelist'))
         self.assertEqual(response.status_code, 200)
 
-    def test_calendareventtelescopelabel_search_resolves(self) -> None:
-        response = self.client.get(
-            reverse('admin:solsys_code_calendareventtelescopelabel_changelist'), {'q': 'anything'}
-        )
+    def test_calendareventmeta_search_resolves(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_changelist'), {'q': 'anything'})
         self.assertEqual(response.status_code, 200)
 
     def test_approval_status_is_readonly_in_change_form(self) -> None:

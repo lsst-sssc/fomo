@@ -1,7 +1,7 @@
 from django.contrib import admin
 from tom_targets.models import Target
 
-from solsys_code.models import CalendarEventTelescopeLabel, CampaignRun
+from solsys_code.models import CalendarEventMeta, CampaignRun
 
 
 class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
@@ -25,7 +25,7 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
     readonly_fields = ['approval_status']
 
 
-class CalendarEventTelescopeLabelAdmin(admin.ModelAdmin):  # noqa: D101
+class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
     list_display = ['event', 'is_verified']
     list_filter = ['is_verified']
     search_fields = ['event__title']
@@ -38,6 +38,6 @@ class TargetAdmin(admin.ModelAdmin):  # noqa: D101
 
 
 admin.site.register(CampaignRun, CampaignRunAdmin)
-admin.site.register(CalendarEventTelescopeLabel, CalendarEventTelescopeLabelAdmin)
+admin.site.register(CalendarEventMeta, CalendarEventMetaAdmin)
 admin.site.unregister(Target)
 admin.site.register(Target, TargetAdmin)
