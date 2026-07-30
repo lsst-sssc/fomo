@@ -181,15 +181,30 @@ into ``CampaignRun`` rows, one row per CSV line.
    auto-resolved value. If a staff member manually corrected a row's
    ``target`` in the Django admin after a previous import, that correction
    is silently overwritten the next time this command runs over the same
-   campaign CSV. This is expected behavior for a bootstrap-import command,
-   not a bug -- but it is easy to be surprised by, so re-import
-   deliberately, not routinely.
+   campaign CSV.
+
+   The same is true of ``source`` and ``approval_status``: a re-import
+   applies ``source = csv_import`` and ``approval_status = approved`` to an
+   already-existing row, not just to a newly created one. The one exception
+   is a row that came in through the public submission form (``source =
+   web``) -- such a row keeps its own ``source`` **and**
+   ``approval_status``, so a re-import can never turn an unreviewed public
+   submission into something that reads as vetted, publicly-visible
+   backfill. Every one of its other fields is still overwritten from the
+   CSV.
+
+   All of this is expected behavior for a bootstrap-import command, not a
+   bug -- but it is easy to be surprised by, so re-import deliberately, not
+   routinely.
 
 .. note::
    **What the command now writes (CANON-01/CANON-02):** every imported row
    records ``source = csv_import`` and is created ``approved`` -- a
    bootstrap import is vetted backfill, not a community submission awaiting
-   review, so approval gating applies to web submissions only. A row whose
+   review, so approval gating applies to web submissions only. On a
+   *re-import* those same two values are re-applied to an already-existing
+   row, except for a ``source = web`` row (see the re-import gotcha above).
+   A row whose
    ``Site Code`` does not resolve now also gets a derived
    ``telescope_class`` when its ``Telescope / Instrument`` text names a
    telescope class (``2m0``/``1m0``/``0m4``), or ``SPACE`` when it names a
@@ -370,11 +385,13 @@ that have gone stale?" above -- ``repair_stale_campaign_run_sites`` re-runs
 site resolution for every approved, site-less row without re-importing the
 whole CSV.
 
-Also recall the re-import ``target``-reset gotcha covered above under "How
-do I bootstrap-import a campaign from a CSV?": re-running
-``import_campaign_csv`` over the same ``--campaign`` always resets every
-row's ``target`` back to its auto-resolved value, silently overwriting any
-manual correction made since the previous import.
+Also recall the re-import reset gotcha covered above under "How do I
+bootstrap-import a campaign from a CSV?": re-running ``import_campaign_csv``
+over the same ``--campaign`` always resets every row's ``target`` back to
+its auto-resolved value, and re-applies ``source = csv_import`` and
+``approval_status = approved``, silently overwriting any manual correction
+made since the previous import. Rows created by the public submission form
+(``source = web``) keep their own ``source`` and ``approval_status``.
 
 See also
 -----------
