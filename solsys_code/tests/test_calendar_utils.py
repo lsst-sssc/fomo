@@ -1,14 +1,27 @@
+import re
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
+from unittest.mock import MagicMock, patch
 
+import requests
+from django import forms
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
+from tom_common.exceptions import ImproperCredentialsException
 
 from solsys_code.calendar_utils import (
+    SITE_TELESCOPE_MAP,
     aperture_class_from_telescope_code,
+    derive_telescope,
     derive_telescope_class,
     insert_or_create_calendar_event,
+    resolve_placement_block,
 )
+
+# Imported (not duplicated) from the sync command's test module -- that module still
+# owns _observations_block_response() since many command-behaviour tests there use it;
+# see this todo's SUMMARY for the "import vs. copy" call.
+from solsys_code.tests.test_sync_lco_observation_calendar import _observations_block_response
 
 # A fixed UTC sunset-like start time and a companion end time, used across the
 # drift-tolerance tests below.
@@ -257,3 +270,106 @@ class TestDeriveTelescopeClass(TestCase):
         # SPACE is deliberately absent from the aperture-class set -- it is not an
         # aperture class at all.
         self.assertNotIn('SPACE', calendar_utils_aperture_values)
+
+
+class TestTelescopeLabelResolutionHelpers(TestCase):
+    """Relocated from test_sync_lco_observation_calendar.py (todo 2026-07-02, second half):
+    these tests exercise calendar_utils helpers directly via mocks and never invoke the
+    sync_lco_observation_calendar management command, so they belong here."""
+
+    def test_telescope_01_verified_dict_covers_all_sites(self):
+        """TELESCOPE-01: verified dict covers all 7 real sites with SITECODE-CLASS labels."""
+        expected_sites = {'ogg', 'elp', 'lsc', 'cpt', 'coj', 'tfn', 'sor'}
+        actual_sites = {site for site, _aperture_class in SITE_TELESCOPE_MAP}
+        self.assertEqual(actual_sites, expected_sites)
+
+        label_pattern = re.compile(r'^[A-Z]{3}-(0m4|1m0|2m0|4m0)$')
+        for label in SITE_TELESCOPE_MAP.values():
+            self.assertRegex(label, label_pattern)
+
+        for migrated_label in ('COJ-2m0', 'OGG-2m0', 'SOR-4m0'):
+            self.assertIn(migrated_label, SITE_TELESCOPE_MAP.values())
+
+    def test_telescope_01_aperture_class_from_telescope_code(self):
+        """TELESCOPE-01: aperture_class_from_telescope_code parses/rejects telescope codes."""
+        self.assertEqual(aperture_class_from_telescope_code('1m0a'), '1m0')
+        self.assertEqual(aperture_class_from_telescope_code('0m4b'), '0m4')
+        self.assertEqual(aperture_class_from_telescope_code('2m0a'), '2m0')
+        self.assertIsNone(aperture_class_from_telescope_code('xx'))
+        self.assertIsNone(aperture_class_from_telescope_code('foo9'))
+
+    def test_telescope_01_coj_ogg_full_aperture_class_coverage(self):
+        """TELESCOPE-01: coj/ogg's full aperture-class inventory resolves to verified labels.
+
+        Regression for the Phase 7 UAT Test 1 gap (07-UAT.md Gaps section): a real placed
+        record (observation_id=4213127) resolved via the live LCO API to
+        site='coj', telescope='1m0a' (aperture class '1m0'), but SITE_TELESCOPE_MAP had no
+        ('coj', '1m0') entry, so it fell back to the [UNVERIFIED] label instead of COJ-1m0.
+        """
+        self.assertEqual(derive_telescope('coj', '1m0a'), 'COJ-1m0')
+        self.assertEqual(derive_telescope('coj', '0m4a'), 'COJ-0m4')
+        self.assertEqual(derive_telescope('ogg', '0m4b'), 'OGG-0m4')
+
+    def test_telescope_02_placed_record_resolves_via_api(self):
+        """TELESCOPE-02: a successful mocked API response resolves to the verified label."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            return_value=_observations_block_response(
+                site='lsc', enclosure='doma', telescope='1m0a', state='COMPLETED'
+            ),
+        ):
+            block = resolve_placement_block('12345', mock_facility)
+
+        self.assertIsNotNone(block)
+        self.assertEqual(block['site'], 'lsc')
+        self.assertEqual(block['enclosure'], 'doma')
+        self.assertEqual(block['telescope'], '1m0a')
+        self.assertEqual(derive_telescope(block['site'], block['telescope']), 'LSC-1m0')
+
+
+class TestResolvePlacementBlockFailureModes(TestCase):
+    """Relocated from test_sync_lco_observation_calendar.py (todo 2026-07-02, second half):
+    resolve_placement_block()'s own failure-mode contract, exercised directly via mocks."""
+
+    def test_sync_08_single_attempt_no_retry(self):
+        """SYNC-08: a timeout results in exactly one make_request call, no retry loop."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            side_effect=requests.exceptions.Timeout,
+        ) as mock_make_request:
+            block = resolve_placement_block('12345', mock_facility)
+
+        self.assertIsNone(block)
+        mock_make_request.assert_called_once()
+
+    def test_sync_09_no_credential_or_body_leak_in_logs(self):
+        """SYNC-09: ImproperCredentialsException/forms.ValidationError are swallowed to None,
+        never raised, and the helper never surfaces anything derived from the caught
+        exception (which may embed response.content / API-key-adjacent diagnostic text)."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        leak_marker = 'SECRET_API_KEY_LEAK_BODY'
+
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            side_effect=ImproperCredentialsException(f'OCS: {leak_marker}'),
+        ):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertIsNone(block)
+
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            side_effect=forms.ValidationError(f'OCS: {leak_marker}'),
+        ):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertIsNone(block)
