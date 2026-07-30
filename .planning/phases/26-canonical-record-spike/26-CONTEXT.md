@@ -140,7 +140,17 @@ git-excluded, and discarded when the phase closes.
   the stage-1 one on every re-run. Matches how the codebase already thinks —
   `load_telescope_runs` writes `start_time=sunset(d)`, `end_time=sunrise(d+1)` for night `d`.
 
-- **D-11:** The **adopt-vs-gap-fill question is prototyped, not decided in the abstract.**
+- **D-11:** **Dated note (2026-07-27, per todo `2026-07-27-correct-owned-nights-framing-in-
+  upstream-planning-docs.md`):** the "uncovered nights" framing below predates a later domain
+  correction and describes what was believed at the time of this discussion, not the current
+  settled truth. `CampaignRun` pk=1 is a queue-scheduled run, so a night inside its window with
+  no scheduled observation is the normal, correct state, not a gap needing to be filled. See
+  `26-DECISION.md`'s `### Domain correction — queue windows are not sets of owned nights`
+  section and its `#### Queue-run projection — settled` verdict for the current truth; this
+  entry is left in place, un-rewritten, as the archival record of the discussion that led to
+  the correction.
+
+  The **adopt-vs-gap-fill question is prototyped, not decided in the abstract.**
   Against the real pk=1 case (15-night window 7–21 July; 11 of those nights already carry
   LCO events), build both on the throwaway DB copy and recommend one based on what the
   calendar actually looks like:

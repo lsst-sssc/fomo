@@ -172,13 +172,27 @@ Decisions
        fanning out per site and per day would have produced. The event narrows to the
        real site once an actual observation record for that run appears.
      - 29
-   * - Space-mission runs
-     - A run with no ground site at all (a space telescope) gets **one event spanning
-       its whole window**, not one event per day — honestly showing "sometime in this
-       window" rather than claiming every day in it as an observing day. This keeps the
+   * - Genuinely site-less runs
+     - A run with no ground site resolved at all gets **one event spanning its whole
+       window**, not one event per day — honestly showing "sometime in this window"
+       rather than claiming every day in it as an observing day. This keeps the
        calendar consistent with the campaign gap-analysis tool, which already refuses to
        count those dates as claimed.
-     - 29
+
+       **Correction (2026-07-29, Phase 27 D-11):** this row originally described the
+       genuinely-site-less case as "a space telescope" without qualification. That premise
+       is false: space observatories resolve to a real ``Observatory`` like any ground
+       site, via an MPC obscode or the JPL Horizons observer-notation alias table at
+       ``solsys_code/campaign_utils.py`` — ``Observatory`` already holds ``274`` (JWST),
+       ``289`` (Roman) and ``C51`` (WISE). The genuine exception is a space observatory
+       with a Horizons code but **no MPC obscode assigned at all** — JUICE
+       (``500@-28``); Swift has ``C52``, HST has ``250``, JWST has ``274``. Phase 27's
+       ``telescope_class`` vocabulary is therefore the narrower ``2m0``/``1m0``/``0m4``/
+       ``SPACE`` set (``SPACE`` meaning specifically "a space observatory with no MPC
+       code assigned"), not 26-DECISION.md Criterion 3's originally recommended
+       three-meaning scheme. "Unresolved" is deliberately **not** a ``telescope_class``
+       value — ``site_needs_review`` already carries that meaning.
+     - 27, 29
    * - Allocated-but-unscheduled runs
      - A run with no window start yet produces no calendar event at all, but the
        reconciler counts and reports it in its summary rather than skipping it silently —
