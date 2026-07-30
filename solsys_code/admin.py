@@ -1,8 +1,74 @@
 from django.contrib import admin
+from django.forms.models import BaseInlineFormSet
 from django.utils import timezone
 from tom_targets.models import Target
 
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
+
+
+class CalendarEventMetaInlineFormSet(BaseInlineFormSet):
+    """WR-08: freeze `event` on rows that already exist, so it can never be re-pointed.
+
+    `CalendarEventMeta.event` is an explicitly declared ``OneToOneField(primary_key=True)``.
+    Django's ``BaseModelFormSet.add_fields()`` only injects a hidden ``id`` field when
+    ``pk_is_not_editable(pk)``; such a field IS editable and IS present in ``form.fields``,
+    so no hidden pk is added and `event` renders as a live ``<select>`` on every existing
+    inline row. Changing it would make ``instance.pk`` a value absent from the table, so
+    ``instance.save()`` would issue an UPDATE matching 0 rows and fall back to an INSERT --
+    leaving the original row behind as a duplicate with an orphaned is_verified/run history,
+    which is exactly what migration 0008's header comment was written to protect.
+
+    ``disabled=True`` (not ``readonly_fields``) is used deliberately: readonly_fields on the
+    inline would be keyed on the PARENT ``CampaignRun`` object and would therefore also strip
+    the widget from the blank "Add another" row, making it impossible to link a new event from
+    an existing run's change page. Per-form ``disabled`` leaves add and delete working.
+
+    Disabling the widget is necessary but not sufficient, because
+    ``BaseModelFormSet._construct_form()`` resolves each initial form's instance from the
+    *submitted* pk (``_existing_object(pk)``) before any field ever sees it -- a submitted pk
+    outside the queryset yields ``instance=None`` and therefore a brand-new object. So the
+    submitted pk is first normalised back to the pk of the row this form slot actually
+    belongs to; after that the widget's disabled state is what stops a staff user reaching
+    the tampering path by accident in the first place.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """Normalise every initial form's submitted `event` pk back to its own row's pk."""
+        super().__init__(*args, **kwargs)
+        if self.is_bound:
+            self._freeze_submitted_event_pks()
+
+    def _freeze_submitted_event_pks(self):
+        """Rewrite the POSTed pk of each existing-row slot to that row's real pk.
+
+        Mirrors the data-rewriting precedent in Django's own
+        ``BaseInlineFormSet._construct_form()`` ``save_as_new`` branch. Runs before any form
+        is constructed, so ``_construct_form()`` resolves the intended instance rather than
+        falling through to a fresh, unsaved one.
+        """
+        pk_name = self.model._meta.pk.name
+        queryset = self.get_queryset()
+        for index in range(self.initial_form_count()):
+            try:
+                frozen_pk = str(queryset[index].pk)
+            except IndexError:
+                # More initial forms declared in the management form than rows exist --
+                # tampered or stale POST. Leave it alone; Django's own validation reports it.
+                break
+            pk_key = f'{self.add_prefix(index)}-{pk_name}'
+            if self.data.get(pk_key) != frozen_pk:
+                # QueryDict is immutable; .copy() yields a mutable one (and works for the
+                # plain-dict form data used in tests too).
+                self.data = self.data.copy()
+                self.data[pk_key] = frozen_pk
+        # No return statement -- this is an in-place normalisation
+
+    def add_fields(self, form, index):
+        """Disable the identity field on any form bound to an already-saved row."""
+        super().add_fields(form, index)
+        if form.instance.pk is not None and 'event' in form.fields:
+            form.fields['event'].disabled = True
+        # No return statement -- BaseInlineFormSet.add_fields() returns None
 
 
 class CalendarEventMetaInline(admin.TabularInline):
@@ -10,9 +76,14 @@ class CalendarEventMetaInline(admin.TabularInline):
     the `run` value on a row un-owns the event without deleting the companion row itself
     (CalendarEventMeta.run is SET_NULL, not CASCADE) -- the row, and its is_verified
     history, survive.
+
+    WR-08: `event` is this model's primary key, so it is frozen on existing rows via
+    CalendarEventMetaInlineFormSet -- add and delete are the only operations on the link
+    itself; re-pointing it would duplicate the row rather than move it.
     """
 
     model = CalendarEventMeta
+    formset = CalendarEventMetaInlineFormSet
     fk_name = 'run'
     extra = 0
 

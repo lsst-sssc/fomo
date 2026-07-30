@@ -281,6 +281,51 @@ class CampaignRunAdminInlinesTests(TestCase):
         meta = CalendarEventMeta.objects.get(event=event)
         self.assertEqual(meta.run_id, self.campaign_run.pk)
 
+    def test_calendar_event_meta_inline_freezes_event_on_existing_rows(self) -> None:
+        """WR-08: `event` is the model's primary key, so re-pointing it on an existing row
+        would INSERT a second row and orphan the original instead of moving the link.
+        The inline's formset disables the field on saved rows (and only on saved rows), so
+        a submitted event pk for an existing row is ignored, no duplicate is written, and
+        the blank "Add another" row keeps a usable widget."""
+        original_event = CalendarEvent.objects.create(
+            title='Original inline event',
+            start_time=datetime(2025, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 8, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        other_event = CalendarEvent.objects.create(
+            title='Hijack target event',
+            start_time=datetime(2025, 8, 3, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 8, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=original_event, run=self.campaign_run, is_verified=True)
+
+        request = self._staff_request(self.staff_user)
+        inline = CalendarEventMetaInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            # The hijack attempt: point the existing row's pk at a different CalendarEvent.
+            f'{prefix}-0-event': str(other_event.pk),
+            f'{prefix}-0-is_verified': 'on',
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        self.assertTrue(formset.forms[0].fields['event'].disabled)
+        # The blank add row must stay editable, or linking a new event from an existing
+        # run's change page would be impossible.
+        self.assertFalse(formset.empty_form.fields['event'].disabled)
+
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=True)
+
+        self.assertEqual(CalendarEventMeta.objects.filter(run=self.campaign_run).count(), 1)
+        self.assertTrue(CalendarEventMeta.objects.filter(event=original_event).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event=other_event).exists())
+
     def test_source_and_telescope_class_filters_return_200_and_appear_in_sidebar(self) -> None:
         """D-19: both new list_filter entries are usable and show up in the filter sidebar."""
         response = self.client.get(
