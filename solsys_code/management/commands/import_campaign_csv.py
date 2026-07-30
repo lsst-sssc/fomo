@@ -188,7 +188,28 @@ class Command(BaseCommand):
             seen_window_keys.add(collision_key)
 
             site_raw = row.get('Site Code', '') or ''
-            site, needs_review = resolve_site(site_raw)
+            site, site_resolution_failed = resolve_site(site_raw)
+            # D-06 (26-CONTEXT.md:94): telescope_class records WHY there is no site -- it is
+            # a permanent, correct campaign-level fact, not a placeholder cleared once a site
+            # is known. D-20: the shared derivation helper's second required call site (the
+            # 0011 backfill migration is the first). Derivation still gates on "no resolved
+            # site" (site is None), mirroring the backfill's site__isnull=True gate -- but a
+            # non-blank class, once derived, is never cleared, and a row that has one is not
+            # a resolution failure.
+            telescope_class = (
+                derive_telescope_class(site_raw=site_raw, telescope_instrument=telescope_instrument)
+                if site is None
+                else ''
+            )
+            # `site_resolution_failed` alone is not "needs review": resolve_site() here runs
+            # with its default create_placeholder=True, so it can return a placeholder
+            # Observatory (site is not None) with site_resolution_failed True -- that row
+            # genuinely still needs staff review. Deliberately NOT the literal
+            # `site is None and not telescope_class`: telescope_class is only ever non-blank
+            # when site is None, so the two forms agree wherever the class can fire, but only
+            # this form preserves the placeholder case, which the literal form would silently
+            # unflag.
+            needs_review = site_resolution_failed and not telescope_class
             if needs_review:
                 site_needs_review_count += 1
 
@@ -211,13 +232,7 @@ class Command(BaseCommand):
                 # (26-DECISION Criterion 1: APPROVED + source != WEB means "no approval was
                 # required", a different fact from "a human approved this").
                 'source': CampaignRun.Source.CSV_IMPORT,
-                # D-20: the shared derivation helper's second required call site (the 0011
-                # backfill migration is the first). Only called when site resolution failed
-                # (site is None) -- a site-resolved run never carries a telescope_class,
-                # mirroring the backfill's site__isnull=True gate.
-                'telescope_class': derive_telescope_class(site_raw=site_raw, telescope_instrument=telescope_instrument)
-                if site is None
-                else '',
+                'telescope_class': telescope_class,
                 'observation_outcome': row.get('Observation Outcome', '') or '',
                 'publication_plans': row.get('Publication Plans', '') or '',
                 'open_to_collaboration': (row.get('Open to collaboration?', '') or '').strip().lower() == 'yes',

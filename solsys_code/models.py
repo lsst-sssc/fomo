@@ -154,6 +154,12 @@ class CampaignRun(models.Model):
         verbose_name='Resolved observing site',
     )
     site_raw = models.CharField(max_length=255, blank=True, default='', verbose_name='Original site code text')
+    # D-06 (26-CONTEXT.md:94): corrected meaning -- True means the site did not resolve AND
+    # no telescope_class explains why. A class-carrying run (telescope_class non-blank) is
+    # never flagged, because the class already answers "why is there no site"; only a
+    # genuinely unresolvable, class-less row belongs in the staff "Sites Needing Review"
+    # queue. verbose_name is left unchanged deliberately -- editing it would force an extra
+    # AlterField migration for no behavioural gain.
     site_needs_review = models.BooleanField(
         default=False, verbose_name='Whether the site could not be automatically resolved and needs manual review'
     )
@@ -198,9 +204,19 @@ class CampaignRun(models.Model):
         default=Source.LEGACY,
         verbose_name='Ingest source',
     )
-    # Blank is the normal value for a site-resolved run; blank on a site-less, flagged row
-    # (site_needs_review=True) is what a genuine resolution failure correctly looks like
-    # (D-13) -- telescope_class is never inferred for a run whose site DID resolve.
+    # D-06 (26-CONTEXT.md:94): this field records WHY there is no site -- it is a PERMANENT,
+    # correct campaign-level fact, not a placeholder cleared once a site becomes known. A
+    # class-wide campaign (e.g. "LOOK Project Comet Followup 2026B", following up many
+    # targets across the LCO 1m0 network) legitimately keeps site=None forever; its per-site
+    # detail lives on the linked ObservationRecords via CampaignRunObservation (CANON-04),
+    # never on the run itself -- the run-level `site` field is for single-site runs only.
+    # The value is NEVER cleared by any writer once a site later resolves elsewhere for the
+    # same run (Phase 27 code-review finding CR-01 proposed clearing it; the user REJECTED
+    # CR-01 -- see 27-REVIEW-FIX.md -- because telescope_class and a resolved site are not
+    # mutually exclusive). Inference still only happens at write time for site-less rows
+    # (D-13): blank is the correct value for a genuine site-resolution failure, since
+    # site_needs_review already carries "unresolved" -- telescope_class is never inferred
+    # for a run whose site DID resolve.
     telescope_class = models.CharField(
         max_length=10,
         choices=TelescopeClass,
