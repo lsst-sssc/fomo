@@ -380,7 +380,6 @@ class TestTelescopeClassVisibleSourceStaffOnly(CampaignViewTestBase):
         """D-18: telescope_class is present in the non-staff .values() queryset -- the SQL
         SELECT itself fetches it -- proven directly against the queryset the same way
         TestContactPublicOptIn._non_staff_values_row() proves contact-field gating.
-        campaign_tables.py's rendered-column Meta.fields tuple is out of this plan's scope.
         """
         from solsys_code.campaign_views import CampaignRunTableView
 
@@ -389,6 +388,30 @@ class TestTelescopeClassVisibleSourceStaffOnly(CampaignViewTestBase):
         view.request = type('Req', (), {'user': type('U', (), {'is_staff': False})()})()
         row = view.get_queryset().get(pk=self.class_wide_run.pk)
         self.assertEqual(row['telescope_class'], CampaignRun.TelescopeClass.ONE_M0)
+
+    def test_non_staff_response_body_renders_telescope_class(self):
+        """WR-02: fetching telescope_class into the queryset is not what D-18 promised --
+        a non-staff READER has to be able to see it. Asserted against the rendered response
+        body, not the queryset, because the previous version of this test passed while the
+        field was fetched and then silently discarded by every table column.
+        """
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertIn('Telescope class', content)  # column header
+        self.assertIn('>1m0<', content)  # the run's own stored value, rendered
+
+    def test_staff_and_non_staff_render_telescope_class_identically(self):
+        """WR-02: model-instance rows (staff) would otherwise get django-tables2's automatic
+        get_telescope_class_display() label while dict rows (non-staff) get the raw code --
+        two reader classes seeing different text for the same run. render_telescope_class
+        resolves the raw code for both.
+        """
+        anonymous = self.client.get(self.table_url()).content.decode()
+        self.client.force_login(self.staff_user)
+        staff = self.client.get(self.table_url()).content.decode()
+        for content in (anonymous, staff):
+            self.assertIn('>1m0<', content)
+            self.assertNotIn('>1m0 class allocation<', content)
 
     def test_non_staff_response_body_never_exposes_source(self):
         response = self.client.get(self.table_url())

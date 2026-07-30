@@ -40,6 +40,12 @@ RUN_STATUS_BADGE_CLASSES = {
     CampaignRun.RunStatus.WEATHER_TECH_FAILURE: 'badge-light',
 }
 
+# WR-02/CANON-02/D-18: stored code -> human label for the telescope-class column. Derived
+# from the model's own TextChoices (not hand-typed) so it can never drift, and used as a
+# .get() lookup so an unexpected stored value degrades to showing itself rather than raising
+# in a template -- the same constant-lookup discipline as the two badge dicts above.
+TELESCOPE_CLASS_LABELS = {choice.value: choice.label for choice in CampaignRun.TelescopeClass}
+
 # Fields whose staff-vs-anonymous underlying key genuinely differs (dict path selects
 # 'site__short_name' explicitly, never 'site' -- see campaign_views.ALLOWED_FIELDS_FOR_NON_STAFF),
 # so the column needs an Accessor that resolves both a literal dict key and a model-instance
@@ -51,12 +57,19 @@ class CampaignRunTable(tables.Table):
     """Spreadsheet-parity CampaignRun table (D-09), PII-gated via the view's ``exclude=`` kwarg."""
 
     site = tables.Column(accessor='site__short_name', verbose_name='Site', empty_values=())
+    # WR-02/D-18: 'telescope_class' was added to ALLOWED_FIELDS_FOR_NON_STAFF so readers can
+    # "distinguish a legitimately class-wide run from a site that failed to resolve", but it
+    # was rendered by no column, so it was fetched into the .values() queryset and then
+    # discarded for staff and non-staff alike -- D-18's stated outcome was not delivered.
+    # Sits immediately after `site` because that is the distinction it exists to draw.
+    telescope_class = tables.Column(verbose_name='Telescope class')
 
     class Meta:  # noqa: D106
         model = CampaignRun
         fields = (
             'telescope_instrument',
             'site',
+            'telescope_class',
             'window_start',
             'filters_bandpass',
             'run_status',
@@ -106,6 +119,31 @@ class CampaignRunTable(tables.Table):
         css = APPROVAL_BADGE_CLASSES.get(value, 'badge-secondary')
         label = CampaignRun.ApprovalStatus(value).label
         return format_html('<span class="badge {}">{}</span>', css, label)
+
+    def render_telescope_class(self, record):
+        """Render telescope_class as a muted allocation token (CANON-02/D-18).
+
+        See render_run_status docstring -- the same raw-value-via-Accessor rationale
+        applies, and it matters more here: for model-instance rows (staff) django-tables2
+        auto-calls ``get_telescope_class_display()`` and would render the verbose choice
+        label ('1m0 class allocation'), while dict rows (non-staff) carry the raw stored
+        code ('1m0'), so the two reader classes would see different text for the same run.
+        Resolving from ``record`` gives the raw code for both, with the verbose label
+        carried in the tooltip.
+
+        A blank value never reaches here (django-tables2's default ``empty_values``
+        short-circuits to the table's placeholder), which is the intended appearance: blank
+        means "not a class-wide allocation", while an unresolved site is carried by the site
+        column's own warning styling, not by this one (D-13).
+        """
+        value = Accessor('telescope_class').resolve(record, quiet=True)
+        if not value:
+            return ''
+        return format_html(
+            '<span class="badge badge-light" style="border: 1px solid #6c757d;" title="{}">{}</span>',
+            TELESCOPE_CLASS_LABELS.get(value, value),
+            value,
+        )
 
     def render_site(self, record):
         """Show Observatory.short_name when resolved, else the submitted site_raw text.
