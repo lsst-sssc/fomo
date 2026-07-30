@@ -172,7 +172,7 @@ Plans:
   4. A calendar event can carry a link to the run it belongs to, and an `ObservationRecord` can be linked to the run it realises with a record of whether a human confirmed it — and deleting a run never deletes calendar events, companion rows, or observation records
   5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
 
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 
 **Wave 1**
 
@@ -185,7 +185,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 27-04-PLAN.md — CANON-01/02/04 at the schema layer: `Source`/`TelescopeClass` vocabularies and fields, `is_publicly_visible`, the `CampaignRunObservation` link model with its named uniqueness constraint and audit fields, and the derived-rule `telescope_class` backfill (no constraint change — D-14)
+- [x] 27-04-PLAN.md — CANON-01/02/04 at the schema layer: `Source`/`TelescopeClass` vocabularies and fields, `is_publicly_visible`, the `CampaignRunObservation` link model with its named uniqueness constraint and audit fields, and the derived-rule `telescope_class` backfill (no constraint change — D-14)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -261,7 +261,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 3/6 | In Progress|  |
+| 27. The Canonical Run Record | v2.2 | 4/6 | In Progress|  |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
 

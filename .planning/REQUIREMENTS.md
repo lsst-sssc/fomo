@@ -20,10 +20,10 @@ Settles the questions milestone questioning deliberately left open. Blocks every
 
 The model changes that make `CampaignRun` the single canonical observing-run record.
 
-- [ ] **CANON-01**: A `CampaignRun` records which ingest path created it (`source`: web submission, classical file, LCO queue, Gemini queue, CSV import), and approval is required only for web submissions
+- [x] **CANON-01**: A `CampaignRun` records which ingest path created it (`source`: web submission, classical file, LCO queue, Gemini queue, CSV import), and approval is required only for web submissions
 - [x] **CANON-02**: A run allocated to a telescope class (`2m0`/`1m0`/`0m4`) is distinguishable from a run whose site failed to resolve, via an explicit `telescope_class` field — today both appear as `site=None`
 - [x] **CANON-03**: A calendar event can be linked to the run it belongs to, through one generalised FOMO companion record that also retains the existing `is_verified` telescope-label flag; existing companion rows survive the change and all four existing integration points (admin registration, LCO sync command, view prefetch, calendar template) keep working
-- [ ] **CANON-04**: An `ObservationRecord` can be linked to the `CampaignRun` it realises, through a link that records whether a human confirmed it
+- [x] **CANON-04**: An `ObservationRecord` can be linked to the `CampaignRun` it realises, through a link that records whether a human confirmed it
 - [ ] **CANON-05**: A staff user can see a run's linked calendar events and observation records, and reach the run from an event
 
 ### Reconciler
@@ -97,10 +97,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SPIKE-02 | Phase 26 — Canonical-Record Spike | Complete |
 | SPIKE-03 | Phase 26 — Canonical-Record Spike | Complete — key scheme settled for both classically-scheduled and queue-scheduled runs |
 | SPIKE-04 | Phase 26 — Canonical-Record Spike | Complete |
-| CANON-01 | Phase 27 — The Canonical Run Record | Pending |
+| CANON-01 | Phase 27 — The Canonical Run Record | Complete |
 | CANON-02 | Phase 27 — The Canonical Run Record | Complete |
 | CANON-03 | Phase 27 — The Canonical Run Record | Complete |
-| CANON-04 | Phase 27 — The Canonical Run Record | Pending |
+| CANON-04 | Phase 27 — The Canonical Run Record | Complete |
 | CANON-05 | Phase 27 — The Canonical Run Record | Pending |
 | ATTRIB-01 | Phase 28 — Operator-Assisted Attribution | Pending |
 | ATTRIB-02 | Phase 28 — Operator-Assisted Attribution | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Completed 27-03-PLAN.md
-last_updated: "2026-07-30T00:50:19.795Z"
+stopped_at: Completed 27-04-PLAN.md
+last_updated: "2026-07-30T01:24:45.049Z"
 last_activity: 2026-07-29 -- Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 25
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 27 (the-canonical-run-record) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-07-29 -- Phase 27 execution started
 
@@ -136,6 +136,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 27 P01 | 25min | 3 tasks | 5 files |
 | Phase Phase 27 P02 P02 | 25min | 3 tasks | 4 files |
 | Phase 27 P03 | 20min | 3 tasks | 10 files |
+| Phase 27 P04 | 45min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -180,6 +181,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 27-02]: MPC Obscodes API was reachable during the live run: HST (pk 8,12) and Swift (pk 13) resolved via genuine tier-2 lookups, creating 2 new real Observatory rows
 - [Phase 27-03]: related_name='telescope_label_meta' left byte-identical; run FK uses SET_NULL (not CASCADE) since the companion row also carries is_verified history
 - [Phase 27-03]: Migration 0009 (AddField run) kept separate from 0008 (RenameModel) so a rename regression and a new-field regression can never be confused for each other
+- [Phase ?]: [Phase 27-04]: Migration 0010/0011 header comments rephrased to avoid literal AddField/CreateModel/RunPython.noop tokens in prose, so exact-count acceptance-criteria greps pass without a grep-literalism footnote
+- [Phase ?]: [Phase 27-04]: ObservationRecord test fixtures use a separate record_owner user distinct from the confirmed_by user under test, since ObservationRecord.user is on_delete=DO_NOTHING and deleting a still-referenced user fails SQLite's deferred FK check
 
 ### Pending Todos
 
@@ -240,8 +243,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T00:50:19.791Z
-Stopped at: Completed 27-03-PLAN.md
+Last session: 2026-07-30T01:24:45.037Z
+Stopped at: Completed 27-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
