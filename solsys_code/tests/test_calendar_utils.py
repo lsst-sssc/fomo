@@ -17,6 +17,7 @@ from solsys_code.calendar_utils import (
     insert_or_create_calendar_event,
     resolve_placement_block,
 )
+from solsys_code.models import CampaignRun
 
 # Imported (not duplicated) from the sync command's test module -- that module still
 # owns _observations_block_response() since many command-behaviour tests there use it;
@@ -253,11 +254,14 @@ class TestDeriveTelescopeClass(TestCase):
         """D-12: the model's 3-value vocabulary is a SUBSET of calendar_utils' 4-value
         aperture-class set (not equality -- equality would fail on day one over '4m0').
 
-        CampaignRun.TelescopeClass does not exist until Plan 27-04, so this asserts
-        against the literal expected value set for now.
-        # Plan 27-04 wires this to CampaignRun.TelescopeClass
+        Compared directly with no case-folding (D-21) -- a casing divergence must be
+        caught, not silently normalised.
         """
-        model_aperture_values = {'2m0', '1m0', '0m4'}
+        model_aperture_values = {
+            CampaignRun.TelescopeClass.TWO_M0,
+            CampaignRun.TelescopeClass.ONE_M0,
+            CampaignRun.TelescopeClass.ZERO_M4,
+        }
         calendar_utils_aperture_values = {
             aperture_class_from_telescope_code(code) for code in ('0m4a', '1m0a', '2m0a', '4m0a')
         }
@@ -267,6 +271,9 @@ class TestDeriveTelescopeClass(TestCase):
         # aperture class but must never be "fixed" onto the model.
         self.assertIn('4m0', calendar_utils_aperture_values)
         self.assertNotIn('4m0', model_aperture_values)
+        # TelescopeClass.SPACE is not an aperture class at all -- it has no calendar_utils
+        # counterpart and must never appear in this set.
+        self.assertNotIn(CampaignRun.TelescopeClass.SPACE, calendar_utils_aperture_values)
         # SPACE is deliberately absent from the aperture-class set -- it is not an
         # aperture class at all.
         self.assertNotIn('SPACE', calendar_utils_aperture_values)

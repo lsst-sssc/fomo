@@ -102,3 +102,125 @@ class TestCompanionRecordRenamePreservesHistory(TransactionTestCase):
         the post-migration app state must raise LookupError for the pre-rename name."""
         with self.assertRaises(LookupError):
             self.new_apps.get_model('solsys_code', 'CalendarEventTelescopeLabel')
+
+
+class TestSourceAndTelescopeClassBackfill(TransactionTestCase):
+    """CANON-01/CANON-02: regression coverage for migrations 0010 (AddField source/
+    telescope_class + CreateModel CampaignRunObservation) and 0011 (the telescope_class
+    backfill).
+
+    Seeds CampaignRun rows against the historical (pre-0010) model, mirroring D-16's real
+    dev-DB row shapes, then migrates through 0011 and asserts both the static `source`
+    default and the derived-rule `telescope_class` backfill landed correctly.
+    """
+
+    migrate_from = [('solsys_code', '0009_calendareventmeta_run')]
+    migrate_to = [('solsys_code', '0011_backfill_campaignrun_telescope_class')]
+
+    def setUp(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_from)
+        old_apps = executor.loader.project_state(self.migrate_from).apps
+
+        TargetList = old_apps.get_model('tom_targets', 'TargetList')
+        Observatory = old_apps.get_model('solsys_code_observatory', 'Observatory')
+        CampaignRun = old_apps.get_model('solsys_code', 'CampaignRun')
+
+        campaign = TargetList.objects.create(name='3I/ATLAS')
+        resolved_site = Observatory.objects.create(obscode='F65', name='Haleakala', short_name='FTN')
+
+        # D-16's dev-DB row shapes, all site-less unless stated, each given a distinct
+        # window so no two rows can collide on unique_campaign_run_resolved_window.
+        self.lco_1m_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m',
+            site_raw='',
+            window_start='2025-07-01',
+            window_end='2025-07-01',
+        ).pk
+        self.lco_2m_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 2m',
+            site_raw='',
+            window_start='2025-07-02',
+            window_end='2025-07-02',
+        ).pk
+        self.juice_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='JUICE',
+            site_raw='',
+            window_start='2025-07-03',
+            window_end='2025-07-03',
+        ).pk
+        self.jwst_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='JWST',
+            site_raw='500@-170',
+            window_start='2025-07-04',
+            window_end='2025-07-04',
+        ).pk
+        self.hst_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='HST STIS/COS',
+            site_raw='250',
+            window_start='2025-07-05',
+            window_end='2025-07-05',
+        ).pk
+        self.swift_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Swift/UVOT',
+            site_raw='',
+            window_start='2025-07-06',
+            window_end='2025-07-06',
+        ).pk
+        # Control row: text would otherwise match the site-less 'LCO 1m' row above, but this
+        # one has a resolved site -- a run with a resolved site never gets a telescope_class
+        # even when its instrument text names one.
+        self.resolved_control_pk = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m',
+            site=resolved_site,
+            site_raw='F65',
+            window_start='2025-07-07',
+            window_end='2025-07-07',
+        ).pk
+
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(self.migrate_to)
+        self.new_apps = executor.loader.project_state(self.migrate_to).apps
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def _campaign_run_model(self):
+        return self.new_apps.get_model('solsys_code', 'CampaignRun')
+
+    def test_source_defaults_to_legacy_on_every_seeded_row_with_no_runpython(self):
+        """26-DECISION.md Criterion 4: the static field default backfills every
+        pre-milestone row with no RunPython step at all."""
+        CampaignRun = self._campaign_run_model()
+
+        self.assertEqual(CampaignRun.objects.exclude(source='legacy').count(), 0)
+        self.assertEqual(CampaignRun.objects.count(), 7)
+
+    def test_telescope_class_backfill_matches_d16_row_shapes(self):
+        CampaignRun = self._campaign_run_model()
+
+        self.assertEqual(CampaignRun.objects.get(pk=self.lco_1m_pk).telescope_class, '1m0')
+        self.assertEqual(CampaignRun.objects.get(pk=self.lco_2m_pk).telescope_class, '2m0')
+        self.assertEqual(CampaignRun.objects.get(pk=self.juice_pk).telescope_class, 'SPACE')
+        # JWST/HST/Swift all have real MPC obscodes -- not SPACE -- and no aperture-class
+        # signal in their text (D-11): they stay blank.
+        self.assertEqual(CampaignRun.objects.get(pk=self.jwst_pk).telescope_class, '')
+        self.assertEqual(CampaignRun.objects.get(pk=self.hst_pk).telescope_class, '')
+        self.assertEqual(CampaignRun.objects.get(pk=self.swift_pk).telescope_class, '')
+
+    def test_site_resolved_control_row_stays_blank_even_with_matching_text(self):
+        """T-27-15: a site-resolved run must never get a telescope_class, even when its
+        telescope_instrument text would otherwise derive one."""
+        CampaignRun = self._campaign_run_model()
+
+        self.assertEqual(CampaignRun.objects.get(pk=self.resolved_control_pk).telescope_class, '')
