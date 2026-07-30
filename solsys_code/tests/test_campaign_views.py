@@ -344,6 +344,67 @@ class TestContactPublicOptIn(CampaignViewTestBase):
         self.assertNotIn('contact_email', ALLOWED_FIELDS_FOR_NON_STAFF)
 
 
+class TestTelescopeClassVisibleSourceStaffOnly(CampaignViewTestBase):
+    """D-18/Phase 27 CANON-01/02: telescope_class is visible to non-staff; source stays
+    staff-only, and the existing non-staff approval-gating behaviour is unchanged
+    (success criterion 1).
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.class_wide_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='LCO 1m',
+            window_start=_BASE_DATE + timedelta(days=200),
+            window_end=_BASE_DATE + timedelta(days=200),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+            source=CampaignRun.Source.CSV_IMPORT,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=_BASE_DATE + timedelta(days=201),
+            window_end=_BASE_DATE + timedelta(days=201),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+    def test_allowed_fields_includes_telescope_class_excludes_source(self):
+        from solsys_code.campaign_views import ALLOWED_FIELDS_FOR_NON_STAFF
+
+        self.assertIn('telescope_class', ALLOWED_FIELDS_FOR_NON_STAFF)
+        self.assertNotIn('source', ALLOWED_FIELDS_FOR_NON_STAFF)
+
+    def test_non_staff_queryset_selects_telescope_class(self):
+        """D-18: telescope_class is present in the non-staff .values() queryset -- the SQL
+        SELECT itself fetches it -- proven directly against the queryset the same way
+        TestContactPublicOptIn._non_staff_values_row() proves contact-field gating.
+        campaign_tables.py's rendered-column Meta.fields tuple is out of this plan's scope.
+        """
+        from solsys_code.campaign_views import CampaignRunTableView
+
+        view = CampaignRunTableView()
+        view.kwargs = {'pk': self.campaign.pk}
+        view.request = type('Req', (), {'user': type('U', (), {'is_staff': False})()})()
+        row = view.get_queryset().get(pk=self.class_wide_run.pk)
+        self.assertEqual(row['telescope_class'], CampaignRun.TelescopeClass.ONE_M0)
+
+    def test_non_staff_response_body_never_exposes_source(self):
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertNotIn('csv_import', content)
+        self.assertNotIn('CSV import', content)
+
+    def test_non_staff_response_still_excludes_pending_review_run(self):
+        """Regression guard for success criterion 1: this plan's ALLOWED_FIELDS_FOR_NON_STAFF
+        edit leaves the existing non-staff approval-gating queryset behaviour unchanged.
+        """
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', content)
+
+
 class TestCampaignRunFilterSet(CampaignViewTestBase):
     """VIEW-04: run_status multi-select (OR) + open_to_collaboration boolean; unfiltered default.
 

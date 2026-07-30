@@ -73,6 +73,16 @@ class TestCampaignSubmission(CampaignSubmissionTestBase):
         self.assertEqual(run.window_end, OBS_DATE)
         self.assertRedirects(response, self.thanks_url())
 
+    def test_minimal_valid_submission_records_source_web(self):
+        """CANON-01/Phase 27-05: a public web submission records source=WEB while staying
+        PENDING_REVIEW -- WEB is the one source value for which approval genuinely is
+        required (26-DECISION.md Criterion 1's derivation rule).
+        """
+        self.client.post(self.submit_url(), data=self.minimal_valid_data(obs_date=OBS_DATE.isoformat()))
+        run = CampaignRun.objects.get()
+        self.assertEqual(run.source, CampaignRun.Source.WEB)
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
+
     def test_contact_public_opt_in_checked_persists_true(self):
         """VIEW-05: submitting the box checked persists contact_public_opt_in=True."""
         self.client.post(self.submit_url(), data=self.minimal_valid_data(contact_public_opt_in='on'))

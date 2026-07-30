@@ -66,13 +66,21 @@ _INPUT_ID_RE = re.compile(r'^[-A-Za-z0-9_:.]+$')
 # enumerated explicitly (not introspected from CampaignRun._meta) so contact_person/
 # contact_email can never accidentally be included -- the SQL SELECT itself never fetches
 # them for non-staff, per 15-RESEARCH.md Pitfall 1's "restrict the queryset, not just the
-# rendered table" recommendation.
+# rendered table" recommendation. D-18 (Phase 27 CANON-01/02): the same hand-enumeration
+# discipline is why 'source' is deliberately NOT on this list below -- it is internal
+# provenance about which FOMO ingest path created the row, and its 'legacy' value in
+# particular would read as meaningless to an outside reader. A field is invisible to
+# non-staff unless explicitly added here, so the omission of 'source' is a decision.
 ALLOWED_FIELDS_FOR_NON_STAFF = [
     'pk',
     'telescope_instrument',
     'site__short_name',
     'site_raw',
     'site_needs_review',
+    # D-18: telescope_class is observing information of the same kind as site_raw/
+    # filters_bandpass above, which are already public -- it distinguishes a legitimately
+    # class-wide run from a site that failed to resolve.
+    'telescope_class',
     'window_start',
     'window_end',
     'filters_bandpass',
@@ -244,6 +252,9 @@ class CampaignRunSubmissionView(FormView):
                     contact_email=form.cleaned_data['contact_email'],
                     contact_public_opt_in=form.cleaned_data['contact_public_opt_in'],
                     comments=form.cleaned_data['comments'],
+                    # CANON-01: WEB is the one source value for which approval genuinely is
+                    # required (26-DECISION.md Criterion 1's derivation rule).
+                    source=CampaignRun.Source.WEB,
                     # approval_status intentionally not set -- model default is PENDING_REVIEW.
                     # site/site_needs_review intentionally not set -- resolved at approval
                     # time (D-07).
