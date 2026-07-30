@@ -32,6 +32,22 @@ _FAILURE_PREFIX_BY_STATUS = {
     'NOT_ATTEMPTED': '[FAILED]',
 }
 
+# IN-01: single source of truth for the per-facility counter keys (D-08). The literal dict
+# used to be spelled out three times, so adding a seventh counter meant editing three places
+# -- and missing the third (the defensive unknown-facility path in handle(), which no test
+# exercises) would raise KeyError at exactly the moment the defensive path was needed.
+_COUNTER_KEYS = ('created', 'updated', 'unchanged', 'skipped', 'extraction_failed', 'telescope_api_failed')
+
+
+def _new_counters() -> dict[str, int]:
+    """Return a fresh zeroed counter dict for one facility.
+
+    Returns:
+        dict[str, int]: every key in ``_COUNTER_KEYS`` mapped to 0. A NEW dict each call --
+            never a shared module-level instance, which every facility would then increment.
+    """
+    return dict.fromkeys(_COUNTER_KEYS, 0)
+
 
 def _failure_prefix(status: str, facility: LCOFacility) -> str | None:
     """Return the terminal-failure title prefix for a status, or None if not a failure state.
@@ -286,24 +302,7 @@ class Command(BaseCommand):
         # visible in the summary line. 'extraction_failed' (D-06) and
         # 'telescope_api_failed' (SYNC-06/D-02) are dedicated counters distinct from
         # 'skipped' and from each other.
-        counters = {
-            'LCO': {
-                'created': 0,
-                'updated': 0,
-                'unchanged': 0,
-                'skipped': 0,
-                'extraction_failed': 0,
-                'telescope_api_failed': 0,
-            },
-            'SOAR': {
-                'created': 0,
-                'updated': 0,
-                'unchanged': 0,
-                'skipped': 0,
-                'extraction_failed': 0,
-                'telescope_api_failed': 0,
-            },
-        }
+        counters = {'LCO': _new_counters(), 'SOAR': _new_counters()}
 
         records = ObservationRecord.objects.filter(facility__in=['LCO', 'SOAR'])
         codes = _parse_proposal_arg(proposal)
@@ -319,17 +318,7 @@ class Command(BaseCommand):
                 self.stderr.write(
                     f'Skipping observation_id={record.observation_id!r}: unrecognized facility {record.facility!r}'
                 )
-                counters.setdefault(
-                    record.facility,
-                    {
-                        'created': 0,
-                        'updated': 0,
-                        'unchanged': 0,
-                        'skipped': 0,
-                        'extraction_failed': 0,
-                        'telescope_api_failed': 0,
-                    },
-                )
+                counters.setdefault(record.facility, _new_counters())
                 counters[record.facility]['skipped'] += 1
                 continue
 
