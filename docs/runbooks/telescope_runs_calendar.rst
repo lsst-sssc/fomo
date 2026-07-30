@@ -185,6 +185,53 @@ into ``CampaignRun`` rows, one row per CSV line.
    not a bug -- but it is easy to be surprised by, so re-import
    deliberately, not routinely.
 
+.. note::
+   **What the command now writes (CANON-01/CANON-02):** every imported row
+   records ``source = csv_import`` and is created ``approved`` -- a
+   bootstrap import is vetted backfill, not a community submission awaiting
+   review, so approval gating applies to web submissions only. A row whose
+   ``Site Code`` does not resolve now also gets a derived
+   ``telescope_class`` when its ``Telescope / Instrument`` text names a
+   telescope class (``2m0``/``1m0``/``0m4``), or ``SPACE`` when it names a
+   space observatory with no MPC code, and stays blank otherwise -- blank
+   plus a flagged site (``site_needs_review``) is what a genuine resolution
+   failure looks like.
+
+How do I re-resolve campaign run sites that have gone stale?
+------------------------------------------------------------------
+
+``repair_stale_campaign_run_sites`` is a one-off command for approved
+``CampaignRun`` rows whose site never resolved because they were imported
+before the JPL Horizons observer-notation alias table existed (added
+2026-07-26). It re-runs the real site-resolution path
+(``resolve_site()``) against every approved, site-less row, so a row that
+would now resolve (for example, a JWST row whose ``Site Code`` is
+``500@-170``) gets a genuine chance to.
+
+It deliberately does not touch ``approval_status``, ``run_status``, the
+observing window, or ``target`` -- only ``site``, ``site_needs_review``,
+and (for one known stale row) ``site_raw`` are ever written -- and it
+never creates or updates a calendar event; reconciling a repaired run onto
+the calendar is Phase 29's reconciler.
+
+Always run with ``--dry-run`` first. Its limitation: it only performs a
+tier-1 (local ``Observatory``) existence check, so a row that would need a
+live tier-2 MPC lookup is reported as "would query MPC" rather than
+resolved, and nothing is written either way:
+
+.. code-block:: console
+
+   >> python3 manage.py repair_stale_campaign_run_sites --dry-run
+   >> python3 manage.py repair_stale_campaign_run_sites
+
+The real (non-dry-run) run may make a live MPC Obscodes API call for any
+row that needs a tier-2 lookup. If the network is unavailable, that row
+stays site-less and flagged for review -- no placeholder ``Observatory``
+is ever fabricated on a network failure (the command always passes
+``create_placeholder=False``). It is safe to re-run: a row that resolves
+stays resolved, and a row still lacking a site code is skipped again with
+no field changes.
+
 How do I backfill calendar events for older approved range-window runs?
 ----------------------------------------------------------------------------
 
@@ -236,6 +283,9 @@ Command cheat-sheet
    * - ``import_campaign_csv``
      - ``--campaign <name>`` (required), ``<filepath>`` (positional)
      - Bootstrap-import a campaign coordination CSV into CampaignRun rows.
+   * - ``repair_stale_campaign_run_sites``
+     - ``--dry-run`` (optional)
+     - One-off re-resolution of approved CampaignRuns whose site never resolved.
    * - ``backfill_range_calendar_events``
      - ``--dry-run`` (optional)
      - One-off backfill of CalendarEvents for older approved range-window runs.
@@ -312,6 +362,13 @@ summary line, e.g.::
 Rows flagged ``site_needs_review`` surface in the approval queue's "Sites
 Needing Review" card so staff can resolve them without re-running the
 import.
+
+If a previously-unresolvable ``Site Code`` has since become resolvable
+(for example, a Horizons observer-notation code added to the alias table
+after the row was imported), see "How do I re-resolve campaign run sites
+that have gone stale?" above -- ``repair_stale_campaign_run_sites`` re-runs
+site resolution for every approved, site-less row without re-importing the
+whole CSV.
 
 Also recall the re-import ``target``-reset gotcha covered above under "How
 do I bootstrap-import a campaign from a CSV?": re-running
