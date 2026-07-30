@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 Phase: 28
 Plan: Not started
 Status: Ready to discuss
-Last activity: 2026-07-30
+Last activity: 2026-07-30 - Completed quick task 260730-jty: stop flagging class-wide and space runs as needing site review
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -231,6 +231,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260725-kn4 | Guard MPCObscodeFetcher and to_earth_location against null coordinates for space-based obscodes: to_observatory() no longer raises TypeError on satellite MPC sites (250 HST, 258 Gaia, C51 NEOWISE) whose longitude/rhocosphi/rhosinphi are all null, storing a coordinate-less row instead; to_earth_location() now raises an actionable ValueError rather than TypeError-ing on None * u.deg | 2026-07-25 | 4336653 | Complete | [260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc](./quick/260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc/) |
 | 260726-fqb | Map JPL Horizons NAIF observer notation to MPC obscodes in resolve_site: add HORIZONS_OBSERVER_TO_OBSCODE (500@-170 to 274 JWST, 500@-48 to 250 HST, 500@-163 to C51 WISE, 500@-95 to C57 TESS, each verified against both the Horizons and MPC APIs) applied before the _MAX_OBSCODE_LEN guard rather than instead of it, so an unrecognized 500@<naif> is still flagged for review and Observatory.obscode stays max_length=4 | 2026-07-26 | 6357b7f | Complete | [260726-fqb-map-jpl-horizons-naif-observer-notation-](./quick/260726-fqb-map-jpl-horizons-naif-observer-notation-/) |
 | 260726-kdp | Close operator runbook drift and broaden the CLAUDE.md paired-deliverable rule to docs/runbooks: document load_telescope_runs --campaign (optional, vs import_campaign_csv's required flag) and the previously undocumented backfill_lco_observation_records command, correct the stale unconditional [QUEUED] claim, and rescope the paired-docs rule from a four-notebook filename list to directory-scoped coverage of docs/runbooks/ | 2026-07-26 | e709bf4 | Complete | [260726-kdp-close-operator-runbook-drift-and-broaden](./quick/260726-kdp-close-operator-runbook-drift-and-broaden/) |
+| 260730-jty | Stop flagging class-wide and space runs as needing site review: a non-blank telescope_class answers "why is there no site" (D-06), so site_needs_review now means only "site resolution failed AND no telescope_class" at all four writers, plus data migration 0012 to unflag the four live rows (pk=26 JUICE, 29 LCO 1m, 30 LCO 2m, 37 Generic 1m). Corrects the misleading mutual-exclusivity wording in models.py and derive_telescope_class that caused phase-27 code review CR-01 to propose clearing telescope_class on site resolution — recorded as REJECTED, since a class-wide campaign keeps its class permanently and its per-site detail lives on linked ObservationRecords (CANON-04) | 2026-07-30 | 44d46d4 | Complete | [260730-jty-stop-flagging-class-wide-and-space-runs-](./quick/260730-jty-stop-flagging-class-wide-and-space-runs-/) |
 
 ## Deferred Items
 
