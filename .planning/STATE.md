@@ -4,13 +4,13 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
 stopped_at: Completed 27-01-PLAN.md
-last_updated: "2026-07-30T00:13:13.711Z"
+last_updated: "2026-07-30T00:29:13.051Z"
 last_activity: 2026-07-29 -- Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 27 (the-canonical-run-record) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-07-29 -- Phase 27 execution started
 
@@ -134,6 +134,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 26-canonical-record-spike P04 | 90min | 3 tasks | 1 files |
 | Phase 26 P05 | 55min | 3 tasks | 5 files |
 | Phase 27 P01 | 25min | 3 tasks | 5 files |
+| Phase Phase 27 P02 P02 | 25min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,9 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 27-01]: _observations_block_response() stays owned by test_sync_lco_observation_calendar.py (still used by many command-behaviour tests there); test_calendar_utils.py imports it rather than duplicating it
 - [Phase 27-01]: derive_telescope_class's aperture regex uses one generic metre-phrase pattern (digit-must-precede-'m') instead of enumerating literal phrases -- this ordering is what rejects MuSCAT4's trailing digit without a special case
 - [Phase 27-01]: D-12's subset-assertion test computes calendar_utils' aperture-class set by calling aperture_class_from_telescope_code() on real codes rather than hardcoding the set literal a second time
+- [Phase 27-02]: D-22 mutation proof run manually: flipping create_placeholder to True fabricated a placeholder Observatory on network failure; reverted and confirmed byte-identical
+- [Phase 27-02]: Live repair (Task 2) intentionally produced no git commit -- dev DB is gitignored; evidence is the before/after table in the SUMMARY
+- [Phase 27-02]: MPC Obscodes API was reachable during the live run: HST (pk 8,12) and Swift (pk 13) resolved via genuine tier-2 lookups, creating 2 new real Observatory rows
 
 ### Pending Todos
 
@@ -233,7 +237,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T00:13:13.707Z
+Last session: 2026-07-30T00:28:47.660Z
 Stopped at: Completed 27-01-PLAN.md
 Resume file: None
 
