@@ -10,16 +10,19 @@ fix, status box-shadow rings, composition with Phase 8 dashed border, and the fo
 legend with click-to-filter infrastructure.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
+from pathlib import Path
 
+from django.contrib.auth.models import User
 from django.db import connection
 from django.test import Client, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
+from tom_targets.models import TargetList
 
-from solsys_code.models import CalendarEventMeta
+from solsys_code.models import CalendarEventMeta, CampaignRun
 from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color, telescope_stripe_color
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
@@ -394,3 +397,108 @@ class CalendarTemplateTest(TestCase):
         self.assertIn(f'<span class="cal-legend-chip" style="background-color: {legend_hex};">', content)
         div_html = self._event_div_html(content, self.classical_with_telescope)
         self.assertIn(f'--tel-color: {stripe_hex};', div_html)
+
+
+class EventModalCampaignRunLinkTest(TestCase):
+    """Phase 27 Plan 05 (CANON-05/D-08/D-09/D-10): the event_form.html override links a
+    calendar event back to its owning CampaignRun when the run is publicly visible, and
+    renders nothing for a run that has not yet been approved -- for both a non-staff and a
+    staff visitor.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS')
+        cls.staff_user = User.objects.create_user(username='modalstaff', password='pw', is_staff=True)
+
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 7, 4),
+            window_end=date(2026, 7, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=date(2026, 7, 5),
+            window_end=date(2026, 7, 5),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        cls.event_with_approved_run = CalendarEvent.objects.create(
+            title='Event with approved run',
+            start_time=datetime(2026, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_approved_run, run=cls.approved_run)
+
+        cls.event_with_pending_run = CalendarEvent.objects.create(
+            title='Event with pending run',
+            start_time=datetime(2026, 7, 5, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 6, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_pending_run, run=cls.pending_run)
+
+        cls.event_with_null_run = CalendarEvent.objects.create(
+            title='Event with null run',
+            start_time=datetime(2026, 7, 6, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 7, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_null_run, run=None)
+
+        cls.event_with_no_meta_row = CalendarEvent.objects.create(
+            title='Event with no companion row at all',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def _campaign_table_href(self):
+        return reverse('campaigns:table', args=[self.campaign.pk])
+
+    def test_approved_run_shows_run_block_to_anonymous_visitor(self):
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('FTN/MuSCAT3', content)
+        self.assertIn(self._campaign_table_href(), content)
+
+    def test_pending_run_shows_no_run_block_to_anonymous_visitor(self):
+        response = self.client.get(self._modal_url(self.event_with_pending_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', content)
+        self.assertNotIn(self._campaign_table_href(), content)
+
+    def test_pending_run_shows_no_run_block_to_staff_visitor(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.event_with_pending_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', content)
+        self.assertNotIn(self._campaign_table_href(), content)
+
+    def test_null_run_companion_row_renders_200_with_no_run_block(self):
+        response = self.client.get(self._modal_url(self.event_with_null_run))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(self._campaign_table_href(), response.content.decode())
+
+    def test_no_companion_row_at_all_renders_200_with_no_exception(self):
+        """The read-side default path (D-08): a conference/proposal-deadline event with no
+        CalendarEventMeta row at all must render exactly as it does today."""
+        response = self.client.get(self._modal_url(self.event_with_no_meta_row))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(self._campaign_table_href(), response.content.decode())
+
+    def test_template_source_never_contains_pending_review_literal(self):
+        """Asserted against the template file's own contents (source-level), not rendered
+        output, so a future inline-literal regression is caught even if no test scenario
+        happens to render it (D-10)."""
+        template_path = (
+            Path(__file__).resolve().parents[2] / 'src' / 'templates' / 'tom_calendar' / 'partials' / 'event_form.html'
+        )
+        content = template_path.read_text()
+        self.assertNotIn('pending_review', content)
