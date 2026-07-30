@@ -32,7 +32,10 @@ class Command(BaseCommand):
         'Bootstrap-import a campaign coordination CSV into CampaignRun rows (CAMP-04). '
         "WARNING: re-running this command over the same campaign always resets each row's "
         '`target` to the auto-resolved value (D-07) -- any manual correction a staff user made '
-        'to `target` after a previous import will be silently overwritten on re-import (WR-07).'
+        'to `target` after a previous import will be silently overwritten on re-import (WR-07). '
+        'A row already carrying source=web (created by the public submission form) keeps its own '
+        'source and approval_status on re-import (WR-01); all its other fields are still '
+        'overwritten from the CSV.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -76,6 +79,16 @@ class Command(BaseCommand):
         a bug), but it does mean a staff user's manual `CampaignRun.target` correction
         made via the admin between imports will be reset back to the auto-resolved value
         the next time this command runs over the same campaign.
+
+        WR-01: `source` and `approval_status` are the one exception to that
+        "re-import overwrites everything" rule. A row already carrying
+        `source=WEB` -- i.e. one created by the public submission form -- keeps its own
+        `source` AND `approval_status` on re-import; every other field is still
+        overwritten as above. Without that carve-out a CSV row colliding on the natural
+        key would rewrite an unreviewed public submission to
+        `source=CSV_IMPORT, approval_status=APPROVED`, which under CANON-01's derivation
+        rule (`APPROVED + source != WEB` == "no approval was required") makes it
+        indistinguishable from vetted backfill and immediately publicly visible.
 
         Returns:
             str | None: None on completion.
@@ -232,6 +245,22 @@ class Command(BaseCommand):
                     'contact_person': contact_person,
                     'window_start__isnull': True,
                 }
+
+            # WR-01/CANON-01: never relabel a run that came in through the public web form.
+            # insert_or_create_campaign_run() setattr's every key in `fields` onto a matched
+            # row, so without this guard a CSV row colliding on the natural key with a
+            # WEB-sourced submission (entirely plausible -- the sheet and the form describe
+            # the same runs) would rewrite it to source=CSV_IMPORT, approval_status=APPROVED.
+            # That is not merely a lost label: per the derivation rule on CampaignRun.Source,
+            # `APPROVED + source != WEB` reads as "no approval was required", so an unreviewed
+            # public submission would become indistinguishable from vetted backfill AND
+            # publicly visible (CampaignRunTableView only excludes PENDING_REVIEW). Both keys
+            # must be preserved together -- keeping `source` while still forcing APPROVED
+            # would publish the unreviewed row anyway.
+            existing = CampaignRun.objects.filter(**lookup).first()
+            if existing is not None and existing.source == CampaignRun.Source.WEB:
+                fields.pop('source', None)
+                fields.pop('approval_status', None)
 
             run, action = insert_or_create_campaign_run(lookup, fields)
             if action == 'created':

@@ -634,6 +634,88 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         self.assertEqual(second_run.source, CampaignRun.Source.CSV_IMPORT)
         self.assertEqual(second_run.telescope_class, '1m0')
 
+    def test_reimport_preserves_web_source_and_approval_status(self):
+        """WR-01/CANON-01: a CSV row colliding on the natural key with a run created by the
+        public submission form must NOT relabel it. Rewriting source to csv_import and
+        approval_status to approved would, under the CANON-01 derivation rule
+        (APPROVED + source != WEB == 'no approval was required'), make an unreviewed public
+        submission indistinguishable from vetted backfill AND immediately publicly visible.
+        Every other field is still overwritten from the CSV, as the command documents.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        web_run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Generic 1m robotic telescope',
+            window_start=date(2025, 7, 11),
+            window_end=date(2025, 7, 11),
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+            filters_bandpass='submitted-by-form',
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'Generic 1m robotic telescope',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-11',
+                        'UT Time Range': '09:00 - 09:30',
+                        'Filter(s)/Bandpass': 'from-the-sheet',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        # Same row, not a second one -- the natural key matched.
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        web_run.refresh_from_db()
+        self.assertEqual(web_run.source, CampaignRun.Source.WEB)
+        self.assertEqual(web_run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        # ...but the carve-out is limited to those two fields.
+        self.assertEqual(web_run.filters_bandpass, 'from-the-sheet')
+
+    def test_reimport_over_a_non_web_row_still_rewrites_source(self):
+        """WR-01's carve-out is keyed on source=WEB specifically. A legacy row (the pre-v2.2
+        default) carries no submission provenance to protect, so a re-import still stamps it
+        csv_import/approved as before -- the guard must not silently freeze every row.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        legacy_run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Generic 1m robotic telescope',
+            window_start=date(2025, 7, 11),
+            window_end=date(2025, 7, 11),
+            source=CampaignRun.Source.LEGACY,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'Generic 1m robotic telescope',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-11',
+                        'UT Time Range': '09:00 - 09:30',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        legacy_run.refresh_from_db()
+        self.assertEqual(legacy_run.source, CampaignRun.Source.CSV_IMPORT)
+        self.assertEqual(legacy_run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+
     def test_auto_resolves_single_target_campaign(self):
         """D-07/CAMP-02: a single-Target campaign auto-assigns that Target to every imported row."""
         campaign = TargetList.objects.create(name='Single Target Campaign')
