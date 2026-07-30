@@ -1,5 +1,7 @@
+from django.conf import settings
 from django.db import models
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetList
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -77,6 +79,56 @@ class CampaignRun(models.Model):
         NOT_AWARDED = 'not_awarded', 'Not Awarded'
         WEATHER_TECH_FAILURE = 'weather_tech_failure', 'Weather/Technical Failure'
 
+    class Source(models.TextChoices):
+        """Which FOMO ingest path created this row (CANON-01, 26-DECISION.md Criterion 1).
+
+        CLASSICAL_FILE/LCO_QUEUE/GEMINI_QUEUE are declared now but not produced by any code
+        path until v2.3's ADAPT-01..03 rewires the three calendar-sync adapters to write
+        CampaignRuns -- declaring them early costs nothing because TextChoices values are
+        validation-only, and it lets the vocabulary be settled once rather than twice.
+
+        Derivation rule (verbatim, 26-DECISION.md Criterion 1): ``approval_status ==
+        APPROVED`` together with ``source != WEB`` means no approval was required -- a
+        different fact from a human having approved the run. A fourth NOT_REQUIRED
+        approval_status value was considered and rejected because every existing reader of
+        approval_status would have to handle it for a distinction source already carries.
+        """
+
+        WEB = 'web', 'Web submission'
+        CLASSICAL_FILE = 'classical_file', 'Classical run file'
+        LCO_QUEUE = 'lco_queue', 'LCO queue'
+        GEMINI_QUEUE = 'gemini_queue', 'Gemini queue'
+        CSV_IMPORT = 'csv_import', 'CSV import'
+        LEGACY = 'legacy', 'Legacy (pre-v2.2)'
+
+    class TelescopeClass(models.TextChoices):
+        """Distinguishes a class-wide telescope allocation from a run whose site failed to
+        resolve (CANON-02, D-11/D-12/D-20/D-21) -- today both read as ``site=None``.
+
+        Three telescope-class allocations plus SPACE, where SPACE means specifically *a
+        space observatory that has a JPL Horizons code but no MPC obscode assigned at all*
+        -- JUICE (site_raw='500@-28') is the case. Swift (C52), HST (250) and JWST (274) are
+        NOT SPACE: they resolve to a real Observatory like any ground site (D-11 falsified
+        26-DECISION.md Criterion 3's "space missions are permanently site-less" premise).
+
+        "Unresolved" is deliberately NOT a value here -- site_needs_review already carries
+        exactly that meaning and is already wired into the approval queue's site-resolution
+        work list (D-11). 4m0 is deliberately excluded to match CANON-02's wording, even
+        though calendar_utils' aperture set has it for SOAR (D-12); the subset-assertion
+        test in test_calendar_utils.py names 4m0 as the known exclusion so nobody "fixes"
+        the discrepancy by adding it here.
+        """
+
+        # D-21: stored lowercase, matching calendar_utils.aperture_class_from_telescope_code's
+        # existing vocabulary -- that module is where the class vocabulary already lives
+        # (D-20), so its casing wins over CONTEXT.md's uppercase prose styling.
+        TWO_M0 = '2m0', '2m0 class allocation'
+        ONE_M0 = '1m0', '1m0 class allocation'
+        ZERO_M4 = '0m4', '0m4 class allocation'
+        # D-21: SPACE keeps CONTEXT.md's literal uppercase casing -- it has no calendar_utils
+        # counterpart to match the way 2m0/1m0/0m4 do. Do not lowercase this for consistency.
+        SPACE = 'SPACE', 'Space observatory with no MPC code'
+
     campaign = models.ForeignKey(
         TargetList,
         on_delete=models.PROTECT,
@@ -136,6 +188,40 @@ class CampaignRun(models.Model):
         default=RunStatus.REQUESTED,
         verbose_name='Run status',
     )
+    # The LEGACY default is what backfills every pre-milestone row -- no RunPython step at
+    # all, exactly as 26-DECISION.md Criterion 4 locked. Every NEW write path must set source
+    # explicitly rather than relying on this default: Plan 05 sets WEB on the submission
+    # path, Plan 06 sets CSV_IMPORT on the importer path.
+    source = models.CharField(
+        max_length=20,
+        choices=Source,
+        default=Source.LEGACY,
+        verbose_name='Ingest source',
+    )
+    # Blank is the normal value for a site-resolved run; blank on a site-less, flagged row
+    # (site_needs_review=True) is what a genuine resolution failure correctly looks like
+    # (D-13) -- telescope_class is never inferred for a run whose site DID resolve.
+    telescope_class = models.CharField(
+        max_length=10,
+        choices=TelescopeClass,
+        blank=True,
+        default='',
+        verbose_name='Telescope class allocation',
+    )
+
+    @property
+    def is_publicly_visible(self) -> bool:
+        """D-09/D-10: whether this run should be visible to a non-staff reader.
+
+        Exists so the 'pending_review' literal never appears in a template where nothing
+        would catch it drifting from ApprovalStatus's TextChoices -- Plan 05's calendar-modal
+        template override is its consumer. Negative constraint: do NOT refactor
+        CampaignRunTableView.get_queryset() to use this -- D-10 keeps the queryset-level
+        exclude() because a Python property cannot be used in a .filter(), so this is
+        deliberately one definition in meaning and two in code; the queryset form is the one
+        that keeps pending rows out of the SQL SELECT entirely.
+        """
+        return self.approval_status != self.ApprovalStatus.PENDING_REVIEW
 
     class Meta:  # noqa: D106
         constraints = [
@@ -181,3 +267,67 @@ class CampaignRun(models.Model):
 
     def __str__(self):
         return f'{self.campaign.name}: {self.telescope_instrument} on {self.window_start}'
+
+
+class CampaignRunObservation(models.Model):
+    """Links a CampaignRun to an ObservationRecord that realises it (CANON-04).
+
+    D-01: a row exists only once a staff member confirms the attribution. Phase 28 computes
+    attribution candidates on the fly and writes nothing until confirmation -- this keeps
+    ATTRIB-03 ("no association without explicit staff confirmation") structural rather than a
+    rule code must remember, and it is what Phase 28 uses to compute attribution candidates
+    without ever writing one itself.
+
+    No boolean confirmation flag (D-03): under D-01 the row's existence already means "a
+    staff member confirmed this", so a flag would be redundant state that could contradict
+    the row. Consequence for Phase 28: it computes candidates on the fly and writes nothing
+    until confirmation, which is what keeps ATTRIB-03 structural rather than a rule code must
+    remember.
+    """
+
+    run = models.ForeignKey(
+        CampaignRun,
+        on_delete=models.CASCADE,
+        related_name='observation_links',
+        verbose_name='Campaign run',
+    )
+    # CASCADE (D-04), not SET_NULL: the ObservationRecord is on the other side of the
+    # relation and is untouched by this, and a run-less observation link would carry nothing
+    # and mean nothing -- unlike CalendarEventMeta.run, which also carries is_verified and
+    # must survive its owning run's deletion.
+    observation_record = models.ForeignKey(
+        ObservationRecord,
+        on_delete=models.CASCADE,
+        related_name='campaign_run_links',
+        verbose_name='Observation record',
+    )
+    # D-03.
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_campaign_run_observations',
+        verbose_name='Confirmed by',
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='Confirmed at')
+
+    class Meta:  # noqa: D106
+        constraints = [
+            # D-02: one run per observation record, expressed so it can be broadened cheaply.
+            # A real DB constraint (not app-level validation) because two concurrent admin
+            # saves could both miss an existing row. A named UniqueConstraint rather than a
+            # OneToOneField: behaviour today is identical, but broadening to many-runs-per-
+            # record later is a single RemoveConstraint with no field change and no reader
+            # rewrites, since the reverse accessor is already a manager -- a OneToOneField
+            # would instead need an AlterField that changes the accessor from an object to a
+            # manager and breaks every reader at once. No condition= needed -- unlike
+            # CampaignRun's two-branch design there is no branching case here.
+            models.UniqueConstraint(
+                fields=('observation_record',),
+                name='unique_campaign_run_observation_record',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.run}: {self.observation_record}'
