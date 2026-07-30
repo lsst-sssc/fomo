@@ -7,14 +7,22 @@ timezone was measured against the real dev DB during the Phase 26 spike.
 
 Derived rule, not a hand-enumerated row list (same discipline as D-13's telescope_class
 backfill): every Observatory with a blank timezone AND both lat and lon set gets its
-timezone derived via timezonefinder's TimezoneFinder.timezone_at(), reusing
-solsys_code_observatory.utils._get_timezone_finder() -- the same lazily-constructed,
-module-cached finder MPCObscodeFetcher.to_observatory() already uses (quick task
-260716-h8c). A coordinate with no timezone polygon (open ocean) leaves timezone blank
-rather than fabricating a guess, exactly as to_observatory() already does. Rows with a
-timezone already set are authoritative and are never overwritten. Rows with null
-coordinates (space-based/geocentric obscodes such as 274, 289, C51, 500) are skipped and
-stay blank -- correct, they have no ground location.
+timezone derived via timezonefinder's TimezoneFinder.timezone_at(). A coordinate with no
+timezone polygon (open ocean) leaves timezone blank rather than fabricating a guess,
+exactly as MPCObscodeFetcher.to_observatory() already does. Rows with a timezone already
+set are authoritative and are never overwritten. Rows with null coordinates
+(space-based/geocentric obscodes such as 274, 289, C51, 500) are skipped and stay blank --
+correct, they have no ground location.
+
+WR-06: TimezoneFinder is constructed here rather than reused from
+``solsys_code_observatory.utils._get_timezone_finder()``. That helper's module imports the
+LIVE ``Observatory`` model, plus ``requests`` and ``tom_dataservices``, at module scope --
+and a data migration must stay replayable against a historical schema that no longer
+matches the live model, which is exactly the coupling migration 0011's own comment goes out
+of its way to avoid. Importing the app module worked only because the live model was never
+*used*; a single future import-time field reference, or a ``tom_dataservices`` API change,
+would break replay of an already-applied migration. The finder is two lines, so inlining it
+is cheaper than the coupling.
 """
 
 import logging
@@ -26,12 +34,21 @@ logger = logging.getLogger(__name__)
 
 def backfill_observatory_timezone(apps, schema_editor):
     """Derive and save Observatory.timezone for every row with coordinates but no timezone."""
-    from solsys_code.solsys_code_observatory.utils import _get_timezone_finder
-
     Observatory = apps.get_model('solsys_code_observatory', 'Observatory')
-    finder = _get_timezone_finder()
+    rows = Observatory.objects.filter(timezone='', lat__isnull=False, lon__isnull=False)
+    # IN-06: return before constructing the finder when there is nothing to backfill.
+    # TimezoneFinder loads its boundary-polygon data on construction, and this migration
+    # runs on every `migrate` -- including every test-database creation and every
+    # TransactionTestCase re-migration -- where the queryset is almost always empty.
+    if not rows.exists():
+        return
 
-    for obs in Observatory.objects.filter(timezone='', lat__isnull=False, lon__isnull=False):
+    # WR-06: imported here, not from solsys_code_observatory.utils (see module docstring).
+    from timezonefinder import TimezoneFinder
+
+    finder = TimezoneFinder()
+
+    for obs in rows:
         tz_name = finder.timezone_at(lat=obs.lat, lng=obs.lon)
         if not tz_name:
             # Open ocean or similar -- no timezone polygon at these coordinates. Leave
