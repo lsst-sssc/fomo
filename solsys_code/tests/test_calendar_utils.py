@@ -225,6 +225,28 @@ class TestDeriveTelescopeClass(TestCase):
         JWST is not permanently site-less (D-11 corrects the spike's premise)."""
         self.assertEqual(derive_telescope_class('500@-170', 'JWST'), '')
 
+    def test_horizons_natural_body_observer_codes_are_not_space(self):
+        """WR-09: 500@<N> is Horizons observer notation for 'geocentric observer at body N',
+        and body N need not be a spacecraft. Only negative NAIF IDs are spacecraft, so a
+        natural body must never be recorded as SPACE ('a space observatory with a Horizons
+        code but no MPC obscode') -- '' is correct, since site_needs_review already carries
+        'unresolved' (D-13)."""
+        self.assertEqual(derive_telescope_class('500@399', ''), '')  # Earth's centre
+        self.assertEqual(derive_telescope_class('500@10', ''), '')  # the Sun
+        self.assertEqual(derive_telescope_class('500@301', ''), '')  # the Moon
+
+    def test_malformed_horizons_observer_code_is_not_space(self):
+        """WR-09: a non-numeric NAIF ID is a typo, not a discovered space observatory."""
+        self.assertEqual(derive_telescope_class('500@', ''), '')
+        self.assertEqual(derive_telescope_class('500@oops', ''), '')
+        self.assertEqual(derive_telescope_class('500@-', ''), '')
+
+    def test_unrecognised_negative_naif_id_is_still_space(self):
+        """WR-09 narrows the branch to negative NAIF IDs only -- it does not narrow it
+        further. An unaliased spacecraft ID still means SPACE (this is what JUICE's
+        500@-28 relies on)."""
+        self.assertEqual(derive_telescope_class('500@-999', ''), 'SPACE')
+
     def test_hst_obscode_site_no_aperture_signal_returns_blank(self):
         self.assertEqual(derive_telescope_class('250', 'HST STIS/COS'), '')
 

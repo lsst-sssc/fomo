@@ -184,9 +184,20 @@ def derive_telescope_class(site_raw: str | None, telescope_instrument: str | Non
         # function once per site-less row, so the very first '500@' row pulled
         # solsys_code.models in mid-migration regardless. The claim is now true.
         if stripped_site.startswith('500@') and stripped_site not in HORIZONS_OBSERVER_TO_OBSCODE:
-            # D-11: a Horizons observer code with no MPC-obscode alias is exactly
-            # what SPACE means.
-            return 'SPACE'
+            # WR-09: `500@<N>` is Horizons *observer* notation for "geocentric observer at
+            # body N", and body N need not be a spacecraft -- 500@399 is the Earth's centre,
+            # 500@10 the Sun, 500@301 the Moon, and '500@oops' is simply a typo. Only
+            # NEGATIVE NAIF IDs are spacecraft, so only those can mean "a space observatory
+            # with a Horizons code but no MPC obscode" (D-11). Everything else falls through
+            # to the telescope_instrument tier and, failing that, to '' -- which is the
+            # correct value for "we could not resolve this", since site_needs_review already
+            # carries exactly that meaning (D-13). This mirrors NO_OBSCODE_SPACE_OBSERVATORIES'
+            # own extension rule above: never infer a space observatory from string shape alone.
+            naif_id = stripped_site[len('500@') :]
+            if naif_id.startswith('-') and naif_id[1:].isdigit():
+                # D-11: a Horizons observer code with no MPC-obscode alias is exactly
+                # what SPACE means.
+                return 'SPACE'
 
     if telescope_instrument:
         lowered = telescope_instrument.lower()
