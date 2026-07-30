@@ -24,7 +24,7 @@ The model changes that make `CampaignRun` the single canonical observing-run rec
 - [x] **CANON-02**: A run allocated to a telescope class (`2m0`/`1m0`/`0m4`) is distinguishable from a run whose site failed to resolve, via an explicit `telescope_class` field — today both appear as `site=None`
 - [x] **CANON-03**: A calendar event can be linked to the run it belongs to, through one generalised FOMO companion record that also retains the existing `is_verified` telescope-label flag; existing companion rows survive the change and all four existing integration points (admin registration, LCO sync command, view prefetch, calendar template) keep working
 - [x] **CANON-04**: An `ObservationRecord` can be linked to the `CampaignRun` it realises, through a link that records whether a human confirmed it
-- [ ] **CANON-05**: A staff user can see a run's linked calendar events and observation records, and reach the run from an event
+- [x] **CANON-05**: A staff user can see a run's linked calendar events and observation records, and reach the run from an event
 
 ### Reconciler
 
@@ -101,7 +101,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CANON-02 | Phase 27 — The Canonical Run Record | Complete |
 | CANON-03 | Phase 27 — The Canonical Run Record | Complete |
 | CANON-04 | Phase 27 — The Canonical Run Record | Complete |
-| CANON-05 | Phase 27 — The Canonical Run Record | Pending |
+| CANON-05 | Phase 27 — The Canonical Run Record | Complete |
 | ATTRIB-01 | Phase 28 — Operator-Assisted Attribution | Pending |
 | ATTRIB-02 | Phase 28 — Operator-Assisted Attribution | Pending |
 | ATTRIB-03 | Phase 28 — Operator-Assisted Attribution | Pending |

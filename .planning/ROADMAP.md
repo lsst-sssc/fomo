@@ -172,7 +172,7 @@ Plans:
   4. A calendar event can carry a link to the run it belongs to, and an `ObservationRecord` can be linked to the run it realises with a record of whether a human confirmed it — and deleting a run never deletes calendar events, companion rows, or observation records
   5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
 
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 **Wave 1**
 
@@ -189,7 +189,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 27-05-PLAN.md — CANON-05: two editable admin inlines with `save_formset` attribution stamping (D-06/D-07), the two new admin filters (D-19), `telescope_class` on the non-staff allow-list with `source` withheld (D-18), `source=WEB` on submissions, and the calendar-modal template override gated on `is_publicly_visible` (D-08/D-09/D-10)
+- [x] 27-05-PLAN.md — CANON-05: two editable admin inlines with `save_formset` attribution stamping (D-06/D-07), the two new admin filters (D-19), `telescope_class` on the non-staff allow-list with `source` withheld (D-18), `source=WEB` on submissions, and the calendar-modal template override gated on `is_publicly_visible` (D-08/D-09/D-10)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -261,7 +261,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 4/6 | In Progress|  |
+| 27. The Canonical Run Record | v2.2 | 5/6 | In Progress|  |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
 

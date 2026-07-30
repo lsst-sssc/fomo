@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Completed 27-04-PLAN.md
-last_updated: "2026-07-30T01:24:45.049Z"
+stopped_at: Completed 27-05-PLAN.md
+last_updated: "2026-07-30T02:12:24.397Z"
 last_activity: 2026-07-29 -- Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 25
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 27 (the-canonical-run-record) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-07-29 -- Phase 27 execution started
 
@@ -137,6 +137,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase Phase 27 P02 P02 | 25min | 3 tasks | 4 files |
 | Phase 27 P03 | 20min | 3 tasks | 10 files |
 | Phase 27 P04 | 45min | 3 tasks | 6 files |
+| Phase 27 P05 | 35min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -183,6 +184,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 27-03]: Migration 0009 (AddField run) kept separate from 0008 (RenameModel) so a rename regression and a new-field regression can never be confused for each other
 - [Phase ?]: [Phase 27-04]: Migration 0010/0011 header comments rephrased to avoid literal AddField/CreateModel/RunPython.noop tokens in prose, so exact-count acceptance-criteria greps pass without a grep-literalism footnote
 - [Phase ?]: [Phase 27-04]: ObservationRecord test fixtures use a separate record_owner user distinct from the confirmed_by user under test, since ObservationRecord.user is on_delete=DO_NOTHING and deleting a still-referenced user fails SQLite's deferred FK check
+- [Phase 27-05]: Superuser (not merely is_staff=True) fixtures needed for save_formset inline tests -- DeleteProtectedModelForm.has_changed() gates on the inline model's own add/change permission
+- [Phase 27-05]: telescope_class non-staff visibility (D-18) proven at the .values() queryset level, not as a rendered CampaignRunTable column -- campaign_tables.py is out of this plan's scope
 
 ### Pending Todos
 
@@ -243,8 +246,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T01:24:45.037Z
-Stopped at: Completed 27-04-PLAN.md
+Last session: 2026-07-30T02:12:24.384Z
+Stopped at: Completed 27-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
