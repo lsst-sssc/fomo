@@ -198,12 +198,25 @@ class Command(BaseCommand):
                 update_fields.append('site_raw')
             run.save(update_fields=update_fields)
 
-            if site is not None:
+            # WR-04: `site is not None` alone is NOT "resolved". resolve_site() deliberately
+            # returns needs_review=True when its tier-1 hit is itself a `NEEDS REVIEW: `
+            # placeholder Observatory (campaign_utils.is_placeholder_observatory), so keying
+            # the summary on the site object alone would log "resolved to Observatory 'XXX'"
+            # for a row this command just wrote with site_needs_review=True -- over-reporting
+            # success and under-reporting the operator's remaining work queue. Since the
+            # candidate filter is site__isnull=True, such a row is excluded from every future
+            # run of this command, so this summary line is its last word: it must be honest.
+            if site is not None and not needs_review:
                 resolved_count += 1
                 logger.info('pk=%s: resolved to Observatory %r', run.pk, site.obscode)
             else:
                 still_flagged_count += 1
-                logger.info('pk=%s: still unresolved (site_raw=%r), flagged for review', run.pk, site_raw)
+                logger.info(
+                    'pk=%s: still needs review (site=%r, site_raw=%r), flagged for review',
+                    run.pk,
+                    site.obscode if site else None,
+                    site_raw,
+                )
 
             self.stdout.write(f'pk={run.pk}: site={site.obscode if site else None}, site_needs_review={needs_review}')
 
