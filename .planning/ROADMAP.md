@@ -107,7 +107,7 @@
 **Milestone Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
 
 - [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events) (completed 2026-07-27)
-- [ ] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link
+- [x] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link (completed 2026-07-30)
 - [ ] **Phase 28: Operator-Assisted Attribution** - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
 - [ ] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear
 
@@ -172,7 +172,7 @@ Plans:
   4. A calendar event can carry a link to the run it belongs to, and an `ObservationRecord` can be linked to the run it realises with a record of whether a human confirmed it — and deleting a run never deletes calendar events, companion rows, or observation records
   5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 **Wave 1**
 
@@ -193,7 +193,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 27-06-PLAN.md — `import_campaign_csv` writes `source` and `telescope_class`, the paired demo notebook and operator runbook are regenerated/updated, and the three folded planning-doc corrections land
+- [x] 27-06-PLAN.md — `import_campaign_csv` writes `source` and `telescope_class`, the paired demo notebook and operator runbook are regenerated/updated, and the three folded planning-doc corrections land
 
 ### Phase 28: Operator-Assisted Attribution
 
@@ -261,7 +261,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 5/6 | In Progress|  |
+| 27. The Canonical Run Record | v2.2 | 6/6 | Complete   | 2026-07-30 |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
 

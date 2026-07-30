@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: executing
-stopped_at: Completed 27-05-PLAN.md
-last_updated: "2026-07-30T02:12:24.397Z"
+status: verifying
+stopped_at: Completed 27-06-PLAN.md
+last_updated: "2026-07-30T05:31:51.771Z"
 last_activity: 2026-07-29 -- Phase 27 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 10
-  percent: 25
+  completed_plans: 11
+  percent: 50
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 Phase: 27 (the-canonical-run-record) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-29 -- Phase 27 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
@@ -138,6 +138,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 27 P03 | 20min | 3 tasks | 10 files |
 | Phase 27 P04 | 45min | 3 tasks | 6 files |
 | Phase 27 P05 | 35min | 3 tasks | 7 files |
+| Phase 27 P06 | 70min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase ?]: [Phase 27-04]: ObservationRecord test fixtures use a separate record_owner user distinct from the confirmed_by user under test, since ObservationRecord.user is on_delete=DO_NOTHING and deleting a still-referenced user fails SQLite's deferred FK check
 - [Phase 27-05]: Superuser (not merely is_staff=True) fixtures needed for save_formset inline tests -- DeleteProtectedModelForm.has_changed() gates on the inline model's own add/change permission
 - [Phase 27-05]: telescope_class non-staff visibility (D-18) proven at the .values() queryset level, not as a rendered CampaignRunTable column -- campaign_tables.py is out of this plan's scope
+- [Phase ?]: [Phase 27-06]: import_campaign_csv writes source=CSV_IMPORT and derives telescope_class via the shared calendar_utils.derive_telescope_class() helper, gated on site is None -- neither field enters the natural-key lookup
+- [Phase ?]: [Phase 27-06]: PROJECT.md's stale Phase 25 pk=34 claim is date-pinned (2026-07-18) rather than deleted, preserving the pk=34 occurrence count; 26-CONTEXT.md's D-11 owned-nights framing gets a dated forward-pointer instead of a rewrite
 
 ### Pending Todos
 
@@ -246,8 +249,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T02:12:24.384Z
-Stopped at: Completed 27-05-PLAN.md
+Last session: 2026-07-30T05:31:51.754Z
+Stopped at: Completed 27-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
