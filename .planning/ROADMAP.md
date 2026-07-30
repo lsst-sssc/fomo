@@ -172,11 +172,11 @@ Plans:
   4. A calendar event can carry a link to the run it belongs to, and an `ObservationRecord` can be linked to the run it realises with a record of whether a human confirmed it — and deleting a run never deletes calendar events, companion rows, or observation records
   5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
 
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 **Wave 1**
 
-- [ ] 27-01-PLAN.md — `calendar_utils.py` as a real shared API: de-underscore its five cross-module helpers, add the one shared `derive_telescope_class()` (D-20) with D-12's subset assertion, and move the `calendar_utils`-owned tests into their own module
+- [x] 27-01-PLAN.md — `calendar_utils.py` as a real shared API: de-underscore its five cross-module helpers, add the one shared `derive_telescope_class()` (D-20) with D-12's subset assertion, and move the `calendar_utils`-owned tests into their own module
 - [ ] 27-02-PLAN.md — Data repair before the backfills: the `repair_stale_campaign_run_sites` command with offline mocked tier-2 tests plus its one-time live run (D-16/D-16a/D-22), and the coordinate-derived `Observatory.timezone` backfill (D-23)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -261,7 +261,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 0/6 | Planned | - |
+| 27. The Canonical Run Record | v2.2 | 1/6 | In Progress|  |
 | 28. Operator-Assisted Attribution | v2.2 | 0/TBD | Not started | - |
 | 29. The Reconciler | v2.2 | 0/TBD | Not started | - |
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Phase 27 context gathered
-last_updated: "2026-07-29T22:20:24.269Z"
-last_activity: 2026-07-29 -- Phase 27 planning complete
+stopped_at: Completed 27-01-PLAN.md
+last_updated: "2026-07-30T00:13:13.711Z"
+last_activity: 2026-07-29 -- Phase 27 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 11
+  completed_plans: 6
   percent: 25
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 26 — canonical-record-spike
+**Current focus:** Phase 27 — the-canonical-run-record
 
 ## Current Position
 
-Phase: 27
-Plan: Not started
+Phase: 27 (the-canonical-run-record) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-07-29 -- Phase 27 planning complete
+Last activity: 2026-07-29 -- Phase 27 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -133,6 +133,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 26-canonical-record-spike P03 | 90min | 3 tasks | 4 files |
 | Phase 26-canonical-record-spike P04 | 90min | 3 tasks | 1 files |
 | Phase 26 P05 | 55min | 3 tasks | 5 files |
+| Phase 27 P01 | 25min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -169,6 +170,9 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 26-canonical-record-spike]: No verdict on span/none/per-night chosen here -- deliberately left for plan 26-05 task 1, mirroring D-11's write-strategy deferral
 - [Phase 26]: Queue-run projection settled (human decision): a queue-scheduled run gets a bare RUN:{run_pk} whole-window container event coexisting with its real ObservationRecord-derived CalendarEvents, which already narrow/refine as observations are scheduled and observed (verified against sync_lco_observation_calendar.py, not assumed)
 - [Phase 26]: D-05's 80x5=400 class-wide fan-out figure does not survive -- pk=29/pk=30 are both QUEUE run-type, so both take the settled bare-container form (1 event, not 80, not 400); the site-fanout half of D-05 stands unchanged
+- [Phase 27-01]: _observations_block_response() stays owned by test_sync_lco_observation_calendar.py (still used by many command-behaviour tests there); test_calendar_utils.py imports it rather than duplicating it
+- [Phase 27-01]: derive_telescope_class's aperture regex uses one generic metre-phrase pattern (digit-must-precede-'m') instead of enumerating literal phrases -- this ordering is what rejects MuSCAT4's trailing digit without a special case
+- [Phase 27-01]: D-12's subset-assertion test computes calendar_utils' aperture-class set by calling aperture_class_from_telescope_code() on real codes rather than hardcoding the set literal a second time
 
 ### Pending Todos
 
@@ -229,9 +233,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-29T17:58:19.305Z
-Stopped at: Phase 27 context gathered
-Resume file: .planning/phases/27-the-canonical-run-record/27-CONTEXT.md
+Last session: 2026-07-30T00:13:13.707Z
+Stopped at: Completed 27-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
