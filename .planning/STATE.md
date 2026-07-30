@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: verifying
-stopped_at: Completed 27-06-PLAN.md
-last_updated: "2026-07-30T05:31:51.771Z"
-last_activity: 2026-07-29 -- Phase 27 execution started
+status: planning
+stopped_at: Phase 27 complete — verified 5/5 must-haves, ready to discuss Phase 28
+last_updated: "2026-07-30T13:43:12.141Z"
+last_activity: 2026-07-30
 progress:
   total_phases: 4
   completed_phases: 2
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 27 — the-canonical-run-record
+**Current focus:** Phase 28 — operator-assisted-attribution
 
 ## Current Position
 
-Phase: 27 (the-canonical-run-record) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
-Last activity: 2026-07-29 -- Phase 27 execution started
+Phase: 28
+Plan: Not started
+Status: Ready to discuss
+Last activity: 2026-07-30
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
