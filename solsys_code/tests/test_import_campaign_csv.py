@@ -500,6 +500,139 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
         # Window-schema single-night collapse: window_start == window_end == Obs. Date.
         self.assertEqual(run.window_start, date(2025, 7, 4))
         self.assertEqual(run.window_end, date(2025, 7, 4))
+        # CANON-01: every imported row records source=csv_import and stays approved --
+        # the two together are what CANON-01 asserts (D-14's derivation rule).
+        self.assertEqual(run.source, CampaignRun.Source.CSV_IMPORT)
+        self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        # A site-resolved row (F65) never carries a telescope_class -- the site is None
+        # gate holds even though 'FTN/MuSCAT3' names an instrument.
+        self.assertEqual(run.telescope_class, '')
+
+    def test_site_resolved_row_telescope_class_blank_despite_instrument_text(self):
+        """D-20/CANON-02: a site-resolved row never carries a telescope_class -- the
+        site is None gate holds even when the instrument text names a class (here, a
+        '4m' SOAR-style instrument string that would otherwise derive a value).
+        """
+        Observatory.objects.create(obscode='309', name='Paranal', short_name='VLT', lat=-24.6, lon=-70.4, altitude=2635)
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'SOAR 4m Goodman',
+                        'Site Code': '309',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '06:50 - 07:15',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run = CampaignRun.objects.first()
+        self.assertIsNotNone(run.site)
+        self.assertEqual(run.site.obscode, '309')
+        self.assertEqual(run.telescope_class, '')
+        self.assertEqual(run.source, CampaignRun.Source.CSV_IMPORT)
+
+    def test_every_imported_row_records_source_csv_import(self):
+        """CANON-01: every row an import creates records source=csv_import, regardless of
+        how its site or window resolved.
+        """
+        Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': 'F65',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                ),
+                _row(
+                    **{
+                        'Telescope / Instrument': 'Generic 1m robotic telescope',
+                        'Obs. Date': '2025-07-11',
+                        'UT Time Range': '09:00 - 09:30',
+                    }
+                ),
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        self.assertEqual(CampaignRun.objects.count(), 2)
+        for run in CampaignRun.objects.all():
+            self.assertEqual(run.source, CampaignRun.Source.CSV_IMPORT)
+            self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+
+    def test_siteless_row_derives_telescope_class_from_instrument(self):
+        """D-20/CANON-02: a site-less row's telescope_class is derived via the one shared
+        calendar_utils.derive_telescope_class() helper -- 'Generic 1m robotic telescope'
+        derives '1m0' from its instrument text, matching the fixture row this behaviour is
+        modelled on (docs/notebooks/pre_executed/fixtures/campaign_sample.csv's 'Fay Review'
+        row).
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'Generic 1m robotic telescope',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-11',
+                        'UT Time Range': '09:00 - 09:30',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run = CampaignRun.objects.first()
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+        self.assertEqual(run.telescope_class, '1m0')
+        self.assertEqual(run.source, CampaignRun.Source.CSV_IMPORT)
+
+    def test_reimport_keeps_source_and_telescope_class_stable(self):
+        """A re-import over the same campaign leaves source and telescope_class stable --
+        no churn, no flip to blank, on the second pass over an identical row.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'Generic 1m robotic telescope',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-11',
+                        'UT Time Range': '09:00 - 09:30',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+            first_run = CampaignRun.objects.get()
+            self.assertEqual(first_run.source, CampaignRun.Source.CSV_IMPORT)
+            self.assertEqual(first_run.telescope_class, '1m0')
+
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+            second_run = CampaignRun.objects.get()
+
+        self.assertEqual(second_run.pk, first_run.pk)
+        self.assertEqual(second_run.source, CampaignRun.Source.CSV_IMPORT)
+        self.assertEqual(second_run.telescope_class, '1m0')
 
     def test_auto_resolves_single_target_campaign(self):
         """D-07/CAMP-02: a single-Target campaign auto-assigns that Target to every imported row."""

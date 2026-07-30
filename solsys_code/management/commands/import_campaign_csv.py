@@ -4,6 +4,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from tom_targets.models import TargetList
 
+from solsys_code.calendar_utils import derive_telescope_class
 from solsys_code.campaign_utils import (
     insert_or_create_campaign_run,
     map_observation_status,
@@ -192,6 +193,18 @@ class Command(BaseCommand):
                 'weather': row.get('Weather conditions or forecast', '') or '',
                 'run_status': map_observation_status(row.get('Observation Status', '')),
                 'approval_status': CampaignRun.ApprovalStatus.APPROVED,  # D-03: bootstrap rows are vetted backfill
+                # CANON-01: this is the importer's real behaviour change -- approval_status
+                # already wrote APPROVED before this phase and is deliberately unchanged
+                # (26-DECISION Criterion 1: APPROVED + source != WEB means "no approval was
+                # required", a different fact from "a human approved this").
+                'source': CampaignRun.Source.CSV_IMPORT,
+                # D-20: the shared derivation helper's second required call site (the 0011
+                # backfill migration is the first). Only called when site resolution failed
+                # (site is None) -- a site-resolved run never carries a telescope_class,
+                # mirroring the backfill's site__isnull=True gate.
+                'telescope_class': derive_telescope_class(site_raw=site_raw, telescope_instrument=telescope_instrument)
+                if site is None
+                else '',
                 'observation_outcome': row.get('Observation Outcome', '') or '',
                 'publication_plans': row.get('Publication Plans', '') or '',
                 'open_to_collaboration': (row.get('Open to collaboration?', '') or '').strip().lower() == 'yes',
