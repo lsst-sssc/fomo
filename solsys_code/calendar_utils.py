@@ -6,6 +6,7 @@ sync_gemini, load_telescope_runs) can share a single implementation, plus the
 no-churn CalendarEvent create-or-update function used by all three consumers.
 """
 
+import re
 from datetime import timedelta
 from typing import Any
 from urllib.parse import urljoin
@@ -101,6 +102,110 @@ def aperture_class_from_telescope_code(telescope_code: str | None) -> str | None
     if len(telescope_code) >= 4 and telescope_code[:3] in {'0m4', '1m0', '2m0', '4m0'}:
         return telescope_code[:3]
     return None
+
+
+# D-11/D-16: JPL Horizons/SPICE observer notation (`500@<NAIF SPK ID>`) names a space
+# observatory that has NO MPC obscode assigned at all -- SPACE's one specific meaning.
+# JUICE (site_raw='500@-28') is a real example, but its dev-DB row also carries a blank
+# site_raw for some real ingest paths, so a site_raw-only check (tier a, below) cannot
+# see it. This constant covers that "telescope_instrument names a known no-obscode space
+# observatory" case (tier b). Extension rule, same as HORIZONS_OBSERVER_TO_OBSCODE
+# (campaign_utils.py): only add a name after verifying on BOTH sides that the
+# observatory has a Horizons code and genuinely no MPC obscode -- never infer from the
+# name alone. Swift (obscode 'C52'), HST ('250') and JWST ('274') are deliberately NOT
+# members: they resolve like any ground site, and widening SPACE back to "any space
+# mission" is exactly the premise D-11 falsified.
+NO_OBSCODE_SPACE_OBSERVATORIES: frozenset[str] = frozenset({'juice'})
+
+# T-27-04: linear, non-backtracking patterns over CSV free text (CampaignRun.
+# telescope_instrument, max_length=255) -- a bounded numeric group plus optional
+# whitespace plus a literal 'm', no nested quantifiers, no alternation spanning the
+# whole string.
+# Matches an already-canonical 3-char aperture-class token ('0m4'/'1m0'/'2m0'/'4m0'),
+# word-bounded so it can't match inside a longer token.
+_APERTURE_TOKEN_PATTERN = re.compile(r'\b(0m4|1m0|2m0|4m0)\b')
+# Matches a metre-aperture phrase: '0.4m', '1m'/'1.0m', '2m'/'2.0m', '4m'/'4.0m', with
+# optional whitespace between the number and 'm'. The digit must be word-bounded on the
+# left and 'm' must be word-bounded on the right, so 'MuSCAT4' (m before the digit, not
+# after) and '43cm' (no 'm' immediately after the digits) can never match.
+_APERTURE_METRE_PATTERN = re.compile(r'\b(\d(?:\.\d)?)\s?m\b')
+
+# Canonicalises a matched metre-phrase capture group to the same 3-char token vocabulary
+# aperture_class_from_telescope_code uses.
+_METRE_TO_APERTURE_TOKEN = {
+    '0.4': '0m4',
+    '1': '1m0',
+    '1.0': '1m0',
+    '2': '2m0',
+    '2.0': '2m0',
+    '4': '4m0',
+    '4.0': '4m0',
+}
+
+
+def derive_telescope_class(site_raw: str | None, telescope_instrument: str | None) -> str:
+    """Derive a CampaignRun.telescope_class value from primitives, never a model instance.
+
+    D-20: this helper takes only primitives (not a CampaignRun) so a data migration's
+    RunPython step can import and call it without coupling to a model that keeps
+    changing through Phases 28-29. Both call sites (the Phase 27-04 backfill migration
+    and Phase 27-06's import_campaign_csv) gate on "the run has no resolved site" --
+    the migration filters site__isnull=True and the importer only calls this when
+    resolve_site() returned None. A site-resolved run must never carry a
+    telescope_class; that contract lives with the callers, not here.
+
+    Args:
+        site_raw: the run's free-text site string (e.g. '500@-28', '250', '' or None).
+        telescope_instrument: the run's free-text telescope/instrument string (e.g.
+            'LCO 1m', 'JUICE', 'SOAR 4m', '' or None).
+
+    Returns:
+        str: '2m0'/'1m0'/'0m4' (D-21: stored lowercase, matching
+            aperture_class_from_telescope_code's existing vocabulary, so D-12's subset
+            assertion compares directly with no case-folding), 'SPACE' (D-11: a space
+            observatory with a Horizons code but no MPC obscode assigned -- deliberately
+            kept uppercase since it has no calendar_utils aperture counterpart to
+            normalise against), or '' if neither signal fires -- the correct value for a
+            genuine site-resolution failure, since site_needs_review already carries
+            "unresolved" (D-13). Never raises.
+    """
+    if site_raw:
+        stripped_site = site_raw.strip()
+        if stripped_site.startswith('500@'):
+            # Function-local import (not module scope): campaign_utils imports
+            # solsys_code.models at module scope, and a module-scope import here would
+            # drag the live CampaignRun model into calendar_utils' import graph, which a
+            # data migration imports.
+            from solsys_code.campaign_utils import HORIZONS_OBSERVER_TO_OBSCODE
+
+            if stripped_site not in HORIZONS_OBSERVER_TO_OBSCODE:
+                # D-11: a Horizons observer code with no MPC-obscode alias is exactly
+                # what SPACE means.
+                return 'SPACE'
+
+    if telescope_instrument:
+        lowered = telescope_instrument.lower()
+        tokens = re.split(r'[^a-z0-9]+', lowered)
+        if NO_OBSCODE_SPACE_OBSERVATORIES.intersection(tokens):
+            return 'SPACE'
+
+        token_match = _APERTURE_TOKEN_PATTERN.search(lowered)
+        if token_match:
+            aperture = token_match.group(1)
+        else:
+            metre_match = _APERTURE_METRE_PATTERN.search(lowered)
+            aperture = _METRE_TO_APERTURE_TOKEN.get(metre_match.group(1)) if metre_match else None
+
+        if aperture == '4m0':
+            # D-12: 4m0 (SOAR) is a real, deliberately-excluded value -- it stays in
+            # calendar_utils' aperture-class set (SITE_TELESCOPE_MAP has ('sor', '4m0'))
+            # but CampaignRun.TelescopeClass's vocabulary is only 2m0/1m0/0m4. Do not
+            # "fix" this by adding 4m0 to the model.
+            return ''
+        if aperture in {'2m0', '1m0', '0m4'}:
+            return aperture
+
+    return ''
 
 
 def derive_telescope(site: str | None, telescope_code: str | None) -> str | None:

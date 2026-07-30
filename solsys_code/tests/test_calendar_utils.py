@@ -4,7 +4,11 @@ from datetime import timezone as dt_timezone
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 
-from solsys_code.calendar_utils import insert_or_create_calendar_event
+from solsys_code.calendar_utils import (
+    aperture_class_from_telescope_code,
+    derive_telescope_class,
+    insert_or_create_calendar_event,
+)
 
 # A fixed UTC sunset-like start time and a companion end time, used across the
 # drift-tolerance tests below.
@@ -174,3 +178,82 @@ class TestInsertOrCreateCalendarEventStartTimeTolerance(TestCase):
 
         self.assertEqual(action, 'created')
         self.assertEqual(CalendarEvent.objects.count(), 2)
+
+
+class TestDeriveTelescopeClass(TestCase):
+    """derive_telescope_class(): D-20's shared telescope_class derivation helper.
+
+    Each input/output pair mirrors a real dev-DB row shape named in D-16's table
+    (26-CONTEXT.md/27-CONTEXT.md), so these are grounded in observed data, not invented.
+    """
+
+    def test_lco_1m_derives_1m0(self):
+        self.assertEqual(derive_telescope_class('', 'LCO 1m'), '1m0')
+
+    def test_lco_2m_derives_2m0(self):
+        self.assertEqual(derive_telescope_class('', 'LCO 2m'), '2m0')
+
+    def test_lco_0_4m_derives_0m4(self):
+        self.assertEqual(derive_telescope_class('', 'LCO 0.4m'), '0m4')
+
+    def test_juice_blank_site_derives_space_via_tier_b(self):
+        """JUICE's real dev-DB row carries a blank site_raw, so tier a (site-based) can't
+        see it -- this must resolve via NO_OBSCODE_SPACE_OBSERVATORIES (tier b) instead."""
+        self.assertEqual(derive_telescope_class('', 'JUICE'), 'SPACE')
+
+    def test_juice_horizons_site_derives_space_via_tier_a(self):
+        """500@-28 has no HORIZONS_OBSERVER_TO_OBSCODE alias -- D-11's exact definition
+        of a space observatory with a Horizons code but no MPC obscode assigned."""
+        self.assertEqual(derive_telescope_class('500@-28', 'JUICE'), 'SPACE')
+
+    def test_jwst_horizons_site_with_alias_is_not_space(self):
+        """500@-170 DOES have an alias (JWST -> obscode 274), so tier a must not fire --
+        JWST is not permanently site-less (D-11 corrects the spike's premise)."""
+        self.assertEqual(derive_telescope_class('500@-170', 'JWST'), '')
+
+    def test_hst_obscode_site_no_aperture_signal_returns_blank(self):
+        self.assertEqual(derive_telescope_class('250', 'HST STIS/COS'), '')
+
+    def test_swift_blank_site_no_aperture_signal_returns_blank(self):
+        """Swift has an MPC obscode (C52) and is deliberately NOT in
+        NO_OBSCODE_SPACE_OBSERVATORIES -- widening SPACE to 'any space mission' is
+        exactly the premise D-11 falsified."""
+        self.assertEqual(derive_telescope_class('', 'Swift/UVOT'), '')
+
+    def test_unrelated_site_and_instrument_returns_blank(self):
+        self.assertEqual(derive_telescope_class('X05', 'FOO / BAR'), '')
+
+    def test_soar_4m_is_excluded_per_d12(self):
+        """D-12: 4m0 (SOAR) is deliberately excluded from CampaignRun.TelescopeClass's
+        vocabulary, even though it is a real, recognized aperture-class match."""
+        self.assertEqual(derive_telescope_class('', 'SOAR 4m'), '')
+
+    def test_muscat4_trailing_digit_is_not_a_false_positive(self):
+        """FTS/MuSCAT4: the trailing '4' in 'MuSCAT4' must not be mistaken for a '4m'
+        aperture phrase -- the digit only forms an aperture match if it PRECEDES 'm'."""
+        self.assertEqual(derive_telescope_class('', 'FTS/MuSCAT4'), '')
+
+    def test_none_site_and_instrument_never_raises(self):
+        self.assertEqual(derive_telescope_class(None, None), '')
+
+    def test_aperture_classes_are_subset_of_calendar_utils_vocabulary(self):
+        """D-12: the model's 3-value vocabulary is a SUBSET of calendar_utils' 4-value
+        aperture-class set (not equality -- equality would fail on day one over '4m0').
+
+        CampaignRun.TelescopeClass does not exist until Plan 27-04, so this asserts
+        against the literal expected value set for now.
+        # Plan 27-04 wires this to CampaignRun.TelescopeClass
+        """
+        model_aperture_values = {'2m0', '1m0', '0m4'}
+        calendar_utils_aperture_values = {
+            aperture_class_from_telescope_code(code) for code in ('0m4a', '1m0a', '2m0a', '4m0a')
+        }
+
+        self.assertTrue(model_aperture_values.issubset(calendar_utils_aperture_values))
+        # The known, deliberate exclusion (D-12): 4m0 (SOAR) is a real calendar_utils
+        # aperture class but must never be "fixed" onto the model.
+        self.assertIn('4m0', calendar_utils_aperture_values)
+        self.assertNotIn('4m0', model_aperture_values)
+        # SPACE is deliberately absent from the aperture-class set -- it is not an
+        # aperture class at all.
+        self.assertNotIn('SPACE', calendar_utils_aperture_values)
