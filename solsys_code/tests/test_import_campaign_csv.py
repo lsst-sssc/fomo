@@ -1728,3 +1728,60 @@ class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
             )
 
         self.assertIn('site_needs_review: 0', stdout.getvalue())
+
+    def test_telescope_class_not_derived_for_preserved_site(self):
+        """Case 9 (CR-01, the mirror image of case 6): when the site-preservation guard keeps
+        an already-resolved site, the importer must NOT derive a telescope_class from the
+        CSV's class-bearing instrument text.
+
+        ``telescope_class`` records WHY there is no site (D-06,
+        ``solsys_code/models.py``), so it is only ever inferred for a row that actually ends
+        up site-less -- and it is NEVER cleared by any writer once written, which makes a
+        wrongly-derived value permanent. Deriving it from the CSV's *fresh* resolution while
+        the guard preserves the *existing* resolved site produces the contradictory triple
+        ``site=705 / telescope_class='1m0' / site_needs_review=True``.
+        """
+        obs_705 = Observatory.objects.create(
+            obscode='705', name='SOAR', short_name='SOAR', lat=-30.2, lon=-70.7, altitude=2738
+        )
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m network',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=obs_705,
+            site_raw='705',
+            # The documented projection-failed retry state: a resolved site that is still in
+            # the staff review queue (runs_needing_site_review() includes it).
+            site_needs_review=True,
+            telescope_class='',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # Blank Site Code cannot re-derive 705, so the guard preserves the existing site --
+        # but 'LCO 1m network' is exactly the instrument text derive_telescope_class() maps
+        # to '1m0'.
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'LCO 1m network',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.site, obs_705)
+        self.assertEqual(run.site_raw, '705')
+        self.assertTrue(run.site_needs_review)
+        self.assertEqual(run.telescope_class, '')

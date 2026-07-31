@@ -192,16 +192,62 @@ class Command(BaseCommand):
 
             site_raw = row.get('Site Code', '') or ''
             site, site_resolution_failed = resolve_site(site_raw)
+
+            # Pitfall 2: branch the natural key on whether this row resolved to a window
+            # or fell through to TBD -- matches CampaignRun.Meta.constraints' two partial
+            # UniqueConstraints exactly (resolved: campaign+telescope_instrument+
+            # window_start+window_end; TBD: campaign+telescope_instrument+contact_person).
+            # CR-01: built HERE, before `fields`, rather than after it. The existing row this
+            # finds is what decides whether this row will actually end up site-less, and that
+            # in turn gates the telescope_class derivation immediately below.
+            if window_start is not None:
+                # Resolved-window branch: contact_person is a plain field, not part of
+                # the key -- it goes into `fields` below instead.
+                lookup = {
+                    'campaign': campaign,
+                    'telescope_instrument': telescope_instrument,
+                    'window_start': window_start,
+                    'window_end': window_end,
+                }
+            else:
+                # TBD branch (Pitfall 2): contact_person is promoted into the lookup key
+                # instead, so it's deliberately left out of `fields` to avoid
+                # lookup/defaults key-overlap ambiguity.
+                lookup = {
+                    'campaign': campaign,
+                    'telescope_instrument': telescope_instrument,
+                    'contact_person': contact_person,
+                    'window_start__isnull': True,
+                }
+
+            existing = CampaignRun.objects.filter(**lookup).first()
+
+            # CR-01: the site-preservation guard (applied to `fields` further down, where its
+            # full rationale lives) can decide this row keeps its ALREADY-resolved site, in
+            # which case the CSV's own failed resolution is not this row's effective site at
+            # all. The decision is computed here, up front, so telescope_class can gate on the
+            # EFFECTIVE post-guard site rather than on the CSV's fresh result.
+            preserve_site = (
+                existing is not None and existing.site_id is not None and (site is None or site_resolution_failed)
+            )
+
             # D-06 (26-CONTEXT.md:94): telescope_class records WHY there is no site -- it is
             # a permanent, correct campaign-level fact, not a placeholder cleared once a site
             # is known. D-20: the shared derivation helper's second required call site (the
             # 0011 backfill migration is the first). Derivation still gates on "no resolved
-            # site" (site is None), mirroring the backfill's site__isnull=True gate -- but a
-            # non-blank class, once derived, is never cleared, and a row that has one is not
-            # a resolution failure.
+            # site", mirroring the backfill's site__isnull=True gate -- but a non-blank class,
+            # once derived, is never cleared, and a row that has one is not a resolution
+            # failure.
+            #
+            # CR-01: "no resolved site" means the site this row ENDS UP with, which is why
+            # `preserve_site` is part of the gate. A preserved row keeps its existing resolved
+            # site, so there is no "why is there no site" question for a class to answer, and
+            # models.py's stated invariant -- "telescope_class is never inferred for a run
+            # whose site DID resolve" -- would otherwise be violated permanently, since no
+            # writer ever clears the field again.
             telescope_class = (
                 derive_telescope_class(site_raw=site_raw, telescope_instrument=telescope_instrument)
-                if site is None
+                if site is None and not preserve_site
                 else ''
             )
             # `site_resolution_failed` alone is not "needs review": resolve_site() here runs
@@ -242,25 +288,11 @@ class Command(BaseCommand):
             }
 
             if window_start is not None:
-                # Resolved-window branch: contact_person is a plain field, not part of
-                # the lookup key.
+                # Resolved-window branch: contact_person is a plain field, not part of the
+                # lookup key (which was built above), so it belongs in `fields`. On the TBD
+                # branch it is part of the key instead and is deliberately left out of
+                # `fields` to avoid lookup/defaults key-overlap ambiguity.
                 fields['contact_person'] = contact_person
-                lookup = {
-                    'campaign': campaign,
-                    'telescope_instrument': telescope_instrument,
-                    'window_start': window_start,
-                    'window_end': window_end,
-                }
-            else:
-                # TBD branch (Pitfall 2): contact_person is promoted into the lookup key
-                # instead, so it's deliberately left out of `fields` to avoid
-                # lookup/defaults key-overlap ambiguity.
-                lookup = {
-                    'campaign': campaign,
-                    'telescope_instrument': telescope_instrument,
-                    'contact_person': contact_person,
-                    'window_start__isnull': True,
-                }
 
             # WR-01/CANON-01: never relabel a run that came in through the public web form.
             # insert_or_create_campaign_run() setattr's every key in `fields` onto a matched
@@ -273,7 +305,6 @@ class Command(BaseCommand):
             # publicly visible (CampaignRunTableView only excludes PENDING_REVIEW). Both keys
             # must be preserved together -- keeping `source` while still forcing APPROVED
             # would publish the unreviewed row anyway.
-            existing = CampaignRun.objects.filter(**lookup).first()
             if existing is not None and existing.source == CampaignRun.Source.WEB:
                 fields.pop('source', None)
                 fields.pop('approval_status', None)
@@ -292,8 +323,9 @@ class Command(BaseCommand):
             # site_raw is exactly as repairable as site. A CSV cell that DOES genuinely
             # resolve still wins -- this guard only blocks the case that produced the stale
             # row in the first place: an unresolvable cell trying to overwrite something
-            # better.
-            if existing is not None and existing.site_id is not None and (site is None or site_resolution_failed):
+            # better. The condition itself is computed further up as `preserve_site`, because
+            # the telescope_class derivation has to gate on the same decision (CR-01).
+            if preserve_site:
                 fields.pop('site', None)
                 fields.pop('site_raw', None)
                 fields.pop('site_needs_review', None)
