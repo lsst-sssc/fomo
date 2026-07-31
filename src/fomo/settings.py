@@ -390,3 +390,10 @@ try:
     from local_settings import *  # noqa
 except ImportError:
     pass
+
+# `from local_settings import *` executes that module in its own namespace, so it can only
+# ASSIGN new settings -- it cannot mutate ones already built above (FACILITIES['LCO']['api_key']
+# = ... there raises NameError, which the ImportError guard does not catch). Secrets that belong
+# inside an existing dict therefore arrive as flat names and are folded in here.
+if 'LCO_API_KEY' in globals():
+    FACILITIES['LCO']['api_key'] = LCO_API_KEY  # noqa: F405
