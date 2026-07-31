@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Completed 27.1-05-PLAN.md — all 5 Phase 27.1 plans executed, awaiting verification
-last_updated: "2026-07-31T20:38:00.399Z"
-last_activity: 2026-07-31 -- Phase 27.1 wave 3 executed (27.1-05, criterion-6 gap closure)
+stopped_at: Phase 27.1 verified 5/6 — criterion 6 closed by 27.1-05, new criterion-5 notebook gap open
+last_updated: "2026-07-31T21:20:00.000Z"
+last_activity: 2026-07-31 -- Phase 27.1 wave 3 executed (27.1-05), re-verified 5/6
 progress:
   total_phases: 5
   completed_phases: 2
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 ## Current Position
 
-Phase: 27.1 (close-gap-staff-surfaces-and-data-integrity-risks-from-the-c) — EXECUTED, AWAITING VERIFICATION
+Phase: 27.1 (close-gap-staff-surfaces-and-data-integrity-risks-from-the-c) — VERIFIED 5/6, GAP OPEN
 Plan: 5 of 5 executed
-Status: Wave 3 complete — 27.1-05 widened the `source` provenance lock to every `WEB` run at any approval status, closing criterion 6
-Last activity: 2026-07-31 -- Phase 27.1 wave 3 executed (27.1-05, criterion-6 gap closure)
+Status: Criterion 6 closed by 27.1-05 (the `source` provenance lock now covers every `WEB` run at any approval status). Criterion 5 reopened: the paired `import_campaign_csv_demo.ipynb` carries a contaminated dev-DB snapshot (an extra `LCO 1m0` row from the untracked `campaign_sample_2row.csv`), so the notebook contradicts its own prose. Next: `/gsd:plan-phase 27.1 --gaps`
+Last activity: 2026-07-31 -- Phase 27.1 wave 3 executed (27.1-05), re-verified 5/6
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
