@@ -299,8 +299,11 @@ into ``CampaignRun`` rows, one row per CSV line.
    never cleared by any command" sentence in the note below -- before this
    phase the importer *did* blank it whenever the site resolved, which this
    guard corrects. The ``site_needs_review`` count in the command's summary
-   line now reports only flags the command actually wrote, so a preserved
-   row no longer inflates it.
+   line reports how many rows **end up** flagged, not how many flags the
+   command wrote -- so a preserved row that is already resolved and unflagged
+   no longer inflates it, and a preserved row that is still flagged (a
+   resolved site whose review flag was never cleared) is still counted, because
+   it really is in the Sites Needing Review queue.
 
 .. note::
    **What the command now writes (CANON-01/CANON-02):** every imported row

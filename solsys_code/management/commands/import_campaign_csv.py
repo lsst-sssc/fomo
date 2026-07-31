@@ -357,12 +357,16 @@ class Command(BaseCommand):
             if existing is not None and existing.telescope_class and not telescope_class:
                 fields.pop('telescope_class', None)
 
-            # WR-04 (criterion 5): the summary must report only flags this command actually
-            # wrote. If the site-preservation guard above popped `site_needs_review` from
-            # `fields`, the value it would have written is moot -- count it only when it is
-            # still present, i.e. still going to be written (as a create, or as an update
-            # where the guard did not fire).
-            if 'site_needs_review' in fields and needs_review:
+            # WR-04: the summary reports how many rows END UP flagged, not how many flags
+            # this command wrote. When the site-preservation guard popped `site_needs_review`
+            # from `fields`, the value the command would have written is moot -- but the
+            # row's own existing flag is not. A preserved row whose existing flag is already
+            # True (the projection-failed retry state) really is in the staff queue, and
+            # `runs_needing_site_review()` (campaign_views.py) lists it; counting only
+            # written flags reported it as absent. `existing` is never None on the popped
+            # branch -- the guard requires an existing row with a resolved site.
+            resulting_needs_review = needs_review if 'site_needs_review' in fields else existing.site_needs_review
+            if resulting_needs_review:
                 site_needs_review_count += 1
 
             run, action = insert_or_create_campaign_run(lookup, fields)

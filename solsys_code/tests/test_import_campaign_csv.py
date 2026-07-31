@@ -1736,9 +1736,11 @@ class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
         self.assertEqual(web_run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
 
     def test_summary_counter_reports_only_written_flags(self):
-        """Case 8: the site_needs_review summary counter must report only flags the
-        command actually wrote -- a preserved row's CSV cell still failed to resolve, but
-        no flag was written, so the count must not include it.
+        """Case 8: the site_needs_review summary counter reports how many rows END UP
+        flagged. A preserved row's CSV cell still failed to resolve, but the row itself is
+        resolved and unflagged, so it must not be counted (WR-04 keeps this half unchanged;
+        `test_summary_counter_counts_a_preserved_row_that_is_still_flagged` covers the half
+        that was under-reporting).
         """
         Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
         path, ctx = self._write_csv(
@@ -1789,6 +1791,55 @@ class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
             )
 
         self.assertIn('site_needs_review: 0', stdout.getvalue())
+
+    def test_summary_counter_counts_a_preserved_row_that_is_still_flagged(self):
+        """WR-04: a preserved row whose EXISTING site_needs_review is already True must
+        still be counted -- it genuinely is in the staff review queue.
+
+        `runs_needing_site_review()` (campaign_views.py) deliberately includes a row that has
+        a resolved site but is still flagged (the projection-failed retry state). Counting
+        only flags this command wrote reported that row as absent from a queue it is
+        actually in, which is the one direction of the count an operator cannot verify from
+        the command's own output.
+        """
+        obs_f65 = Observatory.objects.create(
+            obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055
+        )
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=obs_f65,
+            site_raw='F65',
+            # Resolved site, still flagged: the state repair/projection retry leaves behind.
+            site_needs_review=True,
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        stdout = io.StringIO()
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout, stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertTrue(run.site_needs_review)
+        self.assertIn('site_needs_review: 1', stdout.getvalue())
 
     def test_telescope_class_not_derived_for_preserved_site(self):
         """Case 9 (CR-01, the mirror image of case 6): when the site-preservation guard keeps
