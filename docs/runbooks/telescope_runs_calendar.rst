@@ -198,6 +198,44 @@ clicking the same button again, or clicking the other button to correct a
 mis-click, simply re-applies the new prefix without creating duplicate
 events or losing any data.
 
+Can I correct a run's source?
+----------------------------------
+
+A run that came in through the public submission form (``source = web``)
+has no editable ``source`` in the Django admin. The field is not rendered
+on its change page **at any approval status** -- pending, approved or
+rejected alike.
+
+Why: ``source = web`` combined with ``approval_status`` is the only record
+that a human reviewed a public submission. An approved run whose source is
+not ``web`` reads as "no approval was required" -- a different fact -- and
+nothing on the run stores the old value, so overwriting it cannot be undone
+or reconstructed.
+
+What this closes, stated as the sequence an operator would otherwise have
+performed: it used to be possible to
+edit its source while it is still pending and then approve it, which
+reached the same lost-provenance state by a longer route.
+
+Every other run keeps an editable ``source``: ``legacy``, ``csv_import``
+and the queue sources can all still be corrected in the admin, which is
+what that editability was for -- a ``web`` label is never a guess, because
+only the submission form can produce it.
+
+**The cost:** if a ``web`` run's source really is wrong, correcting it now
+needs a shell or a data migration. This is the same restriction the CSV
+re-import path already applies -- see the re-import gotcha note below.
+
+**What stays possible:** the rule looks at the run's current source, so a
+non-``web`` run can still be relabelled *to* ``web``, and it locks once
+saved. That direction invents a review rather than erasing one, it takes a
+deliberate act, and the Django admin's own history log records who changed
+the field and when -- so it is visible after the fact, unlike the
+direction that was closed.
+
+Creating a new run in the admin is unaffected: ``source`` is editable on
+the add form, so a run can still be created with any source.
+
 How do I bootstrap-import a campaign from a CSV?
 ----------------------------------------------------
 
@@ -225,7 +263,8 @@ into ``CampaignRun`` rows, one row per CSV line.
    ``approval_status``, so a re-import can never turn an unreviewed public
    submission into something that reads as vetted, publicly-visible
    backfill. Every one of its other fields is still overwritten from the
-   CSV.
+   CSV. The Django admin applies the same rule -- see "Can I correct a
+   run's source?" above.
 
    All of this is expected behavior for a bootstrap-import command, not a
    bug -- but it is easy to be surprised by, so re-import deliberately, not
