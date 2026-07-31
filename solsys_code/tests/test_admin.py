@@ -716,6 +716,44 @@ class SourceProvenanceLockTests(TestCase):
         self.approved_legacy.refresh_from_db()
         self.assertEqual(self.approved_legacy.source, CampaignRun.Source.CSV_IMPORT)
 
+    def test_relabel_to_web_locks_the_row_and_cannot_be_undone(self) -> None:
+        """WR-10: pins the accepted one-way ratchet, in the direction the lock deliberately
+        leaves open.
+
+        Relabelling a non-web row *to* web is still allowed (D-19 keeps `source` editable on
+        every non-web row), but the moment it saves, `get_readonly_fields` keys off the new
+        value and withholds `source` -- so the same staff user cannot undo their own
+        mis-click through the admin at all. The CSV path cannot repair it either:
+        `import_campaign_csv` pops `source`/`approval_status` for any row whose existing
+        source is web (`test_reimport_preserves_web_source_and_approval_status` in
+        `test_import_campaign_csv.py` pins that half). Both consequences are accepted, but
+        they were previously unpinned in either direction -- a future refactor could have
+        silently changed them.
+        """
+        request = self._staff_request()
+        # The relabel itself must still be allowed -- this is D-19's surviving use case.
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.approved_legacy))
+        form_class = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
+        data = model_to_dict(self.approved_legacy, exclude=['id'])
+        data['source'] = CampaignRun.Source.WEB
+        form = form_class(data=data, instance=self.approved_legacy)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.approved_legacy.refresh_from_db()
+        self.assertEqual(self.approved_legacy.source, CampaignRun.Source.WEB)
+
+        # ...and now the trapdoor has shut: no admin write path back.
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.approved_legacy))
+        relocked_form_class = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
+        self.assertNotIn('source', relocked_form_class.base_fields)
+        undo_data = model_to_dict(self.approved_legacy, exclude=['id'])
+        undo_data['source'] = CampaignRun.Source.LEGACY
+        undo_form = relocked_form_class(data=undo_data, instance=self.approved_legacy)
+        self.assertTrue(undo_form.is_valid(), undo_form.errors)
+        undo_form.save()
+        self.approved_legacy.refresh_from_db()
+        self.assertEqual(self.approved_legacy.source, CampaignRun.Source.WEB)
+
     def test_change_page_omits_source_field_on_every_web_row(self) -> None:
         response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.approved_web.pk]))
         self.assertEqual(response.status_code, 200)

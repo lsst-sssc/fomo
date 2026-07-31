@@ -233,6 +233,19 @@ deliberate act, and the Django admin's own history log records who changed
 the field and when -- so it is visible after the fact, unlike the
 direction that was closed.
 
+.. warning::
+   **That relabel cannot be taken back from the admin.** The moment you save
+   a ``legacy`` or ``csv_import`` run as ``web``, the rule above starts
+   applying to it and ``source`` disappears from its change page -- so you
+   cannot correct your own mis-click here, only through a shell or a data
+   migration. Re-importing the CSV that produced the row will not fix it
+   either: ``import_campaign_csv`` leaves ``source`` and ``approval_status``
+   alone on any row that already reads ``web``. If the row was also
+   ``approved``, it now reads permanently as "a human approved this public
+   submission", and the admin history records only that ``source`` changed,
+   not what it changed *from*. Treat the ``source`` dropdown on a non-``web``
+   run as a one-way door.
+
 Creating a new run in the admin is unaffected: ``source`` is editable on
 the add form, so a run can still be created with any source.
 

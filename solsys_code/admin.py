@@ -179,6 +179,28 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
         `LogEntry` with actor and timestamp -- the destructive direction left nothing
         behind. Locking it too would re-open D-19 for the sources D-19 legitimately covers,
         so it is accepted rather than mitigated.
+
+        **WR-10: what "accepted" actually costs, stated plainly.** Two consequences follow
+        from that ratchet and are neither hypothetical nor recoverable in the UI:
+
+        1. It is a trapdoor with no admin-side exit. The instant the relabel saves,
+           `obj.source == WEB` makes `source` readonly, so the staff user cannot undo their
+           own mis-click here at all -- and the most likely way to land on a wrongly-web row
+           is exactly that: an accidental selection in a `legacy`/`csv_import` row's `source`
+           dropdown, not a genuinely-web row that was mis-recorded.
+        2. The CSV path cannot repair it either. `import_campaign_csv` pops both `source`
+           and `approval_status` for any row whose *existing* source is web, so re-importing
+           the sheet that originally produced the row will not restore `csv_import`. The
+           parity noted above therefore also removes the second repair route.
+
+        A mis-clicked APPROVED row consequently reads permanently as "a human approved this
+        public submission" -- a fact that never happened -- and `LogEntry.change_message`
+        records only that `source` changed, not what it changed *from*. Both directions of
+        the ratchet are pinned by
+        `test_relabel_to_web_locks_the_row_and_cannot_be_undone` so a refactor cannot move
+        them silently. If this edge ever proves too sharp in practice, the alternative is to
+        withhold `source` whenever `approval_status == APPROVED` regardless of source, which
+        costs D-19 only the ability to relabel already-approved backfill.
         """
         readonly = list(super().get_readonly_fields(request, obj))
         if obj is not None and obj.source == CampaignRun.Source.WEB:
