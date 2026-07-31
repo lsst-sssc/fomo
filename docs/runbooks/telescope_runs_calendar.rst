@@ -294,11 +294,28 @@ into ``CampaignRun`` rows, one row per CSV line.
    still wins, so correcting a wrong code in the sheet and re-importing still
    moves the site as before. The accepted cost: a site can no longer be
    *cleared* through a re-import -- clearing one now requires the Django
-   admin or a shell. A non-blank ``telescope_class`` is likewise never
-   blanked by a re-import, consistent with the "it is **permanent**: it is
-   never cleared by any command" sentence in the note below -- before this
-   phase the importer *did* blank it whenever the site resolved, which this
-   guard corrects. The ``site_needs_review`` count in the command's summary
+   admin or a shell.
+
+   **A correction that does not resolve is discarded, and the command says
+   so.** The guard cannot tell "the sheet's cell is still blank" from "someone
+   typed a new code that MPC does not know" -- both are "did not resolve", so
+   both keep the old ``site`` **and** the old ``site_raw``. Each such row now
+   prints a line on stderr naming the site it kept and the ``Site Code`` it
+   discarded, and the summary line ends with a ``site_preserved:`` count. Read
+   those: the row itself is still reported as ``unchanged``, because nothing
+   the command was allowed to write actually changed. If your correction is
+   real, fix the site from the Django admin (or the Sites Needing Review
+   queue) rather than through the sheet.
+
+   A preserved row also gets **no** newly-derived ``telescope_class``: the
+   class records *why there is no site*, and a preserved row still has one, so
+   there is nothing for a class to explain. A non-blank ``telescope_class`` is
+   likewise never blanked by a re-import, consistent with the "it is
+   **permanent**: it is never cleared by any command" sentence in the note
+   below -- before this phase the importer *did* blank it whenever the site
+   resolved, which this guard corrects.
+
+   The ``site_needs_review`` count in the command's summary
    line reports how many rows **end up** flagged, not how many flags the
    command wrote -- so a preserved row that is already resolved and unflagged
    no longer inflates it, and a preserved row that is still flagged (a

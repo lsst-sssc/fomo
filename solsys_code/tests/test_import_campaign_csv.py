@@ -1792,6 +1792,74 @@ class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
 
         self.assertIn('site_needs_review: 0', stdout.getvalue())
 
+    def test_preserved_row_is_reported_on_stderr_and_in_the_summary(self):
+        """WR-01: preservation must not be silent.
+
+        The guard keeps the existing `site`/`site_raw` and drops the CSV's, and
+        `insert_or_create_campaign_run()` then reports the row as `unchanged` because it
+        only compares the keys that survived in `fields` -- so without a diagnostic an
+        operator who corrected the sheet's Site Code to an unresolvable value sees a clean
+        `unchanged` line and no hint that their correction was discarded.
+        """
+        obs_f65 = Observatory.objects.create(
+            obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055
+        )
+        campaign = TargetList.objects.create(name='Test Campaign')
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=obs_f65,
+            site_raw='F65',
+            site_needs_review=False,
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with ctx:
+            call_command('import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout, stderr=stderr)
+
+        self.assertIn('site_preserved: 1', stdout.getvalue())
+        self.assertIn('kept existing resolved site', stderr.getvalue())
+        self.assertIn("'F65'", stderr.getvalue())
+
+    def test_summary_reports_zero_preserved_when_the_guard_never_fires(self):
+        """WR-01 control: the counter is not stuck on -- an ordinary import that resolves
+        every Site Code reports `site_preserved: 0` and writes nothing to stderr."""
+        Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': 'F65',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with ctx:
+            call_command('import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout, stderr=stderr)
+
+        self.assertIn('site_preserved: 0', stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), '')
+
     def test_summary_counter_counts_a_preserved_row_that_is_still_flagged(self):
         """WR-04: a preserved row whose EXISTING site_needs_review is already True must
         still be counted -- it genuinely is in the staff review queue.

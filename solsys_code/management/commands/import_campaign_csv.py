@@ -38,7 +38,9 @@ class Command(BaseCommand):
         'overwritten from the CSV. A row whose site is already resolved keeps its site, '
         "site_raw and site_needs_review when the CSV's Site Code cell does not resolve, so a "
         'repair made by repair_stale_campaign_run_sites cannot be silently reverted by a '
-        're-import; a non-blank telescope_class is never blanked by a re-import either.'
+        're-import; a non-blank telescope_class is never blanked by a re-import either. '
+        'Every such preserved row is reported on stderr and counted as site_preserved in '
+        "the summary line, so a corrected-but-unresolvable Site Code isn't dropped silently."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -108,6 +110,7 @@ class Command(BaseCommand):
         skipped_count = 0
         site_needs_review_count = 0
         window_needs_review_count = 0
+        site_preserved_count = 0
         # Two distinct key shapes (Pitfall 2): a resolved window key
         # (campaign_pk, telescope_instrument, window_start, window_end), or a TBD key
         # (campaign_pk, telescope_instrument, contact_person). Track keys already seen in
@@ -221,7 +224,10 @@ class Command(BaseCommand):
                     'window_start__isnull': True,
                 }
 
-            existing = CampaignRun.objects.filter(**lookup).first()
+            # select_related('site'): the WR-01 diagnostic below names the site the row is
+            # keeping, and that is the only place `existing.site` is dereferenced -- without
+            # this it would cost one extra query per preserved row.
+            existing = CampaignRun.objects.select_related('site').filter(**lookup).first()
 
             site_raw = row.get('Site Code', '') or ''
             # WR-02: only let tier 3 fabricate a placeholder Observatory when this row could
@@ -347,6 +353,20 @@ class Command(BaseCommand):
                 fields.pop('site', None)
                 fields.pop('site_raw', None)
                 fields.pop('site_needs_review', None)
+                # WR-01: say so. The guard is silent about which branch a row took, and the
+                # row is then reported as `unchanged` by insert_or_create_campaign_run()
+                # (which only compares the surviving keys in `fields`) -- indistinguishable
+                # from a row where nothing was attempted. That matters most in the case this
+                # guard is NOT designed for: an operator who CORRECTED the sheet's Site Code
+                # to a value MPC does not know (or one over _MAX_OBSCODE_LEN) gets their
+                # correction dropped, keeping both the old `site` and the old `site_raw`,
+                # with nothing in the output to tell them.
+                site_preserved_count += 1
+                self.stderr.write(
+                    f'Row {row_num}: kept existing resolved site '
+                    f'{existing.site.obscode!r} (Site Code={site_raw!r} did not resolve); '
+                    f'CSV site/site_raw discarded'
+                )
 
             # telescope_class is NEVER cleared by any writer once set
             # (solsys_code/models.py:207-219) -- Phase 27 code-review finding CR-01 proposed
@@ -383,6 +403,7 @@ class Command(BaseCommand):
             f'unchanged: {unchanged_count}, '
             f'skipped: {skipped_count}, '
             f'site_needs_review: {site_needs_review_count}, '
-            f'window_needs_review: {window_needs_review_count}'
+            f'window_needs_review: {window_needs_review_count}, '
+            f'site_preserved: {site_preserved_count}'
         )
         return
