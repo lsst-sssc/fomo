@@ -108,6 +108,7 @@
 
 - [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events) (completed 2026-07-27)
 - [x] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link (completed 2026-07-30)
+- [ ] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair
 - [ ] **Phase 28: Operator-Assisted Attribution** - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
 - [ ] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear
 
@@ -194,6 +195,38 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 27-06-PLAN.md — `import_campaign_csv` writes `source` and `telescope_class`, the paired demo notebook and operator runbook are regenerated/updated, and the three folded planning-doc corrections land
+
+### Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)
+
+**Goal**: Make Phase 27's staff-facing surfaces actually usable and close the one data-integrity risk its own review found — staff can reach the site-review queue, the calendar event modal renders cleanly instead of printing its own template source, the admin run picker is legible enough to hand-link an event, and a CSV re-import can no longer silently revert a site repair.
+**Depends on**: Phase 27 (closes gaps found by its UAT pass and code review). Should land **before** Phase 28: until the attribution queue ships, the admin FK picker is the only mechanism that can create a run↔event link (Phase 27 WR-03), so its legibility is load-bearing rather than cosmetic.
+**Requirements**: CANON-01, CANON-02, CANON-05 — delivery gaps in Phase 27's surfaces for these requirements, not new requirements
+**Paired docs (CLAUDE.md rule)**: `docs/runbooks/telescope_runs_calendar.rst` — the runbook documents both the staff approval-queue actions (criterion 1 changes how staff reach the site-review queue) and `import_campaign_csv`'s existing "re-import gotcha" note (criterion 5 changes what a re-import may overwrite). Add `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` to `files_modified` only if the criterion-5 fix changes what the command writes.
+
+**Out of scope — do not "fix" this**: Phase 27 review finding **WR-02** (`repair_stale_campaign_run_sites` never clears `telescope_class` when it resolves `site`). `27-VERIFICATION.md` calls this an invariant violation, but `solsys_code/models.py:213-219` documents the *opposite* invariant — `telescope_class` is NEVER cleared by any writer once set, because a class-wide allocation and a resolved site are not mutually exclusive. The user explicitly REJECTED code-review finding CR-01 which proposed clearing it (see `27-REVIEW-FIX.md`). The stale text is the verification report's, not the code's; correcting that wording is the only action WR-02 warrants.
+
+**Success Criteria** (what must be TRUE):
+
+  1. Staff can reach the "Sites Needing Review" queue whenever it has rows, including when there are zero pending submissions — the campaign-list link is driven by both queues, not by `pending_count` alone
+  2. The calendar event modal renders no template source: `event_form.html`'s header is a real Django comment, no other multi-line `{# #}` block survives anywhere in the repo, and a **render-level** (not byte-diff) assertion covers FOMO's `tom_calendar` overrides so the same class of defect fails a test instead of reaching a user
+  3. A TBD run linked to a calendar event never renders the literal "(None–None)" in the public modal — the window appears only when it is resolved
+  4. Staff can identify the right run in the admin FK picker: each `CampaignRun` label carries a date and a site/telescope discriminator, and the 11 existing companion rows are distinguishable from one another
+  5. A CSV re-import cannot silently revert a site just fixed by `repair_stale_campaign_run_sites`, and the rule chosen is written into the runbook's existing re-import note
+  6. `source` cannot be silently overwritten on an already-approved `WEB` run — or, if it stays editable, the deliberate decision records its consequence (loss of the CANON-01 provenance signal), not just its rationale
+
+**Plans:** 4 plans
+
+Plans:
+
+**Wave 1** *(no file overlap -- executable in parallel)*
+
+- [ ] 27.1-01-PLAN.md — Calendar event modal renders cleanly: all three multi-line `{# #}` blocks converted, the TBD-run `(None-None)` window gated, and render-level + template-tree sweep regression tests (criteria 2, 3)
+- [ ] 27.1-02-PLAN.md — Admin FK picker legibility and the `source` provenance lock: discriminating `__str__` on both models, autocomplete + event-start column, and `source` withheld on already-approved WEB rows (criteria 4, 6)
+- [ ] 27.1-03-PLAN.md — Staff can reach the "Sites Needing Review" queue: one shared `runs_needing_site_review()` definition, a campaign-list banner driven by either queue, and the runbook's two-queue entry-point section (criterion 1)
+
+**Wave 2** *(blocked on 27.1-03 -- both plans edit `docs/runbooks/telescope_runs_calendar.rst`)*
+
+- [ ] 27.1-04-PLAN.md — A CSV re-import can no longer silently revert a repaired site: the preservation guard, an honest `site_needs_review` counter, the rule written into the runbook's re-import note, the regenerated demo notebook, and the WR-02 wording correction (criterion 5)
 
 ### Phase 28: Operator-Assisted Attribution
 
