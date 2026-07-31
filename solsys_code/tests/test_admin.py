@@ -15,11 +15,15 @@ admin test client rather than by eyeballing the ModelAdmin class definitions:
 - Plan 27.1-02 (criteria 4/6): CampaignRun/CalendarEventMeta label distinguishability
   against the real 11-row companion-record shape, the CalendarEventMetaAdmin.run
   autocomplete endpoint, and the source provenance lock on an already-approved WEB run.
+- Plan 27.1-05 (closing criterion 6, WR-03): the lock now covers every web-sourced row at
+  any approval status, and SourceProvenanceTwoStepBypassTests pins the cross-path
+  edit-then-approve sequence that used to bypass it.
 """
 
 import re
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
+from unittest.mock import patch
 
 from django.contrib import admin as django_admin
 from django.contrib.auth.models import User
@@ -590,8 +594,9 @@ class CampaignRunLabelLegibilityTests(TestCase):
 
 
 class SourceProvenanceLockTests(TestCase):
-    """27.1-02 criterion 6, option (a): `source` becomes non-overwritable on an
-    already-approved WEB run, and stays editable everywhere else (D-19 preserved)."""
+    """27.1-05 (closing criterion 6, WR-03): `source` is non-overwritable on every
+    `source == WEB` run, at any approval status, and stays editable on every non-WEB row
+    of every approval status (D-19 preserved)."""
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -634,11 +639,11 @@ class SourceProvenanceLockTests(TestCase):
         request.user = self.superuser
         return request
 
-    def test_source_withheld_only_on_approved_web(self) -> None:
+    def test_source_withheld_on_every_web_row(self) -> None:
         request = self._staff_request()
         self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.approved_web))
-        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.pending_web))
-        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.rejected_web))
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.pending_web))
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.rejected_web))
         self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.approved_legacy))
         self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, None))
 
@@ -647,12 +652,14 @@ class SourceProvenanceLockTests(TestCase):
         for obj in (self.approved_web, self.pending_web, self.rejected_web, self.approved_legacy, None):
             self.assertIn('approval_status', self.admin_obj.get_readonly_fields(request, obj))
 
-    def test_source_field_absent_from_generated_form_only_on_approved_web(self) -> None:
+    def test_source_field_absent_from_generated_form_on_every_web_row(self) -> None:
         request = self._staff_request()
         approved_form = self.admin_obj.get_form(request, obj=self.approved_web, change=True)
         pending_form = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
+        legacy_form = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
         self.assertNotIn('source', approved_form.base_fields)
-        self.assertIn('source', pending_form.base_fields)
+        self.assertNotIn('source', pending_form.base_fields)
+        self.assertIn('source', legacy_form.base_fields)
 
     def test_submitted_source_value_cannot_bind_on_approved_web(self) -> None:
         """End-to-end: a POSTed source value on an approved WEB run cannot bind, since
@@ -667,9 +674,10 @@ class SourceProvenanceLockTests(TestCase):
         self.approved_web.refresh_from_db()
         self.assertEqual(self.approved_web.source, CampaignRun.Source.WEB)
 
-    def test_submitted_source_value_does_bind_on_pending_web(self) -> None:
-        """The lock is scoped, not blanket: the same write against a pending WEB row
-        succeeds, proving D-19's correction use case survives."""
+    def test_submitted_source_value_cannot_bind_on_pending_web(self) -> None:
+        """27.1-05: this is the write half of the two-step sequence 27.1-05 closes -- a
+        submitted value on a pending WEB row no longer binds, since Django excludes readonly
+        fields from the generated ModelForm entirely."""
         request = self._staff_request()
         form_class = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
         data = model_to_dict(self.pending_web, exclude=['id'])
@@ -678,13 +686,135 @@ class SourceProvenanceLockTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
         self.pending_web.refresh_from_db()
-        self.assertEqual(self.pending_web.source, CampaignRun.Source.CSV_IMPORT)
+        self.assertEqual(self.pending_web.source, CampaignRun.Source.WEB)
 
-    def test_change_page_omits_source_field_only_on_approved_web(self) -> None:
+    def test_submitted_source_value_does_bind_on_non_web_row(self) -> None:
+        """The lock is scoped to web rows, not blanket: the same write against a non-web
+        row succeeds, proving D-19's correction use case survives with a passing
+        assertion rather than only by prose."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
+        data = model_to_dict(self.approved_legacy, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.approved_legacy)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.approved_legacy.refresh_from_db()
+        self.assertEqual(self.approved_legacy.source, CampaignRun.Source.CSV_IMPORT)
+
+    def test_change_page_omits_source_field_on_every_web_row(self) -> None:
         response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.approved_web.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('name="source"', response.content.decode())
 
         response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.pending_web.pk]))
         self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="source"', response.content.decode())
+
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.approved_legacy.pk]))
+        self.assertEqual(response.status_code, 200)
         self.assertIn('name="source"', response.content.decode())
+
+
+class SourceProvenanceTwoStepBypassTests(TestCase):
+    """27.1-05: pins the sequence `27.1-REVIEW.md` WR-03 demonstrated, end to end across two
+    different write paths -- the admin change form and `CampaignRunDecisionView` -- because
+    neither path's own tests can see the sequence in isolation."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='two-step-admin', email='two-step@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='Two-Step Bypass Campaign')
+        # window_start/window_end intentionally left unset on both fixtures, so
+        # _project_calendar_event() skips projection by design and the approve branch has
+        # no calendar side effect to manage here.
+        cls.pending_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Two-Step-Pending-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        cls.pending_csv_import = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Two-Step-Pending-Csv-Import',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+    def setUp(self) -> None:
+        self.admin_obj = CampaignRunAdmin(CampaignRun, django_admin.site)
+        self.factory = RequestFactory()
+
+    def _staff_request(self):
+        request = self.factory.get(reverse('admin:solsys_code_campaignrun_changelist'))
+        request.user = self.superuser
+        return request
+
+    def test_pending_relabel_then_approve_keeps_web_source(self) -> None:
+        """The non-negotiable regression test for WR-03's two-step bypass."""
+        # Step 1: attempt the relabel exactly as SourceProvenanceLockTests models an admin
+        # write -- build the form via get_form(), feed it a submitted `source`, and confirm
+        # it does not bind.
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
+        data = model_to_dict(self.pending_web, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.pending_web)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.pending_web.refresh_from_db()
+        self.assertEqual(self.pending_web.source, CampaignRun.Source.WEB)
+
+        # Step 2: approve via CampaignRunDecisionView. The run has site=None, so the approve
+        # branch calls resolve_site() -- patched here so the test never reaches the MPC
+        # Obscodes API.
+        self.client.force_login(self.superuser)
+        with patch('solsys_code.campaign_views.resolve_site', return_value=(None, True)):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': self.pending_web.pk}), {'action': 'approve'}
+            )
+        self.assertEqual(response.status_code, 302)
+
+        self.pending_web.refresh_from_db()
+        # This is the assertion the whole test exists for: the run must land on APPROVED +
+        # web, never on APPROVED + non-web -- the latter would, under CANON-01's derivation
+        # rule, read as "no approval was required", which is the exact provenance loss
+        # 27.1-05 closes.
+        self.assertEqual(self.pending_web.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(self.pending_web.source, CampaignRun.Source.WEB)
+
+    def test_approve_still_lands_on_a_web_run(self) -> None:
+        """Control: proves the approval itself really lands, so the regression test above
+        cannot pass vacuously by the approval silently failing and reverting."""
+        self.client.force_login(self.superuser)
+        with patch('solsys_code.campaign_views.resolve_site', return_value=(None, True)):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': self.pending_web.pk}), {'action': 'approve'}
+            )
+        self.assertEqual(response.status_code, 302)
+        self.pending_web.refresh_from_db()
+        self.assertEqual(self.pending_web.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+
+    def test_non_web_relabel_then_approve_still_binds(self) -> None:
+        """Same two-step sequence against a non-web row: the widened lock is scoped to web
+        rows and did not turn into a blanket freeze."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.pending_csv_import, change=True)
+        data = model_to_dict(self.pending_csv_import, exclude=['id'])
+        data['source'] = CampaignRun.Source.LEGACY
+        form = form_class(data=data, instance=self.pending_csv_import)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.pending_csv_import.refresh_from_db()
+        self.assertEqual(self.pending_csv_import.source, CampaignRun.Source.LEGACY)
+
+        self.client.force_login(self.superuser)
+        with patch('solsys_code.campaign_views.resolve_site', return_value=(None, True)):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': self.pending_csv_import.pk}), {'action': 'approve'}
+            )
+        self.assertEqual(response.status_code, 302)
+        self.pending_csv_import.refresh_from_db()
+        self.assertEqual(self.pending_csv_import.approval_status, CampaignRun.ApprovalStatus.APPROVED)

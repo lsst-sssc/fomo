@@ -131,26 +131,57 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
     # CampaignRunDecisionView.post(), not on the model. source stays editable by default
     # here (D-19) -- it has no such side-effecting transition, so the class-level omission
     # is a decision, not an oversight. get_readonly_fields below narrows this further:
-    # source is withheld only on the one instance-level combination (APPROVED + WEB) where
-    # overwriting it destroys the CANON-01 provenance signal rather than merely
-    # mislabelling a row (27.1-02 criterion 6, option (a)). Django excludes readonly
-    # fields from the generated ModelForm entirely, so a POSTed source value on such a row
-    # cannot bind -- it is not merely ignored on render.
+    # source is withheld on every web-sourced row, at any approval status (27.1-05, closing
+    # criterion 6) -- see that method's docstring for the cost and the residual left open.
+    # Django excludes readonly fields from the generated ModelForm entirely, so a POSTed
+    # source value on such a row cannot bind -- it is not merely ignored on render.
     readonly_fields = ['approval_status']
 
     def get_readonly_fields(self, request, obj=None):
-        """Withhold `source` on an already-approved WEB run only (27.1-02 criterion 6).
+        """Withhold `source` on every web-sourced run, at any approval status (27.1-05).
 
-        `obj is not None` keeps the add form unaffected -- there is no approved WEB row to
-        protect yet. Every other row (pending/rejected WEB, and any non-WEB row of any
-        approval status) keeps `source` editable, preserving D-19's correction use case.
+        **The rule.** `source` is withheld whenever the run's source is web, regardless of
+        approval status. The add-form gate is unchanged -- a run can still be created with
+        any source. This closes `27.1-REVIEW.md` WR-03 and Phase 27.1 success criterion 6.
+
+        **What it closes.** The narrower lock this replaced only withheld `source` once a
+        WEB run was already APPROVED, so a legal two-step sequence reached the identical
+        outcome without ever touching a protected row: edit `source` while the run is still
+        PENDING_REVIEW (editable by design, D-19), then approve it through
+        `CampaignRunDecisionView`, which only requires `approval_status ==
+        PENDING_REVIEW` and does not itself inspect `source`. The row would land on APPROVED
+        + non-web, which under `CampaignRun.Source`'s own derivation rule reads as "no
+        approval was required" -- the same provenance loss the narrower lock existed to
+        prevent, reached by a longer route.
+
+        **Why widening costs nothing real.** `source = web` is written by exactly one code
+        path in the repository, the public submission view (`campaign_views.py`), so a web
+        label can never be a mislabel -- D-19's correction use case, which is about
+        correcting a mislabelled *ingest* source, never applied to a web row in the first
+        place. Every non-web row of every approval status keeps `source` editable, so D-19
+        survives for `legacy` (a pre-v2.2 bulk backfill guess), `csv_import`, and the queue
+        sources.
+
+        **Parity.** `import_campaign_csv.py` already refuses to rewrite `source` on a row
+        whose existing `source` is web, with no approval-status condition at all. This
+        change makes the admin write path enforce that same single rule instead of a
+        weaker variant of it.
+
+        **The accepted cost.** A genuinely mis-recorded `source` on a web row can no longer
+        be corrected through the admin change form at all -- it needs a shell or a data migration.
+        That is the intended friction, and it matches the friction the CSV path already
+        imposes.
+
+        **The residual, left open deliberately.** The check keys on the row's *current*
+        `source`, so it is a one-way ratchet: a non-web row can still be relabelled *to*
+        web, after which it locks. That direction fabricates provenance rather than
+        destroying it, requires a deliberate staff act, and is recorded by Django's admin
+        `LogEntry` with actor and timestamp -- the destructive direction left nothing
+        behind. Locking it too would re-open D-19 for the sources D-19 legitimately covers,
+        so it is accepted rather than mitigated.
         """
         readonly = list(super().get_readonly_fields(request, obj))
-        if (
-            obj is not None
-            and obj.source == CampaignRun.Source.WEB
-            and obj.approval_status == CampaignRun.ApprovalStatus.APPROVED
-        ):
+        if obj is not None and obj.source == CampaignRun.Source.WEB:
             readonly.append('source')
         return readonly
 
