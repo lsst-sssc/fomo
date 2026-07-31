@@ -1,4 +1,5 @@
-{# FOMO override of the upstream tom_calendar partial at
+{% comment %}
+   FOMO override of the upstream tom_calendar partial at
    tom_calendar/templates/tom_calendar/partials/event_form.html (tomtoolkit 3.0.0a9,
    installed package path verified via `pip show tomtoolkit`).
 
@@ -13,7 +14,8 @@
    upstream path above when upgrading.
 
    Below this point, this file starts as an exact copy of the upstream partial with one
-   new block inserted after </form> and before the Todo list heading (D-08). #}
+   new block inserted after </form> and before the Todo list heading (D-08).
+{% endcomment %}
 {% load bootstrap4 %}
 <form {% if action == "create" %}
         hx-post="{% url 'calendar:create-event' %}"
@@ -91,7 +93,8 @@
     {% endif %}
     {% endbuttons %}
 </form>
-{# D-08: event.telescope_label_meta is CalendarEventMeta's reverse one-to-one accessor
+{% comment %}
+   D-08: event.telescope_label_meta is CalendarEventMeta's reverse one-to-one accessor
    (related_name, unchanged by the Phase 27 rename). A reverse one-to-one miss raises
    ObjectDoesNotExist, which Django templates swallow (silent_variable_failure) -- the same
    mechanism calendar.html's own is_verified branches already rely on -- so a conference,
@@ -104,10 +107,12 @@
    rule"). So today this block renders only for events a staff member has hand-linked via
    CalendarEventMetaInline in the Django admin. Do NOT read "no block" as a bug; see
    docs/runbooks/telescope_runs_calendar.rst, "Why doesn't the calendar pop-up show a
-   'Campaign run' block?". #}
+   'Campaign run' block?".
+{% endcomment %}
 {% with run=event.telescope_label_meta.run %}
 {% if run.is_publicly_visible %}
-    {# D-09/D-10: gated on the model's own visibility property so a run not yet approved
+    {% comment %}
+       D-09/D-10: gated on the model's own visibility property so a run not yet approved
        renders no link here, for every user including staff -- mirrors
        CampaignRunTableView.get_queryset()'s existing exclude(). There is no run-detail view
        today (D-06 defers it to Phase 28, where the attribution UI it would host gets
@@ -115,7 +120,8 @@
        link alone to answer "which run is this" -- and the link below targets the campaign
        table instead. Contact fields and source are deliberately never rendered here: this
        modal is a non-staff-visible surface, contact fields are PII gated elsewhere by
-       contact_public_opt_in, and source is staff-only per D-18. #}
+       contact_public_opt_in, and source is staff-only per D-18.
+    {% endcomment %}
     <div class="form-row">
       <div class="col">
         <label>
@@ -126,7 +132,15 @@
         </label>
         <div>
           {{ run.telescope_instrument }}
+          {% comment %}
+             WR-04: window_start and window_end are guaranteed both-NULL or both-set by
+             the campaign_run_window_start_end_null_together CheckConstraint, so gating
+             on window_start alone is sufficient -- a TBD run (both NULL) must not render
+             the literal "(None-None)" here.
+          {% endcomment %}
+          {% if run.window_start %}
           ({{ run.window_start }}&ndash;{{ run.window_end }})
+          {% endif %}
           &mdash; {{ run.get_run_status_display }}
         </div>
       </div>
