@@ -181,6 +181,27 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         return context
 
 
+def runs_needing_site_review():
+    """D-07/27.1-03 Task 1: the live staff work queue of approved runs whose site never
+    resolved and for which no ``telescope_class`` explains the absence (see the D-06 note on
+    ``CampaignRun.site_needs_review`` in ``models.py``).
+
+    Filter only -- no ``select_related``, no ``order_by``, no slice -- so each caller adds
+    what it needs. This is the single definition of "needs site review"; both
+    ``CampaignListView`` (a bare ``.count()`` for the staff banner) and ``ApprovalQueueView``
+    (the full "Sites Needing Review" table) call this instead of each inlining their own copy
+    of the filter, closing a silent-drift hazard: a future change to what counts as "needs
+    review" would otherwise have to be made in two places, and a banner/page mismatch is either
+    a banner that promises rows the page doesn't show, or one that hides a queue that has rows.
+
+    Deliberately uncapped, unlike the 20-row ``decided_qs`` audit-log cap in
+    ``ApprovalQueueView`` -- this is a live work queue of items genuinely needing staff action,
+    and capping it would hide actionable rows. Naturally includes the projection-failed retry
+    state (site set, flag still True) because the filter is on ``site_needs_review`` alone.
+    """
+    return CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.APPROVED, site_needs_review=True)
+
+
 class CampaignListView(ListView):
     """Lists every TargetList that has >= 1 CampaignRun, each linking to its table (D-03).
 
@@ -196,16 +217,21 @@ class CampaignListView(ListView):
     context_object_name = 'campaigns'
 
     def get_context_data(self, **kwargs):
-        """Add pending_count for the staff-only "N pending review" banner (D-01).
+        """Add the two staff-only banner counts, pending_count and its 27.1-03 sibling
+        (D-01/D-10).
 
-        Computed unconditionally -- the template gates its display on request.user.is_staff,
-        so it's harmless to compute for anonymous/non-staff visitors too (D-10: list
-        membership itself is unchanged).
+        Both are computed unconditionally -- the template gates their display on
+        request.user.is_staff, so it's harmless to compute for anonymous/non-staff visitors
+        too (D-10: list membership itself is unchanged), and a bare integer discloses nothing
+        on its own. The second count reuses the same shared queryset helper
+        ApprovalQueueView's "Sites Needing Review" table uses, so the two can never drift
+        apart.
         """
         context = super().get_context_data(**kwargs)
         context['pending_count'] = CampaignRun.objects.filter(
             approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
         ).count()
+        context['site_review_count'] = runs_needing_site_review().count()
         return context
 
 
@@ -353,16 +379,10 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
             empty_text='No decisions recorded yet.',
             order_by=(),
         )
-        # D-07: approved runs whose site never resolved -- the "dead end" this phase closes.
-        # Deliberately NO row cap (unlike decided_qs's [:20] audit-log cap): this is a live
-        # work queue of items genuinely needing staff action, and capping it would hide
-        # actionable rows. Naturally includes the projection-failed retry state (site set,
-        # flag still True) since the filter is on site_needs_review alone.
-        review_qs = (
-            CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.APPROVED, site_needs_review=True)
-            .select_related('campaign', 'site')
-            .order_by('-pk')
-        )
+        # D-07/27.1-03: approved runs whose site never resolved -- the "dead end" this phase
+        # closes. See the shared helper's docstring above for the uncapped-queue and
+        # single-definition rationale; this call site adds only select_related/order_by.
+        review_qs = runs_needing_site_review().select_related('campaign', 'site').order_by('-pk')
         review_table = ApprovalQueueTable(
             list(review_qs),
             prefix='review-',
