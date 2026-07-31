@@ -92,6 +92,65 @@ class AdminRegistrationAndGatingTests(TestCase):
         self.assertIn('LCO-1m-Sinistro', content)
 
 
+class CalendarEventMetaStandaloneAdminPkFreezeTests(TestCase):
+    """CR-02: the WR-08 primary-key freeze must cover the STANDALONE
+    ``CalendarEventMetaAdmin`` change form, not just ``CalendarEventMetaInline``.
+
+    ``CalendarEventMeta.event`` is an explicitly declared
+    ``OneToOneField(primary_key=True)``, which Django treats as editable, so it renders as a
+    live ``<select>`` on the standalone change form. Re-pointing it makes ``instance.pk`` a
+    value absent from the table, so ``instance.save()`` issues an UPDATE matching 0 rows and
+    falls back to an INSERT -- leaving the original row behind as a duplicate with orphaned
+    ``is_verified``/``run`` history (migration 0008's header comment), or silently clobbering
+    the target event's own companion row if it already has one.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='pkfreezeadmin', email='pkfreeze@example.test', password='pw'
+        )
+        cls.original_event = CalendarEvent.objects.create(
+            title='Original standalone event',
+            start_time=datetime(2025, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.other_event = CalendarEvent.objects.create(
+            title='Hijack target standalone event',
+            start_time=datetime(2025, 9, 3, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 9, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.meta = CalendarEventMeta.objects.create(event=cls.original_event, is_verified=True)
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_change_form_does_not_expose_event_as_editable(self) -> None:
+        """The pk must not render as an editable widget on the change form."""
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_change', args=[self.original_event.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="event"', response.content.decode())
+
+    def test_add_form_still_exposes_event(self) -> None:
+        """Freezing on change must not break linking a new event -- add stays editable, so
+        the link remains re-pointable by delete + re-add."""
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_add'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="event"', response.content.decode())
+
+    def test_posting_a_different_event_pk_does_not_duplicate_the_row(self) -> None:
+        """The reproduction case: one row in, one row out, still pointing at its own event."""
+        self.client.post(
+            reverse('admin:solsys_code_calendareventmeta_change', args=[self.original_event.pk]),
+            {'event': str(self.other_event.pk), 'is_verified': 'on', '_continue': 'Save and continue editing'},
+        )
+
+        self.assertEqual(CalendarEventMeta.objects.count(), 1)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.event_id, self.original_event.pk)
+        self.assertFalse(CalendarEventMeta.objects.filter(event=self.other_event).exists())
+
+
 class TargetAdminChangelistAndTypeFilterTests(TestCase):
     """quick-260722-uhh: the Target change-list loads and the 'By type' filter separates
     SIDEREAL from NON_SIDEREAL rows (tom_targets' own bare ModelAdmin has neither)."""

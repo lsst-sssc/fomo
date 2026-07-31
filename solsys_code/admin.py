@@ -211,6 +211,30 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
     # dereferences (Task 1), so an 11-row changelist does not turn into 30+ queries.
     list_select_related = ['event', 'run', 'run__campaign', 'run__site']
 
+    def get_readonly_fields(self, request, obj=None):
+        """CR-02: extend the WR-08 primary-key freeze to the standalone change form.
+
+        ``CalendarEventMetaInlineFormSet`` froze `event` only on the inline. This ModelAdmin
+        is a second, independent write path onto the same row, and 27.1-02 made it the
+        primary staff surface for hand-linking a run to an event. Because
+        ``CalendarEventMeta.event`` is an explicitly declared
+        ``OneToOneField(primary_key=True)``, Django treats it as editable and renders it as a
+        live ``<select>`` here too -- so re-pointing it made ``instance.pk`` a value absent
+        from the table, turning ``save()``'s 0-row UPDATE into an INSERT and leaving the
+        original row behind as a duplicate with orphaned is_verified/run history (the exact
+        failure migration 0008's header comment exists to prevent).
+
+        Returning it as readonly on change (``obj is not None``) drops the field from the
+        form entirely, so a submitted `event` value is never bound; the instance keeps
+        resolving from the URL pk. Add stays editable so a new link can still be created,
+        which keeps re-pointing available as delete + re-add -- matching the inline's
+        add-and-delete-only contract rather than being stricter than it.
+        """
+        readonly = list(super().get_readonly_fields(request, obj))
+        if obj is not None and 'event' not in readonly:
+            readonly.append('event')
+        return readonly
+
     @admin.display(description='Event start', ordering='event__start_time')
     def event_start(self, obj):
         """Return the owning CalendarEvent's start time for the changelist column."""
