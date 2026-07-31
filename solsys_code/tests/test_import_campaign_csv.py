@@ -1357,3 +1357,374 @@ class TestImportCampaignCsv(_WriteCsvMixin, TestCase):
 
         self.assertIn('Telescope / Instrument', str(ctx.exception))
         self.assertEqual(CampaignRun.objects.count(), 0)
+
+
+class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
+    """Criterion 5 (WR-01): a CSV re-import must not silently revert a site that
+    ``repair_stale_campaign_run_sites`` already fixed, and must never blank a non-blank
+    ``telescope_class``. These tests are the executable form of the runbook's "Re-import
+    gotcha" note -- the note and this class must not be allowed to drift apart.
+
+    Every test here seeds any ``Observatory`` it needs directly so ``resolve_site()`` hits
+    tier 1 and never reaches the network, following the
+    ``test_resolve_site_existing_observatory_hit`` precedent -- except case 3, which
+    deliberately drives ``resolve_site()`` to its tier-3 placeholder path using the same
+    ``@patch('requests.get')`` miss-response idiom as
+    ``test_resolve_site_mpc_miss_creates_placeholder``.
+    """
+
+    def test_reimport_preserves_repaired_site_when_csv_cell_does_not_resolve(self):
+        """Case 1 (the whole point): a blank Site Code cell must not revert a site that
+        repair_stale_campaign_run_sites already resolved.
+        """
+        Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run = CampaignRun.objects.first()
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+
+        # Simulate repair_stale_campaign_run_sites (D-16b): resolve the site and clear the
+        # review flag out of band, the same way the repair command does.
+        repaired_obs = Observatory.objects.get(obscode='F65')
+        run.site = repaired_obs
+        run.site_raw = 'F65'
+        run.site_needs_review = False
+        run.save(update_fields=['site', 'site_raw', 'site_needs_review'])
+
+        # Re-import the SAME CSV -- Site Code is still blank, so it cannot re-derive F65.
+        path2, ctx2 = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx2:
+            call_command(
+                'import_campaign_csv',
+                '--campaign',
+                'Test Campaign',
+                path2,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.site, repaired_obs)
+        self.assertEqual(run.site_raw, 'F65')
+        self.assertFalse(run.site_needs_review)
+
+    def test_reimport_genuine_correction_still_lands(self):
+        """Case 2: a corrected, resolvable Site Code cell must still win -- the guard is
+        narrow, not a blanket freeze.
+        """
+        obs_f65 = Observatory.objects.create(
+            obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055
+        )
+        obs_309 = Observatory.objects.create(
+            obscode='309', name='Paranal', short_name='VLT', lat=-24.6, lon=-70.4, altitude=2635
+        )
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=obs_f65,
+            site_raw='F65',
+            site_needs_review=False,
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '309',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.site, obs_309)
+        self.assertEqual(run.site_raw, '309')
+        self.assertFalse(run.site_needs_review)
+
+    @patch('requests.get')
+    def test_reimport_placeholder_resolution_does_not_count(self, mock_get):
+        """Case 3: a tier-3 placeholder (site is not None, but site_resolution_failed is
+        True) is not a genuine resolution -- the original resolved site must survive.
+        """
+        mock_response = MagicMock(ok=False, status_code=501)
+        mock_response.json.return_value = {'error': 'input_error', 'message': "obscodes failed: No obscode 'Z99'"}
+        mock_get.return_value = mock_response
+
+        obs_f65 = Observatory.objects.create(
+            obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055
+        )
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=obs_f65,
+            site_raw='F65',
+            site_needs_review=False,
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': 'Z99',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.site, obs_f65)
+        self.assertEqual(run.site_raw, 'F65')
+        self.assertFalse(run.site_needs_review)
+
+    def test_new_row_unaffected_by_guard(self):
+        """Case 4: the guard must never fire on a create -- a brand-new row with a blank
+        Site Code still lands as unresolved/needs-review, exactly as before this plan.
+        """
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        # Deliberately no aperture-class-matching phrase (e.g. no
+                        # digit+'m'), so derive_telescope_class() returns '' and the row is
+                        # genuinely a site-resolution failure with nothing explaining it --
+                        # otherwise a non-blank telescope_class would answer "why is there
+                        # no site" and site_needs_review would be False regardless of the
+                        # guard under test.
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-11',
+                        'UT Time Range': '09:00 - 09:30',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run = CampaignRun.objects.first()
+        self.assertIsNone(run.site)
+        self.assertTrue(run.site_needs_review)
+
+    def test_unresolved_existing_row_still_updated(self):
+        """Case 5: an existing row with no site to protect (site is None) is still updated
+        as before -- the guard's `existing.site_id is not None` condition never fires here.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=None,
+            site_raw='',
+            site_needs_review=True,
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertTrue(run.site_needs_review)
+
+    def test_telescope_class_never_blanked_by_reimport(self):
+        """Case 6: a non-blank telescope_class must never be blanked by a re-import, even
+        when the CSV's Site Code cell resolves and the importer would otherwise compute
+        telescope_class='' -- both facts (resolved site, preserved class) coexist, per
+        solsys_code/models.py:207-219.
+        """
+        obs_705 = Observatory.objects.create(
+            obscode='705', name='SOAR', short_name='SOAR', lat=-30.2, lon=-70.7, altitude=2738
+        )
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m network',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=None,
+            site_raw='',
+            site_needs_review=False,
+            telescope_class='1m0',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'LCO 1m network',
+                        'Site Code': '705',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.telescope_class, '1m0')
+        self.assertEqual(run.site, obs_705)
+
+    def test_web_carveout_unchanged_by_new_pops(self):
+        """Case 7 (regression guard): the pre-existing WEB carve-out lives in the same
+        guard block as the new pops and must not be disturbed by them.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        web_run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='Generic 1m robotic telescope',
+            window_start=date(2025, 7, 11),
+            window_end=date(2025, 7, 11),
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'Generic 1m robotic telescope',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-11',
+                        'UT Time Range': '09:00 - 09:30',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        web_run.refresh_from_db()
+        self.assertEqual(web_run.source, CampaignRun.Source.WEB)
+        self.assertEqual(web_run.approval_status, CampaignRun.ApprovalStatus.PENDING_REVIEW)
+
+    def test_summary_counter_reports_only_written_flags(self):
+        """Case 8: the site_needs_review summary counter must report only flags the
+        command actually wrote -- a preserved row's CSV cell still failed to resolve, but
+        no flag was written, so the count must not include it.
+        """
+        Observatory.objects.create(obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055)
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run = CampaignRun.objects.first()
+        repaired_obs = Observatory.objects.get(obscode='F65')
+        run.site = repaired_obs
+        run.site_raw = 'F65'
+        run.site_needs_review = False
+        run.save(update_fields=['site', 'site_raw', 'site_needs_review'])
+
+        path2, ctx2 = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        stdout = io.StringIO()
+        with ctx2:
+            call_command(
+                'import_campaign_csv',
+                '--campaign',
+                'Test Campaign',
+                path2,
+                stdout=stdout,
+                stderr=io.StringIO(),
+            )
+
+        self.assertIn('site_needs_review: 0', stdout.getvalue())
