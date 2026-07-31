@@ -128,9 +128,41 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
     inlines = [CalendarEventMetaInline, CampaignRunObservationInline]
     # approval_status must stay read-only here: its transition triggers the calendar-
     # projection side effect and the D-06 clobber guard that live in
-    # CampaignRunDecisionView.post(), not on the model. source is deliberately NOT added
-    # here (D-19) -- it has no such side-effecting transition, so the omission is a decision.
+    # CampaignRunDecisionView.post(), not on the model. source stays editable by default
+    # here (D-19) -- it has no such side-effecting transition, so the class-level omission
+    # is a decision, not an oversight. get_readonly_fields below narrows this further:
+    # source is withheld only on the one instance-level combination (APPROVED + WEB) where
+    # overwriting it destroys the CANON-01 provenance signal rather than merely
+    # mislabelling a row (27.1-02 criterion 6, option (a)). Django excludes readonly
+    # fields from the generated ModelForm entirely, so a POSTed source value on such a row
+    # cannot bind -- it is not merely ignored on render.
     readonly_fields = ['approval_status']
+
+    def get_readonly_fields(self, request, obj=None):
+        """Withhold `source` on an already-approved WEB run only (27.1-02 criterion 6).
+
+        `obj is not None` keeps the add form unaffected -- there is no approved WEB row to
+        protect yet. Every other row (pending/rejected WEB, and any non-WEB row of any
+        approval status) keeps `source` editable, preserving D-19's correction use case.
+        """
+        readonly = list(super().get_readonly_fields(request, obj))
+        if (
+            obj is not None
+            and obj.source == CampaignRun.Source.WEB
+            and obj.approval_status == CampaignRun.ApprovalStatus.APPROVED
+        ):
+            readonly.append('source')
+        return readonly
+
+    def get_queryset(self, request):
+        """select_related the FKs `CampaignRun.__str__` now dereferences (Task 1).
+
+        Not cosmetic: Django's `AutocompleteJsonView` calls the target ModelAdmin's
+        `get_queryset()` and then `str()` on each result, so without this every
+        autocomplete keystroke costs two extra queries per result row. `list_select_related`
+        would not cover this -- the autocomplete endpoint does not read it.
+        """
+        return super().get_queryset(request).select_related('campaign', 'site')
 
     def save_formset(self, request, form, formset, change):
         """D-07: stamp confirmed_by/confirmed_at on newly created CampaignRunObservation
@@ -168,9 +200,21 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
 
 
 class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
-    list_display = ['event', 'is_verified']
+    list_display = ['event', 'event_start', 'is_verified', 'run']
     list_filter = ['is_verified']
     search_fields = ['event__title']
+    # 27.1-02 criterion 4: a search box instead of a 44-option flat <select> for the run
+    # picker -- safe because CampaignRunAdmin.search_fields already exists, which is what
+    # Django's admin.E040 check requires.
+    autocomplete_fields = ['run']
+    # Covers the new event_start column and CampaignRun.__str__'s campaign/site
+    # dereferences (Task 1), so an 11-row changelist does not turn into 30+ queries.
+    list_select_related = ['event', 'run', 'run__campaign', 'run__site']
+
+    @admin.display(description='Event start', ordering='event__start_time')
+    def event_start(self, obj):
+        """Return the owning CalendarEvent's start time for the changelist column."""
+        return obj.event.start_time
 
 
 class TargetAdmin(admin.ModelAdmin):  # noqa: D101
