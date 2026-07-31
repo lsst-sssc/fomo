@@ -12,14 +12,18 @@ admin test client rather than by eyeballing the ModelAdmin class definitions:
   CampaignRunObservationInline are reachable on the CampaignRun change page,
   CampaignRunAdmin.save_formset stamps confirmed_by/confirmed_at on newly created
   CampaignRunObservation rows only, and the source/telescope_class list_filter entries work.
+- Plan 27.1-02 (criteria 4/6): CampaignRun/CalendarEventMeta label distinguishability
+  against the real 11-row companion-record shape, the CalendarEventMetaAdmin.run
+  autocomplete endpoint, and the source provenance lock on an already-approved WEB run.
 """
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib import admin as django_admin
 from django.contrib.auth.models import User
+from django.forms.models import model_to_dict
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
@@ -29,6 +33,7 @@ from tom_targets.tests.factories import NonSiderealTargetFactory, SiderealTarget
 
 from solsys_code.admin import CalendarEventMetaInline, CampaignRunAdmin, CampaignRunObservationInline
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
+from solsys_code.solsys_code_observatory.models import Observatory
 
 PII_CONTACT_PERSON = 'Zztestcontact'
 PII_CONTACT_EMAIL = 'pii-secret@example.test'
@@ -342,3 +347,285 @@ class CampaignRunAdminInlinesTests(TestCase):
             reverse('admin:solsys_code_campaignrun_changelist'), {'telescope_class': CampaignRun.TelescopeClass.ONE_M0}
         )
         self.assertEqual(response.status_code, 200)
+
+
+class CalendarEventMetaLabelLegibilityTests(TestCase):
+    """27.1-02 criterion 4: CalendarEventMeta.__str__ against the real 11-row companion-record
+    shape measured from the live dev DB. 7 of the 11 titles are byte-identical, which is what
+    made the picker unusable before Task 1's fix -- the event start date is load-bearing.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='calmeta-label-admin', email='calmeta-label@example.test', password='pw'
+        )
+        # (title, start_date) pairs measured from the live dev DB (2026-07-30).
+        fixture_rows = [
+            ('[CANCELLED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 7)),
+            ('COJ-2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 8)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 10)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 11)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 12)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 14)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 16)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 17)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 18)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 20)),
+            ('2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 19)),
+        ]
+        assert len(fixture_rows) == 11
+        for title, start_date in fixture_rows:
+            event = CalendarEvent.objects.create(
+                title=title,
+                start_time=datetime(start_date.year, start_date.month, start_date.day, 22, 0, tzinfo=dt_timezone.utc),
+                end_time=datetime(start_date.year, start_date.month, start_date.day, 23, 0, tzinfo=dt_timezone.utc),
+            )
+            CalendarEventMeta.objects.create(event=event, is_verified=True)
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_11_companion_rows_have_11_distinct_labels(self) -> None:
+        self.assertEqual(len({str(m) for m in CalendarEventMeta.objects.all()}), 11)
+
+    def test_pre_fix_title_alone_would_have_collided(self) -> None:
+        """Documents why the date is load-bearing: the event title alone is not distinct
+        across all 11 rows (7 share the identical [EXPIRED] title)."""
+        self.assertLess(len({m.event.title for m in CalendarEventMeta.objects.all()}), 11)
+
+    def test_changelist_renders_a_date_staff_can_scan_by(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_changelist'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('2026-07-07', response.content.decode())
+
+
+class CampaignRunLabelLegibilityTests(TestCase):
+    """27.1-02 criterion 4: CampaignRun.__str__ covers every site_label branch and the real
+    pk 27/28 TBD-collision case."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='camprun-label-admin', email='camprun-label@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='Label Legibility Campaign')
+        cls.observatory = Observatory.objects.create(
+            obscode='TST1',
+            name='Label Legibility Test Site',
+            short_name='LLTS',
+            lat=1.0,
+            lon=2.0,
+            altitude=100.0,
+        )
+        cls.site_resolved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-site-resolved',
+            window_start=date(2026, 1, 1),
+            window_end=date(2026, 1, 1),
+            site=cls.observatory,
+        )
+        cls.classed_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-classed',
+            window_start=date(2026, 1, 2),
+            window_end=date(2026, 1, 2),
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
+        cls.site_raw_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-site-raw',
+            window_start=date(2026, 1, 3),
+            window_end=date(2026, 1, 3),
+            site_raw='Some Unresolved Site Text',
+        )
+        cls.bare_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-bare',
+            window_start=date(2026, 1, 4),
+            window_end=date(2026, 1, 4),
+        )
+        # The real pk 27/28 collision: same campaign, same telescope_instrument, both TBD --
+        # only distinguishable via pk and (per the TBD natural-key constraint) contact_person.
+        cls.tbd_run_1 = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='JWST',
+            contact_person='Label Test Contact A',
+        )
+        cls.tbd_run_2 = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='JWST',
+            contact_person='Label Test Contact B',
+        )
+        cls.pii_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-pii',
+            window_start=date(2026, 1, 5),
+            window_end=date(2026, 1, 5),
+            contact_person=PII_CONTACT_PERSON,
+            contact_email=PII_CONTACT_EMAIL,
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def _all_runs(self):
+        return [
+            self.site_resolved_run,
+            self.classed_run,
+            self.site_raw_run,
+            self.bare_run,
+            self.tbd_run_1,
+            self.tbd_run_2,
+            self.pii_run,
+        ]
+
+    def test_all_labels_distinct_and_none_contains_the_literal_none(self) -> None:
+        labels = [str(r) for r in self._all_runs()]
+        self.assertEqual(len(set(labels)), len(labels))
+        for label in labels:
+            self.assertNotIn('None', label)
+
+    def test_tbd_runs_labelled_tbd_and_distinguishable(self) -> None:
+        label_1 = str(self.tbd_run_1)
+        label_2 = str(self.tbd_run_2)
+        self.assertIn('TBD', label_1)
+        self.assertIn('TBD', label_2)
+        self.assertNotEqual(label_1, label_2)
+
+    def test_site_resolved_label_contains_obscode(self) -> None:
+        self.assertIn(self.observatory.obscode, str(self.site_resolved_run))
+
+    def test_classed_run_label_contains_class_discriminator(self) -> None:
+        self.assertIn('class 1m0', str(self.classed_run))
+
+    def test_site_raw_run_label_contains_raw_discriminator(self) -> None:
+        self.assertIn('raw ', str(self.site_raw_run))
+
+    def test_bare_run_label_contains_no_site(self) -> None:
+        self.assertIn('no site', str(self.bare_run))
+
+    def test_pii_run_label_excludes_contact_fields(self) -> None:
+        label = str(self.pii_run)
+        self.assertNotIn(PII_CONTACT_PERSON, label)
+        self.assertNotIn(PII_CONTACT_EMAIL, label)
+
+    def test_autocomplete_endpoint_resolves_with_discriminating_text_and_no_pii(self) -> None:
+        """The picker the UAT gap's second 'missing' item asks for: a search box, not a
+        44-option flat <select>."""
+        response = self.client.get(
+            reverse('admin:autocomplete'),
+            {
+                'app_label': 'solsys_code',
+                'model_name': 'calendareventmeta',
+                'field_name': 'run',
+                'term': 'FTN-pii',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        results = payload['results']
+        self.assertTrue(results)
+        self.assertTrue(any('FTN-pii' in result['text'] for result in results))
+        self.assertFalse(any(PII_CONTACT_PERSON in result['text'] for result in results))
+
+
+class SourceProvenanceLockTests(TestCase):
+    """27.1-02 criterion 6, option (a): `source` becomes non-overwritable on an
+    already-approved WEB run, and stays editable everywhere else (D-19 preserved)."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='source-lock-admin', email='source-lock@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='Source Lock Campaign')
+        cls.approved_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Approved-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Pending-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        cls.rejected_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Rejected-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.REJECTED,
+        )
+        cls.approved_legacy = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Approved-Legacy',
+            source=CampaignRun.Source.LEGACY,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+        self.factory = RequestFactory()
+        self.admin_obj = CampaignRunAdmin(CampaignRun, django_admin.site)
+
+    def _staff_request(self):
+        request = self.factory.get(reverse('admin:solsys_code_campaignrun_changelist'))
+        request.user = self.superuser
+        return request
+
+    def test_source_withheld_only_on_approved_web(self) -> None:
+        request = self._staff_request()
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.approved_web))
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.pending_web))
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.rejected_web))
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.approved_legacy))
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, None))
+
+    def test_approval_status_lock_survives_for_all_four(self) -> None:
+        request = self._staff_request()
+        for obj in (self.approved_web, self.pending_web, self.rejected_web, self.approved_legacy, None):
+            self.assertIn('approval_status', self.admin_obj.get_readonly_fields(request, obj))
+
+    def test_source_field_absent_from_generated_form_only_on_approved_web(self) -> None:
+        request = self._staff_request()
+        approved_form = self.admin_obj.get_form(request, obj=self.approved_web, change=True)
+        pending_form = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
+        self.assertNotIn('source', approved_form.base_fields)
+        self.assertIn('source', pending_form.base_fields)
+
+    def test_submitted_source_value_cannot_bind_on_approved_web(self) -> None:
+        """End-to-end: a POSTed source value on an approved WEB run cannot bind, since
+        Django excludes readonly fields from the generated ModelForm entirely."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.approved_web, change=True)
+        data = model_to_dict(self.approved_web, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.approved_web)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.approved_web.refresh_from_db()
+        self.assertEqual(self.approved_web.source, CampaignRun.Source.WEB)
+
+    def test_submitted_source_value_does_bind_on_pending_web(self) -> None:
+        """The lock is scoped, not blanket: the same write against a pending WEB row
+        succeeds, proving D-19's correction use case survives."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
+        data = model_to_dict(self.pending_web, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.pending_web)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.pending_web.refresh_from_db()
+        self.assertEqual(self.pending_web.source, CampaignRun.Source.CSV_IMPORT)
+
+    def test_change_page_omits_source_field_only_on_approved_web(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.approved_web.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="source"', response.content.decode())
+
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.pending_web.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="source"', response.content.decode())
