@@ -143,15 +143,29 @@ class CalendarEventMetaStandaloneAdminPkFreezeTests(TestCase):
         self.assertIn('name="event"', response.content.decode())
 
     def test_posting_a_different_event_pk_does_not_duplicate_the_row(self) -> None:
-        """The reproduction case: one row in, one row out, still pointing at its own event."""
-        self.client.post(
+        """The reproduction case: one row in, one row out, still pointing at its own event.
+
+        WR-08: the response and a genuinely-changed editable field are both asserted, because
+        every "nothing was duplicated" assertion below is equally satisfied by a POST that
+        403'd, 500'd, or re-rendered the change form with errors and saved nothing. Without
+        those two checks this test cannot tell "the pk freeze held" from "the write path was
+        never reached", and a future change that breaks the change view outright would leave
+        it green.
+        """
+        response = self.client.post(
             reverse('admin:solsys_code_calendareventmeta_change', args=[self.original_event.pk]),
-            {'event': str(self.other_event.pk), 'is_verified': 'on', '_continue': 'Save and continue editing'},
+            {'event': str(self.other_event.pk), 'is_verified': '', '_save': 'Save'},
         )
 
+        # 302 = the admin processed the save and redirected, rather than re-rendering the
+        # form (200) or refusing the request.
+        self.assertEqual(response.status_code, 302)
         self.assertEqual(CalendarEventMeta.objects.count(), 1)
         self.meta.refresh_from_db()
         self.assertEqual(self.meta.event_id, self.original_event.pk)
+        # is_verified started True (setUpTestData); it is False now only if the form really
+        # saved -- so the pk freeze held on a POST that genuinely wrote.
+        self.assertFalse(self.meta.is_verified)
         self.assertFalse(CalendarEventMeta.objects.filter(event=self.other_event).exists())
 
 
