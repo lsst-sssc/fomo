@@ -108,7 +108,7 @@
 
 - [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events) (completed 2026-07-27)
 - [x] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link (completed 2026-07-30)
-- [ ] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair (all 4 plans executed 2026-07-31; verification 5/6 — criterion 6 gap open, gap-closure plan 27.1-05 planned and awaiting execution, see 27.1-VERIFICATION.md)
+- [x] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair (plans 27.1-01..04 executed 2026-07-31; verification scored 5/6 with criterion 6 open, closed by gap-closure plan 27.1-05 — the `source` provenance lock widened to every `WEB` run at any approval status, see 27.1-VERIFICATION.md) (completed 2026-07-31)
 - [ ] **Phase 28: Operator-Assisted Attribution** - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
 - [ ] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear
 
@@ -214,7 +214,7 @@ Plans:
   5. A CSV re-import cannot silently revert a site just fixed by `repair_stale_campaign_run_sites`, and the rule chosen is written into the runbook's existing re-import note
   6. `source` cannot be silently overwritten on an already-approved `WEB` run — or, if it stays editable, the deliberate decision records its consequence (loss of the CANON-01 provenance signal), not just its rationale
 
-**Plans:** 4/5 plans complete
+**Plans:** 5/5 plans complete
 
 Plans:
 
@@ -230,7 +230,7 @@ Plans:
 
 **Wave 3** *(gap closure — blocked on 27.1-02 (extends its `source` lock) and on 27.1-04 (both edit `docs/runbooks/telescope_runs_calendar.rst`))*
 
-- [ ] 27.1-05-PLAN.md — Criterion 6 closed by Option A: the `source` provenance lock widened to every `WEB` run at any approval status (parity with `import_campaign_csv`'s existing carve-out), the WR-03 edit-while-pending-then-approve sequence pinned by a cross-path regression test, and the accepted cost plus the one-way-ratchet residual written into both the admin docstring and the runbook (criterion 6)
+- [x] 27.1-05-PLAN.md — Criterion 6 closed by Option A: the `source` provenance lock widened to every `WEB` run at any approval status (parity with `import_campaign_csv`'s existing carve-out), the WR-03 edit-while-pending-then-approve sequence pinned by a cross-path regression test, and the accepted cost plus the one-way-ratchet residual written into both the admin docstring and the runbook (criterion 6)
 
 ### Phase 28: Operator-Assisted Attribution
 

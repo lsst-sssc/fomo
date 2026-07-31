@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
-stopped_at: Phase 27.1 gap-closure plan 27.1-05 ready to execute
-last_updated: "2026-07-31T19:58:03.839Z"
-last_activity: 2026-07-31 -- Phase 27.1 criterion-6 gap planned (27.1-05-PLAN.md), plan-checker passed
+stopped_at: Completed 27.1-05-PLAN.md — all 5 Phase 27.1 plans executed, awaiting verification
+last_updated: "2026-07-31T20:38:00.399Z"
+last_activity: 2026-07-31 -- Phase 27.1 wave 3 executed (27.1-05, criterion-6 gap closure)
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 16
-  completed_plans: 11
+  completed_plans: 15
   percent: 40
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 ## Current Position
 
-Phase: 27.1 (close-gap-staff-surfaces-and-data-integrity-risks-from-the-c) — GAP CLOSURE PLANNED
-Plan: 4 of 5 executed — 27.1-05 (criterion 6) ready to execute
-Status: Ready to execute 27.1-05-PLAN.md — widens the `source` provenance lock to key on `source == WEB` alone
-Last activity: 2026-07-31 -- Phase 27.1 criterion-6 gap planned (27.1-05-PLAN.md), plan-checker passed
+Phase: 27.1 (close-gap-staff-surfaces-and-data-integrity-risks-from-the-c) — EXECUTED, AWAITING VERIFICATION
+Plan: 5 of 5 executed
+Status: Wave 3 complete — 27.1-05 widened the `source` provenance lock to every `WEB` run at any approval status, closing criterion 6
+Last activity: 2026-07-31 -- Phase 27.1 wave 3 executed (27.1-05, criterion-6 gap closure)
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
