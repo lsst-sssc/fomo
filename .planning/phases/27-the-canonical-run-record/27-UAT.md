@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 phase: 27-the-canonical-run-record
 source: 27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, quick/260730-jty-SUMMARY.md
 started: 2026-07-30T22:40:00Z
-updated: 2026-07-30T23:10:00Z
+updated: 2026-07-31T15:40:00Z
 ---
 
 ## Current Test
@@ -72,7 +72,7 @@ gaps: 3
 ## Gaps
 
 - truth: "Staff can reach the Sites Needing Review queue to see that class-wide and space runs are no longer flagged"
-  status: failed
+  status: resolved
   reason: "User reported: no approval queue visible in any of the 4 campaigns"
   severity: major
   test: 2
@@ -89,7 +89,7 @@ gaps: 3
   debug_session: ""
 
 - truth: "The calendar event modal shows a clean link back to its owning run, with no template internals visible"
-  status: failed
+  status: resolved
   reason: "User reported: clicking the July 7 event reveals a whole bunch of what might be template comments, starting {# FOMO override of the upstream tom_calendar partial ... #}"
   severity: major
   test: 6
@@ -104,7 +104,7 @@ gaps: 3
   debug_session: ""
 
 - truth: "Staff can identify and select the correct run when hand-linking a CalendarEventMeta row"
-  status: failed
+  status: resolved
   reason: "User reported: selecting the right Run is difficult as almost all of the 11 events have the save [same] name with no date"
   severity: minor
   test: 6
