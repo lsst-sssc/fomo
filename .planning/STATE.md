@@ -4,14 +4,14 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
 stopped_at: Completed 27-06-PLAN.md
-last_updated: "2026-07-31T13:29:46.124Z"
-last_activity: 2026-07-30 - Inserted Phase 27.1 to close Phase 27's UAT gaps and review-flagged data risks before Phase 28
+last_updated: "2026-07-31T13:44:19.249Z"
+last_activity: 2026-07-31 -- Phase 27.1 execution started
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 2
-  total_plans: 11
+  total_plans: 15
   completed_plans: 11
-  percent: 50
+  percent: 40
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 28 — operator-assisted-attribution
+**Current focus:** Phase 27.1 — close-gap-staff-surfaces-and-data-integrity-risks-from-the-c
 
 ## Current Position
 
-Phase: 27.1
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-30 - Inserted Phase 27.1 to close Phase 27's UAT gaps and review-flagged data risks before Phase 28
+Phase: 27.1 (close-gap-staff-surfaces-and-data-integrity-risks-from-the-c) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 27.1
+Last activity: 2026-07-31 -- Phase 27.1 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 

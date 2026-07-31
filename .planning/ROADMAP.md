@@ -214,15 +214,15 @@ Plans:
   5. A CSV re-import cannot silently revert a site just fixed by `repair_stale_campaign_run_sites`, and the rule chosen is written into the runbook's existing re-import note
   6. `source` cannot be silently overwritten on an already-approved `WEB` run — or, if it stays editable, the deliberate decision records its consequence (loss of the CANON-01 provenance signal), not just its rationale
 
-**Plans:** 4 plans
+**Plans:** 3/4 plans executed
 
 Plans:
 
 **Wave 1** *(no file overlap -- executable in parallel)*
 
-- [ ] 27.1-01-PLAN.md — Calendar event modal renders cleanly: all three multi-line `{# #}` blocks converted, the TBD-run `(None-None)` window gated, and render-level + template-tree sweep regression tests (criteria 2, 3)
-- [ ] 27.1-02-PLAN.md — Admin FK picker legibility and the `source` provenance lock: discriminating `__str__` on both models, autocomplete + event-start column, and `source` withheld on already-approved WEB rows (criteria 4, 6)
-- [ ] 27.1-03-PLAN.md — Staff can reach the "Sites Needing Review" queue: one shared `runs_needing_site_review()` definition, a campaign-list banner driven by either queue, and the runbook's two-queue entry-point section (criterion 1)
+- [x] 27.1-01-PLAN.md — Calendar event modal renders cleanly: all three multi-line `{# #}` blocks converted, the TBD-run `(None-None)` window gated, and render-level + template-tree sweep regression tests (criteria 2, 3)
+- [x] 27.1-02-PLAN.md — Admin FK picker legibility and the `source` provenance lock: discriminating `__str__` on both models, autocomplete + event-start column, and `source` withheld on already-approved WEB rows (criteria 4, 6)
+- [x] 27.1-03-PLAN.md — Staff can reach the "Sites Needing Review" queue: one shared `runs_needing_site_review()` definition, a campaign-list banner driven by either queue, and the runbook's two-queue entry-point section (criterion 1)
 
 **Wave 2** *(blocked on 27.1-03 -- both plans edit `docs/runbooks/telescope_runs_calendar.rst`)*
 
