@@ -35,7 +35,10 @@ class Command(BaseCommand):
         'to `target` after a previous import will be silently overwritten on re-import (WR-07). '
         'A row already carrying source=web (created by the public submission form) keeps its own '
         'source and approval_status on re-import (WR-01); all its other fields are still '
-        'overwritten from the CSV.'
+        'overwritten from the CSV. A row whose site is already resolved keeps its site, '
+        "site_raw and site_needs_review when the CSV's Site Code cell does not resolve, so a "
+        'repair made by repair_stale_campaign_run_sites cannot be silently reverted by a '
+        're-import; a non-blank telescope_class is never blanked by a re-import either.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -210,8 +213,6 @@ class Command(BaseCommand):
             # this form preserves the placeholder case, which the literal form would silently
             # unflag.
             needs_review = site_resolution_failed and not telescope_class
-            if needs_review:
-                site_needs_review_count += 1
 
             fields = {
                 # WR-07: unconditionally reset to auto_target on every run, including
@@ -276,6 +277,43 @@ class Command(BaseCommand):
             if existing is not None and existing.source == CampaignRun.Source.WEB:
                 fields.pop('source', None)
                 fields.pop('approval_status', None)
+
+            # WR-01 (criterion 5): a re-import must not silently revert a site that
+            # repair_stale_campaign_run_sites already fixed. When the existing row already
+            # carries a resolved site (existing.site_id is not None) and the CSV's own Site
+            # Code cell did NOT genuinely resolve this time -- either resolve_site() returned
+            # no Observatory at all (site is None) or it returned a tier-3 placeholder
+            # (site_resolution_failed True, which this call site can hit because it runs with
+            # its default create_placeholder=True) -- drop site, site_raw and
+            # site_needs_review from fields as a unit. They are preserved together, never
+            # individually: keeping site while reverting site_raw would leave the row's
+            # recorded provenance contradicting its resolved site, and
+            # repair_stale_campaign_run_sites deliberately corrects site_raw too (D-16b), so
+            # site_raw is exactly as repairable as site. A CSV cell that DOES genuinely
+            # resolve still wins -- this guard only blocks the case that produced the stale
+            # row in the first place: an unresolvable cell trying to overwrite something
+            # better.
+            if existing is not None and existing.site_id is not None and (site is None or site_resolution_failed):
+                fields.pop('site', None)
+                fields.pop('site_raw', None)
+                fields.pop('site_needs_review', None)
+
+            # telescope_class is NEVER cleared by any writer once set
+            # (solsys_code/models.py:207-219) -- Phase 27 code-review finding CR-01 proposed
+            # clearing it here on site resolution and the user REJECTED CR-01
+            # (27-REVIEW-FIX.md). Without this pop a re-import whose Site Code cell resolves
+            # would write telescope_class='' over a non-blank value (see the
+            # `telescope_class = ... if site is None else ''` computation above).
+            if existing is not None and existing.telescope_class and not telescope_class:
+                fields.pop('telescope_class', None)
+
+            # WR-04 (criterion 5): the summary must report only flags this command actually
+            # wrote. If the site-preservation guard above popped `site_needs_review` from
+            # `fields`, the value it would have written is moot -- count it only when it is
+            # still present, i.e. still going to be written (as a create, or as an update
+            # where the guard did not fire).
+            if 'site_needs_review' in fields and needs_review:
+                site_needs_review_count += 1
 
             run, action = insert_or_create_campaign_run(lookup, fields)
             if action == 'created':
