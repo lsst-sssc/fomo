@@ -147,6 +147,40 @@ or is otherwise derived from its Target-of-Opportunity type (a Rapid ToO
 gets a 24-hour window from submission; a Standard ToO gets a 24-hour to
 7-day window).
 
+How do I reach the approval queue?
+---------------------------------------
+
+The approval queue (``campaigns:approval_queue``) hosts **two independent
+work queues**, not one:
+
+* **Pending Review** -- public submissions awaiting a staff approve/reject
+  decision.
+* **Sites Needing Review — action required** -- approved runs whose
+  observing site never resolved and for which no ``telescope_class``
+  explains the absence (quote the card heading verbatim so it's easy to
+  match while scanning the page).
+
+The entry point is the warning banner at the top of ``/campaigns/``,
+visible to staff only. As of this phase, it appears whenever **either**
+queue has rows, and names each count separately -- for example "3
+submissions pending review" and "2 runs needing site review" together, or
+either sentence alone if only one queue has rows.
+
+**Behavior change:** before this phase, the banner was driven by the
+pending-review count alone. With zero pending submissions -- the normal
+steady state -- there was no link to the approval queue at all, even when
+the Sites Needing Review queue was full of actionable rows. If you
+remember the old all-or-nothing banner, this is the fix: either queue
+having rows is now enough to show the banner and its "Review queue" link.
+
+When both queues are empty, the banner does not appear at all; the page
+is still reachable directly by URL.
+
+See "``import_campaign_csv`` unresolved rows" below for *why* a row lands
+in the Sites Needing Review queue in the first place, and "How do I
+re-resolve campaign run sites that have gone stale?" above for the bulk
+alternative to resolving rows one at a time from this page.
+
 How do I mark a run cancelled or weathered-out?
 --------------------------------------------------
 
@@ -425,7 +459,9 @@ summary line, e.g.::
 
 Rows flagged ``site_needs_review`` surface in the approval queue's "Sites
 Needing Review" card so staff can resolve them without re-running the
-import. Only rows with no derivable ``telescope_class`` signal surface
+import -- see the "reach the approval queue" section above for how staff
+get there, including the case where zero submissions are pending review.
+Only rows with no derivable ``telescope_class`` signal surface
 there -- a row whose site failed to resolve but whose instrument text
 names a telescope class or a space observatory is not a genuine resolution
 failure, so it never appears in this queue and there is nothing to
