@@ -1482,8 +1482,9 @@ class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
 
     @patch('requests.get')
     def test_reimport_placeholder_resolution_does_not_count(self, mock_get):
-        """Case 3: a tier-3 placeholder (site is not None, but site_resolution_failed is
-        True) is not a genuine resolution -- the original resolved site must survive.
+        """Case 3: an unresolvable Site Code cell is not a genuine resolution -- the
+        original resolved site must survive, and (WR-02) no orphan placeholder Observatory
+        may be left behind for the discarded code.
         """
         mock_response = MagicMock(ok=False, status_code=501)
         mock_response.json.return_value = {'error': 'input_error', 'message': "obscodes failed: No obscode 'Z99'"}
@@ -1526,6 +1527,66 @@ class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
         self.assertEqual(run.site, obs_f65)
         self.assertEqual(run.site_raw, 'F65')
         self.assertFalse(run.site_needs_review)
+        # WR-02: before this fix, resolve_site() ran with its default
+        # create_placeholder=True and fabricated a 'NEEDS REVIEW: Z99' Observatory that the
+        # preservation guard then popped off `fields`, leaving it linked to nothing --
+        # permanently, since tier 1 matches it for 'Z99' on every later import and
+        # CampaignRunDecisionView._resolve_site()'s cleanup only reclaims a placeholder it
+        # replaces ON a run.
+        self.assertFalse(Observatory.objects.filter(obscode='Z99').exists())
+
+    def test_preserved_row_still_guards_against_a_tier_1_placeholder_hit(self):
+        """WR-02 companion: suppressing tier-3 creation must not weaken the guard when a
+        placeholder for that code already exists.
+
+        `resolve_site()` tier 1 matches any existing Observatory by obscode, including one
+        that is itself a placeholder, and returns `(placeholder, True)` -- so `site` is not
+        None while `site_resolution_failed` is True. That is the branch of `preserve_site`'s
+        `(site is None or site_resolution_failed)` condition that the `site is None` half
+        does not cover, and it survives independently of create_placeholder.
+        """
+        obs_f65 = Observatory.objects.create(
+            obscode='F65', name='FTN', short_name='FTN', lat=20.7, lon=-156.3, altitude=3055
+        )
+        placeholder = Observatory.objects.create(obscode='Z99', name='NEEDS REVIEW: Z99', short_name='Z99')
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=obs_f65,
+            site_raw='F65',
+            site_needs_review=False,
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'FTN/MuSCAT3',
+                        'Site Code': 'Z99',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.site, obs_f65)
+        self.assertEqual(run.site_raw, 'F65')
+        self.assertFalse(run.site_needs_review)
+        # The pre-existing placeholder is untouched -- neither linked to the run nor deleted
+        # by this command (reclaiming it is the staff site-search flow's job, not the
+        # importer's).
+        self.assertTrue(Observatory.objects.filter(pk=placeholder.pk).exists())
 
     def test_new_row_unaffected_by_guard(self):
         """Case 4: the guard must never fire on a create -- a brand-new row with a blank

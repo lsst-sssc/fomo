@@ -190,9 +190,6 @@ class Command(BaseCommand):
                 continue
             seen_window_keys.add(collision_key)
 
-            site_raw = row.get('Site Code', '') or ''
-            site, site_resolution_failed = resolve_site(site_raw)
-
             # Pitfall 2: branch the natural key on whether this row resolved to a window
             # or fell through to TBD -- matches CampaignRun.Meta.constraints' two partial
             # UniqueConstraints exactly (resolved: campaign+telescope_instrument+
@@ -200,6 +197,10 @@ class Command(BaseCommand):
             # CR-01: built HERE, before `fields`, rather than after it. The existing row this
             # finds is what decides whether this row will actually end up site-less, and that
             # in turn gates the telescope_class derivation immediately below.
+            # WR-02: it is also built before resolve_site() runs, because whether this row
+            # will keep an already-resolved site decides whether resolve_site() is even
+            # allowed to fabricate a tier-3 placeholder for it. Nothing in the lookup depends
+            # on the site, so hoisting it is free.
             if window_start is not None:
                 # Resolved-window branch: contact_person is a plain field, not part of
                 # the key -- it goes into `fields` below instead.
@@ -221,6 +222,23 @@ class Command(BaseCommand):
                 }
 
             existing = CampaignRun.objects.filter(**lookup).first()
+
+            site_raw = row.get('Site Code', '') or ''
+            # WR-02: only let tier 3 fabricate a placeholder Observatory when this row could
+            # actually use one. If the existing row already carries a resolved site, the
+            # preservation guard below is going to pop `site` from `fields` anyway, so a
+            # placeholder created here would be linked to nothing -- a permanent orphan (one
+            # per distinct unresolvable Site Code value) that still satisfies
+            # is_placeholder_observatory(), still joins the site-search suggestion pool, and
+            # still wins resolve_site()'s tier 1 for that obscode forever. The cleanup in
+            # CampaignRunDecisionView._resolve_site() cannot reclaim it either: that only
+            # deletes a placeholder it replaces ON a run, and this one is on no run.
+            # resolve_site() then returns (None, True) for the unresolvable code, which is
+            # exactly what `preserve_site` below already treats as "the CSV cell did not
+            # resolve" -- so the guard's decision is unchanged, only the orphan is gone.
+            site, site_resolution_failed = resolve_site(
+                site_raw, create_placeholder=existing is None or existing.site_id is None
+            )
 
             # CR-01: the site-preservation guard (applied to `fields` further down, where its
             # full rationale lives) can decide this row keeps its ALREADY-resolved site, in
