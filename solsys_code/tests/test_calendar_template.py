@@ -594,9 +594,16 @@ class TemplateCommentSyntaxSweepTest(SimpleTestCase):
                     break
                 end = content.find('#}', start + 2)
                 if end == -1:
+                    # WR-05: record the unterminated marker and keep scanning the SAME file
+                    # from just past it. Breaking out here abandoned the rest of the file, so
+                    # a single stray '{#' -- in a JS object literal, a CSS selector, or a
+                    # {% verbatim %} block -- silently disabled this guard for every later
+                    # comment block in that template, which is exactly the content that makes
+                    # the heuristic fire in the first place.
                     line_no = content.count('\n', 0, start) + 1
                     failures.append(f'{html_file}:{line_no}: unterminated "{{#" (no matching "#}}")')
-                    break
+                    search_from = start + 2
+                    continue
                 span = content[start:end]
                 if '\n' in span:
                     line_no = content.count('\n', 0, start) + 1
