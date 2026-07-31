@@ -482,6 +482,94 @@ class TestCampaignListView(CampaignViewTestBase):
         self.assertEqual(response.context['pending_count'], expected_pending)
 
 
+class TestCampaignListSiteReviewEntryPoint(CampaignViewTestBase):
+    """27.1-03: the campaign-list staff banner is driven by either queue -- pending_count or
+    site_review_count -- not pending_count alone (T-27.1-08 mitigation for the widened,
+    NESTED {% if %} gate in campaign_list.html)."""
+
+    def _clear_pending(self):
+        """Approve every PENDING_REVIEW run in the base fixture, so pending_count is 0."""
+        CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW).update(
+            approval_status=CampaignRun.ApprovalStatus.APPROVED
+        )
+
+    def _flag_one_for_site_review(self):
+        """Set site_needs_review=True on one already-APPROVED run, so site_review_count is 1."""
+        run = CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.APPROVED).first()
+        run.site_needs_review = True
+        run.save(update_fields=['site_needs_review'])
+        return run
+
+    def test_staff_zero_pending_one_site_review_row(self):
+        self._clear_pending()
+        self._flag_one_for_site_review()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        # Precondition assertion (plan-mandated): the test must not pass for the wrong reason.
+        self.assertEqual(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 1)
+        self.assertContains(response, reverse('campaigns:approval_queue'))
+        self.assertContains(response, 'needing site review')
+        self.assertNotContains(response, 'pending review')
+
+    def test_staff_some_pending_zero_site_review_rows(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        self.assertGreater(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 0)
+        self.assertContains(response, reverse('campaigns:approval_queue'))
+        self.assertContains(response, 'pending review')
+        self.assertNotContains(response, 'needing site review')
+
+    def test_staff_both_queues_non_empty(self):
+        self._flag_one_for_site_review()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        self.assertGreater(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 1)
+        self.assertContains(response, 'pending review')
+        self.assertContains(response, 'needing site review')
+        self.assertContains(response, reverse('campaigns:approval_queue'), count=1)
+
+    def test_staff_both_queues_empty(self):
+        self._clear_pending()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        self.assertEqual(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 0)
+        self.assertNotContains(response, reverse('campaigns:approval_queue'))
+
+    def test_anonymous_both_queues_non_empty(self):
+        self._flag_one_for_site_review()
+        response = self.client.get(self.list_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('campaigns:approval_queue'))
+        self.assertNotContains(response, 'needing site review')
+        self.assertNotContains(response, 'pending review')
+
+    def test_non_staff_authenticated_both_queues_non_empty(self):
+        self._flag_one_for_site_review()
+        non_staff_user = User.objects.create_user(username='regularvisitor', password='pw', is_staff=False)
+        self.client.force_login(non_staff_user)
+        response = self.client.get(self.list_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('campaigns:approval_queue'))
+        self.assertNotContains(response, 'needing site review')
+        self.assertNotContains(response, 'pending review')
+
+    def test_site_review_count_agrees_with_approval_queue_page(self):
+        """The count shown on the campaign list and the rows the approval queue itself lists
+        come from one definition (runs_needing_site_review()), so they cannot drift apart."""
+        self._flag_one_for_site_review()
+        self.client.force_login(self.staff_user)
+        list_response = self.client.get(self.list_url())
+        queue_response = self.client.get(reverse('campaigns:approval_queue'))
+        self.assertEqual(
+            list_response.context['site_review_count'],
+            len(queue_response.context['review_table'].rows),
+        )
+
+
 class TestNonStaffPendingReviewHidden(CampaignViewTestBase):
     """D-09/SUBMIT-02: non-staff see approved AND rejected rows; only pending_review is hidden."""
 
