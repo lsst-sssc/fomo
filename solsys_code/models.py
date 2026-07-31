@@ -46,7 +46,17 @@ class CalendarEventMeta(models.Model):
     )
 
     def __str__(self):
-        return f'{"Verified" if self.is_verified else "Fallback"} label for {self.event.title}'
+        """Verified/Fallback prefix + event title + event start (Task 1, 27.1-02).
+
+        Measured against the live dev DB (2026-07-30): 7 of the 11 real companion rows
+        share the identical event title ``[EXPIRED] 2m0 2M0-SCICAM-MUSCAT``; their start
+        date-times (2026-07-07 through 2026-07-20) are all distinct, which is what makes
+        the 11 rows distinguishable in the admin changelist and autocomplete. Do not
+        "simplify" the date back out.
+        """
+        prefix = 'Verified' if self.is_verified else 'Fallback'
+        start = self.event.start_time.strftime('%Y-%m-%d %H:%M')
+        return f'{prefix} label for {self.event.title} ({start})'
 
 
 class CampaignRun(models.Model):
@@ -282,7 +292,39 @@ class CampaignRun(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.campaign.name}: {self.telescope_instrument} on {self.window_start}'
+        """Discriminating admin-picker label (Task 1, 27.1-02 / criterion 4).
+
+        Load-bearing: this label is rendered on the Phase 27 WR-03 admin FK picker -- the
+        only mechanism that can create a run<->event link until Phase 28's attribution
+        queue ships -- as well as the `CampaignRunAdmin` changelist, change-form title,
+        delete-confirmation page, admin history `object_repr`, and the
+        `CalendarEventMetaAdmin.run` autocomplete JSON. It is built from four parts so two
+        otherwise-identical rows (e.g. the real dev-DB pks 27/28, both
+        ``3I/ATLAS: JWST on None`` under the old label) are always distinguishable:
+        ``#pk``, campaign name, telescope/instrument, and a window/site discriminator.
+
+        Deliberately excludes the two submitter-contact fields: this label is rendered
+        into surfaces broader than the change form (the changelist and the autocomplete
+        JSON endpoint), and `admin.py`'s T-jpd-02 PII gate must not be undone by widening
+        what `__str__` exposes.
+        """
+        if self.window_start is None:
+            window_label = 'TBD'
+        elif self.window_start == self.window_end:
+            window_label = str(self.window_start)
+        else:
+            window_label = f'{self.window_start}..{self.window_end}'
+
+        if self.site_id is not None:
+            site_label = self.site.obscode
+        elif self.telescope_class:
+            site_label = f'class {self.telescope_class}'
+        elif self.site_raw:
+            site_label = f'raw {self.site_raw}'
+        else:
+            site_label = 'no site'
+
+        return f'#{self.pk} {self.campaign.name} | {self.telescope_instrument} | {window_label} | {site_label}'
 
 
 class CampaignRunObservation(models.Model):
