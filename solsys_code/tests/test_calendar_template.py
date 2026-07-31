@@ -16,9 +16,10 @@ from pathlib import Path
 
 from django.contrib.auth.models import User
 from django.db import connection
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils.formats import date_format
 from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
@@ -453,6 +454,23 @@ class EventModalCampaignRunLinkTest(TestCase):
             end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
         )
 
+        # WR-04: a TBD run (window_start/window_end both NULL) linked to a
+        # publicly-visible event must still render its telescope/instrument and
+        # campaign link, but never the literal "(None-None)" window.
+        cls.tbd_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='TBD Window Scope',
+            window_start=None,
+            window_end=None,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.event_with_tbd_run = CalendarEvent.objects.create(
+            title='Event with TBD-window run',
+            start_time=datetime(2026, 7, 8, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 9, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_tbd_run, run=cls.tbd_run)
+
     def _modal_url(self, event):
         return reverse('calendar:update-event', args=[event.id])
 
@@ -502,3 +520,87 @@ class EventModalCampaignRunLinkTest(TestCase):
         )
         content = template_path.read_text()
         self.assertNotIn('pending_review', content)
+
+    def test_modal_renders_no_django_comment_delimiters(self):
+        """The exact defect the UAT reporter saw: a multi-line {# ... #} block renders
+        literally into the modal instead of being parsed as a comment. Covers both the
+        approved-run modal and the TBD-window modal, since the third comment block sits
+        inside the {% if run.is_publicly_visible %} branch and only that branch's
+        rendering exercises it."""
+        for event in (self.event_with_approved_run, self.event_with_tbd_run):
+            with self.subTest(event=event.title):
+                response = self.client.get(self._modal_url(event))
+                self.assertEqual(response.status_code, 200)
+                content = response.content.decode()
+                self.assertNotIn('{#', content)
+                self.assertNotIn('#}', content)
+                self.assertNotIn('FOMO override of the upstream tom_calendar partial', content)
+
+    def test_calendar_page_renders_no_django_comment_delimiters(self):
+        """Covers FOMO's OTHER tom_calendar override (calendar.html), so the render-level
+        assertion spans both surfaces the phase criterion names, not just the modal."""
+        response = self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 7})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('{#', content)
+        self.assertNotIn('#}', content)
+
+    def test_tbd_run_renders_no_none_window(self):
+        response = self.client.get(self._modal_url(self.event_with_tbd_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('TBD Window Scope', content)
+        self.assertIn(self._campaign_table_href(), content)
+        self.assertNotIn('(None', content)
+        self.assertNotIn('None&ndash;None', content)
+
+    def test_resolved_run_still_renders_its_window(self):
+        """The window render must be byte-identical to before Task 1's Edit B for a run
+        that has a resolved window -- only the TBD case changes."""
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        expected = date_format(date(2026, 7, 4))
+        self.assertIn(f'({expected}&ndash;{expected})', content)
+
+
+class TemplateCommentSyntaxSweepTest(SimpleTestCase):
+    """Repo-wide sweep for the class of defect fixed in event_form.html: Django's
+    {# ... #} comment syntax is single-line only, so a multi-line block renders as
+    literal text instead of being parsed as a comment. This makes the 27-UAT.md
+    grep-based survey a permanent, automated guard rather than a one-off check.
+
+    Scoped to src/templates/ because src/fomo/settings.py:96 names it as the only
+    entry in TEMPLATES[0]['DIRS'], and no installed FOMO app ships its own
+    templates/ directory (APP_DIRS=True is set, but solsys_code/ has no
+    templates/ subdirectory) -- so "anywhere in the repo" and "everything under
+    src/templates/" are the same search space today.
+    """
+
+    def test_no_multiline_django_comment_blocks_in_fomo_templates(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        templates_root = repo_root / 'src' / 'templates'
+        html_files = sorted(templates_root.rglob('*.html'))
+        # Guard against a path typo silently making this test vacuously green.
+        self.assertGreater(len(html_files), 0, f'No .html files found under {templates_root}')
+
+        failures = []
+        for html_file in html_files:
+            content = html_file.read_text()
+            search_from = 0
+            while True:
+                start = content.find('{#', search_from)
+                if start == -1:
+                    break
+                end = content.find('#}', start + 2)
+                if end == -1:
+                    line_no = content.count('\n', 0, start) + 1
+                    failures.append(f'{html_file}:{line_no}: unterminated "{{#" (no matching "#}}")')
+                    break
+                span = content[start:end]
+                if '\n' in span:
+                    line_no = content.count('\n', 0, start) + 1
+                    failures.append(f'{html_file}:{line_no}: multi-line {{# ... #}} block renders literally')
+                search_from = end + 2
+
+        self.assertEqual(failures, [], 'Multi-line Django comment blocks found:\n' + '\n'.join(failures))
