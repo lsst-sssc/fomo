@@ -212,10 +212,10 @@ not ``web`` reads as "no approval was required" -- a different fact -- and
 nothing on the run stores the old value, so overwriting it cannot be undone
 or reconstructed.
 
-What this closes, stated as the sequence an operator would otherwise have
-performed: it used to be possible to
-edit its source while it is still pending and then approve it, which
-reached the same lost-provenance state by a longer route.
+What this closes: it used to be possible to open a ``web`` run while it was
+still pending, change its ``source`` there (the admin allowed it), and then
+approve it. That sequence reached the same lost-provenance state as editing
+an already-approved run, just by a longer route.
 
 Every other run keeps an editable ``source``: ``legacy``, ``csv_import``
 and the queue sources can all still be corrected in the admin, which is
