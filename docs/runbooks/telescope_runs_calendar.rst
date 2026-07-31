@@ -231,6 +231,25 @@ into ``CampaignRun`` rows, one row per CSV line.
    bug -- but it is easy to be surprised by, so re-import deliberately, not
    routinely.
 
+   **Site preservation (Phase 27.1, WR-01):** the exception above no longer
+   stops at ``source``/``approval_status``. A row whose ``site`` is already
+   resolved keeps its ``site``, ``site_raw`` **and** ``site_needs_review``
+   when the CSV's own ``Site Code`` cell does not resolve this time (a blank
+   cell, or one that only reaches the tier-3 placeholder path) -- so
+   re-importing after "How do I re-resolve campaign run sites that have gone
+   stale?" above (``repair_stale_campaign_run_sites``) can no longer silently
+   revert that repair. A ``Site Code`` cell that *does* genuinely resolve
+   still wins, so correcting a wrong code in the sheet and re-importing still
+   moves the site as before. The accepted cost: a site can no longer be
+   *cleared* through a re-import -- clearing one now requires the Django
+   admin or a shell. A non-blank ``telescope_class`` is likewise never
+   blanked by a re-import, consistent with the "it is **permanent**: it is
+   never cleared by any command" sentence in the note below -- before this
+   phase the importer *did* blank it whenever the site resolved, which this
+   guard corrects. The ``site_needs_review`` count in the command's summary
+   line now reports only flags the command actually wrote, so a preserved
+   row no longer inflates it.
+
 .. note::
    **What the command now writes (CANON-01/CANON-02):** every imported row
    records ``source = csv_import`` and is created ``approved`` -- a
@@ -483,7 +502,12 @@ over the same ``--campaign`` always resets every row's ``target`` back to
 its auto-resolved value, and re-applies ``source = csv_import`` and
 ``approval_status = approved``, silently overwriting any manual correction
 made since the previous import. Rows created by the public submission form
-(``source = web``) keep their own ``source`` and ``approval_status``.
+(``source = web``) keep their own ``source`` and ``approval_status``. This
+reset does **not** extend to ``site``/``site_raw``/``site_needs_review`` or
+``telescope_class``, though: as of Phase 27.1, a row whose site is already
+resolved keeps it (and its ``telescope_class``, if any) across a re-import
+whose ``Site Code`` cell does not itself resolve -- see "Site preservation"
+in the re-import gotcha note above.
 
 See also
 -----------
