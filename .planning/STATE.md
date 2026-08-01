@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: "All six success criteria met. Criterion 6 closed by 27.1-05 (the `source` provenance lock now covers every `WEB` run at any approval status, at parity with `import_campaign_csv`'s existing carve-out). Criterion 5's paired demo notebook was regenerated from a clean DB after a contaminated snapshot was found. Open follow-ups are advisory only, recorded in 27.1-REVIEW.md (WR-08 test asserts no response status, WR-09/WR-10 runbook wording) and deferred-items.md. Next: Phase 28 (Operator-Assisted Attribution)"
+status: executing
 stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-01T15:16:55.823Z"
-last_activity: "2026-07-31 -- Phase 27.1 complete: 27.1-05 closed criterion 6, notebook regenerated, verified 6/6"
+last_updated: "2026-08-01T15:31:06.284Z"
+last_activity: 2026-08-01 -- Phase 28 execution started
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 16
+  total_plans: 20
   completed_plans: 16
   percent: 60
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 27.1 — close-gap-staff-surfaces-and-data-integrity-risks-from-the-c
+**Current focus:** Phase 28 — operator-assisted-attribution
 
 ## Current Position
 
-Phase: 27.1 (close-gap-staff-surfaces-and-data-integrity-risks-from-the-c) — COMPLETE, VERIFIED 6/6
-Plan: 5 of 5 executed
-Status: All six success criteria met. Criterion 6 closed by 27.1-05 (the `source` provenance lock now covers every `WEB` run at any approval status, at parity with `import_campaign_csv`'s existing carve-out). Criterion 5's paired demo notebook was regenerated from a clean DB after a contaminated snapshot was found. Open follow-ups are advisory only, recorded in 27.1-REVIEW.md (WR-08 test asserts no response status, WR-09/WR-10 runbook wording) and deferred-items.md. Next: Phase 28 (Operator-Assisted Attribution)
-Last activity: 2026-07-31 -- Phase 27.1 complete: 27.1-05 closed criterion 6, notebook regenerated, verified 6/6
+Phase: 28 (operator-assisted-attribution) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 28
+Last activity: 2026-08-01 -- Phase 28 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
