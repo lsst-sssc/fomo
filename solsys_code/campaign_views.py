@@ -1,14 +1,19 @@
 """Views for the per-campaign table read path (VIEW-01/02/03/04), the public submission write
-path (SUBMIT-01/04/05), and the coverage-gap analysis view (GAP-02).
+path (SUBMIT-01/04/05), the coverage-gap analysis view (GAP-02), and the staff attribution
+worklist (ATTRIB-01..06, 28-CONTEXT.md D-01..D-15).
 
 Views: ``CampaignRunTableView`` (the sortable/paginated/filterable per-campaign table,
 PII-gated at the queryset layer per D-13/VIEW-03), ``CampaignListView`` (D-03's campaigns
-list page), ``CampaignRunSubmissionView`` (the public intake form), and
+list page), ``CampaignRunSubmissionView`` (the public intake form),
 ``CampaignGapAnalysisView`` (GET-triggered, cached, server-side-validated coverage-gap
-analysis). Deliberately does not import ``solsys_code.views`` -- that module imports
+analysis), ``AttributionQueueView`` (the two orphan worklists plus the Dismissed/Confirmed
+sections, D-01/D-04/D-14) and ``AttributionDecisionView`` (the confirm/dismiss/undo POST
+actions, D-09/D-13). Deliberately does not import ``solsys_code.views`` -- that module imports
 ``.ephem_utils`` at module load time, which triggers a ~1.6 GB SPICE kernel download (CLAUDE.md
-"Heavy import side effect"). ``campaign_gap`` is safe to import at module scope here: it only
-depends on ``telescope_runs.sun_event``, never the heavy SPICE-loading ephemeris module.
+"Heavy import side effect"). ``campaign_gap`` and ``campaign_attribution`` are both safe to
+import at module scope here: neither reaches ``solsys_code.views`` or the heavy SPICE-loading
+ephemeris module -- ``campaign_gap`` only depends on ``telescope_runs.sun_event``, and
+``campaign_attribution`` only depends on ``calendar_utils``/``telescope_runs``/the ORM.
 """
 
 import logging
@@ -20,6 +25,7 @@ from datetime import timezone as dt_timezone
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Case, CharField, Count, EmailField, F, Q, Value, When
 from django.http import HttpResponse, HttpResponseBadRequest
@@ -34,6 +40,7 @@ from tom_targets.models import TargetList
 
 from solsys_code.solsys_code_observatory.models import Observatory
 
+from . import campaign_attribution
 from .calendar_utils import insert_or_create_calendar_event
 from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
@@ -48,7 +55,13 @@ from .campaign_utils import (
     substring_or_fuzzy_match_candidates,
 )
 from .mixins import StaffRequiredMixin
-from .models import CampaignRun
+from .models import (
+    CalendarEventDismissal,
+    CalendarEventMeta,
+    CampaignRun,
+    CampaignRunObservation,
+    ObservationRecordDismissal,
+)
 from .telescope_runs import sun_event
 
 logger = logging.getLogger(__name__)
@@ -217,21 +230,23 @@ class CampaignListView(ListView):
     context_object_name = 'campaigns'
 
     def get_context_data(self, **kwargs):
-        """Add the two staff-only banner counts, pending_count and its 27.1-03 sibling
-        (D-01/D-10).
+        """Add the three staff-only banner counts: pending_count, its 27.1-03 sibling, and
+        the Phase 28 attribution-backlog count (D-02).
 
-        Both are computed unconditionally -- the template gates their display on
+        All three are computed unconditionally -- the template gates their display on
         request.user.is_staff, so it's harmless to compute for anonymous/non-staff visitors
         too (D-10: list membership itself is unchanged), and a bare integer discloses nothing
-        on its own. The second count reuses the same shared queryset helper
-        ApprovalQueueView's "Sites Needing Review" table uses, so the two can never drift
-        apart.
+        on its own. The second and third counts each reuse their own single shared queryset
+        helper (``runs_needing_site_review()`` / ``campaign_attribution``'s one shared
+        attribution-backlog-count function) rather than an inline ``.count()``, so the banner
+        and the page each of them drives can never drift apart from the other.
         """
         context = super().get_context_data(**kwargs)
         context['pending_count'] = CampaignRun.objects.filter(
             approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
         ).count()
         context['site_review_count'] = runs_needing_site_review().count()
+        context['attribution_count'] = campaign_attribution.orphans_needing_attribution_count()
         return context
 
 
@@ -1071,3 +1086,115 @@ class SiteSearchView(View):
             'campaigns/partials/site_search_results.html',
             {'candidates': candidates, 'input_id': input_id, 'query': query, 'no_matches_copy': no_matches_copy},
         )
+
+
+_ATTRIBUTION_BANDS = (campaign_attribution.BAND_HIGH, campaign_attribution.BAND_MEDIUM, campaign_attribution.BAND_LOW)
+
+
+def _dismissed_attribution_rows(limit: int = 50) -> list:
+    """D-07/D-14: the Dismissed section's rows -- the union of both dismissal models, newest
+    first, capped and materialized to a plain list.
+
+    Two structurally different models are merged in Python (never a queryset ``.union()``,
+    which requires column-compatible querysets and would still need Python-side re-sorting
+    once combined) -- mirrors ``ApprovalQueueView``'s ``decided_qs`` comment: once two
+    querysets are read into a list and re-sorted, django-tables2 (Plan 28-04) must never be
+    handed anything it might try to re-slice as a queryset.
+
+    Args:
+        limit: maximum rows to return (D-07's collapsed-section cap, matching
+            ``ApprovalQueueView``'s 20-row precedent scaled up for two merged sources).
+
+    Returns:
+        list: dismissal rows (mixed ``CalendarEventDismissal``/``ObservationRecordDismissal``
+            instances) ordered by ``-dismissed_at``, capped at ``limit``.
+    """
+    rows = list(CalendarEventDismissal.objects.select_related('event', 'run__campaign', 'dismissed_by')) + list(
+        ObservationRecordDismissal.objects.select_related('observation_record', 'run__campaign', 'dismissed_by')
+    )
+    rows.sort(key=lambda r: r.dismissed_at or datetime.min.replace(tzinfo=dt_timezone.utc), reverse=True)
+    return rows[:limit]
+
+
+def _confirmed_attribution_rows(limit: int = 50) -> list:
+    """D-14: the Confirmed section's rows -- every owned ``CalendarEventMeta`` row plus every
+    ``CampaignRunObservation`` row, newest first, capped and materialized to a plain list. See
+    ``_dismissed_attribution_rows()``'s docstring for why the merge happens in Python.
+
+    Args:
+        limit: maximum rows to return.
+
+    Returns:
+        list: confirmed rows (mixed ``CalendarEventMeta``/``CampaignRunObservation``
+            instances) ordered by ``-confirmed_at``, capped at ``limit``.
+    """
+    rows = list(
+        CalendarEventMeta.objects.filter(run__isnull=False).select_related('event', 'run__campaign', 'confirmed_by')
+    ) + list(CampaignRunObservation.objects.select_related('observation_record', 'run__campaign', 'confirmed_by'))
+    rows.sort(key=lambda r: r.confirmed_at or datetime.min.replace(tzinfo=dt_timezone.utc), reverse=True)
+    return rows[:limit]
+
+
+class AttributionQueueView(StaffRequiredMixin, TemplateView):
+    """Staff-only attribution worklist: two orphan worklists plus Dismissed/Confirmed
+    sections (D-01/D-02/D-04/D-07/D-10/D-14/D-15). Its template (``attribution_queue.html``)
+    is created by Plan 28-04 -- this plan's own tests exercise this view's context assembly
+    and its ``StaffRequiredMixin`` gate only (see ``test_campaign_attribution_views.py``),
+    never a GET render expecting 200.
+    """
+
+    template_name = 'campaigns/attribution_queue.html'
+
+    def get_context_data(self, **kwargs):
+        """Assemble every context key the 28-04 template needs (D-01/D-04/D-10/D-14/D-15)."""
+        context = super().get_context_data(**kwargs)
+
+        # D-10: the requested confidence band, validated server-side against the literal
+        # band tuple. RESEARCH.md Assumption A2: these rows are computed candidate pairs, not
+        # a plain CampaignRun queryset, so a django_filter FilterSet/FilterView doesn't fit --
+        # follow CampaignGapAnalysisView's manual GET-parameter validation precedent instead.
+        # An unrecognised value silently falls back to "all bands", never an error.
+        band = self.request.GET.get('band')
+        if band not in _ATTRIBUTION_BANDS:
+            band = None
+        context['band'] = band
+
+        # D-01/D-04: two independent worklists, each paginated on its OWN GET parameter
+        # (event_page / record_page) so paging one worklist never resets the other.
+        event_backlog = campaign_attribution.event_attribution_backlog(band=band)
+        record_backlog = campaign_attribution.record_attribution_backlog(band=band)
+        context['event_groups'] = Paginator(event_backlog, 25).get_page(self.request.GET.get('event_page'))
+        context['record_groups'] = Paginator(record_backlog, 25).get_page(self.request.GET.get('record_page'))
+
+        # D-07/D-14: assembled here as plain, capped, materialized lists -- 28-04 hands these
+        # to django_tables2 table classes, which cannot re-sort a query once it's been sliced
+        # (the same trap ApprovalQueueView's decided_qs comment documents).
+        context['dismissed_rows'] = _dismissed_attribution_rows()
+        context['confirmed_rows'] = _confirmed_attribution_rows()
+
+        # D-02: one shared definition for both this page's own header count and the
+        # campaign-list banner -- never a second inline .count(). Computed unfiltered
+        # (ignoring the band GET param above) since D-15's "done" signal is about the whole
+        # backlog draining, not just the currently-viewed band.
+        context['attribution_count'] = campaign_attribution.orphans_needing_attribution_count()
+        # D-15: the "N orphans still have no matching run" number the done-state copy needs.
+        context['unattributable_count'] = campaign_attribution.unattributable_orphan_count()
+        # D-15: "Done" is both worklists (unfiltered) empty -- reuses attribution_count above
+        # rather than a third pair of backlog calls.
+        context['is_drained'] = context['attribution_count'] == 0
+        return context
+
+
+class AttributionDecisionView(StaffRequiredMixin, View):
+    """POST-only dispatching endpoint for the five attribution actions -- confirm,
+    confirm_selected, dismiss, undo_confirmation, undo_dismissal (D-09/D-13; see Task 2 for
+    the full implementation). ``http_method_names = ['post']`` ensures a GET (crawler
+    prefetch, bare ``<a href>``) can never trigger a state change, mirroring
+    ``CampaignRunDecisionView``.
+    """
+
+    http_method_names = ['post']
+
+    def post(self, request):
+        """Placeholder until Task 2 -- refuses every action rather than silently no-opping."""
+        return HttpResponseBadRequest()
