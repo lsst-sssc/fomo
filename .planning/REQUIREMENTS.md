@@ -46,8 +46,8 @@ Connecting existing events and records to their parent runs, without ever guessi
 
 - [ ] **ATTRIB-01**: Staff see a queue of suggested associations between existing calendar events or observation records and their likely parent run, showing the evidence for each candidate (matched telescope, date overlap, campaign, instrument-string similarity)
 - [ ] **ATTRIB-02**: Candidates are confidence-scored and filterable by score, so staff can bulk-confirm the confident tail and hand-review only the ambiguous remainder
-- [ ] **ATTRIB-03**: No association is ever created without explicit staff confirmation
-- [ ] **ATTRIB-04**: A staff user can undo a confirmed association
+- [x] **ATTRIB-03**: No association is ever created without explicit staff confirmation
+- [x] **ATTRIB-04**: A staff user can undo a confirmed association
 - [ ] **ATTRIB-05**: The known real case is surfaced as a candidate — `CampaignRun` pk=1 (FTS/MuSCAT4, 7–21 July, Siding Spring E10) and its 11 LCO queue events (`2m0`/`2M0-SCICAM-MUSCAT`, 7–20 July), which differ in both date span and instrument string
 - [ ] **ATTRIB-06**: Attribution can be completed before the first full reconcile sweep, so the calendar never visibly double-books
 
@@ -104,8 +104,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CANON-05 | Phase 27 — The Canonical Run Record | Complete |
 | ATTRIB-01 | Phase 28 — Operator-Assisted Attribution | Pending |
 | ATTRIB-02 | Phase 28 — Operator-Assisted Attribution | Pending |
-| ATTRIB-03 | Phase 28 — Operator-Assisted Attribution | Pending |
-| ATTRIB-04 | Phase 28 — Operator-Assisted Attribution | Pending |
+| ATTRIB-03 | Phase 28 — Operator-Assisted Attribution | Complete |
+| ATTRIB-04 | Phase 28 — Operator-Assisted Attribution | Complete |
 | ATTRIB-05 | Phase 28 — Operator-Assisted Attribution | Pending |
 | ATTRIB-06 | Phase 28 — Operator-Assisted Attribution | Pending |
 | RECON-01 | Phase 29 — The Reconciler | Pending |
