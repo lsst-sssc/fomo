@@ -1,5 +1,4 @@
 from datetime import datetime
-from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
@@ -13,6 +12,7 @@ from solsys_code.calendar_utils import (
     derive_telescope,
     extract_instrument,
     insert_or_create_calendar_event,
+    record_time_window,
     resolve_placement_block,
 )
 from solsys_code.models import CalendarEventMeta
@@ -108,6 +108,10 @@ def _title_for(
 def _time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     """Derive the active start/end time window for a record (SYNC-02/SYNC-03).
 
+    Delegates to ``calendar_utils.record_time_window()`` (promoted, Plan 28-02 Task 2) --
+    this thin wrapper exists only so this module's existing callers and tests keep working
+    unchanged; the parsing rules and raising contract live in one place now.
+
     Args:
         record: the ObservationRecord being synced.
 
@@ -120,20 +124,7 @@ def _time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
             or if scheduled_start/scheduled_end are inconsistently populated (one set,
             the other None) — a state CalendarEvent's non-nullable times cannot accept.
     """
-    if record.scheduled_start is None and record.scheduled_end is None:
-        # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
-        # explicitly since LCO request-submission times are conventionally UTC.
-        start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
-        end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
-    elif record.scheduled_start is not None and record.scheduled_end is not None:
-        start_time = record.scheduled_start
-        end_time = record.scheduled_end
-    else:
-        raise ValueError(
-            f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
-            f'scheduled_end={record.scheduled_end!r}'
-        )
-    return start_time, end_time
+    return record_time_window(record)
 
 
 def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dict[str, Any]:

@@ -491,8 +491,8 @@ def _eligible_runs_for_record(record: ObservationRecord):
     """D-11/ROADMAP criterion 3's hard gate for an ObservationRecord orphan: only runs whose
     campaign (TargetList) the record's target belongs to.
 
-    Deliberately compares the CAMPAIGN only -- this must NOT additionally require
-    ``run.target_id == record.target_id``. The real data is the reason: a campaign's
+    Deliberately compares the CAMPAIGN only -- this must NOT additionally require the run's
+    target FK to equal the record's target FK. The real data is the reason: a campaign's
     ``CampaignRun.target`` is the moving non-sidereal target, while its
     ``ObservationRecord``s point at per-pointing SIDEREAL field targets created by
     ``backfill_lco_observation_records --create-missing-targets``; requiring target equality

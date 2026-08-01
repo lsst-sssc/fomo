@@ -5,9 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from django import forms
+from django.contrib.auth.models import User
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
+from tom_observations.models import ObservationRecord
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.calendar_utils import (
     SITE_TELESCOPE_MAP,
@@ -15,6 +18,7 @@ from solsys_code.calendar_utils import (
     derive_telescope,
     derive_telescope_class,
     insert_or_create_calendar_event,
+    record_time_window,
     resolve_placement_block,
 )
 from solsys_code.models import CampaignRun
@@ -401,3 +405,52 @@ class TestResolvePlacementBlockFailureModes(TestCase):
         ):
             block = resolve_placement_block('12345', mock_facility)
         self.assertIsNone(block)
+
+
+class TestRecordTimeWindow(TestCase):
+    """record_time_window() -- promoted from sync_lco_observation_calendar._time_window()
+    (Plan 28-02 Task 2) so the matcher (campaign_attribution.py) and the sync command share
+    one definition. Covers both branches; the parameters-fallback branch is the common case
+    for real LCO orphan records (NULL scheduled_start), not an edge case (RESEARCH.md)."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.target = NonSiderealTargetFactory.create()
+        cls.user = User.objects.create(username='record-time-window-owner')
+
+    def test_scheduled_pair_populated_returns_scheduled_times(self):
+        """When both scheduled_start/scheduled_end are set, they are returned verbatim."""
+        start = datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc)
+        end = datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            observation_id='333333',
+            status='COMPLETED',
+            parameters={'proposal': 'TEST'},
+            scheduled_start=start,
+            scheduled_end=end,
+        )
+
+        result_start, result_end = record_time_window(record)
+
+        self.assertEqual(result_start, start)
+        self.assertEqual(result_end, end)
+
+    def test_both_scheduled_none_falls_back_to_parameters_start_end(self):
+        """The common real-data case: NULL scheduled_start/end falls back to the naive-UTC
+        ISO strings in parameters['start']/['end']."""
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            observation_id='444444',
+            status='PENDING',
+            parameters={'start': '2026-07-10T22:00:00', 'end': '2026-07-11T06:00:00'},
+        )
+
+        result_start, result_end = record_time_window(record)
+
+        self.assertEqual(result_start, datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result_end, datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc))
