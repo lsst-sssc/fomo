@@ -287,6 +287,13 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
     # Covers the new event_start column and CampaignRun.__str__'s campaign/site
     # dereferences (Task 1), so an 11-row changelist does not turn into 30+ queries.
     list_select_related = ['event', 'run', 'run__campaign', 'run__site']
+    # CR-02/D-12: mirrors CalendarEventMetaInline's identical line. Django's ModelAdmin
+    # renders every non-readonly, non-excluded model field as an editable widget, so without
+    # this a staff user could submit an arbitrary confirmed_by (any User through the FK
+    # widget) and an arbitrary confirmed_at, fabricating attribution to someone who never
+    # made the decision. Applies on add as well as change -- save_model() below is the only
+    # writer of either field on this surface.
+    readonly_fields = ['confirmed_by', 'confirmed_at']
 
     def get_readonly_fields(self, request, obj=None):
         """CR-02: extend the WR-08 primary-key freeze to the standalone change form.
@@ -306,11 +313,78 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
         resolving from the URL pk. Add stays editable so a new link can still be created,
         which keeps re-pointing available as delete + re-add -- matching the inline's
         add-and-delete-only contract rather than being stricter than it.
+
+        The audit fields (``confirmed_by``/``confirmed_at``) are frozen separately, at class
+        level via ``readonly_fields`` above, for the CR-02 reason documented there -- this
+        method's own job remains solely the `event` primary-key freeze; it composes with the
+        class attribute automatically because it starts from
+        ``list(super().get_readonly_fields(request, obj))``, which already returns
+        ``readonly_fields``.
         """
         readonly = list(super().get_readonly_fields(request, obj))
         if obj is not None and 'event' not in readonly:
             readonly.append('event')
         return readonly
+
+    def save_model(self, request, obj, form, change):
+        """CR-02/D-12: stamp confirmed_by/confirmed_at on a genuine run-link transition,
+        mirroring ``CampaignRunAdmin.save_formset``'s ``CalendarEventMeta`` branch -- but for
+        the STANDALONE admin page, which is a second, independent write path onto the same
+        row (27.1-02's own docstring calls it "the primary staff surface for hand-linking a
+        run to an event").
+
+        Reads the prior database value before delegating to ``super()``, exactly as
+        ``save_formset`` does, because by the time ``obj`` reaches this method
+        ``obj.run_id`` already holds the POSTed value -- the in-memory instance has already
+        been mutated by form binding. Guarded on ``obj.pk is not None`` because `event` is
+        this model's primary key: on the add form the pk is populated from the submitted
+        `event`, and a row with that pk cannot exist yet, so ``prior_run_id`` is correctly
+        ``None`` either way. `save_formset`'s own comment already records that "no row exists
+        yet" and "row exists with run=None" both mean "not owned by any run", so the
+        transition condition fires identically here.
+
+        Three branches, in order, before delegating to ``super().save_model()``:
+
+        1. A genuine re-point (``run`` A -> ``run`` B) re-stamps to the acting user. This is
+           a DELIBERATE, REASONED DIVERGENCE from the inline mirror, not drift: inside
+           ``CampaignRunAdmin`` every inline row belongs to the parent run, so a re-point is
+           mechanically unreachable there, and `save_formset`'s comment about not re-stamping
+           a re-pointed row describes a case that surface cannot produce. On THIS page a
+           re-point IS reachable through the `run` autocomplete, and leaving the prior stamp
+           would attribute run B's confirmation to whoever confirmed run A -- precisely the
+           fabricated-attribution failure CR-02 names. Do not "correct" this back to match
+           the inline's silence on re-pointing; the inline is silent because it cannot reach
+           this case, not because re-stamping would be wrong.
+        2. Clearing the run (not None -> None) nulls both audit fields. This ALSO diverges
+           deliberately from the inline, which has no clear-and-keep-editing path at all
+           (WR-08 permits only add/delete on the inline). Because 2a above makes the audit
+           fields unwritable by hand, without this branch a cleared link would leave a row
+           permanently displaying "confirmed by X at T" for an association that no longer
+           exists, with no way for staff to correct it -- matches
+           ``campaign_views._undo_confirmation()``'s established
+           ``run=None, confirmed_by=None, confirmed_at=None`` semantics on the event side.
+        3. Otherwise (`run` unchanged, including staying None) touches neither field, so an
+           unrelated edit such as toggling `is_verified` never re-attributes someone else's
+           confirmation -- identical discipline to `save_formset`'s two branches.
+        """
+        prior_run_id = (
+            CalendarEventMeta.objects.filter(pk=obj.pk).values_list('run_id', flat=True).first()
+            if obj.pk is not None
+            else None
+        )
+        if obj.run_id is not None and obj.run_id != prior_run_id:
+            # Branch 1: a new confirmation of this pair, including a re-point -- re-stamp to
+            # the acting user. See the docstring above for why a re-point must re-stamp here
+            # even though the inline mirror cannot reach this case at all.
+            obj.confirmed_by = request.user
+            obj.confirmed_at = timezone.now()
+        elif obj.run_id is None and prior_run_id is not None:
+            # Branch 2: the link was cleared -- null both audit fields so no row can display
+            # a confirmation for an association that no longer exists.
+            obj.confirmed_by = None
+            obj.confirmed_at = None
+        # Branch 3 (implicit): run unchanged -- touch neither field.
+        super().save_model(request, obj, form, change)
 
     @admin.display(description='Event start', ordering='event__start_time')
     def event_start(self, obj):

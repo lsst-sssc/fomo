@@ -30,6 +30,7 @@ from django.contrib.auth.models import User
 from django.forms.models import model_to_dict
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.utils import timezone
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetList
@@ -167,6 +168,171 @@ class CalendarEventMetaStandaloneAdminPkFreezeTests(TestCase):
         # saved -- so the pk freeze held on a POST that genuinely wrote.
         self.assertFalse(self.meta.is_verified)
         self.assertFalse(CalendarEventMeta.objects.filter(event=self.other_event).exists())
+
+
+class CalendarEventMetaStandaloneAdminAuditStampTests(TestCase):
+    """Closes 28-VERIFICATION.md truth 6 / 28-REVIEW.md CR-02: the standalone
+    ``CalendarEventMetaAdmin`` change/add page is the same "primary staff surface for
+    hand-linking a run to an event" 27.1-02's docstring names -- and, unlike the
+    ``CampaignRunAdmin``/``CalendarEventMetaInline`` path proven by
+    ``test_save_formset_stamps_calendar_event_meta_on_run_transition`` (which only covers the
+    inline/formset path), it had no equivalent protection or stamping at all.
+
+    Deliberately exercises the standalone page through ``self.client``, not
+    ``CampaignRunAdmin.save_formset()`` directly -- that is what makes this class distinct
+    from ``CampaignRunAdminInlinesTests``.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='cem-standalone-acting', email='cem-acting@example.test', password='pw'
+        )
+        # The fabricated/prior attributor -- never the user performing the POST in any test.
+        cls.other_staffer = User.objects.create_superuser(
+            username='cem-standalone-other', email='cem-other@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='CR-02 Standalone Audit Stamp')
+        cls.run_a = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start='2026-08-01',
+            window_end='2026-08-05',
+        )
+        cls.run_b = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start='2026-08-06',
+            window_end='2026-08-10',
+        )
+        cls.event = CalendarEvent.objects.create(
+            title='CR-02 standalone audit event',
+            start_time=datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.meta = CalendarEventMeta.objects.create(event=cls.event, run=None, is_verified=True)
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def _change_url(self):
+        return reverse('admin:solsys_code_calendareventmeta_change', args=[self.event.pk])
+
+    def _link_to_run_a_with_other_staffer(self, original_confirmed_at):
+        """Helper: put the row into an already-linked-to-run_a state, stamped by
+        ``other_staffer`` at a fixed timestamp -- the starting state tests 5-7 each need,
+        built per-test rather than mutating shared ``setUpTestData`` state.
+
+        Explicitly forces ``is_verified=False`` rather than relying on ``cls.meta``'s
+        original ``setUpTestData`` value: ``cls.meta`` is a shared Python object reference
+        across every test method in this class, and Django's per-test transaction rollback
+        resets the DATABASE row but not any in-memory attribute a prior test method left on
+        that same object -- so a test running after ``test_linking_a_run_stamps_...`` (which
+        also flips ``is_verified``) cannot safely assume the object still reads True in
+        memory. Setting it explicitly here makes each test's starting state independent of
+        execution order.
+        """
+        self.meta.run = self.run_a
+        self.meta.is_verified = False
+        self.meta.confirmed_by = self.other_staffer
+        self.meta.confirmed_at = original_confirmed_at
+        self.meta.save()
+
+    def test_change_form_does_not_expose_the_audit_fields_as_editable(self) -> None:
+        response = self.client.get(self._change_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('name="confirmed_by"', content)
+        self.assertNotIn('name="confirmed_at"', content)
+
+    def test_add_form_does_not_expose_the_audit_fields_as_editable(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_add'))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('name="confirmed_by"', content)
+        self.assertNotIn('name="confirmed_at"', content)
+        # Control: the page genuinely rendered the add form, not an error page.
+        self.assertIn('name="event"', content)
+
+    def test_linking_a_run_stamps_the_acting_user_and_a_time(self) -> None:
+        response = self.client.post(
+            self._change_url(),
+            {'run': str(self.run_a.pk), 'is_verified': '', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_a.pk)
+        self.assertEqual(self.meta.confirmed_by, self.superuser)
+        self.assertIsNotNone(self.meta.confirmed_at)
+        # WR-08-style control: is_verified started True (setUpTestData); it is False now
+        # only if the form genuinely saved.
+        self.assertFalse(self.meta.is_verified)
+
+    def test_hand_typed_audit_values_do_not_bind(self) -> None:
+        before = timezone.now()
+        response = self.client.post(
+            self._change_url(),
+            {
+                'run': str(self.run_a.pk),
+                'is_verified': '',
+                'confirmed_by': str(self.other_staffer.pk),
+                'confirmed_at': '2020-01-01 00:00:00',
+                '_save': 'Save',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_a.pk)
+        # Value comparison, not a mere non-null check -- a null-only assertion would pass
+        # even if the fabricated values had actually bound.
+        self.assertEqual(self.meta.confirmed_by, self.superuser)
+        self.assertNotEqual(self.meta.confirmed_by, self.other_staffer)
+        self.assertGreaterEqual(self.meta.confirmed_at, before)
+
+    def test_unrelated_edit_does_not_restamp(self) -> None:
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+
+        response = self.client.post(
+            self._change_url(),
+            {'run': str(self.run_a.pk), 'is_verified': 'on', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_a.pk)
+        self.assertEqual(self.meta.confirmed_by, self.other_staffer)
+        self.assertEqual(self.meta.confirmed_at, original_confirmed_at)
+        # Control: is_verified genuinely changed (started False from the helper's .save()
+        # call, which did not set it -- default is False), so the write path was reached.
+        self.assertTrue(self.meta.is_verified)
+
+    def test_clearing_the_run_clears_the_audit_fields(self) -> None:
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+
+        response = self.client.post(
+            self._change_url(),
+            {'run': '', 'is_verified': 'on', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertIsNone(self.meta.run_id)
+        self.assertIsNone(self.meta.confirmed_by)
+        self.assertIsNone(self.meta.confirmed_at)
+
+    def test_repointing_the_run_restamps_to_the_acting_user(self) -> None:
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+
+        response = self.client.post(
+            self._change_url(),
+            {'run': str(self.run_b.pk), 'is_verified': 'on', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_b.pk)
+        self.assertEqual(self.meta.confirmed_by, self.superuser)
+        self.assertGreater(self.meta.confirmed_at, original_confirmed_at)
 
 
 class TargetAdminChangelistAndTypeFilterTests(TestCase):
