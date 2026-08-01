@@ -109,7 +109,7 @@
 - [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events) (completed 2026-07-27)
 - [x] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link (completed 2026-07-30)
 - [x] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair (all 5 plans executed 2026-07-31; criterion 6 closed by 27.1-05 — the `source` provenance lock widened to every `WEB` run at any approval status; a criterion-5 gap re-verification opened, a contaminated dev-DB snapshot in the paired `import_campaign_csv_demo.ipynb`, was closed by regenerating the notebook from a clean DB; verified 6/6, see 27.1-VERIFICATION.md) (completed 2026-07-31)
-- [ ] **Phase 28: Operator-Assisted Attribution** - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
+- [ ] **Phase 28: Operator-Assisted Attribution** (0/4 plans) - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible
 - [ ] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear
 
 **Locked constraints** (settled during milestone questioning and the research pass — phase planning executes these, it does not re-open them):
@@ -246,7 +246,26 @@ Plans:
   4. A confirmed association can be undone from the same screen that created it, and both the confirmation and the undo are attributable to a person and a time
   5. The known real case is surfaced: `CampaignRun` pk=1 (FTS/MuSCAT4, 7–21 July, Siding Spring E10) is offered against its 11 LCO queue events (`2m0`/`2M0-SCICAM-MUSCAT`, 7–20 July) despite the one-day span difference and the mismatched instrument strings — and the whole attribution pass can be completed before any full reconcile sweep runs
 
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 28-01-PLAN.md — Schema and audit: the two typed per-pair dismissal models, `CalendarEventMeta.confirmed_by`/`confirmed_at` (D-12's deliberate reopening of Phase 27 D-05), migration 0013, the superseded D-05 comment rewritten, and the admin `save_formset` branch keyed on a `run_id` transition rather than `pk is None`
+
+**Wave 2** *(blocked on 28-01 — needs the dismissal models to exclude dismissed pairs)*
+
+- [ ] 28-02-PLAN.md — The matcher: `campaign_attribution.py` with the three weighted evidence signals, the campaign/target boundary as the single hard gate, the tokenised `difflib` instrument similarity that keeps a 0.500 whole-string ratio from disqualifying criterion 5, the orphan querysets, the two shared backlog counts, and the criterion-5 acceptance test built as an equivalent fixture
+
+**Wave 3** *(blocked on 28-02 — every write action re-validates through the matcher)*
+
+- [ ] 28-03-PLAN.md — The write path: the `campaigns:attribution` / `campaigns:attribution_decide` routes, `AttributionQueueView`'s context assembly, and `AttributionDecisionView`'s five actions (single confirm, sole-high-band multi-select confirm, dismiss-with-reason, undo-confirmation-writes-a-dismissal, undo-dismissal), each re-derived server-side and race-safe by the idiom correct for its target model
+
+**Wave 4** *(blocked on 28-03 — both plans edit `campaign_views.py`; the template reverses 28-03's routes)*
+
+- [ ] 28-04-PLAN.md — The read path and docs: the four-section attribution page with grouped candidates and evidence beside a subordinate score, the Dismissed/Confirmed tables, the campaign-list count banner, the operator runbook's attribution section, and the drain-to-empty test that makes ATTRIB-06 checkable
+
 **UI hint**: yes
 
 ### Phase 29: The Reconciler
