@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: executing
-stopped_at: Phase 27.1 complete — verified 6/6
-last_updated: "2026-07-31T21:45:00.000Z"
-last_activity: 2026-07-31 -- Phase 27.1 complete: 27.1-05 closed criterion 6, notebook regenerated, verified 6/6
+status: "All six success criteria met. Criterion 6 closed by 27.1-05 (the `source` provenance lock now covers every `WEB` run at any approval status, at parity with `import_campaign_csv`'s existing carve-out). Criterion 5's paired demo notebook was regenerated from a clean DB after a contaminated snapshot was found. Open follow-ups are advisory only, recorded in 27.1-REVIEW.md (WR-08 test asserts no response status, WR-09/WR-10 runbook wording) and deferred-items.md. Next: Phase 28 (Operator-Assisted Attribution)"
+stopped_at: Phase 28 context gathered
+last_updated: "2026-08-01T03:00:15.185Z"
+last_activity: "2026-07-31 -- Phase 27.1 complete: 27.1-05 closed criterion 6, notebook regenerated, verified 6/6"
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 16
-  completed_plans: 15
-  percent: 40
+  completed_plans: 16
+  percent: 60
 ---
 
 # Project State
@@ -251,9 +251,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T05:31:51.754Z
-Stopped at: Completed 27-06-PLAN.md
-Resume file: None
+Last session: 2026-08-01T03:00:15.171Z
+Stopped at: Phase 28 context gathered
+Resume file: .planning/phases/28-operator-assisted-attribution/28-CONTEXT.md
 
 ## Operator Next Steps
 
