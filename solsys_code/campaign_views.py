@@ -31,11 +31,13 @@ from django.db.models import Case, CharField, Count, EmailField, F, Q, Value, Wh
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
 from django_tables2 import RequestConfig
 from django_tables2.views import SingleTableMixin
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -1185,16 +1187,295 @@ class AttributionQueueView(StaffRequiredMixin, TemplateView):
         return context
 
 
+_ATTRIBUTION_ACTIONS = ('confirm', 'confirm_selected', 'dismiss', 'undo_confirmation', 'undo_dismissal')
+_ATTRIBUTION_KINDS = ('event', 'record')
+
+# T-28-16: the literal undo reason recorded when the staff member submitting undo_confirmation
+# doesn't supply one -- named here so both the docstring and the write site below agree on the
+# exact string, never re-typed.
+_UNDO_CONFIRMATION_DEFAULT_REASON = 'Undone by staff.'
+
+
+def _is_sole_high_candidate(kind: str, orphan_pk: int, run_pk: int) -> bool:
+    """D-09's checkbox gate, re-derived server-side (ASVS V5): True only when ``run_pk`` is
+    the orphan's SOLE High-band candidate across its FULL candidate list -- never trusted
+    from the fact that the template only rendered a checkbox for a High-band row. Distinct
+    from (and additional to) ``is_offered_candidate()``, which only confirms the pair is
+    currently offered at all, not that it is the sole High-band one.
+
+    Args:
+        kind: ``'event'`` or ``'record'``.
+        orphan_pk: the CalendarEvent or ObservationRecord pk.
+        run_pk: the candidate CampaignRun pk being checked for sole-High status.
+
+    Returns:
+        bool: True only when exactly one candidate for this orphan is High-band and its run
+            pk equals ``run_pk``. Never raises.
+    """
+    if kind == 'event':
+        try:
+            orphan = CalendarEvent.objects.get(pk=orphan_pk)
+        except CalendarEvent.DoesNotExist:
+            return False
+        candidates = campaign_attribution.candidates_for_event(orphan)
+    else:
+        try:
+            orphan = ObservationRecord.objects.get(pk=orphan_pk)
+        except ObservationRecord.DoesNotExist:
+            return False
+        candidates = campaign_attribution.candidates_for_record(orphan)
+
+    high = [c for c in candidates if c.band == campaign_attribution.BAND_HIGH]
+    return len(high) == 1 and high[0].run.pk == run_pk
+
+
 class AttributionDecisionView(StaffRequiredMixin, View):
     """POST-only dispatching endpoint for the five attribution actions -- confirm,
-    confirm_selected, dismiss, undo_confirmation, undo_dismissal (D-09/D-13; see Task 2 for
-    the full implementation). ``http_method_names = ['post']`` ensures a GET (crawler
-    prefetch, bare ``<a href>``) can never trigger a state change, mirroring
-    ``CampaignRunDecisionView``.
+    confirm_selected, dismiss, undo_confirmation, undo_dismissal -- for both orphan kinds
+    (D-09/D-13). Declared POST-only below so a GET (crawler prefetch, bare ``<a href>``) can
+    never trigger a state change, mirroring ``CampaignRunDecisionView``'s own declaration.
+
+    Server-side re-validation, on every action that creates an association (T-28-12): before
+    writing, every confirm path calls ``campaign_attribution.is_offered_candidate()`` and
+    aborts with a warning when it returns None -- never trusting that a button or checkbox
+    was only rendered for an eligible row. This is the guard that stops a tampered POST
+    creating an association across a campaign/target boundary, which ROADMAP criterion 3
+    forbids absolutely, mirroring ``CampaignRunDecisionView._resolve_site()``'s existing
+    business-logic bypass guard discipline.
     """
 
     http_method_names = ['post']
 
     def post(self, request):
-        """Placeholder until Task 2 -- refuses every action rather than silently no-opping."""
-        return HttpResponseBadRequest()
+        """Validate action/kind/pks against literal allow-lists, then dispatch (V5)."""
+        action = request.POST.get('action')
+        if action not in _ATTRIBUTION_ACTIONS:
+            return HttpResponseBadRequest()
+
+        if action == 'confirm_selected':
+            return self._confirm_selected(request)
+
+        kind = request.POST.get('kind')
+        if kind not in _ATTRIBUTION_KINDS:
+            return HttpResponseBadRequest()
+
+        orphan_pk = _as_pk_or_none(request.POST.get('orphan_pk'))
+        run_pk = _as_pk_or_none(request.POST.get('run_pk'))
+        if orphan_pk is None or run_pk is None:
+            return HttpResponseBadRequest()
+
+        if action == 'confirm':
+            return self._confirm(request, kind, orphan_pk, run_pk)
+        if action == 'dismiss':
+            return self._dismiss(request, kind, orphan_pk, run_pk)
+        if action == 'undo_confirmation':
+            return self._undo_confirmation(request, kind, orphan_pk, run_pk)
+        return self._undo_dismissal(request, kind, orphan_pk, run_pk)
+
+    def _redirect(self, request):
+        """Redirect back to the worklist, preserving the band filter (D-10) if the form
+        carried it as a hidden field, so the staff member returns to the filter they were
+        working in."""
+        band = request.POST.get('band')
+        if band in _ATTRIBUTION_BANDS:
+            return redirect(f'{reverse("campaigns:attribution")}?band={band}')
+        return redirect('campaigns:attribution')
+
+    def _do_confirm_event(self, request, orphan_pk: int, run_pk: int) -> str:
+        """Event-side confirm write (Pattern 3): a field SET on an existing row, not a row
+        CREATE. Returns ``'confirmed'``, ``'claimed'`` (already attributed/dismissed by
+        someone else), or ``'gone'`` (orphan no longer exists).
+        """
+        if campaign_attribution.is_offered_candidate('event', orphan_pk, run_pk) is None:
+            return 'claimed'
+
+        # A classical event has no companion row at all -- get_or_create with the documented
+        # is_verified default changes nothing observable for a row that already exists.
+        CalendarEventMeta.objects.get_or_create(event_id=orphan_pk, defaults={'is_verified': True})
+
+        # Atomic conditional update keyed on the "unclaimed" precondition (run__isnull=True),
+        # generalising CampaignRunDecisionView's status-enum idiom (Pattern 3).
+        updated_count = CalendarEventMeta.objects.filter(event_id=orphan_pk, run__isnull=True).update(
+            run_id=run_pk, confirmed_by=request.user, confirmed_at=timezone.now()
+        )
+        if updated_count == 1:
+            return 'confirmed'
+        if CalendarEventMeta.objects.filter(event_id=orphan_pk).exists():
+            return 'claimed'
+        return 'gone'
+
+    def _do_confirm_record(self, request, orphan_pk: int, run_pk: int) -> str:
+        """Record-side confirm write (Pattern 3): a row is CREATED, not a field set. Returns
+        ``'confirmed'`` or ``'claimed'`` (the ``unique_campaign_run_observation_record``
+        constraint -- RESEARCH.md Pitfall 3: one run per record GLOBALLY -- already fired, or
+        ``is_offered_candidate()`` rejected the pair up front).
+        """
+        if campaign_attribution.is_offered_candidate('record', orphan_pk, run_pk) is None:
+            return 'claimed'
+        try:
+            # Own atomic savepoint, mirroring CampaignRunSubmissionView.form_valid()'s
+            # natural-key-collision handling -- without it, an IntegrityError caught here
+            # would poison the outer request/test transaction.
+            with transaction.atomic():
+                _, created = CampaignRunObservation.objects.get_or_create(
+                    observation_record_id=orphan_pk,
+                    defaults={'run_id': run_pk, 'confirmed_by': request.user, 'confirmed_at': timezone.now()},
+                )
+        except IntegrityError:
+            created = False
+        return 'confirmed' if created else 'claimed'
+
+    def _confirm(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """Single-candidate confirm, either orphan kind."""
+        outcome = (
+            self._do_confirm_event(request, orphan_pk, run_pk)
+            if kind == 'event'
+            else self._do_confirm_record(request, orphan_pk, run_pk)
+        )
+        if outcome == 'confirmed':
+            messages.success(request, 'Attribution confirmed.')
+        elif outcome == 'claimed':
+            messages.warning(request, 'This candidate was already confirmed or dismissed by someone else.')
+        else:
+            messages.error(request, 'This candidate no longer exists.')
+        return self._redirect(request)
+
+    def _confirm_selected(self, request):
+        """D-09: bulk multi-select confirm, gated to the High band AND to being each
+        orphan's sole High-band candidate. Loops the per-pair single-confirm write inside
+        ONE ``transaction.atomic()`` block -- deliberately never a single combined queryset
+        update naming every checked pk at once, which can only set one run for every matched
+        row while each checked pair may name a DIFFERENT run (RESEARCH.md Anti-Pattern).
+        """
+        parsed = []
+        for raw in request.POST.getlist('candidate_ids'):
+            parts = raw.split(':')
+            if len(parts) != 3:
+                continue
+            kind, orphan_raw, run_raw = parts
+            if kind not in _ATTRIBUTION_KINDS:
+                continue
+            orphan_pk = _as_pk_or_none(orphan_raw)
+            run_pk = _as_pk_or_none(run_raw)
+            if orphan_pk is None or run_pk is None:
+                continue
+            parsed.append((kind, orphan_pk, run_pk))
+
+        confirmed_count = 0
+        any_failed = False
+        with transaction.atomic():
+            for kind, orphan_pk, run_pk in parsed:
+                # D-09/ASVS V5: re-derive BOTH the offer itself and the High-band-sole-
+                # candidate gate here, server-side -- the checkbox gate is enforced here, not
+                # by the fact that the template only rendered checkboxes on eligible rows.
+                candidate = campaign_attribution.is_offered_candidate(kind, orphan_pk, run_pk)
+                if candidate is None or candidate.band != campaign_attribution.BAND_HIGH:
+                    any_failed = True
+                    continue
+                if not _is_sole_high_candidate(kind, orphan_pk, run_pk):
+                    any_failed = True
+                    continue
+                outcome = (
+                    self._do_confirm_event(request, orphan_pk, run_pk)
+                    if kind == 'event'
+                    else self._do_confirm_record(request, orphan_pk, run_pk)
+                )
+                if outcome == 'confirmed':
+                    confirmed_count += 1
+                else:
+                    any_failed = True
+
+        if confirmed_count:
+            messages.success(request, f'{confirmed_count} candidates confirmed.')
+        if any_failed:
+            messages.warning(request, 'This candidate was already confirmed or dismissed by someone else.')
+        return self._redirect(request)
+
+    def _dismiss(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """D-05/D-06: persist a per-pair dismissal, requiring a non-empty stripped reason
+        enforced server-side (the browser's HTML ``required`` attribute is a convenience,
+        not the control). Stores the reason raw -- never bypasses Django's template
+        auto-escaping, never string-concatenated into markup (Security Domain, Information
+        Disclosure row).
+        """
+        reason = request.POST.get('reason', '').strip()
+        if not reason:
+            messages.error(request, 'A reason is required to dismiss a candidate.')
+            return self._redirect(request)
+
+        defaults = {'dismissed_by': request.user, 'dismissed_at': timezone.now(), 'reason': reason}
+        try:
+            # Own atomic savepoint catching IntegrityError from the named per-pair
+            # UniqueConstraint (D-08) -- mirrors _do_confirm_record()'s savepoint discipline.
+            with transaction.atomic():
+                if kind == 'event':
+                    CalendarEventDismissal.objects.get_or_create(event_id=orphan_pk, run_id=run_pk, defaults=defaults)
+                else:
+                    ObservationRecordDismissal.objects.get_or_create(
+                        observation_record_id=orphan_pk, run_id=run_pk, defaults=defaults
+                    )
+        except IntegrityError:
+            pass  # already dismissed by someone else -- the pair is dismissed either way.
+        messages.success(request, 'Candidate dismissed.')
+        return self._redirect(request)
+
+    def _undo_confirmation(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """D-13: writes a dismissal row for the pair being un-confirmed FIRST, inside the
+        SAME atomic block as the link-clearing write below -- clearing the link erases the
+        very fields recording who confirmed it, so the trace has to live elsewhere. A
+        soft-undo flag would break Phase 27 D-01's invariant that a link row's existence
+        means "confirmed"; writing the dismissal row here also stops the matcher immediately
+        re-suggesting the pair just undone.
+        """
+        reason = request.POST.get('reason', '').strip() or _UNDO_CONFIRMATION_DEFAULT_REASON
+        defaults = {'dismissed_by': request.user, 'dismissed_at': timezone.now(), 'reason': reason}
+        with transaction.atomic():
+            try:
+                # Nested savepoint (own atomic()), mirroring _dismiss()/_do_confirm_record():
+                # a caught IntegrityError here must not poison the outer atomic block, which
+                # still has the link-clearing write below to make.
+                with transaction.atomic():
+                    if kind == 'event':
+                        CalendarEventDismissal.objects.get_or_create(
+                            event_id=orphan_pk, run_id=run_pk, defaults=defaults
+                        )
+                    else:
+                        ObservationRecordDismissal.objects.get_or_create(
+                            observation_record_id=orphan_pk, run_id=run_pk, defaults=defaults
+                        )
+            except IntegrityError:
+                pass  # already dismissed (e.g. a prior undo) -- proceed to clear the link anyway.
+
+            if kind == 'event':
+                # Event side: an .update(), still conditional on the currently-owning run so
+                # a concurrent re-point cannot be silently clobbered.
+                changed_count = CalendarEventMeta.objects.filter(event_id=orphan_pk, run_id=run_pk).update(
+                    run=None, confirmed_by=None, confirmed_at=None
+                )
+            else:
+                # Record side: the link row itself is deleted (Phase 27 D-01: its existence
+                # IS the confirmation).
+                changed_count, _ = CampaignRunObservation.objects.filter(
+                    observation_record_id=orphan_pk, run_id=run_pk
+                ).delete()
+
+        if changed_count:
+            messages.success(request, 'Confirmation undone — back in the queue.')
+        else:
+            messages.error(request, 'This candidate no longer exists.')
+        return self._redirect(request)
+
+    def _undo_dismissal(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """D-07: deletes the matching dismissal row, returning the pair to the queue."""
+        if kind == 'event':
+            deleted_count, _ = CalendarEventDismissal.objects.filter(event_id=orphan_pk, run_id=run_pk).delete()
+        else:
+            deleted_count, _ = ObservationRecordDismissal.objects.filter(
+                observation_record_id=orphan_pk, run_id=run_pk
+            ).delete()
+
+        if deleted_count:
+            messages.success(request, 'Dismissal undone — back in the queue.')
+        else:
+            messages.error(request, 'This candidate no longer exists.')
+        return self._redirect(request)
