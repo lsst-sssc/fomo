@@ -235,7 +235,10 @@ an unconfirmed guess can never be mistaken for ownership. It exists so
 the queue can actually drain -- without it, a rejected candidate would
 return on every page load -- and it is fully reversible from the
 collapsed "Dismissed" section on the same page, which lists who dismissed
-each pair and offers an Undo button for every row.
+each pair and offers an Undo button for every row. That reason box is
+required for Dismiss only -- clicking Confirm on the same row never asks
+for one, because a confirmation records the pair itself rather than a
+rejection of it.
 
 Undoing a *confirmed* attribution writes a dismissal for that same pair
 as part of the same action. This is what keeps the undo attributable (the
@@ -258,6 +261,12 @@ create a run-to-event link was the Django admin's foreign-key picker on
 worklist, and no undo. That admin path still exists and remains available
 for a pair the matcher never offers a candidate for, but the attribution
 page above is now the primary, evidence-backed route for the common case.
+A link created through the admin's ``CalendarEventMeta`` page is now
+stamped automatically with the staff member who saved it and the time
+they saved it -- those two fields are no longer editable by hand on that
+page, and clearing the run there clears them too -- so an association
+created through either surface is attributable, not only one created
+through the attribution queue.
 
 How do I mark a run cancelled or weathered-out?
 --------------------------------------------------
