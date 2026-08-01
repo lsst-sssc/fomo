@@ -7,7 +7,8 @@ no-churn CalendarEvent create-or-update function used by all three consumers.
 """
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any
 from urllib.parse import urljoin
 
@@ -17,6 +18,7 @@ from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
+from tom_observations.models import ObservationRecord
 
 from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 
@@ -416,6 +418,44 @@ def coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
         if candidate in {'0m4', '1m0', '2m0', '4m0'}:
             return candidate
     return instrument_type
+
+
+def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
+    """Derive the active start/end time window for an ObservationRecord (SYNC-02/SYNC-03).
+
+    Promoted from ``sync_lco_observation_calendar._time_window()`` (Plan 28-02 Task 2) so the
+    attribution matcher (``campaign_attribution.py``) and the LCO/SOAR sync command share one
+    definition of "this record's active window" instead of two independently-maintained
+    copies. Body and raising contract are byte-identical to the original -- a pure move, no
+    behaviour change (CLAUDE.md's paired-notebook trigger is deliberately NOT fired for this
+    reason; see 28-02-SUMMARY.md).
+
+    Args:
+        record: the ObservationRecord being synced or matched.
+
+    Returns:
+        tuple[datetime, datetime]: (start_time, end_time), timezone-aware UTC.
+
+    Raises:
+        KeyError: if scheduled_start is None and parameters lacks 'start'/'end'.
+        ValueError: if parameters['start']/['end'] are not valid ISO datetime strings,
+            or if scheduled_start/scheduled_end are inconsistently populated (one set,
+            the other None) -- a state CalendarEvent's non-nullable times cannot accept.
+    """
+    if record.scheduled_start is None and record.scheduled_end is None:
+        # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
+        # explicitly since LCO request-submission times are conventionally UTC.
+        start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
+        end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
+    elif record.scheduled_start is not None and record.scheduled_end is not None:
+        start_time = record.scheduled_start
+        end_time = record.scheduled_end
+    else:
+        raise ValueError(
+            f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
+            f'scheduled_end={record.scheduled_end!r}'
+        )
+    return start_time, end_time
 
 
 def _update_or_unchanged(event: CalendarEvent, fields: dict[str, Any]) -> tuple[CalendarEvent, str]:
