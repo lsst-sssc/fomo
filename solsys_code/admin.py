@@ -80,12 +80,18 @@ class CalendarEventMetaInline(admin.TabularInline):
     WR-08: `event` is this model's primary key, so it is frozen on existing rows via
     CalendarEventMetaInlineFormSet -- add and delete are the only operations on the link
     itself; re-pointing it would duplicate the row rather than move it.
+
+    T-28-02 (28-CONTEXT.md threat model): confirmed_by/confirmed_at (D-12) are read-only
+    here for the same reason CampaignRunObservationInline's are -- CampaignRunAdmin.
+    save_formset is the only place that sets them, so a staff member can never hand-type
+    either value through this form; a submitted value is simply not bound.
     """
 
     model = CalendarEventMeta
     formset = CalendarEventMetaInlineFormSet
     fk_name = 'run'
     extra = 0
+    readonly_fields = ['confirmed_by', 'confirmed_at']
 
 
 class CampaignRunObservationInline(admin.TabularInline):
@@ -218,8 +224,9 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
         return super().get_queryset(request).select_related('campaign', 'site')
 
     def save_formset(self, request, form, formset, change):
-        """D-07: stamp confirmed_by/confirmed_at on newly created CampaignRunObservation
-        rows only.
+        """D-07/D-12: stamp attribution audit fields for both inline formsets this admin
+        renders -- newly created CampaignRunObservation rows, and a CalendarEventMeta row's
+        genuine run-link transition.
 
         Under D-01, a CampaignRunObservation row's existence *is* the claim that a human
         confirmed the attribution -- a row created here without confirmed_by would look
@@ -233,9 +240,13 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
         for instance in instances:
             # isinstance gate: save_formset is called once per inline formset -- both
             # CalendarEventMetaInline's and CampaignRunObservationInline's formsets flow
-            # through this same method. CalendarEventMeta has no confirmed_by/confirmed_at
-            # fields at all (D-05 declines audit fields on the event side), so it must never
-            # be stamped.
+            # through this same method. The two branches below use DIFFERENT conditions on
+            # purpose (28-RESEARCH.md Pattern 4/Pitfall 4): a CampaignRunObservation row's
+            # existence IS the confirmation (Phase 27 D-01), so "just created" is the right
+            # test. A CalendarEventMeta row exists long before any attribution (it is
+            # created at telescope-label-resolution time, with `event` as its primary key,
+            # so a freshly-created-row check is never true for it) -- only its `run` field
+            # becoming non-null marks the confirmation (D-12).
             if isinstance(instance, CampaignRunObservation) and instance.pk is None:
                 # The pk-is-unset check above is the gate: a NEWLY CREATED row gets
                 # stamped; an EXISTING row edited through the admin keeps its original
@@ -243,6 +254,19 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
                 # re-attributes someone else's confirmation.
                 instance.confirmed_by = request.user
                 instance.confirmed_at = timezone.now()
+            elif isinstance(instance, CalendarEventMeta):
+                # Read the prior database value before formset.save(commit=False)'s mutated
+                # in-memory instance hides it -- instance.run_id above is already the
+                # POSTed value by this point.
+                prior_run_id = CalendarEventMeta.objects.filter(pk=instance.pk).values_list('run_id', flat=True).first()
+                if prior_run_id is None and instance.run_id is not None:
+                    # A genuine None-to-not-None transition: this is a confirmation. A row
+                    # whose run is being cleared, re-pointed from one run to another, or
+                    # left unchanged must NOT be re-stamped -- mirrors the
+                    # CampaignRunObservation branch's "never silently re-attribute someone
+                    # else's confirmation" rule above.
+                    instance.confirmed_by = request.user
+                    instance.confirmed_at = timezone.now()
             instance.save()
         # Stock idiom: formset.save(commit=False) does not itself delete rows marked for
         # deletion -- it only populates formset.deleted_objects. Deleting them here
