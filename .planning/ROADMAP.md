@@ -246,7 +246,7 @@ Plans:
   4. A confirmed association can be undone from the same screen that created it, and both the confirmation and the undo are attributable to a person and a time
   5. The known real case is surfaced: `CampaignRun` pk=1 (FTS/MuSCAT4, 7–21 July, Siding Spring E10) is offered against its 11 LCO queue events (`2m0`/`2M0-SCICAM-MUSCAT`, 7–20 July) despite the one-day span difference and the mismatched instrument strings — and the whole attribution pass can be completed before any full reconcile sweep runs
 
-**Plans:** 4/4 plans complete
+**Plans:** 4/6 plans complete (4 shipped; 2 gap-closure plans added after `28-VERIFICATION.md` scored 6/8)
 
 Plans:
 
@@ -265,6 +265,11 @@ Plans:
 **Wave 4** *(blocked on 28-03 — both plans edit `campaign_views.py`; the template reverses 28-03's routes)*
 
 - [x] 28-04-PLAN.md — The read path and docs: the four-section attribution page with grouped candidates and evidence beside a subordinate score, the Dismissed/Confirmed tables, the campaign-list count banner, the operator runbook's attribution section, and the drain-to-empty test that makes ATTRIB-06 checkable
+
+**Wave 5** *(gap closure — blocked on 28-04; the two plans share no file and run in parallel)*
+
+- [ ] 28-05-PLAN.md — The two BLOCKER gaps: CR-01's `formnovalidate` on both Confirm submitters (the Dismiss-only `required` reason field currently blocks Confirm in a real browser) proved by a new template-structure test module that never calls `self.client.post()`, CR-02's `readonly_fields` + `save_model()` stamping on the standalone `CalendarEventMetaAdmin` page, plus the runbook consequences and the `REQUIREMENTS.md` traceability sync
+- [ ] 28-06-PLAN.md — The two WARNING findings: WR-01's `_undo_confirmation()` reorder so the dismissal is written only after the link-clearing write matched a row, and WR-02's `sole_high_candidate_pk` computed from the full uncapped candidate list; IN-01's contract mismatch closed by documenting the actual rounded-score threshold, with the behavior change deliberately deferred
 
 **UI hint**: yes
 
