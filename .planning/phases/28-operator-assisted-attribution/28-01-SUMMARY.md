@@ -221,3 +221,12 @@ None - no external service configuration required.
 ---
 *Phase: 28-operator-assisted-attribution*
 *Completed: 2026-08-01*
+
+## Self-Check: PASSED
+
+- FOUND: `solsys_code/migrations/0013_attribution_dismissals_and_calendar_event_meta_audit.py`
+- FOUND: `solsys_code/tests/test_attribution_dismissals.py`
+- FOUND: `.planning/phases/28-operator-assisted-attribution/28-01-SUMMARY.md`
+- FOUND commit: `650f787` (Task 1)
+- FOUND commit: `1ab4031` (Task 2)
+- FOUND commit: `531a1be` (Task 3)
