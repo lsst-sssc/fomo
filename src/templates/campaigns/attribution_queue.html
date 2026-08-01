@@ -1,0 +1,225 @@
+{% extends 'tom_common/base.html' %}
+{% load render_table from django_tables2 %}
+{% block title %}Attribution{% endblock %}
+
+{% block content %}
+<h4 class="font-weight-bold mb-4">Attribution</h4>
+
+<form method="get" class="form-inline mb-4">
+  <label class="small font-weight-bold mr-2" for="band-filter">Filter by confidence:</label>
+  <select name="band" id="band-filter" class="form-control form-control-sm" onchange="this.form.submit()">
+    <option value="" {% if not band %}selected{% endif %}>All</option>
+    <option value="high" {% if band == 'high' %}selected{% endif %}>High</option>
+    <option value="medium" {% if band == 'medium' %}selected{% endif %}>Medium</option>
+    <option value="low" {% if band == 'low' %}selected{% endif %}>Low</option>
+  </select>
+</form>
+
+{% if is_drained %}
+{# D-15: "Done" is both worklists empty plus a stated remaining count -- rendered ONCE here,
+   not per section, so it never competes with either worklist's own "No X awaiting attribution"
+   empty state below (both of which will also be showing, since is_drained implies both are
+   empty). unattributable_count renders as "None" at zero rather than "0 orphans" so the
+   sentence reads cleanly at true completion. #}
+<div class="text-center text-muted p-4 bg-light mb-4">
+  <h5 class="font-weight-bold mb-2">Attribution complete</h5>
+  <p class="mb-0">
+    Every calendar event and observation record with a candidate run has been confirmed or
+    dismissed.
+    {% if unattributable_count %}
+      {{ unattributable_count }} orphan{{ unattributable_count|pluralize }} still have no matching
+      run and won't appear here — see the note above.
+    {% else %}
+      None still have no matching run.
+    {% endif %}
+    The reconcile sweep in Phase 29 is safe to run.
+  </p>
+</div>
+{% endif %}
+
+<h5 class="font-weight-bold mb-3">Calendar events awaiting attribution</h5>
+<p class="small text-muted">
+  Only events and records with at least one candidate run are listed here — an orphan with no
+  candidate never appears.
+</p>
+
+{% if event_groups %}
+<table class="table table-sm">
+  {% for group in event_groups %}
+  <tbody>
+    <tr class="bg-light">
+      <td colspan="7" class="small font-weight-bold">
+        {{ group.identity_label }} ({{ group.window_label }})
+        {% if group.candidates|length < group.total_candidate_count %}
+        <span class="text-muted font-weight-normal">
+          — showing top {{ group.candidates|length }} of {{ group.total_candidate_count }} candidates
+        </span>
+        {% endif %}
+      </td>
+    </tr>
+    {% for candidate in group.candidates %}
+    <tr class="{% if candidate.band == 'high' %}border-left border-success{% endif %}{% if not forloop.first %} border-top{% endif %}"
+        {% if candidate.band == 'high' %}style="border-left-width: 4px;"{% endif %}>
+      <td>
+        {% if candidate.run.pk == group.sole_high_candidate_pk %}
+        {# D-09 checkbox gate: server-enforced, not template-enforced. This checkbox is a
+           DISPLAY MIRROR of AttributionDecisionView._confirm_selected()'s own re-derivation
+           (high band AND sole High-band candidate for this orphan, from 28-03) -- the server
+           independently re-checks both conditions on submit via
+           campaign_attribution.is_offered_candidate()/_is_sole_high_candidate() and never
+           trusts that a checkbox was only rendered for an eligible row. #}
+        <input type="checkbox" class="form-check-input" form="bulk-confirm-events"
+               name="candidate_ids" value="event:{{ group.orphan.pk }}:{{ candidate.run.pk }}">
+        {% elif candidate.band == 'high' %}
+        <span class="badge badge-success">High</span>
+        {% elif candidate.band == 'medium' %}
+        <span class="badge badge-warning text-dark">Medium</span>
+        {% else %}
+        <span class="badge badge-secondary">Low</span>
+        {% endif %}
+      </td>
+      <td><span class="small font-weight-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
+      <td><span class="small font-weight-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
+      <td><span class="small font-weight-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
+      <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
+      <td><span class="badge badge-light border">{{ candidate.score }}</span></td>
+      <td>
+        <form method="post" action="{% url 'campaigns:attribution_decide' %}" class="d-flex align-items-center"
+              style="gap: 0.5rem;">
+          {% csrf_token %}
+          <input type="hidden" name="kind" value="event">
+          <input type="hidden" name="orphan_pk" value="{{ group.orphan.pk }}">
+          <input type="hidden" name="run_pk" value="{{ candidate.run.pk }}">
+          <input type="hidden" name="band" value="{{ band|default:'' }}">
+          <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success">Confirm</button>
+          <input type="text" name="reason" class="form-control form-control-sm" required
+                 placeholder="Why doesn't this candidate match? (required)">
+          <button type="submit" name="action" value="dismiss" class="btn btn-sm btn-danger">Dismiss</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% endfor %}
+</table>
+
+{# D-09/UI-SPEC Multi-Select Form Shape: this bulk form deliberately sits BELOW the table, not
+   wrapped around it -- the per-candidate Confirm/Dismiss controls above are themselves <form>
+   elements inside table cells, and nesting a second <form> around the whole table would be
+   invalid HTML. The HTML5 form= attribute is what lets each High-band checkbox (rendered
+   inside a <td> above, never wrapped in its own <form>) submit into this one page-spanning
+   form without nesting. #}
+<form method="post" action="{% url 'campaigns:attribution_decide' %}" id="bulk-confirm-events" class="mt-2 mb-4">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="confirm_selected">
+  <input type="hidden" name="band" value="{{ band|default:'' }}">
+  <button type="submit" class="btn btn-primary btn-sm">Confirm selected</button>
+</form>
+
+{% else %}
+<div class="text-center text-muted p-4 bg-light mb-4">
+  <h5 class="font-weight-bold mb-2">No calendar events awaiting attribution</h5>
+  <p class="mb-0">Every calendar event with a candidate run has been confirmed or dismissed.</p>
+</div>
+{% endif %}
+
+<h5 class="font-weight-bold mb-3 mt-4">Observation records awaiting attribution</h5>
+<p class="small text-muted">
+  Only events and records with at least one candidate run are listed here — an orphan with no
+  candidate never appears.
+</p>
+
+{% if record_groups %}
+<table class="table table-sm">
+  {% for group in record_groups %}
+  <tbody>
+    <tr class="bg-light">
+      <td colspan="7" class="small font-weight-bold">
+        {{ group.identity_label }} ({{ group.window_label }})
+        {% if group.candidates|length < group.total_candidate_count %}
+        <span class="text-muted font-weight-normal">
+          — showing top {{ group.candidates|length }} of {{ group.total_candidate_count }} candidates
+        </span>
+        {% endif %}
+      </td>
+    </tr>
+    {% for candidate in group.candidates %}
+    <tr class="{% if candidate.band == 'high' %}border-left border-success{% endif %}{% if not forloop.first %} border-top{% endif %}"
+        {% if candidate.band == 'high' %}style="border-left-width: 4px;"{% endif %}>
+      <td>
+        {% if candidate.run.pk == group.sole_high_candidate_pk %}
+        {# D-09 checkbox gate: same server-enforced discipline as the events table above --
+           see that table's identical comment for the full rationale. #}
+        <input type="checkbox" class="form-check-input" form="bulk-confirm-records"
+               name="candidate_ids" value="record:{{ group.orphan.pk }}:{{ candidate.run.pk }}">
+        {% elif candidate.band == 'high' %}
+        <span class="badge badge-success">High</span>
+        {% elif candidate.band == 'medium' %}
+        <span class="badge badge-warning text-dark">Medium</span>
+        {% else %}
+        <span class="badge badge-secondary">Low</span>
+        {% endif %}
+      </td>
+      <td><span class="small font-weight-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
+      <td><span class="small font-weight-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
+      <td><span class="small font-weight-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
+      <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
+      <td><span class="badge badge-light border">{{ candidate.score }}</span></td>
+      <td>
+        <form method="post" action="{% url 'campaigns:attribution_decide' %}" class="d-flex align-items-center"
+              style="gap: 0.5rem;">
+          {% csrf_token %}
+          <input type="hidden" name="kind" value="record">
+          <input type="hidden" name="orphan_pk" value="{{ group.orphan.pk }}">
+          <input type="hidden" name="run_pk" value="{{ candidate.run.pk }}">
+          <input type="hidden" name="band" value="{{ band|default:'' }}">
+          <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success">Confirm</button>
+          <input type="text" name="reason" class="form-control form-control-sm" required
+                 placeholder="Why doesn't this candidate match? (required)">
+          <button type="submit" name="action" value="dismiss" class="btn btn-sm btn-danger">Dismiss</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% endfor %}
+</table>
+
+{# See the events table's identical comment above for why this bulk form sits below its table
+   rather than wrapping it. #}
+<form method="post" action="{% url 'campaigns:attribution_decide' %}" id="bulk-confirm-records" class="mt-2 mb-4">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="confirm_selected">
+  <input type="hidden" name="band" value="{{ band|default:'' }}">
+  <button type="submit" class="btn btn-primary btn-sm">Confirm selected</button>
+</form>
+
+{% else %}
+<div class="text-center text-muted p-4 bg-light mb-4">
+  <h5 class="font-weight-bold mb-2">No observation records awaiting attribution</h5>
+  <p class="mb-0">Every observation record with a candidate run has been confirmed or dismissed.</p>
+</div>
+{% endif %}
+
+<h5 class="font-weight-bold mb-3 mt-4">
+  <button class="btn btn-link p-0 font-weight-bold" type="button" data-toggle="collapse"
+          data-target="#attribution-dismissed-section" aria-expanded="false"
+          aria-controls="attribution-dismissed-section">
+    Dismissed
+  </button>
+</h5>
+<div id="attribution-dismissed-section" class="collapse">
+  {% render_table dismissed_table %}
+</div>
+
+<h5 class="font-weight-bold mb-3 mt-4">
+  <button class="btn btn-link p-0 font-weight-bold" type="button" data-toggle="collapse"
+          data-target="#attribution-confirmed-section" aria-expanded="false"
+          aria-controls="attribution-confirmed-section">
+    Confirmed
+  </button>
+</h5>
+<div id="attribution-confirmed-section" class="collapse">
+  {% render_table confirmed_table %}
+</div>
+{% endblock %}
