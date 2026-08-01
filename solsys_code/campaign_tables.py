@@ -15,7 +15,7 @@ from django.utils.http import urlencode
 from django_tables2.utils import Accessor
 
 from .campaign_utils import is_placeholder_observatory
-from .models import CampaignRun
+from .models import CampaignRun, CampaignRunObservation, ObservationRecordDismissal
 
 # D-08 / UI-SPEC Approval-Status Badge Contract: fixed 3-entry dict, badge class never derived
 # from the raw DB string (mirrors calendar_display_extras.py's constant-lookup pattern shape).
@@ -412,4 +412,154 @@ class ApprovalQueueTable(CampaignRunTable):
             decide_url,
             csrf_token,
             record.pk,
+        )
+
+
+class AttributionDismissedTable(tables.Table):
+    """D-07/D-14 Dismissed section: rows are a plain Python list mixing
+    ``CalendarEventDismissal``/``ObservationRecordDismissal`` instances (see
+    ``campaign_views._dismissed_attribution_rows()``), never a queryset -- ``render_orphan()``/
+    ``render_run()`` read whichever orphan-side attribute the row's concrete model carries.
+
+    CSRF is minted per row inside ``render_actions()`` (via ``django.middleware.csrf.get_token``),
+    never in the template's row loop, because ``{% render_table %}`` doesn't hand row-rendering
+    control back to the template -- the same discipline ``ApprovalQueueTable``'s class docstring
+    documents. The ``reason`` column is a plain ``tables.Column``: its value reaches the rendered
+    page only through django-tables2's own ``{{ cell }}`` template output, which Django's template
+    engine auto-escapes -- it is never passed through ``format_html`` as part of a format string
+    and never bypasses Django's own auto-escaping via any "trust this string" helper
+    (``CampaignRunTable.render_window_start()``'s existing stored-XSS note applies here too).
+    """
+
+    orphan = tables.Column(empty_values=(), orderable=False, verbose_name='Orphan')
+    run = tables.Column(empty_values=(), orderable=False, verbose_name='Run')
+    dismissed_by = tables.Column(verbose_name='Dismissed by')
+    dismissed_at = tables.Column(verbose_name='Dismissed at')
+    reason = tables.Column(verbose_name='Reason')
+    actions = tables.Column(empty_values=(), orderable=False, verbose_name='Actions')
+
+    class Meta:  # noqa: D106
+        sequence = ('orphan', 'run', 'dismissed_by', 'dismissed_at', 'reason', 'actions')
+        attrs = {'class': 'table table-sm'}
+        empty_text = 'No dismissals recorded yet.'
+
+    def __init__(self, *args, request=None, **kwargs):
+        self.request = request
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _kind_and_orphan(record):
+        """``('event', CalendarEvent)`` or ``('record', ObservationRecord)`` for one dismissal row."""
+        if isinstance(record, ObservationRecordDismissal):
+            return 'record', record.observation_record
+        return 'event', record.event
+
+    def render_orphan(self, record):
+        """The dismissed pair's orphan identity: an event's title and window, or a record's
+        facility and observation id."""
+        kind, orphan = self._kind_and_orphan(record)
+        if kind == 'event':
+            return f'{orphan.title} ({orphan.start_time:%Y-%m-%d}..{orphan.end_time:%Y-%m-%d})'
+        return f'{orphan.facility} observation {orphan.observation_id}'
+
+    def render_run(self, record):
+        """The dismissed pair's candidate run, identified by telescope/instrument + campaign."""
+        return f'{record.run.telescope_instrument} ({record.run.campaign.name})'
+
+    def render_actions(self, record):
+        """A single Undo button posting ``action=undo_dismissal`` with the pair's identifiers
+        as hidden fields (D-07), styled ``.btn-sm .btn-outline-secondary`` to match the existing
+        "Mark Cancelled"/"Mark Weathered" precedent above -- UI-SPEC reserves ``.btn-primary``/
+        ``.btn-success`` for confirm and ``.btn-danger`` for dismiss, neither of which applies to
+        a state-reversal action that writes a row rather than destroying data.
+        """
+        kind, orphan = self._kind_and_orphan(record)
+        decide_url = reverse('campaigns:attribution_decide')
+        csrf_token = get_token(self.request) if self.request is not None else ''
+        return format_html(
+            '<form method="post" action="{0}">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{1}">'
+            '<input type="hidden" name="action" value="undo_dismissal">'
+            '<input type="hidden" name="kind" value="{2}">'
+            '<input type="hidden" name="orphan_pk" value="{3}">'
+            '<input type="hidden" name="run_pk" value="{4}">'
+            '<button type="submit" class="btn btn-sm btn-outline-secondary" '
+            'onclick="return confirm(\'Undo this dismissal? '
+            'It will return to the worklist above.\')">Undo</button>'
+            '</form>',
+            decide_url,
+            csrf_token,
+            kind,
+            orphan.pk,
+            record.run.pk,
+        )
+
+
+class AttributionConfirmedTable(tables.Table):
+    """D-14 Confirmed section: rows are a plain Python list mixing ``CalendarEventMeta``
+    (``run__isnull=False``)/``CampaignRunObservation`` instances (see
+    ``campaign_views._confirmed_attribution_rows()``). Same shape as
+    ``AttributionDismissedTable`` above -- see its docstring for the CSRF-per-row and
+    auto-escaping discipline this class follows identically.
+    """
+
+    orphan = tables.Column(empty_values=(), orderable=False, verbose_name='Orphan')
+    run = tables.Column(empty_values=(), orderable=False, verbose_name='Run')
+    confirmed_by = tables.Column(verbose_name='Confirmed by')
+    confirmed_at = tables.Column(verbose_name='Confirmed at')
+    actions = tables.Column(empty_values=(), orderable=False, verbose_name='Actions')
+
+    class Meta:  # noqa: D106
+        sequence = ('orphan', 'run', 'confirmed_by', 'confirmed_at', 'actions')
+        attrs = {'class': 'table table-sm'}
+        empty_text = 'No confirmed attributions yet.'
+
+    def __init__(self, *args, request=None, **kwargs):
+        self.request = request
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _kind_and_orphan(record):
+        """``('event', CalendarEvent)`` or ``('record', ObservationRecord)`` for one confirmed row."""
+        if isinstance(record, CampaignRunObservation):
+            return 'record', record.observation_record
+        return 'event', record.event
+
+    def render_orphan(self, record):
+        """The confirmed pair's orphan identity: an event's title and window, or a record's
+        facility and observation id."""
+        kind, orphan = self._kind_and_orphan(record)
+        if kind == 'event':
+            return f'{orphan.title} ({orphan.start_time:%Y-%m-%d}..{orphan.end_time:%Y-%m-%d})'
+        return f'{orphan.facility} observation {orphan.observation_id}'
+
+    def render_run(self, record):
+        """The confirmed pair's run, identified by telescope/instrument + campaign."""
+        return f'{record.run.telescope_instrument} ({record.run.campaign.name})'
+
+    def render_actions(self, record):
+        """A single Undo button posting ``action=undo_confirmation`` (D-13) -- undoing a
+        confirmation writes a dismissal row for the same pair (see
+        ``AttributionDecisionView._undo_confirmation()``), so the row leaves this section for
+        the Dismissed one above, not back into an open worklist.
+        """
+        kind, orphan = self._kind_and_orphan(record)
+        decide_url = reverse('campaigns:attribution_decide')
+        csrf_token = get_token(self.request) if self.request is not None else ''
+        return format_html(
+            '<form method="post" action="{0}">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{1}">'
+            '<input type="hidden" name="action" value="undo_confirmation">'
+            '<input type="hidden" name="kind" value="{2}">'
+            '<input type="hidden" name="orphan_pk" value="{3}">'
+            '<input type="hidden" name="run_pk" value="{4}">'
+            '<button type="submit" class="btn btn-sm btn-outline-secondary" '
+            'onclick="return confirm(\'Undo this confirmation? '
+            'It will move this pair to the Dismissed section below.\')">Undo</button>'
+            '</form>',
+            decide_url,
+            csrf_token,
+            kind,
+            orphan.pk,
+            record.run.pk,
         )

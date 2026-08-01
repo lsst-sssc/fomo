@@ -181,6 +181,84 @@ in the Sites Needing Review queue in the first place, and "How do I
 re-resolve campaign run sites that have gone stale?" above for the bulk
 alternative to resolving rows one at a time from this page.
 
+How do I attribute existing calendar events and observation records to a run?
+--------------------------------------------------------------------------------
+
+The attribution page (``campaigns:attribution``, at ``/campaigns/attribution/``)
+is where staff connect a calendar event or an observation record that
+already exists to the ``CampaignRun`` that actually produced it. It sits
+alongside the approval queue as a second staff decision surface: the
+campaign-list warning banner now names a third count -- "N orphans
+awaiting attribution" -- with its own "Attribution queue" link, following
+the same nested-``{% if %}`` staff-only rule the pending/site-review counts
+already use.
+
+**The two worklists, and why an orphan may be absent.** The page lists
+"Calendar events awaiting attribution" and "Observation records awaiting
+attribution" as two sibling tables. Only an event or record with *at
+least one* candidate run appears in either one -- the same campaign/target
+boundary check that keeps a suggestion from ever crossing into the wrong
+campaign also filters out the noise. A conference or proposal-deadline
+calendar event has no campaign at all, so it produces no candidate and
+never shows up here. **The queue shows attributable orphans, not every
+un-attributed row** -- an empty worklist does not mean nothing is
+un-attributed, only that nothing un-attributed has a run to offer it to.
+
+**What the evidence columns mean.** Every candidate row shows four
+separate facts side by side, never collapsed into one cell: the matched
+telescope, the date overlap between the orphan's window and the run's
+window (stated in words, including the mismatch when there is one), the
+campaign the run belongs to, and the instrument-string similarity between
+the orphan's instrument text and the run's. The numeric score is
+additional to these facts, never a replacement for them -- it renders as a
+small, visually subordinate chip after the evidence, there for staff to
+sanity-check the banding while the matcher is new, not to be read on its
+own. Each row is also tagged with a named confidence band -- **High**,
+**Medium** or **Low** -- and the band filter at the top of the page
+narrows either worklist to one band at a time.
+
+**The checkbox gate.** A checkbox appears on a candidate row only when it
+is a High-band candidate *and* the only High-band candidate for its
+orphan -- if two candidates for the same orphan are both High, neither
+gets a checkbox, and a staff member must pick one explicitly with the
+per-row Confirm button instead. The server re-checks both conditions
+again when a bulk "Confirm selected" submission arrives, never trusting
+that a checkbox was only rendered for an eligible row. A checkbox is
+therefore a shortcut for a decision a human would make unhesitatingly for
+an unambiguous pair, not a bulk guess across ambiguous ones.
+
+**What a dismissal means.** Dismissing a candidate records that a
+suggested pair was rejected -- who rejected it, when, and why, from a
+required free-text reason. A dismissal is **not an association**:
+persisting one never creates a link between the orphan and the run, and
+an unconfirmed guess can never be mistaken for ownership. It exists so
+the queue can actually drain -- without it, a rejected candidate would
+return on every page load -- and it is fully reversible from the
+collapsed "Dismissed" section on the same page, which lists who dismissed
+each pair and offers an Undo button for every row.
+
+Undoing a *confirmed* attribution writes a dismissal for that same pair
+as part of the same action. This is what keeps the undo attributable (the
+link's own audit fields are cleared by the undo, so the trace has to live
+somewhere else) and what stops the matcher immediately re-suggesting the
+exact pair a staff member just decided was wrong. A freshly-undone
+confirmation therefore appears in the Dismissed section, not directly
+back in an open worklist, until that dismissal is itself undone.
+
+**The done signal Phase 29 depends on.** The attribution pass is complete
+when both worklists are empty and the page shows its "Attribution
+complete" heading, naming how many orphans still have no matching run at
+all and confirming that the Phase 29 reconcile sweep is safe to run.
+There is no backlog-reporting management command -- this signal is read
+from the page itself, by design.
+
+**Behavior change:** before this phase, the only mechanism that could
+create a run-to-event link was the Django admin's foreign-key picker on
+``CalendarEventMeta``/``CampaignRunObservation``, with no evidence, no
+worklist, and no undo. That admin path still exists and remains available
+for a pair the matcher never offers a candidate for, but the attribution
+page above is now the primary, evidence-backed route for the common case.
+
 How do I mark a run cancelled or weathered-out?
 --------------------------------------------------
 

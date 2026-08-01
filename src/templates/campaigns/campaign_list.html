@@ -9,12 +9,13 @@
 
 {% if request.user.is_staff %}
 {% comment %}
-27.1-03: this MUST stay a nested pair of {% if %} tags, never flattened into one combined
-condition joining is_staff to both counts with `and`/`or` on a single line -- Django's
-{% if %} binds `and` tighter than `or`, so a flattened form would parse as
-"(staff check AND first count) OR second count", which renders this staff banner (and its
-approval-queue link) to anonymous visitors whenever the site-review queue has rows. Keep
-the nesting.
+27.1-03/28-04: this MUST stay a nested pair of {% if %} tags, never flattened into one combined
+condition joining is_staff to any of the three counts below with `and`/`or` on a single line --
+Django's {% if %} binds `and` tighter than `or`, so a flattened form would parse as
+"(staff check AND first count) OR second count OR third count", which renders a staff banner
+(and its queue link) to anonymous visitors whenever any one of the three counts is non-zero.
+Keep the nesting. This warning now covers three counts, not two: pending_count and
+site_review_count (27.1-03) plus attribution_count (28-04, D-02).
 {% endcomment %}
 {% if pending_count or site_review_count %}
 <div class="alert alert-warning d-flex justify-content-between align-items-center mb-4">
@@ -25,6 +26,15 @@ the nesting.
     {% if site_review_count %}{{ site_review_count }} run{{ site_review_count|pluralize }} needing site review{% endif %}
   </span>
   <a href="{% url 'campaigns:approval_queue' %}" class="btn btn-sm btn-warning">Review queue</a>
+</div>
+{% endif %}
+{% if attribution_count %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center mb-4">
+  <span>
+    <i class="fa fa-exclamation-circle mr-2"></i>
+    {{ attribution_count }} orphan{{ attribution_count|pluralize }} awaiting attribution
+  </span>
+  <a href="{% url 'campaigns:attribution' %}" class="btn btn-sm btn-warning">Attribution queue</a>
 </div>
 {% endif %}
 {% endif %}

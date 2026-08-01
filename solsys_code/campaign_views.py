@@ -47,7 +47,12 @@ from .calendar_utils import insert_or_create_calendar_event
 from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
-from .campaign_tables import ApprovalQueueTable, CampaignRunTable
+from .campaign_tables import (
+    ApprovalQueueTable,
+    AttributionConfirmedTable,
+    AttributionDismissedTable,
+    CampaignRunTable,
+)
 from .campaign_utils import (
     _check_and_increment_throttle,
     build_site_candidates,
@@ -1173,6 +1178,20 @@ class AttributionQueueView(StaffRequiredMixin, TemplateView):
         # (the same trap ApprovalQueueView's decided_qs comment documents).
         context['dismissed_rows'] = _dismissed_attribution_rows()
         context['confirmed_rows'] = _confirmed_attribution_rows()
+
+        # D-07/D-14: two independent table instances (distinct prefixes so their pagination
+        # never collides with each other or with event_page/record_page above), mirroring
+        # ApprovalQueueView's own pending_table/decided_table construction.
+        dismissed_table = AttributionDismissedTable(
+            context['dismissed_rows'], prefix='dismissed-', request=self.request, order_by=()
+        )
+        confirmed_table = AttributionConfirmedTable(
+            context['confirmed_rows'], prefix='confirmed-', request=self.request, order_by=()
+        )
+        RequestConfig(self.request).configure(dismissed_table)
+        RequestConfig(self.request).configure(confirmed_table)
+        context['dismissed_table'] = dismissed_table
+        context['confirmed_table'] = confirmed_table
 
         # D-02: one shared definition for both this page's own header count and the
         # campaign-list banner -- never a second inline .count(). Computed unfiltered
