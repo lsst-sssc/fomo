@@ -4,7 +4,7 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
 stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-01T15:31:06.284Z"
+last_updated: "2026-08-01T21:14:03.605Z"
 last_activity: 2026-08-01 -- Phase 28 execution started
 progress:
   total_phases: 5
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 Phase: 28 (operator-assisted-attribution) — EXECUTING
 Plan: 1 of 4
-Status: Executing Phase 28
+Status: Ready to execute
 Last activity: 2026-08-01 -- Phase 28 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
