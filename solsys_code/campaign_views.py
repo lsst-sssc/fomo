@@ -1439,32 +1439,25 @@ class AttributionDecisionView(StaffRequiredMixin, View):
         return self._redirect(request)
 
     def _undo_confirmation(self, request, kind: str, orphan_pk: int, run_pk: int):
-        """D-13: writes a dismissal row for the pair being un-confirmed FIRST, inside the
-        SAME atomic block as the link-clearing write below -- clearing the link erases the
-        very fields recording who confirmed it, so the trace has to live elsewhere. A
-        soft-undo flag would break Phase 27 D-01's invariant that a link row's existence
-        means "confirmed"; writing the dismissal row here also stops the matcher immediately
-        re-suggesting the pair just undone.
+        """D-13: the link-clearing write runs FIRST, and the D-13 dismissal row is written
+        only when it actually matched a row -- both inside the SAME atomic block. Clearing
+        the link erases the very fields recording who confirmed it, so the trace has to live
+        elsewhere; a soft-undo flag would break Phase 27 D-01's invariant that a link row's
+        existence means "confirmed"; writing the dismissal row also stops the matcher
+        immediately re-suggesting the pair just undone.
+
+        28-REVIEW.md WR-01: ``post()`` validates ``orphan_pk``/``run_pk`` only as integers, so
+        a stale resubmit after a re-point, or a tampered POST, can name a pair that was never
+        actually confirmed to ``run_pk``. The conditional link-clearing write below is itself
+        the proof the pair was really confirmed -- so the dismissal is gated on its
+        ``changed_count`` rather than written unconditionally. An ungated write would
+        permanently remove that pair from the queue, since ``candidates_for_event``/
+        ``candidates_for_record`` exclude every dismissed run regardless of whether the pair
+        was ever actually associated.
         """
         reason = request.POST.get('reason', '').strip() or _UNDO_CONFIRMATION_DEFAULT_REASON
         defaults = {'dismissed_by': request.user, 'dismissed_at': timezone.now(), 'reason': reason}
         with transaction.atomic():
-            try:
-                # Nested savepoint (own atomic()), mirroring _dismiss()/_do_confirm_record():
-                # a caught IntegrityError here must not poison the outer atomic block, which
-                # still has the link-clearing write below to make.
-                with transaction.atomic():
-                    if kind == 'event':
-                        CalendarEventDismissal.objects.get_or_create(
-                            event_id=orphan_pk, run_id=run_pk, defaults=defaults
-                        )
-                    else:
-                        ObservationRecordDismissal.objects.get_or_create(
-                            observation_record_id=orphan_pk, run_id=run_pk, defaults=defaults
-                        )
-            except IntegrityError:
-                pass  # already dismissed (e.g. a prior undo) -- proceed to clear the link anyway.
-
             if kind == 'event':
                 # Event side: an .update(), still conditional on the currently-owning run so
                 # a concurrent re-point cannot be silently clobbered.
@@ -1477,6 +1470,23 @@ class AttributionDecisionView(StaffRequiredMixin, View):
                 changed_count, _ = CampaignRunObservation.objects.filter(
                     observation_record_id=orphan_pk, run_id=run_pk
                 ).delete()
+
+            if changed_count:
+                try:
+                    # Nested savepoint (own atomic()), mirroring _dismiss()/_do_confirm_record():
+                    # a caught IntegrityError here must not poison the outer atomic block, which
+                    # has already made the link-clearing write above.
+                    with transaction.atomic():
+                        if kind == 'event':
+                            CalendarEventDismissal.objects.get_or_create(
+                                event_id=orphan_pk, run_id=run_pk, defaults=defaults
+                            )
+                        else:
+                            ObservationRecordDismissal.objects.get_or_create(
+                                observation_record_id=orphan_pk, run_id=run_pk, defaults=defaults
+                            )
+                except IntegrityError:
+                    pass  # already dismissed (e.g. a prior undo) -- the link is cleared either way.
 
         if changed_count:
             messages.success(request, 'Confirmation undone — back in the queue.')
