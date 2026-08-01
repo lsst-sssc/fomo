@@ -249,3 +249,12 @@ credentials were needed and none were stored.)
 ---
 *Phase: 28-operator-assisted-attribution*
 *Completed: 2026-08-01*
+
+## Self-Check: PASSED
+
+- FOUND: `solsys_code/campaign_attribution.py`
+- FOUND: `solsys_code/tests/test_campaign_attribution.py`
+- FOUND: `.planning/phases/28-operator-assisted-attribution/28-02-SUMMARY.md`
+- FOUND commit: `5e63107` (Task 1 + most of Task 2)
+- FOUND commit: `3c8c57d` (Task 2 remainder)
+- FOUND commit: `afe55b0` (Task 3)
