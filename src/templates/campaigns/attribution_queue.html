@@ -16,11 +16,13 @@
 </form>
 
 {% if is_drained %}
-{# D-15: "Done" is both worklists empty plus a stated remaining count -- rendered ONCE here,
-   not per section, so it never competes with either worklist's own "No X awaiting attribution"
-   empty state below (both of which will also be showing, since is_drained implies both are
-   empty). unattributable_count renders as "None" at zero rather than "0 orphans" so the
-   sentence reads cleanly at true completion. #}
+{% comment %}
+D-15: "Done" is both worklists empty plus a stated remaining count -- rendered ONCE here,
+not per section, so it never competes with either worklist's own "No X awaiting attribution"
+empty state below (both of which will also be showing, since is_drained implies both are
+empty). unattributable_count renders as "None" at zero rather than "0 orphans" so the
+sentence reads cleanly at true completion.
+{% endcomment %}
 <div class="text-center text-muted p-4 bg-light mb-4">
   <h5 class="font-weight-bold mb-2">Attribution complete</h5>
   <p class="mb-0">
@@ -62,12 +64,14 @@
         {% if candidate.band == 'high' %}style="border-left-width: 4px;"{% endif %}>
       <td>
         {% if candidate.run.pk == group.sole_high_candidate_pk %}
-        {# D-09 checkbox gate: server-enforced, not template-enforced. This checkbox is a
-           DISPLAY MIRROR of AttributionDecisionView._confirm_selected()'s own re-derivation
-           (high band AND sole High-band candidate for this orphan, from 28-03) -- the server
-           independently re-checks both conditions on submit via
-           campaign_attribution.is_offered_candidate()/_is_sole_high_candidate() and never
-           trusts that a checkbox was only rendered for an eligible row. #}
+        {% comment %}
+        D-09 checkbox gate: server-enforced, not template-enforced. This checkbox is a
+        DISPLAY MIRROR of AttributionDecisionView._confirm_selected()'s own re-derivation
+        (high band AND sole High-band candidate for this orphan, from 28-03) -- the server
+        independently re-checks both conditions on submit via
+        campaign_attribution.is_offered_candidate()/_is_sole_high_candidate() and never
+        trusts that a checkbox was only rendered for an eligible row.
+        {% endcomment %}
         <input type="checkbox" class="form-check-input" form="bulk-confirm-events"
                name="candidate_ids" value="event:{{ group.orphan.pk }}:{{ candidate.run.pk }}">
         {% elif candidate.band == 'high' %}
@@ -103,12 +107,14 @@
   {% endfor %}
 </table>
 
-{# D-09/UI-SPEC Multi-Select Form Shape: this bulk form deliberately sits BELOW the table, not
-   wrapped around it -- the per-candidate Confirm/Dismiss controls above are themselves <form>
-   elements inside table cells, and nesting a second <form> around the whole table would be
-   invalid HTML. The HTML5 form= attribute is what lets each High-band checkbox (rendered
-   inside a <td> above, never wrapped in its own <form>) submit into this one page-spanning
-   form without nesting. #}
+{% comment %}
+D-09/UI-SPEC Multi-Select Form Shape: this bulk form deliberately sits BELOW the table, not
+wrapped around it -- the per-candidate Confirm/Dismiss controls above are themselves <form>
+elements inside table cells, and nesting a second <form> around the whole table would be
+invalid HTML. The HTML5 form= attribute is what lets each High-band checkbox (rendered
+inside a <td> above, never wrapped in its own <form>) submit into this one page-spanning
+form without nesting.
+{% endcomment %}
 <form method="post" action="{% url 'campaigns:attribution_decide' %}" id="bulk-confirm-events" class="mt-2 mb-4">
   {% csrf_token %}
   <input type="hidden" name="action" value="confirm_selected">
@@ -148,8 +154,10 @@
         {% if candidate.band == 'high' %}style="border-left-width: 4px;"{% endif %}>
       <td>
         {% if candidate.run.pk == group.sole_high_candidate_pk %}
-        {# D-09 checkbox gate: same server-enforced discipline as the events table above --
-           see that table's identical comment for the full rationale. #}
+        {% comment %}
+        D-09 checkbox gate: same server-enforced discipline as the events table above --
+        see that table's identical comment for the full rationale.
+        {% endcomment %}
         <input type="checkbox" class="form-check-input" form="bulk-confirm-records"
                name="candidate_ids" value="record:{{ group.orphan.pk }}:{{ candidate.run.pk }}">
         {% elif candidate.band == 'high' %}
@@ -185,8 +193,10 @@
   {% endfor %}
 </table>
 
-{# See the events table's identical comment above for why this bulk form sits below its table
-   rather than wrapping it. #}
+{% comment %}
+See the events table's identical comment above for why this bulk form sits below its table
+rather than wrapping it.
+{% endcomment %}
 <form method="post" action="{% url 'campaigns:attribution_decide' %}" id="bulk-confirm-records" class="mt-2 mb-4">
   {% csrf_token %}
   <input type="hidden" name="action" value="confirm_selected">
