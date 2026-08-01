@@ -4,7 +4,7 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: "All six success criteria met. Criterion 6 closed by 27.1-05 (the `source` provenance lock now covers every `WEB` run at any approval status, at parity with `import_campaign_csv`'s existing carve-out). Criterion 5's paired demo notebook was regenerated from a clean DB after a contaminated snapshot was found. Open follow-ups are advisory only, recorded in 27.1-REVIEW.md (WR-08 test asserts no response status, WR-09/WR-10 runbook wording) and deferred-items.md. Next: Phase 28 (Operator-Assisted Attribution)"
 stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-01T04:22:09.987Z"
+last_updated: "2026-08-01T15:16:55.823Z"
 last_activity: "2026-07-31 -- Phase 27.1 complete: 27.1-05 closed criterion 6, notebook regenerated, verified 6/6"
 progress:
   total_phases: 5
