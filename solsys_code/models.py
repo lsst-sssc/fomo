@@ -31,11 +31,6 @@ class CalendarEventMeta(models.Model):
     is_verified = models.BooleanField(
         default=True, verbose_name='Whether the telescope label was live-verified against the LCO API'
     )
-    # D-05: deliberately a bare FK with no confirmed_by/confirmed_at. Phase 26 locked this
-    # shape and accepted the resulting audit asymmetry with the observation link (which does
-    # carry confirmed_by/confirmed_at) -- an event attribution records no who or when, and a
-    # future event-side undo will therefore be untraceable. This is a decision, not an
-    # omission -- do not "fix" it here.
     run = models.ForeignKey(
         'CampaignRun',
         on_delete=models.SET_NULL,
@@ -44,6 +39,25 @@ class CalendarEventMeta(models.Model):
         related_name='calendar_event_metas',
         verbose_name='Owning campaign run',
     )
+    # D-12 (28-CONTEXT.md): Phase 28 deliberately reopens Phase 27's D-05, which left this FK
+    # bare on purpose and accepted the resulting audit asymmetry with the observation link.
+    # ROADMAP Phase 28 criterion 4 requires both a confirmation and an undo to be attributable
+    # to a person and a time, and 27-CONTEXT.md itself named this phase as the place to
+    # revisit the gap if the undo flow proved it painful -- it did, so these two fields close
+    # that asymmetry, mirroring CampaignRunObservation.confirmed_by/confirmed_at exactly.
+    #
+    # Consequence readers need: an event link written before Phase 28 (e.g. by the admin FK
+    # picker) has both fields NULL, so NULL means "confirmed before audit fields existed", not
+    # "unconfirmed" -- the `run` FK being set is still what means "attributed".
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_calendar_event_metas',
+        verbose_name='Confirmed by',
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='Confirmed at')
 
     def __str__(self):
         """Verified/Fallback prefix + event title + event start (Task 1, 27.1-02).
@@ -389,3 +403,104 @@ class CampaignRunObservation(models.Model):
 
     def __str__(self):
         return f'{self.run}: {self.observation_record}'
+
+
+class CalendarEventDismissal(models.Model):
+    """Records a staff member's rejection of a suggested (CalendarEvent, CampaignRun) pair
+    (28-CONTEXT.md D-05/D-06/D-08).
+
+    A dismissal is NOT an association -- persisting one does not weaken Phase 27 D-01's
+    invariant that an unconfirmed guess can never be mistaken for ownership. Without a
+    dismissal record the attribution queue could never drain (ATTRIB-06 would be unreachable
+    for any orphan carrying a wrong candidate), since a rejected candidate would return on
+    every page load.
+
+    The unique constraint below is per (event, run) PAIR, not per event, because D-05
+    requires dismissing one wrong candidate to leave the event's other candidates -- and any
+    candidate the matcher surfaces later as new runs arrive -- still offered.
+    """
+
+    event = models.ForeignKey(
+        CalendarEvent,
+        on_delete=models.CASCADE,
+        related_name='attribution_dismissals',
+        verbose_name='Calendar event',
+    )
+    run = models.ForeignKey(
+        CampaignRun,
+        on_delete=models.CASCADE,
+        related_name='calendar_event_dismissals',
+        verbose_name='Campaign run',
+    )
+    dismissed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dismissed_calendar_event_attributions',
+        verbose_name='Dismissed by',
+    )
+    dismissed_at = models.DateTimeField(null=True, blank=True, verbose_name='Dismissed at')
+    reason = models.TextField(blank=True, default='', verbose_name='Why this candidate was rejected')
+
+    class Meta:  # noqa: D106
+        constraints = [
+            # D-05/D-08: named per-pair UniqueConstraint, not a bare unique_together (this
+            # codebase never uses that shape). Per (event, run) pair, not per event -- see
+            # class docstring.
+            models.UniqueConstraint(fields=('event', 'run'), name='unique_calendar_event_dismissal_pair'),
+        ]
+
+    # Both FKs are CASCADE, not SET_NULL -- a genuinely new judgement call flagged by
+    # 28-PATTERNS.md (this is NOT the same choice CampaignRunObservation.observation_record
+    # made for the same reason: a dismissal row records "this pair was rejected"; if either
+    # side of the pair is deleted the pair can never be suggested again, so the row carries
+    # nothing and means nothing. This is deliberately NOT the "survives as an audit trail
+    # forever" alternative -- D-06/D-07's audit-trail requirement is about surviving the
+    # *dismissing user's* deletion (dismissed_by is SET_NULL, below), not the orphan's or
+    # run's.
+    def __str__(self):
+        return f'dismissed {self.event} for {self.run}'
+
+
+class ObservationRecordDismissal(models.Model):
+    """Records a staff member's rejection of a suggested (ObservationRecord, CampaignRun)
+    pair (28-CONTEXT.md D-05/D-06/D-08). See CalendarEventDismissal's docstring for the full
+    rationale -- this model is identical apart from the orphan-side FK.
+    """
+
+    observation_record = models.ForeignKey(
+        ObservationRecord,
+        on_delete=models.CASCADE,
+        related_name='attribution_dismissals',
+        verbose_name='Observation record',
+    )
+    run = models.ForeignKey(
+        CampaignRun,
+        on_delete=models.CASCADE,
+        related_name='observation_record_dismissals',
+        verbose_name='Campaign run',
+    )
+    dismissed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dismissed_observation_record_attributions',
+        verbose_name='Dismissed by',
+    )
+    dismissed_at = models.DateTimeField(null=True, blank=True, verbose_name='Dismissed at')
+    reason = models.TextField(blank=True, default='', verbose_name='Why this candidate was rejected')
+
+    class Meta:  # noqa: D106
+        constraints = [
+            models.UniqueConstraint(
+                fields=('observation_record', 'run'), name='unique_observation_record_dismissal_pair'
+            ),
+        ]
+
+    # See CalendarEventDismissal's on_delete comment -- same reasoning applies here: both FKs
+    # are CASCADE because an orphaned dismissal row (either side gone) carries nothing and
+    # means nothing.
+    def __str__(self):
+        return f'dismissed {self.observation_record} for {self.run}'
