@@ -216,7 +216,9 @@ class TargetAdminChangelistAndTypeFilterTests(TestCase):
 
 class CampaignRunAdminInlinesTests(TestCase):
     """Phase 27 Plan 05 (CANON-05/D-06/D-07/D-19): the two new inlines, save_formset's
-    attribution stamping, and the two new list_filter entries.
+    attribution stamping, and the two new list_filter entries. Phase 28 (D-12) extends
+    save_formset's stamping to CalendarEventMeta's confirmed_by/confirmed_at on a genuine
+    run-link transition, mirroring the CampaignRunObservation contract.
     """
 
     @classmethod
@@ -333,11 +335,24 @@ class CampaignRunAdminInlinesTests(TestCase):
         self.assertEqual(link.confirmed_by, self.other_staff_user)
         self.assertEqual(link.confirmed_at, original_confirmed_at)
 
-    def test_save_formset_does_not_stamp_calendar_event_meta_formset(self) -> None:
-        """The isinstance gate: save_formset is called once per inline formset, so the
-        CalendarEventMeta formset flows through the same method and must complete without
-        error and write the run link, proving it is not mistakenly treated as the
-        CampaignRunObservation formset (CalendarEventMeta has no audit fields at all)."""
+    def test_save_formset_stamps_calendar_event_meta_on_run_transition(self) -> None:
+        """D-12: linking a previously-unowned CalendarEvent to a run through the inline is a
+        genuine None-to-not-None `run_id` transition, so it is stamped with the acting staff
+        user and a non-null confirmed_at -- exactly as the observation-side inline is
+        (28-CONTEXT.md D-12 reopens Phase 27's D-05 bare-FK decision).
+
+        No CalendarEventMeta row exists yet for this event (unlike the real shape, where
+        telescope-label resolution seeds one first) -- Django's uniqueness validation on
+        `event` (a OneToOneField declared `primary_key=True`) rejects an "add" formset row
+        whose event pk already has a companion row, so this inline can only create-and-link
+        in one step, never re-point an existing unowned row. That is a genuine mechanical
+        limit of this admin surface, not a test simplification -- the standalone
+        CalendarEventMetaAdmin's own `run` autocomplete field is the only path that edits an
+        already-existing row, and it does not flow through this save_formset override.
+        `CampaignRunAdmin.save_formset`'s `prior_run_id` lookup treats "no row exists yet"
+        the same as "row exists with run=None" -- both mean "not owned by any run" -- so the
+        transition condition fires identically either way.
+        """
         event = CalendarEvent.objects.create(
             title='Inline test event',
             start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
@@ -362,6 +377,52 @@ class CampaignRunAdminInlinesTests(TestCase):
 
         meta = CalendarEventMeta.objects.get(event=event)
         self.assertEqual(meta.run_id, self.campaign_run.pk)
+        self.assertEqual(meta.confirmed_by, self.staff_user)
+        self.assertIsNotNone(meta.confirmed_at)
+
+    def test_save_formset_does_not_restamp_calendar_event_meta_on_unrelated_edit(self) -> None:
+        """D-12: a CalendarEventMeta row that already has a `run` and a `confirmed_by` keeps
+        both unchanged when some other field (`is_verified`) is edited through the inline --
+        mirrors the CampaignRunObservation edit-does-not-restamp contract above."""
+        event = CalendarEvent.objects.create(
+            title='Already-owned inline event',
+            start_time=datetime(2025, 7, 6, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 7, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        meta = CalendarEventMeta.objects.create(
+            event=event,
+            run=self.campaign_run,
+            is_verified=True,
+            confirmed_by=self.other_staff_user,
+            confirmed_at=original_confirmed_at,
+        )
+        request = self._staff_request(self.staff_user)
+        inline = CalendarEventMetaInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            # `event` doubles as this model's declared primary key, so there is no separate
+            # hidden `id` field -- submitting it at its own (frozen) value is what an
+            # unrelated edit through this inline looks like.
+            f'{prefix}-0-event': str(event.pk),
+            # Omitting is_verified (an unchecked checkbox is simply absent from POST data)
+            # is the "unrelated edit": True -> False, with run untouched.
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=True)
+
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+        self.assertFalse(meta.is_verified)
+        self.assertEqual(meta.confirmed_by, self.other_staff_user)
+        self.assertEqual(meta.confirmed_at, original_confirmed_at)
 
     def test_calendar_event_meta_inline_freezes_event_on_existing_rows(self) -> None:
         """WR-08: `event` is the model's primary key, so re-pointing it on an existing row
