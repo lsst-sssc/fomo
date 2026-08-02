@@ -272,6 +272,123 @@ class TestConfirmUndo(AttributionViewTestBase):
         self.assertIn('Dismissal undone — back in the queue.', self._message_strings(response))
 
 
+class TestUndoConfirmationOrdering(AttributionViewTestBase):
+    """28-REVIEW.md WR-01 regression: ``_undo_confirmation()`` must write its D-13 dismissal
+    row only after the link-clearing write actually matched a row, never unconditionally. A
+    stale resubmit after a re-point, or a tampered POST -- ``post()`` validates ``orphan_pk``/
+    ``run_pk`` only as integers -- must write nothing at all when it names a pair that is not
+    the orphan's currently-confirmed run, so it can never permanently remove a pair from the
+    queue that was never actually associated. A genuine undo must still clear the link and
+    write its dismissal in the same transaction, exactly as D-13 requires -- the ordering fix
+    must not weaken the undo's attributability.
+
+    Does not modify ``AttributionViewTestBase`` (28-06-PLAN.md's parallel-execution
+    constraint with 28-05); builds its own ``stale_run`` fixture here.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        # A second CampaignRun in the SAME campaign as cls.campaign_run -- isolates "this is
+        # not the pair's currently-confirmed run" from the cross-campaign boundary gate
+        # (a different mechanism, tested in TestConcurrencyAndTampering).
+        cls.stale_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            # Distinct window from cls.campaign_run so the named per-campaign UniqueConstraint
+            # on (campaign, telescope_instrument, window_start, window_end) isn't tripped --
+            # this fixture only needs "a second real CampaignRun in the same campaign", not a
+            # candidate with any particular score.
+            window_start=date(2026, 8, 7),
+            window_end=date(2026, 8, 21),
+            site=cls.observatory,
+            telescope_class='',
+        )
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def test_undo_naming_a_run_that_never_confirmed_this_event_writes_no_dismissal(self):
+        event = self._make_event()
+        self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'confirm', 'kind': 'event', 'orphan_pk': event.pk, 'run_pk': self.campaign_run.pk},
+        )
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'undo_confirmation', 'kind': 'event', 'orphan_pk': event.pk, 'run_pk': self.stale_run.pk},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(CalendarEventDismissal.objects.filter(event=event, run=self.stale_run).exists())
+        meta = CalendarEventMeta.objects.get(event=event)
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+        self.assertEqual(meta.confirmed_by, self.staff_user)
+        self.assertIsNotNone(meta.confirmed_at)
+        self.assertIn('This candidate no longer exists.', self._message_strings(response))
+
+    def test_undo_naming_a_wrong_run_leaves_that_pair_still_offerable(self):
+        event = self._make_event()
+        self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'confirm', 'kind': 'event', 'orphan_pk': event.pk, 'run_pk': self.campaign_run.pk},
+        )
+        self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'undo_confirmation', 'kind': 'event', 'orphan_pk': event.pk, 'run_pk': self.stale_run.pk},
+        )
+        # This assertion fails on the pre-fix code: the bogus dismissal row would have
+        # excluded stale_run from candidates_for_event() permanently.
+        self.assertIn(self.stale_run.pk, {c.run.pk for c in candidates_for_event(event)})
+
+    def test_undo_naming_a_run_that_never_confirmed_this_record_writes_no_dismissal(self):
+        record = self._make_record()
+        self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'confirm', 'kind': 'record', 'orphan_pk': record.pk, 'run_pk': self.campaign_run.pk},
+        )
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'undo_confirmation', 'kind': 'record', 'orphan_pk': record.pk, 'run_pk': self.stale_run.pk},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            ObservationRecordDismissal.objects.filter(observation_record=record, run=self.stale_run).exists()
+        )
+        self.assertTrue(
+            CampaignRunObservation.objects.filter(observation_record=record, run=self.campaign_run).exists()
+        )
+
+    def test_undo_of_a_never_confirmed_pair_writes_nothing_at_all(self):
+        event = self._make_event()
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'undo_confirmation', 'kind': 'event', 'orphan_pk': event.pk, 'run_pk': self.campaign_run.pk},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(CalendarEventDismissal.objects.count(), 0)
+        self.assertIn('This candidate no longer exists.', self._message_strings(response))
+
+    def test_a_genuine_undo_still_clears_the_link_and_writes_its_dismissal(self):
+        event = self._make_event()
+        self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'confirm', 'kind': 'event', 'orphan_pk': event.pk, 'run_pk': self.campaign_run.pk},
+        )
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'undo_confirmation', 'kind': 'event', 'orphan_pk': event.pk, 'run_pk': self.campaign_run.pk},
+        )
+        self.assertEqual(response.status_code, 302)
+        meta = CalendarEventMeta.objects.get(event=event)
+        self.assertIsNone(meta.run_id)
+        self.assertIsNone(meta.confirmed_by)
+        self.assertIsNone(meta.confirmed_at)
+        dismissal = CalendarEventDismissal.objects.get(event=event, run=self.campaign_run)
+        self.assertEqual(dismissal.dismissed_by, self.staff_user)
+        self.assertIsNotNone(dismissal.dismissed_at)
+        self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
+
+
 class TestDismissAndUndoDismissal(AttributionViewTestBase):
     """ATTRIB-03: a blank reason writes nothing (server enforces D-06, not just the browser's
     ``required`` attribute); a real reason records who/when/why; a dismissed pair disappears
