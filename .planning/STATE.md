@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: executing
+status: completed
 stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-01T21:14:03.605Z"
-last_activity: 2026-08-01 -- Phase 28 execution started
+last_updated: "2026-08-02T00:29:17.108Z"
+last_activity: 2026-08-02 -- Phase 28 marked complete
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 20
-  completed_plans: 16
-  percent: 60
+  completed_phases: 4
+  total_plans: 22
+  completed_plans: 22
+  percent: 80
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 ## Current Position
 
-Phase: 28 (operator-assisted-attribution) — EXECUTING
-Plan: 1 of 4
-Status: Ready to execute
-Last activity: 2026-08-01 -- Phase 28 execution started
+Phase: 28 — COMPLETE
+Plan: 1 of 6
+Status: Phase 28 complete
+Last activity: 2026-08-02 -- Phase 28 marked complete
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
