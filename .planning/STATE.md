@@ -4,8 +4,8 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: completed
 stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-02T00:29:17.108Z"
-last_activity: 2026-08-02 -- Phase 28 marked complete
+last_updated: "2026-08-02T00:35:19.200Z"
+last_activity: 2026-08-02
 progress:
   total_phases: 5
   completed_phases: 4
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 ## Current Position
 
-Phase: 28 — COMPLETE
-Plan: 1 of 6
+Phase: 29
+Plan: Not started
 Status: Phase 28 complete
-Last activity: 2026-08-02 -- Phase 28 marked complete
+Last activity: 2026-08-02
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
