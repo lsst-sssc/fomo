@@ -504,3 +504,98 @@ class TestOrphanQuerysets(TestCase):
         CampaignRunObservation.objects.create(run=run, observation_record=record)
 
         self.assertNotIn(record.pk, {r.pk for r in orphan_observation_records()})
+
+
+class TestSoleHighCandidateUnderBandFilter(TestCase):
+    """28-REVIEW.md WR-02 regression: pins ``_sole_high_candidate_pk()``'s documented
+    full-uncapped-candidate-list contract under a band filter, and keeps the backlog
+    builders' display helper in agreement with
+    ``campaign_views._is_sole_high_candidate()`` -- the server-side gate that actually
+    authorises a bulk-confirm write, and which already re-derives from the unfiltered list.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.campaign = TargetList.objects.create(name='WR-02 Sole-High-Under-Band-Filter')
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign.targets.add(cls.target)
+        cls.observatory = Observatory.objects.create(obscode='E10', name='Siding Spring', short_name='SSO')
+        cls.record_owner = User.objects.create(username='wr02-record-owner')
+
+        # high_run: mirrors AttributionViewTestBase's/TestCriterion5RealCase's own High-band
+        # fixture shape (matching site, fully-overlapping window).
+        cls.high_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+            site=cls.observatory,
+            telescope_class='',  # D-06: a site-resolved run carries no class.
+        )
+        # medium_run: partial date overlap (missing the orphans' first day) plus an
+        # unresolvable telescope string (no site, no aperture-derivable
+        # telescope_instrument token) -- _medium_band_event()'s recipe
+        # (test_campaign_attribution_views.py), applied to the RUN rather than the orphan,
+        # per 28-06-PLAN.md Task 2c.
+        cls.medium_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='SCICAM-MUSCAT (site unresolved)',
+            window_start=date(2026, 7, 8),
+            window_end=date(2026, 7, 21),
+            site=None,
+            telescope_class='',
+        )
+
+        cls.event = CalendarEvent.objects.create(
+            title='[QUEUED] 2m0 2M0-SCICAM-MUSCAT (WR-02 fixture)',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+            telescope='COJ-2m0',
+            instrument='2M0-SCICAM-MUSCAT',
+            target_list=cls.campaign,
+        )
+        CalendarEventMeta.objects.create(event=cls.event, is_verified=False, run=None)
+
+        cls.record = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.record_owner,
+            facility='LCO',
+            observation_id='WR02-1',
+            status='PENDING',
+            parameters={
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+                'start': datetime(2026, 7, 7, 22, 0).isoformat(),
+                'end': datetime(2026, 7, 8, 6, 0).isoformat(),
+            },
+        )
+
+    def test_precondition_the_fixture_really_produces_one_high_and_one_medium_candidate(self):
+        candidates = candidates_for_event(self.event)
+        self.assertEqual(len(candidates), 2)
+        bands_by_run = {c.run.pk: c.band for c in candidates}
+        self.assertEqual(bands_by_run[self.high_run.pk], BAND_HIGH)
+        self.assertEqual(bands_by_run[self.medium_run.pk], BAND_MEDIUM)
+
+    def test_sole_high_candidate_pk_survives_a_medium_band_filter_for_events(self):
+        groups = event_attribution_backlog(band=BAND_MEDIUM)
+        self.assertEqual(len(groups), 1)
+        group = groups[0]
+        # Pre-fix, this was None -- _sole_high_candidate_pk() received only the band-filtered
+        # (Medium-only) list, which contains no High-band candidate at all.
+        self.assertEqual(group.sole_high_candidate_pk, self.high_run.pk)
+        # The filter itself must still work: only the Medium candidate is displayed.
+        self.assertEqual({c.run.pk for c in group.candidates}, {self.medium_run.pk})
+
+    def test_sole_high_candidate_pk_survives_a_medium_band_filter_for_records(self):
+        groups = record_attribution_backlog(band=BAND_MEDIUM)
+        self.assertEqual(len(groups), 1)
+        group = groups[0]
+        self.assertEqual(group.sole_high_candidate_pk, self.high_run.pk)
+        self.assertEqual({c.run.pk for c in group.candidates}, {self.medium_run.pk})
+
+    def test_unfiltered_and_high_filtered_backlogs_are_unchanged(self):
+        # Proves the fix does not alter the two views that already behaved correctly.
+        unfiltered_groups = {g.orphan.pk: g for g in event_attribution_backlog()}
+        high_groups = {g.orphan.pk: g for g in event_attribution_backlog(band=BAND_HIGH)}
+        self.assertEqual(unfiltered_groups[self.event.pk].sole_high_candidate_pk, self.high_run.pk)
+        self.assertEqual(high_groups[self.event.pk].sole_high_candidate_pk, self.high_run.pk)

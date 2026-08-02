@@ -512,9 +512,11 @@ def _eligible_runs_for_record(record: ObservationRecord):
 def candidates_for_event(event: CalendarEvent, dismissed_run_ids: set[int] | None = None) -> list[AttributionCandidate]:
     """Scored, dismissal-aware, boundary-gated candidate list for one CalendarEvent orphan.
 
-    Drops runs whose (event, run) pair has a dismissal row, and drops candidates whose total
-    score is 0.0 (no evidence on any signal at all -- this is NOT a per-signal gate; D-11
-    forbids any individual signal disqualifying a pair).
+    Drops runs whose (event, run) pair has a dismissal row, and drops candidates whose
+    *rounded display* score (``round(score, 2)``, per ``_build_candidate()``) is 0.0 (no
+    evidence on any signal at all -- this is NOT a per-signal gate; D-11 forbids any
+    individual signal disqualifying a pair). 28-REVIEW.md IN-01: this is deliberately the
+    rounded score, not the raw weighted sum -- see the inline comment at the drop below.
 
     Args:
         event: the un-attributed CalendarEvent.
@@ -537,6 +539,16 @@ def candidates_for_event(event: CalendarEvent, dismissed_run_ids: set[int] | Non
         if run.pk in dismissed_run_ids:
             continue
         candidate = _build_candidate(run, orphan_start, orphan_end, event.telescope, event.instrument)
+        # 28-REVIEW.md IN-01: this compares the ROUNDED display score (_build_candidate()
+        # rounds to 2dp), not the raw weighted sum, so a genuine nonzero total below 0.005
+        # would be dropped as if it carried no evidence at all. Deliberately deferred, not
+        # fixed: at the current weights (0.25/0.35/0.40) no real signal combination produces
+        # a nonzero raw total below 0.005, so this is inert today, and reaching the raw score
+        # would require widening _build_candidate()'s return or AttributionCandidate itself,
+        # touching the scoring path TestCriterion5RealCase depends on for a currently-no-op
+        # change. Re-tuning trigger: if _build_candidate()'s weights are ever changed such
+        # that a meaningful signal can produce a raw total below 0.005, filter on the raw
+        # score here instead of the rounded one.
         if candidate.score <= 0.0:
             continue
         candidates.append(candidate)
@@ -574,6 +586,10 @@ def candidates_for_record(
     command's job, not the matcher's) -- the orphan's ``telescope_code`` is always None for a
     record, so ``telescope_match_score()`` falls to its aperture-class or indeterminate tiers.
 
+    Drops candidates whose *rounded display* score (``round(score, 2)``, per
+    ``_build_candidate()``) is 0.0 -- see ``candidates_for_event()``'s docstring and the
+    inline IN-01 comment at the drop below for the rounded-vs-raw rationale.
+
     Args:
         record: the un-attributed ObservationRecord.
         dismissed_run_ids: run pks already dismissed for this exact record, pre-fetched by a
@@ -596,6 +612,9 @@ def candidates_for_record(
         if run.pk in dismissed_run_ids:
             continue
         candidate = _build_candidate(run, orphan_start, orphan_end, None, instrument_code)
+        # 28-REVIEW.md IN-01: see the matching comment in candidates_for_event() -- this
+        # compares the ROUNDED display score, deliberately deferred rather than fixed
+        # (inert at the current 0.25/0.35/0.40 weights; re-tune trigger recorded there).
         if candidate.score <= 0.0:
             continue
         candidates.append(candidate)
@@ -653,9 +672,8 @@ def event_attribution_backlog(band: str | None = None) -> list[AttributionOrphan
     """
     groups = []
     for event in orphan_calendar_events().select_related('telescope_label_meta', 'target_list'):
-        candidates = candidates_for_event(event)
-        if band is not None:
-            candidates = [c for c in candidates if c.band == band]
+        full_candidates = candidates_for_event(event)
+        candidates = [c for c in full_candidates if c.band == band] if band is not None else full_candidates
         if not candidates:
             continue
         groups.append(
@@ -666,7 +684,17 @@ def event_attribution_backlog(band: str | None = None) -> list[AttributionOrphan
                 window_label=_event_window_label(event),
                 candidates=candidates[:MAX_CANDIDATES_PER_ORPHAN],
                 total_candidate_count=len(candidates),
-                sole_high_candidate_pk=_sole_high_candidate_pk(candidates),
+                # 28-REVIEW.md WR-02: _sole_high_candidate_pk() documents a full-uncapped-list
+                # contract, and campaign_views._is_sole_high_candidate() -- the server-side
+                # gate that actually authorises a bulk-confirm write -- re-derives from the
+                # unfiltered candidate list, so the display helper must agree with it or the
+                # two silently diverge. Behavior-neutral at the rendered surface today: the
+                # checkbox only renders for a *displayed* candidate whose run pk equals
+                # sole_high_candidate_pk, and a run appears at most once per orphan, so under
+                # a medium/low filter no displayed candidate can match the sole-High run
+                # anyway (attribution_queue.html's `{% if candidate.run.pk ==
+                # group.sole_high_candidate_pk %}` checkbox gate).
+                sole_high_candidate_pk=_sole_high_candidate_pk(full_candidates),
             )
         )
     groups.sort(key=lambda g: (-g.candidates[0].score, g.orphan.pk))
@@ -687,9 +715,8 @@ def record_attribution_backlog(band: str | None = None) -> list[AttributionOrpha
     """
     groups = []
     for record in orphan_observation_records().select_related('target'):
-        candidates = candidates_for_record(record)
-        if band is not None:
-            candidates = [c for c in candidates if c.band == band]
+        full_candidates = candidates_for_record(record)
+        candidates = [c for c in full_candidates if c.band == band] if band is not None else full_candidates
         if not candidates:
             continue
         groups.append(
@@ -700,7 +727,9 @@ def record_attribution_backlog(band: str | None = None) -> list[AttributionOrpha
                 window_label=_record_window_label(record),
                 candidates=candidates[:MAX_CANDIDATES_PER_ORPHAN],
                 total_candidate_count=len(candidates),
-                sole_high_candidate_pk=_sole_high_candidate_pk(candidates),
+                # 28-REVIEW.md WR-02: see the matching comment in event_attribution_backlog()
+                # -- same full-uncapped-list contract, same behavior-neutral reasoning.
+                sole_high_candidate_pk=_sole_high_candidate_pk(full_candidates),
             )
         )
     groups.sort(key=lambda g: (-g.candidates[0].score, g.orphan.pk))
