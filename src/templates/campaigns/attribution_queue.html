@@ -88,6 +88,22 @@ sentence reads cleanly at true completion.
       <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
       <td><span class="badge badge-light border">{{ candidate.score }}</span></td>
       <td>
+        {% comment %}
+        CR-01 (28-VERIFICATION.md / 28-REVIEW.md): the free-text `reason` input below carries
+        the HTML5 `required` attribute -- but it is meaningful ONLY for Dismiss (UI-SPEC's
+        Copywriting Contract requires it there, and `_dismiss()` re-checks it server-side
+        anyway). HTML5 constraint validation runs for ANY submitter in a form unless that
+        submitter opts out, so without the per-submitter validation-opt-out attribute on the
+        Confirm button, a real browser blocks Confirm until the operator types something into
+        "Why doesn't this candidate match?" -- even though `_do_confirm_event`/
+        `_do_confirm_record` never read `reason` at all. `required` must stay on the input
+        (deleting it would remove the mandated Dismiss gate while fixing an unrelated button);
+        the opt-out attribute on the Confirm button is the minimal correct fix. This class of
+        defect is invisible to `self.client.post()`, which bypasses browser-side constraint
+        validation entirely -- that is why `solsys_code/tests/test_attribution_template.py`
+        exists as a separate, structure-only test module rather than living alongside the
+        client-POST tests here.
+        {% endcomment %}
         <form method="post" action="{% url 'campaigns:attribution_decide' %}" class="d-flex align-items-center"
               style="gap: 0.5rem;">
           {% csrf_token %}
@@ -95,7 +111,7 @@ sentence reads cleanly at true completion.
           <input type="hidden" name="orphan_pk" value="{{ group.orphan.pk }}">
           <input type="hidden" name="run_pk" value="{{ candidate.run.pk }}">
           <input type="hidden" name="band" value="{{ band|default:'' }}">
-          <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success">Confirm</button>
+          <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success" formnovalidate>Confirm</button>
           <input type="text" name="reason" class="form-control form-control-sm" required
                  placeholder="Why doesn't this candidate match? (required)">
           <button type="submit" name="action" value="dismiss" class="btn btn-sm btn-danger">Dismiss</button>
@@ -174,6 +190,10 @@ form without nesting.
       <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
       <td><span class="badge badge-light border">{{ candidate.score }}</span></td>
       <td>
+        {% comment %}
+        CR-01: the validation-opt-out attribute on the Confirm button below is deliberate and
+        load-bearing -- see the events table's identical comment above for the full rationale.
+        {% endcomment %}
         <form method="post" action="{% url 'campaigns:attribution_decide' %}" class="d-flex align-items-center"
               style="gap: 0.5rem;">
           {% csrf_token %}
@@ -181,7 +201,7 @@ form without nesting.
           <input type="hidden" name="orphan_pk" value="{{ group.orphan.pk }}">
           <input type="hidden" name="run_pk" value="{{ candidate.run.pk }}">
           <input type="hidden" name="band" value="{{ band|default:'' }}">
-          <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success">Confirm</button>
+          <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success" formnovalidate>Confirm</button>
           <input type="text" name="reason" class="form-control form-control-sm" required
                  placeholder="Why doesn't this candidate match? (required)">
           <button type="submit" name="action" value="dismiss" class="btn btn-sm btn-danger">Dismiss</button>
