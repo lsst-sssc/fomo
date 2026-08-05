@@ -287,7 +287,38 @@ Plans:
   4. `--dry-run` reports exactly what would change and writes nothing, and a run that fails to reconcile (e.g. the known blank-`Observatory.timezone` rows) is reported and skipped while the rest of the batch completes
   5. The 19 approved, site-resolved 3I/ATLAS runs that no existing command can project are visible on the calendar; approve / resolve_site / mark_cancelled / mark_weather_failure each reconcile their run immediately; and `backfill_range_calendar_events` no longer exists in the codebase or the operator runbook
 
-**Plans**: TBD
+**Plans:** 0/6 plans complete
+
+**Wave 1**
+
+- [ ] 29-01-PLAN.md — Two new no-churn helpers in `calendar_utils.py`, the complete
+  `campaign_reconciler.py` module (D-03's shared per-run function, both `RUN:` key families,
+  the ownership guard and the companion-row writer), and its container/skip/ownership unit tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 29-02-PLAN.md — D-02's adopt-and-rekey step ahead of the per-night mint, the classical
+  per-night branch's full test coverage, and RECON-04's non-interference proof against a real
+  `CampaignRunObservation` link
+
+**Wave 3** *(blocked on Wave 2 completion; both plans run in parallel)*
+
+- [ ] 29-03-PLAN.md — The `reconcile_campaign_runs` management command with `--dry-run` and the
+  D-05 summary, plus command-level idempotency, dry-run, failure-isolation and 19-run-shape tests
+- [ ] 29-04-PLAN.md — Rewiring the four staff actions onto `reconcile_run()`, deleting
+  `_project_calendar_event`/`_calendar_event_title` and the `backfill_range_calendar_events`
+  command and test, and rewriting the approval-queue suite onto `RUN:` keys
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 29-05-PLAN.md — Operator runbook rewritten for the reconciler (RECON-09's documentation
+  half) and the paired pre-executed `reconcile_campaign_runs_demo.ipynb`, wired into the Sphinx
+  toctree and CLAUDE.md's notebook map
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 29-06-PLAN.md — D-07's `source` data-fix checkpoint, the first full reconcile sweep against
+  the real dev database, and the visual/runbook confirmation of RECON-07
 
 ## Progress
 
