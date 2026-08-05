@@ -287,7 +287,7 @@ Plans:
   4. `--dry-run` reports exactly what would change and writes nothing, and a run that fails to reconcile (e.g. the known blank-`Observatory.timezone` rows) is reported and skipped while the rest of the batch completes
   5. The 19 approved, site-resolved 3I/ATLAS runs that no existing command can project are visible on the calendar; approve / resolve_site / mark_cancelled / mark_weather_failure each reconcile their run immediately; and `backfill_range_calendar_events` no longer exists in the codebase or the operator runbook
 
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 **Wave 1**
 
@@ -312,7 +312,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 29-05-PLAN.md — Operator runbook rewritten for the reconciler (RECON-09's documentation
+- [x] 29-05-PLAN.md — Operator runbook rewritten for the reconciler (RECON-09's documentation
   half) and the paired pre-executed `reconcile_campaign_runs_demo.ipynb`, wired into the Sphinx
   toctree and CLAUDE.md's notebook map
 
@@ -356,7 +356,7 @@ Plans:
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
 | 27. The Canonical Run Record | v2.2 | 6/6 | Complete    | 2026-07-30 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
-| 29. The Reconciler | v2.2 | 4/6 | In Progress|  |
+| 29. The Reconciler | v2.2 | 5/6 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
