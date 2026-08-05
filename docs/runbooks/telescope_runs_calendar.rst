@@ -108,8 +108,7 @@ default is unattributed. An unknown username is a hard error.
 
 Always run with ``--dry-run`` first to see what would be created --
 including which field Targets would be created versus reused -- without
-writing anything, in the same spirit as ``backfill_range_calendar_events``
-above:
+writing anything, in the same spirit as ``reconcile_campaign_runs`` below:
 
 .. code-block:: console
 
@@ -470,28 +469,71 @@ is ever fabricated on a network failure (the command always passes
 stays resolved, and a row still lacking a site code is skipped again with
 no field changes.
 
-How do I backfill calendar events for older approved range-window runs?
-----------------------------------------------------------------------------
+How do I get every campaign run onto the calendar?
+---------------------------------------------------------
 
-``backfill_range_calendar_events`` is a one-off command for a narrow
-historical gap: a multi-night range-window ``CampaignRun`` that was already
-approved and site-resolved *before* per-night calendar projection existed
-never got any ``CalendarEvent`` at all, and normal approval/resolve actions
-only project events going forward, not retroactively. This command finds
-every already-approved, site-resolved range-window run with no existing
-calendar event and projects one per night, exactly as if it had just been
-approved.
+``reconcile_campaign_runs`` is the one idempotent sweep that projects and
+refreshes calendar events for every ``CampaignRun`` in the database, in a
+single pass. Running it a second time against unchanged data writes
+nothing -- a repeat sweep reports the same runs as ``unchanged`` rather than
+touching them again. It replaces the now-retired one-off range-window
+backfill command and the whole per-gap-backfill pattern it belonged to:
+instead of a new command for each historical gap, this one command
+re-derives every run's calendar state from the run itself, so there is
+nothing left to backfill separately.
 
-Always run with ``--dry-run`` first to see which runs would be backfilled,
-with no database writes:
+Always run with ``--dry-run`` first to preview what would change, with no
+database writes:
 
 .. code-block:: console
 
-   >> python3 manage.py backfill_range_calendar_events --dry-run
-   >> python3 manage.py backfill_range_calendar_events
+   >> python3 manage.py reconcile_campaign_runs --dry-run
+   >> python3 manage.py reconcile_campaign_runs
 
-The command is safe to re-run: a run that already has a calendar event is
-skipped, so running it again after a real backfill is a no-op.
+The final summary line reports these counters -- ``would_create``/
+``would_update``/``would_leave_unchanged`` in ``--dry-run`` mode, or
+``created``/``updated``/``unchanged`` for a real sweep, alongside ``runs``,
+``skipped``, ``failed`` and ``blocked`` either way::
+
+   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0
+   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0
+
+A run that does not project onto the calendar at all is reported on stderr
+with one of these skip reasons, one line per run:
+
+* ``not approved`` -- the run is still ``pending_review`` or ``rejected``.
+  Approve (or reject) it from the approval queue first; an unapproved web
+  submission must never reach the shared calendar.
+* ``missing telescope/instrument`` -- the run has no
+  ``telescope_instrument`` value at all; there is nothing to title the
+  calendar entry with until one is set.
+* ``TBD window`` -- the run has no concrete ``window_start``/``window_end``
+  yet (an unparsed ``Obs. Date``); there is nothing to project until the
+  window resolves.
+* ``unresolved site`` -- the run has no resolved ``site`` and no
+  ``telescope_class`` to explain the absence. Resolve it from the "Sites
+  Needing Review" queue on the approval page, or set a ``telescope_class``
+  if it is genuinely a class-wide or space allocation.
+
+A run whose site has no ``timezone`` set fails differently -- it reaches the
+per-night sunset/sunrise calculation and raises there, so it is reported
+separately as ``Run pk=N: reconcile failed (...) -- skipping`` rather than
+one of the four skip reasons above. See "Observatory missing timezone" in
+Troubleshooting below for the fix.
+
+What an operator sees on the calendar afterwards, in plain terms: a
+classically-scheduled run shows one calendar entry per observing night,
+spanning that site's sunset-to-sunrise; a queue-scheduled or class-wide run
+shows a single entry spanning its whole window, sitting alongside the
+individual observation entries the LCO/Gemini sync commands already create
+for it.
+
+**You will rarely need to run this by hand.** The same reconciliation now
+happens automatically, immediately, for a single run the moment staff
+approve it, resolve its site, or mark it cancelled or weather-failed from
+the approval queue -- ``reconcile_campaign_runs`` is for sweeping every run
+at once (for example, after a bulk site repair) or backfilling a gap found
+later, not for routine day-to-day use.
 
 .. _campaign-run-block-manual-only:
 
@@ -501,16 +543,20 @@ Why doesn't the calendar pop-up show a "Campaign run" block?
 Clicking a calendar entry opens a pop-up that can show a **Campaign run**
 block naming the run that owns the event, its window, and its run status.
 That block appears only when the event carries a companion record whose
-owning-run link is filled in -- and **nothing in FOMO fills that link in
-automatically yet.**
+owning-run link is filled in.
 
-Approving a ``CampaignRun`` (or resolving its site from the approval queue)
-creates the calendar entries for it, but deliberately does not claim
-ownership of them. Writing the ownership link is the job of the
-reconciler planned for a later milestone, which is also what will keep the
-link correct as runs are re-approved, re-sited, or cancelled. Until then,
-the only way an event gets a "Campaign run" block is if a staff member
-links it by hand:
+**As of this phase, every event the reconciler creates or adopts gets that
+link set automatically** -- via ``reconcile_campaign_runs`` and via
+approving a run, resolving its site, or marking it cancelled or
+weather-failed, all of which now reconcile through the same shared
+function (see "How do I get every campaign run onto the calendar?" above).
+An event owned by a ``CampaignRun`` therefore shows the Campaign run block
+the moment it is created, with no separate linking step.
+
+The manual admin path below still exists, and remains the right tool for an
+event the reconciler never touches at all -- a ``load_telescope_runs``- or
+sync-command-created event that has not (yet) been attributed to a run
+through the attribution queue, or a hand-created calendar entry:
 
 1. Go to **Django admin -> Solsys code -> Campaign runs** and open the run.
 2. In the **Calendar event metas** inline at the bottom, add a row and pick
@@ -527,9 +573,10 @@ Two things to know about that inline:
   verification history survives.
 
 An event with no companion record at all, or with the run link left blank,
-means "not owned by any campaign run" -- never "needs fixing". That is the
-normal state for classical-schedule nights, conferences, and proposal
-deadlines, and it is why those entries show no Campaign run block.
+still means "not owned by any campaign run" -- never "needs fixing". That
+is the normal state for conferences, proposal deadlines, and any
+un-attributed sync-command entry the reconciler has not adopted, and it is
+why those entries show no Campaign run block.
 
 .. _command-cheat-sheet:
 
@@ -562,9 +609,9 @@ Command cheat-sheet
    * - ``repair_stale_campaign_run_sites``
      - ``--dry-run`` (optional)
      - One-off re-resolution of approved CampaignRuns whose site never resolved.
-   * - ``backfill_range_calendar_events``
+   * - ``reconcile_campaign_runs``
      - ``--dry-run`` (optional)
-     - One-off backfill of CalendarEvents for older approved range-window runs.
+     - Idempotent sweep projecting/refreshing CalendarEvents for every CampaignRun.
 
 Troubleshooting
 ------------------
@@ -580,7 +627,7 @@ Observatory missing timezone
 
 Any command that needs to compute sunset/sunrise or the -15 deg dark
 window for a site (``sync_lco_observation_calendar``,
-``backfill_range_calendar_events``, and any future projection over that
+``reconcile_campaign_runs``, and any future projection over that
 Observatory) will fail with an error like this, observed running a real
 backfill against the dev database:
 
@@ -619,9 +666,11 @@ summary count.
   ``telescope_api_failed`` counter, separate from ``skipped``, and the
   record still gets a ``CalendarEvent``.
 
-* ``backfill_range_calendar_events`` skips a candidate run on a
-  ``ValueError`` (for example, the Observatory-timezone gap above) and
-  continues to the next candidate, never aborting the whole backfill.
+* ``reconcile_campaign_runs`` catches any exception a single run's
+  reconciliation raises (for example, the Observatory-timezone gap above) at
+  the batch-loop level only, reports it as ``Run pk=N: reconcile failed
+  (...) -- skipping`` on stderr, and continues to the next run, never
+  aborting the whole sweep.
 
 ``import_campaign_csv`` unresolved rows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
