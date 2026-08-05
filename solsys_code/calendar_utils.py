@@ -540,3 +540,56 @@ def insert_or_create_calendar_event(
     if created:
         return event, 'created'
     return _update_or_unchanged(event, fields)
+
+
+def update_calendar_event_key_and_fields(
+    event: CalendarEvent, url: str, fields: dict[str, Any]
+) -> tuple[CalendarEvent, str]:
+    """Re-key an already-identified CalendarEvent's url and refresh its other fields, no-churn.
+
+    External modules that already hold a specific CalendarEvent instance (e.g. the Phase 29
+    reconciler's adopt-and-rekey step, D-02) must call this instead of importing the
+    module-private `_update_or_unchanged()` directly -- a cross-module import of a private
+    helper is the exact anti-pattern the retired `backfill_range_calendar_events` command
+    exemplified and the v2.2 milestone's locked constraints call out.
+
+    This exists because `insert_or_create_calendar_event()` structurally cannot perform this
+    write: `url` is its `get_or_create()` lookup key, and `get_or_create()`'s `defaults` dict
+    never touches a field that is also a lookup key, so there is no way to hand it "find this
+    event some other way, then write a new url onto it."
+
+    Args:
+        event: the already-identified CalendarEvent to re-key.
+        url: the new url value to write onto the event.
+        fields: additional field-value mapping to set alongside url.
+
+    Returns:
+        tuple[CalendarEvent, str]: (event, 'updated') if url or any field differed from the
+            event's current values and the row was saved, or (event, 'unchanged') if url and
+            every field already matched and no save was issued (no-churn contract).
+    """
+    all_fields = {**fields, 'url': url}
+    return _update_or_unchanged(event, all_fields)
+
+
+def preview_calendar_event_action(event: CalendarEvent | None, fields: dict[str, Any]) -> str:
+    """Report what the real no-churn writers above would do, without writing or querying.
+
+    This is the `--dry-run` counterpart (D-05/RECON-06) of both
+    `insert_or_create_calendar_event()` and `update_calendar_event_key_and_fields()`. It must
+    use the identical `getattr(event, f) != v` comparison rule `_update_or_unchanged()` uses,
+    so a dry-run count can never disagree with what the real write would report.
+
+    Args:
+        event: the already-matched CalendarEvent, or None if no event exists yet for this key.
+        fields: field-value mapping that would be applied.
+
+    Returns:
+        str: 'created' when event is None; 'updated' when any field in fields differs from
+            the event's current value; 'unchanged' when none do. Writes nothing, issues no
+            query.
+    """
+    if event is None:
+        return 'created'
+    changed = [f for f, v in fields.items() if getattr(event, f) != v]
+    return 'updated' if changed else 'unchanged'
