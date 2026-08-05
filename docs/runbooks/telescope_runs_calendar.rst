@@ -308,6 +308,26 @@ and the queue sources can all still be corrected in the admin, which is
 what that editability was for -- a ``web`` label is never a guess, because
 only the submission form can produce it.
 
+**What happens to an already-reconciled run's calendar events when you
+correct its source (or its** ``telescope_class`` **or** ``site`` **):**
+``reconcile_run()`` re-derives which calendar-event family (a single
+whole-window entry, or one entry per observing night) a run belongs to from
+its *current* field values every time it runs. If the correction moves the
+run into the other family -- for example, setting a genuine LCO/Gemini/ESO
+queue run's ``source`` from ``legacy`` to the correct queue value, which
+moves it from the per-night family to the whole-window one -- the next
+reconcile (either a full ``reconcile_campaign_runs`` sweep, or the run's own
+next staff-action reconcile) automatically detaches the old family's events
+from the run rather than leaving them on the calendar looking like a live
+commitment forever. Detaching, not deleting: the old events stay on the
+calendar but return to the attribution page's worklist (``campaigns:attribution``,
+see "How do I attribute existing calendar events and observation records to a
+run?" above), where a staff member can re-confirm or discard them. The
+correction itself does not
+trigger this -- it happens on the *next* reconcile, same as the
+queue-versus-classical split itself only renders correctly once a sweep
+runs afterward.
+
 **The cost:** if a ``web`` run's source really is wrong, correcting it now
 needs a shell or a data migration. This is the same restriction the CSV
 re-import path already applies -- see the re-import gotcha note below.
