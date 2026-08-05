@@ -118,10 +118,34 @@ already shipped); unifying the three status-prefix vocabularies (v2.3, STATUS-01
   is not a "one-time cost" concern the way the queue-run churn-loop risk was, since
   nothing here re-triggers automatically on every reconcile cycle.
 
+### Real-data prerequisite for RECON-07 (surfaced by research, decided post-CONTEXT)
+
+- **D-07: A `checkpoint:human-verify` task is scoped into the plan for the `source`
+  data-fix.** Research (`29-RESEARCH.md` Pitfall 1) measured that all 23 real, approved,
+  site-resolved `CampaignRun` rows on the live 3I/ATLAS campaign carry
+  `source='legacy'` — none are `LCO_QUEUE`/`GEMINI_QUEUE`, even though the reconciler
+  correctly branches stage-1 projection on exactly that field per `26-DECISION.md`'s
+  locked verdict. The 8-queue/11-classical split RECON-07 cites was a human classifying
+  free text during the spike, not a queryable fact today. **The reconciler's own code
+  must branch purely on `run.source in {LCO_QUEUE, GEMINI_QUEUE}`** — no fallback text
+  heuristic, since that would be new unverifiable logic CONTEXT.md's no-scope-creep
+  posture already rules out. For RECON-07's flagship "19 runs visible" criterion to
+  actually render correctly against the real dev DB, the plan includes an explicit
+  `checkpoint:human-verify` task: staff set `source` to `lco_queue`/`gemini_queue` on the
+  known 8 real queue rows via the Django admin (already staff-editable for non-`web`
+  rows) before the first full reconcile sweep runs against real data. This keeps the
+  data-fix visible and tracked as part of the phase rather than a silent assumption or an
+  undocumented operator action.
+
 ### Claude's Discretion
 
 - The exact name of the shared per-run function (`reconcile_run` used as a placeholder
   above).
+- The exact mechanism for D-02's in-place `url` re-key (research recommends a new small
+  public helper in `calendar_utils.py` alongside `insert_or_create_calendar_event()`,
+  reusing `_update_or_unchanged()`'s no-churn diffing rather than reimplementing it or
+  reaching across modules to call a private function) — see `29-RESEARCH.md` Open
+  Question 2.
 - Whether `_project_calendar_event()`/`_calendar_event_title()` are deleted in the same
   commit that wires the staff actions to the reconciler, or in a preceding cleanup commit
   — D-01 only fixes that they are deleted, not the commit sequencing.
