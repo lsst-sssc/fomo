@@ -116,12 +116,21 @@ class CampaignRun(models.Model):
         different fact from a human having approved the run. A fourth NOT_REQUIRED
         approval_status value was considered and rejected because every existing reader of
         approval_status would have to handle it for a distinction source already carries.
+
+        ESO_QUEUE added in plan 29-06 (explicit user-directed deviation, not part of this
+        phase's original scope): the real 3I/ATLAS dev-DB data contains ESO VLT rows
+        (obscode 309) which 26-DECISION.md's own "Run-type inventory" rule classifies as a
+        shared-queue-scheduled network alongside LCO/Gemini/SOAR, but the vocabulary had no
+        dedicated slot for it -- mapping those rows onto LCO_QUEUE would have been
+        semantically wrong (they are not LCO-network runs), so the user chose to add a real
+        value instead of overloading an existing one or leaving the rows under-classified.
         """
 
         WEB = 'web', 'Web submission'
         CLASSICAL_FILE = 'classical_file', 'Classical run file'
         LCO_QUEUE = 'lco_queue', 'LCO queue'
         GEMINI_QUEUE = 'gemini_queue', 'Gemini queue'
+        ESO_QUEUE = 'eso_queue', 'ESO queue'
         CSV_IMPORT = 'csv_import', 'CSV import'
         LEGACY = 'legacy', 'Legacy (pre-v2.2)'
 

@@ -62,7 +62,12 @@ RUN_STATUS_CALENDAR_PREFIX = {
 # telescope_instrument/site_raw (26-DECISION.md's domain correction; see 29-RESEARCH.md
 # Pitfall 1 for why the real dev-DB rows do not yet reflect this split -- that is a data-fix
 # task, not a code task).
-QUEUE_SOURCES = frozenset({CampaignRun.Source.LCO_QUEUE, CampaignRun.Source.GEMINI_QUEUE})
+#
+# ESO_QUEUE added in plan 29-06 (explicit user-directed deviation, not part of this phase's
+# original scope -- see 29-06-SUMMARY.md): the real 3I/ATLAS dev-DB data has ESO VLT rows
+# (obscode 309) that 26-DECISION.md's own classification rule names as a shared-queue
+# network alongside LCO/Gemini/SOAR, but CampaignRun.Source had no dedicated value for it.
+QUEUE_SOURCES = frozenset({CampaignRun.Source.LCO_QUEUE, CampaignRun.Source.GEMINI_QUEUE, CampaignRun.Source.ESO_QUEUE})
 
 
 class ReconcileResult(NamedTuple):

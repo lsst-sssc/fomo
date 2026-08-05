@@ -136,6 +136,23 @@ class TestQueueStage1(CampaignReconcilerTestBase):
         self.assertEqual(events.count(), 1)
         self.assertEqual(events.get().url, f'RUN:{run.pk}')
 
+    def test_eso_queue_multi_night_run_creates_one_bare_container_event(self):
+        """ESO_QUEUE added in plan 29-06 (user-directed deviation, see 29-06-SUMMARY.md):
+        real 3I/ATLAS ESO VLT rows needed a dedicated queue source rather than being
+        mapped onto LCO_QUEUE or left under-classified as legacy/classical."""
+        run = self._make_run(
+            source=CampaignRun.Source.ESO_QUEUE,
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 15),
+        )
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 1)
+        events = CalendarEvent.objects.filter(url__startswith=f'RUN:{run.pk}')
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().url, f'RUN:{run.pk}')
+
 
 class TestClassWideStage2(CampaignReconcilerTestBase):
     """RECON-03: a class-wide (or SPACE-classed) run projects a single bare container."""
