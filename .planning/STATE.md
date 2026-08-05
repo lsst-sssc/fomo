@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: executing
-stopped_at: Phase 29 context gathered
-last_updated: "2026-08-05T12:02:23.993Z"
-last_activity: 2026-08-05 -- Phase 29 execution started
+status: completed
+stopped_at: Completed 29-06-PLAN.md -- Phase 29 and milestone v2.2 complete
+last_updated: "2026-08-05T20:07:20.380Z"
+last_activity: "2026-08-05 -- Plan 29-06 executed: real-data reconcile sweep, RECON-07 closed against the live dev DB"
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 28
-  completed_plans: 22
-  percent: 79
+  completed_plans: 28
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 ## Current Position
 
-Phase: 29 (the-reconciler) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 29
-Last activity: 2026-08-05 -- Phase 29 execution started
+Phase: 29 (the-reconciler) — COMPLETE (6/6 plans)
+Plan: 6 of 6 (all complete)
+Status: Phase 29 complete; milestone v2.2 complete (5/5 phases, 28/28 plans)
+Last activity: 2026-08-05 -- Plan 29-06 executed: real-data reconcile sweep, RECON-07 closed against the live dev DB
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -139,6 +139,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 27 P04 | 45min | 3 tasks | 6 files |
 | Phase 27 P05 | 35min | 3 tasks | 7 files |
 | Phase 27 P06 | 70min | 3 tasks | 7 files |
+| Phase 29 P06 | 75min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -190,6 +191,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 27-05]: telescope_class non-staff visibility (D-18) proven at the .values() queryset level, not as a rendered CampaignRunTable column -- campaign_tables.py is out of this plan's scope
 - [Phase ?]: [Phase 27-06]: import_campaign_csv writes source=CSV_IMPORT and derives telescope_class via the shared calendar_utils.derive_telescope_class() helper, gated on site is None -- neither field enters the natural-key lookup
 - [Phase ?]: [Phase 27-06]: PROJECT.md's stale Phase 25 pk=34 claim is date-pinned (2026-07-18) rather than deleted, preserving the pk=34 occurrence count; 26-CONTEXT.md's D-11 owned-nights framing gets a dated forward-pointer instead of a rewrite
+- [Phase ?]: [Phase 29-06]: User-directed deviation added CampaignRun.Source.ESO_QUEUE (migration 0014) since real 3I/ATLAS ESO VLT queue rows had no matching source value -- not Rule 1/2/3, explicit user choice among 3 presented options
+- [Phase ?]: [Phase 29-06]: Real dev-DB RECON-07 baseline measured as 26 approved/resolved/windowed 3I/ATLAS rows (10 QUEUE/11 CLASSICAL/5 SPACE) today, not the 19 (8/11/0) 26-DECISION.md originally cited -- Phase 27's live site-repair work resolved 4 satellite rows' sites after that spike's probe date
 
 ### Pending Todos
 
@@ -251,9 +254,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-05T05:58:33.622Z
-Stopped at: Phase 29 context gathered
-Resume file: .planning/phases/29-the-reconciler/29-CONTEXT.md
+Last session: 2026-08-05T20:07:20.376Z
+Stopped at: Completed 29-06-PLAN.md -- Phase 29 and milestone v2.2 complete
+Resume file: None
 
 ## Operator Next Steps
 
