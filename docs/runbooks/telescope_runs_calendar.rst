@@ -514,11 +514,15 @@ with one of these skip reasons, one line per run:
   ``telescope_class`` to explain the absence. Resolve it from the "Sites
   Needing Review" queue on the approval page, or set a ``telescope_class``
   if it is genuinely a class-wide or space allocation.
+* ``window_end before window_start`` -- the run's ``window_end`` is earlier
+  than its ``window_start`` (a hand-edited admin value, or an upstream
+  window-parsing bug). Correct the window fields in the admin; there is
+  nothing to project until they describe a real forward-running range.
 
 A run whose site has no ``timezone`` set fails differently -- it reaches the
 per-night sunset/sunrise calculation and raises there, so it is reported
 separately as ``Run pk=N: reconcile failed (...) -- skipping`` rather than
-one of the four skip reasons above. See "Observatory missing timezone" in
+one of the five skip reasons above. See "Observatory missing timezone" in
 Troubleshooting below for the fix.
 
 What an operator sees on the calendar afterwards, in plain terms: a

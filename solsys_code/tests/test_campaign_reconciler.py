@@ -700,3 +700,17 @@ class TestCampaignRunDeletionCascadesCalendarEvents(CampaignReconcilerTestBase):
 
         self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
         self.assertFalse(CalendarEventMeta.objects.filter(event_id=event_pk).exists())
+
+
+class TestWindowEndBeforeWindowStart(CampaignReconcilerTestBase):
+    """WR-02 (29-REVIEW.md): a run whose `window_end` precedes its `window_start` must be
+    reported as skipped with an explicit reason, not silently contribute zero events with
+    no reported reason (indistinguishable from an already-`unchanged` run)."""
+
+    def test_window_end_before_window_start_is_skipped_with_explicit_reason(self):
+        run = self._make_run(window_start=date(2026, 8, 5), window_end=date(2026, 8, 1))
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_reason, 'window_end before window_start')
+        self.assertEqual(CalendarEvent.objects.count(), 0)
