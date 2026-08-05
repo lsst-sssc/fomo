@@ -37,8 +37,8 @@ Calendar events become a function of run state instead of a side effect of a sta
 - [x] **RECON-05**: The reconciler never creates, modifies, or deletes a calendar event it does not own — hand-created entries, conference and proposal-deadline events, and un-attributed sync-command events are left untouched
 - [x] **RECON-06**: `--dry-run` reports exactly what would change with no writes; a run that fails to reconcile is reported and skipped rather than aborting the batch
 - [x] **RECON-07**: The approved, site-resolved 3I/ATLAS runs that no existing command can project (19 as of 2026-07-26) become visible on the calendar
-- [ ] **RECON-08**: The reconciler is reachable from the existing approve / resolve_site / mark_cancelled / mark_weather_failure staff actions, so a single run reconciles immediately on a staff decision
-- [ ] **RECON-09**: `backfill_range_calendar_events` is retired, its behaviour subsumed by the reconciler
+- [x] **RECON-08**: The reconciler is reachable from the existing approve / resolve_site / mark_cancelled / mark_weather_failure staff actions, so a single run reconciles immediately on a staff decision
+- [x] **RECON-09**: `backfill_range_calendar_events` is retired, its behaviour subsumed by the reconciler
 
 ### Attribution
 
@@ -115,8 +115,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | RECON-05 | Phase 29 — The Reconciler | Complete |
 | RECON-06 | Phase 29 — The Reconciler | Complete |
 | RECON-07 | Phase 29 — The Reconciler | Complete |
-| RECON-08 | Phase 29 — The Reconciler | Pending |
-| RECON-09 | Phase 29 — The Reconciler | Pending |
+| RECON-08 | Phase 29 — The Reconciler | Complete |
+| RECON-09 | Phase 29 — The Reconciler | Complete |
 
 **Coverage:**
 

@@ -18,8 +18,7 @@ ephemeris module -- ``campaign_gap`` only depends on ``telescope_runs.sun_event`
 
 import logging
 import re
-from datetime import date, datetime, timedelta
-from datetime import time as dt_time
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib import messages
@@ -27,7 +26,7 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Case, CharField, Count, EmailField, F, Q, Value, When
+from django.db.models import Case, CharField, Count, EmailField, F, Value, When
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -43,10 +42,10 @@ from tom_targets.models import TargetList
 from solsys_code.solsys_code_observatory.models import Observatory
 
 from . import campaign_attribution
-from .calendar_utils import insert_or_create_calendar_event
 from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
+from .campaign_reconciler import reconcile_run
 from .campaign_tables import (
     ApprovalQueueTable,
     AttributionConfirmedTable,
@@ -69,7 +68,6 @@ from .models import (
     CampaignRunObservation,
     ObservationRecordDismissal,
 )
-from .telescope_runs import sun_event
 
 logger = logging.getLogger(__name__)
 
@@ -425,132 +423,12 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
         return context
 
 
-# D-03: two distinct title prefixes for the two terminal run_status outcomes staff can set
-# from the Decided table. Keyed on the RunStatus enum member (never derived from raw request
-# text -- V5 Input Validation); must stay byte-identical to the '[WEATHERED]' string appended
-# to calendar_display_extras._TERMINAL_PREFIXES (Task 3) so the box-shadow ring applies.
-_RUN_STATUS_CALENDAR_PREFIX = {
-    CampaignRun.RunStatus.CANCELLED: '[CANCELLED]',
-    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: '[WEATHERED]',
-}
-
 # T-23-05: fixed whitelist mapping a POST action value to the RunStatus it sets -- the
 # run_status value written is always looked up here, never taken from raw request text.
 _ACTION_TO_RUN_STATUS = {
     'mark_cancelled': CampaignRun.RunStatus.CANCELLED,
     'mark_weather_failure': CampaignRun.RunStatus.WEATHER_TECH_FAILURE,
 }
-
-
-def _calendar_event_title(run: CampaignRun) -> str:
-    """Builds a CampaignRun's calendar-event title, with a D-06 window-context suffix for a
-    range window. Single source of truth for the title -- reused by both
-    ``_project_calendar_event()`` (creation) and ``_set_run_status()`` (status update) so the
-    suffix can never drift out of sync between the two call sites (Pitfall 1).
-    """
-    base = f'{run.campaign.name}: {run.telescope_instrument}'
-    if run.window_start != run.window_end:
-        return f'{base} (window {run.window_start}..{run.window_end})'
-    return base
-
-
-def _project_calendar_event(run: CampaignRun) -> bool:
-    """CAL-01/CAL-02 CalendarEvent projection (D-08), extracted from the approve branch.
-
-    Returns True when ``insert_or_create_calendar_event()`` was actually called (an event was
-    created/updated), False when projection was skipped by design (TBD run, or missing
-    telescope_instrument/site) -- 22-REVIEWS.md finding 6: this bool drives the resolve_site
-    action's two distinct success messages. RAISES ValueError when ``sun_event()`` fails (e.g.
-    a Tier-2-resolved site with a blank ``timezone`` -- CR-01), and MAY RAISE on any other
-    unexpected failure (e.g. ``insert_or_create_calendar_event()`` itself failing) -- this
-    helper does NO error-handling of its own for genuine failures; callers own
-    revert-vs-non-revert behavior. ``resolve_site()`` must treat any raise here as "projection
-    attempted but failed" (keep ``site_needs_review=True``, warn instead of claiming success);
-    ``approve()`` has no retry surface to protect and instead catches-and-swallows the
-    ValueError case specifically at its call site to preserve its original behavior (approval
-    still succeeds even when the calendar entry couldn't be projected).
-
-    A ground range-window run now projects one dip-corrected event per night (D-02); a
-    single-night run keeps its existing bare-key single event. Only TBD runs (window_start
-    is None), unresolved-site runs, and missing-telescope_instrument runs are excluded from
-    projection.
-
-    WR-03: this function deliberately writes NO ``CalendarEventMeta`` row, and therefore
-    never sets ``CalendarEventMeta.run``, even though it is the only code that creates
-    ``CalendarEvent``s for a ``CampaignRun``. The automatic writer for that ownership link
-    is deferred to the Phase 29 reconciler (see
-    ``docs/design/canonical_record_spike.rst``'s "Ownership rule" row), which also owns
-    keeping the link correct as runs are re-approved, re-sited or cancelled. The
-    consequence, which is a deferral and not an omission: for every event FOMO creates
-    today ``event.telescope_label_meta.run`` is unset, so the calendar modal's "Campaign
-    run" block only appears if a staff member hand-links the event through
-    ``CalendarEventMetaInline`` in the Django admin. That manual-only state is documented
-    for operators in ``docs/runbooks/telescope_runs_calendar.rst`` under "Why doesn't the
-    calendar pop-up show a 'Campaign run' block?".
-    """
-    # D-01/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- a concrete window
-    # (both window_start and window_end set) and a resolved site are required to pick the
-    # ground-vs-space branch. A TBD run, unresolved site, or missing telescope_instrument
-    # simply doesn't get a CalendarEvent yet.
-    if not (run.telescope_instrument and run.site and run.window_start and run.window_end):
-        return False
-    event_fields = {
-        'title': _calendar_event_title(run),
-        'description': run.observation_details,
-        'target_list': run.campaign,  # CAL-02
-        'telescope': run.telescope_instrument,
-    }
-    if run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
-        # Space-based observatory: no fixed horizon for sun_event() to work against -- use
-        # a midnight-UTC placeholder spanning the window date. D-05: this branch's date-math
-        # is unchanged by the ground-branch's per-night rewrite below -- a satellite range
-        # still yields exactly one whole-day-span event under the bare key.
-        event_fields['start_time'] = datetime.combine(run.window_start, dt_time(0, 0), tzinfo=dt_timezone.utc)
-        event_fields['end_time'] = datetime.combine(run.window_end, dt_time(23, 59), tzinfo=dt_timezone.utc)
-        # Never construct CalendarEvent directly -- always route through the shared helper
-        # (Don't Hand-Roll) so the CAMPAIGN: namespace stays collision-safe against the
-        # LCO/Gemini/classical sync commands (T-16-09).
-        insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
-        return True
-    # Ground-based observatory: reuse the same dip-corrected sunset/sunrise convention the
-    # rest of the calendar feature already uses (kind='sun', not 'dark' -- Pitfall 6). A
-    # ValueError (e.g. blank site.timezone, or no 2 sun-altitude crossings) is logged and
-    # re-raised (CR-01) -- callers decide whether that's a by-design skip (approve()) or a
-    # real failure that must keep the retry surface open (resolve_site()).
-    #
-    # IN-02 (19-REVIEW.md): this branch also catches OCCULTATION_OBSTYPE and RADAR_OBSTYPE
-    # sites, not just OPTICAL_OBSTYPE -- every non-SATELLITE Observatory.OBSTYPE_CHOICES
-    # member unconditionally gets the dip-corrected dark-window treatment. That's a
-    # deliberate simplification for this milestone; scope this to Observatory.OPTICAL_OBSTYPE
-    # explicitly, with OCCULTATION/RADAR falling back to no projection, when those site types
-    # get real support.
-    #
-    # D-02/D-03: mirrors load_telescope_runs' E - S + 1 inclusive-range idiom. A single-night
-    # run (n_nights == 1) reproduces today's exact bare-CAMPAIGN:{pk}-keyed single event; a
-    # range run (n_nights > 1) creates one CAMPAIGN:{pk}:{date.isoformat()}-keyed event per
-    # night. A mid-loop sun_event() ValueError (CR-01) re-raises immediately, leaving any
-    # already-created earlier nights' events in place -- accepted partial projection, no
-    # transaction.atomic() wrap (RESEARCH Assumption A3).
-    n_nights = (run.window_end - run.window_start).days + 1
-    is_range = n_nights > 1
-    for i in range(n_nights):
-        night = run.window_start + timedelta(days=i)
-        try:
-            sunset, sunrise = sun_event(run.site, night, kind='sun')
-        except ValueError:
-            logger.debug(
-                'sun_event(sun) raised for site=%s date=%s; re-raising so callers that need the '
-                'retry guarantee (resolve_site) see this as a failure, not a by-design skip.',
-                run.site,
-                night,
-            )
-            raise  # CR-01: never silently swallow this -- see docstring above.
-        night_fields = dict(event_fields)
-        night_fields['start_time'] = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
-        night_fields['end_time'] = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
-        url = f'CAMPAIGN:{run.pk}' if not is_range else f'CAMPAIGN:{run.pk}:{night.isoformat()}'
-        insert_or_create_calendar_event({'url': url}, fields=night_fields)
-    return True
 
 
 class CampaignRunDecisionView(StaffRequiredMixin, View):
@@ -593,7 +471,7 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                 # A satellite-type site_selection (250/274/289) now resolves through Tier 2
                 # to a real SATELLITE_OBSTYPE Observatory (quick task 260725-kn4 removed the
                 # to_observatory() TypeError that used to make this fall through to a Tier-3
-                # placeholder). _project_calendar_event()'s satellite branch above (line 437)
+                # placeholder). campaign_reconciler._reconcile_container()'s satellite branch
                 # handles it with a whole-day-span event, not the ground sun_event() path.
                 # WR-01 (22-REVIEW.md re-review): mirrors _resolve_site()'s placeholder-aware
                 # guard below -- a run whose site is already a tier-3 placeholder (e.g. from
@@ -633,20 +511,19 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     run.site, run.site_needs_review = site, needs_review and not run.telescope_class
                     run.save(update_fields=['site', 'site_needs_review'])
 
-                # Projection extracted into the shared _project_calendar_event() helper
-                # (22-REVIEWS.md finding 6); the approve branch ignores its bool return.
-                # CR-01: _project_calendar_event() now raises ValueError when sun_event()
-                # fails (e.g. a Tier-2-resolved site with a blank timezone) so resolve_site()
-                # can treat it as a real failure. approve() has no retry surface to protect
-                # (unlike resolve_site()'s "Sites Needing Review" row), so it swallows
-                # specifically this expected-failure-mode ValueError here to preserve its
-                # original behavior: the approval still succeeds without a CalendarEvent.
-                # Anything else _project_calendar_event() raises (e.g.
+                # Projection now runs through the shared reconciler (D-01/D-03/RECON-08); the
+                # approve branch ignores its ReconcileResult. reconcile_run() still raises
+                # ValueError when sun_event() fails (e.g. a Tier-2-resolved site with a blank
+                # timezone) so resolve_site() can treat it as a real failure. approve() has no
+                # retry surface to protect (unlike resolve_site()'s "Sites Needing Review"
+                # row), so it swallows specifically this expected-failure-mode ValueError here
+                # to preserve its original behavior: the approval still succeeds without a
+                # calendar entry (D-04). Anything else reconcile_run() raises (e.g.
                 # insert_or_create_calendar_event() itself failing) is a genuine unexpected
                 # failure and still falls through to the broader except Exception below,
                 # which reverts the approval.
                 try:
-                    _project_calendar_event(run)
+                    reconcile_run(run)
                 except ValueError:
                     logger.debug(
                         'Calendar projection skipped for CampaignRun %s on approve '
@@ -684,15 +561,15 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
 
     def _resolve_site(self, request, pk):
         """D-07/D-08: resolve an approved run's still-unmatched site, then retroactively
-        project the CalendarEvent approval skipped.
+        reconcile the calendar event(s) approval skipped.
 
         Ordering is deliberately load-bearing (22-REVIEWS.md findings 3/5/6/8c):
-        ``site_needs_review`` is cleared ONLY after ``_project_calendar_event()`` returns
-        without raising -- never before, and never on a projection failure -- so a failed
-        projection leaves the run visible in the Sites Needing Review table (its retry
-        surface) instead of vanishing into a dead end. The site write itself is a single
-        conditional queryset update (not a plain re-fetch + in-Python check) so two racing
-        staff POSTs cannot both claim the write.
+        ``site_needs_review`` is cleared ONLY after ``reconcile_run()`` returns without
+        raising -- never before, and never on a reconcile failure -- so a failed reconcile
+        leaves the run visible in the Sites Needing Review table (its retry surface) instead
+        of vanishing into a dead end. The site write itself is a single conditional queryset
+        update (not a plain re-fetch + in-Python check) so two racing staff POSTs cannot both
+        claim the write.
 
         22-06 gap closure (UAT gap 2B): a tier-3 PLACEHOLDER site (``resolve_site()``'s
         ``create_placeholder`` fallback -- name prefixed ``NEEDS REVIEW: ``) is not a
@@ -795,14 +672,14 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     ):
                         previous_site.delete()
 
-        # Projection, inside its own NON-reverting try/except (never reuse the approve
+        # Reconcile, inside its own NON-reverting try/except (never reuse the approve
         # branch's revert-to-PENDING_REVIEW except block -- reverting an already-APPROVED
         # run would resurrect it into the pending queue, reintroducing the dead end this
         # phase closes).
         try:
-            created = _project_calendar_event(run)
+            result = reconcile_run(run)
         except Exception:
-            logger.exception('Calendar projection failed for CampaignRun %s during resolve_site.', pk)
+            logger.exception('Calendar reconcile failed for CampaignRun %s during resolve_site.', pk)
             messages.warning(
                 request,
                 "Site resolved, but the calendar entry couldn't be created automatically -- "
@@ -810,38 +687,42 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             )
             return redirect('campaigns:approval_queue')
 
-        # Only after the projection call returned without raising: clear the flag.
+        # Only after the reconcile call returned without raising: clear the flag.
         run.site_needs_review = False
         run.save(update_fields=['site_needs_review'])
-        if created:
+        # result.skipped_reason is None is the documented successor to the old bool return
+        # from the now-retired projection helper (D-04).
+        if result.skipped_reason is None:
             messages.success(request, 'Site resolved — run added to the calendar.')
         else:
             messages.success(request, 'Site resolved.')
         return redirect('campaigns:approval_queue')
 
     def _set_run_status(self, request, pk, action):
-        """D-03/D-04/D-05: mark an already-APPROVED run cancelled or weathered, and update
-        EVERY CalendarEvent belonging to this run in place, if (and only if) any already exist.
+        """D-03/D-04/D-05: mark an already-APPROVED run cancelled or weathered, and reconcile
+        EVERY CalendarEvent belonging to this run through the shared reconciler (RECON-08/09).
 
         Mirrors ``_resolve_site()``'s shape: a server-side business-logic guard (never trust
         the Decided-table button was only rendered for an APPROVED row -- T-23-01), then a
         staleness-safe conditional queryset ``.update()`` (T-23-04/REVIEW finding #1) whose
-        returned row count is checked BEFORE ``run.refresh_from_db()`` or the calendar-sync
-        branch -- a concurrent approval_status change or row delete between the guard read
+        returned row count is checked BEFORE ``run.refresh_from_db()`` or the reconcile call
+        below -- a concurrent approval_status change or row delete between the guard read
         and the write must never reach ``refresh_from_db()`` (which would raise
         ``CampaignRun.DoesNotExist`` on a deleted row) or silently report false success.
 
-        A run whose window/site never projected any CalendarEvent (a TBD run, or one with an
-        unresolved site) still gets its run_status set, but is never handed to
-        ``insert_or_create_calendar_event()`` -- that helper's create-path requires
-        non-nullable start_time/end_time this call deliberately omits, and would raise
-        (T-23-06/RESEARCH Pitfall 1). ``_project_calendar_event()`` itself is never called or
-        modified here. A range-window run now has one-or-more per-night events, all of which
-        get updated here via the combined trailing-colon queryset (D-04).
+        Whether this action creates or only updates events is no longer decided here --
+        ``reconcile_run()``'s stage-0 guard (``_skip_reason()``) is the single source of truth
+        (D-01): a TBD-window run or a run with an unresolved, unclassed site still ends with
+        zero events after this call, but an APPROVED, site-resolved run that never had an
+        event (e.g. its original approve/resolve reconcile failed, or it arrived via a path
+        that never reconciled) now gets its per-night events created here, titled with the
+        ``[CANCELLED]``/``[WEATHERED]`` prefix from the very first write. This is a deliberate
+        behavior change from the retired always-update-only era, which never fabricated an
+        event for a run that had none.
 
-        The calendar-sync loop below is wrapped in a non-reverting try/except (PR-REVIEW-F1):
+        The reconcile call below is wrapped in a non-reverting try/except (PR-REVIEW-F1):
         ``run_status`` is already committed by the conditional ``.update()`` above by the time
-        the loop runs, so a sync failure (DB/network/runtime) never reverts it and never
+        it runs, so a reconcile failure (DB/network/runtime) never reverts it and never
         surfaces as an uncaught 500 -- it logs the exception and warns the user that the status
         change was saved but the calendar entry needs a retry of the same action.
         """
@@ -861,47 +742,28 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             # REVIEW finding #1/T-23-04: the row was concurrently changed or deleted between
             # the guard read above and this conditional update -- never reach
             # refresh_from_db() (CampaignRun.DoesNotExist on a deleted row) or the
-            # calendar-sync branch below.
+            # reconcile call below.
             messages.warning(request, "This run's status could not be updated (it may have been modified or deleted).")
             return redirect('campaigns:approval_queue')
 
         run.refresh_from_db()
 
-        # D-04/T-23-06: find and update EVERY CalendarEvent belonging to this run -- the
-        # legacy bare single-night key AND any new per-night keys. The trailing colon on the
-        # startswith prefix is required (Pitfall 2): without it, run.pk=3 would also match
-        # CAMPAIGN:34:... events belonging to a different run. Never fabricate an event for a
-        # run that never projected one (a TBD run, or one with an unresolved site or missing
-        # telescope_instrument never reaches _project_calendar_event()'s date-math branch).
-        matching_events = CalendarEvent.objects.filter(
-            Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:')
-        )
-        if matching_events.exists():
-            # PR-REVIEW-F1: run_status is already committed above -- this loop is wrapped in a
-            # non-reverting try/except (mirrors _resolve_site()'s projection guard) so a sync
-            # failure never reverts the status change and never bubbles up as an uncaught 500.
-            try:
-                prefix = _RUN_STATUS_CALENDAR_PREFIX[new_run_status]
-                for event in matching_events:
-                    insert_or_create_calendar_event(
-                        {'url': event.url},
-                        fields={
-                            # Pitfall 1: reuse the shared _calendar_event_title() helper -- a
-                            # re-derived inline f-string here would differ from the stored range
-                            # title, get treated as a real change by the no-churn diff, and
-                            # silently strip the D-06 window suffix from every night's event.
-                            'title': f'{prefix} {_calendar_event_title(run)}',
-                            'description': f'{run.observation_details}\nRun status: {run.get_run_status_display()}',
-                        },
-                    )
-            except Exception:
-                logger.exception('Calendar sync failed for CampaignRun %s during _set_run_status.', pk)
-                messages.warning(
-                    request,
-                    'Run status was updated, but the calendar entry could not be synced -- '
-                    'retry the same action to sync the calendar.',
-                )
-                return redirect('campaigns:approval_queue')
+        # PR-REVIEW-F1: run_status is already committed above -- this call is wrapped in a
+        # non-reverting try/except (mirrors _resolve_site()'s reconcile guard) so a reconcile
+        # failure never reverts the status change and never bubbles up as an uncaught 500.
+        # reconcile_run() builds the [CANCELLED]/[WEATHERED] title and the "Run status:"
+        # description line itself (event_title()/event_description()), so no title-helper
+        # call or prefix lookup is needed here.
+        try:
+            reconcile_run(run)
+        except Exception:
+            logger.exception('Calendar sync failed for CampaignRun %s during _set_run_status.', pk)
+            messages.warning(
+                request,
+                'Run status was updated, but the calendar entry could not be synced -- '
+                'retry the same action to sync the calendar.',
+            )
+            return redirect('campaigns:approval_queue')
 
         messages.success(request, 'Run status updated.')
         return redirect('campaigns:approval_queue')
