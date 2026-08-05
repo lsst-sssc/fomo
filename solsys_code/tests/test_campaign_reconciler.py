@@ -10,12 +10,16 @@ from datetime import timezone as dt_timezone
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.calendar_utils import record_time_window
 from solsys_code.campaign_reconciler import event_description, event_title, owned_events, reconcile_run
-from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import sun_event
 
@@ -521,3 +525,77 @@ class TestClassicalStage1(CampaignReconcilerTestBase):
         self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:2026-08-01').exists())
         self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:2026-08-02').exists())
         self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:2026-08-03').exists())
+
+
+class TestQueueOwnershipDoesNotTouchRecordEvents(CampaignReconcilerTestBase):
+    """RECON-04/RECON-05, expressed as a non-interference contract against a real
+    CampaignRunObservation link: the reconciler's queue-run container branch never
+    creates, modifies or deletes an ObservationRecord-derived event (RESEARCH.md
+    Architecture Patterns Pattern 3 -- stages 3-4 narrowing already ships in the sync
+    commands; this phase's job is to leave it alone)."""
+
+    def test_reconciler_never_touches_the_record_derived_event(self):
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 5)
+        run = self._make_run(
+            source=CampaignRun.Source.LCO_QUEUE,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        # NonSiderealTargetFactory (never SiderealTargetFactory) -- FOMO is exclusively for
+        # Solar System targets (CLAUDE.md).
+        target = NonSiderealTargetFactory.create()
+        record_owner = User.objects.create(username='record-owner')
+        scheduled_start = datetime(2026, 8, 2, 3, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = datetime(2026, 8, 2, 5, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=record_owner,
+            facility='LCO',
+            observation_id='555555',
+            status='COMPLETED',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={'proposal': 'TEST'},
+        )
+        expected_start, expected_end = record_time_window(record)
+        # Keyed the way sync_lco_observation_calendar keys a record-derived event: an LCO
+        # portal request url, NOT a RUN:-namespaced one.
+        record_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/555555/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=expected_start,
+            end_time=expected_end,
+        )
+        CampaignRunObservation.objects.create(run=run, observation_record=record)
+        modified_before = record_event.modified
+
+        reconcile_run(run)
+
+        record_event.refresh_from_db()
+        self.assertEqual(record_event.url, 'https://observe.lco.global/api/requestgroups/555555/')
+        self.assertEqual(record_event.title, 'LCO record event')
+        self.assertEqual(record_event.start_time, expected_start)
+        self.assertEqual(record_event.end_time, expected_end)
+        self.assertEqual(record_event.modified, modified_before)
+
+        # The run's own bare container event coexists alongside it -- the two key
+        # families (26-DECISION.md's settled queue verdict).
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+
+        # No per-night RUN:{pk}:{date} event exists for this queue run at all --
+        # owned_events(run) returns exactly the one bare-key row.
+        self.assertEqual(owned_events(run).count(), 1)
+        self.assertEqual(owned_events(run).get().url, f'RUN:{run.pk}')
+
+        # The record-derived event's window still equals record_time_window(record) --
+        # RECON-04's stage-3/stage-4 behaviour, expressed as non-interference.
+        self.assertEqual(record_time_window(record), (record_event.start_time, record_event.end_time))
+
+        # A second reconcile pass still leaves the record-derived event's modified alone.
+        reconcile_run(run)
+        record_event.refresh_from_db()
+        self.assertEqual(record_event.modified, modified_before)
