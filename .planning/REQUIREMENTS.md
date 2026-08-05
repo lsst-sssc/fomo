@@ -30,12 +30,12 @@ The model changes that make `CampaignRun` the single canonical observing-run rec
 
 Calendar events become a function of run state instead of a side effect of a staff click.
 
-- [ ] **RECON-01**: Staff can run one command that projects and refreshes calendar events for every run, regardless of window length, source, or site-resolution state; running it a second time changes nothing (no new rows, no `modified` churn)
-- [ ] **RECON-02**: A classically-scheduled run resolved to a specific telescope produces one calendar event per night, spanning that site's sunset-to-sunrise twilight for that night (stage 1); a queue-scheduled run resolved to a specific telescope instead produces a single whole-window `RUN:{run_pk}` container event, coexisting with the per-observation events its existing sync command already produces
-- [ ] **RECON-03**: A run allocated only to a telescope class produces a single whole-window `RUN:{run_pk}` container event (stage 2) — every class-wide run measured to date is queue-scheduled, not one calendar event per day
+- [x] **RECON-01**: Staff can run one command that projects and refreshes calendar events for every run, regardless of window length, source, or site-resolution state; running it a second time changes nothing (no new rows, no `modified` churn)
+- [x] **RECON-02**: A classically-scheduled run resolved to a specific telescope produces one calendar event per night, spanning that site's sunset-to-sunrise twilight for that night (stage 1); a queue-scheduled run resolved to a specific telescope instead produces a single whole-window `RUN:{run_pk}` container event, coexisting with the per-observation events its existing sync command already produces
+- [x] **RECON-03**: A run allocated only to a telescope class produces a single whole-window `RUN:{run_pk}` container event (stage 2) — every class-wide run measured to date is queue-scheduled, not one calendar event per day
 - [ ] **RECON-04**: A night whose `ObservationRecord` has been scheduled narrows to that record's window (stage 3), and a completed observation shows the final observed time range marked COMPLETED (stage 4)
-- [ ] **RECON-05**: The reconciler never creates, modifies, or deletes a calendar event it does not own — hand-created entries, conference and proposal-deadline events, and un-attributed sync-command events are left untouched
-- [ ] **RECON-06**: `--dry-run` reports exactly what would change with no writes; a run that fails to reconcile is reported and skipped rather than aborting the batch
+- [x] **RECON-05**: The reconciler never creates, modifies, or deletes a calendar event it does not own — hand-created entries, conference and proposal-deadline events, and un-attributed sync-command events are left untouched
+- [x] **RECON-06**: `--dry-run` reports exactly what would change with no writes; a run that fails to reconcile is reported and skipped rather than aborting the batch
 - [ ] **RECON-07**: The approved, site-resolved 3I/ATLAS runs that no existing command can project (19 as of 2026-07-26) become visible on the calendar
 - [ ] **RECON-08**: The reconciler is reachable from the existing approve / resolve_site / mark_cancelled / mark_weather_failure staff actions, so a single run reconciles immediately on a staff decision
 - [ ] **RECON-09**: `backfill_range_calendar_events` is retired, its behaviour subsumed by the reconciler
@@ -108,12 +108,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 | ATTRIB-04 | Phase 28 — Operator-Assisted Attribution | Complete |
 | ATTRIB-05 | Phase 28 — Operator-Assisted Attribution | Complete |
 | ATTRIB-06 | Phase 28 — Operator-Assisted Attribution | Complete |
-| RECON-01 | Phase 29 — The Reconciler | Pending |
-| RECON-02 | Phase 29 — The Reconciler | Pending |
-| RECON-03 | Phase 29 — The Reconciler | Pending |
+| RECON-01 | Phase 29 — The Reconciler | Complete |
+| RECON-02 | Phase 29 — The Reconciler | Complete |
+| RECON-03 | Phase 29 — The Reconciler | Complete |
 | RECON-04 | Phase 29 — The Reconciler | Pending |
-| RECON-05 | Phase 29 — The Reconciler | Pending |
-| RECON-06 | Phase 29 — The Reconciler | Pending |
+| RECON-05 | Phase 29 — The Reconciler | Complete |
+| RECON-06 | Phase 29 — The Reconciler | Complete |
 | RECON-07 | Phase 29 — The Reconciler | Pending |
 | RECON-08 | Phase 29 — The Reconciler | Pending |
 | RECON-09 | Phase 29 — The Reconciler | Pending |
