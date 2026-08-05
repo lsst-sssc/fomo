@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.db import models
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetList
@@ -348,6 +350,33 @@ class CampaignRun(models.Model):
             site_label = 'no site'
 
         return f'#{self.pk} {self.campaign.name} | {self.telescope_instrument} | {window_label} | {site_label}'
+
+
+@receiver(pre_delete, sender=CampaignRun)
+def _delete_owned_calendar_events_on_campaign_run_delete(sender, instance, **kwargs):  # noqa: D103
+    """WR-01 fix (29-REVIEW.md): cascade-delete a deleted run's calendar events.
+
+    ``CalendarEventMeta.run`` uses ``on_delete=SET_NULL``, so without this, deleting a
+    ``CampaignRun`` (from the Django admin -- either the single-object delete confirmation
+    page or the changelist's bulk "Delete selected" action -- or directly via the ORM) left
+    its ``RUN:``-namespaced ``CalendarEvent`` rows on the shared calendar forever,
+    referencing a run that no longer exists, with no reconciler entry point that could ever
+    touch them again (``reconcile_run()`` requires a live ``CampaignRun`` instance).
+
+    A signal (not an override of ``CampaignRun.delete()``) so this also fires for the admin
+    changelist's bulk delete action, which calls ``QuerySet.delete()`` -- that bypasses any
+    instance-level ``delete()`` override, but still sends ``pre_delete``/``post_delete`` per
+    object. ``pre_delete`` (not ``post_delete``) so ``campaign_reconciler.owned_events()``'s
+    lookup (keyed on ``instance.pk``) still resolves normally, before the run row itself is
+    gone. Deleting the ``CalendarEvent`` rows (not just detaching them) cascades to their
+    ``CalendarEventMeta`` companion rows via that FK's ``on_delete=CASCADE``.
+
+    Imported lazily (function-local, not module-level) to avoid a circular import:
+    ``campaign_reconciler`` imports ``CalendarEventMeta``/``CampaignRun`` from this module.
+    """
+    from solsys_code.campaign_reconciler import owned_events
+
+    owned_events(instance).delete()
 
 
 class CampaignRunObservation(models.Model):

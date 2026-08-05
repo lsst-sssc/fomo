@@ -682,3 +682,21 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         self.assertEqual(container_event.end_time, container_end)
         # ... and is now detached rather than left attributed to this run.
         self.assertIsNone(CalendarEventMeta.objects.get(event=container_event).run_id)
+
+
+class TestCampaignRunDeletionCascadesCalendarEvents(CampaignReconcilerTestBase):
+    """WR-01 (29-REVIEW.md): deleting a CampaignRun must not permanently orphan the
+    calendar events it owns -- `CalendarEventMeta.run`'s `on_delete=SET_NULL` alone leaves
+    the `CalendarEvent` rows themselves on the shared calendar forever."""
+
+    def test_deleting_a_run_deletes_its_owned_calendar_events(self):
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        event_pk = event.pk
+        self.assertTrue(CalendarEventMeta.objects.filter(event_id=event_pk).exists())
+
+        run.delete()
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event_id=event_pk).exists())
