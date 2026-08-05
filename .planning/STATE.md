@@ -4,14 +4,14 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 status: executing
 stopped_at: Phase 29 context gathered
-last_updated: "2026-08-05T06:56:31.605Z"
-last_activity: 2026-08-05 -- Phase 29 planning complete
+last_updated: "2026-08-05T12:02:23.993Z"
+last_activity: 2026-08-05 -- Phase 29 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 22
+  total_plans: 28
   completed_plans: 22
-  percent: 80
+  percent: 79
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 28 — operator-assisted-attribution
+**Current focus:** Phase 29 — the-reconciler
 
 ## Current Position
 
-Phase: 29
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-05 -- Phase 29 planning complete
+Phase: 29 (the-reconciler) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 29
+Last activity: 2026-08-05 -- Phase 29 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
