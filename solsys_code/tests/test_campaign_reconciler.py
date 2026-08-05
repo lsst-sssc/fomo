@@ -616,3 +616,69 @@ class TestQueueOwnershipDoesNotTouchRecordEvents(CampaignReconcilerTestBase):
         reconcile_run(run)
         record_event.refresh_from_db()
         self.assertEqual(record_event.modified, modified_before)
+
+
+class TestReclassificationConvergence(CampaignReconcilerTestBase):
+    """CR-01 (29-REVIEW.md): reclassifying a run's family (a `source`/`telescope_class`/
+    `site` change on an already-reconciled run) detaches -- never deletes, never leaves
+    dangling -- the old family's events, and a stale event from one family is never
+    corrupted by being adopted into the other."""
+
+    def test_reclassifying_classical_to_queue_detaches_old_per_night_events(self):
+        """A run reconciled once under the classical branch, then reclassified to the
+        queue/container branch (e.g. an admin `source` correction), leaves its old
+        per-night events on the calendar but detached from the run, not orphaned or
+        silently duplicated alongside the new container event."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+
+        first = reconcile_run(run)
+        self.assertEqual(first.created, 2)
+        night_urls = [f'RUN:{run.pk}:{window_start.isoformat()}', f'RUN:{run.pk}:{window_end.isoformat()}']
+        for url in night_urls:
+            self.assertTrue(CalendarEvent.objects.filter(url=url).exists())
+            self.assertEqual(CalendarEventMeta.objects.get(event__url=url).run_id, run.pk)
+
+        run.source = CampaignRun.Source.LCO_QUEUE
+        run.save(update_fields=['source'])
+        second = reconcile_run(run)
+
+        self.assertEqual(second.created, 1)
+        container_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertEqual(CalendarEventMeta.objects.get(event=container_event).run_id, run.pk)
+
+        # The old per-night events still exist (not deleted) but are detached -- returned
+        # to Phase 28's attribution queue, not left silently orphaned or duplicated.
+        for url in night_urls:
+            self.assertTrue(CalendarEvent.objects.filter(url=url).exists())
+            self.assertIsNone(CalendarEventMeta.objects.get(event__url=url).run_id)
+
+    def test_stale_container_event_is_not_adopted_into_a_classical_night(self):
+        """Proves the blank-`url` filter in `_adopted_event_for_night()`: a run's own stale
+        container event (left over from a prior container-family reconcile) must never be
+        re-keyed into a per-night slot -- which would leave it looking like one observing
+        night while still timed as the entire original whole-window span -- even though its
+        `CalendarEventMeta.run` already points at this run."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        reconcile_run(run)
+        container_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        container_start, container_end = container_event.start_time, container_event.end_time
+
+        run.source = CampaignRun.Source.LEGACY
+        run.save(update_fields=['source'])
+        result = reconcile_run(run)
+
+        # A brand-new per-night event was minted -- the stale container was NOT adopted.
+        self.assertEqual(result.created, 1)
+        night_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(night_event.pk, container_event.pk)
+
+        # The stale container event survives untouched: not re-keyed, not re-timed.
+        container_event.refresh_from_db()
+        self.assertEqual(container_event.url, f'RUN:{run.pk}')
+        self.assertEqual(container_event.start_time, container_start)
+        self.assertEqual(container_event.end_time, container_end)
+        # ... and is now detached rather than left attributed to this run.
+        self.assertIsNone(CalendarEventMeta.objects.get(event=container_event).run_id)

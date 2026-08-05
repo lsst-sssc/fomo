@@ -11,7 +11,12 @@ Two coexisting key families (26-DECISION.md "Criterion 3 / SPIKE-03"): a bare
 satellite/space runs (RECON-02 queue half, RECON-03), and a date-bearing
 ``RUN:{run_pk}:{date}`` key per observing night for classically-scheduled runs (RECON-02
 classical half) -- always date-bearing, including for a single-night run, so the key form
-alone says which family an event belongs to.
+alone says which family an event belongs to. ``reconcile_run()`` re-derives which family a
+run belongs to from its *current* state on every call, so a re-classification (an admin
+correction to ``source``/``telescope_class``/``site`` on an already-reconciled run) is
+detected and converged on: ``_detach_stale_family_events()`` detaches (never deletes) any
+event left over from the family the run no longer belongs to, back into Phase 28's
+attribution queue (29-REVIEW.md CR-01).
 
 Like ``campaign_gap.py``/``campaign_utils.py``, this module must NEVER import the views
 module or the heavy SPICE-loading ephemeris module -- the latter triggers a ~1.6 GB SPICE
@@ -137,7 +142,11 @@ def _skip_reason(run: CampaignRun) -> str | None:
     """Stage-0 guard (D-05's itemized skip vocabulary), evaluated in this order.
 
     Preserves today's exact "no event yet" cases from ``_project_calendar_event()``, plus
-    the new approval gate (an unapproved web submission must never reach the calendar).
+    the new approval gate (an unapproved web submission must never reach the calendar), plus
+    a ``window_end < window_start`` data-integrity guard (29-REVIEW.md WR-02): without it,
+    ``_reconcile_classical_nights()``'s ``n_nights = (window_end - window_start).days + 1``
+    goes non-positive and ``range(n_nights)`` silently iterates zero times -- no event, no
+    skip reason, indistinguishable from an already-``unchanged`` run in the summary.
     """
     if run.approval_status != CampaignRun.ApprovalStatus.APPROVED:
         return 'not approved'
@@ -145,6 +154,8 @@ def _skip_reason(run: CampaignRun) -> str | None:
         return 'missing telescope/instrument'
     if run.window_start is None or run.window_end is None:
         return 'TBD window'
+    if run.window_end < run.window_start:
+        return 'window_end before window_start'
     if run.site is None and not run.telescope_class:
         return 'unresolved site'
     return None
@@ -238,6 +249,16 @@ def _adopted_event_for_night(run: CampaignRun, night, site_zone: ZoneInfo) -> Ca
     silently contradicts D-02 by falling through to minting a duplicate event for a night
     that already has one.
 
+    ``event__url=''`` (29-REVIEW.md CR-01): candidates are restricted to
+    ``load_telescope_runs``-created, blank-``url`` events, matching this docstring's own
+    stated intent. Without this filter, a run's own STALE bare container event from a prior
+    reconcile under the other key family (see ``_detach_stale_family_events()``) also
+    carries ``CalendarEventMeta.run == run`` and would match here, "adopting" it into a
+    per-night slot -- re-keying its ``url`` while leaving its ``start_time``/``end_time`` at
+    the original whole-window span, since neither field is rewritten on adopt. That silently
+    produced a calendar entry keyed and titled as one observing night but timed as the
+    entire original multi-night window.
+
     Why re-keying the matched event's ``url`` is safe for the other writer:
     ``load_telescope_runs`` looks up its own events by ``(telescope, instrument, start_time
     +/- 5 min)`` and never reads or writes ``url`` at all, so moving the ``url`` here does
@@ -247,7 +268,11 @@ def _adopted_event_for_night(run: CampaignRun, night, site_zone: ZoneInfo) -> Ca
     this module and ``load_telescope_runs`` on re-ingest -- key stability, not field-write
     exclusivity, is what D-02's churn analysis guaranteed.
     """
-    candidates = CalendarEventMeta.objects.filter(run_id=run.pk).select_related('event').order_by('event__start_time')
+    candidates = (
+        CalendarEventMeta.objects.filter(run_id=run.pk, event__url='')
+        .select_related('event')
+        .order_by('event__start_time')
+    )
     for meta in candidates:
         event = meta.event
         if event.start_time.astimezone(site_zone).date() == night:
@@ -343,6 +368,36 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
     return ReconcileResult(**totals)
 
 
+def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None:
+    """Convergence step (29-REVIEW.md CR-01, user-directed fix: DETACH, not delete or
+    flag-only).
+
+    ``reconcile_run()`` dispatches a run to exactly one of the two mutually-exclusive key
+    families (bare ``RUN:{pk}`` container vs. date-bearing ``RUN:{pk}:{date}`` per-night)
+    based on the run's *current* ``source``/``telescope_class``/``site`` state. Nothing else
+    detects a re-classification (an admin correction to one of those fields on an
+    already-reconciled run): without this, the OLD family's events would either be silently
+    orphaned forever -- no code path ever revisits them again -- or, worse, accidentally
+    "adopted" into the new family and corrupted (see ``_adopted_event_for_night()``).
+
+    Detaching (``CalendarEventMeta.run = None``) -- rather than deleting the
+    ``CalendarEvent`` rows outright, or merely logging/flagging -- returns them to Phase 28's
+    attribution queue for a human to re-confirm or discard, matching every other
+    "un-owned" row's meaning (module docstring: "unset ... never 'touch me'").
+
+    A bulk ``.update()``, not a per-instance ``.save()`` loop, deliberately: this only ever
+    clears a FK on rows already known to belong to this run, so there is no per-row business
+    logic to run, and a bulk update avoids firing save-related signal handlers for every row.
+
+    Args:
+        run: the ``CampaignRun`` just reconciled.
+        active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
+            considers current for this run (one container url, or one url per night).
+    """
+    stale = owned_events(run).exclude(url__in=active_urls)
+    CalendarEventMeta.objects.filter(event__in=stale).update(run=None)
+
+
 def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult:
     """The public D-03 entry point: implements all of this run's calendar projection.
 
@@ -366,11 +421,27 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
         # RECON-03: a class-wide allocation (2m0/1m0/0m4) or a SPACE-classed run shares
         # this branch -- the whole-window math is identical either way (RESEARCH.md
         # Assumption A2, resolved in favour of one branch, not two).
-        return _reconcile_container(run, dry_run=dry_run)
-    if run.site is not None and run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
+        result = _reconcile_container(run, dry_run=dry_run)
+        active_urls = {run_container_url(run)}
+    elif run.site is not None and run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
         # The ported satellite case: no fixed horizon, so no per-night sun_event() math.
-        return _reconcile_container(run, dry_run=dry_run)
-    if run.source in QUEUE_SOURCES:
+        result = _reconcile_container(run, dry_run=dry_run)
+        active_urls = {run_container_url(run)}
+    elif run.source in QUEUE_SOURCES:
         # RECON-02 queue half, D-07: branch purely on source, never a text heuristic.
-        return _reconcile_container(run, dry_run=dry_run)
-    return _reconcile_classical_nights(run, dry_run=dry_run)
+        result = _reconcile_container(run, dry_run=dry_run)
+        active_urls = {run_container_url(run)}
+    else:
+        result = _reconcile_classical_nights(run, dry_run=dry_run)
+        n_nights = (run.window_end - run.window_start).days + 1
+        active_urls = {run_night_url(run, run.window_start + timedelta(days=i)) for i in range(n_nights)}
+
+    # CR-01 convergence step: detach (never delete) any of this run's owned events left
+    # over from a family it no longer belongs to. A no-op whenever the run has not been
+    # re-classified since its last reconcile (RECON-01 idempotency: every url this branch
+    # just wrote/confirmed is already in active_urls, so exclude() finds nothing stale).
+    # Skipped entirely in dry_run -- detaching is a write, and dry_run must write nothing.
+    if not dry_run:
+        _detach_stale_family_events(run, active_urls)
+
+    return result
