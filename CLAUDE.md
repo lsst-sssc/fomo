@@ -114,7 +114,10 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
   `solsys_code/management/commands/sync_lco_observation_calendar.py` ->
   `sync_lco_observation_calendar_demo.ipynb`;
   `solsys_code/management/commands/sync_gemini_observation_calendar.py` ->
-  `sync_gemini_observation_calendar_demo.ipynb` (all notebooks live under
+  `sync_gemini_observation_calendar_demo.ipynb`;
+  `solsys_code/campaign_reconciler.py` and
+  `solsys_code/management/commands/reconcile_campaign_runs.py` ->
+  `reconcile_campaign_runs_demo.ipynb` (all notebooks live under
   `docs/notebooks/pre_executed/`). Extend this map when a new module gets its own demo notebook.
   Trigger: a plan whose tasks change one of these modules' *behavior* (new extraction logic, new
   parameters, new fixture shapes — not pure refactors or typo fixes) must include its paired
