@@ -170,6 +170,15 @@ None - no external service configuration required.
 - `python manage.py reconcile_campaign_runs --dry-run` exits 0 against the dev DB, writes
   nothing.
 
+## Self-Check: PASSED
+
+- Files verified present on disk: `solsys_code/management/commands/reconcile_campaign_runs.py`,
+  `solsys_code/tests/test_reconcile_campaign_runs.py`,
+  `.planning/phases/29-the-reconciler/29-03-SUMMARY.md`.
+- Commits verified present in `git log --oneline --all`: `306ff15`, `09d23c6`, `0f948af`
+  (final metadata commit, includes this SUMMARY.md and REQUIREMENTS.md's RECON-07
+  mark-complete).
+
 ---
 *Phase: 29-the-reconciler*
 *Completed: 2026-08-05*
