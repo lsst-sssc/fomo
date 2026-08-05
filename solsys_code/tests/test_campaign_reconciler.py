@@ -8,12 +8,13 @@ CampaignApprovalTestBase in test_campaign_approval.py.
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
-from solsys_code.campaign_reconciler import event_title, owned_events, reconcile_run
+from solsys_code.campaign_reconciler import event_description, event_title, owned_events, reconcile_run
 from solsys_code.models import CalendarEventMeta, CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import sun_event
@@ -399,3 +400,124 @@ class TestAdoptAndRekey(CampaignReconcilerTestBase):
         adopted_event.refresh_from_db()
         self.assertEqual(adopted_event.url, f'RUN:{run.pk}:{night.isoformat()}')
         self.assertEqual(CalendarEvent.objects.count(), 1)
+
+
+class TestClassicalStage1(CampaignReconcilerTestBase):
+    """RECON-02's classical half: one dip-corrected event per night under date-bearing
+    RUN: keys, including the single-night case (26-DECISION.md Criterion 3 -- always
+    date-bearing, never a bare RUN:{pk} key for a classical run)."""
+
+    def test_single_night_run_creates_one_date_bearing_event_never_a_bare_key(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').count(), 0)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+
+    def test_multi_night_run_creates_one_event_per_night(self):
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 4)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+
+        result = reconcile_run(run)
+
+        expected_n = (window_end - window_start).days + 1
+        self.assertEqual(result.created, expected_n)
+        self.assertEqual(owned_events(run).count(), expected_n)
+        for i in range(expected_n):
+            night = window_start + timedelta(days=i)
+            self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+
+    def test_each_event_start_end_match_dip_corrected_sun_event(self):
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 3)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+
+        reconcile_run(run)
+
+        for i in range((window_end - window_start).days + 1):
+            night = window_start + timedelta(days=i)
+            expected_sunset, expected_sunrise = sun_event(self.ground_site, night, kind='sun')
+            event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+            self.assertEqual(
+                event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+            )
+            self.assertEqual(
+                event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+            )
+
+    def test_key_date_equals_site_local_night_of_its_own_start_time(self):
+        """26-DECISION.md's 'site-local observing night, never the naive UTC date' rule,
+        proved rather than assumed: converting each event's own start_time into the site's
+        timezone and taking .date() must return the date embedded in its url."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 3)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        site_zone = ZoneInfo(self.ground_site.timezone)
+
+        reconcile_run(run)
+
+        for event in owned_events(run):
+            key_date = date.fromisoformat(event.url.rsplit(':', 1)[-1])
+            self.assertEqual(event.start_time.astimezone(site_zone).date(), key_date)
+
+    def test_every_minted_event_has_a_calendar_event_meta_row_linked_to_the_run(self):
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 3)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+
+        reconcile_run(run)
+
+        for event in owned_events(run):
+            meta = CalendarEventMeta.objects.get(event=event)
+            self.assertEqual(meta.run_id, run.pk)
+
+    def test_cancelled_run_status_prefixes_title_and_description_and_flip_back_refreshes_in_place(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, run_status=CampaignRun.RunStatus.CANCELLED)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        pk_before = event.pk
+        self.assertTrue(event.title.startswith('[CANCELLED] '))
+        self.assertEqual(event.title, event_title(run))
+        self.assertEqual(event.description, event_description(run))
+        self.assertTrue(event.description.endswith(f'Run status: {run.get_run_status_display()}'))
+
+        run.run_status = CampaignRun.RunStatus.OBSERVED
+        run.save(update_fields=['run_status'])
+        reconcile_run(run)
+
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+        event.refresh_from_db()
+        self.assertEqual(event.pk, pk_before)
+        self.assertFalse(event.title.startswith('[CANCELLED] '))
+        self.assertEqual(event.title, event_title(run))
+        self.assertEqual(event.description, event_description(run))
+
+    def test_mid_loop_sun_event_valueerror_propagates_and_leaves_earlier_nights_in_place(self):
+        """D-06's accepted partial projection: a mid-window sun_event() ValueError is not
+        caught here -- it propagates uncaught out of reconcile_run(), and the earlier
+        nights' already-written events are left in place (no transaction.atomic() wrap)."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 3)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        real_sun_event = sun_event
+
+        def _side_effect(site, night, kind='sun'):
+            if night == date(2026, 8, 2):
+                raise ValueError('no crossings')
+            return real_sun_event(site, night, kind=kind)
+
+        with patch('solsys_code.campaign_reconciler.sun_event', side_effect=_side_effect):
+            with self.assertRaises(ValueError):
+                reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:2026-08-01').exists())
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:2026-08-02').exists())
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:2026-08-03').exists())
