@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 status: completed
-stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-08-02T00:35:19.200Z"
+stopped_at: Phase 29 context gathered
+last_updated: "2026-08-05T05:58:33.635Z"
 last_activity: 2026-08-02
 progress:
   total_phases: 5
@@ -251,9 +251,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-01T04:22:09.969Z
-Stopped at: Phase 28 UI-SPEC approved
-Resume file: .planning/phases/28-operator-assisted-attribution/28-UI-SPEC.md
+Last session: 2026-08-05T05:58:33.622Z
+Stopped at: Phase 29 context gathered
+Resume file: .planning/phases/29-the-reconciler/29-CONTEXT.md
 
 ## Operator Next Steps
 
