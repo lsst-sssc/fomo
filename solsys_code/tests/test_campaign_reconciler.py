@@ -5,7 +5,7 @@ unit-level idempotency, isolated from the Django view/command layer. Fixture sty
 CampaignApprovalTestBase in test_campaign_approval.py.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import patch
 
@@ -13,9 +13,10 @@ from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
-from solsys_code.campaign_reconciler import owned_events, reconcile_run
+from solsys_code.campaign_reconciler import event_title, owned_events, reconcile_run
 from solsys_code.models import CalendarEventMeta, CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import sun_event
 
 
 class CampaignReconcilerTestBase(TestCase):
@@ -300,3 +301,101 @@ class TestContainerIdempotency(CampaignReconcilerTestBase):
         self.assertEqual(result.created, 1)
         self.assertEqual(CalendarEvent.objects.count(), 0)
         self.assertEqual(CalendarEventMeta.objects.count(), 0)
+
+
+class TestAdoptAndRekey(CampaignReconcilerTestBase):
+    """D-02: an already-attributed classical night is re-keyed in place, never duplicated."""
+
+    def _make_adopted_event(self, night: date, *, minutes_offset: int = 7) -> CalendarEvent:
+        """A CalendarEvent shaped like one `load_telescope_runs` creates: blank url,
+        telescope/instrument set, start_time/end_time offset from the reconciler's own
+        sunset/sunrise -- the file-derived BoN/EoN window this test proves survives."""
+        real_sunset, real_sunrise = sun_event(self.ground_site, night, kind='sun')
+        start_time = real_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0) + timedelta(
+            minutes=minutes_offset
+        )
+        end_time = real_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0) - timedelta(
+            minutes=minutes_offset
+        )
+        return CalendarEvent.objects.create(
+            title='FTN MuSCAT3',
+            url='',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+    def test_adopted_night_is_rekeyed_in_place_and_not_duplicated(self):
+        first_night = date(2026, 8, 1)
+        second_night = date(2026, 8, 2)
+        run = self._make_run(window_start=first_night, window_end=second_night)
+        adopted_event = self._make_adopted_event(first_night)
+        adopted_pk = adopted_event.pk
+        meta = CalendarEventMeta.objects.create(event=adopted_event, run=run, is_verified=False)
+        adopted_start, adopted_end = adopted_event.start_time, adopted_event.end_time
+
+        result = reconcile_run(run)
+
+        # One adopted (re-keyed) event + one minted for the second night -- never 3.
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        adopted_event.refresh_from_db()
+        self.assertEqual(adopted_event.pk, adopted_pk)
+        self.assertEqual(adopted_event.url, f'RUN:{run.pk}:{first_night.isoformat()}')
+        # The file-derived window survived untouched.
+        self.assertEqual(adopted_event.start_time, adopted_start)
+        self.assertEqual(adopted_event.end_time, adopted_end)
+        self.assertEqual(adopted_event.title, event_title(run))
+        meta.refresh_from_db()
+        self.assertFalse(meta.is_verified)
+        self.assertEqual(meta.run_id, run.pk)
+        second_night_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{second_night.isoformat()}')
+        self.assertNotEqual(second_night_event.pk, adopted_pk)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(result.created, 1)
+
+    def test_rekey_is_sticky_and_second_reconcile_reports_unchanged(self):
+        first_night = date(2026, 8, 1)
+        second_night = date(2026, 8, 2)
+        run = self._make_run(window_start=first_night, window_end=second_night)
+        adopted_event = self._make_adopted_event(first_night)
+        CalendarEventMeta.objects.create(event=adopted_event, run=run)
+
+        first = reconcile_run(run)
+        self.assertEqual(first.updated, 1)
+        self.assertEqual(first.created, 1)
+        adopted_event.refresh_from_db()
+        modified_after_first = adopted_event.modified
+
+        second = reconcile_run(run)
+
+        self.assertEqual(second.unchanged, 2)
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        adopted_event.refresh_from_db()
+        self.assertEqual(adopted_event.modified, modified_after_first)
+
+    def test_adopt_matches_on_site_local_night_not_naive_utc_date(self):
+        """Mirrors 26-DECISION.md's measured event pk=54 case: a start_time whose naive-UTC
+        date is one day before its Australia/Sydney site-local date is still adopted for
+        the site-local observing night, not the naive-UTC one."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        # 2026-07-08T14:08:19Z + 10h (Sydney AEST, no DST in July) = 2026-07-09 00:08:19
+        # local -- naive-UTC date is 2026-07-08, one day before the site-local night.
+        start_time = datetime(2026, 7, 8, 14, 8, 19, tzinfo=dt_timezone.utc)
+        end_time = start_time + timedelta(hours=8)
+        adopted_event = CalendarEvent.objects.create(
+            title='FTN MuSCAT3',
+            url='',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=start_time,
+            end_time=end_time,
+        )
+        CalendarEventMeta.objects.create(event=adopted_event, run=run)
+
+        reconcile_run(run)
+
+        adopted_event.refresh_from_db()
+        self.assertEqual(adopted_event.url, f'RUN:{run.pk}:{night.isoformat()}')
+        self.assertEqual(CalendarEvent.objects.count(), 1)
