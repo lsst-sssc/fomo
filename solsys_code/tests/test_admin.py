@@ -1007,8 +1007,8 @@ class SourceProvenanceTwoStepBypassTests(TestCase):
         )
         cls.campaign = TargetList.objects.create(name='Two-Step Bypass Campaign')
         # window_start/window_end intentionally left unset on both fixtures, so
-        # _project_calendar_event() skips projection by design and the approve branch has
-        # no calendar side effect to manage here.
+        # campaign_reconciler.reconcile_run()'s stage-0 guard skips with skipped_reason=
+        # 'TBD window' and the approve branch has no calendar side effect to manage here.
         cls.pending_web = CampaignRun.objects.create(
             campaign=cls.campaign,
             telescope_instrument='Two-Step-Pending-Web',
