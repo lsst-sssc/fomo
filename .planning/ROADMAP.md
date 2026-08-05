@@ -287,7 +287,7 @@ Plans:
   4. `--dry-run` reports exactly what would change and writes nothing, and a run that fails to reconcile (e.g. the known blank-`Observatory.timezone` rows) is reported and skipped while the rest of the batch completes
   5. The 19 approved, site-resolved 3I/ATLAS runs that no existing command can project are visible on the calendar; approve / resolve_site / mark_cancelled / mark_weather_failure each reconcile their run immediately; and `backfill_range_calendar_events` no longer exists in the codebase or the operator runbook
 
-**Plans:** 2/6 plans executed
+**Plans:** 4/6 plans executed
 
 **Wave 1**
 
@@ -303,10 +303,10 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion; both plans run in parallel)*
 
-- [ ] 29-03-PLAN.md — The `reconcile_campaign_runs` management command with `--dry-run` and the
+- [x] 29-03-PLAN.md — The `reconcile_campaign_runs` management command with `--dry-run` and the
   D-05 summary, plus command-level idempotency, dry-run, failure-isolation and 19-run-shape tests
 
-- [ ] 29-04-PLAN.md — Rewiring the four staff actions onto `reconcile_run()`, deleting
+- [x] 29-04-PLAN.md — Rewiring the four staff actions onto `reconcile_run()`, deleting
   `_project_calendar_event`/`_calendar_event_title` and the `backfill_range_calendar_events`
   command and test, and rewriting the approval-queue suite onto `RUN:` keys
 
@@ -356,7 +356,7 @@ Plans:
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
 | 27. The Canonical Run Record | v2.2 | 6/6 | Complete    | 2026-07-30 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
-| 29. The Reconciler | v2.2 | 2/6 | In Progress|  |
+| 29. The Reconciler | v2.2 | 4/6 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
