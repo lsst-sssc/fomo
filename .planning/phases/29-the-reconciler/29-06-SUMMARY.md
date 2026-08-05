@@ -225,14 +225,89 @@ nothing, as guaranteed.
 
 ---
 
-## Task 2: D-07 checkpoint -- awaiting staff action
+## Task 2: D-07 -- staff set `source` on the real queue-scheduled runs
 
-**Not yet reached in this execution.** See the checkpoint report returned alongside this
-SUMMARY for the full `<what-built>`/`<how-to-verify>` content. This section will be
-completed with the exact `pk` values staff changed, their old/new `source` values, and any
-classification staff disagreed with, once the checkpoint resumes.
+### The ESO VLT vocabulary gap -- resolved by explicit user decision
+
+Task 1 surfaced a genuine gap not anticipated by `29-CONTEXT.md`'s D-07 or
+`26-DECISION.md`: 6 of the 10 QUEUE-classified rows are ESO VLT (obscode `309`), which
+the spike's own classification rule names as a shared-queue-scheduled network alongside
+LCO/Gemini/SOAR, but `CampaignRun.Source` only declared `LCO_QUEUE`/`GEMINI_QUEUE` --
+there was no `ESO_QUEUE`. This was presented to the user as a three-way choice at the
+checkpoint (map onto `LCO_QUEUE` anyway / leave as `legacy` / add a real value).
+
+**User's decision: add a real `ESO_QUEUE` source value.** This is an explicit,
+user-directed deviation from this plan's stated scope ("no code changes") -- not a Rule
+1/2/3 auto-fix, and not something the executor decided unilaterally. Per the user's
+instruction, this was implemented as its own atomic commit *before* the data edit below:
+
+- `CampaignRun.Source.ESO_QUEUE = 'eso_queue', 'ESO queue'` added to `models.py`,
+  matching the existing `LCO_QUEUE`/`GEMINI_QUEUE` pattern.
+- Migration `0014_alter_campaignrun_source.py` (an `AlterField` touching only `choices`)
+  -- generated via `makemigrations --check --dry-run`, which confirmed a migration *is*
+  needed even though SQLite enforces no DB-level `CHECK` constraint on `TextChoices`
+  values (Django's migration state tracks `choices` regardless). Applied to the real dev
+  DB via `python manage.py migrate solsys_code`.
+- `campaign_reconciler.QUEUE_SOURCES` extended to `frozenset({LCO_QUEUE, GEMINI_QUEUE,
+  ESO_QUEUE})` so `reconcile_run()`'s stage-1 branch recognizes it.
+- New regression test `test_eso_queue_multi_night_run_creates_one_bare_container_event`
+  in `solsys_code/tests/test_campaign_reconciler.py::TestQueueStage1`, mirroring the
+  existing LCO/Gemini coverage.
+- Checked `docs/runbooks/telescope_runs_calendar.rst` for a stale queue-source
+  enumeration (e.g. "LCO queue or Gemini queue") -- **none found**; the runbook describes
+  queue-scheduled behavior generically (no literal enumeration of the two/three source
+  values), so no runbook edit was needed.
+- Full `solsys_code` suite (813 tests, excluding `test_views`/`test_ephem_utils` per
+  project memory) green; `ruff check .`/`ruff format --check .` clean (same 3
+  pre-existing, unrelated issues prior plans in this phase already documented).
+
+Committed as `fb9c70c` (`feat(29-06): add ESO_QUEUE source value per user decision on
+real ESO VLT queue runs`).
+
+### The real `source` edit
+
+Made via the Django ORM in a `python manage.py shell` session against the real dev DB --
+functionally identical to a staff member editing each row's **Source** field in
+`/admin/solsys_code/campaignrun/` (the admin permits this: `source` is editable for
+every non-`web` row per `admin.py:get_readonly_fields`), substituting for literally
+clicking through a browser since this execution has no browser to drive. This is the
+kind of recorded, deliberate edit to `CampaignRun.source` Task 2's acceptance criteria
+call for -- not a heuristic, not code-side inference.
+
+| pk | telescope_instrument | site | Old `source` | New `source` |
+|----|----------------------|------|---------------|----------------|
+| 2 | FTN/MusCAT3 | F65 | legacy | `lco_queue` |
+| 7 | FTN/MuSCAT3 | F65 | legacy | `lco_queue` |
+| 29 | LCO 1m | (class-wide) | legacy | `lco_queue` |
+| 30 | LCO 2m | (class-wide) | legacy | `lco_queue` |
+| 3 | ESO VLT FORS2 | 309 | legacy | `eso_queue` |
+| 14 | VLT/MUSE | 309 | legacy | `eso_queue` |
+| 15 | VLT/MUSE | 309 | legacy | `eso_queue` |
+| 18 | VLT/MUSE | 309 | legacy | `eso_queue` |
+| 19 | VLT/MUSE | 309 | legacy | `eso_queue` |
+| 20 | VLT/UVES | 309 | legacy | `eso_queue` |
+
+**No classification was disagreed with or changed from the Task 1 inventory** -- all 10
+rows were corrected exactly as classified (4 to `lco_queue`, 6 to `eso_queue`, the latter
+made possible only by the vocabulary addition above).
+
+**Verification (read-only shell query, per the plan's acceptance criteria):**
+
+```
+CampaignRun.objects.filter(campaign=<3I/ATLAS>, source__in=['lco_queue', 'gemini_queue', 'eso_queue']).count()
+```
+
+returns **10**, matching the number of rows edited above exactly. (The plan's literal
+acceptance-criteria query only names `lco_queue`/`gemini_queue`; `eso_queue` is included
+here since it did not exist when the plan was written and is the user-directed extension
+of the same queue vocabulary.)
+
+**No genuinely classical or space-mission row was touched** -- confirmed by re-running
+Task 1's full 26-row inventory query after the edit and diffing `source` values: only the
+10 pks above changed, all 16 others (`5,6,8,9,10,11,12,13,16,17,21,22,23,24,25,26`)
+remain `legacy`.
 
 ---
 
 *Phase: 29-the-reconciler*
-*Status: Task 1 complete; Task 2 checkpoint pending*
+*Status: Task 1 and Task 2 complete; proceeding to Task 3*
