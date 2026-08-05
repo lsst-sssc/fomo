@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 from datetime import time as dt_time
 from datetime import timezone as dt_timezone
 from typing import Any, NamedTuple
+from zoneinfo import ZoneInfo
 
 from django.db.models import Q
 from tom_calendar.models import CalendarEvent
@@ -209,6 +210,46 @@ def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
     return ReconcileResult(**{action: 1})
 
 
+def _adopted_event_for_night(run: CampaignRun, night, site_zone: ZoneInfo) -> CalendarEvent | None:
+    """D-02's adopt step: find a classical night already attributed to this run.
+
+    Queries ``CalendarEventMeta.objects.filter(run_id=run.pk)`` -- rows Phase 28's
+    attribution queue writes once a staff member confirms a ``load_telescope_runs``-created
+    (blank-``url``) event belongs to this run -- and returns the first candidate whose
+    ``start_time``, converted into ``site_zone`` and reduced to ``.date()``, equals
+    ``night``. ``site_zone`` is a ``ZoneInfo`` built once per run (from ``run.site.timezone``)
+    by the caller, not once per night. Ordered by ``event__start_time`` so the pick is
+    deterministic in the (should-never-happen) case that two candidates share a night.
+    Returns None when nothing matches -- the caller then falls through to minting.
+
+    Matches on ``CalendarEventMeta.run_id`` plus the site-local night ONLY (RESEARCH.md
+    Assumption A3, resolved explicitly here): this deliberately does NOT also filter the
+    candidate's stored telescope field against the run's telescope_instrument. The
+    ``CalendarEventMeta.run`` FK is already an explicit, human-confirmed attribution
+    statement written by Phase 28's queue
+    -- layering a free-text telescope comparison on top of an already-confirmed link can
+    only cause a miss (a ``CampaignRun.telescope_instrument`` string like ``'FTN/MuSCAT3'``
+    need not equal a ``load_telescope_runs`` ``telescope`` value like ``'FTN'``), and a miss
+    silently contradicts D-02 by falling through to minting a duplicate event for a night
+    that already has one.
+
+    Why re-keying the matched event's ``url`` is safe for the other writer:
+    ``load_telescope_runs`` looks up its own events by ``(telescope, instrument, start_time
+    +/- 5 min)`` and never reads or writes ``url`` at all, so moving the ``url`` here does
+    not break its idempotent lookup -- this is exactly the asymmetry D-02 cites as the
+    reason adopt (not gap-fill) was chosen for classical runs. Accepted consequence carried
+    over from plan 29-01: ``title``/``description`` on an adopted night alternate between
+    this module and ``load_telescope_runs`` on re-ingest -- key stability, not field-write
+    exclusivity, is what D-02's churn analysis guaranteed.
+    """
+    candidates = CalendarEventMeta.objects.filter(run_id=run.pk).select_related('event').order_by('event__start_time')
+    for meta in candidates:
+        event = meta.event
+        if event.start_time.astimezone(site_zone).date() == night:
+            return event
+    return None
+
+
 def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
     """The per-night branch (RECON-02 classical half).
 
@@ -220,30 +261,45 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
     (plan 29-03) and the staff-action call sites (plan 29-04) can each apply their own
     already-differentiated handling.
 
+    Per-night resolution order (D-02): (1) an existing event already keyed at
+    ``run_night_url(run, night)`` -- the common idempotent-rerun case; (2) failing that,
+    ``_adopted_event_for_night(...)`` -- a ``load_telescope_runs``-created event already
+    attributed to this run for this night via Phase 28's confirmation queue, re-keyed in
+    place; (3) failing both, mint a new event. Both (1) and (2) go through ``_may_write()``
+    before any write -- the ownership rule stays the first condition checked (RECON-05
+    defence in depth; see T-29-05).
+
     Field authority deliberately differs from the container branch: on **create**, this
     writes ``title``, ``description``, ``target_list``, ``telescope``, ``start_time``,
-    ``end_time``; on **update of an event that already exists**, it writes only ``title``,
-    ``description`` and ``target_list``. ``start_time``, ``end_time`` and ``telescope`` are
-    never rewritten after creation, for two reasons: (a) a night adopted from
-    ``load_telescope_runs`` (plan 29-02's D-02 step) carries that command's file-derived
-    BoN/EoN window, which is more precise than this coarse sunset-to-sunrise span and must
-    not be overwritten; (b) ``load_telescope_runs`` keys its own idempotent lookup on
-    ``(telescope, instrument, start_time +/- 5 min)``, so moving ``start_time`` off the
-    value it keys on would make its next re-ingest create a second event for the same
-    night. Refreshing ``title``/``description`` is still required so a ``mark_cancelled``/
-    ``mark_weather_failure`` decision reaches this run's events, exactly as
-    ``_set_run_status()`` does today. Accepted consequence: for an adopted night,
-    ``title``/``description`` alternate between this module and ``load_telescope_runs`` on
-    re-ingest -- key stability, not field-write exclusivity, is what D-02's churn analysis
-    guaranteed.
+    ``end_time``; on **update of an event that already exists (including an adopted one)**,
+    it writes only ``title``, ``description``, ``target_list`` and (for an adopted event)
+    the new ``url`` -- ``start_time``, ``end_time`` and ``telescope`` are never rewritten
+    after creation, for two reasons: (a) a night adopted from ``load_telescope_runs``
+    carries that command's file-derived BoN/EoN window, which is more precise than this
+    coarse sunset-to-sunrise span and must not be overwritten; (b) ``load_telescope_runs``
+    keys its own idempotent lookup on ``(telescope, instrument, start_time +/- 5 min)``, so
+    moving ``start_time`` off the value it keys on would make its next re-ingest create a
+    second event for the same night. Refreshing ``title``/``description`` is still required
+    so a ``mark_cancelled``/``mark_weather_failure`` decision reaches this run's events,
+    exactly as ``_set_run_status()`` does today. Accepted consequence: for an adopted
+    night, ``title``/``description`` alternate between this module and
+    ``load_telescope_runs`` on re-ingest -- key stability, not field-write exclusivity, is
+    what D-02's churn analysis guaranteed.
     """
     totals = {'created': 0, 'updated': 0, 'unchanged': 0, 'blocked': 0}
     n_nights = (run.window_end - run.window_start).days + 1
+    site_zone = ZoneInfo(run.site.timezone)
     for i in range(n_nights):
         night = run.window_start + timedelta(days=i)
         sunset, sunrise = sun_event(run.site, night, kind='sun')
         url = run_night_url(run, night)
+
         existing = CalendarEvent.objects.filter(url=url).first()
+        adopting = False
+        if existing is None:
+            existing = _adopted_event_for_night(run, night, site_zone)
+            adopting = existing is not None
+
         if not _may_write(existing, run):
             logger.warning('Reconcile blocked: event pk=%s is not owned by run pk=%s.', existing.pk, run.pk)
             totals['blocked'] += 1
@@ -265,7 +321,11 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
             fields = common_fields
 
         if dry_run:
-            totals[preview_calendar_event_action(existing, fields)] += 1
+            # An about-to-be-adopted night must report 'updated', not 'created' -- merge
+            # the new url into the preview fields so preview_calendar_event_action() sees
+            # the re-key, exactly as the real write below would.
+            preview_fields = {**fields, 'url': url} if adopting else fields
+            totals[preview_calendar_event_action(existing, preview_fields)] += 1
             continue
 
         if existing is None:
