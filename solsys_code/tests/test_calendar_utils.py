@@ -18,8 +18,10 @@ from solsys_code.calendar_utils import (
     derive_telescope,
     derive_telescope_class,
     insert_or_create_calendar_event,
+    preview_calendar_event_action,
     record_time_window,
     resolve_placement_block,
+    update_calendar_event_key_and_fields,
 )
 from solsys_code.models import CampaignRun
 
@@ -454,3 +456,75 @@ class TestRecordTimeWindow(TestCase):
 
         self.assertEqual(result_start, datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(result_end, datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc))
+
+
+class TestUpdateCalendarEventKeyAndFields(TestCase):
+    """Phase 29 Task 1: the D-02 re-key helper -- writes url as a field, no-churn."""
+
+    def test_rekey_blank_url_to_run_form_reports_updated_and_persists(self):
+        """Re-keying an event's url from blank to a RUN:-form string reports 'updated' and the
+        reloaded row carries the new url."""
+        event = CalendarEvent.objects.create(title='Classical night', url='', start_time=_START, end_time=_END)
+
+        result_event, action = update_calendar_event_key_and_fields(
+            event, 'RUN:1:2026-08-01', {'title': 'Classical night'}
+        )
+
+        self.assertEqual(action, 'updated')
+        self.assertEqual(result_event.url, 'RUN:1:2026-08-01')
+        reloaded = CalendarEvent.objects.get(pk=event.pk)
+        self.assertEqual(reloaded.url, 'RUN:1:2026-08-01')
+
+    def test_rekey_second_call_with_identical_url_and_fields_is_unchanged(self):
+        """Calling it again with the identical url+fields reports 'unchanged' and leaves
+        `modified` untouched (no-churn contract)."""
+        event = CalendarEvent.objects.create(title='Classical night', url='', start_time=_START, end_time=_END)
+        update_calendar_event_key_and_fields(event, 'RUN:1:2026-08-01', {'title': 'Classical night'})
+        event.refresh_from_db()
+        modified_before = event.modified
+
+        result_event, action = update_calendar_event_key_and_fields(
+            event, 'RUN:1:2026-08-01', {'title': 'Classical night'}
+        )
+
+        self.assertEqual(action, 'unchanged')
+        self.assertEqual(result_event.modified, modified_before)
+
+
+class TestPreviewCalendarEventAction(TestCase):
+    """Phase 29 Task 1: the --dry-run counterpart of the two no-churn writers (D-05/RECON-06)."""
+
+    def test_none_event_returns_created_and_writes_nothing(self):
+        """A None event (no existing row) previews as 'created' and issues no write."""
+        count_before = CalendarEvent.objects.count()
+
+        action = preview_calendar_event_action(None, {'title': 'New event'})
+
+        self.assertEqual(action, 'created')
+        self.assertEqual(CalendarEvent.objects.count(), count_before)
+
+    def test_differing_field_returns_updated_and_writes_nothing(self):
+        """A field that differs from the stored value previews as 'updated' without saving."""
+        event = CalendarEvent.objects.create(title='Old title', url='', start_time=_START, end_time=_END)
+        modified_before = event.modified
+
+        action = preview_calendar_event_action(event, {'title': 'New title'})
+
+        self.assertEqual(action, 'updated')
+        reloaded = CalendarEvent.objects.get(pk=event.pk)
+        self.assertEqual(reloaded.title, 'Old title')
+        self.assertEqual(reloaded.modified, modified_before)
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+
+    def test_identical_fields_returns_unchanged_and_writes_nothing(self):
+        """Fields identical to the stored values preview as 'unchanged' without saving."""
+        event = CalendarEvent.objects.create(title='Same title', url='', start_time=_START, end_time=_END)
+        modified_before = event.modified
+        count_before = CalendarEvent.objects.count()
+
+        action = preview_calendar_event_action(event, {'title': 'Same title'})
+
+        self.assertEqual(action, 'unchanged')
+        reloaded = CalendarEvent.objects.get(pk=event.pk)
+        self.assertEqual(reloaded.modified, modified_before)
+        self.assertEqual(CalendarEvent.objects.count(), count_before)
