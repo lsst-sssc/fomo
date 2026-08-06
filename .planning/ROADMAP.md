@@ -198,7 +198,7 @@ Plans:
 
 **Wave 6** *(gap closure — 27-UAT.md re-verification round 2, after Phase 27.1 closed round 1)*
 
-- [ ] 27-07-PLAN.md — Move "Sites Needing Review" to the top of the approval queue (27-UAT.md Test 8); surface a staff-only HIGH-band attribution-queue candidate hint in the unlinked-event calendar modal, refresh the stale WR-03 comment, and update the paired runbook (27-UAT.md Test 9)
+- [x] 27-07-PLAN.md — Move "Sites Needing Review" to the top of the approval queue (27-UAT.md Test 8); surface a staff-only HIGH-band attribution-queue candidate hint in the unlinked-event calendar modal, refresh the stale WR-03 comment, and update the paired runbook (27-UAT.md Test 9)
 
 ### Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)
 
@@ -358,7 +358,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 6/7 | In Progress | 2026-07-30 |
+| 27. The Canonical Run Record | v2.2 | 7/7 | Complete   | 2026-08-06 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
 

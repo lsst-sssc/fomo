@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: completed
+status: executing
 stopped_at: Completed 29-06-PLAN.md -- Phase 29 and milestone v2.2 complete
-last_updated: "2026-08-05T20:07:20.380Z"
-last_activity: "2026-08-05 -- Plan 29-06 executed: real-data reconcile sweep, RECON-07 closed against the live dev DB"
+last_updated: "2026-08-06T18:06:57.478Z"
+last_activity: 2026-08-06 -- Phase 27 execution started
 progress:
   total_phases: 5
-  completed_phases: 5
-  total_plans: 28
+  completed_phases: 4
+  total_plans: 29
   completed_plans: 28
-  percent: 100
+  percent: 80
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 29 — the-reconciler
+**Current focus:** Phase 27 — the-canonical-run-record
 
 ## Current Position
 
-Phase: 29 (the-reconciler) — COMPLETE (6/6 plans)
-Plan: 6 of 6 (all complete)
-Status: Phase 29 complete; milestone v2.2 complete (5/5 phases, 28/28 plans)
-Last activity: 2026-08-05 - Completed quick task 260805-tad: Fix window-shape dispatch so site-fixed queue runs get per-night dip-corrected events
+Phase: 27 (the-canonical-run-record) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 27
+Last activity: 2026-08-06 -- Phase 27 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
