@@ -358,7 +358,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 7/7 | Complete   | 2026-08-06 |
+| 27. The Canonical Run Record | v2.2 | 7/7 | Complete    | 2026-08-06 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
 
