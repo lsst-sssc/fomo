@@ -1,13 +1,14 @@
 ---
 phase: 29-the-reconciler
 verified: 2026-08-05T22:30:00Z
-status: human_needed
-score: 9/9 must-haves verified (automated); 1 traceability inconsistency noted (WARNING); 1 item needs human sign-off
+status: passed
+score: 9/9 must-haves verified (automated); 1 traceability inconsistency noted (WARNING); 1 item human-signed-off via UAT
 overrides_applied: 0
 human_verification:
   - test: "Live-browser visual confirmation of /calendar/ and the Campaign run pop-up block for a reconciler-owned event"
     expected: "A queue run shows one whole-window entry, a classical run shows one entry per night, and clicking a reconciler-owned entry shows a 'Campaign run' block naming the run/window/status with no manual admin linking"
     why_human: "Browser-rendered popup content and visual calendar layout cannot be asserted by grep/test; 29-06-SUMMARY.md itself flags this as attempted-but-only-partially-automatable (no interactive browser in that execution) and explicitly recommends a human do the final sign-off before treating the phase as fully closed"
+    signed_off: "2026-08-05T23:10:00Z via 29-UAT.md Test 1 (pass) -- confirmed on real dev-DB data for July 2025: RUN:29 renders as one whole-window entry, RUN:9/RUN:22 render one entry per night; RUN:3 (ESO VLT FORS2) confirmed resolving to MPC 309 (Paranal) with correct whole-window display for its eso_queue source"
 ---
 
 # Phase 29: The Reconciler Verification Report
