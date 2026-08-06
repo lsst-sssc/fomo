@@ -1,9 +1,9 @@
 ---
-status: resolved
+status: partial
 phase: 27-the-canonical-run-record
 source: 27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, quick/260730-jty-SUMMARY.md
 started: 2026-07-30T22:40:00Z
-updated: 2026-07-31T15:40:00Z
+updated: 2026-08-06T15:45:00Z
 ---
 
 ## Current Test
@@ -59,15 +59,64 @@ note: |
   site_needs_review: 0, window_needs_review: 0"; the classed row landed as
   pk=44 with telescope_class=1m0 and source=csv_import.
 
+### 8. Re-verify — approval queue nav reachable via site-review count alone
+expected: Open /campaigns/ as a staff user on a campaign that has runs needing site review but
+  zero pending submissions. A warning banner appears at the top showing "N run(s) needing
+  site review" with a "Review queue" button. Clicking it lands on /campaigns/approval-queue/
+  and shows those flagged runs.
+result: issue
+reported: "Yes, I would still like the 'Sites Needing Review - action required' section to be at the top not the bottom"
+severity: minor
+note: |
+  The originally reported navigation gap IS fixed -- the banner appears and the link
+  reaches the queue. This is a new, separate finding: on /campaigns/approval-queue/
+  (src/templates/campaigns/approval_queue.html), "Sites Needing Review" renders as the
+  THIRD section, below "Pending Review" and "Recently Decided". When pending_count is 0
+  (the exact scenario this gap covers), Sites Needing Review is the only actionable table
+  on the page but is buried below two others, one of which (Recently Decided) is purely
+  informational.
+
+### 9. Re-verify — calendar event modal renders no leaked template source
+expected: Open /calendar/, click one of the near-identical companion events (e.g. the July
+  2026 "[EXPIRED] 2m0 2M0-SCICAM-MUSCAT" events) that is linked to a CampaignRun via
+  CalendarEventMeta. The modal shows only real form fields and the run-link block back to
+  the owning run — no visible template comment text such as "{# FOMO override...".
+result: issue
+reported: "Yes but one calendarevent for 2026-7-16 (which has '[EXPIRED]  2m0 2M0-SCICAM-MUSCAT' in the title) doesn't have a link to the CampaignRun but the other one for FTS/MuSCAT4 (which is the same as 2m0 2M0-SCICAM-MUSCAT; FTS is a '2m0', MuSCAT4 is an instance of a 2M0-SCICAM-MUSCAT class of instruments) does have the link"
+severity: major
+note: |
+  The originally reported template-leak gap IS fixed -- the modal for the linked event
+  renders cleanly, no visible {# #} comment text. This is a new, separate finding: the
+  2026-07-16 companion event (title "[EXPIRED] 2m0 2M0-SCICAM-MUSCAT", a telescope-CLASS
+  label) has no CalendarEventMeta.run link, while the FTS/MuSCAT4 event (a specific
+  telescope INSTANCE of that same class) does. Not yet diagnosed whether this is a
+  reconciler resolution gap (Phase 29) for class-level vs instance-level event titles, or
+  simply an unlinked row awaiting manual/attribution-queue action.
+
+### 10. Re-verify — admin picker disambiguates near-identical companion events
+expected: In Django admin, open CalendarEventMeta (standalone list or the CampaignRun
+  inline's run-link picker). The 11 near-identical companion events (same title, different
+  dates) are each labeled distinctly — e.g. "Verified/Fallback + event title + start
+  date-time" — so picking the correct one for a given date is straightforward, and the
+  field uses an autocomplete/search widget rather than a flat dropdown.
+result: pass
+note: |
+  Confirmed on the "Owning campaign run" autocomplete picker: entries are distinctly
+  labeled, e.g. "#38 3I/ATLAS (demo) | FTN/FLOYDS | 2025-08-01..2025-08-15 | F65"
+  (CampaignRun.__str__: #pk | campaign | telescope/instrument | window | site). Initial
+  confusion was with a different screen (repeated calendar EVENT titles across nights of
+  the same multi-night run, which is expected, not a bug) -- the admin run-picker itself
+  disambiguates correctly.
+
 ## Summary
 
-total: 7
-passed: 5
-issues: 2
+total: 10
+passed: 6
+issues: 4
 pending: 0
 skipped: 0
 blocked: 0
-gaps: 3
+gaps: 5
 
 ## Gaps
 
@@ -117,4 +166,28 @@ gaps: 3
   missing:
     - "Give CampaignRun.__str__ (or the admin field's label_from_instance) a date and site/telescope discriminator"
     - "Consider autocomplete_fields for the run FK so staff can search rather than scan a flat list"
+  debug_session: ""
+
+- truth: "Sites Needing Review is the first thing staff see on the approval queue when it's the only actionable table"
+  status: failed
+  reason: "User reported: Yes, I would still like the 'Sites Needing Review - action required' section to be at the top not the bottom"
+  severity: minor
+  test: 8
+  root_cause: ""
+  artifacts:
+    - path: "src/templates/campaigns/approval_queue.html"
+      issue: "Sites Needing Review card renders after Pending Review and Recently Decided tables, not before"
+  missing: []
+  debug_session: ""
+
+- truth: "Companion calendar events for the same instrument class are consistently linked to their owning CampaignRun"
+  status: failed
+  reason: "User reported: one calendarevent for 2026-7-16 ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT') doesn't have a link to the CampaignRun but the FTS/MuSCAT4 event (a specific instance of the same 2m0 2M0-SCICAM-MUSCAT class) does"
+  severity: major
+  test: 9
+  root_cause: ""
+  artifacts: []
+  missing:
+    - "Determine whether the 2026-07-16 event's title (class-level, not instance-level) is why the reconciler/attribution flow didn't link it"
+    - "Either extend resolution to class-level titles or surface the unlinked row in the Phase 28 attribution queue"
   debug_session: ""
