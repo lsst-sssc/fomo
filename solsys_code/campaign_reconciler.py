@@ -118,6 +118,29 @@ def owned_events(run: CampaignRun):
     return CalendarEvent.objects.filter(Q(url=container_url) | Q(url__startswith=f'{container_url}:'))
 
 
+def writable_events(run: CampaignRun):
+    """The queryset-level twin of ``_may_write()`` -- T-29-19: namespace identity alone is
+    NOT ownership.
+
+    A companion row that points at a DIFFERENT run means a staff member attributed that
+    event elsewhere via Phase 28's queue, and that attribution outranks a ``url`` string left
+    over from an earlier keying -- so a write path must never touch it. Narrows
+    ``owned_events(run)`` to the rows this run may actually write: no companion row at all,
+    a companion row whose ``run`` is unset, or a companion row that already points at this
+    run.
+
+    ``owned_events()`` (namespace identity) remains the right query for read-only inspection
+    and counting -- it stays unchanged for its existing consumers (``test_campaign_approval.py``
+    and the demo notebook). Every write path (reconcile's detach step, the run-deletion
+    cascade) must go through ``writable_events()`` instead.
+    """
+    return owned_events(run).filter(
+        Q(telescope_label_meta__isnull=True)
+        | Q(telescope_label_meta__run__isnull=True)
+        | Q(telescope_label_meta__run=run)
+    )
+
+
 def event_title(run: CampaignRun) -> str:
     """Byte-identical to ``campaign_views._calendar_event_title()``'s cancelled/weathered
     output, so ``calendar_display_extras``' terminal-prefix ring keeps applying."""
@@ -389,13 +412,19 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
     clears a FK on rows already known to belong to this run, so there is no per-row business
     logic to run, and a bulk update avoids firing save-related signal handlers for every row.
 
+    The extra ``run=run`` filter term (T-29-19) is not redundant: without it, a stale-family
+    event that staff have since re-attributed to a DIFFERENT run gets its confirmed
+    attribution silently cleared by a reconcile of the run whose namespace the url happens to
+    carry. It also loses nothing -- rows with ``run`` already unset were a no-op update, and
+    rows with no companion row were never in the queryset.
+
     Args:
         run: the ``CampaignRun`` just reconciled.
         active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
             considers current for this run (one container url, or one url per night).
     """
     stale = owned_events(run).exclude(url__in=active_urls)
-    CalendarEventMeta.objects.filter(event__in=stale).update(run=None)
+    CalendarEventMeta.objects.filter(event__in=stale, run=run).update(run=None)
 
 
 def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult:
