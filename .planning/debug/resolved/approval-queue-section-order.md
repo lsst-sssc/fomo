@@ -1,8 +1,8 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "UAT Test 8 (.planning/phases/27-the-canonical-run-record/27-UAT.md): 'Yes, I would still like the \"Sites Needing Review - action required\" section to be at the top not the bottom'"
 created: 2026-08-06T00:00:00Z
-updated: 2026-08-06T00:00:00Z
+updated: 2026-08-06T18:27:17Z
 ---
 
 ## Current Focus

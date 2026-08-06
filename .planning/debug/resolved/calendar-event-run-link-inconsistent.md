@@ -1,8 +1,8 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "calendar-event-run-link-inconsistent: Two companion calendar events for the same underlying instrument class are inconsistently linked to their owning CampaignRun via CalendarEventMeta.run — one has the link, one doesn't."
 created: 2026-08-06T15:51:34Z
-updated: 2026-08-06T16:20:00Z
+updated: 2026-08-06T18:27:17Z
 ---
 
 ## Current Focus

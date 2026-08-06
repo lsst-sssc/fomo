@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 phase: 27-the-canonical-run-record
-source: 27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, quick/260730-jty-SUMMARY.md
+source: 27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, quick/260730-jty-SUMMARY.md, 27-07-SUMMARY.md
 started: 2026-07-30T22:40:00Z
-updated: 2026-08-06T16:05:00Z
+updated: 2026-08-06T18:27:17Z
 ---
 
 ## Current Test
@@ -169,7 +169,7 @@ gaps: 5
   debug_session: ""
 
 - truth: "Sites Needing Review is the first thing staff see on the approval queue when it's the only actionable table"
-  status: failed
+  status: resolved
   reason: "User reported: Yes, I would still like the 'Sites Needing Review - action required' section to be at the top not the bottom"
   severity: minor
   test: 8
@@ -182,7 +182,7 @@ gaps: 5
   debug_session: ".planning/debug/approval-queue-section-order.md"
 
 - truth: "An operator looking at an unlinked calendar event can tell why it's unlinked and what to do about it"
-  status: failed
+  status: resolved
   reason: "User reported: one calendarevent for 2026-7-16 ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT') doesn't have a link to the CampaignRun but the FTS/MuSCAT4 event (a specific instance of the same 2m0 2M0-SCICAM-MUSCAT class) does"
   severity: minor
   test: 9
