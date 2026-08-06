@@ -377,7 +377,10 @@ class TestCalendarProjection(CampaignApprovalTestBase):
         self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=timezone.utc).replace(microsecond=0))
         self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=timezone.utc).replace(microsecond=0))
         self.assertEqual(event.target_list_id, self.campaign.pk)
-        self.assertEqual(event.telescope, run.telescope_instrument)
+        # run.telescope_instrument still holds the full combined 'FTN/MuSCAT3' string (and
+        # the event title still carries it) -- only the two CalendarEvent fields split.
+        self.assertEqual(event.telescope, 'FTN')
+        self.assertEqual(event.instrument, 'MuSCAT3')
 
     def test_approve_single_night_space_run_creates_midnight_utc_placeholder_event(self):
         space_site = Observatory.objects.create(

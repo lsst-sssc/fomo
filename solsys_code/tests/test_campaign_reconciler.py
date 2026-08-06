@@ -18,7 +18,13 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.calendar_utils import record_time_window
-from solsys_code.campaign_reconciler import event_description, event_title, owned_events, reconcile_run
+from solsys_code.campaign_reconciler import (
+    _split_telescope_instrument,
+    event_description,
+    event_title,
+    owned_events,
+    reconcile_run,
+)
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import sun_event
@@ -801,3 +807,79 @@ class TestWindowEndBeforeWindowStart(CampaignReconcilerTestBase):
 
         self.assertEqual(result.skipped_reason, 'window_end before window_start')
         self.assertEqual(CalendarEvent.objects.count(), 0)
+
+
+class TestTelescopeInstrumentSplitOnEvents(CampaignReconcilerTestBase):
+    """Proves the split lands correctly on a real CalendarEvent through both write branches,
+    plus the no-delimiter fallback and a title guard against a future regression."""
+
+    def test_container_branch_splits_the_base_fixtures_slash_delimited_value(self):
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertEqual(event.telescope, 'FTN')
+        self.assertEqual(event.instrument, 'MuSCAT3')
+
+    def test_classical_create_path_splits_the_base_fixtures_slash_delimited_value(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.telescope, 'FTN')
+        self.assertEqual(event.instrument, 'MuSCAT3')
+
+    def test_plus_delimiter_splits_the_same_way(self):
+        run = self._make_run(
+            source=CampaignRun.Source.LCO_QUEUE,
+            telescope_instrument='Apache Point Observatory+ARCTIC',
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertEqual(event.telescope, 'Apache Point Observatory')
+        self.assertEqual(event.instrument, 'ARCTIC')
+
+    def test_no_delimiter_fallback_is_preserved_on_the_classical_branch(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, telescope_instrument='NTT EFOSC2')
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.telescope, 'NTT EFOSC2')
+        self.assertEqual(event.instrument, '')
+
+    def test_title_still_carries_the_full_combined_string(self):
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertIn('FTN/MuSCAT3', event.title)
+        self.assertEqual(event.title, event_title(run))
+
+
+class TestSplitTelescopeInstrumentHelper(TestCase):
+    """Pure-function tests for _split_telescope_instrument() -- no DB fixture needed."""
+
+    def test_slash_separated_value_splits_and_strips_both_halves(self):
+        self.assertEqual(_split_telescope_instrument(' FTN / MuSCAT3 '), ('FTN', 'MuSCAT3'))
+
+    def test_plus_separated_value_splits_the_same_way(self):
+        self.assertEqual(
+            _split_telescope_instrument('Apache Point Observatory+ARCTIC'),
+            ('Apache Point Observatory', 'ARCTIC'),
+        )
+
+    def test_no_delimiter_falls_back_to_the_whole_string_with_blank_instrument(self):
+        self.assertEqual(_split_telescope_instrument('NTT EFOSC2'), ('NTT EFOSC2', ''))
+        self.assertEqual(_split_telescope_instrument('SomeScope'), ('SomeScope', ''))
+
+    def test_only_the_first_delimiter_splits(self):
+        self.assertEqual(_split_telescope_instrument('A/B/C'), ('A', 'B/C'))
+        self.assertEqual(_split_telescope_instrument('A/B+C'), ('A', 'B+C'))
