@@ -1,9 +1,9 @@
 ---
-status: partial
+status: diagnosed
 phase: 27-the-canonical-run-record
 source: 27-01-SUMMARY.md, 27-02-SUMMARY.md, 27-03-SUMMARY.md, 27-04-SUMMARY.md, 27-05-SUMMARY.md, 27-06-SUMMARY.md, quick/260730-jty-SUMMARY.md
 started: 2026-07-30T22:40:00Z
-updated: 2026-08-06T15:45:00Z
+updated: 2026-08-06T16:05:00Z
 ---
 
 ## Current Test
@@ -173,21 +173,25 @@ gaps: 5
   reason: "User reported: Yes, I would still like the 'Sites Needing Review - action required' section to be at the top not the bottom"
   severity: minor
   test: 8
-  root_cause: ""
+  root_cause: "src/templates/campaigns/approval_queue.html hardcodes Pending Review, then Recently Decided, then Sites Needing Review in the order the features were built, with no {% if %} conditional tying visual order to actionability. ApprovalQueueView.get_context_data (solsys_code/campaign_views.py:402-416) doesn't even pass pending_count/site_review_count into this view's context (those only exist on the separate CampaignListView, for the /campaigns/ nav banner) -- so there is no count-based adaptation logic to preserve. This is an unreviewed ordering oversight from incremental feature addition (D-07/27.1-03 appended the card at the bottom), not a functional constraint."
   artifacts:
     - path: "src/templates/campaigns/approval_queue.html"
-      issue: "Sites Needing Review card renders after Pending Review and Recently Decided tables, not before"
-  missing: []
-  debug_session: ""
+      issue: "Sites Needing Review card hardcoded as third block (lines 14-23), below Pending Review (8-9) and Recently Decided (11-12); all three always render unconditionally"
+  missing:
+    - "Move the Sites Needing Review card to the top of {% block content %}, above Pending Review, in approval_queue.html"
+  debug_session: ".planning/debug/approval-queue-section-order.md"
 
-- truth: "Companion calendar events for the same instrument class are consistently linked to their owning CampaignRun"
+- truth: "An operator looking at an unlinked calendar event can tell why it's unlinked and what to do about it"
   status: failed
   reason: "User reported: one calendarevent for 2026-7-16 ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT') doesn't have a link to the CampaignRun but the FTS/MuSCAT4 event (a specific instance of the same 2m0 2M0-SCICAM-MUSCAT class) does"
-  severity: major
+  severity: minor
   test: 9
-  root_cause: ""
-  artifacts: []
+  root_cause: "NOT a linking bug -- diagnosis confirmed the reconciler and attribution scorer both work correctly. The two events are not reconciler companions of each other: pk=59 ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT') was created by sync_lco_observation_calendar.py directly from the raw LCO API request, a pipeline with no concept of CampaignRun that never sets CalendarEventMeta.run -- attribution is a human-confirmed step (Phase 28 attribution queue) that just hasn't happened for this row yet. pk=72 ('Didymos 2026: FTS/MuSCAT4...', url='RUN:1:2026-07-16') is a Phase 29 reconciler-owned event for the SAME CampaignRun (pk=1, telescope_instrument='FTS/MuSCAT4', site=E10) -- both of reconcile_run()'s branches call _link_event_to_run() unconditionally, so reconciler-owned events are always linked by construction; there is no class-level-vs-instance-level dispatch gap. Verified live: campaign_attribution.candidates_for_event() already scores pk=59 as a HIGH-band (0.8) candidate for run pk=1 (instrument similarity 0.92, 100% date overlap) -- the match is already available, just not yet confirmed by staff. The real gap is UX/discoverability: event_form.html's run-link block renders nothing for an unlinked event and gives no hint that a high-confidence attribution-queue candidate already exists, and its WR-03 template comment is stale (still claims no production code writes CalendarEventMeta.run, which stopped being true once Phase 29 shipped)."
+  artifacts:
+    - path: "src/templates/tom_calendar/partials/event_form.html"
+      issue: "run-link block renders nothing for an orphan event even when a HIGH-band attribution-queue candidate already exists for it; header {% comment %} is stale post-Phase-29"
   missing:
-    - "Determine whether the 2026-07-16 event's title (class-level, not instance-level) is why the reconciler/attribution flow didn't link it"
-    - "Either extend resolution to class-level titles or surface the unlinked row in the Phase 28 attribution queue"
-  debug_session: ""
+    - "Surface a HIGH-band attribution candidate (with a link to confirm it in the attribution queue) in the modal's run-link block when CalendarEventMeta.run is unset"
+    - "Refresh the stale WR-03 template comment to reflect that Phase 29's reconciler now writes CalendarEventMeta.run automatically for its own events"
+    - "No action needed on campaign_reconciler.py or campaign_attribution.py -- both confirmed correct"
+  debug_session: ".planning/debug/calendar-event-run-link-inconsistent.md"
