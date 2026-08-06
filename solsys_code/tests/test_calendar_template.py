@@ -623,14 +623,14 @@ class EventModalAttributionHintTest(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn('Possible campaign run match', content)
-        self.assertIn(f"{reverse('campaigns:attribution')}?band=high", content)
+        self.assertIn(f'{reverse("campaigns:attribution")}?band=high', content)
 
     def test_anonymous_does_not_see_hint(self):
         response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertNotIn('Possible campaign run match', content)
-        self.assertNotIn(f"{reverse('campaigns:attribution')}?band=high", content)
+        self.assertNotIn(f'{reverse("campaigns:attribution")}?band=high', content)
 
     def test_no_candidate_event_shows_no_hint(self):
         self.client.force_login(self.staff_user)
