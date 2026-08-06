@@ -552,6 +552,19 @@ shows a single entry spanning its whole window, sitting alongside the
 individual observation entries the LCO/Gemini sync commands already create
 for it.
 
+The run's free-text ``Telescope / Instrument`` value is split on the first
+``/`` or ``+`` into the calendar entry's separate **Telescope** and
+**Instrument** fields in the event pop-up; a value with no delimiter goes
+wholly into Telescope. The entry's title still shows the full combined text
+either way. Entries for queue-scheduled, class-wide and satellite runs pick
+this up automatically on the next sweep, because that whole-window entry is
+rewritten from the run every time. Per-night entries for
+classically-scheduled runs created before this change keep their old
+combined value, because a per-night entry's Telescope/Instrument and its
+sunset/sunrise window are deliberately never rewritten after it is first
+created -- that is what protects a night adopted from
+``load_telescope_runs`` from having its own more precise values overwritten.
+
 **You will rarely need to run this by hand.** The same reconciliation now
 happens automatically, immediately, for a single run the moment staff
 approve it, resolve its site, or mark it cancelled or weather-failed from
