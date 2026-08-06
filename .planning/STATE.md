@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-status: executing
-stopped_at: Completed 29-06-PLAN.md -- Phase 29 and milestone v2.2 complete
-last_updated: "2026-08-06T18:06:57.478Z"
-last_activity: 2026-08-06 -- Phase 27 execution started
+status: completed
+stopped_at: Completed 27-07-PLAN.md -- Phase 27 gap-closure (27-UAT.md Test 8/9) and milestone v2.2 complete
+last_updated: "2026-08-06T18:40:49.660Z"
+last_activity: 2026-08-06 -- Completed 27-07-PLAN.md: gap closure for approval-queue section order and unlinked-event attribution hint
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 29
-  completed_plans: 28
-  percent: 80
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 27 — the-canonical-run-record
+**Current focus:** None — milestone v2.2 complete (5/5 phases, 29/29 plans, including Phase 27's gap-closure plan 27-07)
 
 ## Current Position
 
-Phase: 27 (the-canonical-run-record) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 27
-Last activity: 2026-08-06 -- Phase 27 execution started
+Phase: 27 (the-canonical-run-record) — COMPLETE (7/7 plans, including gap-closure plan 27-07)
+Plan: 7 of 7 (all complete)
+Status: Milestone v2.2 complete (5/5 phases, 29/29 plans)
+Last activity: 2026-08-06 - Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
