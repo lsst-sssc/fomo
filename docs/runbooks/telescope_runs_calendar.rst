@@ -309,24 +309,24 @@ what that editability was for -- a ``web`` label is never a guess, because
 only the submission form can produce it.
 
 **What happens to an already-reconciled run's calendar events when you
-correct its source (or its** ``telescope_class`` **or** ``site`` **):**
-``reconcile_run()`` re-derives which calendar-event family (a single
-whole-window entry, or one entry per observing night) a run belongs to from
-its *current* field values every time it runs. If the correction moves the
-run into the other family -- for example, setting a genuine LCO/Gemini/ESO
-queue run's ``source`` from ``legacy`` to the correct queue value, which
-moves it from the per-night family to the whole-window one -- the next
-reconcile (either a full ``reconcile_campaign_runs`` sweep, or the run's own
-next staff-action reconcile) automatically detaches the old family's events
-from the run rather than leaving them on the calendar looking like a live
-commitment forever. Detaching, not deleting: the old events stay on the
-calendar but return to the attribution page's worklist (``campaigns:attribution``,
-see "How do I attribute existing calendar events and observation records to a
-run?" above), where a staff member can re-confirm or discard them. The
-correction itself does not
-trigger this -- it happens on the *next* reconcile, same as the
-queue-versus-classical split itself only renders correctly once a sweep
-runs afterward.
+correct its** ``telescope_class`` **or** ``site`` **(its source does not
+change this):** ``reconcile_run()`` re-derives which calendar-event family
+(a single whole-window entry, or one entry per observing night) a run
+belongs to from its *current* ``telescope_class``/``site`` values every time
+it runs. If the correction moves the run into the other family -- for
+example, setting a ``telescope_class`` on a run that previously had a
+resolved site, or correcting a run's ``site`` to a satellite site -- the
+next reconcile (either a full ``reconcile_campaign_runs`` sweep, or the
+run's own next staff-action reconcile) automatically detaches the old
+family's events from the run rather than leaving them on the calendar
+looking like a live commitment forever. Detaching, not deleting: the old
+events stay on the calendar but return to the attribution page's worklist
+(``campaigns:attribution``, see "How do I attribute existing calendar
+events and observation records to a run?" above), where a staff member can
+re-confirm or discard them. The correction itself does not
+trigger this -- it happens on the *next* reconcile, same as any other
+calendar-visibility change only renders correctly once a sweep runs
+afterward.
 
 **The cost:** if a ``web`` run's source really is wrong, correcting it now
 needs a shell or a data migration. This is the same restriction the CSV
@@ -543,27 +543,35 @@ A run whose site has no ``timezone`` set fails differently -- it reaches the
 per-night sunset/sunrise calculation and raises there, so it is reported
 separately as ``Run pk=N: reconcile failed (...) -- skipping`` rather than
 one of the five skip reasons above. See "Observatory missing timezone" in
-Troubleshooting below for the fix.
+Troubleshooting below for the fix. This now also applies to a
+queue-scheduled run at such a site: it used to bypass this calculation
+entirely (getting a whole-window entry instead), but a queue-scheduled run
+with a resolved site follows the same per-night path as a classically-
+scheduled run there, so a blank ``timezone`` fails it the same way.
 
-What an operator sees on the calendar afterwards, in plain terms: a
-classically-scheduled run shows one calendar entry per observing night,
-spanning that site's sunset-to-sunrise; a queue-scheduled or class-wide run
-shows a single entry spanning its whole window, sitting alongside the
-individual observation entries the LCO/Gemini sync commands already create
-for it.
+What an operator sees on the calendar afterwards, in plain terms: any run
+with a resolved ground site -- queue-scheduled or classically-scheduled --
+shows one calendar entry per observing night, spanning that site's
+sunset-to-sunrise, sitting alongside the individual observation entries the
+LCO/Gemini sync commands already create for it. Only a class-wide
+allocation with no fixed site, and a satellite run, show a single entry
+spanning their whole window instead -- a run at a fixed site can only
+observe during that site's own dark time, so it gets a per-night entry
+there regardless of how it was scheduled.
 
 The run's free-text ``Telescope / Instrument`` value is split on the first
 ``/`` or ``+`` into the calendar entry's separate **Telescope** and
 **Instrument** fields in the event pop-up; a value with no delimiter goes
 wholly into Telescope. The entry's title still shows the full combined text
-either way. Entries for queue-scheduled, class-wide and satellite runs pick
-this up automatically on the next sweep, because that whole-window entry is
-rewritten from the run every time. Per-night entries for
-classically-scheduled runs created before this change keep their old
-combined value, because a per-night entry's Telescope/Instrument and its
-sunset/sunrise window are deliberately never rewritten after it is first
-created -- that is what protects a night adopted from
-``load_telescope_runs`` from having its own more precise values overwritten.
+either way. Entries for class-wide and satellite runs pick this up
+automatically on the next sweep, because that whole-window entry is
+rewritten from the run every time. Per-night entries -- for a
+classically-scheduled run, or a queue-scheduled run with a resolved site --
+created before this change keep their old combined value, because a
+per-night entry's Telescope/Instrument and its sunset/sunrise window are
+deliberately never rewritten after it is first created -- that is what
+protects a night adopted from ``load_telescope_runs`` from having its own
+more precise values overwritten.
 
 **You will rarely need to run this by hand.** The same reconciliation now
 happens automatically, immediately, for a single run the moment staff

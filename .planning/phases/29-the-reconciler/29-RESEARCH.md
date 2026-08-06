@@ -472,6 +472,20 @@ because the reconciler derived it — this is fine and correct for tests (which 
 fixtures), but must not be mistaken for evidence the real-DB acceptance criterion will render
 correctly without the data-fix step above.
 
+**Dated forward-pointer (2026-08-05, quick task `260805-tad`):** the reconciler no longer
+branches on `run.source` at all. The measured gap this pitfall describes was real — the field
+existed but wasn't yet populated for the live rows — but the fix it recommended (branch
+purely on `source`) turned out to be wrong for a case the measurement didn't surface: a
+queue-sourced run that already has a resolved, non-satellite site (the live RUN:3, ESO
+VLT/FORS2 at MPC 309). That run was getting a blanket whole-window container when it should
+get per-night dark-time events, exactly like a classical run at that same site. The
+RECON-02/RECON-03 requirement itself is unchanged and still fully implemented — a run with no
+fixed observing site (class-wide) or no fixed horizon (satellite) still gets whole-window
+container treatment. What changed is how "no fixed observing site" is detected: a non-blank
+`telescope_class` or a satellite `site`, never `source` and never a free-text heuristic. The
+`source` field remains valuable for provenance and reporting; it just does not decide an
+event's window shape.
+
 ### Pitfall 2: The "known blank-`Observatory.timezone` rows" (ROADMAP criterion 4) are narrower than they sound — already effectively closed for the classical-projection path
 
 **What goes wrong:** ROADMAP's success criterion 4 and RECON-06 both reference "the known

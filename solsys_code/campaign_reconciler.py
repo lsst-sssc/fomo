@@ -7,16 +7,22 @@ way RECON-01's "running it a second time changes nothing" and RECON-08's "a staf
 reconciles immediately" can be guaranteed to agree with each other.
 
 Two coexisting key families (26-DECISION.md "Criterion 3 / SPIKE-03"): a bare
-``RUN:{run_pk}`` whole-window container for queue-scheduled, class-wide and
-satellite/space runs (RECON-02 queue half, RECON-03), and a date-bearing
-``RUN:{run_pk}:{date}`` key per observing night for classically-scheduled runs (RECON-02
-classical half) -- always date-bearing, including for a single-night run, so the key form
-alone says which family an event belongs to. ``reconcile_run()`` re-derives which family a
-run belongs to from its *current* state on every call, so a re-classification (an admin
-correction to ``source``/``telescope_class``/``site`` on an already-reconciled run) is
-detected and converged on: ``_detach_stale_family_events()`` detaches (never deletes) any
-event left over from the family the run no longer belongs to, back into Phase 28's
-attribution queue (29-REVIEW.md CR-01).
+``RUN:{run_pk}`` whole-window container for class-wide and satellite/space runs
+(RECON-02 queue half, RECON-03), and a date-bearing ``RUN:{run_pk}:{date}`` key per
+observing night for every other approved, windowed run with a resolved ground site --
+queue-scheduled or classically-scheduled alike (RECON-02 classical half) -- always
+date-bearing, including for a single-night run, so the key form alone says which family
+an event belongs to. What decides "no fixed observing site" is a non-blank
+``telescope_class`` or a satellite ``site`` -- never the run's ``source`` field, which is
+provenance only and does not change an event's window shape (corrected by quick task
+``260805-tad``, 2026-08-05, after the field it originally read only ever fired for a
+run that already had a resolved, non-satellite site -- see 29-CONTEXT.md D-07's dated
+forward-pointer). ``reconcile_run()`` re-derives which family a run belongs to from its
+*current* state on every call, so a re-classification (an admin correction to
+``telescope_class``/``site`` on an already-reconciled run) is detected and converged on:
+``_detach_stale_family_events()`` detaches (never deletes) any event left over from the
+family the run no longer belongs to, back into Phase 28's attribution queue
+(29-REVIEW.md CR-01).
 
 Like ``campaign_gap.py``/``campaign_utils.py``, this module must NEVER import the views
 module or the heavy SPICE-loading ephemeris module -- the latter triggers a ~1.6 GB SPICE
@@ -65,17 +71,6 @@ RUN_STATUS_CALENDAR_PREFIX = {
     CampaignRun.RunStatus.WEATHER_TECH_FAILURE: '[WEATHERED]',
 }
 
-# D-07: the reconciler branches purely on this set -- never a text heuristic over
-# telescope_instrument/site_raw (26-DECISION.md's domain correction; see 29-RESEARCH.md
-# Pitfall 1 for why the real dev-DB rows do not yet reflect this split -- that is a data-fix
-# task, not a code task).
-#
-# ESO_QUEUE added in plan 29-06 (explicit user-directed deviation, not part of this phase's
-# original scope -- see 29-06-SUMMARY.md): the real 3I/ATLAS dev-DB data has ESO VLT rows
-# (obscode 309) that 26-DECISION.md's own classification rule names as a shared-queue
-# network alongside LCO/Gemini/SOAR, but CampaignRun.Source had no dedicated value for it.
-QUEUE_SOURCES = frozenset({CampaignRun.Source.LCO_QUEUE, CampaignRun.Source.GEMINI_QUEUE, CampaignRun.Source.ESO_QUEUE})
-
 
 class ReconcileResult(NamedTuple):
     """Outcome of one ``reconcile_run()`` call.
@@ -93,7 +88,7 @@ class ReconcileResult(NamedTuple):
 
 
 def run_container_url(run: CampaignRun) -> str:
-    """The bare whole-window container key (queue/class-wide/satellite branches, RECON-02/03)."""
+    """The bare whole-window container key (class-wide/satellite branches only, RECON-02/03)."""
     return f'{RUN_URL_NAMESPACE}{run.pk}'
 
 
@@ -101,11 +96,11 @@ def run_night_url(run: CampaignRun, night) -> str:
     """The per-night classical key -- always date-bearing, including a single-night run.
 
     26-DECISION.md's "Criterion 3 / SPIKE-03" locks the classical form as
-    ``RUN:{run_pk}:{date}`` and the bare form as the queue/container family; this is a
-    deliberate divergence from the ported ``_project_calendar_event()`` code (which used
-    the bare key when ``n_nights == 1``), so the key form alone says which family an event
-    belongs to. ``night`` must be the site-local observing night (the same night
-    ``sun_event()``'s sunset is computed for), never the naive UTC date.
+    ``RUN:{run_pk}:{date}`` and the bare form as the class-wide/satellite container
+    family; this is a deliberate divergence from the ported ``_project_calendar_event()``
+    code (which used the bare key when ``n_nights == 1``), so the key form alone says
+    which family an event belongs to. ``night`` must be the site-local observing night
+    (the same night ``sun_event()``'s sunset is computed for), never the naive UTC date.
     """
     return f'{RUN_URL_NAMESPACE}{run.pk}:{night.isoformat()}'
 
@@ -250,8 +245,8 @@ def _link_event_to_run(event: CalendarEvent, run: CampaignRun) -> None:
 
 
 def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
-    """The whole-window branch shared by queue-scheduled, class-wide and satellite runs
-    (RECON-02 queue half, RECON-03).
+    """The whole-window branch shared by class-wide and satellite runs
+    (RECON-02 queue half, RECON-03) -- a run's ``source`` field never selects this branch.
 
     The container is the ONLY writer of the bare ``RUN:{pk}`` key, so it is authoritative
     for every field on both create and update -- its span must track window edits.
@@ -435,11 +430,13 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
 
     ``reconcile_run()`` dispatches a run to exactly one of the two mutually-exclusive key
     families (bare ``RUN:{pk}`` container vs. date-bearing ``RUN:{pk}:{date}`` per-night)
-    based on the run's *current* ``source``/``telescope_class``/``site`` state. Nothing else
-    detects a re-classification (an admin correction to one of those fields on an
-    already-reconciled run): without this, the OLD family's events would either be silently
-    orphaned forever -- no code path ever revisits them again -- or, worse, accidentally
-    "adopted" into the new family and corrupted (see ``_adopted_event_for_night()``).
+    based on the run's *current* ``telescope_class``/``site`` state (never its ``source``
+    field, corrected by quick task ``260805-tad`` -- see 29-CONTEXT.md D-07's dated
+    forward-pointer). Nothing else detects a re-classification (an admin correction to one
+    of those fields on an already-reconciled run): without this, the OLD family's events
+    would either be silently orphaned forever -- no code path ever revisits them again --
+    or, worse, accidentally "adopted" into the new family and corrupted (see
+    ``_adopted_event_for_night()``).
 
     Detaching (``CalendarEventMeta.run = None``) -- rather than deleting the
     ``CalendarEvent`` rows outright, or merely logging/flagging -- returns them to Phase 28's
@@ -492,10 +489,6 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
         active_urls = {run_container_url(run)}
     elif run.site is not None and run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
         # The ported satellite case: no fixed horizon, so no per-night sun_event() math.
-        result = _reconcile_container(run, dry_run=dry_run)
-        active_urls = {run_container_url(run)}
-    elif run.source in QUEUE_SOURCES:
-        # RECON-02 queue half, D-07: branch purely on source, never a text heuristic.
         result = _reconcile_container(run, dry_run=dry_run)
         active_urls = {run_container_url(run)}
     else:

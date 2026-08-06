@@ -105,51 +105,84 @@ class TestSkipReasons(CampaignReconcilerTestBase):
         self.assertEqual(CalendarEvent.objects.count(), 0)
 
 
-class TestQueueStage1(CampaignReconcilerTestBase):
-    """RECON-02 queue half: a queue-scheduled run projects one bare RUN:{pk} container."""
+class TestQueueSourceDoesNotChangeShape(CampaignReconcilerTestBase):
+    """Corrected by quick task 260805-tad: a queue-scheduled (lco_queue/gemini_queue/
+    eso_queue) run with a resolved, non-satellite site gets per-night events exactly like
+    a classical run there -- the run's `source` field is provenance only and never selects
+    the container branch. Only a non-blank `telescope_class` does (the inverse control
+    below)."""
 
-    def test_lco_queue_multi_night_run_creates_one_bare_container_event(self):
+    def test_lco_queue_run_with_resolved_site_creates_one_event_per_night(self):
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
         run = self._make_run(
             source=CampaignRun.Source.LCO_QUEUE,
-            window_start=date(2026, 8, 1),
-            window_end=date(2026, 8, 15),
+            window_start=window_start,
+            window_end=window_end,
         )
 
         result = reconcile_run(run)
 
-        self.assertEqual(result.created, 1)
-        events = CalendarEvent.objects.filter(url__startswith=f'RUN:{run.pk}')
-        self.assertEqual(events.count(), 1)
-        event = events.get()
-        self.assertEqual(event.url, f'RUN:{run.pk}')
-        self.assertEqual(event.start_time, datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc))
-        self.assertEqual(event.end_time, datetime(2026, 8, 15, 23, 59, tzinfo=dt_timezone.utc))
-        self.assertIn('(window 2026-08-01..2026-08-15)', event.title)
-        meta = CalendarEventMeta.objects.get(event=event)
-        self.assertEqual(meta.run_id, run.pk)
+        expected_n = (window_end - window_start).days + 1
+        self.assertEqual(result.created, expected_n)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        for i in range(expected_n):
+            night = window_start + timedelta(days=i)
+            self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
 
-    def test_gemini_queue_multi_night_run_creates_one_bare_container_event(self):
+    def test_gemini_queue_run_with_resolved_site_creates_one_event_per_night(self):
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
         run = self._make_run(
             source=CampaignRun.Source.GEMINI_QUEUE,
-            window_start=date(2026, 8, 1),
-            window_end=date(2026, 8, 15),
+            window_start=window_start,
+            window_end=window_end,
         )
 
         result = reconcile_run(run)
 
-        self.assertEqual(result.created, 1)
-        events = CalendarEvent.objects.filter(url__startswith=f'RUN:{run.pk}')
-        self.assertEqual(events.count(), 1)
-        self.assertEqual(events.get().url, f'RUN:{run.pk}')
+        expected_n = (window_end - window_start).days + 1
+        self.assertEqual(result.created, expected_n)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        for i in range(expected_n):
+            night = window_start + timedelta(days=i)
+            self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
 
-    def test_eso_queue_multi_night_run_creates_one_bare_container_event(self):
+    def test_eso_queue_run_with_resolved_site_creates_one_event_per_night(self):
         """ESO_QUEUE added in plan 29-06 (user-directed deviation, see 29-06-SUMMARY.md):
         real 3I/ATLAS ESO VLT rows needed a dedicated queue source rather than being
-        mapped onto LCO_QUEUE or left under-classified as legacy/classical."""
+        mapped onto LCO_QUEUE or left under-classified as legacy/classical. This is the
+        live case (RUN:3, ESO VLT/FORS2 at MPC 309, Cerro Paranal) that quick task
+        260805-tad fixed: it has a fixed, resolved, non-satellite site, so it must get
+        per-night dark-time events, not a blanket whole-window container."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
         run = self._make_run(
             source=CampaignRun.Source.ESO_QUEUE,
+            window_start=window_start,
+            window_end=window_end,
+        )
+
+        result = reconcile_run(run)
+
+        expected_n = (window_end - window_start).days + 1
+        self.assertEqual(result.created, expected_n)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        for i in range(expected_n):
+            night = window_start + timedelta(days=i)
+            self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+
+    def test_queue_sourced_run_with_telescope_class_still_gets_one_bare_container(self):
+        """The inverse control: `telescope_class` decides, the source value does not -- a
+        queue-scheduled run that is ALSO genuinely class-wide (no fixed site) still gets
+        exactly one bare container, same as any other class-wide run."""
+        run = self._make_run(
+            source=CampaignRun.Source.LCO_QUEUE,
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
             window_start=date(2026, 8, 1),
-            window_end=date(2026, 8, 15),
+            window_end=date(2026, 8, 10),
         )
 
         result = reconcile_run(run)
@@ -229,11 +262,13 @@ class TestOwnershipScoping(CampaignReconcilerTestBase):
 
     def test_unowned_same_window_event_is_left_completely_untouched(self):
         """A hand-made event (blank url, no companion row) whose start_time falls inside the
-        run's window is never adopted, modified or linked to a CalendarEventMeta row."""
+        run's window is never adopted, modified or linked to a CalendarEventMeta row. Runs
+        the per-night branch (queue-sourced with a resolved site, corrected by 260805-tad)
+        over a 2-night window -- window length is not this test's point."""
         run = self._make_run(
             source=CampaignRun.Source.LCO_QUEUE,
             window_start=date(2026, 8, 1),
-            window_end=date(2026, 8, 5),
+            window_end=date(2026, 8, 2),
         )
         orphan = CalendarEvent.objects.create(
             title='Unrelated conference',
@@ -253,24 +288,28 @@ class TestOwnershipScoping(CampaignReconcilerTestBase):
         self.assertFalse(CalendarEventMeta.objects.filter(event=orphan).exists())
 
     def test_event_owned_by_a_different_run_is_blocked_and_untouched(self):
-        """An event already keyed under this run's RUN:{pk} namespace, but whose companion
-        row points at a DIFFERENT run, is blocked -- never written, never re-attributed."""
+        """An event already keyed under this run's RUN:{pk}:{date} namespace, but whose
+        companion row points at a DIFFERENT run, is blocked -- never written, never
+        re-attributed. Single-night window: queue-sourced with a resolved site now takes
+        the per-night branch (260805-tad), so the clashing event is keyed at the night url,
+        not the bare container url."""
+        night = date(2026, 8, 1)
         run = self._make_run(
             source=CampaignRun.Source.LCO_QUEUE,
-            window_start=date(2026, 8, 1),
-            window_end=date(2026, 8, 5),
+            window_start=night,
+            window_end=night,
         )
         other_run = self._make_run(
             telescope_instrument='Other Telescope/Instrument',
             source=CampaignRun.Source.LCO_QUEUE,
-            window_start=date(2026, 8, 1),
-            window_end=date(2026, 8, 5),
+            window_start=night,
+            window_end=night,
         )
         clashing_event = CalendarEvent.objects.create(
             title='Owned by a different run',
-            url=f'RUN:{run.pk}',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
             start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
-            end_time=datetime(2026, 8, 5, 23, 59, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
         )
         CalendarEventMeta.objects.create(event=clashing_event, run=other_run)
         modified_before = clashing_event.modified
@@ -302,7 +341,11 @@ class TestContainerIdempotency(CampaignReconcilerTestBase):
     """RECON-01 (unit level) and RECON-06's dry-run."""
 
     def test_second_reconcile_is_unchanged_and_dry_run_matches(self):
-        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
 
         first = reconcile_run(run)
         self.assertEqual(first.created, 1)
@@ -322,7 +365,11 @@ class TestContainerIdempotency(CampaignReconcilerTestBase):
         self.assertEqual(event.modified, modified_after_first)
 
     def test_dry_run_on_never_reconciled_run_reports_created_and_writes_nothing(self):
-        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
 
         result = reconcile_run(run, dry_run=True)
 
@@ -550,16 +597,22 @@ class TestClassicalStage1(CampaignReconcilerTestBase):
         self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:2026-08-03').exists())
 
 
-class TestQueueOwnershipDoesNotTouchRecordEvents(CampaignReconcilerTestBase):
+class TestRecordEventNonInterference(CampaignReconcilerTestBase):
     """RECON-04/RECON-05, expressed as a non-interference contract against a real
-    CampaignRunObservation link: the reconciler's queue-run container branch never
-    creates, modifies or deletes an ObservationRecord-derived event (RESEARCH.md
-    Architecture Patterns Pattern 3 -- stages 3-4 narrowing already ships in the sync
-    commands; this phase's job is to leave it alone)."""
+    CampaignRunObservation link: the reconciler never creates, modifies or deletes an
+    ObservationRecord-derived event, on EITHER write branch (RESEARCH.md Architecture
+    Patterns Pattern 3 -- stages 3-4 narrowing already ships in the sync commands; this
+    phase's job is to leave it alone). The protection is `_may_write()`'s ownership check,
+    which is the first condition checked in both `_reconcile_container()` and
+    `_reconcile_classical_nights()` -- it applies identically regardless of which branch a
+    given run takes. This class covers the per-night branch (a queue-sourced,
+    site-resolved run, corrected by quick task 260805-tad);
+    `TestContainerRecordEventNonInterference` below covers the container branch
+    (a class-wide run) as its twin."""
 
     def test_reconciler_never_touches_the_record_derived_event(self):
         window_start = date(2026, 8, 1)
-        window_end = date(2026, 8, 5)
+        window_end = date(2026, 8, 2)
         run = self._make_run(
             source=CampaignRun.Source.LCO_QUEUE,
             window_start=window_start,
@@ -604,15 +657,19 @@ class TestQueueOwnershipDoesNotTouchRecordEvents(CampaignReconcilerTestBase):
         self.assertEqual(record_event.end_time, expected_end)
         self.assertEqual(record_event.modified, modified_before)
 
-        # The run's own bare container event coexists alongside it -- the two key
-        # families (26-DECISION.md's settled queue verdict).
-        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
-        self.assertEqual(CalendarEvent.objects.count(), 2)
+        # The run's own per-night events coexist alongside it -- one per night in the
+        # window, no bare RUN:{pk} container at all (260805-tad: a queue-sourced run with
+        # a resolved, non-satellite site takes the per-night branch, same as a classical
+        # run there).
+        n_nights = (window_end - window_start).days + 1
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        self.assertEqual(CalendarEvent.objects.count(), 1 + n_nights)
 
-        # No per-night RUN:{pk}:{date} event exists for this queue run at all --
-        # owned_events(run) returns exactly the one bare-key row.
-        self.assertEqual(owned_events(run).count(), 1)
-        self.assertEqual(owned_events(run).get().url, f'RUN:{run.pk}')
+        # owned_events(run) returns exactly the n date-bearing per-night rows.
+        self.assertEqual(owned_events(run).count(), n_nights)
+        for i in range(n_nights):
+            night = window_start + timedelta(days=i)
+            self.assertTrue(owned_events(run).filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
 
         # The record-derived event's window still equals record_time_window(record) --
         # RECON-04's stage-3/stage-4 behaviour, expressed as non-interference.
@@ -624,17 +681,86 @@ class TestQueueOwnershipDoesNotTouchRecordEvents(CampaignReconcilerTestBase):
         self.assertEqual(record_event.modified, modified_before)
 
 
+class TestContainerRecordEventNonInterference(CampaignReconcilerTestBase):
+    """The container-branch twin of `TestRecordEventNonInterference` above: a class-wide
+    run's own whole-window container write never creates, modifies or deletes an
+    ObservationRecord-derived event either. Both classes together are the evidence
+    29-SECURITY.md's T-29-07 cites: the protection is `_may_write()`'s ownership check,
+    which is the first condition checked in both `_reconcile_container()` and
+    `_reconcile_classical_nights()`, so it applies identically regardless of which branch a
+    given run takes."""
+
+    def test_reconciler_never_touches_the_record_derived_event(self):
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 10),
+        )
+        # NonSiderealTargetFactory (never SiderealTargetFactory) -- FOMO is exclusively for
+        # Solar System targets (CLAUDE.md).
+        target = NonSiderealTargetFactory.create()
+        record_owner = User.objects.create(username='container-record-owner')
+        scheduled_start = datetime(2026, 8, 2, 3, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = datetime(2026, 8, 2, 5, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=record_owner,
+            facility='LCO',
+            observation_id='666666',
+            status='COMPLETED',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={'proposal': 'TEST'},
+        )
+        expected_start, expected_end = record_time_window(record)
+        # Keyed the way sync_lco_observation_calendar keys a record-derived event: an LCO
+        # portal request url, NOT a RUN:-namespaced one.
+        record_event = CalendarEvent.objects.create(
+            title='LCO record event (container branch)',
+            url='https://observe.lco.global/api/requestgroups/666666/',
+            telescope='LCO 1m0-SciCam-Sinistro',
+            instrument='Sinistro',
+            start_time=expected_start,
+            end_time=expected_end,
+        )
+        CampaignRunObservation.objects.create(run=run, observation_record=record)
+        modified_before = record_event.modified
+
+        reconcile_run(run)
+
+        record_event.refresh_from_db()
+        self.assertEqual(record_event.url, 'https://observe.lco.global/api/requestgroups/666666/')
+        self.assertEqual(record_event.title, 'LCO record event (container branch)')
+        self.assertEqual(record_event.start_time, expected_start)
+        self.assertEqual(record_event.end_time, expected_end)
+        self.assertEqual(record_event.modified, modified_before)
+
+        # The run's own whole-window container event coexists beside it.
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+
+        self.assertEqual(record_time_window(record), (record_event.start_time, record_event.end_time))
+
+        # A second reconcile pass still leaves the record-derived event's modified alone.
+        reconcile_run(run)
+        record_event.refresh_from_db()
+        self.assertEqual(record_event.modified, modified_before)
+
+
 class TestReclassificationConvergence(CampaignReconcilerTestBase):
-    """CR-01 (29-REVIEW.md): reclassifying a run's family (a `source`/`telescope_class`/
-    `site` change on an already-reconciled run) detaches -- never deletes, never leaves
-    dangling -- the old family's events, and a stale event from one family is never
+    """CR-01 (29-REVIEW.md): reclassifying a run's family (a `telescope_class`/`site`
+    change on an already-reconciled run -- never a `source` change, corrected by quick task
+    260805-tad, since `source` never selects a branch) detaches -- never deletes, never
+    leaves dangling -- the old family's events, and a stale event from one family is never
     corrupted by being adopted into the other."""
 
-    def test_reclassifying_classical_to_queue_detaches_old_per_night_events(self):
-        """A run reconciled once under the classical branch, then reclassified to the
-        queue/container branch (e.g. an admin `source` correction), leaves its old
-        per-night events on the calendar but detached from the run, not orphaned or
-        silently duplicated alongside the new container event."""
+    def test_reclassifying_classical_to_class_wide_detaches_old_per_night_events(self):
+        """A run reconciled once under the classical per-night branch, then reclassified to
+        the class-wide container branch (setting `telescope_class` on an already-resolved
+        site run), leaves its old per-night events on the calendar but detached from the
+        run, not orphaned or silently duplicated alongside the new container event."""
         window_start = date(2026, 8, 1)
         window_end = date(2026, 8, 2)
         run = self._make_run(window_start=window_start, window_end=window_end)
@@ -646,8 +772,8 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
             self.assertTrue(CalendarEvent.objects.filter(url=url).exists())
             self.assertEqual(CalendarEventMeta.objects.get(event__url=url).run_id, run.pk)
 
-        run.source = CampaignRun.Source.LCO_QUEUE
-        run.save(update_fields=['source'])
+        run.telescope_class = CampaignRun.TelescopeClass.ONE_M0
+        run.save(update_fields=['telescope_class'])
         second = reconcile_run(run)
 
         self.assertEqual(second.created, 1)
@@ -665,15 +791,21 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         container event (left over from a prior container-family reconcile) must never be
         re-keyed into a per-night slot -- which would leave it looking like one observing
         night while still timed as the entire original whole-window span -- even though its
-        `CalendarEventMeta.run` already points at this run."""
+        `CalendarEventMeta.run` already points at this run. The container is created via a
+        non-blank `telescope_class` (260805-tad: `source` no longer selects this branch),
+        then the run is reclassified into the per-night family by clearing it."""
         night = date(2026, 8, 1)
-        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
         reconcile_run(run)
         container_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
         container_start, container_end = container_event.start_time, container_event.end_time
 
-        run.source = CampaignRun.Source.LEGACY
-        run.save(update_fields=['source'])
+        run.telescope_class = ''
+        run.save(update_fields=['telescope_class'])
         result = reconcile_run(run)
 
         # A brand-new per-night event was minted -- the stale container was NOT adopted.
@@ -689,6 +821,63 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         # ... and is now detached rather than left attributed to this run.
         self.assertIsNone(CalendarEventMeta.objects.get(event=container_event).run_id)
 
+    def test_pre_fix_container_event_converges_to_per_night_on_next_reconcile(self):
+        """Live-shaped reproduction of the RUN:3 transition (260805-tad): a queue-sourced,
+        site-resolved run that already carries a pre-fix bare RUN:{pk} container event (the
+        exact shape the old, now-removed `source`-driven branch would have written) mints
+        one per-night event per night on its next reconcile. The container survives
+        un-re-keyed and un-re-timed and is detached, never adopted into a night slot or
+        deleted. The pre-fix state is hand-created directly, not produced by reverting the
+        code -- that branch no longer exists."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(
+            source=CampaignRun.Source.ESO_QUEUE,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        pre_fix_container = CalendarEvent.objects.create(
+            title='Pre-fix whole-window container (hand-created, simulating the old branch)',
+            url=f'RUN:{run.pk}',
+            start_time=datetime.combine(window_start, datetime.min.time(), tzinfo=dt_timezone.utc),
+            end_time=datetime(window_end.year, window_end.month, window_end.day, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=pre_fix_container, run=run)
+        container_pk = pre_fix_container.pk
+        container_url = pre_fix_container.url
+        container_start = pre_fix_container.start_time
+        container_end = pre_fix_container.end_time
+
+        n_nights = (window_end - window_start).days + 1
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, n_nights)
+        night_pks = set()
+        for i in range(n_nights):
+            night = window_start + timedelta(days=i)
+            night_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+            night_pks.add(night_event.pk)
+
+        pre_fix_container.refresh_from_db()
+        self.assertEqual(pre_fix_container.pk, container_pk)
+        self.assertEqual(pre_fix_container.url, container_url)
+        self.assertEqual(pre_fix_container.start_time, container_start)
+        self.assertEqual(pre_fix_container.end_time, container_end)
+        self.assertNotIn(container_pk, night_pks)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=pre_fix_container).run_id)
+
+        modified_by_pk = {event.pk: event.modified for event in CalendarEvent.objects.filter(pk__in=night_pks)}
+        container_modified_after_first = pre_fix_container.modified
+
+        second = reconcile_run(run)
+
+        self.assertEqual(second.unchanged, n_nights)
+        for pk, modified in modified_by_pk.items():
+            event = CalendarEvent.objects.get(pk=pk)
+            self.assertEqual(event.modified, modified)
+        pre_fix_container.refresh_from_db()
+        self.assertEqual(pre_fix_container.modified, container_modified_after_first)
+
 
 class TestCampaignRunDeletionCascadesCalendarEvents(CampaignReconcilerTestBase):
     """WR-01 (29-REVIEW.md): deleting a CampaignRun must not permanently orphan the
@@ -696,7 +885,11 @@ class TestCampaignRunDeletionCascadesCalendarEvents(CampaignReconcilerTestBase):
     the `CalendarEvent` rows themselves on the shared calendar forever."""
 
     def test_deleting_a_run_deletes_its_owned_calendar_events(self):
-        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
         reconcile_run(run)
         event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
         event_pk = event.pk
@@ -767,7 +960,11 @@ class TestCrossRunOwnershipGuards(CampaignReconcilerTestBase):
         previously-detached (companion row with `run` unset) stale-family event, and a
         namespaced event with no companion row at all -- must still be deleted along with
         the run, so the fix does not re-introduce WR-01's permanently-orphaned events."""
-        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
         reconcile_run(run)
         container_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
 
@@ -814,7 +1011,11 @@ class TestTelescopeInstrumentSplitOnEvents(CampaignReconcilerTestBase):
     plus the no-delimiter fallback and a title guard against a future regression."""
 
     def test_container_branch_splits_the_base_fixtures_slash_delimited_value(self):
-        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
 
         reconcile_run(run)
 
@@ -834,7 +1035,9 @@ class TestTelescopeInstrumentSplitOnEvents(CampaignReconcilerTestBase):
 
     def test_plus_delimiter_splits_the_same_way(self):
         run = self._make_run(
-            source=CampaignRun.Source.LCO_QUEUE,
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
             telescope_instrument='Apache Point Observatory+ARCTIC',
         )
 
@@ -855,7 +1058,11 @@ class TestTelescopeInstrumentSplitOnEvents(CampaignReconcilerTestBase):
         self.assertEqual(event.instrument, '')
 
     def test_title_still_carries_the_full_combined_string(self):
-        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
 
         reconcile_run(run)
 

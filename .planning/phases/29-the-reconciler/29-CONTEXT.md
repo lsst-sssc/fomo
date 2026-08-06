@@ -137,6 +137,16 @@ already shipped); unifying the three status-prefix vocabularies (v2.3, STATUS-01
   data-fix visible and tracked as part of the phase rather than a silent assumption or an
   undocumented operator action.
 
+  **Dated forward-pointer (2026-08-05, quick task `260805-tad`):** the reconciler's own
+  code no longer branches on `run.source` at all -- that branch was removed after proving
+  it could only ever fire for a run that already had a resolved, non-satellite site (the
+  live case: RUN:3, ESO VLT/FORS2 at MPC 309, Cerro Paranal), which is exactly the case
+  RECON-02's classical half already covers. D-07's actual concern -- no free-text
+  heuristic over `telescope_instrument`/`site_raw` -- is preserved: dispatch now reads
+  only the structured `telescope_class` and `site` fields, never `source` and never any
+  text field. The `source` data-fix D-07 scoped remains valuable for provenance and
+  reporting even though it no longer changes an event's window shape.
+
 ### Claude's Discretion
 
 - The exact name of the shared per-run function (`reconcile_run` used as a placeholder
