@@ -72,7 +72,10 @@ class ReconcileCampaignRunsTestBase(TestCase):
         return CampaignRun.objects.create(**kwargs)
 
     def _seed_mixed_runs(self) -> tuple[CampaignRun, CampaignRun, CampaignRun]:
-        """One classical multi-night run, one queue run, one class-wide run."""
+        """One classical multi-night run and one queue-sourced run -- both site-resolved and
+        both taking the per-night branch (260805-tad: `source` does not change the calendar
+        shape) -- plus one class-wide run, which is the only one of the three that gets a
+        single whole-window container."""
         classical_run = self._make_run(
             telescope_instrument='FTN/MuSCAT3 classical',
             source=CampaignRun.Source.CLASSICAL_FILE,
@@ -83,7 +86,7 @@ class ReconcileCampaignRunsTestBase(TestCase):
             telescope_instrument='FTS/Spectral queue',
             source=CampaignRun.Source.LCO_QUEUE,
             window_start=date(2026, 8, 5),
-            window_end=date(2026, 8, 10),
+            window_end=date(2026, 8, 6),
         )
         class_wide_run = self._make_run(
             telescope_instrument='LCO 1m0 network',
@@ -213,19 +216,41 @@ class TestFailureIsolation(ReconcileCampaignRunsTestBase):
 
 class TestRealDataShapeScenario(ReconcileCampaignRunsTestBase):
     """RECON-07: the measured real 8 QUEUE / 11 CLASSICAL / 0 SPACE split of 19 runs becomes
-    fully calendar-visible in one command run (26-DECISION.md "Run-type inventory")."""
+    fully calendar-visible in one command run (26-DECISION.md "Run-type inventory").
+
+    Corrected by quick task 260805-tad: queue-sourcing alone no longer determines the
+    calendar shape -- `telescope_class`/`site` do. Of the 8 queue-sourced runs, 5 mirror the
+    real site-resolved ESO VLT queue rows (a fixed, resolved, non-satellite site -> one
+    per-night event each) and 3 mirror the real LCO class-wide queue allocations (no fixed
+    site -> one whole-window container each), matching the real mix recorded in
+    29-06-SUMMARY.md."""
 
     def test_19_run_fixture_matching_the_real_split_becomes_calendar_visible(self):
-        queue_runs = []
-        for i in range(8):
-            source = CampaignRun.Source.LCO_QUEUE if i % 2 == 0 else CampaignRun.Source.GEMINI_QUEUE
+        site_resolved_queue_runs = []
+        for i in range(5):
+            source = CampaignRun.Source.LCO_QUEUE if i % 2 == 0 else CampaignRun.Source.ESO_QUEUE
+            window_start = date(2026, 10, 1) + timedelta(days=3 * i)
+            window_end = window_start + timedelta(days=1)
             run = self._make_run(
-                telescope_instrument=f'Queue run {i}',
+                telescope_instrument=f'Site-resolved queue run {i}',
                 source=source,
-                window_start=date(2026, 10, 1 + i),
-                window_end=date(2026, 10, 1 + i) + timedelta(days=4),
+                window_start=window_start,
+                window_end=window_end,
             )
-            queue_runs.append(run)
+            site_resolved_queue_runs.append(run)
+
+        class_wide_queue_runs = []
+        for i in range(3):
+            run = self._make_run(
+                telescope_instrument=f'Class-wide queue run {i}',
+                source=CampaignRun.Source.LCO_QUEUE,
+                site=None,
+                site_raw='',
+                telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+                window_start=date(2026, 10, 20) + timedelta(days=5 * i),
+                window_end=date(2026, 10, 20) + timedelta(days=5 * i + 4),
+            )
+            class_wide_queue_runs.append(run)
 
         classical_runs = []
         classical_window_lengths = []
@@ -251,7 +276,15 @@ class TestRealDataShapeScenario(ReconcileCampaignRunsTestBase):
         self.assertEqual(summary['blocked'], 0)
 
         total_events_written = 0
-        for run in queue_runs:
+        for run in site_resolved_queue_runs:
+            expected_n = (run.window_end - run.window_start).days + 1
+            events = owned_events(run)
+            self.assertEqual(events.count(), expected_n)
+            for event in events:
+                self.assertTrue(event.url.startswith(f'RUN:{run.pk}:'))
+            total_events_written += expected_n
+
+        for run in class_wide_queue_runs:
             events = owned_events(run)
             self.assertEqual(events.count(), 1)
             self.assertEqual(events.get().url, f'RUN:{run.pk}')
@@ -264,7 +297,7 @@ class TestRealDataShapeScenario(ReconcileCampaignRunsTestBase):
                 self.assertTrue(event.url.startswith(f'RUN:{run.pk}:'))
             total_events_written += n_nights
 
-        for run in (*queue_runs, *classical_runs):
+        for run in (*site_resolved_queue_runs, *class_wide_queue_runs, *classical_runs):
             self.assertGreaterEqual(owned_events(run).count(), 1)
 
         self.assertEqual(CalendarEventMeta.objects.filter(run__isnull=False).count(), total_events_written)
