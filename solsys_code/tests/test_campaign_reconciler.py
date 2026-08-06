@@ -809,6 +809,61 @@ class TestWindowEndBeforeWindowStart(CampaignReconcilerTestBase):
         self.assertEqual(CalendarEvent.objects.count(), 0)
 
 
+class TestTelescopeInstrumentSplitOnEvents(CampaignReconcilerTestBase):
+    """Proves the split lands correctly on a real CalendarEvent through both write branches,
+    plus the no-delimiter fallback and a title guard against a future regression."""
+
+    def test_container_branch_splits_the_base_fixtures_slash_delimited_value(self):
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertEqual(event.telescope, 'FTN')
+        self.assertEqual(event.instrument, 'MuSCAT3')
+
+    def test_classical_create_path_splits_the_base_fixtures_slash_delimited_value(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.telescope, 'FTN')
+        self.assertEqual(event.instrument, 'MuSCAT3')
+
+    def test_plus_delimiter_splits_the_same_way(self):
+        run = self._make_run(
+            source=CampaignRun.Source.LCO_QUEUE,
+            telescope_instrument='Apache Point Observatory+ARCTIC',
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertEqual(event.telescope, 'Apache Point Observatory')
+        self.assertEqual(event.instrument, 'ARCTIC')
+
+    def test_no_delimiter_fallback_is_preserved_on_the_classical_branch(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, telescope_instrument='NTT EFOSC2')
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.telescope, 'NTT EFOSC2')
+        self.assertEqual(event.instrument, '')
+
+    def test_title_still_carries_the_full_combined_string(self):
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertIn('FTN/MuSCAT3', event.title)
+        self.assertEqual(event.title, event_title(run))
+
+
 class TestSplitTelescopeInstrumentHelper(TestCase):
     """Pure-function tests for _split_telescope_instrument() -- no DB fixture needed."""
 
