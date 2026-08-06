@@ -239,6 +239,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260730-jty | Stop flagging class-wide and space runs as needing site review: a non-blank telescope_class answers "why is there no site" (D-06), so site_needs_review now means only "site resolution failed AND no telescope_class" at all four writers, plus data migration 0012 to unflag the four live rows (pk=26 JUICE, 29 LCO 1m, 30 LCO 2m, 37 Generic 1m). Corrects the misleading mutual-exclusivity wording in models.py and derive_telescope_class that caused phase-27 code review CR-01 to propose clearing telescope_class on site resolution — recorded as REJECTED, since a class-wide campaign keeps its class permanently and its per-site detail lives on linked ObservationRecords (CANON-04) | 2026-07-30 | 44d46d4 | Complete | [260730-jty-stop-flagging-class-wide-and-space-runs-](./quick/260730-jty-stop-flagging-class-wide-and-space-runs-/) |
 | 260805-sgf | Split `CampaignRun.telescope_instrument` into separate `CalendarEvent.telescope`/`.instrument` fields via a new `_split_telescope_instrument()` helper (splits on first `/` or `+`, falls back to whole-string-as-telescope when no delimiter), fixing the reconciler-created events that previously dumped the whole combined string into `.telescope` alone and left `.instrument` blank (found live: RUN:10 showed Telescope="Apache Point Observatory/ARCTIC", Instrument="") | 2026-08-05 | 28e8bd9 | Complete | [260805-sgf-split-campaignrun-telescope-instrument-i](./quick/260805-sgf-split-campaignrun-telescope-instrument-i/) |
 | 260805-tad | Fix window-shape dispatch in the calendar reconciler: removed the `elif run.source in QUEUE_SOURCES:` branch from `reconcile_run()` — proven unreachable-for-its-intended-purpose since `_skip_reason()` already guarantees `run.site` is resolved whenever it fired — so a queue-sourced run with a resolved, non-satellite site (e.g. ESO VLT/FORS2 at MPC 309 Paranal) now gets per-night dip-corrected classical treatment instead of a blanket 00:00-23:59 whole-window container; `telescope_class` alone now covers the genuinely site-agnostic/floating case. Corrected 13 existing tests that encoded the old behavior, added a RUN:3-shaped convergence test (mutation-probe verified), and corrected T-29-07's security evidence text (safety property unaffected, `threats_open` stays 0) | 2026-08-05 | 7473eeb | Verified | [260805-tad-fix-window-shape-dispatch-in-the-calenda](./quick/260805-tad-fix-window-shape-dispatch-in-the-calenda/) |
+| 260806-lgo | Mark RECON-04 as Complete in REQUIREMENTS.md (checkbox + traceability table), recording the human decision from the UAT audit that RECON-04's stage-3/4 narrowing/COMPLETED behavior is pre-existing Phase 28 code, not a Phase 29 gap; adds the corresponding `overrides:` entry to 29-VERIFICATION.md frontmatter | 2026-08-06 | c1ee9e4 | Complete | [260806-lgo-mark-recon-04-as-complete-in-planning-re](./quick/260806-lgo-mark-recon-04-as-complete-in-planning-re/) |
 
 ## Deferred Items
 
@@ -257,8 +258,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-05T20:07:20.376Z
-Stopped at: Completed 29-06-PLAN.md -- Phase 29 and milestone v2.2 complete
+Last session: 2026-08-06T22:27:12.078Z
+Stopped at: Completed quick task 260806-lgo -- marked RECON-04 Complete in REQUIREMENTS.md and recorded the accepted override in 29-VERIFICATION.md
 Resume file: None
 
 ## Operator Next Steps
