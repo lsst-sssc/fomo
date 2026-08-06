@@ -564,6 +564,99 @@ class EventModalCampaignRunLinkTest(TestCase):
         self.assertIn(f'({expected}&ndash;{expected})', content)
 
 
+class EventModalAttributionHintTest(TestCase):
+    """27-07 gap closure (27-UAT.md Test 9, .planning/debug/calendar-event-run-link-inconsistent.md):
+    the event_form.html modal for an unlinked event with a HIGH-band attribution-queue
+    candidate now surfaces a staff-only "Possible campaign run match" hint naming the
+    candidate and linking to the attribution queue filtered to band=high.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Didymos 2026')
+        cls.staff_user = User.objects.create_user(username='attrmodalstaff', password='pw', is_staff=True)
+
+        cls.matched_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # unlinked_event_with_candidate: mirrors the real dev-DB pk=59 shape exactly --
+        # instrument is deliberately IDENTICAL to matched_run.telescope_instrument so
+        # instrument_similarity() is a deterministic 1.0, not dependent on fuzzy-match tuning.
+        cls.unlinked_event_with_candidate = CalendarEvent.objects.create(
+            title='[EXPIRED] 2m0 2M0-SCICAM-MUSCAT',
+            telescope='2m0',
+            instrument='FTS/MuSCAT4',
+            target_list=cls.campaign,
+            start_time=datetime(2026, 7, 16, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 16, 11, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.unlinked_event_with_candidate, is_verified=True, run=None)
+
+        # unlinked_event_no_campaign: a conference/proposal-deadline shape -- no target_list,
+        # no CalendarEventMeta row at all, so candidates_for_event() returns [].
+        cls.unlinked_event_no_campaign = CalendarEvent.objects.create(
+            title='SBAG Meeting',
+            start_time=datetime(2026, 7, 17, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 17, 11, 0, tzinfo=dt_timezone.utc),
+        )
+
+        # linked_event: already attributed to matched_run.
+        cls.linked_event = CalendarEvent.objects.create(
+            title='Didymos 2026: FTS/MuSCAT4 (window 2026-07-07..2026-07-21)',
+            target_list=cls.campaign,
+            start_time=datetime(2026, 7, 18, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 18, 11, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.linked_event, is_verified=True, run=cls.matched_run)
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def test_staff_sees_high_band_hint_for_unlinked_event(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Possible campaign run match', content)
+        self.assertIn(f"{reverse('campaigns:attribution')}?band=high", content)
+
+    def test_anonymous_does_not_see_hint(self):
+        response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Possible campaign run match', content)
+        self.assertNotIn(f"{reverse('campaigns:attribution')}?band=high", content)
+
+    def test_no_candidate_event_shows_no_hint(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.unlinked_event_no_campaign))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Possible campaign run match', content)
+
+    def test_linked_event_shows_run_block_not_hint(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.linked_event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Possible campaign run match', content)
+        self.assertIn(reverse('campaigns:table', args=[self.campaign.pk]), content)
+
+    def test_stale_wr03_comment_removed_from_template_source(self):
+        """Asserted against the template file's own contents (source-level), same pattern as
+        test_template_source_never_contains_pending_review_literal above."""
+        template_path = (
+            Path(__file__).resolve().parents[2] / 'src' / 'templates' / 'tom_calendar' / 'partials' / 'event_form.html'
+        )
+        content = template_path.read_text()
+        self.assertNotIn('no production code writes CalendarEventMeta.run yet', content)
+
+
 class TemplateCommentSyntaxSweepTest(SimpleTestCase):
     """Repo-wide sweep for the class of defect fixed in event_form.html: Django's
     {# ... #} comment syntax is single-line only, so a multi-line block renders as
