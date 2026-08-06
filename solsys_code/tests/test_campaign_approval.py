@@ -1654,9 +1654,12 @@ class TestPlaceholderSiteReplacement(CampaignApprovalTestBase):
 class TestApprovalQueueSitesNeedingReviewGrouping(CampaignApprovalTestBase):
     """UAT gap 2A closure (22-05): the Sites Needing Review section must be visually
     differentiated from the historical Recently Decided table -- an actionable card, not
-    another plain DOM sibling -- while preserving D-07's locked document order (pending /
-    decided / sites-needing-review). This is presentation-only: no queryset/table/view
-    change, so these assertions hold even against empty tables.
+    another plain DOM sibling. Its position was reordered per 27-UAT.md Test 8 gap closure
+    (.planning/debug/approval-queue-section-order.md): the card now renders FIRST, above both
+    Pending Review and Recently Decided, so it is the first thing staff see even when it is
+    the only actionable table (the original D-07/27.1-03 bottom placement is superseded, not
+    preserved). This is presentation-only: no queryset/table/view change, so these assertions
+    hold even against empty tables.
     """
 
     def setUp(self):
@@ -1669,14 +1672,14 @@ class TestApprovalQueueSitesNeedingReviewGrouping(CampaignApprovalTestBase):
         self.assertIn('border-warning', content)
         self.assertIn('Sites Needing Review — action required', content)
 
-    def test_d07_order_preserved_decided_precedes_sites_needing_review(self):
+    def test_sites_needing_review_now_precedes_pending_and_decided(self):
         response = self.client.get(reverse('campaigns:approval_queue'))
         content = response.content.decode()
-        decided_index = content.index('Recently Decided')
         review_index = content.index('Sites Needing Review')
-        self.assertLess(decided_index, review_index)
-        self.assertIn('Pending Review', content)
-        self.assertIn('Recently Decided', content)
+        pending_index = content.index('Pending Review')
+        decided_index = content.index('Recently Decided')
+        self.assertLess(review_index, pending_index)
+        self.assertLess(review_index, decided_index)
 
 
 def _extract_create_observatory_form_fields(html_content: str, form_action_fragment: str) -> dict[str, str]:
