@@ -3,7 +3,12 @@ phase: 29-the-reconciler
 verified: 2026-08-05T22:30:00Z
 status: passed
 score: 9/9 must-haves verified (automated); 1 traceability inconsistency noted (WARNING); 1 item human-signed-off via UAT
-overrides_applied: 0
+overrides_applied: 1
+overrides:
+  - must_have: "RECON-04 marked Complete in REQUIREMENTS.md"
+    reason: "RECON-04's narrowing/COMPLETED behavior is implemented by pre-existing Phase 28 code; Phase 29's own scope for RECON-04 (non-interference) is fully tested and verified. REQUIREMENTS.md's checkbox appears to be an unupdated tracking artifact, not a functional gap."
+    accepted_by: "Tim Lister"
+    accepted_at: "2026-08-06T22:27:12Z"
 human_verification:
   - test: "Live-browser visual confirmation of /calendar/ and the Campaign run pop-up block for a reconciler-owned event"
     expected: "A queue run shows one whole-window entry, a classical run shows one entry per night, and clicking a reconciler-owned entry shows a 'Campaign run' block naming the run/window/status with no manual admin linking"
