@@ -33,7 +33,7 @@ Calendar events become a function of run state instead of a side effect of a sta
 - [x] **RECON-01**: Staff can run one command that projects and refreshes calendar events for every run, regardless of window length, source, or site-resolution state; running it a second time changes nothing (no new rows, no `modified` churn)
 - [x] **RECON-02**: A classically-scheduled run resolved to a specific telescope produces one calendar event per night, spanning that site's sunset-to-sunrise twilight for that night (stage 1); a queue-scheduled run resolved to a specific telescope instead produces a single whole-window `RUN:{run_pk}` container event, coexisting with the per-observation events its existing sync command already produces
 - [x] **RECON-03**: A run allocated only to a telescope class produces a single whole-window `RUN:{run_pk}` container event (stage 2) — every class-wide run measured to date is queue-scheduled, not one calendar event per day
-- [ ] **RECON-04**: A night whose `ObservationRecord` has been scheduled narrows to that record's window (stage 3), and a completed observation shows the final observed time range marked COMPLETED (stage 4)
+- [x] **RECON-04**: A night whose `ObservationRecord` has been scheduled narrows to that record's window (stage 3), and a completed observation shows the final observed time range marked COMPLETED (stage 4)
 - [x] **RECON-05**: The reconciler never creates, modifies, or deletes a calendar event it does not own — hand-created entries, conference and proposal-deadline events, and un-attributed sync-command events are left untouched
 - [x] **RECON-06**: `--dry-run` reports exactly what would change with no writes; a run that fails to reconcile is reported and skipped rather than aborting the batch
 - [x] **RECON-07**: The approved, site-resolved 3I/ATLAS runs that no existing command can project (19 as of 2026-07-26) become visible on the calendar
@@ -111,7 +111,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | RECON-01 | Phase 29 — The Reconciler | Complete |
 | RECON-02 | Phase 29 — The Reconciler | Complete |
 | RECON-03 | Phase 29 — The Reconciler | Complete |
-| RECON-04 | Phase 29 — The Reconciler | Pending |
+| RECON-04 | Phase 29 — The Reconciler | Complete — the stage-3/4 narrowing-to-record and COMPLETED-marking behavior is implemented by pre-existing Phase 28 code (`sync_lco_observation_calendar.py`'s `_build_event_fields()`/`_time_window()`, promoted to `calendar_utils.record_time_window()`); Phase 29's own scope for RECON-04 was to prove the reconciler leaves those events alone, covered by `TestQueueOwnershipDoesNotTouchRecordEvents`. Accepted 2026-08-06 — see `29-VERIFICATION.md` Traceability Note |
 | RECON-05 | Phase 29 — The Reconciler | Complete |
 | RECON-06 | Phase 29 — The Reconciler | Complete |
 | RECON-07 | Phase 29 — The Reconciler | Complete |
