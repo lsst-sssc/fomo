@@ -702,6 +702,93 @@ class TestCampaignRunDeletionCascadesCalendarEvents(CampaignReconcilerTestBase):
         self.assertFalse(CalendarEventMeta.objects.filter(event_id=event_pk).exists())
 
 
+class TestCrossRunOwnershipGuards(CampaignReconcilerTestBase):
+    """Security finding T-29-19: two write paths added to Phase 29 in a later review-fix
+    round (commits 9db22f0, 8dcdf58) -- `_delete_owned_calendar_events_on_campaign_run_delete`
+    and `_detach_stale_family_events()` -- select calendar events by URL-namespace identity
+    alone (`owned_events()`), never checking whether `CalendarEventMeta.run` still points at
+    the run doing the writing. As a result `reconcile_run(run_a)` could silently clear a
+    staff-confirmed Phase 28 attribution that belongs to run B, and deleting run A could
+    hard-delete calendar events that currently belong to run B."""
+
+    def test_deleting_a_run_never_deletes_an_event_attributed_to_a_different_run(self):
+        """A `CalendarEvent` whose `url` sits in run A's `RUN:` namespace, but whose
+        companion row has since been re-attributed to run B (a staff member confirming a
+        stale event via Phase 28's queue while its url string still carries A's namespace),
+        must survive `run_a.delete()` -- both the row and its B attribution."""
+        run_a = self._make_run()
+        run_b = self._make_run(telescope_instrument='Other Telescope/Instrument')
+        event = CalendarEvent.objects.create(
+            title='Re-attributed to run B',
+            url=f'RUN:{run_a.pk}:2026-08-01',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run_b)
+        event_pk = event.pk
+
+        run_a.delete()
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event_pk).exists())
+        self.assertEqual(CalendarEventMeta.objects.get(event_id=event_pk).run_id, run_b.pk)
+
+    def test_reconcile_never_detaches_an_event_attributed_to_a_different_run(self):
+        """A stale-family event left over in run A's namespace, but whose companion row has
+        since been re-attributed to run B, must not have that attribution cleared by
+        `reconcile_run(run_a)`'s `_detach_stale_family_events()` convergence step."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run_a = self._make_run(window_start=window_start, window_end=window_end)
+        run_b = self._make_run(telescope_instrument='Other Telescope/Instrument')
+        reconcile_run(run_a)
+
+        stale_event = CalendarEvent.objects.create(
+            title='Stale run-A-namespaced event, re-attributed to run B',
+            url=f'RUN:{run_a.pk}:2026-09-15',
+            start_time=datetime(2026, 9, 15, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 15, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=stale_event, run=run_b)
+
+        reconcile_run(run_a)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=stale_event.pk).exists())
+        self.assertEqual(CalendarEventMeta.objects.get(event=stale_event).run_id, run_b.pk)
+
+    def test_deleting_a_run_still_deletes_the_events_it_genuinely_owns(self):
+        """Don't-regress-the-fix probe: the two cases
+        `test_deleting_a_run_deletes_its_owned_calendar_events` does not cover -- a
+        previously-detached (companion row with `run` unset) stale-family event, and a
+        namespaced event with no companion row at all -- must still be deleted along with
+        the run, so the fix does not re-introduce WR-01's permanently-orphaned events."""
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+        reconcile_run(run)
+        container_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+
+        detached_event = CalendarEvent.objects.create(
+            title='Previously-detached stale-family event',
+            url=f'RUN:{run.pk}:2026-08-03',
+            start_time=datetime(2026, 8, 3, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 3, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=detached_event, run=None)
+
+        no_meta_event = CalendarEvent.objects.create(
+            title='Namespaced event with no companion row at all',
+            url=f'RUN:{run.pk}:2026-08-04',
+            start_time=datetime(2026, 8, 4, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 23, 59, tzinfo=dt_timezone.utc),
+        )
+
+        pks = [container_event.pk, detached_event.pk, no_meta_event.pk]
+
+        run.delete()
+
+        for pk in pks:
+            self.assertFalse(CalendarEvent.objects.filter(pk=pk).exists())
+            self.assertFalse(CalendarEventMeta.objects.filter(event_id=pk).exists())
+
+
 class TestWindowEndBeforeWindowStart(CampaignReconcilerTestBase):
     """WR-02 (29-REVIEW.md): a run whose `window_end` precedes its `window_start` must be
     reported as skipped with an explicit reason, not silently contribute zero events with

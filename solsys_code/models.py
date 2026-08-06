@@ -366,17 +366,25 @@ def _delete_owned_calendar_events_on_campaign_run_delete(sender, instance, **kwa
     A signal (not an override of ``CampaignRun.delete()``) so this also fires for the admin
     changelist's bulk delete action, which calls ``QuerySet.delete()`` -- that bypasses any
     instance-level ``delete()`` override, but still sends ``pre_delete``/``post_delete`` per
-    object. ``pre_delete`` (not ``post_delete``) so ``campaign_reconciler.owned_events()``'s
+    object. ``pre_delete`` (not ``post_delete``) so ``campaign_reconciler.writable_events()``'s
     lookup (keyed on ``instance.pk``) still resolves normally, before the run row itself is
     gone. Deleting the ``CalendarEvent`` rows (not just detaching them) cascades to their
     ``CalendarEventMeta`` companion rows via that FK's ``on_delete=CASCADE``.
 
+    T-29-19: this cascade is scoped to events this run may WRITE (``writable_events()``), not
+    merely events carrying its url prefix (``owned_events()``, namespace identity alone).
+    Deleting run A must never destroy an event whose companion row attributes it to run B --
+    a staff member may have re-attributed a stale event via Phase 28's queue while its url
+    string still carries A's namespace. Events with an unset or absent companion row inside
+    A's namespace ARE still deleted, which is what keeps WR-01's "no permanently-orphaned
+    events" outcome intact.
+
     Imported lazily (function-local, not module-level) to avoid a circular import:
     ``campaign_reconciler`` imports ``CalendarEventMeta``/``CampaignRun`` from this module.
     """
-    from solsys_code.campaign_reconciler import owned_events
+    from solsys_code.campaign_reconciler import writable_events
 
-    owned_events(instance).delete()
+    writable_events(instance).delete()
 
 
 class CampaignRunObservation(models.Model):
