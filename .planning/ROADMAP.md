@@ -107,7 +107,7 @@
 **Milestone Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
 
 - [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events) (completed 2026-07-27)
-- [x] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link (completed 2026-07-30)
+- [x] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link (completed 2026-07-30; a second gap-closure round landed 2026-08-06 — see Wave 6 below)
 - [x] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair (all 5 plans executed 2026-07-31; criterion 6 closed by 27.1-05 — the `source` provenance lock widened to every `WEB` run at any approval status; a criterion-5 gap re-verification opened, a contaminated dev-DB snapshot in the paired `import_campaign_csv_demo.ipynb`, was closed by regenerating the notebook from a clean DB; verified 6/6, see 27.1-VERIFICATION.md) (completed 2026-07-31)
 - [x] **Phase 28: Operator-Assisted Attribution** (0/4 plans) - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible (completed 2026-08-01)
 - [x] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear (completed 2026-08-05)
@@ -173,7 +173,7 @@ Plans:
   4. A calendar event can carry a link to the run it belongs to, and an `ObservationRecord` can be linked to the run it realises with a record of whether a human confirmed it — and deleting a run never deletes calendar events, companion rows, or observation records
   5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
 
-**Plans:** 6/6 plans complete
+**Plans:** 7/7 plans complete
 
 **Wave 1**
 
@@ -195,6 +195,10 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 27-06-PLAN.md — `import_campaign_csv` writes `source` and `telescope_class`, the paired demo notebook and operator runbook are regenerated/updated, and the three folded planning-doc corrections land
+
+**Wave 6** *(gap closure — 27-UAT.md re-verification round 2, after Phase 27.1 closed round 1)*
+
+- [ ] 27-07-PLAN.md — Move "Sites Needing Review" to the top of the approval queue (27-UAT.md Test 8); surface a staff-only HIGH-band attribution-queue candidate hint in the unlinked-event calendar modal, refresh the stale WR-03 comment, and update the paired runbook (27-UAT.md Test 9)
 
 ### Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)
 
@@ -354,7 +358,7 @@ Plans:
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
 | 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 6/6 | Complete    | 2026-07-30 |
+| 27. The Canonical Run Record | v2.2 | 6/7 | In Progress | 2026-07-30 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
 
