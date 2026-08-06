@@ -18,7 +18,13 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.calendar_utils import record_time_window
-from solsys_code.campaign_reconciler import event_description, event_title, owned_events, reconcile_run
+from solsys_code.campaign_reconciler import (
+    _split_telescope_instrument,
+    event_description,
+    event_title,
+    owned_events,
+    reconcile_run,
+)
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import sun_event
@@ -801,3 +807,24 @@ class TestWindowEndBeforeWindowStart(CampaignReconcilerTestBase):
 
         self.assertEqual(result.skipped_reason, 'window_end before window_start')
         self.assertEqual(CalendarEvent.objects.count(), 0)
+
+
+class TestSplitTelescopeInstrumentHelper(TestCase):
+    """Pure-function tests for _split_telescope_instrument() -- no DB fixture needed."""
+
+    def test_slash_separated_value_splits_and_strips_both_halves(self):
+        self.assertEqual(_split_telescope_instrument(' FTN / MuSCAT3 '), ('FTN', 'MuSCAT3'))
+
+    def test_plus_separated_value_splits_the_same_way(self):
+        self.assertEqual(
+            _split_telescope_instrument('Apache Point Observatory+ARCTIC'),
+            ('Apache Point Observatory', 'ARCTIC'),
+        )
+
+    def test_no_delimiter_falls_back_to_the_whole_string_with_blank_instrument(self):
+        self.assertEqual(_split_telescope_instrument('NTT EFOSC2'), ('NTT EFOSC2', ''))
+        self.assertEqual(_split_telescope_instrument('SomeScope'), ('SomeScope', ''))
+
+    def test_only_the_first_delimiter_splits(self):
+        self.assertEqual(_split_telescope_instrument('A/B/C'), ('A', 'B/C'))
+        self.assertEqual(_split_telescope_instrument('A/B+C'), ('A', 'B+C'))

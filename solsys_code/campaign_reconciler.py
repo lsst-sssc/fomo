@@ -27,10 +27,12 @@ Field authority differs deliberately between the two branches (see
 ``_reconcile_container()``/``_reconcile_classical_nights()`` docstrings below): the container
 branch is the sole writer of its key and is authoritative for every field on both create and
 update, while the per-night branch only refreshes ``title``/``description``/``target_list`` on
-update -- ``start_time``/``end_time``/``telescope`` are never rewritten after creation.
+update -- ``start_time``/``end_time``/``telescope``/``instrument`` are never rewritten after
+creation.
 """
 
 import logging
+import re
 from datetime import datetime, timedelta
 from datetime import time as dt_time
 from datetime import timezone as dt_timezone
@@ -141,6 +143,37 @@ def writable_events(run: CampaignRun):
     )
 
 
+def _split_telescope_instrument(text: str) -> tuple[str, str]:
+    """Splits a ``CampaignRun.telescope_instrument`` free-text value into its telescope and
+    instrument halves.
+
+    Submitters write this field as ``<telescope>/<instrument>`` or
+    ``<telescope>+<instrument>`` -- the convention ``_adopted_event_for_night()``'s
+    docstring already names. Splits on the FIRST ``/`` or ``+`` delimiter (``maxsplit=1``,
+    so ``'A/B/C'`` returns ``('A', 'B/C')``, never splitting a second time), and strips
+    whitespace from both halves.
+
+    When no delimiter is present, the whole string is returned as the telescope half with a
+    blank instrument -- the safe fallback, since guessing which part of an un-delimited
+    value like ``'NTT EFOSC2'`` is the telescope and which is the instrument would be
+    inventing structure that isn't there. A leading delimiter (``'/MuSCAT3'``) therefore
+    yields a blank telescope half by the same logic -- deliberately not special-cased,
+    because ``_skip_reason()`` already rejects a wholly blank ``telescope_instrument`` and a
+    second fallback rule here would be un-asked-for behaviour.
+
+    Args:
+        text: the run's ``telescope_instrument`` value.
+
+    Returns:
+        tuple[str, str]: ``(telescope, instrument)``.
+    """
+    parts = re.split(r'[/+]', text, maxsplit=1)
+    if len(parts) == 1:
+        return text.strip(), ''
+    telescope, instrument = parts
+    return telescope.strip(), instrument.strip()
+
+
 def event_title(run: CampaignRun) -> str:
     """Byte-identical to ``campaign_views._calendar_event_title()``'s cancelled/weathered
     output, so ``calendar_display_extras``' terminal-prefix ring keeps applying."""
@@ -224,11 +257,13 @@ def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
     for every field on both create and update -- its span must track window edits.
     """
     url = run_container_url(run)
+    telescope, instrument = _split_telescope_instrument(run.telescope_instrument)
     fields: dict[str, Any] = {
         'title': event_title(run),
         'description': event_description(run),
         'target_list': run.campaign,
-        'telescope': run.telescope_instrument,
+        'telescope': telescope,
+        'instrument': instrument,
         'start_time': datetime.combine(run.window_start, dt_time(0, 0), tzinfo=dt_timezone.utc),
         'end_time': datetime.combine(run.window_end, dt_time(23, 59), tzinfo=dt_timezone.utc),
     }
@@ -323,16 +358,17 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
     defence in depth; see T-29-05).
 
     Field authority deliberately differs from the container branch: on **create**, this
-    writes ``title``, ``description``, ``target_list``, ``telescope``, ``start_time``,
-    ``end_time``; on **update of an event that already exists (including an adopted one)**,
-    it writes only ``title``, ``description``, ``target_list`` and (for an adopted event)
-    the new ``url`` -- ``start_time``, ``end_time`` and ``telescope`` are never rewritten
-    after creation, for two reasons: (a) a night adopted from ``load_telescope_runs``
-    carries that command's file-derived BoN/EoN window, which is more precise than this
-    coarse sunset-to-sunrise span and must not be overwritten; (b) ``load_telescope_runs``
-    keys its own idempotent lookup on ``(telescope, instrument, start_time +/- 5 min)``, so
-    moving ``start_time`` off the value it keys on would make its next re-ingest create a
-    second event for the same night. Refreshing ``title``/``description`` is still required
+    writes ``title``, ``description``, ``target_list``, ``telescope``, ``instrument``,
+    ``start_time``, ``end_time``; on **update of an event that already exists (including an
+    adopted one)**, it writes only ``title``, ``description``, ``target_list`` and (for an
+    adopted event) the new ``url`` -- ``start_time``, ``end_time``, ``telescope`` and
+    ``instrument`` are never rewritten after creation, for two reasons: (a) a night adopted
+    from ``load_telescope_runs`` already carries that command's own correct ``telescope``/
+    ``instrument`` pair and its file-derived BoN/EoN window, which is more precise than this
+    coarse sunset-to-sunrise span, and neither must be overwritten by this run's free text;
+    (b) ``load_telescope_runs`` keys its own idempotent lookup on ``(telescope, instrument,
+    start_time +/- 5 min)``, so moving ``start_time`` off the value it keys on would make its
+    next re-ingest create a second event for the same night. Refreshing ``title``/``description`` is still required
     so a ``mark_cancelled``/``mark_weather_failure`` decision reaches this run's events,
     exactly as ``_set_run_status()`` does today. Accepted consequence: for an adopted
     night, ``title``/``description`` alternate between this module and
@@ -364,9 +400,11 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
             'target_list': run.campaign,
         }
         if existing is None:
+            telescope, instrument = _split_telescope_instrument(run.telescope_instrument)
             fields = {
                 **common_fields,
-                'telescope': run.telescope_instrument,
+                'telescope': telescope,
+                'instrument': instrument,
                 'start_time': sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0),
                 'end_time': sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0),
             }
