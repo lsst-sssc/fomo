@@ -152,12 +152,16 @@ How do I reach the approval queue?
 The approval queue (``campaigns:approval_queue``) hosts **two independent
 work queues**, not one:
 
-* **Pending Review** -- public submissions awaiting a staff approve/reject
-  decision.
 * **Sites Needing Review — action required** -- approved runs whose
   observing site never resolved and for which no ``telescope_class``
   explains the absence (quote the card heading verbatim so it's easy to
   match while scanning the page).
+* **Pending Review** -- public submissions awaiting a staff approve/reject
+  decision.
+
+Sites Needing Review now renders first on the page -- it is the only
+queue that's actionable when no submissions are pending -- followed by
+Pending Review and then Recently Decided (27-UAT.md Test 8 gap closure).
 
 The entry point is the warning banner at the top of ``/campaigns/``,
 visible to staff only. As of this phase, it appears whenever **either**
@@ -622,6 +626,18 @@ still means "not owned by any campaign run" -- never "needs fixing". That
 is the normal state for conferences, proposal deadlines, and any
 un-attributed sync-command entry the reconciler has not adopted, and it is
 why those entries show no Campaign run block.
+
+**27-UAT.md Test 9 gap closure:** when a High-band attribution-queue
+candidate already exists for one of these still-unlinked events, the
+pop-up now shows a "Possible campaign run match" hint naming the
+candidate run and linking straight to the attribution queue (filtered to
+the High band) to confirm it. This hint is staff-only -- the attribution
+queue itself requires staff, and a candidate run may not yet be publicly
+visible -- and an event with zero candidates (the conference/proposal-
+deadline case just described) still shows nothing extra. The hint only
+ever names a real match that already passed the same scoring the
+attribution queue itself uses; see "How do I attribute existing calendar
+events and observation records to a run?" above.
 
 .. _command-cheat-sheet:
 

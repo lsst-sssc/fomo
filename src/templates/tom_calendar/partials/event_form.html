@@ -16,7 +16,7 @@
    Below this point, this file starts as an exact copy of the upstream partial with one
    new block inserted after </form> and before the Todo list heading (D-08).
 {% endcomment %}
-{% load bootstrap4 %}
+{% load bootstrap4 attribution_display_extras %}
 <form {% if action == "create" %}
         hx-post="{% url 'calendar:create-event' %}"
       {% else %}
@@ -101,11 +101,16 @@
    proposal deadline, or any other event with no companion row at all renders exactly as it
    does today, with no run block.
 
-   WR-03: no production code writes CalendarEventMeta.run yet -- _project_calendar_event()
-   creates the events but deliberately does not claim ownership of them, and the automatic
-   writer is deferred to the Phase 29 reconciler (canonical_record_spike.rst, "Ownership
-   rule"). So today this block renders only for events a staff member has hand-linked via
-   CalendarEventMetaInline in the Django admin. Do NOT read "no block" as a bug; see
+   WR-03 (27-07 gap closure, 27-UAT.md Test 9): Phase 29's reconciler
+   (campaign_reconciler.py's reconcile_run(), both the container and classical-nights
+   branches) now writes CalendarEventMeta.run automatically for every event it creates or
+   adopts, unconditionally, via _link_event_to_run(). An event from a pipeline the
+   reconciler doesn't own -- raw sync_lco_observation_calendar/sync_gemini_observation_calendar/
+   load_telescope_runs output not yet adopted by any run -- still has no link until a staff
+   member hand-links it via the admin CalendarEventMetaInline picker or confirms a match in
+   the Phase 28 attribution queue. The block added below now surfaces a HIGH-band
+   attribution-queue candidate for exactly that still-unlinked case, so the modal is never
+   silently empty when a good match already exists. See
    docs/runbooks/telescope_runs_calendar.rst, "Why doesn't the calendar pop-up show a
    'Campaign run' block?".
 {% endcomment %}
@@ -145,6 +150,34 @@
         </div>
       </div>
     </div>
+{% elif not run and request.user.is_staff %}
+    {% comment %}
+       27-07 gap closure (27-UAT.md Test 9, T-27-21): `not run` is true both when
+       event.telescope_label_meta has no companion row at all and when the companion row
+       exists with run unset -- both are the same "not yet attributed" state
+       candidates_for_event() already treats as an orphan, so they are not special-cased
+       separately here. Staff-only via request.user.is_staff (server-derived from the
+       request, not client input, matching campaign_list.html's nav-banner gate
+       convention) -- an offered candidate run may not yet be publicly visible, so this
+       hint must never reach an anonymous or non-staff visitor.
+    {% endcomment %}
+    {% high_band_attribution_candidates event as attribution_candidates %}
+    {% if attribution_candidates %}
+    <div class="form-row">
+      <div class="col">
+        <label>Possible campaign run match</label>
+        {% for candidate in attribution_candidates %}
+        <div>
+          {{ candidate.run }}
+          <span class="badge badge-light border">{{ candidate.score }}</span>
+        </div>
+        {% endfor %}
+        <small>
+          <a href="{% url 'campaigns:attribution' %}?band=high" target="_blank">Confirm in the attribution queue ↗</a>
+        </small>
+      </div>
+    </div>
+    {% endif %}
 {% endif %}
 {% endwith %}
 <h6 class="mb-2">Todo list</h6>
