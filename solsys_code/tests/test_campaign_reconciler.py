@@ -606,8 +606,9 @@ class TestRecordEventNonInterference(CampaignReconcilerTestBase):
     which is the first condition checked in both `_reconcile_container()` and
     `_reconcile_classical_nights()` -- it applies identically regardless of which branch a
     given run takes. This class covers the per-night branch (a queue-sourced,
-    site-resolved run, corrected by quick task 260805-tad); a container-branch twin
-    covering a class-wide run is added in a follow-up task."""
+    site-resolved run, corrected by quick task 260805-tad);
+    `TestContainerRecordEventNonInterference` below covers the container branch
+    (a class-wide run) as its twin."""
 
     def test_reconciler_never_touches_the_record_derived_event(self):
         window_start = date(2026, 8, 1)
@@ -672,6 +673,74 @@ class TestRecordEventNonInterference(CampaignReconcilerTestBase):
 
         # The record-derived event's window still equals record_time_window(record) --
         # RECON-04's stage-3/stage-4 behaviour, expressed as non-interference.
+        self.assertEqual(record_time_window(record), (record_event.start_time, record_event.end_time))
+
+        # A second reconcile pass still leaves the record-derived event's modified alone.
+        reconcile_run(run)
+        record_event.refresh_from_db()
+        self.assertEqual(record_event.modified, modified_before)
+
+
+class TestContainerRecordEventNonInterference(CampaignReconcilerTestBase):
+    """The container-branch twin of `TestRecordEventNonInterference` above: a class-wide
+    run's own whole-window container write never creates, modifies or deletes an
+    ObservationRecord-derived event either. Both classes together are the evidence
+    29-SECURITY.md's T-29-07 cites: the protection is `_may_write()`'s ownership check,
+    which is the first condition checked in both `_reconcile_container()` and
+    `_reconcile_classical_nights()`, so it applies identically regardless of which branch a
+    given run takes."""
+
+    def test_reconciler_never_touches_the_record_derived_event(self):
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 10),
+        )
+        # NonSiderealTargetFactory (never SiderealTargetFactory) -- FOMO is exclusively for
+        # Solar System targets (CLAUDE.md).
+        target = NonSiderealTargetFactory.create()
+        record_owner = User.objects.create(username='container-record-owner')
+        scheduled_start = datetime(2026, 8, 2, 3, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = datetime(2026, 8, 2, 5, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=record_owner,
+            facility='LCO',
+            observation_id='666666',
+            status='COMPLETED',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={'proposal': 'TEST'},
+        )
+        expected_start, expected_end = record_time_window(record)
+        # Keyed the way sync_lco_observation_calendar keys a record-derived event: an LCO
+        # portal request url, NOT a RUN:-namespaced one.
+        record_event = CalendarEvent.objects.create(
+            title='LCO record event (container branch)',
+            url='https://observe.lco.global/api/requestgroups/666666/',
+            telescope='LCO 1m0-SciCam-Sinistro',
+            instrument='Sinistro',
+            start_time=expected_start,
+            end_time=expected_end,
+        )
+        CampaignRunObservation.objects.create(run=run, observation_record=record)
+        modified_before = record_event.modified
+
+        reconcile_run(run)
+
+        record_event.refresh_from_db()
+        self.assertEqual(record_event.url, 'https://observe.lco.global/api/requestgroups/666666/')
+        self.assertEqual(record_event.title, 'LCO record event (container branch)')
+        self.assertEqual(record_event.start_time, expected_start)
+        self.assertEqual(record_event.end_time, expected_end)
+        self.assertEqual(record_event.modified, modified_before)
+
+        # The run's own whole-window container event coexists beside it.
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+
         self.assertEqual(record_time_window(record), (record_event.start_time, record_event.end_time))
 
         # A second reconcile pass still leaves the record-derived event's modified alone.
@@ -751,6 +820,63 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         self.assertEqual(container_event.end_time, container_end)
         # ... and is now detached rather than left attributed to this run.
         self.assertIsNone(CalendarEventMeta.objects.get(event=container_event).run_id)
+
+    def test_pre_fix_container_event_converges_to_per_night_on_next_reconcile(self):
+        """Live-shaped reproduction of the RUN:3 transition (260805-tad): a queue-sourced,
+        site-resolved run that already carries a pre-fix bare RUN:{pk} container event (the
+        exact shape the old, now-removed `source`-driven branch would have written) mints
+        one per-night event per night on its next reconcile. The container survives
+        un-re-keyed and un-re-timed and is detached, never adopted into a night slot or
+        deleted. The pre-fix state is hand-created directly, not produced by reverting the
+        code -- that branch no longer exists."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(
+            source=CampaignRun.Source.ESO_QUEUE,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        pre_fix_container = CalendarEvent.objects.create(
+            title='Pre-fix whole-window container (hand-created, simulating the old branch)',
+            url=f'RUN:{run.pk}',
+            start_time=datetime.combine(window_start, datetime.min.time(), tzinfo=dt_timezone.utc),
+            end_time=datetime(window_end.year, window_end.month, window_end.day, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=pre_fix_container, run=run)
+        container_pk = pre_fix_container.pk
+        container_url = pre_fix_container.url
+        container_start = pre_fix_container.start_time
+        container_end = pre_fix_container.end_time
+
+        n_nights = (window_end - window_start).days + 1
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, n_nights)
+        night_pks = set()
+        for i in range(n_nights):
+            night = window_start + timedelta(days=i)
+            night_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+            night_pks.add(night_event.pk)
+
+        pre_fix_container.refresh_from_db()
+        self.assertEqual(pre_fix_container.pk, container_pk)
+        self.assertEqual(pre_fix_container.url, container_url)
+        self.assertEqual(pre_fix_container.start_time, container_start)
+        self.assertEqual(pre_fix_container.end_time, container_end)
+        self.assertNotIn(container_pk, night_pks)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=pre_fix_container).run_id)
+
+        modified_by_pk = {event.pk: event.modified for event in CalendarEvent.objects.filter(pk__in=night_pks)}
+        container_modified_after_first = pre_fix_container.modified
+
+        second = reconcile_run(run)
+
+        self.assertEqual(second.unchanged, n_nights)
+        for pk, modified in modified_by_pk.items():
+            event = CalendarEvent.objects.get(pk=pk)
+            self.assertEqual(event.modified, modified)
+        pre_fix_container.refresh_from_db()
+        self.assertEqual(pre_fix_container.modified, container_modified_after_first)
 
 
 class TestCampaignRunDeletionCascadesCalendarEvents(CampaignReconcilerTestBase):
