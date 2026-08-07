@@ -785,3 +785,7 @@ See also
   syntax.
 * :doc:`/design/telescope_runs_calendar` for the astronomy and data-model
   rationale behind these commands.
+* :doc:`/notebooks/pre_executed/campaign_lifecycle_demo` for the full
+  campaign-lifecycle walkthrough -- a worked, pre-executed example of the
+  submission, approval, site-resolution and attribution steps this runbook
+  describes.

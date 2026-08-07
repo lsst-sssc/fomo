@@ -117,7 +117,12 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
   `sync_gemini_observation_calendar_demo.ipynb`;
   `solsys_code/campaign_reconciler.py` and
   `solsys_code/management/commands/reconcile_campaign_runs.py` ->
-  `reconcile_campaign_runs_demo.ipynb` (all notebooks live under
+  `reconcile_campaign_runs_demo.ipynb`; the v2.2 campaign submission/approval/
+  site-resolution/attribution surfaces (`solsys_code/campaign_views.py`,
+  `campaign_forms.py`, `campaign_attribution.py`, `campaign_reconciler.py`) collectively
+  -> `campaign_lifecycle_demo.ipynb`, which covers the full v2.2 campaign lifecycle
+  (Phases 26-29) rather than a single module and therefore has no 1:1 module counterpart
+  (all notebooks live under
   `docs/notebooks/pre_executed/`). Extend this map when a new module gets its own demo notebook.
   Trigger: a plan whose tasks change one of these modules' *behavior* (new extraction logic, new
   parameters, new fixture shapes — not pure refactors or typo fixes) must include its paired
