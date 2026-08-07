@@ -240,6 +240,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260805-sgf | Split `CampaignRun.telescope_instrument` into separate `CalendarEvent.telescope`/`.instrument` fields via a new `_split_telescope_instrument()` helper (splits on first `/` or `+`, falls back to whole-string-as-telescope when no delimiter), fixing the reconciler-created events that previously dumped the whole combined string into `.telescope` alone and left `.instrument` blank (found live: RUN:10 showed Telescope="Apache Point Observatory/ARCTIC", Instrument="") | 2026-08-05 | 28e8bd9 | Complete | [260805-sgf-split-campaignrun-telescope-instrument-i](./quick/260805-sgf-split-campaignrun-telescope-instrument-i/) |
 | 260805-tad | Fix window-shape dispatch in the calendar reconciler: removed the `elif run.source in QUEUE_SOURCES:` branch from `reconcile_run()` — proven unreachable-for-its-intended-purpose since `_skip_reason()` already guarantees `run.site` is resolved whenever it fired — so a queue-sourced run with a resolved, non-satellite site (e.g. ESO VLT/FORS2 at MPC 309 Paranal) now gets per-night dip-corrected classical treatment instead of a blanket 00:00-23:59 whole-window container; `telescope_class` alone now covers the genuinely site-agnostic/floating case. Corrected 13 existing tests that encoded the old behavior, added a RUN:3-shaped convergence test (mutation-probe verified), and corrected T-29-07's security evidence text (safety property unaffected, `threats_open` stays 0) | 2026-08-05 | 7473eeb | Verified | [260805-tad-fix-window-shape-dispatch-in-the-calenda](./quick/260805-tad-fix-window-shape-dispatch-in-the-calenda/) |
 | 260806-lgo | Mark RECON-04 as Complete in REQUIREMENTS.md (checkbox + traceability table), recording the human decision from the UAT audit that RECON-04's stage-3/4 narrowing/COMPLETED behavior is pre-existing Phase 28 code, not a Phase 29 gap; adds the corresponding `overrides:` entry to 29-VERIFICATION.md frontmatter | 2026-08-06 | c1ee9e4 | Complete | [260806-lgo-mark-recon-04-as-complete-in-planning-re](./quick/260806-lgo-mark-recon-04-as-complete-in-planning-re/) |
+| 260806-ol7 | New standalone, view-driven demo notebook `campaign_lifecycle_demo.ipynb`: walks a Campaign and four CampaignRuns (classical, LCO queue, ESO queue, class-wide) end-to-end through the real `campaigns:submit`/`campaigns:decide`(approve/resolve_site)/`campaigns:attribution_decide` views — never a direct-ORM pre-approved shortcut — proving `source` never decides an event's calendar shape (only `telescope_class`/`site` do, per quick task 260805-tad). Wired into docs/notebooks.rst, the runbook's See also section, and CLAUDE.md's notebook pairing map | 2026-08-06 | 43bc471 | Complete | [260806-ol7-build-a-new-demo-notebook-or-extend-an-e](./quick/260806-ol7-build-a-new-demo-notebook-or-extend-an-e/) |
 
 ## Deferred Items
 
@@ -258,8 +259,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-06T22:27:12.078Z
-Stopped at: Completed quick task 260806-lgo -- marked RECON-04 Complete in REQUIREMENTS.md and recorded the accepted override in 29-VERIFICATION.md
+Last session: 2026-08-07T00:42:15.327Z
+Stopped at: Completed quick task 260806-ol7 -- added campaign_lifecycle_demo.ipynb, a view-driven full-lifecycle demo notebook covering classical/LCO-queue/ESO-queue/class-wide CampaignRuns
 Resume file: None
 
 ## Operator Next Steps
