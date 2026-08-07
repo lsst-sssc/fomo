@@ -142,6 +142,7 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
     # Django excludes readonly fields from the generated ModelForm entirely, so a POSTed
     # source value on such a row cannot bind -- it is not merely ignored on render.
     readonly_fields = ['approval_status']
+    ordering = ['-pk']
 
     def get_readonly_fields(self, request, obj=None):
         """Withhold `source` on every web-sourced run, at any approval status (27.1-05).
