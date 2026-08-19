@@ -1,27 +1,52 @@
 """
 Tests for solsys_code/ssodnet.py.
-
-THIS IS A SCAFFOLD: only the scaffold itself is tested (imports cleanly, class exists
-with the expected method names). Add real tests here as SsODNetDataService gets
-implemented -- e.g. mock `rocks.Rock()` the same way test_views.py's
-TestJPLSBDBQuery mocks `requests.get` for JPLSBDBQuery, and use
-tom_targets.tests.factories.NonSiderealTargetFactory for any Target fixtures (per
-CLAUDE.md -- FOMO is exclusively non-sidereal targets).
 """
+
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
 from solsys_code.ssodnet import SsODNetDataService
 
 
-class TestSsODNetDataServiceScaffold(SimpleTestCase):
-    def test_class_has_expected_hooks(self):
-        self.assertTrue(hasattr(SsODNetDataService, 'build_query_parameters_from_target'))
-        self.assertTrue(hasattr(SsODNetDataService, 'query_service'))
+class FakeTarget:
+    def __init__(self, name):
+        self.name = name
 
-    def test_build_query_parameters_from_target_returns_name(self):
-        class FakeTarget:
-            name = '(433) Eros'
 
-        params = SsODNetDataService().build_query_parameters_from_target(FakeTarget())
+class TestBuildQueryParametersFromTarget(SimpleTestCase):
+    def test_returns_target_name(self):
+        params = SsODNetDataService().build_query_parameters_from_target(FakeTarget('(433) Eros'))
         self.assertEqual(params, {'name': '(433) Eros'})
+
+
+class TestQueryService(SimpleTestCase):
+    @patch('solsys_code.ssodnet.rocks.Rock')
+    def test_returns_rock_for_known_object(self, mock_rock_cls):
+        mock_rock = Mock(id_='Eros')
+        mock_rock_cls.return_value = mock_rock
+
+        result = SsODNetDataService().query_service({'name': '(433) Eros'})
+
+        mock_rock_cls.assert_called_once_with('(433) Eros')
+        self.assertIs(result, mock_rock)
+
+    @patch('solsys_code.ssodnet.rocks.Rock')
+    def test_returns_none_when_not_found(self, mock_rock_cls):
+        mock_rock_cls.return_value = Mock(id_=None)
+
+        result = SsODNetDataService().query_service({'name': 'not a real object'})
+
+        self.assertIsNone(result)
+
+    @patch('solsys_code.ssodnet.rocks.Rock')
+    def test_returns_none_on_lookup_error(self, mock_rock_cls):
+        mock_rock_cls.side_effect = Exception('boom')
+
+        result = SsODNetDataService().query_service({'name': '(433) Eros'})
+
+        self.assertIsNone(result)
+
+    def test_returns_none_without_a_name(self):
+        result = SsODNetDataService().query_service({})
+        self.assertIsNone(result)

@@ -5,7 +5,9 @@ Pulls a Target's ssoCard (dynamical + physical properties, each with a literatur
 reference) from IMCCE's SsODNet service (https://ssp.imcce.fr/webservices/ssodnet/)
 and surfaces it on the Target detail page.
 
-THIS IS A SCAFFOLD, NOT A WORKING IMPLEMENTATION. See the TODOs below.
+THIS IS PARTIALLY IMPLEMENTED. query_service() fetches ssoCard data via `rocks`;
+rendering it on the target detail page is still a TODO (see the note at the
+bottom of this file and SSODNET_HANDOFF.md).
 
 Before writing the real logic, run this in the FOMO dev environment to confirm the
 exact method signatures/hooks available in the installed tomtoolkit version (this
@@ -63,13 +65,32 @@ class SsODNetDataService(DataService):
         """
         Fetch the ssoCard for the resolved name.
 
-        TODO: call `rocks.Rock(query_parameters['name'])`, same as the Fink portal's
-        `get_sso_data()` (see reference link in the module docstring above), including
-        its fallback behaviour for objects `rocks` can't resolve. Handle "not found"
-        by logging at debug level and returning None -- don't raise -- so the target
-        detail page can show "no SsODNet data" instead of erroring.
+        Returns the `rocks.Rock` instance for `query_parameters['name']`, or None if
+        SsODNet has no ssoCard for that identifier (or the lookup fails outright).
+
+        NOTE: rocks' docs confirm that a *missing property* on a resolved object is
+        set to NaN, but don't spell out how a name that doesn't resolve AT ALL is
+        signalled (exception vs. a Rock with an empty/None id). This assumes the
+        latter (`rock.id_` is None) as well as catching outright exceptions -- once
+        `rocks` is installed, sanity check both a known object and a nonsense string
+        and adjust the `not_found` check below if it behaves differently.
         """
-        raise NotImplementedError
+        name = query_parameters.get('name')
+        if not name:
+            return None
+
+        try:
+            rock = rocks.Rock(name)
+        except Exception:
+            logger.exception('SsODNet lookup failed for %s', name)
+            return None
+
+        not_found = rock is None or getattr(rock, 'id_', None) is None
+        if not_found:
+            logger.debug('No SsODNet ssoCard found for %s', name)
+            return None
+
+        return rock
 
     # TODO: figure out the right hook for RENDERING this. ssoCard data (nested
     # dynamical/physical property blocks, each with a value + reference) doesn't fit
