@@ -13,7 +13,11 @@ class SolsysCodeConfig(AppConfig):
             {
                 'partial': f'{self.name}/partials/ephem_button.html',
                 'context': 'src.templatetags.solsys_code_extras.ephem_button',
-            }
+            },
+            {
+                'partial': f'{self.name}/partials/ssodnet_card.html',
+                'context': 'src.templatetags.solsys_code_extras.ssodnet_card',
+            },
         ]
 
     def data_services(self):
@@ -21,4 +25,7 @@ class SolsysCodeConfig(AppConfig):
         integration point for including data services in the TOM
         This method should return a list of dictionaries containing dot separated DataService classes
         """
-        return [{'class': 'tom_fink.fink.FinkDataService'}]
+        return [
+            {'class': 'tom_fink.fink.FinkDataService'},
+            {'class': 'solsys_code.ssodnet.SsODNetDataService'},
+        ]

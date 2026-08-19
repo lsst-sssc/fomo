@@ -1,0 +1,13 @@
+{# TODO: render the ssoCard properties + references for {{ target }} here. #}
+{# Data comes from solsys_code/ssodnet.py:SsODNetDataService.query_service(). #}
+{# Reference for what a finished card can look like (different framework, same data): #}
+{# https://github.com/astrolabsoftware/ztf.fink-portal.org/blob/master/apps/sso/cards.py (card_sso_rocks_params) #}
+<div class="card ssodnet-card">
+  <div class="card-header">SsODNet</div>
+  <div class="card-body">
+    <!-- TODO: dynamical properties (a, e, i, ...), physical properties (taxonomy,
+         diameter, albedo, spin, ...), each with its reference. Handle the "no
+         SsODNet data for this target" case gracefully. -->
+    <p class="text-muted">SsODNet data not yet implemented.</p>
+  </div>
+</div>
