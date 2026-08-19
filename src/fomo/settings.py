@@ -325,10 +325,8 @@ BROKERS = {
 # Per-service configuration for tom_dataservices DataServices (catalog services such as
 # MPC Explorer, Simbad, TNS, ... are auto-registered in tomtoolkit 3.0)
 DATA_SERVICES = {
-    # TODO(ssodnet scaffold): fill in once we know what config SsODNet needs
-    # (see solsys_code/ssodnet.py TODOs) -- may not need anything since the
-    # ssoCard API is public. Example if it does:
-    # 'SsODNet': {'contact_email': os.getenv('SSODNET_CONTACT_EMAIL', '')},
+    # SsODNet (solsys_code/ssodnet.py): confirmed no config needed -- the ssoCard
+    # API is public, no API key/contact-email/rate-limit config required.
 }
 
 # Define extra target fields here. Types can be any of "number", "string", "boolean" or "datetime"

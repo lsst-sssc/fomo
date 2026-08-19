@@ -49,12 +49,12 @@ reading the installed source directly):
 
     python -c "import tom_dataservices.dataservices as m; help(m.DataService)"
 
-## Open questions worth resolving early
+## Open questions
 
-- Does `DATA_SERVICES['SsODNet']` need any config at all (contact email for SsODNet's
-  usage policy, timeouts), or is the public API enough as-is?
-- Does `target.name` reliably resolve via SsODNet's quaero resolver, or does it need
-  the same prefix handling `JPLSBDBQuery.create_targets()` applies on ingest
-  (`solsys_code/views.py`)? Should a Target alias be tried as a fallback?
-- What should the target detail page show when SsODNet has no card for an object
-  (very new discoveries, etc.)?
+- ~~Does `DATA_SERVICES['SsODNet']` need any config at all?~~ **Resolved:** no --
+  the ssoCard API is public, nothing needed in `settings.py`.
+- ~~Does `target.name` reliably resolve via SsODNet's quaero resolver?~~
+  **Resolved:** yes, `target.name` works as-is -- no prefix handling or alias
+  fallback needed.
+- Still open: what should the target detail page show when SsODNet has no card for
+  an object (very new discoveries, etc.)?

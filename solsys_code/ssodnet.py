@@ -44,22 +44,18 @@ class SsODNetDataService(DataService):
     name = 'SsODNet'
     info_url = 'https://ssp.imcce.fr/webservices/ssodnet/'
 
-    # TODO: confirm whether `configuration()` needs to be overridden, and what keys
-    # (if any) belong in settings.DATA_SERVICES['SsODNet']. The ssoCard API is public
-    # (no API key), but check https://ssp.imcce.fr/webservices/ssodnet/ for any usage
-    # policy (contact email header, rate limits) that should live in config.
+    # RESOLVED (see SSODNET_HANDOFF.md): confirmed no config needed -- SsODNet's
+    # ssoCard API is public, no API key/contact-email/rate-limit config required.
+    # No `configuration()` override needed; settings.DATA_SERVICES['SsODNet'] can
+    # stay absent.
 
     def build_query_parameters_from_target(self, target, **kwargs):
         """
         Turn an existing FOMO Target into the identifier SsODNet needs.
 
-        TODO: `rocks.Rock()` does its own name resolution via SsODNet's quaero
-        resolver, so this can probably just pass target.name through -- but check
-        whether FOMO's Target.name matches what quaero expects. E.g. does a comet
-        provisional designation need the same prefix handling that
-        JPLSBDBQuery.create_targets() applies on the way IN (see solsys_code/views.py)?
-        Consider whether a Target alias should be tried as a fallback if target.name
-        doesn't resolve.
+        RESOLVED (see SSODNET_HANDOFF.md): confirmed `target.name` resolves fine via
+        SsODNet's quaero resolver as-is -- no prefix handling or alias fallback
+        needed.
         """
         return {'name': target.name}
 
