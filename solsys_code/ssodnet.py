@@ -28,6 +28,7 @@ Reference implementations to compare against:
 """
 
 import logging
+import math
 
 import rocks
 from tom_dataservices.dataservices import DataService
@@ -92,12 +93,68 @@ class SsODNetDataService(DataService):
 
         return rock
 
-    # TODO: figure out the right hook for RENDERING this. ssoCard data (nested
-    # dynamical/physical property blocks, each with a value + reference) doesn't fit
-    # to_reduced_datums (that's for photometry/spectroscopy time series) or
-    # to_target/create_target_from_query (that's for creating NEW targets from a
-    # search -- not what this does). Likely path: don't rely on the DataService's own
-    # query-form UI at all -- call query_service() directly from the
-    # solsys_code_extras.ssodnet_card template tag below, and let
-    # SolsysCodeConfig.target_detail_buttons() (apps.py) inject the rendered card into
-    # the target detail page, the same way the Ephemeris button is injected today.
+
+def _clean_float(value):
+    """
+    SsODNet represents "no data" for a numeric property as NaN, not None. Convert
+    that to None so templates can use a simple {% if %} rather than NaN-checking.
+    """
+    try:
+        return None if math.isnan(value) else value
+    except TypeError:
+        return value
+
+
+def _references(bibrefs):
+    """
+    Turn a rocks `bibref` list (Bibref namedtuple-likes) into plain dicts for the
+    template, dropping empty placeholder entries (rocks fills unused slots with
+    Bibref(shortbib='', bibcode='', ...) rather than omitting them).
+    """
+    return [
+        {'shortbib': b.shortbib, 'bibcode': b.bibcode, 'doi': b.doi}
+        for b in (bibrefs or [])
+        if getattr(b, 'shortbib', '')
+    ]
+
+
+def build_card_context(rock):
+    """
+    Shape a `rocks.Rock` (as returned by SsODNetDataService.query_service()) into the
+    flat dict solsys_code/partials/ssodnet_card.html expects.
+
+    Mirrors the fields the Fink portal's sso/cards.py shows for the "at a glance"
+    case (see module docstring): name/class/parent body/dynamical system, then
+    physical parameters -- taxonomy, absolute magnitude, diameter -- each with its
+    SsODNet reference(s). Returns None if `rock` is None (SsODNet has no card for
+    this target).
+
+    Orbital/dynamical properties (moid, proper elements, Yarkovsky, ...) and the
+    more structurally complex ones (spin -- a list of possibly-multiple solutions;
+    mass/density/albedo -- often unpopulated) are deliberately left out of this
+    first pass. Worth a follow-up once the simple fields are confirmed working.
+    """
+    if rock is None:
+        return None
+
+    physical = rock.parameters.physical
+    return {
+        'name': rock.name,
+        'number': rock.number,
+        'class_': rock.class_ or None,
+        'parent': rock.parent or None,
+        'system': rock.system or None,
+        'taxonomy': {
+            'value': physical.taxonomy.class_.value or None,
+            'references': _references(physical.taxonomy.bibref),
+        },
+        'absolute_magnitude': {
+            'value': _clean_float(physical.absolute_magnitude.H.value),
+            'references': _references(physical.absolute_magnitude.bibref),
+        },
+        'diameter': {
+            'value': _clean_float(physical.diameter.value),
+            'unit': 'km',
+            'references': _references(physical.diameter.bibref),
+        },
+    }

@@ -1,13 +1,44 @@
-{# TODO: render the ssoCard properties + references for {{ target }} here. #}
-{# Data comes from solsys_code/ssodnet.py:SsODNetDataService.query_service(). #}
-{# Reference for what a finished card can look like (different framework, same data): #}
-{# https://github.com/astrolabsoftware/ztf.fink-portal.org/blob/master/apps/sso/cards.py (card_sso_rocks_params) #}
+{# Layout mirrors the Fink portal's SsODNet card (different framework, same source data): #}
+{# https://github.com/astrolabsoftware/ztf.fink-portal.org/blob/master/apps/sso/cards.py #}
 <div class="card ssodnet-card">
   <div class="card-header">SsODNet</div>
   <div class="card-body">
-    <!-- TODO: dynamical properties (a, e, i, ...), physical properties (taxonomy,
-         diameter, albedo, spin, ...), each with its reference. Handle the "no
-         SsODNet data for this target" case gracefully. -->
-    <p class="text-muted">SsODNet data not yet implemented.</p>
+    {% if ssodnet %}
+      <p class="mb-2">
+        <strong>Name:</strong> {{ ssodnet.name }}{% if ssodnet.number %} / {{ ssodnet.number }}{% endif %}<br>
+        <strong>Class:</strong> {{ ssodnet.class_|default:"not available" }}<br>
+        <strong>Parent body:</strong> {{ ssodnet.parent|default:"not available" }}
+        &nbsp;<strong>Dynamical system:</strong> {{ ssodnet.system|default:"not available" }}
+      </p>
+      <p class="mb-1"><strong>Physical parameters</strong></p>
+      <ul class="list-unstyled mb-0">
+        <li>
+          Taxonomical class:
+          {% if ssodnet.taxonomy.value %}
+            <code>{{ ssodnet.taxonomy.value }}</code>{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.taxonomy.references %}
+          {% else %}
+            <span class="text-muted">not available</span>
+          {% endif %}
+        </li>
+        <li>
+          Absolute magnitude (H):
+          {% if ssodnet.absolute_magnitude.value %}
+            {{ ssodnet.absolute_magnitude.value }}{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.absolute_magnitude.references %}
+          {% else %}
+            <span class="text-muted">not available</span>
+          {% endif %}
+        </li>
+        <li>
+          Diameter ({{ ssodnet.diameter.unit }}):
+          {% if ssodnet.diameter.value %}
+            {{ ssodnet.diameter.value }}{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.diameter.references %}
+          {% else %}
+            <span class="text-muted">not available</span>
+          {% endif %}
+        </li>
+      </ul>
+    {% else %}
+      <p class="text-muted mb-0">No SsODNet data available for this target.</p>
+    {% endif %}
   </div>
 </div>

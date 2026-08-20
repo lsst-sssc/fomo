@@ -1,5 +1,7 @@
 from django import template
 
+from solsys_code.ssodnet import SsODNetDataService, build_card_context
+
 register = template.Library()
 
 
@@ -18,10 +20,8 @@ def ssodnet_card(context):
     """
     Returns the app specific context for rendering the SsODNet ssoCard on the
     Target detail page.
-
-    TODO: this is a scaffold. Fetch SsODNet data for context['target'] here (e.g.
-    via SsODNetDataService().query_service(...), see solsys_code/ssodnet.py) and add
-    it to the returned context so ssodnet_card.html has something to render.
     """
     target = context['target']
-    return {'target': target}
+    service = SsODNetDataService()
+    rock = service.query_service(service.build_query_parameters_from_target(target))
+    return {'target': target, 'ssodnet': build_card_context(rock)}

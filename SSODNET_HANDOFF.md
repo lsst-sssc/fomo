@@ -49,12 +49,32 @@ reading the installed source directly):
 
     python -c "import tom_dataservices.dataservices as m; help(m.DataService)"
 
-## Open questions
+## Status
 
-- ~~Does `DATA_SERVICES['SsODNet']` need any config at all?~~ **Resolved:** no --
-  the ssoCard API is public, nothing needed in `settings.py`.
-- ~~Does `target.name` reliably resolve via SsODNet's quaero resolver?~~
-  **Resolved:** yes, `target.name` works as-is -- no prefix handling or alias
-  fallback needed.
-- Still open: what should the target detail page show when SsODNet has no card for
-  an object (very new discoveries, etc.)?
+All three original open questions are resolved:
+
+- No `DATA_SERVICES['SsODNet']` config needed (public API).
+- `target.name` resolves fine via quaero as-is.
+- No-card case: the card shows "No SsODNet data available for this target."
+
+`query_service()` and the rendering path (`build_card_context()` in
+`solsys_code/ssodnet.py`, wired through the `ssodnet_card` template tag and
+partial) are implemented, matching the fields the Fink portal's own SsODNet card
+shows: name/number, orbital class, parent body, dynamical system, then physical
+parameters -- taxonomy, absolute magnitude (H), diameter -- each with its SsODNet
+reference(s), linked out to ADS by bibcode.
+
+## Deliberately deferred to a follow-up pass
+
+Only orbital-class/physical "at a glance" fields are shown for v1 -- dynamical
+properties (proper elements, MOID, Yarkovsky, family membership, ...) were
+excluded by design (not wanted for this card). Also deferred, because they're
+structurally more complex than a single value+error+bibref (spin is a *list* of
+possibly-multiple solutions; mass/density/albedo are often unpopulated and would
+need more careful "not available" handling):
+
+- mass, density, albedo
+- spin (period, pole solutions)
+
+If these get added, extend `build_card_context()` in `solsys_code/ssodnet.py` and
+the corresponding block in `ssodnet_card.html`.

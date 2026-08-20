@@ -1,0 +1,7 @@
+{% for ref in references %}
+  {% if ref.bibcode %}
+    <a href="https://ui.adsabs.harvard.edu/abs/{{ ref.bibcode }}" title="{{ ref.shortbib }}" target="_blank" rel="noopener">[{{ forloop.counter }}]</a>
+  {% else %}
+    <span title="{{ ref.shortbib }}">[{{ forloop.counter }}]</span>
+  {% endif %}
+{% endfor %}
