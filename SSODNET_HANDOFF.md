@@ -72,10 +72,12 @@ there may look visually squeezed -- worth revisiting the layout once there's mor
 than one physical-parameters card, but functionally it works.
 
 **Watch out for:** `{% if %}` on these values must use `!= None`, not plain
-truthiness -- `G` (slope parameter) and `albedo` can legitimately be `0.0`, which
-is falsy in both Python and Django templates but is NOT the same as "missing"
-(only `NaN`, cleaned to `None` by `_clean_float()`, means missing). Covered by
-`test_zero_slope_parameter_is_not_treated_as_missing` in `test_ssodnet.py`.
+truthiness. `_clean_float()`'s contract is "`None` means missing, anything else
+is a real number" -- a truthy check (`{% if x.value %}`) would silently treat any
+future zero-valued field as "not available" too, which breaks that contract even
+if G/albedo themselves don't realistically hit exactly 0.0 in practice (per
+domain review -- not claiming they do). Covered by `test_zero_is_not_treated_as_missing`
+in `test_ssodnet.py`.
 
 ## Deliberately deferred to a follow-up pass
 

@@ -89,6 +89,7 @@ def _fake_rock(
     (confirmed against a live `rocks.Rock('Eros')` call on 2026-08-19) -- just the
     fields build_card_context() actually reads."""
     return SimpleNamespace(
+        id_=name,
         name=name,
         number=number,
         class_=class_,
@@ -148,10 +149,13 @@ class TestBuildCardContext(SimpleTestCase):
         self.assertIsNone(context['diameter']['value'])
         self.assertIsNone(context['albedo']['value'])
 
-    def test_zero_slope_parameter_is_not_treated_as_missing(self):
-        # G=0.0 (and albedo=0.0) are physically real values, not "missing" -- only
-        # NaN means missing. Guards against a truthiness bug (0.0 is falsy in Python
-        # but is NOT the same as "not available").
+    def test_zero_is_not_treated_as_missing(self):
+        # 0.0 probably never actually occurs for G or albedo in practice (per
+        # domain review) -- this isn't asserting it's a realistic value. It's
+        # guarding the *mechanism*: build_card_context()'s contract is "None means
+        # missing, anything else is a real number", and a truthiness check
+        # ({% if x.value %}) would silently break that contract for ANY future
+        # zero-ish field, not just these two. Cheap to keep correct now.
         context = build_card_context(_fake_rock(abs_mag_g=0.0, albedo=0.0))
 
         self.assertEqual(context['absolute_magnitude']['G'], 0.0)
