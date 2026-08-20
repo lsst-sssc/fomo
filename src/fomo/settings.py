@@ -388,6 +388,6 @@ REST_FRAMEWORK = {
 PLOTLY_THEME = 'plotly_white'
 
 try:
-    from local_settings import *  # noqa
+    from .local_settings import *  # noqa
 except ImportError:
     pass
