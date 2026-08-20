@@ -68,12 +68,12 @@ class SsODNetDataService(DataService):
         Returns the `rocks.Rock` instance for `query_parameters['name']`, or None if
         SsODNet has no ssoCard for that identifier (or the lookup fails outright).
 
-        NOTE: rocks' docs confirm that a *missing property* on a resolved object is
-        set to NaN, but don't spell out how a name that doesn't resolve AT ALL is
-        signalled (exception vs. a Rock with an empty/None id). This assumes the
-        latter (`rock.id_` is None) as well as catching outright exceptions -- once
-        `rocks` is installed, sanity check both a known object and a nonsense string
-        and adjust the `not_found` check below if it behaves differently.
+        CONFIRMED (2026-08-19, real `rocks` call): an unresolvable name raises
+        `KeyError: 'ssocard'` rather than returning a Rock with an empty id -- the
+        `except Exception` below catches that and returns None. The `rock.id_ is
+        None` check is kept as a defensive fallback in case some other not-found
+        path doesn't raise, but the exception path is the one that's actually
+        confirmed to fire.
         """
         name = query_parameters.get('name')
         if not name:

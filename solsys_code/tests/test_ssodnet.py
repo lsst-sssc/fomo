@@ -47,6 +47,17 @@ class TestQueryService(SimpleTestCase):
 
         self.assertIsNone(result)
 
+    @patch('solsys_code.ssodnet.rocks.Rock')
+    def test_returns_none_for_unresolvable_name(self, mock_rock_cls):
+        # Confirmed real-world behaviour (2026-08-19): rocks.Rock() raises
+        # KeyError('ssocard') for a name it can't resolve at all, rather than
+        # returning a Rock with an empty id.
+        mock_rock_cls.side_effect = KeyError('ssocard')
+
+        result = SsODNetDataService().query_service({'name': 'not a real name'})
+
+        self.assertIsNone(result)
+
     def test_returns_none_without_a_name(self):
         result = SsODNetDataService().query_service({})
         self.assertIsNone(result)
