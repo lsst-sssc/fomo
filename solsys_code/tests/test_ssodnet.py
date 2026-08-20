@@ -77,10 +77,13 @@ def _fake_rock(
     system='Sun',
     taxonomy_class='S',
     taxonomy_bibref=None,
-    abs_mag=10.4,
+    abs_mag_h=10.4,
+    abs_mag_g=0.15,
     abs_mag_bibref=None,
     diameter=17.6,
     diameter_bibref=None,
+    albedo=0.3945,
+    albedo_bibref=None,
 ):
     """Build a minimal SimpleNamespace mimicking the real rocks.Rock structure
     (confirmed against a live `rocks.Rock('Eros')` call on 2026-08-19) -- just the
@@ -98,12 +101,17 @@ def _fake_rock(
                     bibref=taxonomy_bibref if taxonomy_bibref is not None else [_fake_bibref()],
                 ),
                 absolute_magnitude=SimpleNamespace(
-                    H=SimpleNamespace(value=abs_mag),
+                    H=SimpleNamespace(value=abs_mag_h),
+                    G=SimpleNamespace(value=abs_mag_g),
                     bibref=abs_mag_bibref if abs_mag_bibref is not None else [_fake_bibref()],
                 ),
                 diameter=SimpleNamespace(
                     value=diameter,
                     bibref=diameter_bibref if diameter_bibref is not None else [_fake_bibref()],
+                ),
+                albedo=SimpleNamespace(
+                    value=albedo,
+                    bibref=albedo_bibref if albedo_bibref is not None else [_fake_bibref()],
                 ),
             )
         ),
@@ -124,15 +132,30 @@ class TestBuildCardContext(SimpleTestCase):
         self.assertEqual(context['system'], 'Sun')
         self.assertEqual(context['taxonomy']['value'], 'S')
         self.assertEqual(context['taxonomy']['references'][0]['shortbib'], 'Someone+2020')
-        self.assertEqual(context['absolute_magnitude']['value'], 10.4)
+        self.assertEqual(context['absolute_magnitude']['H'], 10.4)
+        self.assertEqual(context['absolute_magnitude']['G'], 0.15)
         self.assertEqual(context['diameter']['value'], 17.6)
         self.assertEqual(context['diameter']['unit'], 'km')
+        self.assertEqual(context['albedo']['value'], 0.3945)
 
-    def test_nan_diameter_and_magnitude_become_none(self):
-        context = build_card_context(_fake_rock(abs_mag=float('nan'), diameter=float('nan')))
+    def test_nan_diameter_magnitude_and_albedo_become_none(self):
+        context = build_card_context(
+            _fake_rock(abs_mag_h=float('nan'), abs_mag_g=float('nan'), diameter=float('nan'), albedo=float('nan'))
+        )
 
-        self.assertIsNone(context['absolute_magnitude']['value'])
+        self.assertIsNone(context['absolute_magnitude']['H'])
+        self.assertIsNone(context['absolute_magnitude']['G'])
         self.assertIsNone(context['diameter']['value'])
+        self.assertIsNone(context['albedo']['value'])
+
+    def test_zero_slope_parameter_is_not_treated_as_missing(self):
+        # G=0.0 (and albedo=0.0) are physically real values, not "missing" -- only
+        # NaN means missing. Guards against a truthiness bug (0.0 is falsy in Python
+        # but is NOT the same as "not available").
+        context = build_card_context(_fake_rock(abs_mag_g=0.0, albedo=0.0))
+
+        self.assertEqual(context['absolute_magnitude']['G'], 0.0)
+        self.assertEqual(context['albedo']['value'], 0.0)
 
     def test_empty_taxonomy_class_becomes_none(self):
         context = build_card_context(_fake_rock(taxonomy_class=''))

@@ -61,20 +61,32 @@ All three original open questions are resolved:
 `solsys_code/ssodnet.py`, wired through the `ssodnet_card` template tag and
 partial) are implemented, matching the fields the Fink portal's own SsODNet card
 shows: name/number, orbital class, parent body, dynamical system, then physical
-parameters -- taxonomy, absolute magnitude (H), diameter -- each with its SsODNet
-reference(s), linked out to ADS by bibcode.
+parameters -- taxonomy, absolute magnitude (H), slope parameter (G), diameter,
+albedo -- each with its SsODNet reference(s), linked out to ADS by bibcode.
+
+**Confirmed working end to end (2026-08-20):** `pip install -e .` to pick up
+`space-rocks`, `manage.py runserver`, open a Target detail page -- the card
+renders alongside the Ephemeris button via `target_detail_buttons()`. Note that
+spot is really a button toolbar, not a content section, so a full card sitting
+there may look visually squeezed -- worth revisiting the layout once there's more
+than one physical-parameters card, but functionally it works.
+
+**Watch out for:** `{% if %}` on these values must use `!= None`, not plain
+truthiness -- `G` (slope parameter) and `albedo` can legitimately be `0.0`, which
+is falsy in both Python and Django templates but is NOT the same as "missing"
+(only `NaN`, cleaned to `None` by `_clean_float()`, means missing). Covered by
+`test_zero_slope_parameter_is_not_treated_as_missing` in `test_ssodnet.py`.
 
 ## Deliberately deferred to a follow-up pass
 
 Only orbital-class/physical "at a glance" fields are shown for v1 -- dynamical
 properties (proper elements, MOID, Yarkovsky, family membership, ...) were
-excluded by design (not wanted for this card). Also deferred, because they're
-structurally more complex than a single value+error+bibref (spin is a *list* of
-possibly-multiple solutions; mass/density/albedo are often unpopulated and would
-need more careful "not available" handling):
-
-- mass, density, albedo
-- spin (period, pole solutions)
+excluded by design (not wanted for this card), and mass/density weren't
+requested. Spin is deferred because it's structurally more complex than a single
+value+error+bibref -- it's a *list* of possibly-multiple pole/period solutions,
+each with its own references, and colors (B-V, g-i, ...) are a whole dict of band
+pairs rather than a single field -- both deserve their own pass rather than
+bolting onto the current simple-field pattern.
 
 If these get added, extend `build_card_context()` in `solsys_code/ssodnet.py` and
 the corresponding block in `ssodnet_card.html`.

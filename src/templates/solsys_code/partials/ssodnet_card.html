@@ -14,7 +14,7 @@
       <ul class="list-unstyled mb-0">
         <li>
           Taxonomical class:
-          {% if ssodnet.taxonomy.value %}
+          {% if ssodnet.taxonomy.value != None %}
             <code>{{ ssodnet.taxonomy.value }}</code>{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.taxonomy.references %}
           {% else %}
             <span class="text-muted">not available</span>
@@ -22,16 +22,32 @@
         </li>
         <li>
           Absolute magnitude (H):
-          {% if ssodnet.absolute_magnitude.value %}
-            {{ ssodnet.absolute_magnitude.value }}{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.absolute_magnitude.references %}
+          {% if ssodnet.absolute_magnitude.H != None %}
+            {{ ssodnet.absolute_magnitude.H }}{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.absolute_magnitude.references %}
+          {% else %}
+            <span class="text-muted">not available</span>
+          {% endif %}
+        </li>
+        <li>
+          Slope parameter (G):
+          {% if ssodnet.absolute_magnitude.G != None %}
+            {{ ssodnet.absolute_magnitude.G }}{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.absolute_magnitude.references %}
           {% else %}
             <span class="text-muted">not available</span>
           {% endif %}
         </li>
         <li>
           Diameter ({{ ssodnet.diameter.unit }}):
-          {% if ssodnet.diameter.value %}
+          {% if ssodnet.diameter.value != None %}
             {{ ssodnet.diameter.value }}{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.diameter.references %}
+          {% else %}
+            <span class="text-muted">not available</span>
+          {% endif %}
+        </li>
+        <li>
+          Albedo:
+          {% if ssodnet.albedo.value != None %}
+            {{ ssodnet.albedo.value }}{% include 'solsys_code/partials/ssodnet_references.html' with references=ssodnet.albedo.references %}
           {% else %}
             <span class="text-muted">not available</span>
           {% endif %}

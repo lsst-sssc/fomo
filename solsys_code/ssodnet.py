@@ -125,14 +125,14 @@ def build_card_context(rock):
 
     Mirrors the fields the Fink portal's sso/cards.py shows for the "at a glance"
     case (see module docstring): name/class/parent body/dynamical system, then
-    physical parameters -- taxonomy, absolute magnitude, diameter -- each with its
-    SsODNet reference(s). Returns None if `rock` is None (SsODNet has no card for
-    this target).
+    physical parameters -- taxonomy, absolute magnitude (H) + slope parameter (G),
+    diameter, albedo -- each with its SsODNet reference(s). Returns None if `rock`
+    is None (SsODNet has no card for this target).
 
     Orbital/dynamical properties (moid, proper elements, Yarkovsky, ...) and the
     more structurally complex ones (spin -- a list of possibly-multiple solutions;
-    mass/density/albedo -- often unpopulated) are deliberately left out of this
-    first pass. Worth a follow-up once the simple fields are confirmed working.
+    mass/density -- not wanted for this card / not requested) are deliberately left
+    out of this first pass. Worth a follow-up if spin is wanted later.
     """
     if rock is None:
         return None
@@ -149,12 +149,19 @@ def build_card_context(rock):
             'references': _references(physical.taxonomy.bibref),
         },
         'absolute_magnitude': {
-            'value': _clean_float(physical.absolute_magnitude.H.value),
+            # H and G share one reference list on the parent absolute_magnitude
+            # object (confirmed against a live rocks.Rock('Eros') call).
+            'H': _clean_float(physical.absolute_magnitude.H.value),
+            'G': _clean_float(physical.absolute_magnitude.G.value),
             'references': _references(physical.absolute_magnitude.bibref),
         },
         'diameter': {
             'value': _clean_float(physical.diameter.value),
             'unit': 'km',
             'references': _references(physical.diameter.bibref),
+        },
+        'albedo': {
+            'value': _clean_float(physical.albedo.value),
+            'references': _references(physical.albedo.bibref),
         },
     }
