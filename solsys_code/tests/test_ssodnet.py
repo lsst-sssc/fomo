@@ -2,6 +2,7 @@
 Tests for solsys_code/ssodnet.py.
 """
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -9,6 +10,10 @@ from django.test import SimpleTestCase
 
 from solsys_code.ssodnet import SsODNetDataService, build_card_context
 from src.templatetags.solsys_code_extras import ssodnet_card
+
+## Silence logging during tests (same convention as test_views.py -- several tests
+## here deliberately trigger query_service()'s logger.exception() call)
+logging.disable(logging.CRITICAL)
 
 
 class FakeTarget:
