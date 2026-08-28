@@ -51,9 +51,10 @@ Optimization Committee approval; until then the stream is advisory.)
 
 | Piece | Where | What it provides |
 |---|---|---|
-| Scout API client + normalization | `tom_jpl/jpl.py` (`ScoutDataService`) | signature check; field mapping (`neoScore→neo_score`, arc hours→days, sexagesimal RA→deg) |
-| Reconciliation loop | `tom_jpl` `ingest_scout` management command | cron-suitable full-list poll; upsert; departure sweep (with empty-response guard); MPC previous-designation enrichment |
-| Change history | `tom_jpl/models.py` (`ScoutDetail`, `ScoutDetailHistory`) | one current row + append-only history unique on `(target, last_run)`; field-level diffing via `changes_from()`; `HISTORY_UNTRACKED_FIELDS` suppresses pure-ephemeris churn |
+| Scout API client + normalization | `tom_jpl/jpl.py` (`ScoutDataService`) | signature check; field mapping (`neoScore→neo_score`, arc hours→days, sexagesimal RA→deg); optional query-level score/uncertainty/close-approach cuts |
+| Ingestion | `rundataquery <query_id>` (tom_dataservices, via a saved broad `DataServiceQuery`) | cron-suitable full-list poll; upsert of targets + `ScoutDetail`/history rows. Caveat: catches its own failures and exits 0, so freshness must be monitored, not exit codes |
+| Reconciliation loop | `tom_jpl` `updatescout` management command | single-request roster reconcile refreshing active candidates and retiring departures (`active=False`), with empty-response **and** partial-list guards; separate MPC Previous-NEOCP outcome pass recording `mpc_status` (designated/lost/dne/na/ns), `mpc_reference`, `merged_into`, and renaming the Target to its IAU designation. Two cadences: `--skip-designations` hourly, `--skip-reconcile` daily |
+| Change history | `tom_jpl/models.py` (`ScoutDetail`, `ScoutDetailHistory`) | one current row + append-only history unique on `(target, last_run)`; field-level diffing via `changes_from()`; `HISTORY_UNTRACKED_FIELDS` suppresses pure-ephemeris churn (n.b. it includes `vmag` and `rate`, so filter evaluation must re-check each row, not rely on `changes_from()` alone) |
 | Rubin ToO filter criteria | FOMO `solsys_code/rubin_too.py` | SSSC NEOs WG v0.2 §2.1 as pure predicates (`neoScore≥98`, `geocentricScore<2`, `rating≥3`, `rms<1.0`, `nObs>5` & `arc>1h`, `V>21.6/21.8` N/S, `unc_p1>60′/180′` N/S, `rate<25″/min`); §2.3 cancellation semantics |
 
 Gaps to build: Kafka producer, container image, scheduler, deployment assets.
@@ -106,13 +107,18 @@ Three architectures were scoped:
   - `models.py`: `PublishedEvent` outbox — unique `(tdes, last_run, event_type)`,
     JSON payload, nullable `published_at`;
   - `publish_scout_events` management command: walk `ScoutDetail`/`ScoutDetailHistory`
-    since the last watermark, derive events via `changes_from()` + `passes_filters()`,
-    write outbox rows transactionally, publish unpublished rows via `hop-client`, and
-    mark them published on broker ack. `--dry-run` prints events without publishing.
+    since the last watermark, derive events by re-evaluating `passes_filters()` per row
+    (with `changes_from()` supplying the tracked-field diff — filter-relevant `vmag`/`rate`
+    are history-untracked, so pass/fail must not be inferred from diffs alone), write
+    outbox rows transactionally, publish unpublished rows via `hop-client`, and mark
+    them published on broker ack. `--dry-run` prints events without publishing.
 - **Poll cycle** (every 10 minutes):
-  `manage.py ingest_scout --query-name=<broad-query> && manage.py publish_scout_events`.
-  A bootstrap fixture provides the saved broad `DataServiceQuery` and service user that
-  `ingest_scout` expects.
+  `manage.py rundataquery <query_id> && manage.py updatescout --skip-designations &&
+  manage.py publish_scout_events`, plus a daily `manage.py updatescout --skip-reconcile`
+  for MPC outcomes (the Previous-NEOCP page holds months of departures; daily is kinder
+  to the MPC). A bootstrap fixture provides the saved broad `DataServiceQuery` (no
+  score/uncertainty cuts, so state tracking sees every candidate) and service user that
+  `rundataquery` expects.
 - **State**: Postgres. The transactional outbox gives exactly-once event emission: a
   failed publish leaves the watermark unadvanced, and the next cycle regenerates and
   retries; the unique idempotency key prevents duplicates.
@@ -124,7 +130,7 @@ Three architectures were scoped:
 | `new_candidate` | object newly passes **all** §2.1 filters (first time, or again after a `cancelled`/`left_neocp`) |
 | `updated` | passing object has a new `lastRun` with tracked-field changes (ephemeris-only churn suppressed) |
 | `cancelled` | previously-passing object now fails ≥1 filter (§2.3) while still on Scout |
-| `left_neocp` | previously-passing object disappeared from the Scout list (designated / lost / impacted) |
+| `left_neocp` | previously-passing object disappeared from the Scout list (designated / lost / impacted). Enriched once `updatescout`'s MPC pass settles the outcome: `mpc_status` (designated/lost/dne/na/ns), `mpc_reference` (e.g. an MPEC), `merged_into`, and the IAU designation the Target was renamed to |
 
 Objects that never pass the filters generate no messages (state is still tracked so
 `new_candidate` fires the moment one crosses the threshold).
@@ -155,6 +161,10 @@ Objects that never pass the filters generate no messages (state is still tracked
 ```
 
 Kafka message key = `tdes`; idempotency key = `(tdes, last_run, event_type)`.
+Field names track `tom_jpl` 0.3.0's `ScoutDetail` where they exist (`arc` is stored in
+days, `ca_dist` in lunar distances, `uncertainty_p1` in arcmin; units are suffixed here
+for self-description). `h_mag` is not stored by `tom_jpl` and would come from the Scout
+object-mode response at publish time — or be dropped from v1 if not worth the extra query.
 Consumers must treat redelivery of the same `event_id` as a no-op. The schema is
 deliberately provider-neutral so a future JPL-operated feed could be drop-in compatible.
 
@@ -182,8 +192,10 @@ standard pattern:
 
 ## 8. Failure modes and observability
 
-- **Scout API down / empty response**: skip the cycle entirely (reusing `ingest_scout`'s
-  empty-sweep guard) so no spurious `left_neocp` storm fires.
+- **Scout API down / empty or truncated response**: skip the cycle entirely (reusing
+  `updatescout`'s empty-response and partial-list guards) so no spurious `left_neocp`
+  storm fires. Because `rundataquery` exits 0 even on failure, the heartbeat must be
+  a data-freshness check (e.g. newest `last_run` ingested), not a process exit code.
 - **API signature ≠ 1.3**: hard stop before parsing; publish nothing; alert — schema
   drift needs human review.
 - **Hopskotch unavailable**: outbox rows remain unpublished and the watermark does not
@@ -215,8 +227,11 @@ standard pattern:
    with CNEOS for an institutional 10-minute poller.
 4. **LCO infrastructure**: hosting cluster and namespace; Postgres provisioning; SCiMMA
    credential ownership; CronJob vs Deployment-with-loop convention.
-5. **MPC designation enrichment**: whether `left_neocp` events need the IAU designation
-   inline (reusing `ingest_scout`'s MPC previous-NEOCP lookup) or `tdes` suffices.
+5. **MPC designation enrichment**: `tom_jpl` 0.3.0 already settles departures
+   (`mpc_status`/`mpc_reference`/`merged_into`, Target renamed to its IAU designation)
+   via `updatescout --skip-reconcile`. Remaining question is timing only: the MPC pass
+   runs daily, so should `left_neocp` publish immediately with `tdes` and be followed by
+   an enriched update once the outcome lands, or wait for the outcome?
 
 ## 11. Prototype milestones (~4–5 engineering weeks; external coordination dominates)
 
