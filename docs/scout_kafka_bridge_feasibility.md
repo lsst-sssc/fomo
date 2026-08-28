@@ -10,13 +10,15 @@ Rubin-ToO-candidate objects as a **Kafka stream** consumable by the Vera C. Rubi
 Observatory's Target-of-Opportunity system.
 
 **Verdict: feasible, inexpensive, and well-timed.** Rubin's first-year ToO operations
-paper ([arXiv:2607.00217](https://arxiv.org/html/2607.00217v1)) states that *"no kafka
-stream for potentially hazardous asteroids is available"* and explicitly encourages the
-publication of machine-readable Scout alerts to a Kafka stream. Nearly all of the domain
-logic required already exists in [`tom_jpl`](https://github.com/TOMToolkit/tom_jpl)
-(Scout ingestion and change reconciliation) and in FOMO's `solsys_code/rubin_too.py`
-(the SSSC NEOs WG ToO filter criteria). The remaining work is a Kafka publisher, a
-container, and deployment plumbing.
+paper ([arXiv:2607.00217](https://arxiv.org/html/2607.00217v1)) states that *"as of
+August 24, 2026, no kafka stream for potentially hazardous asteroids is available"*, and
+explicitly encourages *"the JPL-Scout program and the forthcoming JPL-NEO Surveyor
+program to publish fully-machine-readable alerts to a Kafka stream, to support
+localization efforts from Rubin ToO follow-up"*. Nearly all of the domain logic required
+already exists in [`tom_jpl`](https://github.com/TOMToolkit/tom_jpl) (Scout ingestion and
+change reconciliation) and in FOMO's `solsys_code/rubin_too.py` (the SSSC NEOs WG ToO
+filter criteria). The remaining work is a Kafka publisher, a container, and deployment
+plumbing.
 
 ## 1. Background
 
@@ -227,11 +229,35 @@ standard pattern:
    with CNEOS for an institutional 10-minute poller.
 4. **LCO infrastructure**: hosting cluster and namespace; Postgres provisioning; SCiMMA
    credential ownership; CronJob vs Deployment-with-loop convention.
-5. **MPC designation enrichment**: `tom_jpl` 0.3.0 already settles departures
-   (`mpc_status`/`mpc_reference`/`merged_into`, Target renamed to its IAU designation)
-   via `updatescout --skip-reconcile`. Remaining question is timing only: the MPC pass
-   runs daily, so should `left_neocp` publish immediately with `tdes` and be followed by
-   an enriched update once the outcome lands, or wait for the outcome?
+5. **MPC outcome enrichment — resolved.** `tom_jpl` 0.3.0 settles departures via
+   `updatescout --skip-reconcile` (`mpc_status`, `mpc_reference`, `merged_into`, and a
+   rename to the IAU designation), but a day after the fact: reconciliation runs every
+   cycle and the MPC pass daily, so in practice most `left_neocp` events publish with
+   `mpc_status` still null.
+
+   Precedent says publish anyway, and do not follow up on the actionable topic. LVK's
+   `RETRACTION` — the closest analogue, and one the Rubin ToO Producer already consumes —
+   "provide[s] only the name": `event` and `external_coinc` are null and there is no
+   machine-readable reason of any kind. GCN's multi-mission core `Alert.schema.json`,
+   shared by the Super-K and IceCube notices, likewise types only the transition
+   (`initial|subsequent|update|retraction`) and carries no reason beyond an opt-in
+   free-text `additional_info` comment. Where the "why" does travel, it travels on a
+   *separate* channel: GCN streams structured Notices and human-readable Circulars as
+   different Kafka topics. The Rubin ToO paper itself never mentions retraction handling.
+
+   **Decision**: `left_neocp` publishes immediately, unblocked and terminal, carrying the
+   outcome fields only when they happen to be settled already; no second event on the ToO
+   topic. The outcome stays available in the bridge database and Django admin, and is
+   derivable by any consumer from the public MPC page.
+
+   **Open only if a subscriber asks for the outcome to be pushed**: the precedent-aligned
+   answer is a separate informational topic, mirroring GCN's Notices/Circulars split,
+   rather than a follow-up on the ToO topic. Were it ever added to the main topic it
+   would need its own `event_type` (LVK never sends anything after a retraction) and
+   `in_candidate_set = False`, or a "last event wins" consumer could resurrect a retired
+   object. Note that publishing a structured `mpc_status` enum at all is *ahead* of
+   precedent rather than merely different — no existing consumer will expect it, which is
+   a further argument for keeping it ignorable.
 
 ## 11. Prototype milestones (~4–5 engineering weeks; external coordination dominates)
 
@@ -257,6 +283,10 @@ standard pattern:
 - JPL Scout API documentation: <https://ssd-api.jpl.nasa.gov/doc/scout.html>
 - SCiMMA hop-client tutorial:
   <https://github.com/scimma/hop-client/wiki/Tutorial:-using-hop-client-with-the-SCiMMA-Hopskotch-server>
+- IGWN/LVK Public Alerts User Guide, "Alert Contents" (retraction semantics, §10.5):
+  <https://emfollow.docs.ligo.org/userguide/content.html>
+- GCN unified multi-mission schema (core `Alert.schema.json`, `AdditionalInfo`):
+  <https://gcn.nasa.gov/docs/notices/schema> and <https://github.com/nasa-gcn/gcn-schema>
 - AWS MSK pricing: <https://aws.amazon.com/msk/pricing/>
 - `tom_jpl`: <https://github.com/TOMToolkit/tom_jpl>
 - SSSC NEOs WG, "Filter Criteria for near-Earth Object (NEO) Rubin ToO Triggers", v0.2
