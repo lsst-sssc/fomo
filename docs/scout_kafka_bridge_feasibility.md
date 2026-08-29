@@ -1,6 +1,6 @@
 # Feasibility study: a JPL Scout → Kafka bridge for Rubin ToO alerting
 
-*Status: proposal (2026-07-17). Companion prototype plan in §10–§12.*
+*Status: proposal (2026-07-17). Companion prototype plan in §11–§12.*
 
 ## Summary
 
@@ -17,8 +17,9 @@ program to publish fully-machine-readable alerts to a Kafka stream, to support
 localization efforts from Rubin ToO follow-up"*. Nearly all of the domain logic required
 already exists in [`tom_jpl`](https://github.com/TOMToolkit/tom_jpl) (Scout ingestion and
 change reconciliation) and in FOMO's `solsys_code/rubin_too.py` (the SSSC NEOs WG ToO
-filter criteria). The remaining work is a Kafka publisher, a container, and deployment
-plumbing.
+filter criteria). The remaining work is a Kafka publisher, a container, deployment
+plumbing, and — as §7 establishes — a Scout filter class contributed to Rubin's ToO
+Producer, which converts our alerts into the sky maps its scheduler actually consumes.
 
 ## 1. Background
 
@@ -26,8 +27,10 @@ Through its ToO program, Rubin reserves a fraction of survey time for rare,
 time-sensitive events. The ToO alert-ingestion pipeline consumes external alerts
 (currently LVK gravitational-wave and IceCube neutrino streams) from the **SCiMMA
 Hopskotch** Kafka broker (`kafka.scimma.org`); a "ToO Producer" evaluates incoming
-alerts against approved trigger criteria and forwards passing ones to the Engineering
-Facility Database and scheduler. Super-K supernova alerts arrive via a GCN Kafka mirror.
+alerts against approved trigger criteria and republishes passing ones as HEALPix reward
+maps into the Engineering Facility Database, which the Scheduler CSC polls. Super-K
+supernova alerts arrive via a GCN Kafka mirror. §7 traces that pipeline through the
+public repositories that implement it, which turns out to matter for scoping.
 
 For hazardous asteroids and interstellar objects there is **no automated path**: the
 3I/ATLAS interstellar-comet ToO was triggered manually by committee. The SSSC NEOs
@@ -59,7 +62,8 @@ Optimization Committee approval; until then the stream is advisory.)
 | Change history | `tom_jpl/models.py` (`ScoutDetail`, `ScoutDetailHistory`) | one current row + append-only history unique on `(target, last_run)`; field-level diffing via `changes_from()`; `HISTORY_UNTRACKED_FIELDS` suppresses pure-ephemeris churn (n.b. it includes `vmag` and `rate`, so filter evaluation must re-check each row, not rely on `changes_from()` alone) |
 | Rubin ToO filter criteria | FOMO `solsys_code/rubin_too.py` | SSSC NEOs WG v0.2 §2.1 as pure predicates (`neoScore≥98`, `geocentricScore<2`, `rating≥3`, `rms<1.0`, `nObs>5` & `arc>1h`, `V>21.6/21.8` N/S, `unc_p1>60′/180′` N/S, `rate<25″/min`); §2.3 cancellation semantics |
 
-Gaps to build: Kafka producer, container image, scheduler, deployment assets.
+Gaps to build: Kafka producer, container image, scheduler, deployment assets, and a
+Scout filter class for Rubin's ToO Producer (§7).
 No existing Scout→Kafka producer was found anywhere in a search of GitHub and the web.
 
 ## 4. Broker options
@@ -69,8 +73,12 @@ No existing Scout→Kafka producer was found anywhere in a search of GitHub and 
 Publish with [`hop-client`](https://github.com/scimma/hop-client) to a topic on
 `kafka.scimma.org` (e.g. `lco.scout-neo-too`, plus a `-test` topic for staging).
 
-- This is **the broker Rubin's ToO Producer already subscribes to** — no Rubin-side
-  infrastructure change is needed, only a subscription to the new topic.
+- This is **the broker Rubin's ToO Producer already subscribes to**, so no new transport,
+  broker relationship or Rubin-side *infrastructure* is needed. It does still require a
+  Rubin-side **code** change — a Scout filter class in the producer, which converts the
+  alert into the sky map the scheduler consumes — but that is a reviewable PR against an
+  existing public repository. See §7; this is the single biggest correction to the
+  original scoping, which assumed a subscription would suffice.
 - Free for scientific use; credentials via
   [my.hop.scimma.org/hopauth](https://my.hop.scimma.org/hopauth).
 - Only the small poller container needs hosting; broker cost is zero.
@@ -170,7 +178,53 @@ object-mode response at publish time — or be dropped from v1 if not worth the 
 Consumers must treat redelivery of the same `event_id` as a no-op. The schema is
 deliberately provider-neutral so a future JPL-operated feed could be drop-in compatible.
 
-## 7. Deployment: LCO GitOps / ArgoCD
+## 7. Rubin-side integration: what actually consumes the stream
+
+Publishing to Hopskotch is necessary but not sufficient. Rubin's ToO Producer does not
+forward alert payloads — it **converts** them into a HEALPix reward map. The deployed
+pipeline is entirely public, and traces as follows (note the receiver lives in the SCiMMA
+organization, not an `lsst` one):
+
+| Stage | Where | What it does |
+|---|---|---|
+| Kafka receiver | [`scimma/rubin-ToO-producer`](https://github.com/scimma/rubin-ToO-producer) — `forward_alerts.py`, image `lsstts/rubin_too_producer` | subscribes to Hopskotch via `hop`; per-source `AlertFilter` subclasses decide follow-up and build the sky map |
+| Deployment + config | [`lsst-sqre/phalanx`](https://github.com/lsst-sqre/phalanx) `applications/rubin-too-producer` | input topic, a `filters:` topic→filter map, output URL, SCiMMA credentials from Vault |
+| EFD topics | phalanx `applications/sasquatch/charts/scimma` | declares Kafka topics `lsst.scimma.too.alert` and `lsst.scimma.too.alert.test` |
+| Scheduler consumer | [`lsst-ts/ts_scheduler`](https://github.com/lsst-ts/ts_scheduler) `python/lsst/ts/scheduler/too_client.py` | `TooClient` polls the **EFD** (InfluxDB), not Kafka; configured in `ts_config_scheduler` (`topic_name: lsst.scimma.too_alert`, 8-day lookback) |
+| Scheduling | [`lsst/rubin_scheduler`](https://github.com/lsst/rubin_scheduler) `scheduler/utils/too_objects.py`, `surveys/too_scripted_surveys.py` | `TargetoO` objects consumed by the feature-based scheduler |
+
+The producer's output schema (`output_schema.json`, Avro record `lsst.scimma.too_alert`)
+is narrow: `source`, `instrument[]`, `alert_type`, `event_trigger_timestamp`,
+`reward_map` (boolean HEALPix array, nested ordering), `reward_map_nside`, `is_test`,
+`is_update`, `timestamp`. **Everything else in the §6 payload is dropped on the Rubin
+path** — that schema serves other subscribers and the scientific record; Rubin needs a
+sky map.
+
+### Consequences for this project
+
+- **A new filter class is required**, contributed as a PR to `scimma/rubin-ToO-producer`:
+  a `ScoutAlertFilter` registered in `filter_constructors` alongside `lvk_gw`,
+  `icecube_nu` and `superk_sn`, implementing `is_test`, `alert_identifier`,
+  `overrides_previous`, `should_follow_up` and `generate_scheduling_data`. It must turn
+  our RA/Dec plus positional uncertainty into a binary HEALPix map — the same geometry
+  the SSSC §2.1 `unc_p1` criterion already trades on. A `filters:` entry and the topic go
+  into Phalanx alongside it. This is a reviewable code contribution to existing public
+  Rubin/SCiMMA repositories, not new infrastructure, but it is more than a subscription.
+- **`alert_type` is a categorization, not a lifecycle code**: the LVK filter emits
+  `GW_case_B`, `GW_case_D`, `lensed_BNS_case_A`, `BBH_case_A` and so on, one per approved
+  trigger case. Ours should follow the same convention (e.g. `NEO_case_*`), which makes
+  the SCOC approval in §11.2 a naming gate as well as a scientific one.
+- **Mark test traffic with the Hopskotch `_test` message header.** The base
+  `AlertFilter.is_test` checks that transport header, so setting it is more useful to
+  Rubin than a separate `-test` topic alone — and `TooClient` independently skips
+  `is_test` alerts on the scheduler side.
+- **Rubin already operates a SCiMMA group, `rubin-too-dev`** (its current input topic is
+  `rubin-too-dev.lvk-test-alerts`), a concrete starting point for the §11.1 naming and
+  ACL conversation. Note the deployed config takes a *single* input topic, so adding
+  Scout may need multi-topic support or a second producer deployment.
+- **No cancellation path exists downstream** — see §11.5.
+
+## 8. Deployment: LCO GitOps / ArgoCD
 
 LCO's Kubernetes clusters are cluster-api managed **on AWS** (`LCOGT/k8s-clusters`), so
 "deploy to AWS" and "deploy via LCO's ArgoCD workflow" converge. Following LCO's
@@ -192,7 +246,7 @@ standard pattern:
   infrastructure** — but Lambda is not manageable by ArgoCD without Crossplane/ACK, so
   it sits outside LCO's GitOps workflow.
 
-## 8. Failure modes and observability
+## 9. Failure modes and observability
 
 - **Scout API down / empty or truncated response**: skip the cycle entirely (reusing
   `updatescout`'s empty-response and partial-list guards) so no spurious `left_neocp`
@@ -208,7 +262,7 @@ standard pattern:
 - Weekly digest of events/day and per-filter pass rates to validate trigger volumes
   against the SSSC document's expectations.
 
-## 9. Costs
+## 10. Costs
 
 | Variant | Monthly cost |
 |---|---|
@@ -217,13 +271,18 @@ standard pattern:
 | Self-hosted single-node Kafka added | + $30–60 and ops labor |
 | AWS MSK Serverless | ≈ $547 minimum — ruled out |
 
-## 10. Open questions / coordination gates
+## 11. Open questions / coordination gates
 
 1. **SCiMMA**: account and group provisioning, topic ACLs (write for the bridge, read
    for Rubin), retention/replay policy; institutional (`lco.*`) vs community (`scout.*`)
    topic naming.
-2. **Rubin ToO team**: willingness of the ToO Producer to subscribe to a third-party
-   topic; agreement on the §6 schema; SCOC approval of NEO trigger criteria.
+2. **Rubin ToO team / SCiMMA**: willingness of the ToO Producer to subscribe to a
+   third-party topic; agreement on the §6 schema; SCOC approval of NEO trigger criteria
+   and the resulting `alert_type` case names. Now also, per §7: who writes and reviews
+   the `ScoutAlertFilter` in `scimma/rubin-ToO-producer` (us, offered as a PR, seems
+   likeliest), what sky-map convention it should use, whether a second producer
+   deployment or multi-topic input is preferred, and whether the unreachable retraction
+   handling noted in §11.5 is intentional.
 3. **Ownership**: the ToO paper invites *JPL* to publish such a stream; this bridge is
    positioned as a community stopgap with a JPL-compatible schema. Confirm API fair-use
    with CNEOS for an institutional 10-minute poller.
@@ -245,6 +304,17 @@ standard pattern:
    *separate* channel: GCN streams structured Notices and human-readable Circulars as
    different Kafka topics. The Rubin ToO paper itself never mentions retraction handling.
 
+   Rubin's own implementation confirms it from the other side. In
+   `scimma/rubin-ToO-producer` every filter defines an `overrides_previous` carrying a
+   retraction branch, but `process()` consults `should_follow_up()` first and returns
+   early when it fails — and each filter's `should_follow_up` admits only a specific
+   non-retraction `alert_type` (`INITIAL` for LVK, `initial`/`update` for IceCube). A
+   retraction therefore never reaches the override logic, and the output schema (§7) has
+   no field able to express one. Our `cancelled` and `left_neocp` events consequently
+   have nowhere to land on the Rubin path today. Whether that is deliberate — an exposure
+   already taken cannot be un-taken — or a latent bug is worth putting to the ToO team
+   as part of §11.2.
+
    **Decision**: `left_neocp` publishes immediately, unblocked and terminal, carrying the
    outcome fields only when they happen to be settled already; no second event on the ToO
    topic. The outcome stays available in the bridge database and Django admin, and is
@@ -259,11 +329,12 @@ standard pattern:
    precedent rather than merely different — no existing consumer will expect it, which is
    a further argument for keeping it ignorable.
 
-## 11. Prototype milestones (~4–5 engineering weeks; external coordination dominates)
+## 12. Prototype milestones (~5–6 engineering weeks; external coordination dominates)
 
 - **M0** — circulate schema v1 to the Rubin ToO team and SSSC NEOs WG; request SCiMMA
-  credentials and a dev topic (longest lead time — start first); put the §10.4 questions
-  to LCO infrastructure.
+  credentials and a dev topic (longest lead time — start first); put the §11.4 questions
+  to LCO infrastructure; open the §11.2 conversation about a `ScoutAlertFilter` PR, since
+  that is a second external review cycle and should start early too.
 - **M1** — create `lsst-sssc/scout-alert-bridge`: Django/TOM project shell + `tom_jpl` +
   `scout_publisher` app (filters copy, outbox model, `publish_scout_events --dry-run`);
   bootstrap fixture; Django-test-runner tests with canned Scout JSON fixtures covering a
@@ -273,9 +344,14 @@ standard pattern:
   handling.
 - **M4** — `LCOGT/scout-alert-bridge-deploy` from the copier template; staging ArgoCD
   app; one-week soak on the dev topic; tune event-noise suppression.
-- **M5** — production topic; Rubin subscribes; end-to-end latency measurement (Scout
-  `lastRun` → Rubin receipt); joint review of a full candidate lifecycle; ownership
-  handoff discussion.
+- **M5** — `ScoutAlertFilter` for `scimma/rubin-ToO-producer` (§7): sky-map generation
+  from RA/Dec and positional uncertainty, `alert_type` case names, `_test` header
+  handling, unit tests against canned bridge messages; offered as a PR, with the
+  matching Phalanx `filters:`/topic entry. Depends on M0 agreement and M2 sample traffic,
+  and carries its own external review cycle.
+- **M6** — production topic; Rubin subscribes and the filter is deployed; end-to-end
+  latency measurement (Scout `lastRun` → Rubin receipt); joint review of a full candidate
+  lifecycle; ownership handoff discussion.
 
 ## References
 
@@ -283,11 +359,19 @@ standard pattern:
 - JPL Scout API documentation: <https://ssd-api.jpl.nasa.gov/doc/scout.html>
 - SCiMMA hop-client tutorial:
   <https://github.com/scimma/hop-client/wiki/Tutorial:-using-hop-client-with-the-SCiMMA-Hopskotch-server>
-- IGWN/LVK Public Alerts User Guide, "Alert Contents" (retraction semantics, §10.5):
+- IGWN/LVK Public Alerts User Guide, "Alert Contents" (retraction semantics, §11.5):
   <https://emfollow.docs.ligo.org/userguide/content.html>
 - GCN unified multi-mission schema (core `Alert.schema.json`, `AdditionalInfo`):
   <https://gcn.nasa.gov/docs/notices/schema> and <https://github.com/nasa-gcn/gcn-schema>
 - AWS MSK pricing: <https://aws.amazon.com/msk/pricing/>
 - `tom_jpl`: <https://github.com/TOMToolkit/tom_jpl>
+- Rubin ToO Producer (Kafka receiver and per-source alert filters):
+  <https://github.com/scimma/rubin-ToO-producer>
+- Its deployment and configuration (`applications/rubin-too-producer`, and the
+  `sasquatch/charts/scimma` EFD topics): <https://github.com/lsst-sqre/phalanx>
+- Scheduler-side consumer `TooClient`: <https://github.com/lsst-ts/ts_scheduler> and its
+  configuration <https://github.com/lsst-ts/ts_config_scheduler>
+- Feature-based scheduler ToO objects and surveys:
+  <https://github.com/lsst/rubin_scheduler>
 - SSSC NEOs WG, "Filter Criteria for near-Earth Object (NEO) Rubin ToO Triggers", v0.2
   (as implemented in `solsys_code/rubin_too.py`)
