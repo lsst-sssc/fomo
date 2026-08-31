@@ -2,10 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
+current_phase: 27
+current_phase_name: the-canonical-run-record
 status: completed
 stopped_at: Completed 27-07-PLAN.md -- Phase 27 gap-closure (27-UAT.md Test 8/9) and milestone v2.2 complete
-last_updated: "2026-08-06T18:40:49.660Z"
-last_activity: 2026-08-06 -- Completed 27-07-PLAN.md: gap closure for approval-queue section order and unlinked-event attribution hint
+last_updated: "2026-08-31T22:45:28.603Z"
+last_activity: 2026-08-06
+last_activity_desc: "Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)"
+state_head: dd23ef971b34cc5cca9cbb788ba7c77c5f87c684
 progress:
   total_phases: 5
   completed_phases: 5
@@ -241,6 +245,7 @@ None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next c
 | 260805-tad | Fix window-shape dispatch in the calendar reconciler: removed the `elif run.source in QUEUE_SOURCES:` branch from `reconcile_run()` — proven unreachable-for-its-intended-purpose since `_skip_reason()` already guarantees `run.site` is resolved whenever it fired — so a queue-sourced run with a resolved, non-satellite site (e.g. ESO VLT/FORS2 at MPC 309 Paranal) now gets per-night dip-corrected classical treatment instead of a blanket 00:00-23:59 whole-window container; `telescope_class` alone now covers the genuinely site-agnostic/floating case. Corrected 13 existing tests that encoded the old behavior, added a RUN:3-shaped convergence test (mutation-probe verified), and corrected T-29-07's security evidence text (safety property unaffected, `threats_open` stays 0) | 2026-08-05 | 7473eeb | Verified | [260805-tad-fix-window-shape-dispatch-in-the-calenda](./quick/260805-tad-fix-window-shape-dispatch-in-the-calenda/) |
 | 260806-lgo | Mark RECON-04 as Complete in REQUIREMENTS.md (checkbox + traceability table), recording the human decision from the UAT audit that RECON-04's stage-3/4 narrowing/COMPLETED behavior is pre-existing Phase 28 code, not a Phase 29 gap; adds the corresponding `overrides:` entry to 29-VERIFICATION.md frontmatter | 2026-08-06 | c1ee9e4 | Complete | [260806-lgo-mark-recon-04-as-complete-in-planning-re](./quick/260806-lgo-mark-recon-04-as-complete-in-planning-re/) |
 | 260806-ol7 | New standalone, view-driven demo notebook `campaign_lifecycle_demo.ipynb`: walks a Campaign and four CampaignRuns (classical, LCO queue, ESO queue, class-wide) end-to-end through the real `campaigns:submit`/`campaigns:decide`(approve/resolve_site)/`campaigns:attribution_decide` views — never a direct-ORM pre-approved shortcut — proving `source` never decides an event's calendar shape (only `telescope_class`/`site` do, per quick task 260805-tad). Wired into docs/notebooks.rst, the runbook's See also section, and CLAUDE.md's notebook pairing map | 2026-08-06 | 43bc471 | Complete | [260806-ol7-build-a-new-demo-notebook-or-extend-an-e](./quick/260806-ol7-build-a-new-demo-notebook-or-extend-an-e/) |
+| 260831-arc | Move `.planning/phases-archive/` (phases 01-09 + 07.1) into the canonical `.planning/milestones/v1.0-phases`..`v1.4-phases` layout, matching v1.5-v2.1; pure `git mv` of 108 files, no content changed. The old location came from a local `milestone.cjs` patch (archive instead of delete) now superseded by gsd-core 1.12.0 upstream #1871, which archives under `milestones/` — `phase-locator.cjs` only matches `/^v[\d.]+-phases$/` there, so 10 phases present on disk were reported as missing. Health warnings 12 -> 2 (W006 x10 cleared) | 2026-08-31 | dd23ef9 | Complete | — (ran via `/gsd-fast`, no quick-task dir) |
 
 ## Deferred Items
 
@@ -259,8 +264,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-07T00:42:15.327Z
-Stopped at: Completed quick task 260806-ol7 -- added campaign_lifecycle_demo.ipynb, a view-driven full-lifecycle demo notebook covering classical/LCO-queue/ESO-queue/class-wide CampaignRuns
+Last session: 2026-08-31T22:50:00.000Z
+Stopped at: Upgraded gsd-core 1.4.4 -> 1.12.0 and moved `.planning/phases-archive/` into the canonical `.planning/milestones/v1.0-phases`..`v1.4-phases` layout (260831-arc). Milestone v2.2 remains complete and unarchived.
 Resume file: None
 
 ## Operator Next Steps
