@@ -12,7 +12,7 @@
 - ✅ **v1.7 ESO/VLT Calendar Sync — Feasibility Spike** — Phase 13 (shipped 2026-07-02) — see [milestones/v1.7-ROADMAP.md](milestones/v1.7-ROADMAP.md)
 - ✅ **v2.0 Campaign Coordination for Rare/Urgent Objects** — Phases 14-17 (shipped 2026-07-05) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Uncertain Scheduling & Site Disambiguation** — Phases 18-25 (shipped 2026-07-18) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
-- 🚧 **v2.2 One Canonical Run Record** — Phases 26-29 (in progress)
+- ✅ **v2.2 One Canonical Run Record** — Phases 26, 27, 27.1, 28-30 (shipped 2026-09-01) — see [milestones/v2.2-ROADMAP.md](milestones/v2.2-ROADMAP.md)
 
 ## Phases
 
@@ -102,305 +102,19 @@
 
 </details>
 
-### 🚧 v2.2 One Canonical Run Record (Phases 26-30) — IN PROGRESS
-
-**Milestone Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
-
-- [x] **Phase 26: Canonical-Record Spike** - Settle the `source` vocabulary, per-adapter identity mapping, canonical event-key scheme, and migration/attribution strategy against the real dev-DB rows before any code lands (plans 26-01..03 executed 2026-07-27; reopened by verification — SPIKE-03's key scheme was settled for classically-scheduled runs only; plans 26-04/26-05 closed the gap with measured evidence and a human-decided verdict: a queue-scheduled run gets one whole-window `RUN:{run_pk}` container event, coexisting with its real `ObservationRecord`-derived events) (completed 2026-07-27)
-- [x] **Phase 27: The Canonical Run Record** - `source` and `telescope_class` on `CampaignRun`, a generalised companion record carrying the event→run link, and a confirmable run↔ObservationRecord link (completed 2026-07-30; a second gap-closure round landed 2026-08-06 — see Wave 6 below)
-- [x] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair (all 5 plans executed 2026-07-31; criterion 6 closed by 27.1-05 — the `source` provenance lock widened to every `WEB` run at any approval status; a criterion-5 gap re-verification opened, a contaminated dev-DB snapshot in the paired `import_campaign_csv_demo.ipynb`, was closed by regenerating the notebook from a clean DB; verified 6/6, see 27.1-VERIFICATION.md) (completed 2026-07-31)
-- [x] **Phase 28: Operator-Assisted Attribution** (0/4 plans) - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible (completed 2026-08-01)
-- [x] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear (completed 2026-08-05)
-- [x] **Phase 30: v2.2 Tech-Debt Cleanup** - Close out the deferred items with an accurate record: the attribution-candidate `approval_status` filter, the `telescope_class` re-import guard, the root cause behind three phases logging phantom ruff drift, the unreconciled Nyquist validation files, and correcting the milestone audit itself (goal rewritten 2026-08-31 after discuss-phase verified the WR-09/WR-10 runbook fixes and the ruff drift were already closed) (completed 2026-09-01)
-
-**Locked constraints** (settled during milestone questioning and the research pass — phase planning executes these, it does not re-open them):
-
-- **The spike blocks everything.** Phase 26 is investigation-only and gates all three implementation phases.
-- **Model work precedes the reconciler.** The reconciler needs a run to know its linked `ObservationRecord`s before it can decide which pipeline stage each night is at.
-- **Attribution precedes the first full reconcile sweep** (ATTRIB-06). Phase 28 ships before Phase 29 so the ordering is structural, not a rollout caveat — see the Phase 28/29 "Depends on" notes for the full rationale.
-- **`related_name='telescope_label_meta'` is not renamed.** Only the model class is renamed. Renaming the related_name would silently break the calendar template and the view's `prefetch_related()` with no static check.
-- **No new dependencies.** Research explicitly rejected `django-dirtyfields`/`FieldTracker`, `django-fsm`, Celery, `rapidfuzz`, and `GenericForeignKey`.
-- **New logic lives in `solsys_code/campaign_reconciler.py`**, a peer of `campaign_gap.py`/`campaign_utils.py` — never a private helper inside `campaign_views.py`, and never importing `solsys_code.views` or `solsys_code.ephem_utils` (importing `ephem_utils` triggers a ~1.6 GB SPICE kernel download at module load). This also fixes the existing anti-pattern where `backfill_range_calendar_events` imports the private `_project_calendar_event` from the views module.
-
-## Phase Details
-
-### Phase 26: Canonical-Record Spike
-
-**Goal**: Settle the identity, key-scheme, migration and attribution questions milestone questioning deliberately left open — against the real dev-DB rows (`CampaignRun` pk=1, its 11 LCO queue events, the 19 unprojected 3I/ATLAS runs), not against hypotheticals — so that every later phase executes a decision instead of making one.
-**Depends on**: Nothing (first phase of v2.2)
-**Requirements**: SPIKE-01, SPIKE-02, SPIKE-03, SPIKE-04
-**Paired docs (CLAUDE.md rule)**: None — investigation only, no module behaviour changes. Decisions land in a phase decision doc plus a durable `docs/design/` page (precedent: `18-DECISION.md` → `docs/design/uncertain_scheduling_spike.rst`).
-**Success Criteria** (what must be TRUE):
-
-  1. A decision doc fixes the `source` vocabulary (web submission / classical file / LCO queue / Gemini queue / CSV import, plus the value pre-milestone rows get) and shows, by executable check against the real rows, that `CampaignRun` pk=1 and its 11 LCO-sourced calendar events coexist with no `IntegrityError` and no change to either existing partial unique constraint
-  2. The doc maps each adapter's existing calendar-event identity key onto a run — classical `(telescope, instrument, start_time ±5 min)`, the LCO request URL, `GEM:{prog}/{obsid}`, and `CAMPAIGN:{pk}[:{date}]` — so a reader can say, for any existing event, which run it would belong to
-  3. The doc states one canonical reconciler event-key scheme that stays stable across all four pipeline stages, and answers explicitly whether a class-wide (stage 2) run fans out one event per candidate site or produces a single class-wide event
-  4. The doc states the migration and attribution strategy, naming every integration point the companion-record rename touches as a checklist (admin registration, LCO sync command, view `prefetch_related` string, calendar template), with the `related_name='telescope_label_meta'`-stays-unchanged decision recorded
-  5. The decisions are durable and readable outside `.planning/` — a `docs/design/` page carries the settled vocabulary, key scheme and rename checklist forward for whoever builds Phases 27-29
-
-**Plans:** 5/5 plans complete
-Plans:
-**Wave 1**
-
-- [x] 26-01-PLAN.md — Scratch environment, date-pinned real-DB snapshot, SPIKE-02 adapter identity mapping, hand-authored throwaway migration, and the measured companion-record rename blast radius
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 26-02-PLAN.md — Manual `/calendar/` confirmation, SPIKE-01's executable coexistence + constraint negative controls, and the three-way adopt / gap-fill / rejected-baseline prototype
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 26-03-PLAN.md — Adopt-vs-gap-fill decision, the completed `26-DECISION.md` Recommendation for SPIKE-01..04, the durable `docs/design/canonical_record_spike.rst` page, and full discard of every throwaway artifact
-
-**Wave 4** *(gap closure — blocked on Wave 3 completion)*
-
-- [x] 26-04-PLAN.md — Measured closure of the SPIKE-03 gap: the queue-versus-classical run inventory and RECON-07 split, the existing `campaign_gap.claimed_dates()` over-claim, and the three-way span / none / per-night queue-run projection comparison against `CampaignRun` pk=1's real window
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 26-05-PLAN.md — Queue-run projection decision, the amended `26-DECISION.md` Criterion 3 and Domain-correction sections, the mirrored `docs/design/canonical_record_spike.rst` update, and the ROADMAP/REQUIREMENTS wording sync
-
-### Phase 27: The Canonical Run Record
-
-**Goal**: Make `CampaignRun` canonical in the schema — it records how it was created, distinguishes a class-wide allocation from an unresolved site, owns the calendar events that show it, and owns the observation records that realise it — with every existing row and all four companion-record consumers surviving the change.
-**Depends on**: Phase 26 (the spike settles the `source` vocabulary, the constraint interaction, the rename checklist, and the link shapes)
-**Requirements**: CANON-01, CANON-02, CANON-03, CANON-04, CANON-05
-**Paired docs (CLAUDE.md rule)**: `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` (CANON-01 changes what `import_campaign_csv` writes for `source`/`approval_status` — a behaviour change, so the notebook is in `files_modified` up front) and `docs/runbooks/telescope_runs_calendar.rst` (the runbook documents `import_campaign_csv`'s approval behaviour, which changes for non-web sources).
-**Success Criteria** (what must be TRUE):
-
-  1. Every `CampaignRun` records which ingest path created it, and a run from a non-web source is never left sitting in a review queue nobody will process — approval gating applies to web submissions only, and existing non-staff visibility behaviour is unchanged for both old and new rows
-  2. A run allocated to a telescope class (`2m0`/`1m0`/`0m4`) is distinguishable from a run whose site failed to resolve, and the two can coexist for the same campaign, telescope and window without colliding
-  3. Existing companion rows survive the model rename with their `is_verified` history intact: the calendar still shows the dashed-border fallback indicator, the LCO sync command still writes labels, the admin still registers the model, and the calendar page still loads labels in a single prefetch query
-  4. A calendar event can carry a link to the run it belongs to, and an `ObservationRecord` can be linked to the run it realises with a record of whether a human confirmed it — and deleting a run never deletes calendar events, companion rows, or observation records
-  5. A staff user can see a run's linked calendar events and observation records, and can get from an event back to its run
-
-**Plans:** 7/7 plans complete
-
-**Wave 1**
-
-- [x] 27-01-PLAN.md — `calendar_utils.py` as a real shared API: de-underscore its five cross-module helpers, add the one shared `derive_telescope_class()` (D-20) with D-12's subset assertion, and move the `calendar_utils`-owned tests into their own module
-- [x] 27-02-PLAN.md — Data repair before the backfills: the `repair_stale_campaign_run_sites` command with offline mocked tier-2 tests plus its one-time live run (D-16/D-16a/D-22), and the coordinate-derived `Observatory.timezone` backfill (D-23)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 27-03-PLAN.md — CANON-03: hand-authored `RenameModel` to `CalendarEventMeta` plus its nullable `run` link, all six rename integration points, and a `MigrationExecutor` proof that the 11 real `is_verified` rows survive
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 27-04-PLAN.md — CANON-01/02/04 at the schema layer: `Source`/`TelescopeClass` vocabularies and fields, `is_publicly_visible`, the `CampaignRunObservation` link model with its named uniqueness constraint and audit fields, and the derived-rule `telescope_class` backfill (no constraint change — D-14)
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 27-05-PLAN.md — CANON-05: two editable admin inlines with `save_formset` attribution stamping (D-06/D-07), the two new admin filters (D-19), `telescope_class` on the non-staff allow-list with `source` withheld (D-18), `source=WEB` on submissions, and the calendar-modal template override gated on `is_publicly_visible` (D-08/D-09/D-10)
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 27-06-PLAN.md — `import_campaign_csv` writes `source` and `telescope_class`, the paired demo notebook and operator runbook are regenerated/updated, and the three folded planning-doc corrections land
-
-**Wave 6** *(gap closure — 27-UAT.md re-verification round 2, after Phase 27.1 closed round 1)*
-
-- [x] 27-07-PLAN.md — Move "Sites Needing Review" to the top of the approval queue (27-UAT.md Test 8); surface a staff-only HIGH-band attribution-queue candidate hint in the unlinked-event calendar modal, refresh the stale WR-03 comment, and update the paired runbook (27-UAT.md Test 9)
-
-### Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)
-
-**Goal**: Make Phase 27's staff-facing surfaces actually usable and close the one data-integrity risk its own review found — staff can reach the site-review queue, the calendar event modal renders cleanly instead of printing its own template source, the admin run picker is legible enough to hand-link an event, and a CSV re-import can no longer silently revert a site repair.
-**Depends on**: Phase 27 (closes gaps found by its UAT pass and code review). Should land **before** Phase 28: until the attribution queue ships, the admin FK picker is the only mechanism that can create a run↔event link (Phase 27 WR-03), so its legibility is load-bearing rather than cosmetic.
-**Requirements**: CANON-01, CANON-02, CANON-05 — delivery gaps in Phase 27's surfaces for these requirements, not new requirements
-**Paired docs (CLAUDE.md rule)**: `docs/runbooks/telescope_runs_calendar.rst` — the runbook documents both the staff approval-queue actions (criterion 1 changes how staff reach the site-review queue) and `import_campaign_csv`'s existing "re-import gotcha" note (criterion 5 changes what a re-import may overwrite). Add `docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb` to `files_modified` only if the criterion-5 fix changes what the command writes.
-
-**Out of scope — do not "fix" this**: Phase 27 review finding **WR-02** (`repair_stale_campaign_run_sites` never clears `telescope_class` when it resolves `site`). `27-VERIFICATION.md` calls this an invariant violation, but `solsys_code/models.py:213-219` documents the *opposite* invariant — `telescope_class` is NEVER cleared by any writer once set, because a class-wide allocation and a resolved site are not mutually exclusive. The user explicitly REJECTED code-review finding CR-01 which proposed clearing it (see `27-REVIEW-FIX.md`). The stale text is the verification report's, not the code's; correcting that wording is the only action WR-02 warrants.
-
-**Success Criteria** (what must be TRUE):
-
-  1. Staff can reach the "Sites Needing Review" queue whenever it has rows, including when there are zero pending submissions — the campaign-list link is driven by both queues, not by `pending_count` alone
-  2. The calendar event modal renders no template source: `event_form.html`'s header is a real Django comment, no other multi-line `{# #}` block survives anywhere in the repo, and a **render-level** (not byte-diff) assertion covers FOMO's `tom_calendar` overrides so the same class of defect fails a test instead of reaching a user
-  3. A TBD run linked to a calendar event never renders the literal "(None–None)" in the public modal — the window appears only when it is resolved
-  4. Staff can identify the right run in the admin FK picker: each `CampaignRun` label carries a date and a site/telescope discriminator, and the 11 existing companion rows are distinguishable from one another
-  5. A CSV re-import cannot silently revert a site just fixed by `repair_stale_campaign_run_sites`, and the rule chosen is written into the runbook's existing re-import note
-  6. `source` cannot be silently overwritten on an already-approved `WEB` run — or, if it stays editable, the deliberate decision records its consequence (loss of the CANON-01 provenance signal), not just its rationale
-
-**Plans:** 5/5 plans complete
-
-Plans:
-
-**Wave 1** *(no file overlap -- executable in parallel)*
-
-- [x] 27.1-01-PLAN.md — Calendar event modal renders cleanly: all three multi-line `{# #}` blocks converted, the TBD-run `(None-None)` window gated, and render-level + template-tree sweep regression tests (criteria 2, 3)
-- [x] 27.1-02-PLAN.md — Admin FK picker legibility and the `source` provenance lock: discriminating `__str__` on both models, autocomplete + event-start column, and `source` withheld on already-approved WEB rows (criteria 4, 6)
-- [x] 27.1-03-PLAN.md — Staff can reach the "Sites Needing Review" queue: one shared `runs_needing_site_review()` definition, a campaign-list banner driven by either queue, and the runbook's two-queue entry-point section (criterion 1)
-
-**Wave 2** *(blocked on 27.1-03 -- both plans edit `docs/runbooks/telescope_runs_calendar.rst`)*
-
-- [x] 27.1-04-PLAN.md — A CSV re-import can no longer silently revert a repaired site: the preservation guard, an honest `site_needs_review` counter, the rule written into the runbook's re-import note, the regenerated demo notebook, and the WR-02 wording correction (criterion 5)
-
-**Wave 3** *(gap closure — blocked on 27.1-02 (extends its `source` lock) and on 27.1-04 (both edit `docs/runbooks/telescope_runs_calendar.rst`))*
-
-- [x] 27.1-05-PLAN.md — Criterion 6 closed by Option A: the `source` provenance lock widened to every `WEB` run at any approval status (parity with `import_campaign_csv`'s existing carve-out), the WR-03 edit-while-pending-then-approve sequence pinned by a cross-path regression test, and the accepted cost plus the one-way-ratchet residual written into both the admin docstring and the runbook (criterion 6)
-
-### Phase 28: Operator-Assisted Attribution
-
-**Goal**: Give staff a queue of suggested run↔event and run↔record associations with the evidence visible, confirmable one candidate at a time and undoable — the mechanism that connects the existing calendar events and observation records to their parent runs without ever guessing silently.
-**Depends on**: Phase 27 (needs the event→run link and the confirmable record link to write into); Phase 26 (matching strategy). Deliberately scheduled **before** the reconciler for two reasons: (a) attribution is the only mechanism in v2.2 that creates run↔`ObservationRecord` links — adapter rewiring is deferred to v2.3 — so without it the reconciler's stages 3 and 4 have no real data to act on, only synthetic fixtures; (b) ATTRIB-06 requires attribution to be completable before the first full reconcile sweep, and shipping it first makes that structural instead of a rollout caveat. The alternative (reconciler first, shipping with `--dry-run` as the only safe production mode until attribution lands) was considered and rejected as an avoidable sequencing hazard.
-**Requirements**: ATTRIB-01, ATTRIB-02, ATTRIB-03, ATTRIB-04, ATTRIB-05, ATTRIB-06
-**Paired docs (CLAUDE.md rule)**: `docs/runbooks/telescope_runs_calendar.rst` — the runbook documents the staff approval-queue actions, and this phase adds a new staff-facing decision surface alongside them.
-**Success Criteria** (what must be TRUE):
-
-  1. Staff see a queue of suggested associations between existing calendar events or observation records and their likely parent run, each showing its evidence side by side — matched telescope, date overlap, campaign, instrument-string similarity — not a bare score
-  2. Candidates are confidence-scored and filterable by score, so staff can work through the confident tail quickly and hand-review only the ambiguous remainder
-  3. No association is ever created without an explicit per-candidate staff confirmation, and no suggestion is ever offered across a campaign/target boundary
-  4. A confirmed association can be undone from the same screen that created it, and both the confirmation and the undo are attributable to a person and a time
-  5. The known real case is surfaced: `CampaignRun` pk=1 (FTS/MuSCAT4, 7–21 July, Siding Spring E10) is offered against its 11 LCO queue events (`2m0`/`2M0-SCICAM-MUSCAT`, 7–20 July) despite the one-day span difference and the mismatched instrument strings — and the whole attribution pass can be completed before any full reconcile sweep runs
-
-**Plans:** 6/6 plans complete
-
-Plans:
-
-**Wave 1**
-
-- [x] 28-01-PLAN.md — Schema and audit: the two typed per-pair dismissal models, `CalendarEventMeta.confirmed_by`/`confirmed_at` (D-12's deliberate reopening of Phase 27 D-05), migration 0013, the superseded D-05 comment rewritten, and the admin `save_formset` branch keyed on a `run_id` transition rather than `pk is None`
-
-**Wave 2** *(blocked on 28-01 — needs the dismissal models to exclude dismissed pairs)*
-
-- [x] 28-02-PLAN.md — The matcher: `campaign_attribution.py` with the three weighted evidence signals, the campaign/target boundary as the single hard gate, the tokenised `difflib` instrument similarity that keeps a 0.500 whole-string ratio from disqualifying criterion 5, the orphan querysets, the two shared backlog counts, and the criterion-5 acceptance test built as an equivalent fixture
-
-**Wave 3** *(blocked on 28-02 — every write action re-validates through the matcher)*
-
-- [x] 28-03-PLAN.md — The write path: the `campaigns:attribution` / `campaigns:attribution_decide` routes, `AttributionQueueView`'s context assembly, and `AttributionDecisionView`'s five actions (single confirm, sole-high-band multi-select confirm, dismiss-with-reason, undo-confirmation-writes-a-dismissal, undo-dismissal), each re-derived server-side and race-safe by the idiom correct for its target model
-
-**Wave 4** *(blocked on 28-03 — both plans edit `campaign_views.py`; the template reverses 28-03's routes)*
-
-- [x] 28-04-PLAN.md — The read path and docs: the four-section attribution page with grouped candidates and evidence beside a subordinate score, the Dismissed/Confirmed tables, the campaign-list count banner, the operator runbook's attribution section, and the drain-to-empty test that makes ATTRIB-06 checkable
-
-**Wave 5** *(gap closure — blocked on 28-04; the two plans share no file and run in parallel)*
-
-- [x] 28-05-PLAN.md — The two BLOCKER gaps: CR-01's `formnovalidate` on both Confirm submitters (the Dismiss-only `required` reason field currently blocks Confirm in a real browser) proved by a new template-structure test module that never calls `self.client.post()`, CR-02's `readonly_fields` + `save_model()` stamping on the standalone `CalendarEventMetaAdmin` page, plus the runbook consequences and the `REQUIREMENTS.md` traceability sync
-- [x] 28-06-PLAN.md — The two WARNING findings: WR-01's `_undo_confirmation()` reorder so the dismissal is written only after the link-clearing write matched a row, and WR-02's `sole_high_candidate_pk` computed from the full uncapped candidate list; IN-01's contract mismatch closed by documenting the actual rounded-score threshold, with the behavior change deliberately deferred
-
-**UI hint**: yes
-
-### Phase 29: The Reconciler
-
-**Goal**: Calendar events stop being a side effect of a staff click and become a function of run state — one idempotent command plus per-run reconciliation on every staff decision, projecting all four window-pipeline stages, safe to re-run, blind to events it does not own, and retiring the backfill-command-per-gap pattern for good.
-**Depends on**: Phase 28 (attribution links give stages 3-4 real run↔record data and ensure the first full sweep cannot visibly double-book), Phase 27 (`telescope_class` for stage 2, the event→run link for ownership scoping and its bulk existence query, the record link for stages 3-4), Phase 26 (canonical event-key scheme)
-**Requirements**: RECON-01, RECON-02, RECON-03, RECON-04, RECON-05, RECON-06, RECON-07, RECON-08, RECON-09
-**Paired docs (CLAUDE.md rule)**: a new `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` paired with the new command, and `docs/runbooks/telescope_runs_calendar.rst` (document the reconciler and the per-run staff-action reconcile; remove `backfill_range_calendar_events`, which RECON-09 retires). CLAUDE.md's notebook pairing map gains the new module. Both are in `files_modified` from the start, not follow-ups.
-**Success Criteria** (what must be TRUE):
-
-  1. Staff run one command that projects and refreshes calendar events for every run regardless of window length, source, or site-resolution state; running it a second time against unchanged state changes nothing — no new rows and no `modified` churn
-  2. A classically-scheduled, site-resolved run shows one event per night spanning that site's sunset-to-sunrise twilight; a queue-scheduled run (site-resolved or class-wide) shows a single whole-window `RUN:{run_pk}` container event, with its already-scheduled or already-observed nights shown by their own separate, real `ObservationRecord`-derived events; a night whose observation record has been scheduled narrows to that record's window; and a completed observation shows the final observed time range marked COMPLETED
-  3. Events the reconciler does not own — hand-created entries, conferences, proposal deadlines, and un-attributed sync-command events — are never created, modified, or deleted by it, proven against a fixture that deliberately puts one in the same date window as a run being reconciled
-  4. `--dry-run` reports exactly what would change and writes nothing, and a run that fails to reconcile (e.g. the known blank-`Observatory.timezone` rows) is reported and skipped while the rest of the batch completes
-  5. The 19 approved, site-resolved 3I/ATLAS runs that no existing command can project are visible on the calendar; approve / resolve_site / mark_cancelled / mark_weather_failure each reconcile their run immediately; and `backfill_range_calendar_events` no longer exists in the codebase or the operator runbook
-
-**Plans:** 6/6 plans complete
-
-**Wave 1**
-
-- [x] 29-01-PLAN.md — Two new no-churn helpers in `calendar_utils.py`, the complete
-  `campaign_reconciler.py` module (D-03's shared per-run function, both `RUN:` key families,
-  the ownership guard and the companion-row writer), and its container/skip/ownership unit tests
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 29-02-PLAN.md — D-02's adopt-and-rekey step ahead of the per-night mint, the classical
-  per-night branch's full test coverage, and RECON-04's non-interference proof against a real
-  `CampaignRunObservation` link
-
-**Wave 3** *(blocked on Wave 2 completion; both plans run in parallel)*
-
-- [x] 29-03-PLAN.md — The `reconcile_campaign_runs` management command with `--dry-run` and the
-  D-05 summary, plus command-level idempotency, dry-run, failure-isolation and 19-run-shape tests
-
-- [x] 29-04-PLAN.md — Rewiring the four staff actions onto `reconcile_run()`, deleting
-  `_project_calendar_event`/`_calendar_event_title` and the `backfill_range_calendar_events`
-  command and test, and rewriting the approval-queue suite onto `RUN:` keys
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 29-05-PLAN.md — Operator runbook rewritten for the reconciler (RECON-09's documentation
-  half) and the paired pre-executed `reconcile_campaign_runs_demo.ipynb`, wired into the Sphinx
-  toctree and CLAUDE.md's notebook map
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 29-06-PLAN.md — D-07's `source` data-fix checkpoint, the first full reconcile sweep against
-  the real dev database, and the visual/runbook confirmation of RECON-07
-
-### Phase 30: v2.2 Tech-Debt Cleanup
-
-**Goal**: Close out the v2.2 deferred items with an accurate record. Scouting during
-discuss-phase established that two of the three items originally named here were already
-done and a third was misdiagnosed, so the phase is scoped to what is genuinely open: the
-`approval_status` gap in attribution eligibility, the `telescope_class` half of the CSV
-re-import guard, the root cause behind three phases logging phantom ruff drift, the
-unreconciled Nyquist validation files, and correcting the milestone audit itself so the
-closed items stop being re-flagged.
-**Depends on**: Phase 29 (its reconciler and runbook rewrite are the last changes to the
-attribution surfaces and `docs/runbooks/telescope_runs_calendar.rst` that this phase edits)
-**Requirements**: TBD (tech-debt phase — items sourced from `.planning/v2.2-MILESTONE-AUDIT.md`)
-**Locked context**: `30-CONTEXT.md` carries twelve decisions (D-01..D-12) settled during
-discuss-phase, including the verified evidence that WR-09, WR-10 and the ruff drift are
-already closed. Planning executes those decisions; it does not re-open them.
-**Paired docs (CLAUDE.md rule)**: `docs/runbooks/telescope_runs_calendar.rst` (attribution
-section) and `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb` (a fifth, rejected
-submission demonstrating the exclusion) are both in `files_modified` from the start, not
-follow-ups.
-
-**Scope** (six items):
-
-1. **27-REVIEW IN-02** — `approval_status` filter on attribution eligibility.
-2. **27-REVIEW WR-01** — the `telescope_class` half of the CSV re-import guard.
-3. **Ruff root cause** — pin the dev dependency and correct CLAUDE.md's documented gate
-   command; no repo-wide reformat.
-4. **Nyquist coverage** — reconcile the five phase `VALIDATION.md` files.
-5. **The record** — amend `.planning/v2.2-MILESTONE-AUDIT.md` with each item's true
-   disposition.
-6. **Bookkeeping** — stale docstring names in `campaign_reconciler.py`; `26-DECISION.md`'s
-   header preamble.
-
-**Success Criteria** (what must be TRUE):
-
-  1. A `REJECTED` run is never offered as a suggested match for an orphan `CalendarEvent`
-     *or* an orphan `ObservationRecord`, while `APPROVED` and `PENDING_REVIEW` runs both
-     still are — enforced at the two eligibility gates themselves, so the attribution
-     queue, the backlog and the unattributable count all move together rather than
-     disagreeing; an association already confirmed before a run was rejected is left intact
-  2. A CSV re-import can no longer replace a non-blank `telescope_class` with a derived
-     value when the row's own cell did not genuinely resolve, and every row where that
-     guard fires is named in the command's output rather than passing silently as
-     `unchanged` — the same behaviour the `site` half already has
-  3. The project's lint and format gates both pass under the ruff version the project
-     pins, and a developer following the documented command gets that same version — so a
-     fresh environment cannot reproduce the drift Phases 26, 27 and 27.1 each logged; no
-     file is reformatted to achieve this
-  4. Phases 26, 27, 27.1, 28 and 29 each have a reconciled `VALIDATION.md` carrying a real
-     verdict rather than an unpromoted draft or no file at all
-  5. `.planning/v2.2-MILESTONE-AUDIT.md` states the true disposition of every tech-debt
-     item it lists, with each already-closed item citing where it was closed, so
-     `/gsd-complete-milestone` reads a correct record
-  6. The operator runbook tells staff that a rejected run is never offered as a match, and
-     `campaign_lifecycle_demo.ipynb` shows that exclusion happening in real executed output
-
-**Plans:** 4/4 plans complete
-
-Plans:
-
-**Wave 1**
-
-- [x] 30-01-PLAN.md — Tracer slice: the `approval_status` filter at both attribution eligibility gates (D-01/D-02/D-03), its exclusion and non-vacuous control tests, and both paired artifacts — the runbook's attribution paragraph and a fifth, rejected notebook submission (D-12)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 30-02-PLAN.md — The ruff root cause: pin the dev dependency to the pre-commit rev (D-06) and route CLAUDE.md's documented gate through pre-commit (D-07), no reformat (D-05); plus the cosmetic bookkeeping — five stale reconciler docstring names and `26-DECISION.md`'s header (D-10)
-- [x] 30-03-PLAN.md — The `telescope_class` half of the CSV re-import guard (D-04): a `preserve_telescope_class` decision mirroring `preserve_site`, its stderr diagnostic and summary counter, four tests, and the runbook's re-import gotcha
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 30-04-PLAN.md — Reconcile the five phase `VALIDATION.md` files via validate-phase (D-08), then amend `.planning/v2.2-MILESTONE-AUDIT.md` with the true disposition of every tech-debt item, citing where each already-closed one was closed (D-09), and record the D-11 roadmap correction
+<details>
+<summary>✅ v2.2 One Canonical Run Record (Phases 26, 27, 27.1, 28-30) — SHIPPED 2026-09-01</summary>
+
+- [x] Phase 26: Canonical-Record Spike (5/5 plans) — completed 2026-07-29
+- [x] Phase 27: The Canonical Run Record (7/7 plans) — completed 2026-08-06
+- [x] Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED) (5/5 plans) — completed 2026-07-31
+- [x] Phase 28: Operator-Assisted Attribution (6/6 plans) — completed 2026-08-02
+- [x] Phase 29: The Reconciler (6/6 plans) — completed 2026-08-05
+- [x] Phase 30: v2.2 Tech-Debt Cleanup (4/4 plans) — completed 2026-09-01
+
+</details>
 
 ## Progress
-
-**Execution Order:** Phases execute in numeric order: 26 → 27 → 28 → 29 → 30
 
 | Phase             | Milestone | Plans Complete | Status      | Completed  |
 | ----------------- | --------- | -------------- | ----------- | ---------- |
@@ -430,16 +144,15 @@ Plans:
 | 23. Weather/Storm Cancellation Handling | v2.1 | 3/3 | Complete | 2026-07-16 |
 | 24. Operator and Usage Runbook Documentation | v2.1 | 1/1 | Complete | 2026-07-17 |
 | 25. Range-Window CalendarEvent Projection | v2.1 | 2/2 | Complete | 2026-07-18 |
-| 26. Canonical-Record Spike | v2.2 | 5/5 | Complete    | 2026-07-29 |
-| 27. The Canonical Run Record | v2.2 | 7/7 | Complete    | 2026-08-06 |
-| 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
-| 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
-| 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete    | 2026-09-01 |
+| 26. Canonical-Record Spike | v2.2 | 5/5 | Complete | 2026-07-29 |
+| 27. The Canonical Run Record | v2.2 | 7/7 | Complete | 2026-08-06 |
+| 27.1. Close gap: staff surfaces and data-integrity risks (INSERTED) | v2.2 | 5/5 | Complete | 2026-07-31 |
+| 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete | 2026-08-02 |
+| 29. The Reconciler | v2.2 | 6/6 | Complete | 2026-08-05 |
+| 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete | 2026-09-01 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
 ## Current Milestone
 
-🚧 **v2.2 One Canonical Run Record** — Phases 26-30, started 2026-07-26.
-
-Coverage: 24/24 v1 requirements mapped, no orphans, no duplicates. Next: `/gsd-plan-phase 30`.
+None — awaiting `/gsd-new-milestone`.

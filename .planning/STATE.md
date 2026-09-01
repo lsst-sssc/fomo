@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-current_phase: 30
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 30 complete — all phases complete
-last_updated: "2026-09-01T10:04:49.359Z"
+last_updated: "2026-09-01T10:20:57.258Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 30 complete
-state_head: aa01693ca3b72dc8afd34cfc4d3faca36934248e
+last_activity_desc: Milestone v2.2 completed and archived
+state_head: 6fa1844657448a12c4e5f48d2a128837ac438a60
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 33
   completed_plans: 33
   percent: 100
+current_phase: 30
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-09-01 — Phase 30 complete, milestone v
 
 ## Current Position
 
-Phase: 30
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-09-01 — Phase 30 complete
+Phase: Milestone v2.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-01 — Milestone v2.2 completed and archived
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -236,35 +236,6 @@ None blocking. v2.2 "One Canonical Run Record" shipped 2026-09-01 (Phase 30, its
 
 | # | Description | Date | Commit | Status | Directory |
 |---|-------------|------|--------|--------|-----------|
-| 260705-l1v | Fix approval-queue site-visibility gap: show site_raw in the pending CampaignRun approval queue and stop the approval endpoint from fabricating placeholder Observatory rows for unresolvable free-text site names (found during v2.0 manual UAT) | 2026-07-05 | 959a78d | Verified | [260705-l1v-fix-approval-queue-site-visibility-gap-s](./quick/260705-l1v-fix-approval-queue-site-visibility-gap-s/) |
-| 260711-o71 | Measure solsys_code test coverage, add permanent CR-01/CR-02 regression tests to test_campaign_approval.py (closing the gap left by the phase 21 verifier's temporary tests), re-measure and report the diff | 2026-07-11 | adcd59a | Complete | [260711-o71-measure-current-test-coverage-for-solsys](./quick/260711-o71-measure-current-test-coverage-for-solsys/) |
-| 260714-ilz | Close date-format gap on public campaign-run submission form: obs_date now accepts single date/range/blank via parse_obs_window(), closing the hard Django date-validation failure that blocked multi-night range submissions (SUBMIT-01) | 2026-07-14 | f7b3ca0 | Complete | [260714-ilz-close-date-format-gap-on-public-campaign](./quick/260714-ilz-close-date-format-gap-on-public-campaign/) |
-| 260719-d18 | Fix calendar data-url missing utc_offset query param causing timezone selection to reset on calRefresh | 2026-07-19 | ec9afc6 | Complete | [260719-d18-fix-calendar-data-url-missing-utc-offset](./quick/260719-d18-fix-calendar-data-url-missing-utc-offset/) |
-| 260714-jpd | Register CampaignRun and CalendarEventTelescopeLabel in solsys_code/admin.py: approval_status read-only (no admin bypass of CampaignRunDecisionView.post()'s calendar projection + D-06 guard), contact PII excluded from the change-list but editable in detail, proven via a new admin test-client suite | 2026-07-14 | b6ae100 | Complete | [260714-jpd-add-calendareventtelescopelabel-and-camp](./quick/260714-jpd-add-calendareventtelescopelabel-and-camp/) |
-| 260716-h8c | Backfill Observatory.timezone from lat/lon in MPCObscodeFetcher.to_observatory() (Tier-2 MPC site-code lookup) using timezonefinder, closing the CR-01 gap where Tier-2-resolved sites always got a blank timezone and needed a manual admin edit before a Sites Needing Review calendar-projection retry could succeed | 2026-07-16 | 75962de | Complete | [260716-h8c-backfill-observatory-timezone-from-lat-l](./quick/260716-h8c-backfill-observatory-timezone-from-lat-l/) |
-| 260716-js7 | Add a client-side confirm-before-approve guard on the approval queue's Pending Review row: nudge staff before they Approve an unresolved Observing Site, mirroring the existing Reject confirmation pattern (D-06 preserved, no server-side change) | 2026-07-16 | 24d1d94 | Complete | [260716-js7-give-staff-clear-inline-feedback-guardra](./quick/260716-js7-give-staff-clear-inline-feedback-guardra/) |
-| 260717-iae | Wire the five existing pre-executed demo notebooks into docs/notebooks.rst's Sphinx toctree so they appear in the published Notebooks section (previously orphaned, no toctree reference) | 2026-07-17 | 6b3c145 | Complete | [260717-iae-wire-the-existing-pre-executed-demo-note](./quick/260717-iae-wire-the-existing-pre-executed-demo-note/) |
-| 260718-dih | Fix PR review findings from .planning/Findings.md: guard the unreverted calendar-sync loop in CampaignRunDecisionView._set_run_status with a non-reverting try/except, make parse_run_line fail fast on cross-month run ranges instead of the loader rejecting them later, anchor the partial-night token match with fullmatch, add regression tests for all three, and correct Findings.md's line-number citations | 2026-07-18 | 01dbc2a | Complete | [260718-dih-fix-pr-review-findings-unguarded-calenda](./quick/260718-dih-fix-pr-review-findings-unguarded-calenda/) |
-| 260805-qdc | Fix T-29-19 (Phase 29 security audit): route `_detach_stale_family_events()` and the `CampaignRun` `pre_delete` signal through a new `writable_events()` ownership check on `CalendarEventMeta.run`, so reconciling/deleting one run can no longer clear or hard-delete calendar events currently attributed to a different run; regression tests mirror the auditor's 3 probes | 2026-08-05 | 009195f | Complete | [260805-qdc-fix-t-29-19-phase-29-security-audit-rout](./quick/260805-qdc-fix-t-29-19-phase-29-security-audit-rout/) |
-| 260722-hpw | Fix import_campaign_csv to skip leading comment/blank rows before the real CSV header, so it can consume the real 3I/ATLAS sheet export unchanged | 2026-07-22 | 990bfb9 | Complete | [260722-hpw-fix-import-campaign-csv-to-skip-leading-](./quick/260722-hpw-fix-import-campaign-csv-to-skip-leading-/) |
-| 260722-tkt | Add opt-in --create-missing-targets flag to backfill_lco_observation_records: auto-create-or-reuse a SIDEREAL field Target from the request's RA/Dec, add it to the campaign, and process the request normally instead of skipping it | 2026-07-22 | 73581b0 | Complete | [260722-tkt-add-create-missing-targets-flag-to-backf](./quick/260722-tkt-add-create-missing-targets-flag-to-backf/) |
-| 260722-twe | Extend backfill_lco_observation_records --create-missing-targets to also pull epoch/pm_ra/pm_dec/parallax from the LCO request target dict when present, mapped onto newly-built field Targets only (reused Targets untouched) | 2026-07-22 | ba59d0f | Complete | [260722-twe-extend-backfill-lco-observation-records-](./quick/260722-twe-extend-backfill-lco-observation-records-/) |
-| 260722-uhh | Register a custom Django admin for tom_targets' Target model in solsys_code/admin.py with list_filter on type (sidereal vs non-sidereal), so staff can filter Targets by type in the admin change-list | 2026-07-22 | fac8a61 | Complete | [260722-uhh-register-a-custom-django-admin-for-tom-t](./quick/260722-uhh-register-a-custom-django-admin-for-tom-t/) |
-| 260722-ux0 | Fix backfill_lco_observation_records: refresh scheduled_start/scheduled_end via facility.update_observation_status() immediately after creating a new ObservationRecord, closing the perpetual [QUEUED] calendar-title bug for backfilled terminal records | 2026-07-23 | 6c5b205 | Complete | [260722-ux0-fix-backfill-lco-observation-records-pop](./quick/260722-ux0-fix-backfill-lco-observation-records-pop/) |
-| 260722-uyz | Fix sync_lco_observation_calendar: populate CalendarEvent.target_list from the record's Target's campaign TargetList membership (deterministic first match by name), closing a gap present since the command's original Phase 04 implementation | 2026-07-23 | ac5f0ac | Complete | [260722-uyz-fix-sync-lco-observation-calendar-set-ca](./quick/260722-uyz-fix-sync-lco-observation-calendar-set-ca/) |
-| 260723-02e | Add optional --campaign flag to load_telescope_runs: resolve a tom_targets.TargetList once upfront (explicit-name-only, fail-fast) and associate it with every created/updated CalendarEvent.target_list, matching backfill_lco_observation_records and sync_lco_observation_calendar precedent | 2026-07-23 | b3c4cd8 | Complete | [260723-02e-add-an-optional-campaign-flag-to-load-te](./quick/260723-02e-add-an-optional-campaign-flag-to-load-te/) |
-| 260723-r5g | Fix sync_lco_observation_calendar: guard [QUEUED] title prefix so a COMPLETED record with unresolved scheduled_start gets a clean title instead of being stuck [QUEUED] forever | 2026-07-24 | 0917927 | Complete | [260723-r5g-fix-sync-lco-observation-calendar-comple](./quick/260723-r5g-fix-sync-lco-observation-calendar-comple/) |
-| 260724-tiz | Improve telescope stripe/legend contrast: switch telescope_color() to a brighter TELESCOPE_PALETTE, re-implement the classical-event stripe via a CSS pseudo-element (avoids status-ring box-shadow collision), enlarge both legends into filled chip swatches | 2026-07-24 | 9f7bfae | Complete | [260724-tiz-improve-telescope-stripe-legend-contrast](./quick/260724-tiz-improve-telescope-stripe-legend-contrast/) |
-| 260724-vb0 | Fix telescope stripe/legend contrast against every background: split TELESCOPE_PALETTE into two parallel palettes (legend vs white, TELESCOPE_STRIPE_PALETTE vs gray fill), add a one-sided opaque STRIPE_OUTER_EDGE_COLOR edge, and a programmatic WCAG contrast audit (TestTelescopeStripeContrast) so this cannot silently regress a third time | 2026-07-25 | 280bc18 | Complete | [260724-vb0-fix-telescope-stripe-contrast-against-ev](./quick/260724-vb0-fix-telescope-stripe-contrast-against-ev/) |
-| 260725-kn4 | Guard MPCObscodeFetcher and to_earth_location against null coordinates for space-based obscodes: to_observatory() no longer raises TypeError on satellite MPC sites (250 HST, 258 Gaia, C51 NEOWISE) whose longitude/rhocosphi/rhosinphi are all null, storing a coordinate-less row instead; to_earth_location() now raises an actionable ValueError rather than TypeError-ing on None * u.deg | 2026-07-25 | 4336653 | Complete | [260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc](./quick/260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc/) |
-| 260726-fqb | Map JPL Horizons NAIF observer notation to MPC obscodes in resolve_site: add HORIZONS_OBSERVER_TO_OBSCODE (500@-170 to 274 JWST, 500@-48 to 250 HST, 500@-163 to C51 WISE, 500@-95 to C57 TESS, each verified against both the Horizons and MPC APIs) applied before the _MAX_OBSCODE_LEN guard rather than instead of it, so an unrecognized 500@<naif> is still flagged for review and Observatory.obscode stays max_length=4 | 2026-07-26 | 6357b7f | Complete | [260726-fqb-map-jpl-horizons-naif-observer-notation-](./quick/260726-fqb-map-jpl-horizons-naif-observer-notation-/) |
-| 260726-kdp | Close operator runbook drift and broaden the CLAUDE.md paired-deliverable rule to docs/runbooks: document load_telescope_runs --campaign (optional, vs import_campaign_csv's required flag) and the previously undocumented backfill_lco_observation_records command, correct the stale unconditional [QUEUED] claim, and rescope the paired-docs rule from a four-notebook filename list to directory-scoped coverage of docs/runbooks/ | 2026-07-26 | e709bf4 | Complete | [260726-kdp-close-operator-runbook-drift-and-broaden](./quick/260726-kdp-close-operator-runbook-drift-and-broaden/) |
-| 260730-jty | Stop flagging class-wide and space runs as needing site review: a non-blank telescope_class answers "why is there no site" (D-06), so site_needs_review now means only "site resolution failed AND no telescope_class" at all four writers, plus data migration 0012 to unflag the four live rows (pk=26 JUICE, 29 LCO 1m, 30 LCO 2m, 37 Generic 1m). Corrects the misleading mutual-exclusivity wording in models.py and derive_telescope_class that caused phase-27 code review CR-01 to propose clearing telescope_class on site resolution — recorded as REJECTED, since a class-wide campaign keeps its class permanently and its per-site detail lives on linked ObservationRecords (CANON-04) | 2026-07-30 | 44d46d4 | Complete | [260730-jty-stop-flagging-class-wide-and-space-runs-](./quick/260730-jty-stop-flagging-class-wide-and-space-runs-/) |
-| 260805-sgf | Split `CampaignRun.telescope_instrument` into separate `CalendarEvent.telescope`/`.instrument` fields via a new `_split_telescope_instrument()` helper (splits on first `/` or `+`, falls back to whole-string-as-telescope when no delimiter), fixing the reconciler-created events that previously dumped the whole combined string into `.telescope` alone and left `.instrument` blank (found live: RUN:10 showed Telescope="Apache Point Observatory/ARCTIC", Instrument="") | 2026-08-05 | 28e8bd9 | Complete | [260805-sgf-split-campaignrun-telescope-instrument-i](./quick/260805-sgf-split-campaignrun-telescope-instrument-i/) |
-| 260805-tad | Fix window-shape dispatch in the calendar reconciler: removed the `elif run.source in QUEUE_SOURCES:` branch from `reconcile_run()` — proven unreachable-for-its-intended-purpose since `_skip_reason()` already guarantees `run.site` is resolved whenever it fired — so a queue-sourced run with a resolved, non-satellite site (e.g. ESO VLT/FORS2 at MPC 309 Paranal) now gets per-night dip-corrected classical treatment instead of a blanket 00:00-23:59 whole-window container; `telescope_class` alone now covers the genuinely site-agnostic/floating case. Corrected 13 existing tests that encoded the old behavior, added a RUN:3-shaped convergence test (mutation-probe verified), and corrected T-29-07's security evidence text (safety property unaffected, `threats_open` stays 0) | 2026-08-05 | 7473eeb | Verified | [260805-tad-fix-window-shape-dispatch-in-the-calenda](./quick/260805-tad-fix-window-shape-dispatch-in-the-calenda/) |
-| 260806-lgo | Mark RECON-04 as Complete in REQUIREMENTS.md (checkbox + traceability table), recording the human decision from the UAT audit that RECON-04's stage-3/4 narrowing/COMPLETED behavior is pre-existing Phase 28 code, not a Phase 29 gap; adds the corresponding `overrides:` entry to 29-VERIFICATION.md frontmatter | 2026-08-06 | c1ee9e4 | Complete | [260806-lgo-mark-recon-04-as-complete-in-planning-re](./quick/260806-lgo-mark-recon-04-as-complete-in-planning-re/) |
-| 260806-ol7 | New standalone, view-driven demo notebook `campaign_lifecycle_demo.ipynb`: walks a Campaign and four CampaignRuns (classical, LCO queue, ESO queue, class-wide) end-to-end through the real `campaigns:submit`/`campaigns:decide`(approve/resolve_site)/`campaigns:attribution_decide` views — never a direct-ORM pre-approved shortcut — proving `source` never decides an event's calendar shape (only `telescope_class`/`site` do, per quick task 260805-tad). Wired into docs/notebooks.rst, the runbook's See also section, and CLAUDE.md's notebook pairing map | 2026-08-06 | 43bc471 | Complete | [260806-ol7-build-a-new-demo-notebook-or-extend-an-e](./quick/260806-ol7-build-a-new-demo-notebook-or-extend-an-e/) |
-| 260831-arc | Move `.planning/phases-archive/` (phases 01-09 + 07.1) into the canonical `.planning/milestones/v1.0-phases`..`v1.4-phases` layout, matching v1.5-v2.1; pure `git mv` of 108 files, no content changed. The old location came from a local `milestone.cjs` patch (archive instead of delete) now superseded by gsd-core 1.12.0 upstream #1871, which archives under `milestones/` — `phase-locator.cjs` only matches `/^v[\d.]+-phases$/` there, so 10 phases present on disk were reported as missing. Health warnings 12 -> 2 (W006 x10 cleared) | 2026-08-31 | dd23ef9 | Complete | — (ran via `/gsd-fast`, no quick-task dir) |
 
 ## Deferred Items
 
@@ -280,6 +251,26 @@ Items acknowledged and carried forward from previous milestone close:
 | todo | `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename `calendar_utils.py`'s private helpers to reflect shared-module status | Low-priority style cleanup; no functional impact | v2.0 close |
 | seed | SEED-001 — file upstream `tom_eso` feature requests | Still dormant | v2.0 close |
 | seed | SEED-002 — ESO ObservationRecord-centric future intent | Still dormant | v2.0 close |
+| quick_task | `260613-eb1-add-a-demo-jupyter-notebook-for-phase-1-` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260619-jpr-fix-sync-lco-observation-calendar-soar-s` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260722-hpw-fix-import-campaign-csv-to-skip-leading-` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260726-fqb-map-jpl-horizons-naif-observer-notation-` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260726-kdp-close-operator-runbook-drift-and-broaden` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260805-qdc-fix-t-29-19-phase-29-security-audit-rout` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260805-sgf-split-campaignrun-telescope-instrument-i` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260805-tad-fix-window-shape-dispatch-in-the-calenda` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260806-lgo-mark-recon-04-as-complete-in-planning-re` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| quick_task | `260806-ol7-build-a-new-demo-notebook-or-extend-an-e` | Completed (has SUMMARY.md); un-archived, no explicit status field | v2.2 close |
+| todo | `2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md` — still pending, no second consumer yet | Deliberately deferred (carried again) | v2.2 close |
+| seed | SEED-001 — file upstream `tom_eso` feature requests | Still dormant | v2.2 close |
+| seed | SEED-002 — ESO ObservationRecord-centric future intent | Still dormant | v2.2 close |
+| deferred_items | Phase 26 `deferred-items.md`: pre-existing repo-wide ruff/format drift | Resolved — Phase 30 (30-02) root-caused as unpinned dev-ruff vs. pinned pre-commit ruff; pinned dev extra, no reformat needed | v2.2 close |
+| deferred_items | Phase 27 `deferred-items.md`: pre-existing ruff format drift | Resolved — same root cause fixed by Phase 30 (30-02) | v2.2 close |
+| deferred_items | Phase 27.1 `deferred-items.md`: pre-existing repo-wide ruff/format drift | Resolved — same root cause fixed by Phase 30 (30-02) | v2.2 close |
+| deferred_items | Phase 14 (archived v2.0) `deferred-items.md`: pre-existing ruff check/format findings | Resolved — same root cause fixed by Phase 30 (30-02) | v2.2 close |
+| deferred_items | Phase 15 (archived v2.0) `deferred-items.md`: pre-existing repo-wide ruff check/format failures | Resolved — same root cause fixed by Phase 30 (30-02) | v2.2 close |
+| deferred_items | Phase 04 (archived v1.2) `deferred-items.md`: ruff format --check pre-existing findings | Resolved — same root cause fixed by Phase 30 (30-02) | v2.2 close |
 
 ## Session Continuity
 
