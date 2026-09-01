@@ -102,7 +102,7 @@
 
 </details>
 
-### 🚧 v2.2 One Canonical Run Record (Phases 26-29) — IN PROGRESS
+### 🚧 v2.2 One Canonical Run Record (Phases 26-30) — IN PROGRESS
 
 **Milestone Goal:** Make `CampaignRun` the single canonical observing-run record, with calendar events derived from it by a reconciler rather than created as a side effect of a UI click.
 
@@ -111,6 +111,7 @@
 - [x] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair (all 5 plans executed 2026-07-31; criterion 6 closed by 27.1-05 — the `source` provenance lock widened to every `WEB` run at any approval status; a criterion-5 gap re-verification opened, a contaminated dev-DB snapshot in the paired `import_campaign_csv_demo.ipynb`, was closed by regenerating the notebook from a clean DB; verified 6/6, see 27.1-VERIFICATION.md) (completed 2026-07-31)
 - [x] **Phase 28: Operator-Assisted Attribution** (0/4 plans) - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible (completed 2026-08-01)
 - [x] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear (completed 2026-08-05)
+- [ ] **Phase 30: v2.2 Tech-Debt Cleanup** - Close out the deferred items with an accurate record: the attribution-candidate `approval_status` filter, the `telescope_class` re-import guard, the root cause behind three phases logging phantom ruff drift, the unreconciled Nyquist validation files, and correcting the milestone audit itself (goal rewritten 2026-08-31 after discuss-phase verified the WR-09/WR-10 runbook fixes and the ruff drift were already closed)
 
 **Locked constraints** (settled during milestone questioning and the research pass — phase planning executes these, it does not re-open them):
 
@@ -325,9 +326,81 @@ Plans:
 - [x] 29-06-PLAN.md — D-07's `source` data-fix checkpoint, the first full reconcile sweep against
   the real dev database, and the visual/runbook confirmation of RECON-07
 
+### Phase 30: v2.2 Tech-Debt Cleanup
+
+**Goal**: Close out the v2.2 deferred items with an accurate record. Scouting during
+discuss-phase established that two of the three items originally named here were already
+done and a third was misdiagnosed, so the phase is scoped to what is genuinely open: the
+`approval_status` gap in attribution eligibility, the `telescope_class` half of the CSV
+re-import guard, the root cause behind three phases logging phantom ruff drift, the
+unreconciled Nyquist validation files, and correcting the milestone audit itself so the
+closed items stop being re-flagged.
+**Depends on**: Phase 29 (its reconciler and runbook rewrite are the last changes to the
+attribution surfaces and `docs/runbooks/telescope_runs_calendar.rst` that this phase edits)
+**Requirements**: TBD (tech-debt phase — items sourced from `.planning/v2.2-MILESTONE-AUDIT.md`)
+**Locked context**: `30-CONTEXT.md` carries twelve decisions (D-01..D-12) settled during
+discuss-phase, including the verified evidence that WR-09, WR-10 and the ruff drift are
+already closed. Planning executes those decisions; it does not re-open them.
+**Paired docs (CLAUDE.md rule)**: `docs/runbooks/telescope_runs_calendar.rst` (attribution
+section) and `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb` (a fifth, rejected
+submission demonstrating the exclusion) are both in `files_modified` from the start, not
+follow-ups.
+
+**Scope** (six items):
+
+1. **27-REVIEW IN-02** — `approval_status` filter on attribution eligibility.
+2. **27-REVIEW WR-01** — the `telescope_class` half of the CSV re-import guard.
+3. **Ruff root cause** — pin the dev dependency and correct CLAUDE.md's documented gate
+   command; no repo-wide reformat.
+4. **Nyquist coverage** — reconcile the five phase `VALIDATION.md` files.
+5. **The record** — amend `.planning/v2.2-MILESTONE-AUDIT.md` with each item's true
+   disposition.
+6. **Bookkeeping** — stale docstring names in `campaign_reconciler.py`; `26-DECISION.md`'s
+   header preamble.
+
+**Success Criteria** (what must be TRUE):
+
+  1. A `REJECTED` run is never offered as a suggested match for an orphan `CalendarEvent`
+     *or* an orphan `ObservationRecord`, while `APPROVED` and `PENDING_REVIEW` runs both
+     still are — enforced at the two eligibility gates themselves, so the attribution
+     queue, the backlog and the unattributable count all move together rather than
+     disagreeing; an association already confirmed before a run was rejected is left intact
+  2. A CSV re-import can no longer replace a non-blank `telescope_class` with a derived
+     value when the row's own cell did not genuinely resolve, and every row where that
+     guard fires is named in the command's output rather than passing silently as
+     `unchanged` — the same behaviour the `site` half already has
+  3. The project's lint and format gates both pass under the ruff version the project
+     pins, and a developer following the documented command gets that same version — so a
+     fresh environment cannot reproduce the drift Phases 26, 27 and 27.1 each logged; no
+     file is reformatted to achieve this
+  4. Phases 26, 27, 27.1, 28 and 29 each have a reconciled `VALIDATION.md` carrying a real
+     verdict rather than an unpromoted draft or no file at all
+  5. `.planning/v2.2-MILESTONE-AUDIT.md` states the true disposition of every tech-debt
+     item it lists, with each already-closed item citing where it was closed, so
+     `/gsd-complete-milestone` reads a correct record
+  6. The operator runbook tells staff that a rejected run is never offered as a match, and
+     `campaign_lifecycle_demo.ipynb` shows that exclusion happening in real executed output
+
+**Plans:** 4 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 30-01-PLAN.md — Tracer slice: the `approval_status` filter at both attribution eligibility gates (D-01/D-02/D-03), its exclusion and non-vacuous control tests, and both paired artifacts — the runbook's attribution paragraph and a fifth, rejected notebook submission (D-12)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 30-02-PLAN.md — The ruff root cause: pin the dev dependency to the pre-commit rev (D-06) and route CLAUDE.md's documented gate through pre-commit (D-07), no reformat (D-05); plus the cosmetic bookkeeping — five stale reconciler docstring names and `26-DECISION.md`'s header (D-10)
+- [ ] 30-03-PLAN.md — The `telescope_class` half of the CSV re-import guard (D-04): a `preserve_telescope_class` decision mirroring `preserve_site`, its stderr diagnostic and summary counter, four tests, and the runbook's re-import gotcha
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 30-04-PLAN.md — Reconcile the five phase `VALIDATION.md` files via validate-phase (D-08), then amend `.planning/v2.2-MILESTONE-AUDIT.md` with the true disposition of every tech-debt item, citing where each already-closed one was closed (D-09), and record the D-11 roadmap correction
+
 ## Progress
 
-**Execution Order:** Phases execute in numeric order: 26 → 27 → 28 → 29
+**Execution Order:** Phases execute in numeric order: 26 → 27 → 28 → 29 → 30
 
 | Phase             | Milestone | Plans Complete | Status      | Completed  |
 | ----------------- | --------- | -------------- | ----------- | ---------- |
@@ -361,11 +434,12 @@ Plans:
 | 27. The Canonical Run Record | v2.2 | 7/7 | Complete    | 2026-08-06 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
+| 30. v2.2 Tech-Debt Cleanup | v2.2 | 0/0 | Not planned | — |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
 ## Current Milestone
 
-🚧 **v2.2 One Canonical Run Record** — Phases 26-29, started 2026-07-26.
+🚧 **v2.2 One Canonical Run Record** — Phases 26-30, started 2026-07-26.
 
-Coverage: 24/24 v1 requirements mapped, no orphans, no duplicates. Next: `/gsd:plan-phase 26`.
+Coverage: 24/24 v1 requirements mapped, no orphans, no duplicates. Next: `/gsd-plan-phase 30`.
