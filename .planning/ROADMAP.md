@@ -381,7 +381,7 @@ follow-ups.
   6. The operator runbook tells staff that a rejected run is never offered as a match, and
      `campaign_lifecycle_demo.ipynb` shows that exclusion happening in real executed output
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 
@@ -396,7 +396,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 30-04-PLAN.md — Reconcile the five phase `VALIDATION.md` files via validate-phase (D-08), then amend `.planning/v2.2-MILESTONE-AUDIT.md` with the true disposition of every tech-debt item, citing where each already-closed one was closed (D-09), and record the D-11 roadmap correction
+- [x] 30-04-PLAN.md — Reconcile the five phase `VALIDATION.md` files via validate-phase (D-08), then amend `.planning/v2.2-MILESTONE-AUDIT.md` with the true disposition of every tech-debt item, citing where each already-closed one was closed (D-09), and record the D-11 roadmap correction
 
 ## Progress
 
@@ -434,7 +434,7 @@ Plans:
 | 27. The Canonical Run Record | v2.2 | 7/7 | Complete    | 2026-08-06 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
-| 30. v2.2 Tech-Debt Cleanup | v2.2 | 3/4 | In Progress|  |
+| 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 

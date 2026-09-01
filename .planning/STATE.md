@@ -4,17 +4,17 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 current_phase: 30
 current_phase_name: v2.2 Tech-Debt Cleanup
-status: executing
-stopped_at: Completed 30-03-PLAN.md
-last_updated: "2026-09-01T04:06:48.977Z"
+status: verifying
+stopped_at: Completed 30-04-PLAN.md
+last_updated: "2026-09-01T04:20:04.947Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 30 execution started
-state_head: 3e0e727c42cf7d9bbfd680ff65a36e8a7ead927e
+state_head: 08ef988f43d2ad8159a7914fba999733634aaf34
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 33
-  completed_plans: 32
+  completed_plans: 33
   percent: 83
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 Phase: 30 (v2.2 Tech-Debt Cleanup) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-31 — Phase 30 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
@@ -147,6 +147,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 30 P01 | 8min | 3 tasks | 4 files |
 | Phase 30 P02 | 10min | 3 tasks | 4 files |
 | Phase 30 P03 | 10min | 3 tasks | 3 files |
+| Phase 30 P04 | 15min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -208,6 +209,7 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 30]: D-10: repaired campaign_reconciler.py's five stale docstring references to deleted functions and corrected 26-DECISION.md's stuck-in-progress header
 - [Phase 30]: [Phase 30-03]: D-04 telescope_class guard mirrors preserve_site -- preserve_telescope_class computed immediately after the derivation it gates on (not before, unlike preserve_site), a strict superset of the old blanking-only condition
 - [Phase 30]: [Phase 30-03]: New tests placed in a sibling TestReImportTelescopeClassPreservation class rather than appended to TestReImportSitePreservation; test_telescope_class_never_blanked_by_reimport left byte-identical
+- [Phase 30]: D-08/D-09/D-11: reconciled all five v2.2 phase VALIDATION.md files (nyquist_compliant: true) and amended v2.2-MILESTONE-AUDIT.md with true item dispositions; every closed tech-debt item cites where it was closed
 
 ### Pending Todos
 
@@ -275,8 +277,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T04:06:48.805Z
-Stopped at: Completed 30-03-PLAN.md
+Last session: 2026-09-01T04:20:04.776Z
+Stopped at: Completed 30-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
