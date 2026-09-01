@@ -75,9 +75,8 @@ RUN_STATUS_CALENDAR_PREFIX = {
 class ReconcileResult(NamedTuple):
     """Outcome of one ``reconcile_run()`` call.
 
-    ``skipped_reason is None`` is the successor to ``_project_calendar_event()``'s bool
-    return: ``_resolve_site()`` (plan 29-04) uses it to pick between its two success
-    messages (D-04).
+    ``skipped_reason is None`` is this module's success signal: ``_resolve_site()``
+    (plan 29-04) uses it to pick between its two success messages (D-04).
     """
 
     created: int = 0
@@ -97,10 +96,11 @@ def run_night_url(run: CampaignRun, night) -> str:
 
     26-DECISION.md's "Criterion 3 / SPIKE-03" locks the classical form as
     ``RUN:{run_pk}:{date}`` and the bare form as the class-wide/satellite container
-    family; this is a deliberate divergence from the ported ``_project_calendar_event()``
-    code (which used the bare key when ``n_nights == 1``), so the key form alone says
-    which family an event belongs to. ``night`` must be the site-local observing night
-    (the same night ``sun_event()``'s sunset is computed for), never the naive UTC date.
+    family; this is a deliberate divergence from the retired pre-reconciler projection
+    helper in ``campaign_views`` (which used the bare key when ``n_nights == 1``), so the
+    key form alone says which family an event belongs to. ``night`` must be the
+    site-local observing night (the same night ``sun_event()``'s sunset is computed for),
+    never the naive UTC date.
     """
     return f'{RUN_URL_NAMESPACE}{run.pk}:{night.isoformat()}'
 
@@ -170,8 +170,9 @@ def _split_telescope_instrument(text: str) -> tuple[str, str]:
 
 
 def event_title(run: CampaignRun) -> str:
-    """Byte-identical to ``campaign_views._calendar_event_title()``'s cancelled/weathered
-    output, so ``calendar_display_extras``' terminal-prefix ring keeps applying."""
+    """Must keep the terminal cancelled/weathered prefix form
+    (``RUN_STATUS_CALENDAR_PREFIX``) that ``calendar_display_extras``' terminal-prefix
+    ring matches on, so a cancelled/weathered run's event still gets the status ring."""
     base = f'{run.campaign.name}: {run.telescope_instrument}'
     if run.window_start != run.window_end:
         base = f'{base} (window {run.window_start}..{run.window_end})'
@@ -192,7 +193,8 @@ def event_description(run: CampaignRun) -> str:
 def _skip_reason(run: CampaignRun) -> str | None:
     """Stage-0 guard (D-05's itemized skip vocabulary), evaluated in this order.
 
-    Preserves today's exact "no event yet" cases from ``_project_calendar_event()``, plus
+    Preserves today's exact "no event yet" cases from the retired pre-reconciler
+    projection helper in ``campaign_views``, plus
     the new approval gate (an unapproved web submission must never reach the calendar), plus
     a ``window_end < window_start`` data-integrity guard (29-REVIEW.md WR-02): without it,
     ``_reconcile_classical_nights()``'s ``n_nights = (window_end - window_start).days + 1``
@@ -336,7 +338,8 @@ def _adopted_event_for_night(run: CampaignRun, night, site_zone: ZoneInfo) -> Ca
 def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
     """The per-night branch (RECON-02 classical half).
 
-    Ports ``_project_calendar_event()``'s ground loop: iterates every night in
+    Ports the retired pre-reconciler projection helper's ground loop from
+    ``campaign_views``: iterates every night in
     ``[window_start, window_end]`` inclusive, calling ``sun_event(run.site, night,
     kind='sun')`` (never ``kind='dark'``) for the dip-corrected sunset/sunrise. Per D-06,
     the ``ValueError`` ``sun_event()`` raises (e.g. a blank ``Observatory.timezone``) is
