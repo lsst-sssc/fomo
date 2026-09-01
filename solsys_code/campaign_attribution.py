@@ -96,6 +96,15 @@ MEDIUM_BAND_MIN = 0.50
 
 MAX_CANDIDATES_PER_ORPHAN = 5
 
+# 27-REVIEW IN-02 / D-01: the one approval state that disqualifies a CampaignRun from
+# attribution eligibility entirely. D-01's boundary is deliberate and narrow -- only
+# REJECTED is ineligible; APPROVED and PENDING_REVIEW both stay eligible, because an orphan
+# matching a still-pending web submission is useful evidence that the submission is genuine.
+# Referenced through the enum class (never a bare string) per this module's enum-reference
+# convention; one constant, two call sites (_eligible_runs_for_event/_eligible_runs_for_record)
+# per D-03's anti-drift rationale -- do not inline the status at each gate.
+_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES = frozenset({CampaignRun.ApprovalStatus.REJECTED})
+
 # Aperture-class tokens belong to the telescope signal, not the instrument signal -- dropped
 # before instrument_similarity()'s token comparison so e.g. '2m0' never inflates a match.
 _APERTURE_TOKEN_MARKERS = frozenset({'2m0', '1m0', '0m4', '4m0'})
@@ -476,6 +485,16 @@ def _eligible_runs_for_event(event: CalendarEvent):
     campaign (TargetList) as the event. An event with no ``target_list`` at all (e.g. a
     conference or proposal-deadline entry -- D-03's noise filter) is eligible for nothing.
 
+    27-REVIEW IN-02 / D-01/D-02/D-03: also excludes any run currently REJECTED (a run's
+    disqualifying approval states live in one module-level constant, referenced through the
+    enum class, not a bare string). This is a HARD gate applied here, at eligibility, rather
+    than at the display surfaces -- a deliberate departure from the "eligibility gates are
+    deliberately permissive, downstream filters do the narrowing" convention this docstring
+    otherwise follows (see ``candidates_for_event``'s own docstring for how that
+    permissiveness is normally phrased). D-03's reason: an orphan whose only candidate was a
+    rejected run genuinely has no valid candidate, and one filter in one place cannot drift
+    out of sync the way four call-site filters could.
+
     Args:
         event: the orphan CalendarEvent.
 
@@ -484,7 +503,9 @@ def _eligible_runs_for_event(event: CalendarEvent):
     """
     if event.target_list_id is None:
         return CampaignRun.objects.none()
-    return CampaignRun.objects.filter(campaign_id=event.target_list_id)
+    return CampaignRun.objects.filter(campaign_id=event.target_list_id).exclude(
+        approval_status__in=_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES
+    )
 
 
 def _eligible_runs_for_record(record: ObservationRecord):
@@ -498,6 +519,17 @@ def _eligible_runs_for_record(record: ObservationRecord):
     ``backfill_lco_observation_records --create-missing-targets``; requiring target equality
     would reject every real pair and fail criterion 5.
 
+    27-REVIEW IN-02 / D-01/D-02/D-03: also excludes any run currently REJECTED (a run's
+    disqualifying approval states live in one module-level constant, referenced through the
+    enum class, not a bare string). This is a HARD gate applied here, at eligibility, rather
+    than at the display surfaces -- a deliberate departure from the "eligibility gates are
+    deliberately permissive, downstream filters do the narrowing" convention this docstring
+    otherwise follows (see ``candidates_for_event``'s own docstring for how that
+    permissiveness is normally phrased). D-03's reason: an orphan whose only candidate was a
+    rejected run genuinely has no valid candidate, and one filter in one place cannot drift
+    out of sync the way four call-site filters could. D-02: the 27-REVIEW audit named only
+    the event gate; this gate had the identical missing filter.
+
     Args:
         record: the orphan ObservationRecord.
 
@@ -506,7 +538,9 @@ def _eligible_runs_for_record(record: ObservationRecord):
     """
     if record.target_id is None:
         return CampaignRun.objects.none()
-    return CampaignRun.objects.filter(campaign__in=record.target.targetlist_set.all())
+    return CampaignRun.objects.filter(campaign__in=record.target.targetlist_set.all()).exclude(
+        approval_status__in=_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES
+    )
 
 
 def candidates_for_event(event: CalendarEvent, dismissed_run_ids: set[int] | None = None) -> list[AttributionCandidate]:

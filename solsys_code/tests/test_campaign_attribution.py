@@ -272,6 +272,67 @@ class TestCampaignBoundaryGate(TestCase):
         self.assertIn(self.run_a.pk, candidate_run_pks)
 
 
+class TestApprovalStatusGate(TestCase):
+    """27-REVIEW IN-02 / D-01/D-02/D-03: a REJECTED CampaignRun is never offered as an
+    attribution candidate for an orphan CalendarEvent or an orphan ObservationRecord, at
+    either eligibility gate or through ``is_offered_candidate()``'s server-side
+    re-derivation, while an APPROVED run and a PENDING_REVIEW run in the identical position
+    both stay offered (D-01's narrow boundary), and an association confirmed before its run
+    was rejected survives the rejection intact."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.campaign = TargetList.objects.create(name='Approval Status Gate Campaign')
+        cls.run_target = NonSiderealTargetFactory.create()
+        cls.campaign.targets.add(cls.run_target)
+        cls.record_owner = User.objects.create(username='approval-status-gate-record-owner')
+        cls.observatory = Observatory.objects.create(obscode='E10', name='Approval Status Gate Site', short_name='ASGS')
+
+        cls.event = CalendarEvent.objects.create(
+            title='Approval status gate orphan event',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+            telescope='COJ-2m0',
+            instrument='2M0-SCICAM-MUSCAT',
+            target_list=cls.campaign,
+        )
+        CalendarEventMeta.objects.create(event=cls.event, run=None)
+
+        # rejected_run/approved_run share campaign + telescope_instrument but differ on
+        # window_end so both satisfy the (campaign, telescope_instrument, window_start,
+        # window_end) natural-key UniqueConstraint (models.py) -- both windows still overlap
+        # the orphan event's night, so both would otherwise score identically well.
+        cls.rejected_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='2m0 2M0-SCICAM-MUSCAT',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 7),
+            site=cls.observatory,
+            approval_status=CampaignRun.ApprovalStatus.REJECTED,
+        )
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='2m0 2M0-SCICAM-MUSCAT',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 8),
+            site=cls.observatory,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+    def test_rejected_run_never_offered_for_event(self):
+        """D-01/27-REVIEW IN-02: a REJECTED run in a perfect-scoring position (same campaign,
+        overlapping window, matching telescope/instrument) is absent from
+        ``candidates_for_event()``."""
+        candidate_run_pks = {c.run.pk for c in candidates_for_event(self.event)}
+        self.assertNotIn(self.rejected_run.pk, candidate_run_pks)
+
+    def test_approved_run_still_offered_for_event(self):
+        """D-01: the identical run at APPROVED IS offered -- the non-vacuous control proving
+        the exclusion above is targeted, not a blanket emptying of the candidate list."""
+        candidate_run_pks = {c.run.pk for c in candidates_for_event(self.event)}
+        self.assertIn(self.approved_run.pk, candidate_run_pks)
+
+
 class TestCriterion5RealCase(TestCase):
     """ATTRIB-05, the acceptance test. An EQUIVALENT fixture, never live primary keys --
     RESEARCH.md's live-DB pass found one of the 11 real LCO queue events and one of the 11
