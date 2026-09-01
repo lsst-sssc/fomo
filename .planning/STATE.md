@@ -5,16 +5,16 @@ milestone_name: One Canonical Run Record
 current_phase: 30
 current_phase_name: v2.2 Tech-Debt Cleanup
 status: executing
-stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-09-01T03:59:13.771Z"
+stopped_at: Completed 30-03-PLAN.md
+last_updated: "2026-09-01T04:06:48.977Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 30 execution started
-state_head: b22bf53f423ab13c73e2c3651c6f06ca817a2ff7
+state_head: 3e0e727c42cf7d9bbfd680ff65a36e8a7ead927e
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 33
-  completed_plans: 31
+  completed_plans: 32
   percent: 83
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 30 (v2.2 Tech-Debt Cleanup) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 30 execution started
 
@@ -146,6 +146,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 29 P06 | 75min | 3 tasks | 4 files |
 | Phase 30 P01 | 8min | 3 tasks | 4 files |
 | Phase 30 P02 | 10min | 3 tasks | 4 files |
+| Phase 30 P03 | 10min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -205,6 +206,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase 30]: Event-path fixture runs carry target=run_target while the record-orphan fixture uses a deliberately separate field_target in the same campaign — Proves the record-path tests cannot pass by accident via a reintroduced target-FK-equality check, the standing prohibition in _eligible_runs_for_record's docstring
 - [Phase 30]: D-06/D-07: pinned pyproject.toml's ruff dev extra to 0.2.1 and routed CLAUDE.md's documented lint/format gate through pre-commit, closing the phantom ruff drift Phases 26/27/27.1 each independently logged
 - [Phase 30]: D-10: repaired campaign_reconciler.py's five stale docstring references to deleted functions and corrected 26-DECISION.md's stuck-in-progress header
+- [Phase 30]: [Phase 30-03]: D-04 telescope_class guard mirrors preserve_site -- preserve_telescope_class computed immediately after the derivation it gates on (not before, unlike preserve_site), a strict superset of the old blanking-only condition
+- [Phase 30]: [Phase 30-03]: New tests placed in a sibling TestReImportTelescopeClassPreservation class rather than appended to TestReImportSitePreservation; test_telescope_class_never_blanked_by_reimport left byte-identical
 
 ### Pending Todos
 
@@ -272,8 +275,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T03:59:13.591Z
-Stopped at: Completed 30-02-PLAN.md
+Last session: 2026-09-01T04:06:48.805Z
+Stopped at: Completed 30-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

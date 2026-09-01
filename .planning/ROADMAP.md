@@ -381,7 +381,7 @@ follow-ups.
   6. The operator runbook tells staff that a rejected run is never offered as a match, and
      `campaign_lifecycle_demo.ipynb` shows that exclusion happening in real executed output
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 
@@ -392,7 +392,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 30-02-PLAN.md — The ruff root cause: pin the dev dependency to the pre-commit rev (D-06) and route CLAUDE.md's documented gate through pre-commit (D-07), no reformat (D-05); plus the cosmetic bookkeeping — five stale reconciler docstring names and `26-DECISION.md`'s header (D-10)
-- [ ] 30-03-PLAN.md — The `telescope_class` half of the CSV re-import guard (D-04): a `preserve_telescope_class` decision mirroring `preserve_site`, its stderr diagnostic and summary counter, four tests, and the runbook's re-import gotcha
+- [x] 30-03-PLAN.md — The `telescope_class` half of the CSV re-import guard (D-04): a `preserve_telescope_class` decision mirroring `preserve_site`, its stderr diagnostic and summary counter, four tests, and the runbook's re-import gotcha
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -434,7 +434,7 @@ Plans:
 | 27. The Canonical Run Record | v2.2 | 7/7 | Complete    | 2026-08-06 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
-| 30. v2.2 Tech-Debt Cleanup | v2.2 | 2/4 | In Progress|  |
+| 30. v2.2 Tech-Debt Cleanup | v2.2 | 3/4 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
