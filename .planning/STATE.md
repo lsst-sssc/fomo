@@ -21,10 +21,10 @@ current_phase: 30
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-01 — Phase 30 complete, milestone v2.2 finished)
+See: .planning/PROJECT.md (updated 2026-09-01 — v2.2 milestone archived, full evolution review complete)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** v2.2 complete — awaiting `/gsd-complete-milestone`
+**Current focus:** Planning next milestone — awaiting `/gsd-new-milestone`
 
 ## Current Position
 
@@ -162,60 +162,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 ### Decisions
 
-- [Phase 30]: REJECTED-run attribution exclusion enforced once via a shared `_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES` constant read by both eligibility gates, not filtered separately at each display surface
-- [Phase 30]: The ruff/format "drift" three phases (26, 27, 27.1) each logged and deferred was a misdiagnosis — repo was always clean under the pinned version; root-caused to CLAUDE.md documenting a bare unpinned `ruff` invocation, fixed by pinning `pyproject.toml` + routing the documented command through `pre-commit run` (no repo-wide reformat)
-- [Phase 30]: `preserve_telescope_class` guard mirrors `preserve_site`'s shape exactly (decision computed beside inputs, widened pop, summary counter, per-row stderr line) rather than inventing a new pattern
-
-Full rationale for each in PROJECT.md's Key Decisions table (Phase 30 rows).
-
-All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive per-plan v2.1 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 18-25 plan) has been cleared now that v2.1 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (backfilled at close for Phases 18/19/20/21/23/24, which already had rows for 14/22/25), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.1-phases/`.
-
-- [Phase quick-260722-tkt]: Field Targets created by --create-missing-targets are always type=SIDEREAL (fixed-sky pointings), distinct from the campaign's non-sidereal moving-object target by design
-- [Phase quick-260722-tkt]: created_targets counter only reflects actually-persisted creations (0 in --dry-run); per-request stdout line still reports would-create/would-reuse intent
-- [Phase quick-260722-twe]: epoch/pm_ra/pm_dec/parallax (from LCO wire keys epoch/proper_motion_ra/proper_motion_dec/parallax) are only set on newly-built field Targets, never on a reused existing Target — reuse never overwrites existing Target metadata
-- [Phase quick-260722-uhh]: Target's admin URL/reverse name is `tom_targets_basetarget_changelist`, not `tom_targets_target_changelist` — `Target = get_target_model_class()` resolves to `BaseTarget` (no `TARGET_MODEL_CLASS` override in settings.py); tests derive the app_label/model_name dynamically rather than hardcoding either string
-- [Phase quick-260722-ux0]: `facility.update_observation_status()` uses its own module-level `make_request` binding (`tom_observations.facilities.ocs.make_request`), separate from the one a caller module imports and patches — a test suite calling code that transitively invokes `update_observation_status()` must patch `LCOFacility.update_observation_status` itself (or the `ocs` module's `make_request`), not the caller's imported `make_request` name, or it will make a real live HTTP call
-- [Phase quick-260722-uyz]: sync_lco_observation_calendar never populated CalendarEvent.target_list since its original Phase 04 implementation (confirmed via git log -p) — fixed by deriving it from record.target.targetlist_set.order_by('name').first() (deterministic alphabetically-first pick when a Target is in 2+ campaigns, None if in none); applies uniformly to both LCO and SOAR records since they share _build_event_fields()
-- [Phase ?]: Quick 260723-02e: load_telescope_runs --campaign duplicates only the explicit-name TargetList lookup branch of backfill's _resolve_campaign (no interactive prompt); 'target_list' key always present in the fields dict for consistent no-churn FK diffing
-- [Phase ?]: [Quick 260723-r5g]: sync_lco_observation_calendar's LCOFacility/SOARFacility expose no get_successful_observing_states() method — the successful-terminal state set must be derived as get_terminal_observing_states() minus get_failed_observing_states()
-- [Phase ?]: [Quick 260724-tiz]: Added a separate TELESCOPE_PALETTE (brighter dark-surface set) rather than modifying PROPOSAL_PALETTE; per-telescope stripe re-implemented as a ::before pseudo-element (cal-event-classical + --tel-color) to avoid colliding with status_border_css's box-shadow ring on the same style attribute
-- [Phase ?]: [Quick 260724-vb0]: Split TELESCOPE_PALETTE into two parallel palettes (TELESCOPE_PALETTE for legend vs white, TELESCOPE_STRIPE_PALETTE for stripe vs #5a6268 gray fill) since no 8-hue palette can clear 3:1 against both backgrounds; fixed the stripe's remaining white-facing edge with a one-sided opaque STRIPE_OUTER_EDGE_COLOR line rather than a hue change
-- [Phase ?]: D-02 verdict confirmed-with-additions: the rename's two class-name imports (admin.py, sync_lco_observation_calendar.py) are the only real-code risks and both fail loudly, but the admin reverse-URL name and the four test modules' own class-name references are two more consumer sites the original four-point checklist missed
-- [Phase ?]: Phase 26 evidence posture differs from Phase 18: writes for real against a disposable scratch DB file copy (tmp/26-spike-db-copy.sqlite3) rather than rolling back transaction.atomic() blocks against the live DB
-- [Phase 26]: D-10 site-local-night derivation used simple timezone conversion + .date() (not a noon-anchored night-boundary heuristic), matching CONTEXT.md's own D-10 illustration
-- [Phase 26]: Measured gap: CampaignRun pk=1's real site (Observatory obscode E10) has a blank timezone field in the dev DB; D-11 prototype substitutes Australia/Sydney explicitly and flags this as a Phase 27 pre-migration backfill item
-- [Phase ?]: source vocabulary locked at six values (five roadmap values + LEGACY); source/telescope_class stay out of both existing CampaignRun partial unique constraints
-- [Phase ?]: Reconciler event key locked: RUN:{run_pk}:{date} with {date} always the site-local observing night, not the naive UTC date
-- [Phase ?]: Adopt-vs-gap-fill write strategy (D-11) deliberately deferred to Phase 29 per human decision at the 26-03 task-1 checkpoint, not locked
-- [Phase ?]: Migration shape locked: RenameModel CalendarEventTelescopeLabel->CalendarEventMeta then three AddField ops; rename checklist is six integration points, not four
-- [Phase 26-canonical-record-spike]: Bare RUN:1 span key is measurably stable under a window-narrowing stage transition; the rejected per-night RUN:1:{date} key is not (one key orphaned) -- direct code-level answer for queue-run projection key form
-- [Phase 26-canonical-record-spike]: RECON-07 baseline splits 8 QUEUE / 11 CLASSICAL / 0 SPACE of 19 runs -- queue-run projection affects a substantial minority, not a corner case, of the flagship visibility criterion
-- [Phase 26-canonical-record-spike]: No verdict on span/none/per-night chosen here -- deliberately left for plan 26-05 task 1, mirroring D-11's write-strategy deferral
-- [Phase 26]: Queue-run projection settled (human decision): a queue-scheduled run gets a bare RUN:{run_pk} whole-window container event coexisting with its real ObservationRecord-derived CalendarEvents, which already narrow/refine as observations are scheduled and observed (verified against sync_lco_observation_calendar.py, not assumed)
-- [Phase 26]: D-05's 80x5=400 class-wide fan-out figure does not survive -- pk=29/pk=30 are both QUEUE run-type, so both take the settled bare-container form (1 event, not 80, not 400); the site-fanout half of D-05 stands unchanged
-- [Phase 27-01]: _observations_block_response() stays owned by test_sync_lco_observation_calendar.py (still used by many command-behaviour tests there); test_calendar_utils.py imports it rather than duplicating it
-- [Phase 27-01]: derive_telescope_class's aperture regex uses one generic metre-phrase pattern (digit-must-precede-'m') instead of enumerating literal phrases -- this ordering is what rejects MuSCAT4's trailing digit without a special case
-- [Phase 27-01]: D-12's subset-assertion test computes calendar_utils' aperture-class set by calling aperture_class_from_telescope_code() on real codes rather than hardcoding the set literal a second time
-- [Phase 27-02]: D-22 mutation proof run manually: flipping create_placeholder to True fabricated a placeholder Observatory on network failure; reverted and confirmed byte-identical
-- [Phase 27-02]: Live repair (Task 2) intentionally produced no git commit -- dev DB is gitignored; evidence is the before/after table in the SUMMARY
-- [Phase 27-02]: MPC Obscodes API was reachable during the live run: HST (pk 8,12) and Swift (pk 13) resolved via genuine tier-2 lookups, creating 2 new real Observatory rows
-- [Phase 27-03]: related_name='telescope_label_meta' left byte-identical; run FK uses SET_NULL (not CASCADE) since the companion row also carries is_verified history
-- [Phase 27-03]: Migration 0009 (AddField run) kept separate from 0008 (RenameModel) so a rename regression and a new-field regression can never be confused for each other
-- [Phase ?]: [Phase 27-04]: Migration 0010/0011 header comments rephrased to avoid literal AddField/CreateModel/RunPython.noop tokens in prose, so exact-count acceptance-criteria greps pass without a grep-literalism footnote
-- [Phase ?]: [Phase 27-04]: ObservationRecord test fixtures use a separate record_owner user distinct from the confirmed_by user under test, since ObservationRecord.user is on_delete=DO_NOTHING and deleting a still-referenced user fails SQLite's deferred FK check
-- [Phase 27-05]: Superuser (not merely is_staff=True) fixtures needed for save_formset inline tests -- DeleteProtectedModelForm.has_changed() gates on the inline model's own add/change permission
-- [Phase 27-05]: telescope_class non-staff visibility (D-18) proven at the .values() queryset level, not as a rendered CampaignRunTable column -- campaign_tables.py is out of this plan's scope
-- [Phase ?]: [Phase 27-06]: import_campaign_csv writes source=CSV_IMPORT and derives telescope_class via the shared calendar_utils.derive_telescope_class() helper, gated on site is None -- neither field enters the natural-key lookup
-- [Phase ?]: [Phase 27-06]: PROJECT.md's stale Phase 25 pk=34 claim is date-pinned (2026-07-18) rather than deleted, preserving the pk=34 occurrence count; 26-CONTEXT.md's D-11 owned-nights framing gets a dated forward-pointer instead of a rewrite
-- [Phase ?]: [Phase 29-06]: User-directed deviation added CampaignRun.Source.ESO_QUEUE (migration 0014) since real 3I/ATLAS ESO VLT queue rows had no matching source value -- not Rule 1/2/3, explicit user choice among 3 presented options
-- [Phase ?]: [Phase 29-06]: Real dev-DB RECON-07 baseline measured as 26 approved/resolved/windowed 3I/ATLAS rows (10 QUEUE/11 CLASSICAL/5 SPACE) today, not the 19 (8/11/0) 26-DECISION.md originally cited -- Phase 27's live site-repair work resolved 4 satellite rows' sites after that spike's probe date
-- [Phase 30]: Reused one shared frozenset constant (_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES) across both eligibility gates rather than inlining the status literal twice — D-03 anti-drift rationale: one place to add a future disqualifying status
-- [Phase 30]: Event-path fixture runs carry target=run_target while the record-orphan fixture uses a deliberately separate field_target in the same campaign — Proves the record-path tests cannot pass by accident via a reintroduced target-FK-equality check, the standing prohibition in _eligible_runs_for_record's docstring
-- [Phase 30]: D-06/D-07: pinned pyproject.toml's ruff dev extra to 0.2.1 and routed CLAUDE.md's documented lint/format gate through pre-commit, closing the phantom ruff drift Phases 26/27/27.1 each independently logged
-- [Phase 30]: D-10: repaired campaign_reconciler.py's five stale docstring references to deleted functions and corrected 26-DECISION.md's stuck-in-progress header
-- [Phase 30]: [Phase 30-03]: D-04 telescope_class guard mirrors preserve_site -- preserve_telescope_class computed immediately after the derivation it gates on (not before, unlike preserve_site), a strict superset of the old blanking-only condition
-- [Phase 30]: [Phase 30-03]: New tests placed in a sibling TestReImportTelescopeClassPreservation class rather than appended to TestReImportSitePreservation; test_telescope_class_never_blanked_by_reimport left byte-identical
-- [Phase 30]: D-08/D-09/D-11: reconciled all five v2.2 phase VALIDATION.md files (nyquist_compliant: true) and amended v2.2-MILESTONE-AUDIT.md with true item dispositions; every closed tech-debt item cites where it was closed
+All v1.0-v2.2 decisions logged in PROJECT.md's Key Decisions table. The exhaustive per-plan v2.2 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 26-30 plan plus the 2026-07/08 quick tasks) has been cleared now that v2.2 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (9 rows backfilled at close for Phases 26/27/27.1/28/29, plus the 3 rows Phase 30 added at its own completion), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.2-phases/` and `.planning/milestones/v2.2-quick/`.
 
 ### Pending Todos
 
@@ -230,7 +177,7 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 
 ### Blockers/Concerns
 
-None blocking. v2.2 "One Canonical Run Record" shipped 2026-09-01 (Phase 30, its last phase, completed 4/4 plans, verification 12/12 must-haves, regression gate 358/358 tests); awaiting `/gsd-complete-milestone`. One non-blocking follow-up recorded, not milestone-blocking: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
+None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 phases, 33 plans, 24/24 requirements). One non-blocking follow-up carried into the next milestone: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
 ### Quick Tasks Completed
 
