@@ -38,9 +38,13 @@ class Command(BaseCommand):
         'overwritten from the CSV. A row whose site is already resolved keeps its site, '
         "site_raw and site_needs_review when the CSV's Site Code cell does not resolve, so a "
         'repair made by repair_stale_campaign_run_sites cannot be silently reverted by a '
-        're-import; a non-blank telescope_class is never blanked by a re-import either. '
-        'Every such preserved row is reported on stderr and counted as site_preserved in '
-        "the summary line, so a corrected-but-unresolvable Site Code isn't dropped silently."
+        're-import. A non-blank telescope_class is never blanked by a re-import (D-04), and '
+        'it is never replaced by a different derived value either -- the value this command '
+        "computes is always an inference from the sheet's free text, so it never overwrites a "
+        'stored value, only fills a blank one. Every such preserved row is reported on stderr '
+        'and counted as site_preserved / telescope_class_preserved in the summary line, so a '
+        "corrected-but-unresolvable Site Code or a hand-corrected telescope class isn't "
+        'dropped silently.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -111,6 +115,7 @@ class Command(BaseCommand):
         site_needs_review_count = 0
         window_needs_review_count = 0
         site_preserved_count = 0
+        telescope_class_preserved_count = 0
         # Two distinct key shapes (Pitfall 2): a resolved window key
         # (campaign_pk, telescope_instrument, window_start, window_end), or a TBD key
         # (campaign_pk, telescope_instrument, contact_person). Track keys already seen in
@@ -274,6 +279,25 @@ class Command(BaseCommand):
                 if site is None and not preserve_site
                 else ''
             )
+
+            # D-04 (27-REVIEW WR-01, the half preserve_site's precedent didn't cover):
+            # telescope_class is NEVER cleared by any writer once set (models.py:207-219) --
+            # Phase 27 code-review finding CR-01 proposed clearing it here on site resolution
+            # and the user REJECTED CR-01 (27-REVIEW-FIX.md), and that verdict stands. But the
+            # value this command computes above is always an INFERENCE from the sheet's free
+            # text (Site Code + Telescope / Instrument), whereas a stored non-blank
+            # telescope_class may be a staff correction -- so an inference must never overwrite
+            # a stored value, it may only ever fill a blank one. `preserve_telescope_class` is
+            # true exactly when there is an existing row, that row's telescope_class is
+            # non-blank, and the value this row just derived differs from it.
+            #
+            # This condition is a STRICT SUPERSET of the blanking-only guard it replaces: a
+            # freshly-derived '' always differs from any non-blank stored value, so every case
+            # the old blanking-only guard caught is still caught here, and the
+            # "never cleared once set" invariant is not weakened, only widened.
+            preserve_telescope_class = (
+                existing is not None and existing.telescope_class and telescope_class != existing.telescope_class
+            )
             # `site_resolution_failed` alone is not "needs review": resolve_site() here runs
             # with its default create_placeholder=True, so it can return a placeholder
             # Observatory (site is not None) with site_resolution_failed True -- that row
@@ -368,14 +392,22 @@ class Command(BaseCommand):
                     f'CSV site/site_raw discarded'
                 )
 
-            # telescope_class is NEVER cleared by any writer once set
-            # (solsys_code/models.py:207-219) -- Phase 27 code-review finding CR-01 proposed
-            # clearing it here on site resolution and the user REJECTED CR-01
-            # (27-REVIEW-FIX.md). Without this pop a re-import whose Site Code cell resolves
-            # would write telescope_class='' over a non-blank value (see the
-            # `telescope_class = ... if site is None else ''` computation above).
-            if existing is not None and existing.telescope_class and not telescope_class:
+            # D-04: never let an inferred telescope_class replace a stored one -- neither by
+            # blanking it (the pre-existing case, whose Site Code cell resolved) nor by
+            # overwriting it with a different derived value (the new case this guard adds).
+            # `preserve_telescope_class` is computed above, beside the derivation it gates on.
+            if preserve_telescope_class:
                 fields.pop('telescope_class', None)
+                # D-04: say so, mirroring the preserve_site guard's stderr reporting above --
+                # a preserved row is otherwise reported as `unchanged` by
+                # insert_or_create_campaign_run() (which only compares the surviving keys in
+                # `fields`), indistinguishable from a row where nothing was attempted.
+                telescope_class_preserved_count += 1
+                self.stderr.write(
+                    f'Row {row_num}: kept existing telescope_class '
+                    f'{existing.telescope_class!r} (derived {telescope_class!r} from this row); '
+                    f'CSV telescope_class discarded'
+                )
 
             # WR-04: the summary reports how many rows END UP flagged, not how many flags
             # this command wrote. When the site-preservation guard popped `site_needs_review`
@@ -404,6 +436,7 @@ class Command(BaseCommand):
             f'skipped: {skipped_count}, '
             f'site_needs_review: {site_needs_review_count}, '
             f'window_needs_review: {window_needs_review_count}, '
-            f'site_preserved: {site_preserved_count}'
+            f'site_preserved: {site_preserved_count}, '
+            f'telescope_class_preserved: {telescope_class_preserved_count}'
         )
         return
