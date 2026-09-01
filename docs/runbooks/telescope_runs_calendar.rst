@@ -433,10 +433,20 @@ into ``CampaignRun`` rows, one row per CSV line.
    A preserved row also gets **no** newly-derived ``telescope_class``: the
    class records *why there is no site*, and a preserved row still has one, so
    there is nothing for a class to explain. A non-blank ``telescope_class`` is
-   likewise never blanked by a re-import, consistent with the "it is
-   **permanent**: it is never cleared by any command" sentence in the note
-   below -- before this phase the importer *did* blank it whenever the site
-   resolved, which this guard corrects.
+   never blanked by a re-import, and -- as of this phase (D-04) -- it is also
+   **never replaced by a different derived value**: the class this command
+   computes is always an inference from the sheet's free text, and an
+   inference never overwrites a stored value, it only ever fills a blank one.
+   This is consistent with the "it is **permanent**: it is never cleared by
+   any command" sentence in the note below -- before Phase 27.1 the importer
+   *did* blank it whenever the site resolved, and before this phase a
+   re-import could still silently replace a hand-corrected class with a
+   different derived one. Each such row prints a line on stderr beginning
+   ``kept existing telescope_class``, naming the value that was kept and the
+   one the CSV derived and discarded, and the summary line carries a
+   ``telescope_class_preserved:`` count alongside ``site_preserved:`` -- the
+   row itself is still reported as ``unchanged``, so the stderr line and the
+   summary count are the only places a preserved correction is visible.
 
    The ``site_needs_review`` count in the command's summary
    line reports how many rows **end up** flagged, not how many flags the
@@ -789,7 +799,12 @@ reset does **not** extend to ``site``/``site_raw``/``site_needs_review`` or
 ``telescope_class``, though: as of Phase 27.1, a row whose site is already
 resolved keeps it (and its ``telescope_class``, if any) across a re-import
 whose ``Site Code`` cell does not itself resolve -- see "Site preservation"
-in the re-import gotcha note above.
+in the re-import gotcha note above. More generally, and independent of
+whether a site is preserved: as of this phase (D-04) a row's already-stored
+non-blank ``telescope_class`` is never overwritten by a re-import, even when
+the row's own cell derives a genuinely different, non-blank class -- see the
+paragraph on ``telescope_class_preserved`` in the re-import gotcha note
+above.
 
 See also
 -----------
