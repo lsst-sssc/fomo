@@ -96,5 +96,10 @@
   },
   "intel": {
     "enabled": true
+  },
+  "model_overrides": {
+    "gsd-code-reviewer": "opus",
+    "gsd-verifier": "opus",
+    "gsd-plan-checker": "opus"
   }
 }
