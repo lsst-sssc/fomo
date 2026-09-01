@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
-current_phase: 27
-current_phase_name: the-canonical-run-record
-status: completed
-stopped_at: Completed 27-07-PLAN.md -- Phase 27 gap-closure (27-UAT.md Test 8/9) and milestone v2.2 complete
-last_updated: "2026-08-31T22:45:28.603Z"
+current_phase: 30
+current_phase_name: v2-2-tech-debt-cleanup
+status: not_started
+stopped_at: Phase 30 context gathered
+last_updated: "2026-09-01T01:28:50.584Z"
 last_activity: 2026-08-06
 last_activity_desc: "Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)"
-state_head: dd23ef971b34cc5cca9cbb788ba7c77c5f87c684
+state_head: 6a97b413a394c0fc97897339ae91ca030b3b1a0f
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
   total_plans: 29
   completed_plans: 29
-  percent: 100
+  percent: 83
 ---
 
 # Project State
@@ -25,13 +25,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** None — milestone v2.2 complete (5/5 phases, 29/29 plans, including Phase 27's gap-closure plan 27-07)
+**Current focus:** Phase 30 — v2.2 tech-debt cleanup (repo-wide ruff pass, runbook prose fixes, attribution-candidate `approval_status` filter), added 2026-08-31 and not yet planned
 
 ## Current Position
 
-Phase: 27 (the-canonical-run-record) — COMPLETE (7/7 plans, including gap-closure plan 27-07)
-Plan: 7 of 7 (all complete)
-Status: Milestone v2.2 complete (5/5 phases, 29/29 plans)
+Phase: 30 (v2-2-tech-debt-cleanup) — NOT PLANNED
+Plan: none yet
+Status: Phases 26-29 complete (29/29 plans); Phase 30 added to close the milestone's deferred items before archiving
 Last activity: 2026-08-06 - Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
@@ -153,6 +153,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 - Phase 22 added (2026-07-14): Site Matching at Submission and Unmatched-Site Resolution Workflow — closes the Phase 21 functionality gap. Decisions confirmed with operator: (a) the public submission form's Observing site field gets HTMX live-search autocomplete (new endpoint running `fuzzy_match_candidates()` over `build_site_candidates()`), also replacing the approval queue's static per-row datalist; (b) "site failure never blocks approval" is kept, with a new "Sites needing review" surface for approved runs with `site_needs_review=True` whose resolution triggers the deferred CalendarEvent projection.
 - Phase 24 added (2026-07-17): Operator and usage runbook documentation for the telescope-runs-calendar management commands and staff workflows (load_telescope_runs, sync_lco_observation_calendar, sync_gemini_observation_calendar, import_campaign_csv, Phase 23's approval-queue status-change actions) — raised during PR #41/#43 split review: design docs (docs/design/*.rst) and demo notebooks existed, but no general, discoverable how-to-run documentation did. Scoped to publish operator-facing usage docs beyond design rationale and `--help` text.
 - Phase 25 added (2026-07-17): Range-window CalendarEvent projection — closes the diagnosed gap where approved, site-resolved range-window CampaignRuns (e.g. the real GS-2026A-FT-115 Gemini FT allocation) never get a CalendarEvent, verified via `/gsd-debug` (`.planning/debug/range-window-calendar-event.md`, diagnose-only, root cause + before/after spec, no code changed). Root cause: Phase 19 D-06's guard was a behavior-preservation deferral, not a considered decision; Phase 23's `TestGeminiFtScenario` re-encoded the deferred behavior as contract. Fix scope per the spec: drop the guard's `window_start == window_end` clause (add a `window_end` truthiness check instead), give the ground branch multi-day date-math (satellite branch is already correct), and deliberately revise the 4 Phase 19/23 test assertions that currently assert zero events for range runs.
+- Phase 30 added: v2.2 Tech-Debt Cleanup: repo-wide ruff pass, runbook prose fixes, attribution candidate approval_status filter
 
 ### Decisions
 
@@ -264,9 +265,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T22:50:00.000Z
-Stopped at: Upgraded gsd-core 1.4.4 -> 1.12.0 and moved `.planning/phases-archive/` into the canonical `.planning/milestones/v1.0-phases`..`v1.4-phases` layout (260831-arc). Milestone v2.2 remains complete and unarchived.
-Resume file: None
+Last session: 2026-09-01T01:28:50.415Z
+Stopped at: Phase 30 context gathered
+Resume file: .planning/phases/30-v2-2-tech-debt-cleanup/30-CONTEXT.md
 
 ## Operator Next Steps
 
