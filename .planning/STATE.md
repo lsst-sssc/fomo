@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: One Canonical Run Record
 current_phase: 30
-current_phase_name: v2-2-tech-debt-cleanup
+current_phase_name: v2.2 Tech-Debt Cleanup
 status: not_started
 stopped_at: Phase 30 context gathered
-last_updated: "2026-09-01T01:28:50.584Z"
+last_updated: "2026-09-01T03:27:43.087Z"
 last_activity: 2026-08-06
 last_activity_desc: "Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)"
-state_head: 6a97b413a394c0fc97897339ae91ca030b3b1a0f
+state_head: 5f80ce9a44be0479bb0a2aae728cad1571a209b7
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 29
+  total_plans: 33
   completed_plans: 29
   percent: 83
 ---
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 ## Current Position
 
-Phase: 30 (v2-2-tech-debt-cleanup) — NOT PLANNED
+Phase: 30 (v2.2 Tech-Debt Cleanup) — READY TO EXECUTE
 Plan: none yet
 Status: Phases 26-29 complete (29/29 plans); Phase 30 added to close the milestone's deferred items before archiving
 Last activity: 2026-08-06 - Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)
@@ -154,6 +154,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 - Phase 24 added (2026-07-17): Operator and usage runbook documentation for the telescope-runs-calendar management commands and staff workflows (load_telescope_runs, sync_lco_observation_calendar, sync_gemini_observation_calendar, import_campaign_csv, Phase 23's approval-queue status-change actions) — raised during PR #41/#43 split review: design docs (docs/design/*.rst) and demo notebooks existed, but no general, discoverable how-to-run documentation did. Scoped to publish operator-facing usage docs beyond design rationale and `--help` text.
 - Phase 25 added (2026-07-17): Range-window CalendarEvent projection — closes the diagnosed gap where approved, site-resolved range-window CampaignRuns (e.g. the real GS-2026A-FT-115 Gemini FT allocation) never get a CalendarEvent, verified via `/gsd-debug` (`.planning/debug/range-window-calendar-event.md`, diagnose-only, root cause + before/after spec, no code changed). Root cause: Phase 19 D-06's guard was a behavior-preservation deferral, not a considered decision; Phase 23's `TestGeminiFtScenario` re-encoded the deferred behavior as contract. Fix scope per the spec: drop the guard's `window_start == window_end` clause (add a `window_end` truthiness check instead), give the ground branch multi-day date-math (satellite branch is already correct), and deliberately revise the 4 Phase 19/23 test assertions that currently assert zero events for range runs.
 - Phase 30 added: v2.2 Tech-Debt Cleanup: repo-wide ruff pass, runbook prose fixes, attribution candidate approval_status filter
+- Phase 30 edited: edited fields: goal, depends_on, success_criteria (added), scope list (added), locked-context pointer (added), paired-docs. Rewritten from 30-CONTEXT.md per D-11 — the original goal named the WR-09/WR-10 runbook fixes and a repo-wide ruff pass, all three of which discuss-phase verified as already closed, and specified excluding PENDING_REVIEW from attribution candidates, which D-01 reversed.
 
 ### Decisions
 

@@ -1,0 +1,168 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v2.2 — One Canonical Run Record",
+  "phases": [
+    {
+      "number": "1",
+      "name": "Site & Ephemeris Helper",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Run Line Parsing",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Classical Calendar Ingest",
+      "status": "complete"
+    },
+    {
+      "number": "4",
+      "name": "LCO Queue Sync Command",
+      "status": "complete"
+    },
+    {
+      "number": "5",
+      "name": "Multi-Proposal & Multi-Facility Selection",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "Correct Instrument-Type Extraction",
+      "status": "complete"
+    },
+    {
+      "number": "7",
+      "name": "Live Telescope-Label Resolution with Fallback & Failure Reporting",
+      "status": "complete"
+    },
+    {
+      "number": "07.1",
+      "name": "Close gap: SOAR fallback label is facility-unaware",
+      "status": "complete"
+    },
+    {
+      "number": "8",
+      "name": "Telescope Label Verification Sidecar",
+      "status": "complete"
+    },
+    {
+      "number": "9",
+      "name": "Proposal Color & Status Visual Treatment",
+      "status": "complete"
+    },
+    {
+      "number": "10",
+      "name": "Gemini Calendar Sync Command",
+      "status": "complete"
+    },
+    {
+      "number": "11",
+      "name": "Code Refactoring",
+      "status": "complete"
+    },
+    {
+      "number": "12",
+      "name": "Display Polish",
+      "status": "complete"
+    },
+    {
+      "number": "13",
+      "name": "ESO Feasibility Spike",
+      "status": "complete"
+    },
+    {
+      "number": "14",
+      "name": "Campaign Data Model & Bootstrap Import",
+      "status": "complete"
+    },
+    {
+      "number": "15",
+      "name": "Per-Campaign Table View (Read Path)",
+      "status": "complete"
+    },
+    {
+      "number": "16",
+      "name": "Submission Form, Approval Queue & Calendar Projection",
+      "status": "complete"
+    },
+    {
+      "number": "17",
+      "name": "Coverage-Gap Analysis (Deferrable to v2.1)",
+      "status": "complete"
+    },
+    {
+      "number": "18",
+      "name": "Uncertain-Scheduling Investigation Spike",
+      "status": "complete"
+    },
+    {
+      "number": "19",
+      "name": "Window-Schema Migration",
+      "status": "complete"
+    },
+    {
+      "number": "20",
+      "name": "Range/TBD Import & Asset-Aware Coverage Gap",
+      "status": "complete"
+    },
+    {
+      "number": "21",
+      "name": "Site Disambiguation & Submitter Contact Opt-In",
+      "status": "complete"
+    },
+    {
+      "number": "22",
+      "name": "Site Matching at Submission and Unmatched-Site Resolution Workflow",
+      "status": "complete"
+    },
+    {
+      "number": "23",
+      "name": "Weather/Storm Cancellation Handling",
+      "status": "complete"
+    },
+    {
+      "number": "24",
+      "name": "Operator and Usage Runbook Documentation",
+      "status": "complete"
+    },
+    {
+      "number": "25",
+      "name": "Range-Window CalendarEvent Projection",
+      "status": "complete"
+    },
+    {
+      "number": "26",
+      "name": "Canonical-Record Spike",
+      "status": "complete"
+    },
+    {
+      "number": "27",
+      "name": "The Canonical Run Record",
+      "status": "complete"
+    },
+    {
+      "number": "28",
+      "name": "Operator-Assisted Attribution",
+      "status": "complete"
+    },
+    {
+      "number": "29",
+      "name": "The Reconciler",
+      "status": "complete"
+    },
+    {
+      "number": "30",
+      "name": "v2.2 Tech-Debt Cleanup",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
+  },
+  "updated_at": "2026-09-01T03:27:43.095Z"
+}
