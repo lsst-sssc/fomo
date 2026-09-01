@@ -4,17 +4,17 @@ milestone: v2.2
 milestone_name: One Canonical Run Record
 current_phase: 30
 current_phase_name: v2.2 Tech-Debt Cleanup
-status: not_started
-stopped_at: Phase 30 context gathered
-last_updated: "2026-09-01T03:27:43.087Z"
-last_activity: 2026-08-06
-last_activity_desc: "Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)"
-state_head: 5f80ce9a44be0479bb0a2aae728cad1571a209b7
+status: executing
+stopped_at: Completed 30-01-PLAN.md
+last_updated: "2026-09-01T03:52:28.201Z"
+last_activity: 2026-08-31
+last_activity_desc: Phase 30 execution started
+state_head: d56fefca4b9daf1e276280778ee82099ece063e2
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 33
-  completed_plans: 29
+  completed_plans: 30
   percent: 83
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 30 — v2.2 tech-debt cleanup (repo-wide ruff pass, runbook prose fixes, attribution-candidate `approval_status` filter), added 2026-08-31 and not yet planned
+**Current focus:** Phase 30 — v2.2 Tech-Debt Cleanup
 
 ## Current Position
 
-Phase: 30 (v2.2 Tech-Debt Cleanup) — READY TO EXECUTE
-Plan: none yet
-Status: Phases 26-29 complete (29/29 plans); Phase 30 added to close the milestone's deferred items before archiving
-Last activity: 2026-08-06 - Completed gap-closure plan 27-07: moved Sites Needing Review to top of approval queue, added staff-only HIGH-band attribution hint to unlinked calendar-event modal (27-UAT.md Test 8/9)
+Phase: 30 (v2.2 Tech-Debt Cleanup) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-08-31 — Phase 30 execution started
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -144,6 +144,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 27 P05 | 35min | 3 tasks | 7 files |
 | Phase 27 P06 | 70min | 3 tasks | 7 files |
 | Phase 29 P06 | 75min | 3 tasks | 4 files |
+| Phase 30 P01 | 8min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -199,6 +200,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase ?]: [Phase 27-06]: PROJECT.md's stale Phase 25 pk=34 claim is date-pinned (2026-07-18) rather than deleted, preserving the pk=34 occurrence count; 26-CONTEXT.md's D-11 owned-nights framing gets a dated forward-pointer instead of a rewrite
 - [Phase ?]: [Phase 29-06]: User-directed deviation added CampaignRun.Source.ESO_QUEUE (migration 0014) since real 3I/ATLAS ESO VLT queue rows had no matching source value -- not Rule 1/2/3, explicit user choice among 3 presented options
 - [Phase ?]: [Phase 29-06]: Real dev-DB RECON-07 baseline measured as 26 approved/resolved/windowed 3I/ATLAS rows (10 QUEUE/11 CLASSICAL/5 SPACE) today, not the 19 (8/11/0) 26-DECISION.md originally cited -- Phase 27's live site-repair work resolved 4 satellite rows' sites after that spike's probe date
+- [Phase 30]: Reused one shared frozenset constant (_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES) across both eligibility gates rather than inlining the status literal twice — D-03 anti-drift rationale: one place to add a future disqualifying status
+- [Phase 30]: Event-path fixture runs carry target=run_target while the record-orphan fixture uses a deliberately separate field_target in the same campaign — Proves the record-path tests cannot pass by accident via a reintroduced target-FK-equality check, the standing prohibition in _eligible_runs_for_record's docstring
 
 ### Pending Todos
 
@@ -266,9 +269,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T01:28:50.415Z
-Stopped at: Phase 30 context gathered
-Resume file: .planning/phases/30-v2-2-tech-debt-cleanup/30-CONTEXT.md
+Last session: 2026-09-01T03:52:28.036Z
+Stopped at: Completed 30-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

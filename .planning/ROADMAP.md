@@ -381,13 +381,13 @@ follow-ups.
   6. The operator runbook tells staff that a rejected run is never offered as a match, and
      `campaign_lifecycle_demo.ipynb` shows that exclusion happening in real executed output
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 30-01-PLAN.md — Tracer slice: the `approval_status` filter at both attribution eligibility gates (D-01/D-02/D-03), its exclusion and non-vacuous control tests, and both paired artifacts — the runbook's attribution paragraph and a fifth, rejected notebook submission (D-12)
+- [x] 30-01-PLAN.md — Tracer slice: the `approval_status` filter at both attribution eligibility gates (D-01/D-02/D-03), its exclusion and non-vacuous control tests, and both paired artifacts — the runbook's attribution paragraph and a fifth, rejected notebook submission (D-12)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -434,7 +434,7 @@ Plans:
 | 27. The Canonical Run Record | v2.2 | 7/7 | Complete    | 2026-08-06 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
-| 30. v2.2 Tech-Debt Cleanup | v2.2 | 0/0 | Not planned | — |
+| 30. v2.2 Tech-Debt Cleanup | v2.2 | 1/4 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
