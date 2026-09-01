@@ -21,10 +21,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
+See: .planning/PROJECT.md (updated 2026-09-01 — Phase 30 complete, milestone v2.2 finished)
 
 **Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Phase 30 — v2.2 Tech-Debt Cleanup
+**Current focus:** v2.2 complete — awaiting `/gsd-complete-milestone`
 
 ## Current Position
 
@@ -162,6 +162,12 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 ### Decisions
 
+- [Phase 30]: REJECTED-run attribution exclusion enforced once via a shared `_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES` constant read by both eligibility gates, not filtered separately at each display surface
+- [Phase 30]: The ruff/format "drift" three phases (26, 27, 27.1) each logged and deferred was a misdiagnosis — repo was always clean under the pinned version; root-caused to CLAUDE.md documenting a bare unpinned `ruff` invocation, fixed by pinning `pyproject.toml` + routing the documented command through `pre-commit run` (no repo-wide reformat)
+- [Phase 30]: `preserve_telescope_class` guard mirrors `preserve_site`'s shape exactly (decision computed beside inputs, widened pop, summary counter, per-row stderr line) rather than inventing a new pattern
+
+Full rationale for each in PROJECT.md's Key Decisions table (Phase 30 rows).
+
 All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive per-plan v2.1 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 18-25 plan) has been cleared now that v2.1 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (backfilled at close for Phases 18/19/20/21/23/24, which already had rows for 14/22/25), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.1-phases/`.
 
 - [Phase quick-260722-tkt]: Field Targets created by --create-missing-targets are always type=SIDEREAL (fixed-sky pointings), distinct from the campaign's non-sidereal moving-object target by design
@@ -224,7 +230,7 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 
 ### Blockers/Concerns
 
-None. v2.1 shipped 2026-07-18; awaiting `/gsd-new-milestone` to start the next cycle.
+None blocking. v2.2 "One Canonical Run Record" shipped 2026-09-01 (Phase 30, its last phase, completed 4/4 plans, verification 12/12 must-haves, regression gate 358/358 tests); awaiting `/gsd-complete-milestone`. One non-blocking follow-up recorded, not milestone-blocking: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
 ### Quick Tasks Completed
 
