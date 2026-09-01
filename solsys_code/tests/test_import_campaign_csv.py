@@ -1965,3 +1965,177 @@ class TestReImportSitePreservation(_WriteCsvMixin, TestCase):
         self.assertEqual(run.site_raw, '705')
         self.assertTrue(run.site_needs_review)
         self.assertEqual(run.telescope_class, '')
+
+
+class TestReImportTelescopeClassPreservation(_WriteCsvMixin, TestCase):
+    """D-04 (27-REVIEW WR-01, the half preserve_site's precedent didn't cover): a re-import
+    must not replace a non-blank ``telescope_class`` with a different derived value --
+    preserved on BOTH sides against overwrite: the blanking direction (Case 6 above, pinned
+    by ``test_telescope_class_never_blanked_by_reimport``, left unedited) and the
+    genuinely-different-non-blank-value direction added here. What still gets WRITTEN: a
+    freshly derived ``telescope_class`` still lands onto a blank stored value (first-time
+    derivation is unaffected), and re-deriving the SAME value is not reported as preserved.
+    These tests are, together with ``test_telescope_class_never_blanked_by_reimport``, the
+    executable form of the runbook's "Re-import gotcha" note -- the note and these tests must
+    not be allowed to drift apart.
+    """
+
+    def test_reimport_does_not_replace_a_corrected_telescope_class_with_a_different_derived_one(self):
+        """The whole point of D-04: a stored non-blank telescope_class -- standing in for a
+        staff correction -- survives a re-import whose row derives a different value.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m network',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=None,
+            site_raw='',
+            site_needs_review=False,
+            telescope_class='2m0',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # Site Code cell does not resolve, so the derivation runs and yields '1m0' from the
+        # instrument text -- a different value from the stored '2m0'.
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'LCO 1m network',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.telescope_class, '2m0')
+
+    def test_a_preserved_telescope_class_is_reported_on_stderr_and_in_the_summary(self):
+        """D-04: preservation must not be silent. `insert_or_create_campaign_run()` only
+        compares the surviving keys in `fields`, so the row is reported as `unchanged` and
+        the operator sees no hint their correction was discarded without this diagnostic.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m network',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=None,
+            site_raw='',
+            site_needs_review=False,
+            telescope_class='2m0',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'LCO 1m network',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with ctx:
+            call_command('import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout, stderr=stderr)
+
+        self.assertIn('telescope_class_preserved: 1', stdout.getvalue())
+        self.assertIn('kept existing telescope_class', stderr.getvalue())
+        self.assertIn("'2m0'", stderr.getvalue())
+        self.assertIn("'1m0'", stderr.getvalue())
+
+    def test_first_derivation_still_writes_telescope_class_when_the_existing_value_is_blank(self):
+        """The non-vacuous control: first-time derivation onto a blank stored value is
+        unaffected by the guard. Without this test a guard that popped the field
+        unconditionally would pass every other assertion in this class.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m network',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=None,
+            site_raw='',
+            site_needs_review=False,
+            telescope_class='',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'LCO 1m network',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        stdout = io.StringIO()
+        with ctx:
+            call_command(
+                'import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout, stderr=io.StringIO()
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.telescope_class, '1m0')
+        self.assertIn('telescope_class_preserved: 0', stdout.getvalue())
+
+    def test_an_identical_derived_telescope_class_is_not_reported_as_preserved(self):
+        """The guard fires on a genuine difference, not on every re-import: a routine
+        re-import of an unchanged sheet must not produce noise for every site-less row.
+        """
+        campaign = TargetList.objects.create(name='Test Campaign')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='LCO 1m network',
+            window_start=date(2025, 7, 4),
+            window_end=date(2025, 7, 4),
+            site=None,
+            site_raw='',
+            site_needs_review=False,
+            telescope_class='1m0',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        path, ctx = self._write_csv(
+            [
+                _row(
+                    **{
+                        'Telescope / Instrument': 'LCO 1m network',
+                        'Site Code': '',
+                        'Obs. Date': '2025-07-04',
+                        'UT Time Range': '08:50 - 11:50',
+                    }
+                )
+            ]
+        )
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with ctx:
+            call_command('import_campaign_csv', '--campaign', 'Test Campaign', path, stdout=stdout, stderr=stderr)
+
+        run.refresh_from_db()
+        self.assertEqual(run.telescope_class, '1m0')
+        self.assertIn('telescope_class_preserved: 0', stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), '')
