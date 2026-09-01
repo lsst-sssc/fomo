@@ -1,7 +1,7 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v2.2 — One Canonical Run Record",
+  "milestone": "v2.3",
   "phases": [
     {
       "number": "1",
@@ -144,6 +144,11 @@
       "status": "complete"
     },
     {
+      "number": "27.1",
+      "name": "Close gap: staff surfaces and data-integrity risks (INSERTED)",
+      "status": "complete"
+    },
+    {
       "number": "28",
       "name": "Operator-Assisted Attribution",
       "status": "complete"
@@ -160,9 +165,9 @@
     }
   ],
   "next": {
-    "command": "/gsd:progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "/gsd:discuss-phase",
+    "label": "Discuss the first phase",
+    "reason": "Project initialized — plan your first phase"
   },
-  "updated_at": "2026-09-01T10:20:57.266Z"
+  "updated_at": "2026-09-01T19:24:27.915Z"
 }
