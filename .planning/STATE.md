@@ -184,6 +184,12 @@ All v1.0-v2.2 decisions logged in PROJECT.md's Key Decisions table. The exhausti
   for a never-offered pair or report false success for nonexistent pks (finding F4,
   2026-09-01 branch review).
 
+- `2026-09-01-add-ttl-cache-to-attribution-banner-count.md` — wrap
+  `orphans_needing_attribution_count()` in a short-TTL cache (campaign_gap.py pattern)
+  so the campaign-list page stops rebuilding both attribution backlogs per request
+  (finding F1, downgraded Medium→Low after measuring 23 ms / 64 queries at 31 orphans
+  on the dev DB; opportunistic fix, 2026-09-01 branch review).
+
 - Carried-forward items in Deferred Items below.
 
 ### Blockers/Concerns
