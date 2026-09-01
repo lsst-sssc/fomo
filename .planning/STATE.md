@@ -173,6 +173,17 @@ All v1.0-v2.2 decisions logged in PROJECT.md's Key Decisions table. The exhausti
   module is now a real shared API (3 consumers); low-priority style cleanup found while
   verifying the 2026-06-23 extraction todo was complete.
 
+- `2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md` — move
+  `_reconcile_classical_nights()`'s `sun_event()` call inside the `existing is None`
+  branch so idempotent sweeps stop paying per-night astropy solar scans for results
+  that are discarded (finding F2, 2026-09-01 branch review).
+
+- `2026-09-01-guard-attribution-dismiss-action-with-is-offered-candidate.md` — add the
+  `is_offered_candidate()` server-side guard to `AttributionDecisionView._dismiss()`,
+  matching every confirm path, so a stale/tampered staff POST can't persist a dismissal
+  for a never-offered pair or report false success for nonexistent pks (finding F4,
+  2026-09-01 branch review).
+
 - Carried-forward items in Deferred Items below.
 
 ### Blockers/Concerns
