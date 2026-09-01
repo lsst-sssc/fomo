@@ -427,6 +427,55 @@
 
 ---
 
+## Milestone: v2.2 — One Canonical Run Record
+
+**Shipped:** 2026-09-01
+**Phases:** 6 (26, 27, 27.1, 28, 29, 30) | **Plans:** 33 | **Sessions:** ~13 (2026-07-26 → 2026-09-01, with an idle gap 2026-08-06 → 2026-08-31 before the milestone audit and Phase 30 tech-debt cleanup)
+
+### What Was Built
+
+- Phase 26: Investigation spike settling the `source` vocabulary, per-adapter identity-key mapping, and the reconciler's canonical event-key scheme against the real dev DB. A mid-phase domain correction from the project owner reframed the key question — a queue window is not a set of owned nights — and reopened the phase (26-04/26-05) to settle the queue-run projection question with measured evidence instead of the original hypothesis.
+- Phase 27: `CampaignRun` became canonical in the schema — `source`/`telescope_class` fields, `CalendarEventTelescopeLabel` renamed to `CalendarEventMeta` via a hand-authored `RenameModel` (never autodetected — would have been destructive), and `CampaignRunObservation` linking a run to the records that realise it. A 7th gap-closure plan (27-07) landed a month later after a UAT re-verification round found two further minor gaps.
+- Phase 27.1 (inserted): closed staff-surface and data-integrity gaps Phase 27's own review and UAT found — a TBD-run display bug, an illegible admin run picker, a CSV-reimport site-repair regression, and a source-provenance lock bypass.
+- Phase 28: Operator-assisted attribution — a scored, evidence-carrying candidate matcher and a staff queue with confirm/dismiss/undo actions, each re-deriving eligibility server-side before writing so no association is ever created from client-supplied state alone.
+- Phase 29: The reconciler — one idempotent `reconcile_run()` function projecting every run's calendar events through the four-stage window pipeline, retiring the backfill-command-per-gap pattern (`_project_calendar_event()`, `_calendar_event_title()`, `backfill_range_calendar_events`) entirely.
+- Phase 30: Tech-debt cleanup closing three carried-forward items — an attribution eligibility gap, a CSV re-import guard, and (the largest finding) that the repo-wide ruff/format "drift" three separate phases (26, 27, 27.1) had each independently logged and deferred was a misdiagnosis, not dirty code — an unpinned dev-environment ruff disagreeing with the pinned pre-commit ruff. Fixed by pinning the dependency, not by running a cleanup pass.
+- 24/24 v1 requirements shipped (100%); all 6 phases verified `passed`; 793 tests passing as of Phase 28 (no later full-suite recount was captured).
+
+### What Worked
+
+- Treating the Phase 26 spike as genuinely reopenable rather than a fixed checkpoint: when the project owner's domain correction ("a queue window is not a set of owned nights") invalidated the original ~400-event fan-out estimate, plans 26-04/26-05 re-measured against the real dev DB instead of patching the existing decision doc — the settled two-key-family scheme (`RUN:{pk}:{date}` vs. bare `RUN:{pk}`) held for the rest of the milestone with no further rework.
+- Sequencing Phase 28 (attribution) before Phase 29 (the reconciler) on a structural argument (ATTRIB-06: attribution must be completable before the first full reconcile sweep, so the calendar never visibly double-books) rather than a rollout caveat — this made a real ordering hazard impossible by construction instead of relying on operator discipline.
+- Root-causing the ruff drift instead of running a blind `ruff format .` — three phases had independently logged the same finding and each time deferred it as "pre-existing, out of scope." Phase 30 traced it to an unpinned dev-environment ruff version and fixed the actual cause (pinning `pyproject.toml` to match `.pre-commit-config.yaml`), confirming the repo was clean under the enforced version the whole time and avoiding an unrelated repo-wide reformat diff.
+- Deep code review continued catching real, phase-blocking bugs before close: Phase 28 found two BLOCKER-severity gaps in its own verification pass (a Confirm button silently requiring a dismissal reason; an admin page not stamping confirmation audit fields server-side) and closed both in-phase (28-05) rather than carrying them into Phase 29.
+
+### What Was Inefficient
+
+- The same ruff/format "drift" was independently rediscovered and logged as deferred tech debt by three separate phases (26, 27, 27.1) before anyone traced it to its root cause in Phase 30 — each phase's own scope boundary ("not touched by this plan, out of scope") was locally correct but meant the same investigation cost was paid three times before a dedicated tech-debt phase finally closed it.
+- A real gap between milestone completion and milestone *close*: Phase 29 (the last phase implementing new behavior) finished 2026-08-05, but the milestone audit and Phase 30's tech-debt cleanup didn't run until 2026-08-31/09-01 — nearly four weeks where the milestone was functionally done but not formally shipped, during which `.planning/quick/` accumulated 11 more completed-but-unarchived tasks that the pre-close audit then had to surface and acknowledge in bulk.
+- PROJECT.md's "Current Milestone" progress section and "Working code"/Key Decisions backfill for Phases 27.1/28/29/30 were explicitly deferred to this `/gsd-complete-milestone` step (per Phase 30's own footer note) rather than kept current phase-by-phase — meaning the full-section review at close had to reconstruct four phases' worth of documentation in one pass instead of incrementally, the same class of deferred-work concentration as the ruff drift above.
+
+### Patterns Established
+
+- When a mid-phase domain correction invalidates a spike's working hypothesis, reopen the phase with new measurement plans rather than patching the existing decision doc's conclusion — Phase 26 did this cleanly (26-04/26-05) and the corrected scheme needed no further rework downstream.
+- A milestone with two independent write-eligible surfaces for the same relationship (Phase 27's admin FK picker, later Phase 28's attribution queue) needs the earlier surface's legibility treated as load-bearing, not cosmetic, until the later one ships — Phase 27.1 was scheduled explicitly ahead of Phase 28 for this reason.
+- When a repeatedly-deferred finding keeps recurring across phases with the same "pre-existing, out of scope" verdict, that recurrence count is itself a signal to schedule a dedicated root-cause investigation rather than deferring a fourth time — Phase 30 treated the three-times-logged ruff drift as exactly this signal.
+
+### Key Lessons
+
+1. A spike's settled decision is only as durable as the domain assumption it measured against — build in an explicit reopening path (new measurement plans, not a patched conclusion) for when a project owner's correction invalidates that assumption mid-milestone (Phase 26).
+2. Sequencing two phases by a structural dependency argument (ATTRIB-06: attribution before the first reconcile sweep) rather than a documented rollout caveat converts a possible operational hazard into an impossible one — prefer this whenever the ordering itself can be enforced, not just recommended (Phases 28→29).
+3. A finding independently rediscovered by multiple phases with the same "pre-existing, out of scope" disposition is a repo-level root-cause signal, not three unrelated one-off findings — track recurrence count explicitly (e.g. in the deferred-items log) and trigger a dedicated investigation phase once it repeats, rather than deferring again (the ruff drift, logged by Phases 26/27/27.1, finally closed by Phase 30).
+4. Deferring a PROJECT.md section's backfill to the eventual `/gsd-complete-milestone` full-review step (rather than updating it phase-by-phase) concentrates several phases' worth of reconstruction work into one close-time pass — cheaper per-phase, more expensive and error-prone at close; the tradeoff is legitimate but should be a deliberate choice, documented as it was here, not a default.
+5. A gap between "last phase implementing new behavior" and "formal milestone close" lets `.planning/quick/` and similar bookkeeping accumulate — the pre-close artifact audit is the right backstop (it surfaced and safely acknowledged 20 items here, including 11 already-completed-but-unarchived quick tasks), but a shorter gap would have meant fewer items to triage in bulk at close.
+
+### Cost Observations
+
+- Sessions: ~13 (2026-07-26 → 2026-09-01); 6 phases, 33 plans, 96 tasks.
+- Notable: this milestone's phase count (6) is smaller than v2.1's (8), but its plan count (33) is higher (v2.1: 26) — reflecting Phase 27's model-migration weight (7 plans, including a gap-closure round a month after the rest of the phase) and Phase 27.1's insertion as a full 5-plan gap-closure phase in its own right, not a lightweight patch.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -443,6 +492,7 @@
 | v1.7 | ~1 | 1 | First investigation-only milestone (no sync command shipped); live production ESO P2 API probe; decision doc verdict (Bypass) grounded in captured real-API evidence; upstream `tom_eso` bug filed (`#55`) + 4 more parked as a dormant seed; STATE.md `status` field found stale relative to authoritative verification data |
 | v2.0 | ~4 | 4 | First milestone with a second, independent feature area (campaign coordination, distinct from calendar sync); deep code review caught critical bugs pre-close in 3 of 4 phases; first milestone audit generated before its own last (deferrable) phase completed, requiring a freshness re-check at close; first quick-task fix triggered by manual UAT immediately before close, not by automated verification; first worktree-isolation base-mismatch caught by the fail-closed guard, recovered via non-isolated fallback |
 | v2.1 | ~10 | 8 | Largest milestone by phase count; investigation spike + schema migration + organic gap-closure phases (weather handling, range-window projection debug fix); first PR-style Findings.md review pass done as a distinct pre-close step, catching a High-severity unguarded-calendar-sync gap 544 green tests missed; second recurrence of worktree-isolation base-mismatch (v2.0, v2.1); two debug-session bookkeeping false positives/staleness caught and fixed at close |
+| v2.2 | ~13 | 6 (incl. inserted 27.1) | Highest plan count yet (33, vs. v2.1's 26) despite fewer phases; first spike reopened mid-milestone by a project-owner domain correction (26-04/26-05); first milestone where a real gap opened between last-phase completion and formal close (~4 weeks), during which quick tasks accumulated for bulk pre-close audit; a root-cause tech-debt phase (30) closed a finding three earlier phases (26/27/27.1) had each independently logged and deferred as "pre-existing, out of scope" |
 
 ### Cumulative Quality
 
@@ -458,6 +508,7 @@
 | v1.7 | +0 (investigation-only; no code/tests shipped — deliverable is a decision doc) | - | 0 |
 | v2.0 | +138 (model + import + read-path + write-path + coverage-gap + pre-close quick-task fix; all 332 under `./manage.py test solsys_code`) | - | 0 |
 | v2.1 | +212 (spike + migration + import/gap + site disambiguation + submission matching + weather handling + runbook + range-window fix + pre-close quick-task fix; all 544 under `./manage.py test solsys_code`) | - | 0 |
+| v2.2 | +249 known through Phase 28 (spike + canonical schema + gap closure + attribution; 793 under `python manage.py test` as of Phase 28 — the last full-suite recount captured; Phase 29's rewritten 124-test approval-queue suite and Phase 30's +12 targeted tests are additional but not re-totaled) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
