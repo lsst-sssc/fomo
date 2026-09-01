@@ -11,6 +11,10 @@ trigger_when: >
   needs to re-evaluate whether any of these gaps still block the chosen
   approach.
 scope: small-per-issue
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: dormant
 ---
 
 # SEED-001: File upstream tom_eso feature requests

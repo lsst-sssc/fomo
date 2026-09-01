@@ -5,17 +5,22 @@ subsystem: docs
 tags: [sphinx, rst, runbook, claude-md, telescope-runs-calendar]
 
 # Dependency graph
+
 requires:
+
   - phase: none
     provides: n/a (documentation-only quick task)
 provides:
+
   - Corrected operator runbook (load_telescope_runs --campaign optionality, [QUEUED] guard)
   - New backfill_lco_observation_records operator documentation section + cheat-sheet row
   - Directory-scoped CLAUDE.md paired-deliverable rule covering docs/runbooks/
   - DEFERRED.md recording out-of-scope doc gaps
+
 affects: [future runbook edits, future GSD plans touching docs/runbooks/ or the four paired modules]
 
 # Tech tracking
+
 tech-stack:
   added: []
   patterns: ["CLAUDE.md rule scoped by directory instead of filename enumeration"]
@@ -28,6 +33,7 @@ key-files:
     - CLAUDE.md
 
 key-decisions:
+
   - "Disambiguated load_telescope_runs --campaign (optional) from import_campaign_csv --campaign (required) with an explicit cross-reference note"
   - "Corrected the [QUEUED] claim to reflect the successful-terminal-status guard in sync_lco_observation_calendar._title_for, without expanding into full title-prefix coverage (deferred)"
   - "Documented backfill_lco_observation_records read directly from source, including the reuse-vs-build distinction for --create-missing-targets and the different meaning of omitting --campaign there vs on load_telescope_runs"
@@ -37,8 +43,13 @@ key-decisions:
 requirements-completed: [DOC-01, DOC-02, DOC-03, DOC-04]
 
 # Metrics
+
 duration: ~20min
 completed: 2026-07-26
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: unknown
 ---
 
 # Quick Task 260726-kdp: Close Operator Runbook Drift and Broaden Paired-Deliverable Rule Summary
@@ -52,6 +63,7 @@ completed: 2026-07-26
 - **Files modified:** 3 (2 modified, 1 created)
 
 ## Accomplishments
+
 - `docs/runbooks/telescope_runs_calendar.rst` no longer misdescribes `load_telescope_runs --campaign` as required-adjacent or conflatable with `import_campaign_csv`'s required `--campaign`, and no longer claims every unplaced LCO record becomes `[QUEUED]`
 - `backfill_lco_observation_records` — added 2026-07-19 and extended three times, never documented — now has a full operator section and cheat-sheet row, including the `--create-missing-targets` reuse-vs-build distinction and the post-create status refresh
 - CLAUDE.md's paired-deliverable rule is now future-proof: any page under `docs/runbooks/` is covered by directory, not by an enumeration that would need updating every time a new runbook page ships
@@ -68,11 +80,13 @@ Each task was committed atomically:
 _All three commits are documentation-only; no Python was touched._
 
 ## Files Created/Modified
+
 - `docs/runbooks/telescope_runs_calendar.rst` - Corrected `--campaign` optionality and `[QUEUED]` claim; added a new `backfill_lco_observation_records` operator section and cheat-sheet row (now 6 command rows)
 - `CLAUDE.md` - Rewrote the paired-deliverable rule (lines ~106-129) to be directory-scoped on `docs/runbooks/`, net +4 lines
 - `.planning/quick/260726-kdp-close-operator-runbook-drift-and-broaden/DEFERRED.md` - New file recording 4 out-of-scope doc gaps
 
 ## Decisions Made
+
 - The `backfill_lco_observation_records` documentation was written strictly from reading `solsys_code/management/commands/backfill_lco_observation_records.py` itself (per critical execution note 4), not from commit messages or the plan's paraphrase. On review, the plan's description of the command's behavior matched the source exactly — no discrepancy to flag.
 - Kept the CLAUDE.md rule tight: net growth is +4 lines (28 insertions, 24 deletions), well under the ≤15-line cap, while still retaining every element the house rules required to survive (pairing map, trigger, `files_modified` requirement, nbconvert mechanics, all four subagent roles, and the breach history — now with a third entry for `260726-kdp`).
 - Deferred the LCO sync's other title prefixes (`[EXPIRED]`/`[FAILED]`/`[CANCELLED]`/`[UNVERIFIED]`) rather than expanding Task 1's `[QUEUED]` fix into full coverage, per house rule 6 and the task's explicit scoping instruction — recorded in `DEFERRED.md` item 4.
@@ -84,6 +98,7 @@ None - plan executed exactly as written. All house rules were followed: no Pytho
 One environment-setup step outside plan scope: the gitignored setuptools_scm artifact `src/fomo/_version.py` was missing in this worktree and blocking Sphinx's AutoAPI import resolution with a benign warning; per critical execution note 10, it was copied from the main repo checkout (`/home/tlister/git/fomo_devel/src/fomo/_version.py`) and never committed (confirmed gitignored via `git check-ignore -v`).
 
 ## Issues Encountered
+
 None - all three Sphinx verification gates (run after each task, and once more at the end) reported zero warning/error lines mentioning `runbooks/telescope_runs_calendar`. The build's other warnings (an autoapi docutils indentation issue in `fomo/urls/index.rst` and five toctree references to not-yet-existing pre_executed notebook pages) are pre-existing and out of this task's scope.
 
 ## User Setup Required
@@ -91,6 +106,7 @@ None - all three Sphinx verification gates (run after each task, and once more a
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - The runbook is now accurate for `load_telescope_runs`, the LCO sync's `[QUEUED]` behavior, and `backfill_lco_observation_records`.
 - `DEFERRED.md` gives a ready-made backlog for a future quick task: campaign association on LCO sync, `import_campaign_csv` header tolerance, the remaining LCO title prefixes, and a possible `fetch_jplsbdb_objects` runbook page.
 - CLAUDE.md's paired-deliverable rule will now automatically flag any future plan that touches `docs/runbooks/` without including the affected page in `files_modified`, without needing a filename-list update first.

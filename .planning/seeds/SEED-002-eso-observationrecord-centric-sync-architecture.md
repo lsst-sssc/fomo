@@ -5,6 +5,10 @@ planted: 2026-07-02
 planted_during: post-v1.7 (between milestones; v1.7 ESO Feasibility Spike just shipped)
 trigger_when: when ESO/VLT work resumes (v2 ESO milestone scoping, ESO-10/ESO-11 promotion, or tom_eso upstream activity)
 scope: large
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: dormant
 ---
 
 # SEED-002: ESO sync should converge on an ObservationRecord-centric architecture; Phase 13's Bypass verdict is a stepping stone, not the destination

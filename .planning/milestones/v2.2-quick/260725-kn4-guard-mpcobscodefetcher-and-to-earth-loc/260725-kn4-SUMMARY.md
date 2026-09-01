@@ -5,14 +5,18 @@ subsystem: observatory
 tags: [django, mpc-api, astropy, earthlocation, satellite-obscode, tdd]
 
 # Dependency graph
+
 requires: []
 provides:
+
   - "MPCObscodeFetcher.to_observatory() handles null longitude/rhocosphi/rhosinphi (space-based MPC obscodes) without raising TypeError"
   - "Observatory.to_earth_location() raises an actionable ValueError for a coordinate-less Observatory instead of TypeError"
   - "resolve_site() now resolves a real SATELLITE_OBSTYPE Observatory for a satellite obscode via Tier 2, instead of fabricating a Tier-3 'NEEDS REVIEW:' placeholder"
+
 affects: [campaign-approval, campaign-gap-analysis, telescope-runs-calendar]
 
 # Tech tracking
+
 tech-stack:
   added: []
   patterns:
@@ -31,6 +35,7 @@ key-files:
     - solsys_code/campaign_views.py
 
 key-decisions:
+
   - "A satellite Observatory gets altitude=None, not the model's 0.0 default -- 0.0 falsely claims sea level; None honestly states unknown, and every existing .altitude reader was audited to confirm this is safe (models.py:133/150 truthiness guards, telescope_runs.py:283 unreachable since to_earth_location() raises first, forms.py:28's altitude__gt=0 filter excludes NULL exactly as it excluded 0.0)."
   - "to_earth_location() raises ValueError (not a custom exception, not None) for a coordinate-less Observatory -- audited all three existing callers of the sole production consumer (telescope_runs.sun_event()) and confirmed each already handles ValueError gracefully, so this guard needed zero caller changes."
   - "Guard on all three of longitude/rhocosphi/rhosinphi together in to_observatory(), not just longitude -- a partially-specified position can't be converted either way, and guarding only longitude would leave float(None) still crashing one line below."
@@ -39,8 +44,13 @@ key-decisions:
 requirements-completed: []
 
 # Metrics
+
 duration: ~11min (measured from first RED commit to final task commit; wall-clock including reads was longer)
 completed: 2026-07-25
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: unknown
 ---
 
 # Quick Task 260725-kn4: Guard MPCObscodeFetcher and to_earth_location() against null/missing coordinates Summary
@@ -54,6 +64,7 @@ completed: 2026-07-25
 - **Files modified:** 6 (+ DEFERRED.md)
 
 ## Accomplishments
+
 - `MPCObscodeFetcher.to_observatory()` no longer crashes with `TypeError: float() argument must be a string or a real number, not 'NoneType'` on a space-based MPC obscode's null `longitude`/`rhocosphi`/`rhosinphi` -- it now saves a valid `Observatory` with `lon`/`lat`/`altitude` all `None` and blank `timezone`, every other field populated identically to the ground path.
 - `Observatory.to_earth_location()` raises an actionable `ValueError` naming the obscode/short_name for any position-less `Observatory` (all-null or altitude-only-null), instead of `TypeError` from `None * u.deg`. No caller (`telescope_runs.sun_event()` and its three downstream `ValueError` handlers) needed any change.
 - Proved, via a new regression test that patches `requests.get` and exercises the real (fixed) `to_observatory()`, that `resolve_site()` now resolves a real, non-placeholder `SATELLITE_OBSTYPE` Observatory for a satellite obscode instead of falling through to a fabricated Tier-3 `NEEDS REVIEW:` placeholder -- an emergent consequence achieved with zero edits to `campaign_utils.py`.
@@ -73,6 +84,7 @@ Each task followed RED -> GREEN:
    - `4336653` (test): `TestResolveSiteSatelliteObscode` regression test, `campaign_views.py` comment fix, `DEFERRED.md`
 
 ## Files Created/Modified
+
 - `solsys_code/solsys_code_observatory/utils.py` - Null-coordinate guard in `MPCObscodeFetcher.to_observatory()`
 - `solsys_code/solsys_code_observatory/models.py` - Null-position guard in `Observatory.to_earth_location()`
 - `solsys_code/solsys_code_observatory/tests/test_utils.py` - Satellite-record and ground-record regression tests for `to_observatory()`
@@ -82,6 +94,7 @@ Each task followed RED -> GREEN:
 - `.planning/quick/260725-kn4-guard-mpcobscodefetcher-and-to-earth-loc/DEFERRED.md` - Two out-of-scope follow-up items
 
 ## Decisions Made
+
 See `key-decisions` in frontmatter above. Summary: `altitude=None` (not `0.0`) for a satellite record; `ValueError` (not `None`-return, not a custom exception class) from `to_earth_location()`; guard all three coordinate-source fields together in `to_observatory()`, not just longitude.
 
 ## Deviations from Plan

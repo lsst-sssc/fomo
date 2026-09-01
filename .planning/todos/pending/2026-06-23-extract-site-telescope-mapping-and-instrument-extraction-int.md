@@ -4,7 +4,12 @@ title: Extract site/telescope mapping and instrument extraction into own module
 area: general
 resolves_phase: 11
 files:
+
   - solsys_code/management/commands/sync_lco_observation_calendar.py
+
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
 ---
 
 ## Problem
@@ -45,6 +50,7 @@ today).
 ## Solution
 
 TBD. Options to weigh once Phase 7 is done and stable:
+
 - Extract into a new `solsys_code/lco_observation_mapping.py` (or similar) module
   importable by the management command, keeping `telescope_runs.py` untouched.
 - Or leave as-is if no second consumer ever materializes — premature extraction

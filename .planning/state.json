@@ -156,7 +156,7 @@
     {
       "number": "30",
       "name": "v2.2 Tech-Debt Cleanup",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "next": {
@@ -164,5 +164,5 @@
     "label": "Show progress",
     "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-09-01T03:27:43.095Z"
+  "updated_at": "2026-09-01T10:20:57.266Z"
 }

@@ -46,3 +46,4 @@ Each plan's own files are individually clean under both `ruff check` and
 Not fixed here -- out of scope for plans whose committed deliverables are the event modal
 template, the admin/model label changes, and the approval-queue navigation. Whoever next runs
 a repo-wide `ruff check . --fix && ruff format .` cleanup pass should pick these up.
+  status: acknowledged

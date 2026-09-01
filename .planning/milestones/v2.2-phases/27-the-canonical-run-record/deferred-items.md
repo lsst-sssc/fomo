@@ -50,3 +50,4 @@ formatting-only diff into a gap-closure plan's commit history.
 **Recommendation:** a future formatting-hygiene pass (or a `ruff format .`
 run under the exact pre-commit-pinned ruff version) should pick these up
 separately.
+  status: acknowledged

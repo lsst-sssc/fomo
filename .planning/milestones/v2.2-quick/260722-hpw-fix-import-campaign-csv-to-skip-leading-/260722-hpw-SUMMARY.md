@@ -6,11 +6,13 @@ tags: [django, csv, management-command, campaign-run, tdd]
 
 requires: []
 provides:
+
   - "import_campaign_csv scans up to 10 leading rows for the real CSV header instead of
     assuming DictReader's row 1 is the header"
   - "Regression tests covering leading-comment-row skip, no-header-within-cap fast-fail,
     and header-beyond-cap fast-fail"
   - "Notebook demonstration of the leading-comment-row fix against a synthetic inline CSV"
+
 affects: [import_campaign_csv, campaign-csv-import]
 
 tech-stack:
@@ -29,6 +31,7 @@ key-files:
     - docs/notebooks/pre_executed/import_campaign_csv_demo.ipynb
 
 key-decisions:
+
   - "Split Task 1's tdd=true RED/GREEN cycle to drive out one representative regression
     test (test_skips_leading_comment_and_blank_rows_before_header) before implementing
     the fix, then added the other two regression tests specified by Task 2
@@ -48,6 +51,10 @@ requirements-completed: [QUICK-260722-hpw]
 
 duration: ~20min
 completed: 2026-07-22
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: unknown
 ---
 
 # Quick Task 260722-hpw: Fix import_campaign_csv leading-row header skip Summary

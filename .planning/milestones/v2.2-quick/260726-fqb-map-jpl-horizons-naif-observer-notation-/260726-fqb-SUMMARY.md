@@ -16,13 +16,20 @@ key-files:
     - solsys_code/campaign_utils.py
     - solsys_code/tests/test_campaign_approval.py
     - solsys_code/tests/test_import_campaign_csv.py
+
 decisions:
+
   - "D-01: exact whole-string dict.get match only -- no case-folding, no whitespace normalization, no '500@' prefix/regex parsing"
   - "D-02: only the full 500@<naif> form maps -- a bare '-170' is deliberately NOT translated"
   - "D-03: translation runs before the _MAX_OBSCODE_LEN guard, never instead of it"
+
 metrics:
   duration: ~35min
   completed: 2026-07-26
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: unknown
 ---
 
 # Phase quick-260726-fqb Plan 01: Map JPL Horizons/SPICE NAIF observer notation to MPC obscode Summary

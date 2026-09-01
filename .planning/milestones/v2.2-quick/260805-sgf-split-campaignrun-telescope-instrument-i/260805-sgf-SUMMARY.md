@@ -5,16 +5,21 @@ subsystem: calendar-reconciler
 tags: [django, campaign-reconciler, calendar-event, telescope-instrument, regex]
 
 # Dependency graph
+
 requires:
+
   - phase: 29-the-reconciler
     provides: campaign_reconciler.py's reconcile_run() and both write branches (_reconcile_container, _reconcile_classical_nights)
 provides:
+
   - "_split_telescope_instrument() pure helper splitting CampaignRun.telescope_instrument on the first '/' or '+' delimiter"
   - "Both reconciler write sites now populate CalendarEvent.telescope and .instrument separately instead of pushing the combined string wholly into telescope"
   - "Paired demo notebook and operator runbook updated to demonstrate and document the split"
+
 affects: [campaign-attribution, campaign-approval, telescope-runs-calendar-runbook]
 
 # Tech tracking
+
 tech-stack:
   added: []
   patterns:
@@ -30,19 +35,26 @@ key-files:
     - docs/runbooks/telescope_runs_calendar.rst
 
 key-decisions:
+
   - "Split on the FIRST '/' or '+' delimiter only (maxsplit=1), so 'A/B/C' keeps 'B/C' as the instrument half rather than losing the rest"
   - "No delimiter falls back to the whole string as telescope with a blank instrument -- the safe fallback rather than guessing which token is which"
   - "The classical branch's update path (else: fields = common_fields) stays untouched -- telescope/instrument are never rewritten after creation, so an adopted load_telescope_runs event keeps its own more precise values"
   - "event_title() and _adopted_event_for_night()'s matching logic left byte-unchanged -- only the two CalendarEvent fields split, never the title or the adopt-matching rule"
 
 patterns-established:
+
   - "A run's free-text '<telescope>/<instrument>' or '<telescope>+<instrument>' convention is now enforced structurally by one shared helper at both write sites, rather than each site inlining its own split"
 
 requirements-completed: [SGF-01]
 
 # Metrics
+
 duration: 16min
 completed: 2026-08-06
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: unknown
 ---
 
 # Quick Task 260805-sgf: Split CampaignRun.telescope_instrument into telescope/instrument Summary
@@ -58,6 +70,7 @@ completed: 2026-08-06
 - **Files modified:** 5
 
 ## Accomplishments
+
 - Added `_split_telescope_instrument()` to `campaign_reconciler.py` and used it at both write sites (`_reconcile_container()`'s always-authoritative fields dict, and `_reconcile_classical_nights()`'s create-only fields dict), so a run's `telescope_instrument` (e.g. `'Apache Point Observatory/ARCTIC'`) now lands as `telescope='Apache Point Observatory'`, `instrument='ARCTIC'` on the written `CalendarEvent` instead of the whole string under `telescope` with `instrument` blank -- the exact live dev-DB case (RUN:10) that motivated this task.
 - Proved the split end-to-end on real events through both branches, the `+` delimiter, the no-delimiter fallback, and a title guard -- plus revised the one pre-existing assertion the fix deliberately invalidates (`test_campaign_approval.py:380`) to assert the split through the real staff-approval path.
 - Regenerated the paired demo notebook against an empty, freshly-migrated DB with real executed output showing the split (`telescope='RDGS' instrument='EFOSC2'`) alongside the preserved no-delimiter fallback, and added an operator-facing paragraph to the runbook explaining what the pop-up's two fields now show and which existing entries do/don't self-heal.
@@ -73,6 +86,7 @@ Each task was committed atomically:
 _TDD tasks 1 and 2 combined RED+GREEN into single commits per task (tests and implementation were written together in each task's action step, per the plan's own task-level test-then-use structure rather than separate red/green sub-commits)._
 
 ## Files Created/Modified
+
 - `solsys_code/campaign_reconciler.py` - `_split_telescope_instrument()` helper (module-level, above `event_title()`); both write sites now set `telescope`/`instrument` from the split halves; two docstrings (module header, `_reconcile_classical_nights()`) updated to name `instrument` alongside `telescope` in the never-rewritten-after-creation list
 - `solsys_code/tests/test_campaign_reconciler.py` - `TestSplitTelescopeInstrumentHelper` (4 pure-function tests) and `TestTelescopeInstrumentSplitOnEvents` (5 tests proving the split on real `CalendarEvent` rows through both branches, `+` delimiter, no-delimiter fallback, and title guard)
 - `solsys_code/tests/test_campaign_approval.py` - revised the one stale assertion (line 380) to assert `event.telescope == 'FTN'` and `event.instrument == 'MuSCAT3'` instead of the whole combined string
@@ -80,6 +94,7 @@ _TDD tasks 1 and 2 combined RED+GREEN into single commits per task (tests and im
 - `docs/runbooks/telescope_runs_calendar.rst` - new operator-facing paragraph after "What an operator sees on the calendar afterwards" covering the split, self-healing container/queue/class-wide entries, and non-rewritten per-night classical entries
 
 ## Decisions Made
+
 - Split on the FIRST delimiter only (`re.split(..., maxsplit=1)`), matching the plan's explicit Test 4 requirement (`'A/B/C'` -> `('A', 'B/C')`).
 - No delimiter -> whole string as telescope, blank instrument -- preserves today's single-token and space-separated values without inventing a guessing rule.
 - Left `event_title()`, `_adopted_event_for_night()`'s matching logic, `_skip_reason()`, `QUEUE_SOURCES` and all `source`-based branching completely untouched, per the plan's explicit out-of-scope list.
@@ -89,6 +104,7 @@ _TDD tasks 1 and 2 combined RED+GREEN into single commits per task (tests and im
 ### Auto-fixed Issues
 
 **1. [Rule 3 - Blocking] Restored missing `src/fomo/_version.py` in this worktree**
+
 - **Found during:** Task 1 verification (`python manage.py test ...`)
 - **Issue:** This worktree's `src/fomo/_version.py` (gitignored, generated by `setuptools_scm` per `pyproject.toml`'s `write_to = "src/fomo/_version.py"`) did not exist, so importing Django settings failed with `ModuleNotFoundError: No module named 'src.fomo._version'` before any test could run.
 - **Fix:** Copied the file verbatim from the main checkout (`/home/tlister/git/fomo_devel/src/fomo/_version.py`), which had the same version string already generated for this branch.

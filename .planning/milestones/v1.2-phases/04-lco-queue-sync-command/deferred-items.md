@@ -19,3 +19,4 @@ or `solsys_code/tests/test_sync_lco_observation_calendar.py`. `ruff check .`
 files. The phase-level success criterion 5 (`ruff check . / ruff format --check .`
 clean) is satisfied for all files this plan touches; these two reformats are a
 pre-existing repo-wide condition, not a regression from this plan.
+  status: acknowledged

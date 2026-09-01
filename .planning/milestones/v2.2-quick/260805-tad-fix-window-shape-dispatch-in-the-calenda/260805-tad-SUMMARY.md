@@ -21,12 +21,19 @@ key-files:
     - .planning/phases/29-the-reconciler/29-RESEARCH.md
     - docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb
     - docs/runbooks/telescope_runs_calendar.rst
+
 decisions:
+
   - "Dispatch now reads only telescope_class (non-blank -> container) and site (satellite -> container); everything else, including every queue-sourced run with a resolved ground site, takes the per-night branch. source is no longer read by reconcile_run() at all."
   - "T-29-07 stays closed: the real, unchanged protection was always _may_write() being the first condition in both write paths, not the now-removed source branch."
+
 metrics:
   duration: "~2h"
   completed: 2026-08-06
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: unknown
 ---
 
 # Phase quick-260805-tad Plan 01: Fix window-shape dispatch in the calendar reconciler Summary
@@ -128,6 +135,7 @@ empty one, `jupyter nbconvert --to notebook --execute --inplace` ran from
 `docs/notebooks/pre_executed/`, and the scratch DB was deleted afterward (nothing to restore).
 
 Regenerated output confirms the corrected shape:
+
 ```
 Classical run:  pk=1  window=2026-09-01..2026-09-03  -> 3 per-night RUN:1:{date} events
 Queue run:      pk=2  window=2026-09-01..2026-09-03  -> 3 per-night RUN:2:{date} events (same shape as classical)

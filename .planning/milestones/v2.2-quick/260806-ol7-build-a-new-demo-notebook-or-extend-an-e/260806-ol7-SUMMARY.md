@@ -5,16 +5,21 @@ subsystem: docs-notebooks
 tags: [campaign-lifecycle, django-test-client, jupyter, sphinx, docs]
 
 # Dependency graph
+
 requires:
+
   - phase: 26-29 (v2.2 milestone -- the-canonical-run-record)
     provides: "CampaignRun model, campaigns:submit/decide/attribution/attribution_decide views, campaign_attribution scoring, campaign_reconciler dispatch"
 provides:
+
   - "docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb -- a view-driven, pre-executed walkthrough of the full v2.2 campaign lifecycle"
   - "docs/notebooks.rst toctree entry and docs/runbooks/telescope_runs_calendar.rst cross-reference making the notebook discoverable"
   - "CLAUDE.md pairing-map entry recording the notebook as a cross-cutting (not 1:1-module) paired artifact"
+
 affects: [docs, onboarding, future-campaign-workflow-changes]
 
 # Tech tracking
+
 tech-stack:
   added: []
   patterns: ["django.test.Client-driven demo notebook (vs direct-ORM seeding)", "demo-scoped reset cell keyed on TargetList name + legacy url prefix"]
@@ -28,6 +33,7 @@ key-files:
     - CLAUDE.md
 
 key-decisions:
+
   - "New standalone notebook, not an extension of reconcile_campaign_runs_demo.ipynb -- that notebook stays scoped to the reconciler alone against direct-ORM pre-approved runs (D-02)."
   - "Every state transition (submission, approve, resolve_site, attribution confirm) goes through the real staff-facing view via django.test.Client -- never a direct-ORM CampaignRun.objects.create(approval_status=APPROVED) shortcut (D-01)."
   - "Four CampaignRun variations seeded: CLASSICAL_FILE, LCO_QUEUE, ESO_QUEUE (Paranal/VLT/FORS2-shaped, deliberately unresolvable site_raw), and a class-wide/site-agnostic run (D-03)."
@@ -36,8 +42,13 @@ key-decisions:
 requirements-completed: [OL7-01, OL7-02, OL7-03, OL7-04, OL7-05]
 
 # Metrics
+
 duration: ~2h
 completed: 2026-08-06
+audit_acknowledged:
+  milestone: v2.2
+  at: 2026-09-01
+  status: unknown
 ---
 
 # Quick Task 260806-ol7: Campaign Lifecycle Demo Notebook Summary
@@ -119,6 +130,7 @@ completed: 2026-08-06
 ### Auto-fixed Issues
 
 **1. [Rule 3 - Blocking] Worktree had no generated `src/fomo/_version.py`**
+
 - **Found during:** Task 1, first notebook execution attempt
 - **Issue:** `import django; django.setup()` failed with `ModuleNotFoundError: No module
   named 'src.fomo._version'`. `pyproject.toml`'s `[tool.setuptools_scm] write_to =
@@ -132,6 +144,7 @@ completed: 2026-08-06
 - **Verification:** `django.setup()` succeeds; notebook executes.
 
 **2. [Rule 3 - Blocking] Worktree's `src/fomo_db.sqlite3` was an empty, unmigrated file**
+
 - **Found during:** Task 1, second notebook execution attempt
 - **Issue:** `User.objects.get_or_create(...)` raised `OperationalError: no such table:
   auth_user` -- the worktree's dev DB (also gitignored, also not shared across worktrees) was

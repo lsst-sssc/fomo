@@ -31,3 +31,4 @@ deliverable is `26-DECISION.md`. Whoever next touches these files (or a dedicate
 task) should run `ruff check . --fix && ruff format .` and review the notebook docstring
 gap separately, since `docs/notebooks/pre_executed/` content is otherwise intentionally
 committed with output per CLAUDE.md's pre-commit convention.
+  status: acknowledged

@@ -40,3 +40,4 @@ phase's own `<verification>` block ("ruff gates unaffected (no .py changes in
 this plan)") is satisfied; the findings above are a pre-existing repo-wide
 condition (some already logged in Phase 04's own `deferred-items.md`), not a
 regression introduced by Plan 14-03 or by the 14-REVIEW.md fix pass.
+  status: acknowledged
