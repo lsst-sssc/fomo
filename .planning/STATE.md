@@ -5,16 +5,16 @@ milestone_name: One Canonical Run Record
 current_phase: 30
 current_phase_name: v2.2 Tech-Debt Cleanup
 status: executing
-stopped_at: Completed 30-01-PLAN.md
-last_updated: "2026-09-01T03:52:28.201Z"
+stopped_at: Completed 30-02-PLAN.md
+last_updated: "2026-09-01T03:59:13.771Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 30 execution started
-state_head: d56fefca4b9daf1e276280778ee82099ece063e2
+state_head: b22bf53f423ab13c73e2c3651c6f06ca817a2ff7
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 33
-  completed_plans: 30
+  completed_plans: 31
   percent: 83
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-26 — v2.2 milestone started)
 ## Current Position
 
 Phase: 30 (v2.2 Tech-Debt Cleanup) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 30 execution started
 
@@ -145,6 +145,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 27 P06 | 70min | 3 tasks | 7 files |
 | Phase 29 P06 | 75min | 3 tasks | 4 files |
 | Phase 30 P01 | 8min | 3 tasks | 4 files |
+| Phase 30 P02 | 10min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,8 @@ All v1.0-v2.1 decisions logged in PROJECT.md Key Decisions table. The exhaustive
 - [Phase ?]: [Phase 29-06]: Real dev-DB RECON-07 baseline measured as 26 approved/resolved/windowed 3I/ATLAS rows (10 QUEUE/11 CLASSICAL/5 SPACE) today, not the 19 (8/11/0) 26-DECISION.md originally cited -- Phase 27's live site-repair work resolved 4 satellite rows' sites after that spike's probe date
 - [Phase 30]: Reused one shared frozenset constant (_ATTRIBUTION_INELIGIBLE_APPROVAL_STATUSES) across both eligibility gates rather than inlining the status literal twice — D-03 anti-drift rationale: one place to add a future disqualifying status
 - [Phase 30]: Event-path fixture runs carry target=run_target while the record-orphan fixture uses a deliberately separate field_target in the same campaign — Proves the record-path tests cannot pass by accident via a reintroduced target-FK-equality check, the standing prohibition in _eligible_runs_for_record's docstring
+- [Phase 30]: D-06/D-07: pinned pyproject.toml's ruff dev extra to 0.2.1 and routed CLAUDE.md's documented lint/format gate through pre-commit, closing the phantom ruff drift Phases 26/27/27.1 each independently logged
+- [Phase 30]: D-10: repaired campaign_reconciler.py's five stale docstring references to deleted functions and corrected 26-DECISION.md's stuck-in-progress header
 
 ### Pending Todos
 
@@ -269,8 +272,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T03:52:28.036Z
-Stopped at: Completed 30-01-PLAN.md
+Last session: 2026-09-01T03:59:13.591Z
+Stopped at: Completed 30-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
