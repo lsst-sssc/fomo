@@ -35,6 +35,7 @@ from solsys_code.campaign_attribution import (
     date_overlap_score,
     event_attribution_backlog,
     instrument_similarity,
+    is_offered_candidate,
     orphan_calendar_events,
     orphan_observation_records,
     record_attribution_backlog,
@@ -298,12 +299,17 @@ class TestApprovalStatusGate(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.event, run=None)
 
-        # rejected_run/approved_run share campaign + telescope_instrument but differ on
-        # window_end so both satisfy the (campaign, telescope_instrument, window_start,
-        # window_end) natural-key UniqueConstraint (models.py) -- both windows still overlap
-        # the orphan event's night, so both would otherwise score identically well.
+        # rejected_run/approved_run/pending_review_run share campaign + telescope_instrument
+        # but differ on window_end so all three satisfy the (campaign, telescope_instrument,
+        # window_start, window_end) natural-key UniqueConstraint (models.py) -- every window
+        # still overlaps the orphan event's/record's night, so all three would otherwise
+        # score identically well. ``target`` is set to run_target (the campaign's own moving
+        # object) deliberately DIFFERENT from the record's field_target below -- per
+        # _eligible_runs_for_record's standing prohibition, the record-path tests below must
+        # never depend on the two targets matching.
         cls.rejected_run = CampaignRun.objects.create(
             campaign=cls.campaign,
+            target=cls.run_target,
             telescope_instrument='2m0 2M0-SCICAM-MUSCAT',
             window_start=date(2026, 7, 7),
             window_end=date(2026, 7, 7),
@@ -312,11 +318,39 @@ class TestApprovalStatusGate(TestCase):
         )
         cls.approved_run = CampaignRun.objects.create(
             campaign=cls.campaign,
+            target=cls.run_target,
             telescope_instrument='2m0 2M0-SCICAM-MUSCAT',
             window_start=date(2026, 7, 7),
             window_end=date(2026, 7, 8),
             site=cls.observatory,
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_review_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            target=cls.run_target,
+            telescope_instrument='2m0 2M0-SCICAM-MUSCAT',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 9),
+            site=cls.observatory,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        # A separate field target (per-pointing, not the campaign's moving object) belonging
+        # to the same campaign TargetList -- the ObservationRecord orphan the record-path
+        # tests below score against, mirroring TestCriterion5RealCase's real-data shape.
+        cls.field_target = NonSiderealTargetFactory.create()
+        cls.campaign.targets.add(cls.field_target)
+        cls.record = ObservationRecord.objects.create(
+            target=cls.field_target,
+            user=cls.record_owner,
+            facility='LCO',
+            observation_id='APPROVAL-STATUS-GATE-1',
+            status='PENDING',
+            parameters={
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+                'start': '2026-07-07T22:00:00',
+                'end': '2026-07-08T06:00:00',
+            },
         )
 
     def test_rejected_run_never_offered_for_event(self):
@@ -331,6 +365,71 @@ class TestApprovalStatusGate(TestCase):
         the exclusion above is targeted, not a blanket emptying of the candidate list."""
         candidate_run_pks = {c.run.pk for c in candidates_for_event(self.event)}
         self.assertIn(self.approved_run.pk, candidate_run_pks)
+
+    def test_rejected_run_never_offered_for_record(self):
+        """D-02/27-REVIEW IN-02: the record half of the same exclusion -- a REJECTED run in a
+        perfect-scoring position is absent from ``candidates_for_record()``."""
+        candidate_run_pks = {c.run.pk for c in candidates_for_record(self.record)}
+        self.assertNotIn(self.rejected_run.pk, candidate_run_pks)
+
+    def test_approved_run_still_offered_for_record(self):
+        """D-01: the identical run at APPROVED IS offered for the record orphan too --
+        the non-vacuous control for the record path."""
+        candidate_run_pks = {c.run.pk for c in candidates_for_record(self.record)}
+        self.assertIn(self.approved_run.pk, candidate_run_pks)
+
+    def test_pending_review_run_still_offered_for_event(self):
+        """D-01: a run still awaiting staff review IS offered for an event orphan -- an
+        orphan matching a still-pending web submission is useful evidence that the
+        submission is genuine, so hiding it would cost staff a two-step at review time."""
+        candidate_run_pks = {c.run.pk for c in candidates_for_event(self.event)}
+        self.assertIn(self.pending_review_run.pk, candidate_run_pks)
+
+    def test_pending_review_run_still_offered_for_record(self):
+        """D-01: the identical PENDING_REVIEW control for the record path."""
+        candidate_run_pks = {c.run.pk for c in candidates_for_record(self.record)}
+        self.assertIn(self.pending_review_run.pk, candidate_run_pks)
+
+    def test_is_offered_candidate_refuses_a_rejected_run(self):
+        """D-03/T-30-02: ``is_offered_candidate()`` re-derives eligibility from the database
+        rather than trusting a submitted pk, so the attribution-decide view can never be
+        tricked into confirming a rejected run via a crafted POST naming its pk. The
+        identical run at APPROVED returns a real candidate -- the non-vacuous control."""
+        self.assertIsNone(is_offered_candidate('event', self.event.pk, self.rejected_run.pk))
+        approved_candidate = is_offered_candidate('event', self.event.pk, self.approved_run.pk)
+        self.assertIsNotNone(approved_candidate)
+        self.assertEqual(approved_candidate.run.pk, self.approved_run.pk)
+
+    def test_confirmed_attribution_survives_its_run_being_rejected(self):
+        """D-01/27-REVIEW IN-02: ``orphan_calendar_events()`` returns only un-attributed
+        events, so the eligibility gates never see an already-linked event and cannot unlink
+        one -- an attribution a staff member already confirmed stays confirmed if the run is
+        rejected afterwards."""
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            target=self.run_target,
+            telescope_instrument='2m0 2M0-SCICAM-MUSCAT',
+            window_start=date(2026, 7, 20),
+            window_end=date(2026, 7, 20),
+            site=self.observatory,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        event = CalendarEvent.objects.create(
+            title='Approval status gate confirmed-link event',
+            start_time=datetime(2026, 7, 20, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 21, 6, 0, tzinfo=dt_timezone.utc),
+            telescope='COJ-2m0',
+            instrument='2M0-SCICAM-MUSCAT',
+            target_list=self.campaign,
+        )
+        meta = CalendarEventMeta.objects.create(event=event, run=run)
+
+        run.approval_status = CampaignRun.ApprovalStatus.REJECTED
+        run.save()
+
+        self.assertNotIn(event.pk, {e.pk for e in orphan_calendar_events()})
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, run.pk)
 
 
 class TestCriterion5RealCase(TestCase):
