@@ -13,6 +13,7 @@
 - ✅ **v2.0 Campaign Coordination for Rare/Urgent Objects** — Phases 14-17 (shipped 2026-07-05) — see [milestones/v2.0-ROADMAP.md](milestones/v2.0-ROADMAP.md)
 - ✅ **v2.1 Uncertain Scheduling & Site Disambiguation** — Phases 18-25 (shipped 2026-07-18) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
 - ✅ **v2.2 One Canonical Run Record** — Phases 26, 27, 27.1, 28-30 (shipped 2026-09-01) — see [milestones/v2.2-ROADMAP.md](milestones/v2.2-ROADMAP.md)
+- 🚧 **v2.3 Automatic Run Sync & Outcome Propagation** — Phases 31-35 (in progress)
 
 ## Phases
 
@@ -114,6 +115,111 @@
 
 </details>
 
+### 🚧 v2.3 Automatic Run Sync & Outcome Propagation (Phases 31-35) — IN PROGRESS
+
+**Milestone Goal:** Robotically scheduled LCO/SOAR observations and their outcomes appear and update on the calendar and their campaign runs without an operator running anything — the feature-completeness bar the operator set for PR #43, and issue #37's original Stage 4.
+
+- [ ] **Phase 31: Foundation Spikes — Run Identity & Unattended Invocation** - Settle, before any code lands, how a non-campaign queue observation gets a persistent `CampaignRun` identity and how the unattended jobs will actually be invoked on the real host
+- [ ] **Phase 32: Adapter Consolidation** - All three ingest adapters create or update `CampaignRun`s and let the reconciler project the calendar, with a cutover that never doubles or orphans an event
+- [ ] **Phase 33: Outcome Propagation & Window Narrowing** - An observation's real outcome reaches its run's status automatically, and a run's window visibly narrows in the staff UI as its records are scheduled and observed
+- [ ] **Phase 34: Unattended Scheduling & Discovery** - The whole pipeline runs on a documented recurring schedule against an admin-editable watch-list, with failures visible to an operator and no credential ever logged
+- [ ] **Phase 35: Status Vocabulary, Provenance-Blind Gaps & Unused Allocation** - One status vocabulary everywhere, coverage-gap analysis that counts classical and queue time, and unused awarded nights that look different from realised ones
+
+**Locked constraints** (settled during milestone questioning and the research pass — phase planning executes these, it does not re-open them):
+
+- **The schema spike blocks the adapters.** Nothing in Phase 32 starts until SCHEMA-01..03 are settled: `CampaignRun.campaign` is NOT NULL today, but both the LCO and Gemini syncs routinely meet records with no campaign at all. This is not an edge case, and guessing it wrong means re-migrating every adapter.
+- **The reconciler stays the only writer of run-derived calendar events.** Adapters write runs; `campaign_reconciler.reconcile_run()` projects them. The v2.2 pure-projection contract is not reopened, and no adapter re-acquires a direct `CalendarEvent` write path.
+- **Adapters ship simplest-first:** classical → LCO → Gemini. Each one validates the shared write-and-reconcile helper before the next facility's identity scheme is attempted.
+- **Outcome propagation reads only confirmed `CampaignRunObservation` links** — never the Phase 28 attribution scorer. Scoring a candidate into a status change would structurally reopen the unconfirmed-merge risk `ATTRIB-03` closed.
+- **The outcome-aggregation rule is any-success-wins-once-all-terminal**, written down before it is implemented. A naive "worst status wins" would let one weathered night regress an otherwise-successful multi-night run.
+- **No task-queue dependency** (Celery / huey / APScheduler) unless Phase 31's spike produces host evidence that cron + `flock` cannot work. Research recommends cron; a broker and worker buy nothing for one server running a few jobs an hour.
+- **New logic lives in peer modules under `solsys_code/`** (alongside `campaign_reconciler.py` / `campaign_gap.py` / `campaign_utils.py`), never as a private helper inside `campaign_views.py`, and never importing `solsys_code.views` or `solsys_code.ephem_utils` — importing `ephem_utils` triggers a ~1.6 GB SPICE kernel download at module load, which is fatal for an unattended job.
+- **ESO sync stays out** (ESO-10/11, SEED-001/002 stay dormant — LCO/SOAR/Gemini only), as do SUBMIT-06/07.
+
+## Phase Details
+
+### Phase 31: Foundation Spikes — Run Identity & Unattended Invocation
+
+**Goal**: Settle the two structural questions this milestone cannot proceed without — how a routine, non-campaign queue observation acquires a persistent `CampaignRun` identity, and how unattended invocation actually works on the real target host — against real rows and the real deployment, so every later phase executes a decision instead of making one.
+**Depends on**: Nothing (first phase of v2.3; builds on v2.2's shipped canonical record)
+**Requirements**: SCHEMA-01, SCHEMA-02, SCHEMA-03, SCHED-07
+**Paired docs (CLAUDE.md rule)**: None — investigation only, no module behaviour changes. Decisions land in a phase decision doc plus a durable `docs/design/` page (precedent: `18-DECISION.md` → `docs/design/uncertain_scheduling_spike.rst`; `26-DECISION.md` → `docs/design/canonical_record_spike.rst`).
+**Success Criteria** (what must be TRUE):
+
+  1. A decision doc states whether `CampaignRun.campaign` becomes nullable and, if so, exactly what a non-campaign LCO/Gemini queue observation's persistent identity looks like — backed by executable evidence against the real dev-DB rows (how many existing runs, how many records with no campaign), not by argument
+  2. The doc states the write-time identity field (`source_identifier` or equivalent) and its uniqueness constraint, and shows for each of the three adapters — LCO portal URL, Gemini observation ID, classical `(telescope, instrument, start_time)` tolerance match — which value it would write and that the result cannot collide with either existing partial constraint
+  3. The doc answers explicitly whether the classical adapter's tolerance-windowed match is a sufficient write-time identity surface on its own or needs a facility-specific key, with the failing case named if it needs one
+  4. The doc states the unattended-invocation mechanism chosen against the real target host's constraints — overlap prevention, credential handling, and how a missed invocation becomes visible — so Phase 34 implements a verified mechanism rather than a recommended one
+  5. The decisions are readable outside `.planning/`: a `docs/design/` page carries the identity scheme and the scheduling verdict forward, and the test suite is unchanged because no source behaviour changed
+
+**Plans**: TBD
+
+### Phase 32: Adapter Consolidation
+
+**Goal**: Every ingest path — classical schedule file, LCO queue, Gemini queue — creates or updates a `CampaignRun` and lets the reconciler draw the calendar, so a run is visible by construction rather than because someone remembered to run a command.
+**Depends on**: Phase 31 (the identity scheme and constraint each adapter writes against)
+**Requirements**: ADAPT-01, ADAPT-02, ADAPT-03, ADAPT-04, ADAPT-05
+**Scope note**: The shared write-and-reconcile helper is groundwork inside this phase (first plan), not a phase of its own — it exists to stop the same create-or-update-then-reconcile pattern being written three times, and the classical adapter is its first consumer.
+**Paired docs (CLAUDE.md rule)**: `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`, `sync_lco_observation_calendar_demo.ipynb`, `sync_gemini_observation_calendar_demo.ipynb` (all three commands change what they write — a behaviour change, so all three are in `files_modified` up front), plus `reconcile_campaign_runs_demo.ipynb` (the reconciler now receives adapter-created runs) and `docs/runbooks/telescope_runs_calendar.rst` (every command's documented effect changes).
+**Success Criteria** (what must be TRUE):
+
+  1. Running `load_telescope_runs` on a classical schedule file creates or updates `CampaignRun`s, and the nightly calendar events appear because the reconciler projected them — the command itself no longer writes a `CalendarEvent`
+  2. Running `sync_lco_observation_calendar` creates or updates a `CampaignRun` per synced observation and links the realising `ObservationRecord` automatically at creation time, by exact identity — an operator never has to attribute an LCO record by hand
+  3. Running `sync_gemini_observation_calendar` does the same for Gemini's own identity scheme, proving the pattern generalises to a second facility
+  4. Re-running any of the three commands against unchanged data writes nothing — no-churn is proven against the new `CampaignRun` write path, not inherited from the old `CalendarEvent` one
+  5. During the cutover, an operator looking at the calendar sees one event per night — the stated migration sequence produces no duplicated and no orphaned event at any point in the transition
+
+**Plans**: TBD
+
+### Phase 33: Outcome Propagation & Window Narrowing
+
+**Goal**: What actually happened at the telescope reaches the run — an observation's terminal outcome updates its run's status automatically, and the run's window visibly narrows in the staff UI as its records move from scheduled to observed.
+**Depends on**: Phase 32 (ADAPT-02/03 must already be writing confirmed `CampaignRunObservation` links for propagation to have anything to read)
+**Requirements**: OUTCOME-01, OUTCOME-02, OUTCOME-03, OUTCOME-04, SCHED-06
+**Paired docs (CLAUDE.md rule)**: `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` (outcome propagation changes what a sweep does to a run) and `campaign_lifecycle_demo.ipynb` (the run-status lifecycle and the staff-facing narrowing surface are v2.2 campaign-lifecycle behaviour), plus `docs/runbooks/telescope_runs_calendar.rst` (a new operator-facing outcome-propagation section).
+**Success Criteria** (what must be TRUE):
+
+  1. When an `ObservationRecord` reaches a terminal state, the next sync updates its linked run's `run_status` — an operator sees the outcome on the run itself, not only as a prefix in a calendar title
+  2. A run with no confirmed observation link is left exactly as it was; a scored, unconfirmed attribution candidate never changes a run's status
+  3. A multi-night run where some nights failed and others succeeded lands on the documented any-success-wins-once-all-terminal outcome, and a reader can find that rule written down
+  4. A run a staff member marked cancelled or weathered, or advanced past `OBSERVED` into `REDUCED`/`PUBLISHED`, keeps that status — automatic propagation never overwrites a human decision
+  5. A space-mission or queue run's window visibly narrows in the staff UI as its linked records are scheduled and then observed, following the v2.2 four-stage pipeline rather than the original pre-pipeline design
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 34: Unattended Scheduling & Discovery
+
+**Goal**: The whole pipeline — discovery, the three adapters, the reconcile sweep, outcome propagation — runs on a recurring schedule with nobody typing anything, and when it breaks an operator finds out.
+**Depends on**: Phase 31 (the verified invocation mechanism), Phase 32 (the adapters being scheduled), Phase 33 (outcome propagation is part of what the schedule orchestrates)
+**Requirements**: SCHED-08, SCHED-09, SCHED-10, DISCOVER-01
+**Paired docs (CLAUDE.md rule)**: `docs/runbooks/telescope_runs_calendar.rst` (a new unattended-operation section — schedule, failure signals, what to check when nothing has appeared) plus a paired pre-executed demo notebook for the new discovery command, and a CLAUDE.md notebook-map entry for it (the map is extended when a new module gets its own demo notebook).
+**Success Criteria** (what must be TRUE):
+
+  1. With no operator action at all, the discovery sweep, the three sync commands, the reconciler and outcome propagation all run on their documented recurring schedule, and two invocations of the same job never overlap
+  2. Discovery runs against a watch-list an operator edits in the admin — adding a proposal there is enough for its robotically scheduled observations to start appearing, with no command-line arguments and no redeploy
+  3. A failed unattended run reaches an operator two independent ways: a notification from the command itself, and a heartbeat that also fires when the scheduler never invoked the job at all
+  4. No API key or password appears in any log line, notification, or error message the unattended path produces
+  5. An operator can set up (or verify) the whole schedule on a fresh host from one runbook section, without reading the source
+
+**Plans**: TBD
+
+### Phase 35: Status Vocabulary, Provenance-Blind Gaps & Unused Allocation
+
+**Goal**: Close the three consequences of the rewrite now that a `CampaignRun` exists for every ingest path — one status vocabulary instead of four that agree by convention, coverage-gap analysis that counts real allocated time, and unused awarded nights that are legible at a glance.
+**Depends on**: Phase 32 (a `CampaignRun` must exist for classical and queue time before gap analysis can count it or the calendar can distinguish awarded from realised); sequenced after Phase 34 as the milestone's closing phase
+**Requirements**: STATUS-01, STATUS-02, GAPB-01, UNUSED-01
+**Paired docs (CLAUDE.md rule)**: `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb` (status vocabulary and coverage-gap behaviour are campaign-lifecycle surfaces) and `docs/runbooks/telescope_runs_calendar.rst` (the documented status prefixes and the gap-analysis section both change).
+**Success Criteria** (what must be TRUE):
+
+  1. One status vocabulary drives every calendar title prefix and status ring — the three parallel prefix maps are gone, and adding a status in one place shows up everywhere instead of needing four edits that agree by convention
+  2. Terminal-state detection works per facility (LCO, SOAR, Gemini) through one classifier, replacing the hardcoded `status == 'COMPLETED'` check, with the per-facility differences reconciled explicitly
+  3. Coverage-gap analysis counts classical and queue time as claimed — the real allocated nights previously reported as unclaimed no longer are, and an operator can trust the gap page for a live campaign
+  4. An awarded night that was never scheduled or observed looks visibly different on the calendar from a night that was actually observed, so unused allocation is obvious without opening anything
+
+**Plans**: TBD
+**UI hint**: yes
+
 ## Progress
 
 | Phase             | Milestone | Plans Complete | Status      | Completed  |
@@ -150,9 +256,16 @@
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete | 2026-08-05 |
 | 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete | 2026-09-01 |
+| 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 0/TBD | Not started | - |
+| 32. Adapter Consolidation | v2.3 | 0/TBD | Not started | - |
+| 33. Outcome Propagation & Window Narrowing | v2.3 | 0/TBD | Not started | - |
+| 34. Unattended Scheduling & Discovery | v2.3 | 0/TBD | Not started | - |
+| 35. Status Vocabulary, Provenance-Blind Gaps & Unused Allocation | v2.3 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
 ## Current Milestone
 
-None — awaiting `/gsd-new-milestone`.
+🚧 **v2.3 Automatic Run Sync & Outcome Propagation** — Phases 31-35, started 2026-09-01.
+
+Coverage: 22/22 v1 requirements mapped, no orphans, no duplicates. Next: `/gsd-discuss-phase 31`.

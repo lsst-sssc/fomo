@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-09-01T19:24:27.914Z"
 last_activity: 2026-09-01
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -19,15 +19,27 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-09-01 — v2.2 milestone archived, full evolution review complete)
 
-**Core value:** An observing run exists once, as a `CampaignRun`, and everything else is derived from it — the calendar events that show it, the observation records that realise it, and the coverage-gap analysis that counts it.
-**Current focus:** Planning next milestone — awaiting `/gsd-new-milestone`
+**Core value:** Robotically scheduled LCO/SOAR observations and their outcomes appear and update on the calendar and their campaign runs without an operator running anything.
+**Current focus:** v2.3 roadmap created (Phases 31-35) — ready to plan Phase 31
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 31 — Foundation Spikes: Run Identity & Unattended Invocation (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-09-01 — Milestone v2.3 started
+Status: Roadmap created, awaiting phase planning
+Last activity: 2026-09-01 — v2.3 roadmap written, 22/22 requirements mapped
+
+## Roadmap Summary (v2.3 — in progress)
+
+| Phase | Goal | Requirements |
+|-------|------|--------------|
+| 31. Foundation Spikes — Run Identity & Unattended Invocation | Settle how a non-campaign queue observation gets a persistent `CampaignRun` identity, and how unattended invocation works on the real host | SCHEMA-01..03, SCHED-07 |
+| 32. Adapter Consolidation | All three ingest adapters create or update `CampaignRun`s and let the reconciler project the calendar, with a duplicate-free cutover | ADAPT-01..05 |
+| 33. Outcome Propagation & Window Narrowing | An observation's real outcome reaches its run's status automatically; a run's window narrows visibly in the staff UI | OUTCOME-01..04, SCHED-06 |
+| 34. Unattended Scheduling & Discovery | The whole pipeline runs on a recurring schedule against an admin-editable watch-list, with failures visible and no credential logged | SCHED-08..10, DISCOVER-01 |
+| 35. Status Vocabulary, Provenance-Blind Gaps & Unused Allocation | One status vocabulary, gap analysis that counts classical and queue time, unused awarded nights made legible | STATUS-01..02, GAPB-01, UNUSED-01 |
+
+Coverage: 22/22 v1 requirements mapped, no orphans, no duplicates. Full phase detail in `.planning/ROADMAP.md`.
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -149,6 +161,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 ### Roadmap Evolution
 
+- v2.3 roadmap created (2026-09-01): 5 phases (31-35), 22/22 requirements mapped. Phase numbering continues from v2.2's last phase (30). Structure derived from `research/SUMMARY.md`'s recommended 8-phase sequence, compressed to 5 under the `coarse` granularity setting: the scheduling-mechanism spike (SCHED-07) is folded into the schema spike phase as an independent parallel track rather than standing alone (both are investigation-only, and running them together preserves the spike-before-implementation discipline for each); the shared `write_and_reconcile_campaign_run()` helper is groundwork inside Phase 32 rather than a phase with no requirements of its own; and the three adapters share one phase, shipping simplest-first (classical → LCO → Gemini) as ordered plans so each still validates the shared pattern before the next facility's identity scheme is attempted. Hard dependency order from research is respected: schema spike gates the adapters; adapters gate outcome propagation (nothing to read without confirmed `CampaignRunObservation` links); the scheduler entry point comes after everything it orchestrates; carried-forward work (STATUS/GAPB/UNUSED) comes last, once a `CampaignRun` exists for every ingest path. SCHED-06 sits with outcome propagation because the narrowing UI is that feature's visible face (pipeline stages 3→4).
 - Phase 27.1 inserted after Phase 27 (2026-07-30) (URGENT): Close gap: staff surfaces and data-integrity risks from the canonical run record. Sources: `27-UAT.md` (5 passed / 2 issues → 3 gaps — no nav path to the Sites Needing Review queue, the event modal rendering its own multi-line `{# #}` header as literal text, and an illegible admin run picker) plus `27-VERIFICATION.md` review warnings WR-01 (CSV re-import can silently revert a `repair_stale_campaign_run_sites` fix), WR-03 (`source` freely editable in admin) and WR-04 (a TBD run renders "(None–None)" in the public modal). Scheduled before Phase 28 because the admin FK picker is the only mechanism that creates run↔event links until the attribution queue ships. **WR-02 deliberately excluded** as a stale finding: the verification report calls "never clears `telescope_class` on site resolution" an invariant violation, but `models.py:213-219` documents the opposite invariant and the user already rejected code-review finding CR-01 which proposed clearing it.
 - Phase 22 added (2026-07-14): Site Matching at Submission and Unmatched-Site Resolution Workflow — closes the Phase 21 functionality gap. Decisions confirmed with operator: (a) the public submission form's Observing site field gets HTMX live-search autocomplete (new endpoint running `fuzzy_match_candidates()` over `build_site_candidates()`), also replacing the approval queue's static per-row datalist; (b) "site failure never blocks approval" is kept, with a new "Sites needing review" surface for approved runs with `site_needs_review=True` whose resolution triggers the deferred CalendarEvent projection.
 - Phase 24 added (2026-07-17): Operator and usage runbook documentation for the telescope-runs-calendar management commands and staff workflows (load_telescope_runs, sync_lco_observation_calendar, sync_gemini_observation_calendar, import_campaign_csv, Phase 23's approval-queue status-change actions) — raised during PR #41/#43 split review: design docs (docs/design/*.rst) and demo notebooks existed, but no general, discoverable how-to-run documentation did. Scoped to publish operator-facing usage docs beyond design rationale and `--help` text.
@@ -159,6 +172,14 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 ### Decisions
 
 All v1.0-v2.2 decisions logged in PROJECT.md's Key Decisions table. The exhaustive per-plan v2.2 decision log previously kept here (roadmap-structure decisions, and one bullet per Phase 26-30 plan plus the 2026-07/08 quick tasks) has been cleared now that v2.2 has shipped and closed — nothing is lost: the milestone-level decisions are summarized in PROJECT.md's Key Decisions table (9 rows backfilled at close for Phases 26/27/27.1/28/29, plus the 3 rows Phase 30 added at its own completion), and the full fine-grained per-plan log remains verbatim in each phase's archived `PATTERNS.md`/`SUMMARY.md` under `.planning/milestones/v2.2-phases/` and `.planning/milestones/v2.2-quick/`.
+
+v2.3 roadmap-structure decisions (2026-09-01):
+
+- **Both spikes share Phase 31.** The schema/identity spike (SCHEMA-01..03) and the scheduling-mechanism spike (SCHED-07) are independent of each other, so they run as parallel tracks in one investigation-only phase. This keeps each one's findings ahead of the phase that implements them (Phase 32 and Phase 34 respectively), which folding SCHED-07 into Phase 34 as a first plan would not.
+- **The shared write-and-reconcile helper is not its own phase.** It carries no requirement of its own and exists only to stop the same pattern being written three times; it is Phase 32's groundwork, with the classical adapter as its first consumer.
+- **The three adapters share one phase, ordered plans.** Research's simplest-first sequencing (classical → LCO → Gemini) is preserved as plan ordering inside Phase 32 rather than as three phases, per the `coarse` granularity setting.
+- **ADAPT-04 (per-adapter no-churn) and ADAPT-05 (cutover sequencing) are mapped to Phase 32 only**, not repeated per adapter — they are cross-cutting guarantees of the same phase, and the coverage rule is one requirement to exactly one phase.
+- **SCHED-06 sits with outcome propagation (Phase 33), not with the other carried-forward work**, because the narrowing UI is what outcome propagation looks like on screen (four-stage pipeline stages 3→4) and depends on OUTCOME-01..04 existing.
 
 ### Pending Todos
 
@@ -192,6 +213,11 @@ All v1.0-v2.2 decisions logged in PROJECT.md's Key Decisions table. The exhausti
 
 None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 phases, 33 plans, 24/24 requirements). One non-blocking follow-up carried into the next milestone: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
+Two v2.3 planning-time notes, neither blocking roadmap approval:
+
+- **Phase 31's scheduling track needs real host facts** that CLAUDE.md does not record (is there a production deployment target yet, does it run cron or systemd, is `flock` present, is an outbound heartbeat ping acceptable). Research flagged this as a gap; the spike must get the answers from the operator rather than assume them.
+- **Phase 33's aggregation rule wants validation against real data** — whether any existing multi-record run would be misclassified by any-success-wins-once-all-terminal. Research flagged this too; it is a phase-planning research item, not a roadmap blocker.
+
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Status | Directory |
@@ -203,10 +229,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| requirement | ESO-10 (`sync_eso_observation_calendar` command) | v2 — unblocked by Phase 13's Bypass verdict; out of scope for v2.1 (unrelated to uncertain scheduling) | v1.7 close |
-| requirement | ESO-11 (paired ESO demo notebook) | v2 — unblocked by Phase 13's Bypass verdict; out of scope for v2.1 | v1.7 close |
-| requirement | SCHED-06 (progressive-disclosure window-narrowing UI) | v2 — deferred until the window schema is proven against real re-imported data | v2.1 requirements |
-| requirement | SUBMIT-06/07 (trusted-PI self-approval; submission status lookup) | v2 — not committed to a milestone | v2.0 close |
+| requirement | ESO-10 (`sync_eso_observation_calendar` command) | v2 — unblocked by Phase 13's Bypass verdict; explicitly out of scope for v2.3 (LCO/SOAR/Gemini only) | v1.7 close |
+| requirement | ESO-11 (paired ESO demo notebook) | v2 — unblocked by Phase 13's Bypass verdict; explicitly out of scope for v2.3 | v1.7 close |
+| requirement | SCHED-06 (progressive-disclosure window-narrowing UI) | **Un-deferred — now in v2.3 scope, mapped to Phase 33**, re-scoped against the v2.2 four-stage window pipeline | v2.1 requirements |
+| requirement | SUBMIT-06/07 (trusted-PI self-approval; submission status lookup) | v2 — deferred again at v2.3 requirements; unrelated to automatic run sync | v2.0 close |
 | todo | `2026-06-23-extract-site-telescope-mapping-and-instrument-extraction-int.md` — extract site/telescope mapping and instrument extraction into own module | Deliberately deferred; no second consumer yet | v1.7 close |
 | todo | `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename `calendar_utils.py`'s private helpers to reflect shared-module status | Low-priority style cleanup; no functional impact | v2.0 close |
 | seed | SEED-001 — file upstream `tom_eso` feature requests | Still dormant | v2.0 close |
@@ -235,9 +261,9 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-09-01T04:20:04.776Z
-Stopped at: Phase 30 complete — all phases complete
+Stopped at: v2.3 roadmap created — Phases 31-35, 22/22 requirements mapped, no phase planned yet
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Review `.planning/ROADMAP.md` (Phases 31-35), then start Phase 31 with `/gsd-discuss-phase 31`

@@ -88,34 +88,34 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHEMA-01 | TBD | Pending |
-| SCHEMA-02 | TBD | Pending |
-| SCHEMA-03 | TBD | Pending |
-| ADAPT-01 | TBD | Pending |
-| ADAPT-02 | TBD | Pending |
-| ADAPT-03 | TBD | Pending |
-| ADAPT-04 | TBD | Pending |
-| ADAPT-05 | TBD | Pending |
-| OUTCOME-01 | TBD | Pending |
-| OUTCOME-02 | TBD | Pending |
-| OUTCOME-03 | TBD | Pending |
-| OUTCOME-04 | TBD | Pending |
-| SCHED-07 | TBD | Pending |
-| SCHED-08 | TBD | Pending |
-| SCHED-09 | TBD | Pending |
-| SCHED-10 | TBD | Pending |
-| DISCOVER-01 | TBD | Pending |
-| STATUS-01 | TBD | Pending |
-| STATUS-02 | TBD | Pending |
-| GAPB-01 | TBD | Pending |
-| UNUSED-01 | TBD | Pending |
-| SCHED-06 | TBD | Pending |
+| SCHEMA-01 | Phase 31 | Pending |
+| SCHEMA-02 | Phase 31 | Pending |
+| SCHEMA-03 | Phase 31 | Pending |
+| SCHED-07 | Phase 31 | Pending |
+| ADAPT-01 | Phase 32 | Pending |
+| ADAPT-02 | Phase 32 | Pending |
+| ADAPT-03 | Phase 32 | Pending |
+| ADAPT-04 | Phase 32 | Pending |
+| ADAPT-05 | Phase 32 | Pending |
+| OUTCOME-01 | Phase 33 | Pending |
+| OUTCOME-02 | Phase 33 | Pending |
+| OUTCOME-03 | Phase 33 | Pending |
+| OUTCOME-04 | Phase 33 | Pending |
+| SCHED-06 | Phase 33 | Pending |
+| SCHED-08 | Phase 34 | Pending |
+| SCHED-09 | Phase 34 | Pending |
+| SCHED-10 | Phase 34 | Pending |
+| DISCOVER-01 | Phase 34 | Pending |
+| STATUS-01 | Phase 35 | Pending |
+| STATUS-02 | Phase 35 | Pending |
+| GAPB-01 | Phase 35 | Pending |
+| UNUSED-01 | Phase 35 | Pending |
 
 **Coverage:**
 - v1 requirements: 22 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 22 ⚠️ (expected — roadmapper assigns next)
+- Mapped to phases: 22 ✓ (Phase 31: 4, Phase 32: 5, Phase 33: 5, Phase 34: 4, Phase 35: 4)
+- Unmapped: 0 — no orphans, no duplicates
 
 ---
 *Requirements defined: 2026-09-01*
-*Last updated: 2026-09-01 after initial definition*
+*Last updated: 2026-09-01 after v2.3 roadmap creation (traceability filled, Phases 31-35)*
