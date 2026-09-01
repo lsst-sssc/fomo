@@ -207,6 +207,19 @@ never shows up here. **The queue shows attributable orphans, not every
 un-attributed row** -- an empty worklist does not mean nothing is
 un-attributed, only that nothing un-attributed has a run to offer it to.
 
+**A rejected run is never offered as a match.** A run a staff member
+rejected in the approval queue is never suggested for any orphan, on
+either worklist -- an approved run and a still-pending submission both
+remain offerable (a pending submission being suggested is useful evidence
+that the submission is genuine), only a rejected one is excluded. The
+filter is applied once, where candidates are chosen, so the attribution
+queue, the campaign-list "N orphans awaiting attribution" banner count
+and the calendar modal's staff hint all agree with each other -- none of
+them can drift out of sync and show a rejected run as a match somewhere
+staff would not think to look. An attribution a staff member already
+confirmed stays confirmed if the run is rejected afterwards: rejecting a
+run never unlinks an association that already exists.
+
 **What the evidence columns mean.** Every candidate row shows four
 separate facts side by side, never collapsed into one cell: the matched
 telescope, the date overlap between the orphan's window and the run's
