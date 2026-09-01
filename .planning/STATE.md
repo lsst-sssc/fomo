@@ -2,9 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Automatic Run Sync & Outcome Propagation
+current_phase: 31
+current_phase_name: "Foundation Spikes: Run Identity & Unattended Invocation"
 status: planning
-last_updated: "2026-09-01T19:24:27.914Z"
+stopped_at: Phase 31 context gathered
+last_updated: "2026-09-01T22:16:00.252Z"
 last_activity: 2026-09-01
+last_activity_desc: v2.3 roadmap written, 22/22 requirements mapped
+state_head: 3cd7c67d3dfc3b6d8d6b13b3c194955d82c6f620
 progress:
   total_phases: 5
   completed_phases: 0
@@ -260,9 +265,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T04:20:04.776Z
-Stopped at: v2.3 roadmap created — Phases 31-35, 22/22 requirements mapped, no phase planned yet
-Resume file: None
+Last session: 2026-09-01T22:16:00.243Z
+Stopped at: Phase 31 context gathered
+Resume file: .planning/phases/31-foundation-spikes-run-identity-unattended-invocation/31-CONTEXT.md
 
 ## Operator Next Steps
 
