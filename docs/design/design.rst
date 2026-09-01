@@ -44,3 +44,5 @@ Design Notes
    gsd_experiment
    eso_feasibility_spike
    uncertain_scheduling_spike
+   canonical_record_spike
+   fink_sso_support

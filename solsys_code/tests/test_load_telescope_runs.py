@@ -6,12 +6,14 @@ from unittest import mock
 
 import astropy.units as u
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
+from tom_targets.models import TargetList
 
 from solsys_code import telescope_runs as tr
 from solsys_code.management.commands.load_telescope_runs import _iter_run_nights
-from solsys_code.models import CalendarEventTelescopeLabel
+from solsys_code.models import CalendarEventMeta
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import parse_run_line
 
@@ -279,14 +281,14 @@ class TestLoadTelescopeRuns(TestCase):
 
     def test_display_01_no_sidecar_row_for_classically_scheduled_event(self):
         """DISPLAY-01: load_telescope_runs never resolves a telescope label via the LCO
-        API, so events it creates have no CalendarEventTelescopeLabel row at all."""
+        API, so events it creates have no CalendarEventMeta row at all."""
         path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
         with tmpdir_ctx:
             call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
 
-        self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 0)
+        self.assertEqual(CalendarEventMeta.objects.count(), 0)
         event = CalendarEvent.objects.first()
-        with self.assertRaises(CalendarEventTelescopeLabel.DoesNotExist):
+        with self.assertRaises(CalendarEventMeta.DoesNotExist):
             _ = event.telescope_label_meta
 
     def test_unparseable_line_logged_and_skipped(self):
@@ -359,3 +361,73 @@ class TestLoadTelescopeRuns(TestCase):
                 self.assertEqual(event.start_time.second, 0)
                 # end_time is computed sunrise — early morning UTC for Santiago in July
                 self.assertLess(event.end_time.hour, 12)
+
+    def test_campaign_omitted_leaves_target_list_none(self):
+        """Regression guard: without --campaign, every created event has target_list None
+        (zero behavior change from before the flag existed)."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            events = CalendarEvent.objects.all()
+            self.assertGreater(events.count(), 0)
+            for event in events:
+                self.assertIsNone(event.target_list)
+
+    def test_campaign_matching_sets_target_list_on_every_event(self):
+        """--campaign NAME with a matching TargetList sets target_list on every event."""
+        campaign = TargetList.objects.create(name='Test Campaign')
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            call_command(
+                'load_telescope_runs', path, campaign=campaign.name, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+            events = CalendarEvent.objects.all()
+            self.assertGreater(events.count(), 0)
+            for event in events:
+                self.assertEqual(event.target_list, campaign)
+
+    def test_campaign_no_match_raises_and_creates_nothing(self):
+        """--campaign NAME with no matching TargetList raises CommandError before any
+        CalendarEvent is created (fail fast)."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            with self.assertRaises(CommandError):
+                call_command(
+                    'load_telescope_runs',
+                    path,
+                    campaign='No Such Campaign',
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+            self.assertEqual(CalendarEvent.objects.count(), 0)
+
+    def test_campaign_multiple_matches_raises(self):
+        """--campaign NAME matching more than one TargetList raises CommandError."""
+        TargetList.objects.create(name='Ambiguous Campaign')
+        TargetList.objects.create(name='Ambiguous Campaign')
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            with self.assertRaises(CommandError):
+                call_command(
+                    'load_telescope_runs',
+                    path,
+                    campaign='Ambiguous Campaign',
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+
+    def test_campaign_no_churn_on_rerun(self):
+        """Re-running the same file with the same --campaign reports updated: 0 for those
+        events (no-churn on the target_list FK field)."""
+        campaign = TargetList.objects.create(name='No Churn Campaign')
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            call_command(
+                'load_telescope_runs', path, campaign=campaign.name, stdout=io.StringIO(), stderr=io.StringIO()
+            )
+            first_count = CalendarEvent.objects.count()
+
+            stdout2 = io.StringIO()
+            call_command('load_telescope_runs', path, campaign=campaign.name, stdout=stdout2, stderr=io.StringIO())
+            self.assertEqual(CalendarEvent.objects.count(), first_count)
+            self.assertIn('updated: 0', stdout2.getvalue())

@@ -1,44 +1,57 @@
 """Views for the per-campaign table read path (VIEW-01/02/03/04), the public submission write
-path (SUBMIT-01/04/05), and the coverage-gap analysis view (GAP-02).
+path (SUBMIT-01/04/05), the coverage-gap analysis view (GAP-02), and the staff attribution
+worklist (ATTRIB-01..06, 28-CONTEXT.md D-01..D-15).
 
 Views: ``CampaignRunTableView`` (the sortable/paginated/filterable per-campaign table,
 PII-gated at the queryset layer per D-13/VIEW-03), ``CampaignListView`` (D-03's campaigns
-list page), ``CampaignRunSubmissionView`` (the public intake form), and
+list page), ``CampaignRunSubmissionView`` (the public intake form),
 ``CampaignGapAnalysisView`` (GET-triggered, cached, server-side-validated coverage-gap
-analysis). Deliberately does not import ``solsys_code.views`` -- that module imports
+analysis), ``AttributionQueueView`` (the two orphan worklists plus the Dismissed/Confirmed
+sections, D-01/D-04/D-14) and ``AttributionDecisionView`` (the confirm/dismiss/undo POST
+actions, D-09/D-13). Deliberately does not import ``solsys_code.views`` -- that module imports
 ``.ephem_utils`` at module load time, which triggers a ~1.6 GB SPICE kernel download (CLAUDE.md
-"Heavy import side effect"). ``campaign_gap`` is safe to import at module scope here: it only
-depends on ``telescope_runs.sun_event``, never the heavy SPICE-loading ephemeris module.
+"Heavy import side effect"). ``campaign_gap`` and ``campaign_attribution`` are both safe to
+import at module scope here: neither reaches ``solsys_code.views`` or the heavy SPICE-loading
+ephemeris module -- ``campaign_gap`` only depends on ``telescope_runs.sun_event``, and
+``campaign_attribution`` only depends on ``calendar_utils``/``telescope_runs``/the ORM.
 """
 
 import logging
 import re
-from datetime import date, datetime, timedelta
-from datetime import time as dt_time
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Case, CharField, Count, EmailField, F, Q, Value, When
+from django.db.models import Case, CharField, Count, EmailField, F, Value, When
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
 from django_tables2 import RequestConfig
 from django_tables2.views import SingleTableMixin
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 
 from solsys_code.solsys_code_observatory.models import Observatory
 
-from .calendar_utils import insert_or_create_calendar_event
+from . import campaign_attribution
 from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
-from .campaign_tables import ApprovalQueueTable, CampaignRunTable
+from .campaign_reconciler import reconcile_run
+from .campaign_tables import (
+    ApprovalQueueTable,
+    AttributionConfirmedTable,
+    AttributionDismissedTable,
+    CampaignRunTable,
+)
 from .campaign_utils import (
     _check_and_increment_throttle,
     build_site_candidates,
@@ -48,8 +61,13 @@ from .campaign_utils import (
     substring_or_fuzzy_match_candidates,
 )
 from .mixins import StaffRequiredMixin
-from .models import CampaignRun
-from .telescope_runs import sun_event
+from .models import (
+    CalendarEventDismissal,
+    CalendarEventMeta,
+    CampaignRun,
+    CampaignRunObservation,
+    ObservationRecordDismissal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +84,21 @@ _INPUT_ID_RE = re.compile(r'^[-A-Za-z0-9_:.]+$')
 # enumerated explicitly (not introspected from CampaignRun._meta) so contact_person/
 # contact_email can never accidentally be included -- the SQL SELECT itself never fetches
 # them for non-staff, per 15-RESEARCH.md Pitfall 1's "restrict the queryset, not just the
-# rendered table" recommendation.
+# rendered table" recommendation. D-18 (Phase 27 CANON-01/02): the same hand-enumeration
+# discipline is why 'source' is deliberately NOT on this list below -- it is internal
+# provenance about which FOMO ingest path created the row, and its 'legacy' value in
+# particular would read as meaningless to an outside reader. A field is invisible to
+# non-staff unless explicitly added here, so the omission of 'source' is a decision.
 ALLOWED_FIELDS_FOR_NON_STAFF = [
     'pk',
     'telescope_instrument',
     'site__short_name',
     'site_raw',
     'site_needs_review',
+    # D-18: telescope_class is observing information of the same kind as site_raw/
+    # filters_bandpass above, which are already public -- it distinguishes a legitimately
+    # class-wide run from a site that failed to resolve.
+    'telescope_class',
     'window_start',
     'window_end',
     'filters_bandpass',
@@ -173,6 +199,27 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         return context
 
 
+def runs_needing_site_review():
+    """D-07/27.1-03 Task 1: the live staff work queue of approved runs whose site never
+    resolved and for which no ``telescope_class`` explains the absence (see the D-06 note on
+    ``CampaignRun.site_needs_review`` in ``models.py``).
+
+    Filter only -- no ``select_related``, no ``order_by``, no slice -- so each caller adds
+    what it needs. This is the single definition of "needs site review"; both
+    ``CampaignListView`` (a bare ``.count()`` for the staff banner) and ``ApprovalQueueView``
+    (the full "Sites Needing Review" table) call this instead of each inlining their own copy
+    of the filter, closing a silent-drift hazard: a future change to what counts as "needs
+    review" would otherwise have to be made in two places, and a banner/page mismatch is either
+    a banner that promises rows the page doesn't show, or one that hides a queue that has rows.
+
+    Deliberately uncapped, unlike the 20-row ``decided_qs`` audit-log cap in
+    ``ApprovalQueueView`` -- this is a live work queue of items genuinely needing staff action,
+    and capping it would hide actionable rows. Naturally includes the projection-failed retry
+    state (site set, flag still True) because the filter is on ``site_needs_review`` alone.
+    """
+    return CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.APPROVED, site_needs_review=True)
+
+
 class CampaignListView(ListView):
     """Lists every TargetList that has >= 1 CampaignRun, each linking to its table (D-03).
 
@@ -188,16 +235,23 @@ class CampaignListView(ListView):
     context_object_name = 'campaigns'
 
     def get_context_data(self, **kwargs):
-        """Add pending_count for the staff-only "N pending review" banner (D-01).
+        """Add the three staff-only banner counts: pending_count, its 27.1-03 sibling, and
+        the Phase 28 attribution-backlog count (D-02).
 
-        Computed unconditionally -- the template gates its display on request.user.is_staff,
-        so it's harmless to compute for anonymous/non-staff visitors too (D-10: list
-        membership itself is unchanged).
+        All three are computed unconditionally -- the template gates their display on
+        request.user.is_staff, so it's harmless to compute for anonymous/non-staff visitors
+        too (D-10: list membership itself is unchanged), and a bare integer discloses nothing
+        on its own. The second and third counts each reuse their own single shared queryset
+        helper (``runs_needing_site_review()`` / ``campaign_attribution``'s one shared
+        attribution-backlog-count function) rather than an inline ``.count()``, so the banner
+        and the page each of them drives can never drift apart from the other.
         """
         context = super().get_context_data(**kwargs)
         context['pending_count'] = CampaignRun.objects.filter(
             approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
         ).count()
+        context['site_review_count'] = runs_needing_site_review().count()
+        context['attribution_count'] = campaign_attribution.orphans_needing_attribution_count()
         return context
 
 
@@ -244,6 +298,9 @@ class CampaignRunSubmissionView(FormView):
                     contact_email=form.cleaned_data['contact_email'],
                     contact_public_opt_in=form.cleaned_data['contact_public_opt_in'],
                     comments=form.cleaned_data['comments'],
+                    # CANON-01: WEB is the one source value for which approval genuinely is
+                    # required (26-DECISION.md Criterion 1's derivation rule).
+                    source=CampaignRun.Source.WEB,
                     # approval_status intentionally not set -- model default is PENDING_REVIEW.
                     # site/site_needs_review intentionally not set -- resolved at approval
                     # time (D-07).
@@ -342,16 +399,10 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
             empty_text='No decisions recorded yet.',
             order_by=(),
         )
-        # D-07: approved runs whose site never resolved -- the "dead end" this phase closes.
-        # Deliberately NO row cap (unlike decided_qs's [:20] audit-log cap): this is a live
-        # work queue of items genuinely needing staff action, and capping it would hide
-        # actionable rows. Naturally includes the projection-failed retry state (site set,
-        # flag still True) since the filter is on site_needs_review alone.
-        review_qs = (
-            CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.APPROVED, site_needs_review=True)
-            .select_related('campaign', 'site')
-            .order_by('-pk')
-        )
+        # D-07/27.1-03: approved runs whose site never resolved -- the "dead end" this phase
+        # closes. See the shared helper's docstring above for the uncapped-queue and
+        # single-definition rationale; this call site adds only select_related/order_by.
+        review_qs = runs_needing_site_review().select_related('campaign', 'site').order_by('-pk')
         review_table = ApprovalQueueTable(
             list(review_qs),
             prefix='review-',
@@ -372,119 +423,12 @@ class ApprovalQueueView(StaffRequiredMixin, TemplateView):
         return context
 
 
-# D-03: two distinct title prefixes for the two terminal run_status outcomes staff can set
-# from the Decided table. Keyed on the RunStatus enum member (never derived from raw request
-# text -- V5 Input Validation); must stay byte-identical to the '[WEATHERED]' string appended
-# to calendar_display_extras._TERMINAL_PREFIXES (Task 3) so the box-shadow ring applies.
-_RUN_STATUS_CALENDAR_PREFIX = {
-    CampaignRun.RunStatus.CANCELLED: '[CANCELLED]',
-    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: '[WEATHERED]',
-}
-
 # T-23-05: fixed whitelist mapping a POST action value to the RunStatus it sets -- the
 # run_status value written is always looked up here, never taken from raw request text.
 _ACTION_TO_RUN_STATUS = {
     'mark_cancelled': CampaignRun.RunStatus.CANCELLED,
     'mark_weather_failure': CampaignRun.RunStatus.WEATHER_TECH_FAILURE,
 }
-
-
-def _calendar_event_title(run: CampaignRun) -> str:
-    """Builds a CampaignRun's calendar-event title, with a D-06 window-context suffix for a
-    range window. Single source of truth for the title -- reused by both
-    ``_project_calendar_event()`` (creation) and ``_set_run_status()`` (status update) so the
-    suffix can never drift out of sync between the two call sites (Pitfall 1).
-    """
-    base = f'{run.campaign.name}: {run.telescope_instrument}'
-    if run.window_start != run.window_end:
-        return f'{base} (window {run.window_start}..{run.window_end})'
-    return base
-
-
-def _project_calendar_event(run: CampaignRun) -> bool:
-    """CAL-01/CAL-02 CalendarEvent projection (D-08), extracted from the approve branch.
-
-    Returns True when ``insert_or_create_calendar_event()`` was actually called (an event was
-    created/updated), False when projection was skipped by design (TBD run, or missing
-    telescope_instrument/site) -- 22-REVIEWS.md finding 6: this bool drives the resolve_site
-    action's two distinct success messages. RAISES ValueError when ``sun_event()`` fails (e.g.
-    a Tier-2-resolved site with a blank ``timezone`` -- CR-01), and MAY RAISE on any other
-    unexpected failure (e.g. ``insert_or_create_calendar_event()`` itself failing) -- this
-    helper does NO error-handling of its own for genuine failures; callers own
-    revert-vs-non-revert behavior. ``resolve_site()`` must treat any raise here as "projection
-    attempted but failed" (keep ``site_needs_review=True``, warn instead of claiming success);
-    ``approve()`` has no retry surface to protect and instead catches-and-swallows the
-    ValueError case specifically at its call site to preserve its original behavior (approval
-    still succeeds even when the calendar entry couldn't be projected).
-
-    A ground range-window run now projects one dip-corrected event per night (D-02); a
-    single-night run keeps its existing bare-key single event. Only TBD runs (window_start
-    is None), unresolved-site runs, and missing-telescope_instrument runs are excluded from
-    projection.
-    """
-    # D-01/CAL-01: CalendarEvent.start_time/end_time are non-nullable -- a concrete window
-    # (both window_start and window_end set) and a resolved site are required to pick the
-    # ground-vs-space branch. A TBD run, unresolved site, or missing telescope_instrument
-    # simply doesn't get a CalendarEvent yet.
-    if not (run.telescope_instrument and run.site and run.window_start and run.window_end):
-        return False
-    event_fields = {
-        'title': _calendar_event_title(run),
-        'description': run.observation_details,
-        'target_list': run.campaign,  # CAL-02
-        'telescope': run.telescope_instrument,
-    }
-    if run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
-        # Space-based observatory: no fixed horizon for sun_event() to work against -- use
-        # a midnight-UTC placeholder spanning the window date. D-05: this branch's date-math
-        # is unchanged by the ground-branch's per-night rewrite below -- a satellite range
-        # still yields exactly one whole-day-span event under the bare key.
-        event_fields['start_time'] = datetime.combine(run.window_start, dt_time(0, 0), tzinfo=dt_timezone.utc)
-        event_fields['end_time'] = datetime.combine(run.window_end, dt_time(23, 59), tzinfo=dt_timezone.utc)
-        # Never construct CalendarEvent directly -- always route through the shared helper
-        # (Don't Hand-Roll) so the CAMPAIGN: namespace stays collision-safe against the
-        # LCO/Gemini/classical sync commands (T-16-09).
-        insert_or_create_calendar_event({'url': f'CAMPAIGN:{run.pk}'}, fields=event_fields)
-        return True
-    # Ground-based observatory: reuse the same dip-corrected sunset/sunrise convention the
-    # rest of the calendar feature already uses (kind='sun', not 'dark' -- Pitfall 6). A
-    # ValueError (e.g. blank site.timezone, or no 2 sun-altitude crossings) is logged and
-    # re-raised (CR-01) -- callers decide whether that's a by-design skip (approve()) or a
-    # real failure that must keep the retry surface open (resolve_site()).
-    #
-    # IN-02 (19-REVIEW.md): this branch also catches OCCULTATION_OBSTYPE and RADAR_OBSTYPE
-    # sites, not just OPTICAL_OBSTYPE -- every non-SATELLITE Observatory.OBSTYPE_CHOICES
-    # member unconditionally gets the dip-corrected dark-window treatment. That's a
-    # deliberate simplification for this milestone; scope this to Observatory.OPTICAL_OBSTYPE
-    # explicitly, with OCCULTATION/RADAR falling back to no projection, when those site types
-    # get real support.
-    #
-    # D-02/D-03: mirrors load_telescope_runs' E - S + 1 inclusive-range idiom. A single-night
-    # run (n_nights == 1) reproduces today's exact bare-CAMPAIGN:{pk}-keyed single event; a
-    # range run (n_nights > 1) creates one CAMPAIGN:{pk}:{date.isoformat()}-keyed event per
-    # night. A mid-loop sun_event() ValueError (CR-01) re-raises immediately, leaving any
-    # already-created earlier nights' events in place -- accepted partial projection, no
-    # transaction.atomic() wrap (RESEARCH Assumption A3).
-    n_nights = (run.window_end - run.window_start).days + 1
-    is_range = n_nights > 1
-    for i in range(n_nights):
-        night = run.window_start + timedelta(days=i)
-        try:
-            sunset, sunrise = sun_event(run.site, night, kind='sun')
-        except ValueError:
-            logger.debug(
-                'sun_event(sun) raised for site=%s date=%s; re-raising so callers that need the '
-                'retry guarantee (resolve_site) see this as a failure, not a by-design skip.',
-                run.site,
-                night,
-            )
-            raise  # CR-01: never silently swallow this -- see docstring above.
-        night_fields = dict(event_fields)
-        night_fields['start_time'] = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
-        night_fields['end_time'] = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
-        url = f'CAMPAIGN:{run.pk}' if not is_range else f'CAMPAIGN:{run.pk}:{night.isoformat()}'
-        insert_or_create_calendar_event({'url': url}, fields=night_fields)
-    return True
 
 
 class CampaignRunDecisionView(StaffRequiredMixin, View):
@@ -524,9 +468,11 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                 # below reverts approval_status back to PENDING_REVIEW while leaving run.site
                 # set, a second approve POST would otherwise re-hit resolve_site()
                 # unconditionally (RESEARCH.md Pitfall 3, the live clobbering bug this closes).
-                # A satellite-type site_selection (250/274/289) still falls through to
-                # (None, True) via resolve_site()'s to_observatory() TypeError path -- expected,
-                # pre-existing behavior, not a Phase 21 regression (RESEARCH.md Pitfall 4).
+                # A satellite-type site_selection (250/274/289) now resolves through Tier 2
+                # to a real SATELLITE_OBSTYPE Observatory (quick task 260725-kn4 removed the
+                # to_observatory() TypeError that used to make this fall through to a Tier-3
+                # placeholder). campaign_reconciler._reconcile_container()'s satellite branch
+                # handles it with a whole-day-span event, not the ground sun_event() path.
                 # WR-01 (22-REVIEW.md re-review): mirrors _resolve_site()'s placeholder-aware
                 # guard below -- a run whose site is already a tier-3 placeholder (e.g. from
                 # CSV import) is not a genuine resolution either, so it must still re-enter
@@ -554,23 +500,30 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     # to the obscode; anything else passes through unchanged.
                     obscode_selection = selection_to_obscode(selection)
                     site, needs_review = resolve_site(obscode_selection, create_placeholder=False)
-                    run.site, run.site_needs_review = site, needs_review
+                    # D-06 (26-CONTEXT.md:94): telescope_class is a permanent "why is there no
+                    # site" fact, not cleared once a site is known -- a resolved run does not
+                    # stop needing review just because it now has a site if it never carried a
+                    # class, but a classed run was never a resolution failure in the first
+                    # place. Phase 27 code-review finding CR-01 proposed clearing
+                    # run.telescope_class here on resolution; the user REJECTED CR-01 because
+                    # its mutual-exclusivity premise is invalid (27-REVIEW-FIX.md). Do NOT add
+                    # 'telescope_class' to update_fields below.
+                    run.site, run.site_needs_review = site, needs_review and not run.telescope_class
                     run.save(update_fields=['site', 'site_needs_review'])
 
-                # Projection extracted into the shared _project_calendar_event() helper
-                # (22-REVIEWS.md finding 6); the approve branch ignores its bool return.
-                # CR-01: _project_calendar_event() now raises ValueError when sun_event()
-                # fails (e.g. a Tier-2-resolved site with a blank timezone) so resolve_site()
-                # can treat it as a real failure. approve() has no retry surface to protect
-                # (unlike resolve_site()'s "Sites Needing Review" row), so it swallows
-                # specifically this expected-failure-mode ValueError here to preserve its
-                # original behavior: the approval still succeeds without a CalendarEvent.
-                # Anything else _project_calendar_event() raises (e.g.
+                # Projection now runs through the shared reconciler (D-01/D-03/RECON-08); the
+                # approve branch ignores its ReconcileResult. reconcile_run() still raises
+                # ValueError when sun_event() fails (e.g. a Tier-2-resolved site with a blank
+                # timezone) so resolve_site() can treat it as a real failure. approve() has no
+                # retry surface to protect (unlike resolve_site()'s "Sites Needing Review"
+                # row), so it swallows specifically this expected-failure-mode ValueError here
+                # to preserve its original behavior: the approval still succeeds without a
+                # calendar entry (D-04). Anything else reconcile_run() raises (e.g.
                 # insert_or_create_calendar_event() itself failing) is a genuine unexpected
                 # failure and still falls through to the broader except Exception below,
                 # which reverts the approval.
                 try:
-                    _project_calendar_event(run)
+                    reconcile_run(run)
                 except ValueError:
                     logger.debug(
                         'Calendar projection skipped for CampaignRun %s on approve '
@@ -608,15 +561,15 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
 
     def _resolve_site(self, request, pk):
         """D-07/D-08: resolve an approved run's still-unmatched site, then retroactively
-        project the CalendarEvent approval skipped.
+        reconcile the calendar event(s) approval skipped.
 
         Ordering is deliberately load-bearing (22-REVIEWS.md findings 3/5/6/8c):
-        ``site_needs_review`` is cleared ONLY after ``_project_calendar_event()`` returns
-        without raising -- never before, and never on a projection failure -- so a failed
-        projection leaves the run visible in the Sites Needing Review table (its retry
-        surface) instead of vanishing into a dead end. The site write itself is a single
-        conditional queryset update (not a plain re-fetch + in-Python check) so two racing
-        staff POSTs cannot both claim the write.
+        ``site_needs_review`` is cleared ONLY after ``reconcile_run()`` returns without
+        raising -- never before, and never on a reconcile failure -- so a failed reconcile
+        leaves the run visible in the Sites Needing Review table (its retry surface) instead
+        of vanishing into a dead end. The site write itself is a single conditional queryset
+        update (not a plain re-fetch + in-Python check) so two racing staff POSTs cannot both
+        claim the write.
 
         22-06 gap closure (UAT gap 2B): a tier-3 PLACEHOLDER site (``resolve_site()``'s
         ``create_placeholder`` fallback -- name prefixed ``NEEDS REVIEW: ``) is not a
@@ -629,6 +582,12 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
 
         # Business-logic bypass guard (Security "business-logic bypass" domain): validate
         # state server-side, never just trust the button was only offered on eligible rows.
+        # D-06 (26-CONTEXT.md:94): a classed run can no longer carry site_needs_review=True
+        # at all (every writer now honours telescope_class), so it is already ineligible
+        # here via this same guard -- no separate telescope_class check is needed. The
+        # conditional claim further below (the site-write .update()) must NOT gain a
+        # 'telescope_class': '' write; Phase 27 finding CR-01 proposed exactly that and the
+        # user REJECTED it (27-REVIEW-FIX.md) because telescope_class is never cleared.
         if run.approval_status != CampaignRun.ApprovalStatus.APPROVED or not run.site_needs_review:
             messages.warning(request, 'This run is not awaiting site resolution.')
             return redirect('campaigns:approval_queue')
@@ -713,14 +672,14 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     ):
                         previous_site.delete()
 
-        # Projection, inside its own NON-reverting try/except (never reuse the approve
+        # Reconcile, inside its own NON-reverting try/except (never reuse the approve
         # branch's revert-to-PENDING_REVIEW except block -- reverting an already-APPROVED
         # run would resurrect it into the pending queue, reintroducing the dead end this
         # phase closes).
         try:
-            created = _project_calendar_event(run)
+            result = reconcile_run(run)
         except Exception:
-            logger.exception('Calendar projection failed for CampaignRun %s during resolve_site.', pk)
+            logger.exception('Calendar reconcile failed for CampaignRun %s during resolve_site.', pk)
             messages.warning(
                 request,
                 "Site resolved, but the calendar entry couldn't be created automatically -- "
@@ -728,38 +687,42 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             )
             return redirect('campaigns:approval_queue')
 
-        # Only after the projection call returned without raising: clear the flag.
+        # Only after the reconcile call returned without raising: clear the flag.
         run.site_needs_review = False
         run.save(update_fields=['site_needs_review'])
-        if created:
+        # result.skipped_reason is None is the documented successor to the old bool return
+        # from the now-retired projection helper (D-04).
+        if result.skipped_reason is None:
             messages.success(request, 'Site resolved — run added to the calendar.')
         else:
             messages.success(request, 'Site resolved.')
         return redirect('campaigns:approval_queue')
 
     def _set_run_status(self, request, pk, action):
-        """D-03/D-04/D-05: mark an already-APPROVED run cancelled or weathered, and update
-        EVERY CalendarEvent belonging to this run in place, if (and only if) any already exist.
+        """D-03/D-04/D-05: mark an already-APPROVED run cancelled or weathered, and reconcile
+        EVERY CalendarEvent belonging to this run through the shared reconciler (RECON-08/09).
 
         Mirrors ``_resolve_site()``'s shape: a server-side business-logic guard (never trust
         the Decided-table button was only rendered for an APPROVED row -- T-23-01), then a
         staleness-safe conditional queryset ``.update()`` (T-23-04/REVIEW finding #1) whose
-        returned row count is checked BEFORE ``run.refresh_from_db()`` or the calendar-sync
-        branch -- a concurrent approval_status change or row delete between the guard read
+        returned row count is checked BEFORE ``run.refresh_from_db()`` or the reconcile call
+        below -- a concurrent approval_status change or row delete between the guard read
         and the write must never reach ``refresh_from_db()`` (which would raise
         ``CampaignRun.DoesNotExist`` on a deleted row) or silently report false success.
 
-        A run whose window/site never projected any CalendarEvent (a TBD run, or one with an
-        unresolved site) still gets its run_status set, but is never handed to
-        ``insert_or_create_calendar_event()`` -- that helper's create-path requires
-        non-nullable start_time/end_time this call deliberately omits, and would raise
-        (T-23-06/RESEARCH Pitfall 1). ``_project_calendar_event()`` itself is never called or
-        modified here. A range-window run now has one-or-more per-night events, all of which
-        get updated here via the combined trailing-colon queryset (D-04).
+        Whether this action creates or only updates events is no longer decided here --
+        ``reconcile_run()``'s stage-0 guard (``_skip_reason()``) is the single source of truth
+        (D-01): a TBD-window run or a run with an unresolved, unclassed site still ends with
+        zero events after this call, but an APPROVED, site-resolved run that never had an
+        event (e.g. its original approve/resolve reconcile failed, or it arrived via a path
+        that never reconciled) now gets its per-night events created here, titled with the
+        ``[CANCELLED]``/``[WEATHERED]`` prefix from the very first write. This is a deliberate
+        behavior change from the retired always-update-only era, which never fabricated an
+        event for a run that had none.
 
-        The calendar-sync loop below is wrapped in a non-reverting try/except (PR-REVIEW-F1):
+        The reconcile call below is wrapped in a non-reverting try/except (PR-REVIEW-F1):
         ``run_status`` is already committed by the conditional ``.update()`` above by the time
-        the loop runs, so a sync failure (DB/network/runtime) never reverts it and never
+        it runs, so a reconcile failure (DB/network/runtime) never reverts it and never
         surfaces as an uncaught 500 -- it logs the exception and warns the user that the status
         change was saved but the calendar entry needs a retry of the same action.
         """
@@ -779,47 +742,28 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             # REVIEW finding #1/T-23-04: the row was concurrently changed or deleted between
             # the guard read above and this conditional update -- never reach
             # refresh_from_db() (CampaignRun.DoesNotExist on a deleted row) or the
-            # calendar-sync branch below.
+            # reconcile call below.
             messages.warning(request, "This run's status could not be updated (it may have been modified or deleted).")
             return redirect('campaigns:approval_queue')
 
         run.refresh_from_db()
 
-        # D-04/T-23-06: find and update EVERY CalendarEvent belonging to this run -- the
-        # legacy bare single-night key AND any new per-night keys. The trailing colon on the
-        # startswith prefix is required (Pitfall 2): without it, run.pk=3 would also match
-        # CAMPAIGN:34:... events belonging to a different run. Never fabricate an event for a
-        # run that never projected one (a TBD run, or one with an unresolved site or missing
-        # telescope_instrument never reaches _project_calendar_event()'s date-math branch).
-        matching_events = CalendarEvent.objects.filter(
-            Q(url=f'CAMPAIGN:{run.pk}') | Q(url__startswith=f'CAMPAIGN:{run.pk}:')
-        )
-        if matching_events.exists():
-            # PR-REVIEW-F1: run_status is already committed above -- this loop is wrapped in a
-            # non-reverting try/except (mirrors _resolve_site()'s projection guard) so a sync
-            # failure never reverts the status change and never bubbles up as an uncaught 500.
-            try:
-                prefix = _RUN_STATUS_CALENDAR_PREFIX[new_run_status]
-                for event in matching_events:
-                    insert_or_create_calendar_event(
-                        {'url': event.url},
-                        fields={
-                            # Pitfall 1: reuse the shared _calendar_event_title() helper -- a
-                            # re-derived inline f-string here would differ from the stored range
-                            # title, get treated as a real change by the no-churn diff, and
-                            # silently strip the D-06 window suffix from every night's event.
-                            'title': f'{prefix} {_calendar_event_title(run)}',
-                            'description': f'{run.observation_details}\nRun status: {run.get_run_status_display()}',
-                        },
-                    )
-            except Exception:
-                logger.exception('Calendar sync failed for CampaignRun %s during _set_run_status.', pk)
-                messages.warning(
-                    request,
-                    'Run status was updated, but the calendar entry could not be synced -- '
-                    'retry the same action to sync the calendar.',
-                )
-                return redirect('campaigns:approval_queue')
+        # PR-REVIEW-F1: run_status is already committed above -- this call is wrapped in a
+        # non-reverting try/except (mirrors _resolve_site()'s reconcile guard) so a reconcile
+        # failure never reverts the status change and never bubbles up as an uncaught 500.
+        # reconcile_run() builds the [CANCELLED]/[WEATHERED] title and the "Run status:"
+        # description line itself (event_title()/event_description()), so no title-helper
+        # call or prefix lookup is needed here.
+        try:
+            reconcile_run(run)
+        except Exception:
+            logger.exception('Calendar sync failed for CampaignRun %s during _set_run_status.', pk)
+            messages.warning(
+                request,
+                'Run status was updated, but the calendar entry could not be synced -- '
+                'retry the same action to sync the calendar.',
+            )
+            return redirect('campaigns:approval_queue')
 
         messages.success(request, 'Run status updated.')
         return redirect('campaigns:approval_queue')
@@ -1011,3 +955,418 @@ class SiteSearchView(View):
             'campaigns/partials/site_search_results.html',
             {'candidates': candidates, 'input_id': input_id, 'query': query, 'no_matches_copy': no_matches_copy},
         )
+
+
+_ATTRIBUTION_BANDS = (campaign_attribution.BAND_HIGH, campaign_attribution.BAND_MEDIUM, campaign_attribution.BAND_LOW)
+
+
+def _dismissed_attribution_rows(limit: int = 50) -> list:
+    """D-07/D-14: the Dismissed section's rows -- the union of both dismissal models, newest
+    first, capped and materialized to a plain list.
+
+    Two structurally different models are merged in Python (never a queryset ``.union()``,
+    which requires column-compatible querysets and would still need Python-side re-sorting
+    once combined) -- mirrors ``ApprovalQueueView``'s ``decided_qs`` comment: once two
+    querysets are read into a list and re-sorted, django-tables2 (Plan 28-04) must never be
+    handed anything it might try to re-slice as a queryset.
+
+    Args:
+        limit: maximum rows to return (D-07's collapsed-section cap, matching
+            ``ApprovalQueueView``'s 20-row precedent scaled up for two merged sources).
+
+    Returns:
+        list: dismissal rows (mixed ``CalendarEventDismissal``/``ObservationRecordDismissal``
+            instances) ordered by ``-dismissed_at``, capped at ``limit``.
+    """
+    rows = list(CalendarEventDismissal.objects.select_related('event', 'run__campaign', 'dismissed_by')) + list(
+        ObservationRecordDismissal.objects.select_related('observation_record', 'run__campaign', 'dismissed_by')
+    )
+    rows.sort(key=lambda r: r.dismissed_at or datetime.min.replace(tzinfo=dt_timezone.utc), reverse=True)
+    return rows[:limit]
+
+
+def _confirmed_attribution_rows(limit: int = 50) -> list:
+    """D-14: the Confirmed section's rows -- every owned ``CalendarEventMeta`` row plus every
+    ``CampaignRunObservation`` row, newest first, capped and materialized to a plain list. See
+    ``_dismissed_attribution_rows()``'s docstring for why the merge happens in Python.
+
+    Args:
+        limit: maximum rows to return.
+
+    Returns:
+        list: confirmed rows (mixed ``CalendarEventMeta``/``CampaignRunObservation``
+            instances) ordered by ``-confirmed_at``, capped at ``limit``.
+    """
+    rows = list(
+        CalendarEventMeta.objects.filter(run__isnull=False).select_related('event', 'run__campaign', 'confirmed_by')
+    ) + list(CampaignRunObservation.objects.select_related('observation_record', 'run__campaign', 'confirmed_by'))
+    rows.sort(key=lambda r: r.confirmed_at or datetime.min.replace(tzinfo=dt_timezone.utc), reverse=True)
+    return rows[:limit]
+
+
+class AttributionQueueView(StaffRequiredMixin, TemplateView):
+    """Staff-only attribution worklist: two orphan worklists plus Dismissed/Confirmed
+    sections (D-01/D-02/D-04/D-07/D-10/D-14/D-15). Its template (``attribution_queue.html``)
+    is created by Plan 28-04 -- this plan's own tests exercise this view's context assembly
+    and its ``StaffRequiredMixin`` gate only (see ``test_campaign_attribution_views.py``),
+    never a GET render expecting 200.
+    """
+
+    template_name = 'campaigns/attribution_queue.html'
+
+    def get_context_data(self, **kwargs):
+        """Assemble every context key the 28-04 template needs (D-01/D-04/D-10/D-14/D-15)."""
+        context = super().get_context_data(**kwargs)
+
+        # D-10: the requested confidence band, validated server-side against the literal
+        # band tuple. RESEARCH.md Assumption A2: these rows are computed candidate pairs, not
+        # a plain CampaignRun queryset, so a django_filter FilterSet/FilterView doesn't fit --
+        # follow CampaignGapAnalysisView's manual GET-parameter validation precedent instead.
+        # An unrecognised value silently falls back to "all bands", never an error.
+        band = self.request.GET.get('band')
+        if band not in _ATTRIBUTION_BANDS:
+            band = None
+        context['band'] = band
+
+        # D-01/D-04: two independent worklists, each paginated on its OWN GET parameter
+        # (event_page / record_page) so paging one worklist never resets the other.
+        event_backlog = campaign_attribution.event_attribution_backlog(band=band)
+        record_backlog = campaign_attribution.record_attribution_backlog(band=band)
+        context['event_groups'] = Paginator(event_backlog, 25).get_page(self.request.GET.get('event_page'))
+        context['record_groups'] = Paginator(record_backlog, 25).get_page(self.request.GET.get('record_page'))
+
+        # D-07/D-14: assembled here as plain, capped, materialized lists -- 28-04 hands these
+        # to django_tables2 table classes, which cannot re-sort a query once it's been sliced
+        # (the same trap ApprovalQueueView's decided_qs comment documents).
+        context['dismissed_rows'] = _dismissed_attribution_rows()
+        context['confirmed_rows'] = _confirmed_attribution_rows()
+
+        # D-07/D-14: two independent table instances (distinct prefixes so their pagination
+        # never collides with each other or with event_page/record_page above), mirroring
+        # ApprovalQueueView's own pending_table/decided_table construction.
+        dismissed_table = AttributionDismissedTable(
+            context['dismissed_rows'], prefix='dismissed-', request=self.request, order_by=()
+        )
+        confirmed_table = AttributionConfirmedTable(
+            context['confirmed_rows'], prefix='confirmed-', request=self.request, order_by=()
+        )
+        RequestConfig(self.request).configure(dismissed_table)
+        RequestConfig(self.request).configure(confirmed_table)
+        context['dismissed_table'] = dismissed_table
+        context['confirmed_table'] = confirmed_table
+
+        # D-02: one shared definition for both this page's own header count and the
+        # campaign-list banner -- never a second inline .count(). Computed unfiltered
+        # (ignoring the band GET param above) since D-15's "done" signal is about the whole
+        # backlog draining, not just the currently-viewed band.
+        context['attribution_count'] = campaign_attribution.orphans_needing_attribution_count()
+        # D-15: the "N orphans still have no matching run" number the done-state copy needs.
+        context['unattributable_count'] = campaign_attribution.unattributable_orphan_count()
+        # D-15: "Done" is both worklists (unfiltered) empty -- reuses attribution_count above
+        # rather than a third pair of backlog calls.
+        context['is_drained'] = context['attribution_count'] == 0
+        return context
+
+
+_ATTRIBUTION_ACTIONS = ('confirm', 'confirm_selected', 'dismiss', 'undo_confirmation', 'undo_dismissal')
+_ATTRIBUTION_KINDS = ('event', 'record')
+
+# T-28-16: the literal undo reason recorded when the staff member submitting undo_confirmation
+# doesn't supply one -- named here so both the docstring and the write site below agree on the
+# exact string, never re-typed.
+_UNDO_CONFIRMATION_DEFAULT_REASON = 'Undone by staff.'
+
+
+def _is_sole_high_candidate(kind: str, orphan_pk: int, run_pk: int) -> bool:
+    """D-09's checkbox gate, re-derived server-side (ASVS V5): True only when ``run_pk`` is
+    the orphan's SOLE High-band candidate across its FULL candidate list -- never trusted
+    from the fact that the template only rendered a checkbox for a High-band row. Distinct
+    from (and additional to) ``is_offered_candidate()``, which only confirms the pair is
+    currently offered at all, not that it is the sole High-band one.
+
+    Args:
+        kind: ``'event'`` or ``'record'``.
+        orphan_pk: the CalendarEvent or ObservationRecord pk.
+        run_pk: the candidate CampaignRun pk being checked for sole-High status.
+
+    Returns:
+        bool: True only when exactly one candidate for this orphan is High-band and its run
+            pk equals ``run_pk``. Never raises.
+    """
+    if kind == 'event':
+        try:
+            orphan = CalendarEvent.objects.get(pk=orphan_pk)
+        except CalendarEvent.DoesNotExist:
+            return False
+        candidates = campaign_attribution.candidates_for_event(orphan)
+    else:
+        try:
+            orphan = ObservationRecord.objects.get(pk=orphan_pk)
+        except ObservationRecord.DoesNotExist:
+            return False
+        candidates = campaign_attribution.candidates_for_record(orphan)
+
+    high = [c for c in candidates if c.band == campaign_attribution.BAND_HIGH]
+    return len(high) == 1 and high[0].run.pk == run_pk
+
+
+class AttributionDecisionView(StaffRequiredMixin, View):
+    """POST-only dispatching endpoint for the five attribution actions -- confirm,
+    confirm_selected, dismiss, undo_confirmation, undo_dismissal -- for both orphan kinds
+    (D-09/D-13). Declared POST-only below so a GET (crawler prefetch, bare ``<a href>``) can
+    never trigger a state change, mirroring ``CampaignRunDecisionView``'s own declaration.
+
+    Server-side re-validation, on every action that creates an association (T-28-12): before
+    writing, every confirm path calls ``campaign_attribution.is_offered_candidate()`` and
+    aborts with a warning when it returns None -- never trusting that a button or checkbox
+    was only rendered for an eligible row. This is the guard that stops a tampered POST
+    creating an association across a campaign/target boundary, which ROADMAP criterion 3
+    forbids absolutely, mirroring ``CampaignRunDecisionView._resolve_site()``'s existing
+    business-logic bypass guard discipline.
+    """
+
+    http_method_names = ['post']
+
+    def post(self, request):
+        """Validate action/kind/pks against literal allow-lists, then dispatch (V5)."""
+        action = request.POST.get('action')
+        if action not in _ATTRIBUTION_ACTIONS:
+            return HttpResponseBadRequest()
+
+        if action == 'confirm_selected':
+            return self._confirm_selected(request)
+
+        kind = request.POST.get('kind')
+        if kind not in _ATTRIBUTION_KINDS:
+            return HttpResponseBadRequest()
+
+        orphan_pk = _as_pk_or_none(request.POST.get('orphan_pk'))
+        run_pk = _as_pk_or_none(request.POST.get('run_pk'))
+        if orphan_pk is None or run_pk is None:
+            return HttpResponseBadRequest()
+
+        if action == 'confirm':
+            return self._confirm(request, kind, orphan_pk, run_pk)
+        if action == 'dismiss':
+            return self._dismiss(request, kind, orphan_pk, run_pk)
+        if action == 'undo_confirmation':
+            return self._undo_confirmation(request, kind, orphan_pk, run_pk)
+        return self._undo_dismissal(request, kind, orphan_pk, run_pk)
+
+    def _redirect(self, request):
+        """Redirect back to the worklist, preserving the band filter (D-10) if the form
+        carried it as a hidden field, so the staff member returns to the filter they were
+        working in."""
+        band = request.POST.get('band')
+        if band in _ATTRIBUTION_BANDS:
+            return redirect(f'{reverse("campaigns:attribution")}?band={band}')
+        return redirect('campaigns:attribution')
+
+    def _do_confirm_event(self, request, orphan_pk: int, run_pk: int) -> str:
+        """Event-side confirm write (Pattern 3): a field SET on an existing row, not a row
+        CREATE. Returns ``'confirmed'``, ``'claimed'`` (already attributed/dismissed by
+        someone else), or ``'gone'`` (orphan no longer exists).
+        """
+        if campaign_attribution.is_offered_candidate('event', orphan_pk, run_pk) is None:
+            return 'claimed'
+
+        # A classical event has no companion row at all -- get_or_create with the documented
+        # is_verified default changes nothing observable for a row that already exists.
+        CalendarEventMeta.objects.get_or_create(event_id=orphan_pk, defaults={'is_verified': True})
+
+        # Atomic conditional update keyed on the "unclaimed" precondition (run__isnull=True),
+        # generalising CampaignRunDecisionView's status-enum idiom (Pattern 3).
+        updated_count = CalendarEventMeta.objects.filter(event_id=orphan_pk, run__isnull=True).update(
+            run_id=run_pk, confirmed_by=request.user, confirmed_at=timezone.now()
+        )
+        if updated_count == 1:
+            return 'confirmed'
+        if CalendarEventMeta.objects.filter(event_id=orphan_pk).exists():
+            return 'claimed'
+        return 'gone'
+
+    def _do_confirm_record(self, request, orphan_pk: int, run_pk: int) -> str:
+        """Record-side confirm write (Pattern 3): a row is CREATED, not a field set. Returns
+        ``'confirmed'`` or ``'claimed'`` (the ``unique_campaign_run_observation_record``
+        constraint -- RESEARCH.md Pitfall 3: one run per record GLOBALLY -- already fired, or
+        ``is_offered_candidate()`` rejected the pair up front).
+        """
+        if campaign_attribution.is_offered_candidate('record', orphan_pk, run_pk) is None:
+            return 'claimed'
+        try:
+            # Own atomic savepoint, mirroring CampaignRunSubmissionView.form_valid()'s
+            # natural-key-collision handling -- without it, an IntegrityError caught here
+            # would poison the outer request/test transaction.
+            with transaction.atomic():
+                _, created = CampaignRunObservation.objects.get_or_create(
+                    observation_record_id=orphan_pk,
+                    defaults={'run_id': run_pk, 'confirmed_by': request.user, 'confirmed_at': timezone.now()},
+                )
+        except IntegrityError:
+            created = False
+        return 'confirmed' if created else 'claimed'
+
+    def _confirm(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """Single-candidate confirm, either orphan kind."""
+        outcome = (
+            self._do_confirm_event(request, orphan_pk, run_pk)
+            if kind == 'event'
+            else self._do_confirm_record(request, orphan_pk, run_pk)
+        )
+        if outcome == 'confirmed':
+            messages.success(request, 'Attribution confirmed.')
+        elif outcome == 'claimed':
+            messages.warning(request, 'This candidate was already confirmed or dismissed by someone else.')
+        else:
+            messages.error(request, 'This candidate no longer exists.')
+        return self._redirect(request)
+
+    def _confirm_selected(self, request):
+        """D-09: bulk multi-select confirm, gated to the High band AND to being each
+        orphan's sole High-band candidate. Loops the per-pair single-confirm write inside
+        ONE ``transaction.atomic()`` block -- deliberately never a single combined queryset
+        update naming every checked pk at once, which can only set one run for every matched
+        row while each checked pair may name a DIFFERENT run (RESEARCH.md Anti-Pattern).
+        """
+        parsed = []
+        for raw in request.POST.getlist('candidate_ids'):
+            parts = raw.split(':')
+            if len(parts) != 3:
+                continue
+            kind, orphan_raw, run_raw = parts
+            if kind not in _ATTRIBUTION_KINDS:
+                continue
+            orphan_pk = _as_pk_or_none(orphan_raw)
+            run_pk = _as_pk_or_none(run_raw)
+            if orphan_pk is None or run_pk is None:
+                continue
+            parsed.append((kind, orphan_pk, run_pk))
+
+        confirmed_count = 0
+        any_failed = False
+        with transaction.atomic():
+            for kind, orphan_pk, run_pk in parsed:
+                # D-09/ASVS V5: re-derive BOTH the offer itself and the High-band-sole-
+                # candidate gate here, server-side -- the checkbox gate is enforced here, not
+                # by the fact that the template only rendered checkboxes on eligible rows.
+                candidate = campaign_attribution.is_offered_candidate(kind, orphan_pk, run_pk)
+                if candidate is None or candidate.band != campaign_attribution.BAND_HIGH:
+                    any_failed = True
+                    continue
+                if not _is_sole_high_candidate(kind, orphan_pk, run_pk):
+                    any_failed = True
+                    continue
+                outcome = (
+                    self._do_confirm_event(request, orphan_pk, run_pk)
+                    if kind == 'event'
+                    else self._do_confirm_record(request, orphan_pk, run_pk)
+                )
+                if outcome == 'confirmed':
+                    confirmed_count += 1
+                else:
+                    any_failed = True
+
+        if confirmed_count:
+            messages.success(request, f'{confirmed_count} candidates confirmed.')
+        if any_failed:
+            messages.warning(request, 'This candidate was already confirmed or dismissed by someone else.')
+        return self._redirect(request)
+
+    def _dismiss(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """D-05/D-06: persist a per-pair dismissal, requiring a non-empty stripped reason
+        enforced server-side (the browser's HTML ``required`` attribute is a convenience,
+        not the control). Stores the reason raw -- never bypasses Django's template
+        auto-escaping, never string-concatenated into markup (Security Domain, Information
+        Disclosure row).
+        """
+        reason = request.POST.get('reason', '').strip()
+        if not reason:
+            messages.error(request, 'A reason is required to dismiss a candidate.')
+            return self._redirect(request)
+
+        defaults = {'dismissed_by': request.user, 'dismissed_at': timezone.now(), 'reason': reason}
+        try:
+            # Own atomic savepoint catching IntegrityError from the named per-pair
+            # UniqueConstraint (D-08) -- mirrors _do_confirm_record()'s savepoint discipline.
+            with transaction.atomic():
+                if kind == 'event':
+                    CalendarEventDismissal.objects.get_or_create(event_id=orphan_pk, run_id=run_pk, defaults=defaults)
+                else:
+                    ObservationRecordDismissal.objects.get_or_create(
+                        observation_record_id=orphan_pk, run_id=run_pk, defaults=defaults
+                    )
+        except IntegrityError:
+            pass  # already dismissed by someone else -- the pair is dismissed either way.
+        messages.success(request, 'Candidate dismissed.')
+        return self._redirect(request)
+
+    def _undo_confirmation(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """D-13: the link-clearing write runs FIRST, and the D-13 dismissal row is written
+        only when it actually matched a row -- both inside the SAME atomic block. Clearing
+        the link erases the very fields recording who confirmed it, so the trace has to live
+        elsewhere; a soft-undo flag would break Phase 27 D-01's invariant that a link row's
+        existence means "confirmed"; writing the dismissal row also stops the matcher
+        immediately re-suggesting the pair just undone.
+
+        28-REVIEW.md WR-01: ``post()`` validates ``orphan_pk``/``run_pk`` only as integers, so
+        a stale resubmit after a re-point, or a tampered POST, can name a pair that was never
+        actually confirmed to ``run_pk``. The conditional link-clearing write below is itself
+        the proof the pair was really confirmed -- so the dismissal is gated on its
+        ``changed_count`` rather than written unconditionally. An ungated write would
+        permanently remove that pair from the queue, since ``candidates_for_event``/
+        ``candidates_for_record`` exclude every dismissed run regardless of whether the pair
+        was ever actually associated.
+        """
+        reason = request.POST.get('reason', '').strip() or _UNDO_CONFIRMATION_DEFAULT_REASON
+        defaults = {'dismissed_by': request.user, 'dismissed_at': timezone.now(), 'reason': reason}
+        with transaction.atomic():
+            if kind == 'event':
+                # Event side: an .update(), still conditional on the currently-owning run so
+                # a concurrent re-point cannot be silently clobbered.
+                changed_count = CalendarEventMeta.objects.filter(event_id=orphan_pk, run_id=run_pk).update(
+                    run=None, confirmed_by=None, confirmed_at=None
+                )
+            else:
+                # Record side: the link row itself is deleted (Phase 27 D-01: its existence
+                # IS the confirmation).
+                changed_count, _ = CampaignRunObservation.objects.filter(
+                    observation_record_id=orphan_pk, run_id=run_pk
+                ).delete()
+
+            if changed_count:
+                try:
+                    # Nested savepoint (own atomic()), mirroring _dismiss()/_do_confirm_record():
+                    # a caught IntegrityError here must not poison the outer atomic block, which
+                    # has already made the link-clearing write above.
+                    with transaction.atomic():
+                        if kind == 'event':
+                            CalendarEventDismissal.objects.get_or_create(
+                                event_id=orphan_pk, run_id=run_pk, defaults=defaults
+                            )
+                        else:
+                            ObservationRecordDismissal.objects.get_or_create(
+                                observation_record_id=orphan_pk, run_id=run_pk, defaults=defaults
+                            )
+                except IntegrityError:
+                    pass  # already dismissed (e.g. a prior undo) -- the link is cleared either way.
+
+        if changed_count:
+            messages.success(request, 'Confirmation undone — back in the queue.')
+        else:
+            messages.error(request, 'This candidate no longer exists.')
+        return self._redirect(request)
+
+    def _undo_dismissal(self, request, kind: str, orphan_pk: int, run_pk: int):
+        """D-07: deletes the matching dismissal row, returning the pair to the queue."""
+        if kind == 'event':
+            deleted_count, _ = CalendarEventDismissal.objects.filter(event_id=orphan_pk, run_id=run_pk).delete()
+        else:
+            deleted_count, _ = ObservationRecordDismissal.objects.filter(
+                observation_record_id=orphan_pk, run_id=run_pk
+            ).delete()
+
+        if deleted_count:
+            messages.success(request, 'Dismissal undone — back in the queue.')
+        else:
+            messages.error(request, 'This candidate no longer exists.')
+        return self._redirect(request)

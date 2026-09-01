@@ -1,11 +1,9 @@
 import io
-import re
 from datetime import datetime
 from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
 import requests
-from django import forms
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
@@ -14,15 +12,14 @@ from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
+from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.calendar_utils import (
-    SITE_TELESCOPE_MAP,
-    _aperture_class_from_telescope_code,
-    _derive_telescope,
-    _resolve_placement_block,
-)
-from solsys_code.models import CalendarEventTelescopeLabel
+from solsys_code.models import CalendarEventMeta
+
+# IN-02: shared with test_calendar_utils via solsys_code/tests/helpers.py rather than being
+# imported across test modules.
+from solsys_code.tests.helpers import observations_block_response
 
 
 def _parameters(
@@ -59,29 +56,6 @@ def _parameters(
         params['site'] = site
     params.update(extra_params or {})
     return params
-
-
-def _observations_block_response(
-    site: str = 'lsc',
-    enclosure: str = 'doma',
-    telescope: str = '1m0a',
-    state: str = 'COMPLETED',
-) -> MagicMock:
-    """Build a mock make_request() response for /api/requests/{id}/observations/.
-
-    Args:
-        site: 3-letter site code for the single returned block.
-        enclosure: 4-char enclosure code for the single returned block.
-        telescope: 4-char telescope code for the single returned block.
-        state: the block's 'state' value (e.g. 'COMPLETED', 'PENDING').
-
-    Returns:
-        MagicMock: a response double whose .json() returns a one-element list
-            containing the block dict built from the given keyword args.
-    """
-    response = MagicMock()
-    response.json.return_value = [{'site': site, 'enclosure': enclosure, 'telescope': telescope, 'state': state}]
-    return response
 
 
 class TestSyncLcoObservationCalendar(TestCase):
@@ -167,6 +141,38 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertEqual(event.end_time, datetime(2026, 7, 2, 0, 0, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(event.title, '[QUEUED] 2m0 2M0-SCICAM-MUSCAT')
 
+    def test_d06_completed_with_unresolved_scheduled_start_gets_clean_title(self):
+        """D-06: COMPLETED status with scheduled_start=None still gets a clean title, no '[QUEUED]'.
+
+        TOM Toolkit can leave a request-level-COMPLETED record with scheduled_start=None
+        (no observation block reported COMPLETED at the block level). Because COMPLETED is a
+        terminal state, the record is never re-fetched, so its title must not get stuck reading
+        '[QUEUED]' forever. This is a banner-stage record (no live API call, coarse fallback
+        label), mirroring test_sync_02's fixture setup but with status='COMPLETED'.
+        """
+        self._create_record(
+            '444445',
+            proposal='MATCHCODE',
+            status='COMPLETED',
+            scheduled_start=None,
+            scheduled_end=None,
+            start='2026-07-01T00:00:00',
+            end='2026-07-02T00:00:00',
+            site='coj',
+            instrument_type='2M0-SCICAM-MUSCAT',
+        )
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'MATCHCODE',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.title, '2m0 2M0-SCICAM-MUSCAT')
+        for prefix in ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[QUEUED]', '[UNVERIFIED]'):
+            self.assertNotIn(prefix, event.title)
+
     def test_sync_03_d03_placed_uses_scheduled_times_and_clean_title(self):
         """SYNC-03/D-03: scheduled_start/end populated -> those times, clean title (no [QUEUED]).
 
@@ -185,7 +191,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -216,7 +222,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -226,7 +232,7 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stderr=io.StringIO(),
             )
         event = CalendarEvent.objects.get()
-        self.assertTrue(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+        self.assertTrue(CalendarEventMeta.objects.get(event=event).is_verified)
 
     def test_display_01_fallback_record_creates_sidecar_row_is_verified_false(self):
         """DISPLAY-01: a placed record whose API call times out (fallback label) gets a
@@ -251,7 +257,7 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stderr=io.StringIO(),
             )
         event = CalendarEvent.objects.get()
-        self.assertFalse(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+        self.assertFalse(CalendarEventMeta.objects.get(event=event).is_verified)
 
     def test_sync_05_telescope_instrument_proposal_populated(self):
         """SYNC-05: telescope/instrument/proposal populated from the record.
@@ -269,7 +275,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='ogg', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='ogg', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -356,7 +362,7 @@ class TestSyncLcoObservationCalendar(TestCase):
         )
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -430,7 +436,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -439,7 +445,7 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stdout=io.StringIO(),
                 stderr=io.StringIO(),
             )
-            self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 1)
+            self.assertEqual(CalendarEventMeta.objects.count(), 1)
             event_pk_before = CalendarEvent.objects.get().pk
 
             call_command(
@@ -450,10 +456,10 @@ class TestSyncLcoObservationCalendar(TestCase):
                 stderr=io.StringIO(),
             )
 
-        self.assertEqual(CalendarEventTelescopeLabel.objects.count(), 1)
+        self.assertEqual(CalendarEventMeta.objects.count(), 1)
         event = CalendarEvent.objects.get()
         self.assertEqual(event.pk, event_pk_before)
-        self.assertTrue(CalendarEventTelescopeLabel.objects.get(event=event).is_verified)
+        self.assertTrue(CalendarEventMeta.objects.get(event=event).is_verified)
 
     def test_sync_05_d05_description_contains_proposal_status_and_window(self):
         """SYNC-05/D-05: description contains proposal code, status, and the active time window."""
@@ -750,98 +756,6 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertIn('710005', stderr_buf.getvalue())
         self.assertIn('extraction_failed: 1', stdout_buf.getvalue())
 
-    def test_telescope_01_verified_dict_covers_all_sites(self):
-        """TELESCOPE-01: verified dict covers all 7 real sites with SITECODE-CLASS labels."""
-        expected_sites = {'ogg', 'elp', 'lsc', 'cpt', 'coj', 'tfn', 'sor'}
-        actual_sites = {site for site, _aperture_class in SITE_TELESCOPE_MAP}
-        self.assertEqual(actual_sites, expected_sites)
-
-        label_pattern = re.compile(r'^[A-Z]{3}-(0m4|1m0|2m0|4m0)$')
-        for label in SITE_TELESCOPE_MAP.values():
-            self.assertRegex(label, label_pattern)
-
-        for migrated_label in ('COJ-2m0', 'OGG-2m0', 'SOR-4m0'):
-            self.assertIn(migrated_label, SITE_TELESCOPE_MAP.values())
-
-    def test_telescope_01_aperture_class_from_telescope_code(self):
-        """TELESCOPE-01: _aperture_class_from_telescope_code parses/rejects telescope codes."""
-        self.assertEqual(_aperture_class_from_telescope_code('1m0a'), '1m0')
-        self.assertEqual(_aperture_class_from_telescope_code('0m4b'), '0m4')
-        self.assertEqual(_aperture_class_from_telescope_code('2m0a'), '2m0')
-        self.assertIsNone(_aperture_class_from_telescope_code('xx'))
-        self.assertIsNone(_aperture_class_from_telescope_code('foo9'))
-
-    def test_telescope_01_coj_ogg_full_aperture_class_coverage(self):
-        """TELESCOPE-01: coj/ogg's full aperture-class inventory resolves to verified labels.
-
-        Regression for the Phase 7 UAT Test 1 gap (07-UAT.md Gaps section): a real placed
-        record (observation_id=4213127) resolved via the live LCO API to
-        site='coj', telescope='1m0a' (aperture class '1m0'), but SITE_TELESCOPE_MAP had no
-        ('coj', '1m0') entry, so it fell back to the [UNVERIFIED] label instead of COJ-1m0.
-        """
-        self.assertEqual(_derive_telescope('coj', '1m0a'), 'COJ-1m0')
-        self.assertEqual(_derive_telescope('coj', '0m4a'), 'COJ-0m4')
-        self.assertEqual(_derive_telescope('ogg', '0m4b'), 'OGG-0m4')
-
-    def test_telescope_02_placed_record_resolves_via_api(self):
-        """TELESCOPE-02: a successful mocked API response resolves to the verified label."""
-        mock_facility = MagicMock()
-        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
-        mock_facility._portal_headers.return_value = {}
-
-        with patch(
-            'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(
-                site='lsc', enclosure='doma', telescope='1m0a', state='COMPLETED'
-            ),
-        ):
-            block = _resolve_placement_block('12345', mock_facility)
-
-        self.assertIsNotNone(block)
-        self.assertEqual(block['site'], 'lsc')
-        self.assertEqual(block['enclosure'], 'doma')
-        self.assertEqual(block['telescope'], '1m0a')
-        self.assertEqual(_derive_telescope(block['site'], block['telescope']), 'LSC-1m0')
-
-    def test_sync_08_single_attempt_no_retry(self):
-        """SYNC-08: a timeout results in exactly one make_request call, no retry loop."""
-        mock_facility = MagicMock()
-        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
-        mock_facility._portal_headers.return_value = {}
-
-        with patch(
-            'solsys_code.calendar_utils.make_request',
-            side_effect=requests.exceptions.Timeout,
-        ) as mock_make_request:
-            block = _resolve_placement_block('12345', mock_facility)
-
-        self.assertIsNone(block)
-        mock_make_request.assert_called_once()
-
-    def test_sync_09_no_credential_or_body_leak_in_logs(self):
-        """SYNC-09: ImproperCredentialsException/forms.ValidationError are swallowed to None,
-        never raised, and the helper never surfaces anything derived from the caught
-        exception (which may embed response.content / API-key-adjacent diagnostic text)."""
-        mock_facility = MagicMock()
-        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
-        mock_facility._portal_headers.return_value = {}
-
-        leak_marker = 'SECRET_API_KEY_LEAK_BODY'
-
-        with patch(
-            'solsys_code.calendar_utils.make_request',
-            side_effect=ImproperCredentialsException(f'OCS: {leak_marker}'),
-        ):
-            block = _resolve_placement_block('12345', mock_facility)
-        self.assertIsNone(block)
-
-        with patch(
-            'solsys_code.calendar_utils.make_request',
-            side_effect=forms.ValidationError(f'OCS: {leak_marker}'),
-        ):
-            block = _resolve_placement_block('12345', mock_facility)
-        self.assertIsNone(block)
-
     def test_telescope_03_api_failure_falls_back_not_skipped(self):
         """TELESCOPE-03: a placed record whose API call times out still gets a CalendarEvent
         (not skipped), telescope = coarse fallback label, skipped count stays 0."""
@@ -943,7 +857,7 @@ class TestSyncLcoObservationCalendar(TestCase):
 
         with patch(
             'solsys_code.calendar_utils.make_request',
-            return_value=_observations_block_response(site='lsc', telescope='1m0a', state='COMPLETED'),
+            return_value=observations_block_response(site='lsc', telescope='1m0a', state='COMPLETED'),
         ):
             call_command(
                 'sync_lco_observation_calendar',
@@ -1015,7 +929,7 @@ class TestSyncLcoObservationCalendar(TestCase):
             'solsys_code.calendar_utils.make_request',
             side_effect=[
                 requests.exceptions.Timeout,
-                _observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+                observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
             ],
         ):
             call_command(
@@ -1093,11 +1007,97 @@ class TestSyncLcoObservationCalendar(TestCase):
         self.assertEqual(event.telescope, '1m0')
         self.assertIn('telescope_api_failed: 0', stdout_buf.getvalue())
 
+    def test_target_list_01_single_membership_sets_target_list(self):
+        """A record whose Target belongs to exactly one TargetList gets that
+        TargetList on the synced CalendarEvent."""
+        target_list = TargetList.objects.create(name='Solo Campaign')
+        target_list.targets.add(self.target)
+        self._create_record('920001', proposal='TLONE')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLONE',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.target_list, target_list)
+
+    def test_target_list_02_zero_membership_sets_none_no_crash(self):
+        """A record whose Target belongs to no TargetList gets target_list=None,
+        with no exception raised by .first() on an empty queryset."""
+        self._create_record('920002', proposal='TLZERO')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLZERO',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        event = CalendarEvent.objects.get()
+        self.assertIsNone(event.target_list)
+
+    def test_target_list_03_multi_membership_picks_alphabetically_first(self):
+        """A record whose Target belongs to two TargetLists deterministically gets
+        the alphabetically-first-by-name one, not merely one-of-the-two."""
+        first_list = TargetList.objects.create(name='Alpha Campaign')
+        second_list = TargetList.objects.create(name='Beta Campaign')
+        first_list.targets.add(self.target)
+        second_list.targets.add(self.target)
+        self._create_record('920003', proposal='TLMULTI')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLMULTI',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        event = CalendarEvent.objects.get()
+        self.assertEqual(event.target_list, first_list)
+        self.assertEqual(event.target_list.pk, first_list.pk)
+
+    def test_target_list_04_no_churn_on_unchanged_fk_field(self):
+        """Re-syncing an unchanged record whose target_list already matches reports
+        'unchanged', not 'updated' (no-churn preserved for the new FK field)."""
+        target_list = TargetList.objects.create(name='Nochurn Campaign')
+        target_list.targets.add(self.target)
+        self._create_record('920004', proposal='TLNOCHURN')
+
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLNOCHURN',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        event = CalendarEvent.objects.get()
+        modified_before = event.modified
+
+        stdout2 = io.StringIO()
+        call_command(
+            'sync_lco_observation_calendar',
+            '--proposal',
+            'TLNOCHURN',
+            stdout=stdout2,
+            stderr=io.StringIO(),
+        )
+
+        event.refresh_from_db()
+        self.assertEqual(event.target_list, target_list)
+        self.assertEqual(event.modified, modified_before)
+        self.assertIn('unchanged: 1', stdout2.getvalue())
+
     def test_telescope_03_block_missing_site_or_telescope_falls_back_not_skipped(self):
         """T-07-03: a COMPLETED block returned by the API but missing the 'site' key
         (a malformed/tampered response shape -- only 'state' is validated upstream)
         still produces a coarse-fallback CalendarEvent, not a skipped record. The
-        existing _observations_block_response() helper always populates all four
+        existing observations_block_response() helper always populates all four
         keys together, so the malformed block is built inline here instead."""
         self._create_record(
             '800108',

@@ -4,6 +4,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from tom_targets.models import TargetList
 
+from solsys_code.calendar_utils import derive_telescope_class
 from solsys_code.campaign_utils import (
     insert_or_create_campaign_run,
     map_observation_status,
@@ -17,6 +18,12 @@ from solsys_code.models import CampaignRun
 # skipped one-by-one with no single top-level diagnostic that the header shape is wrong.
 _REQUIRED_HEADERS = ('Telescope / Instrument', 'Obs. Date', 'UT Time Range')
 
+# The real 3I/ATLAS sheet export prepends a free-text attribution row and an entirely
+# blank row before the real header, so the header isn't always row 1. Cap the leading-row
+# scan so a genuinely malformed/wrong file (no header anywhere) fails fast instead of
+# scanning the whole file.
+_MAX_HEADER_SCAN = 10
+
 
 class Command(BaseCommand):
     """Bootstrap-import a campaign coordination CSV (e.g. the 3I/ATLAS sheet) into CampaignRun rows."""
@@ -25,7 +32,19 @@ class Command(BaseCommand):
         'Bootstrap-import a campaign coordination CSV into CampaignRun rows (CAMP-04). '
         "WARNING: re-running this command over the same campaign always resets each row's "
         '`target` to the auto-resolved value (D-07) -- any manual correction a staff user made '
-        'to `target` after a previous import will be silently overwritten on re-import (WR-07).'
+        'to `target` after a previous import will be silently overwritten on re-import (WR-07). '
+        'A row already carrying source=web (created by the public submission form) keeps its own '
+        'source and approval_status on re-import (WR-01); all its other fields are still '
+        'overwritten from the CSV. A row whose site is already resolved keeps its site, '
+        "site_raw and site_needs_review when the CSV's Site Code cell does not resolve, so a "
+        'repair made by repair_stale_campaign_run_sites cannot be silently reverted by a '
+        're-import. A non-blank telescope_class is never blanked by a re-import (D-04), and '
+        'it is never replaced by a different derived value either -- the value this command '
+        "computes is always an inference from the sheet's free text, so it never overwrites a "
+        'stored value, only fills a blank one. Every such preserved row is reported on stderr '
+        'and counted as site_preserved / telescope_class_preserved in the summary line, so a '
+        "corrected-but-unresolvable Site Code or a hand-corrected telescope class isn't "
+        'dropped silently.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -70,6 +89,16 @@ class Command(BaseCommand):
         made via the admin between imports will be reset back to the auto-resolved value
         the next time this command runs over the same campaign.
 
+        WR-01: `source` and `approval_status` are the one exception to that
+        "re-import overwrites everything" rule. A row already carrying
+        `source=WEB` -- i.e. one created by the public submission form -- keeps its own
+        `source` AND `approval_status` on re-import; every other field is still
+        overwritten as above. Without that carve-out a CSV row colliding on the natural
+        key would rewrite an unreviewed public submission to
+        `source=CSV_IMPORT, approval_status=APPROVED`, which under CANON-01's derivation
+        rule (`APPROVED + source != WEB` == "no approval was required") makes it
+        indistinguishable from vetted backfill and immediately publicly visible.
+
         Returns:
             str | None: None on completion.
         """
@@ -85,6 +114,8 @@ class Command(BaseCommand):
         skipped_count = 0
         site_needs_review_count = 0
         window_needs_review_count = 0
+        site_preserved_count = 0
+        telescope_class_preserved_count = 0
         # Two distinct key shapes (Pitfall 2): a resolved window key
         # (campaign_pk, telescope_instrument, window_start, window_end), or a TBD key
         # (campaign_pk, telescope_instrument, contact_person). Track keys already seen in
@@ -94,20 +125,30 @@ class Command(BaseCommand):
 
         try:
             with open(filepath, encoding='utf-8', newline='') as f:
-                reader = csv.DictReader(f)
-                # WR-09: fail fast on the header shape itself rather than silently
-                # skipping every row one-by-one if a required column is missing/renamed.
-                missing_headers = [h for h in _REQUIRED_HEADERS if h not in (reader.fieldnames or [])]
-                if missing_headers:
-                    raise CommandError(
-                        f'Campaign CSV {filepath!r} is missing required column(s): {missing_headers!r}. '
-                        f'Found columns: {reader.fieldnames!r}'
-                    )
-                rows = list(reader)
+                lines = f.readlines()
         except OSError as exc:
             raise CommandError(f'Cannot open campaign CSV {filepath!r}: {exc}') from exc
 
-        for row_num, row in enumerate(rows, start=2):  # header is row 1
+        # Scan up to _MAX_HEADER_SCAN leading rows for the real header (see the constant's
+        # comment) rather than assuming row 1 is the header -- fail fast (WR-09) if none of
+        # the scanned rows contains every required column.
+        header_idx = None
+        for idx, parsed_row in enumerate(csv.reader(lines[:_MAX_HEADER_SCAN])):
+            if all(h in parsed_row for h in _REQUIRED_HEADERS):
+                header_idx = idx
+                break
+
+        if header_idx is None:
+            raise CommandError(
+                f'Campaign CSV {filepath!r}: no header row containing all required column(s) '
+                f'{_REQUIRED_HEADERS!r} was found within the first {_MAX_HEADER_SCAN} rows.'
+            )
+
+        reader = csv.DictReader(lines[header_idx:])
+        rows = list(reader)
+
+        # Header is at file line header_idx + 1, first data row at header_idx + 2.
+        for row_num, row in enumerate(rows, start=header_idx + 2):
             telescope_instrument = (row.get('Telescope / Instrument', '') or '').strip()
             if not telescope_instrument:
                 # D-07: the one remaining true natural-key failure -- WR-06: log only the
@@ -157,36 +198,20 @@ class Command(BaseCommand):
                 continue
             seen_window_keys.add(collision_key)
 
-            site_raw = row.get('Site Code', '') or ''
-            site, needs_review = resolve_site(site_raw)
-            if needs_review:
-                site_needs_review_count += 1
-
-            fields = {
-                # WR-07: unconditionally reset to auto_target on every run, including
-                # re-imports -- see handle()'s docstring for why this is expected.
-                'target': auto_target,
-                'site': site,
-                'site_raw': site_raw,
-                'site_needs_review': needs_review,
-                'original_obs_date_raw': original_obs_date_raw,  # D-04: TBD rows only, '' otherwise
-                'window_needs_review': window_needs_review,
-                'filters_bandpass': row.get('Filter(s)/Bandpass', '') or '',
-                'observation_details': row.get('Observation Details', '') or '',
-                'weather': row.get('Weather conditions or forecast', '') or '',
-                'run_status': map_observation_status(row.get('Observation Status', '')),
-                'approval_status': CampaignRun.ApprovalStatus.APPROVED,  # D-03: bootstrap rows are vetted backfill
-                'observation_outcome': row.get('Observation Outcome', '') or '',
-                'publication_plans': row.get('Publication Plans', '') or '',
-                'open_to_collaboration': (row.get('Open to collaboration?', '') or '').strip().lower() == 'yes',
-                'contact_email': row.get('Email', '') or '',
-                'comments': row.get('Other comments', '') or '',
-            }
-
+            # Pitfall 2: branch the natural key on whether this row resolved to a window
+            # or fell through to TBD -- matches CampaignRun.Meta.constraints' two partial
+            # UniqueConstraints exactly (resolved: campaign+telescope_instrument+
+            # window_start+window_end; TBD: campaign+telescope_instrument+contact_person).
+            # CR-01: built HERE, before `fields`, rather than after it. The existing row this
+            # finds is what decides whether this row will actually end up site-less, and that
+            # in turn gates the telescope_class derivation immediately below.
+            # WR-02: it is also built before resolve_site() runs, because whether this row
+            # will keep an already-resolved site decides whether resolve_site() is even
+            # allowed to fabricate a tier-3 placeholder for it. Nothing in the lookup depends
+            # on the site, so hoisting it is free.
             if window_start is not None:
                 # Resolved-window branch: contact_person is a plain field, not part of
-                # the lookup key.
-                fields['contact_person'] = contact_person
+                # the key -- it goes into `fields` below instead.
                 lookup = {
                     'campaign': campaign,
                     'telescope_instrument': telescope_instrument,
@@ -204,6 +229,198 @@ class Command(BaseCommand):
                     'window_start__isnull': True,
                 }
 
+            # select_related('site'): the WR-01 diagnostic below names the site the row is
+            # keeping, and that is the only place `existing.site` is dereferenced -- without
+            # this it would cost one extra query per preserved row.
+            existing = CampaignRun.objects.select_related('site').filter(**lookup).first()
+
+            site_raw = row.get('Site Code', '') or ''
+            # WR-02: only let tier 3 fabricate a placeholder Observatory when this row could
+            # actually use one. If the existing row already carries a resolved site, the
+            # preservation guard below is going to pop `site` from `fields` anyway, so a
+            # placeholder created here would be linked to nothing -- a permanent orphan (one
+            # per distinct unresolvable Site Code value) that still satisfies
+            # is_placeholder_observatory(), still joins the site-search suggestion pool, and
+            # still wins resolve_site()'s tier 1 for that obscode forever. The cleanup in
+            # CampaignRunDecisionView._resolve_site() cannot reclaim it either: that only
+            # deletes a placeholder it replaces ON a run, and this one is on no run.
+            # resolve_site() then returns (None, True) for the unresolvable code, which is
+            # exactly what `preserve_site` below already treats as "the CSV cell did not
+            # resolve" -- so the guard's decision is unchanged, only the orphan is gone.
+            site, site_resolution_failed = resolve_site(
+                site_raw, create_placeholder=existing is None or existing.site_id is None
+            )
+
+            # CR-01: the site-preservation guard (applied to `fields` further down, where its
+            # full rationale lives) can decide this row keeps its ALREADY-resolved site, in
+            # which case the CSV's own failed resolution is not this row's effective site at
+            # all. The decision is computed here, up front, so telescope_class can gate on the
+            # EFFECTIVE post-guard site rather than on the CSV's fresh result.
+            preserve_site = (
+                existing is not None and existing.site_id is not None and (site is None or site_resolution_failed)
+            )
+
+            # D-06 (26-CONTEXT.md:94): telescope_class records WHY there is no site -- it is
+            # a permanent, correct campaign-level fact, not a placeholder cleared once a site
+            # is known. D-20: the shared derivation helper's second required call site (the
+            # 0011 backfill migration is the first). Derivation still gates on "no resolved
+            # site", mirroring the backfill's site__isnull=True gate -- but a non-blank class,
+            # once derived, is never cleared, and a row that has one is not a resolution
+            # failure.
+            #
+            # CR-01: "no resolved site" means the site this row ENDS UP with, which is why
+            # `preserve_site` is part of the gate. A preserved row keeps its existing resolved
+            # site, so there is no "why is there no site" question for a class to answer, and
+            # models.py's stated invariant -- "telescope_class is never inferred for a run
+            # whose site DID resolve" -- would otherwise be violated permanently, since no
+            # writer ever clears the field again.
+            telescope_class = (
+                derive_telescope_class(site_raw=site_raw, telescope_instrument=telescope_instrument)
+                if site is None and not preserve_site
+                else ''
+            )
+
+            # D-04 (27-REVIEW WR-01, the half preserve_site's precedent didn't cover):
+            # telescope_class is NEVER cleared by any writer once set (models.py:207-219) --
+            # Phase 27 code-review finding CR-01 proposed clearing it here on site resolution
+            # and the user REJECTED CR-01 (27-REVIEW-FIX.md), and that verdict stands. But the
+            # value this command computes above is always an INFERENCE from the sheet's free
+            # text (Site Code + Telescope / Instrument), whereas a stored non-blank
+            # telescope_class may be a staff correction -- so an inference must never overwrite
+            # a stored value, it may only ever fill a blank one. `preserve_telescope_class` is
+            # true exactly when there is an existing row, that row's telescope_class is
+            # non-blank, and the value this row just derived differs from it.
+            #
+            # This condition is a STRICT SUPERSET of the blanking-only guard it replaces: a
+            # freshly-derived '' always differs from any non-blank stored value, so every case
+            # the old blanking-only guard caught is still caught here, and the
+            # "never cleared once set" invariant is not weakened, only widened.
+            preserve_telescope_class = (
+                existing is not None and existing.telescope_class and telescope_class != existing.telescope_class
+            )
+            # `site_resolution_failed` alone is not "needs review": resolve_site() here runs
+            # with its default create_placeholder=True, so it can return a placeholder
+            # Observatory (site is not None) with site_resolution_failed True -- that row
+            # genuinely still needs staff review. Deliberately NOT the literal
+            # `site is None and not telescope_class`: telescope_class is only ever non-blank
+            # when site is None, so the two forms agree wherever the class can fire, but only
+            # this form preserves the placeholder case, which the literal form would silently
+            # unflag.
+            needs_review = site_resolution_failed and not telescope_class
+
+            fields = {
+                # WR-07: unconditionally reset to auto_target on every run, including
+                # re-imports -- see handle()'s docstring for why this is expected.
+                'target': auto_target,
+                'site': site,
+                'site_raw': site_raw,
+                'site_needs_review': needs_review,
+                'original_obs_date_raw': original_obs_date_raw,  # D-04: TBD rows only, '' otherwise
+                'window_needs_review': window_needs_review,
+                'filters_bandpass': row.get('Filter(s)/Bandpass', '') or '',
+                'observation_details': row.get('Observation Details', '') or '',
+                'weather': row.get('Weather conditions or forecast', '') or '',
+                'run_status': map_observation_status(row.get('Observation Status', '')),
+                'approval_status': CampaignRun.ApprovalStatus.APPROVED,  # D-03: bootstrap rows are vetted backfill
+                # CANON-01: this is the importer's real behaviour change -- approval_status
+                # already wrote APPROVED before this phase and is deliberately unchanged
+                # (26-DECISION Criterion 1: APPROVED + source != WEB means "no approval was
+                # required", a different fact from "a human approved this").
+                'source': CampaignRun.Source.CSV_IMPORT,
+                'telescope_class': telescope_class,
+                'observation_outcome': row.get('Observation Outcome', '') or '',
+                'publication_plans': row.get('Publication Plans', '') or '',
+                'open_to_collaboration': (row.get('Open to collaboration?', '') or '').strip().lower() == 'yes',
+                'contact_email': row.get('Email', '') or '',
+                'comments': row.get('Other comments', '') or '',
+            }
+
+            if window_start is not None:
+                # Resolved-window branch: contact_person is a plain field, not part of the
+                # lookup key (which was built above), so it belongs in `fields`. On the TBD
+                # branch it is part of the key instead and is deliberately left out of
+                # `fields` to avoid lookup/defaults key-overlap ambiguity.
+                fields['contact_person'] = contact_person
+
+            # WR-01/CANON-01: never relabel a run that came in through the public web form.
+            # insert_or_create_campaign_run() setattr's every key in `fields` onto a matched
+            # row, so without this guard a CSV row colliding on the natural key with a
+            # WEB-sourced submission (entirely plausible -- the sheet and the form describe
+            # the same runs) would rewrite it to source=CSV_IMPORT, approval_status=APPROVED.
+            # That is not merely a lost label: per the derivation rule on CampaignRun.Source,
+            # `APPROVED + source != WEB` reads as "no approval was required", so an unreviewed
+            # public submission would become indistinguishable from vetted backfill AND
+            # publicly visible (CampaignRunTableView only excludes PENDING_REVIEW). Both keys
+            # must be preserved together -- keeping `source` while still forcing APPROVED
+            # would publish the unreviewed row anyway.
+            if existing is not None and existing.source == CampaignRun.Source.WEB:
+                fields.pop('source', None)
+                fields.pop('approval_status', None)
+
+            # WR-01 (criterion 5): a re-import must not silently revert a site that
+            # repair_stale_campaign_run_sites already fixed. When the existing row already
+            # carries a resolved site (existing.site_id is not None) and the CSV's own Site
+            # Code cell did NOT genuinely resolve this time -- either resolve_site() returned
+            # no Observatory at all (site is None) or it returned a tier-3 placeholder
+            # (site_resolution_failed True, which this call site can hit because it runs with
+            # its default create_placeholder=True) -- drop site, site_raw and
+            # site_needs_review from fields as a unit. They are preserved together, never
+            # individually: keeping site while reverting site_raw would leave the row's
+            # recorded provenance contradicting its resolved site, and
+            # repair_stale_campaign_run_sites deliberately corrects site_raw too (D-16b), so
+            # site_raw is exactly as repairable as site. A CSV cell that DOES genuinely
+            # resolve still wins -- this guard only blocks the case that produced the stale
+            # row in the first place: an unresolvable cell trying to overwrite something
+            # better. The condition itself is computed further up as `preserve_site`, because
+            # the telescope_class derivation has to gate on the same decision (CR-01).
+            if preserve_site:
+                fields.pop('site', None)
+                fields.pop('site_raw', None)
+                fields.pop('site_needs_review', None)
+                # WR-01: say so. The guard is silent about which branch a row took, and the
+                # row is then reported as `unchanged` by insert_or_create_campaign_run()
+                # (which only compares the surviving keys in `fields`) -- indistinguishable
+                # from a row where nothing was attempted. That matters most in the case this
+                # guard is NOT designed for: an operator who CORRECTED the sheet's Site Code
+                # to a value MPC does not know (or one over _MAX_OBSCODE_LEN) gets their
+                # correction dropped, keeping both the old `site` and the old `site_raw`,
+                # with nothing in the output to tell them.
+                site_preserved_count += 1
+                self.stderr.write(
+                    f'Row {row_num}: kept existing resolved site '
+                    f'{existing.site.obscode!r} (Site Code={site_raw!r} did not resolve); '
+                    f'CSV site/site_raw discarded'
+                )
+
+            # D-04: never let an inferred telescope_class replace a stored one -- neither by
+            # blanking it (the pre-existing case, whose Site Code cell resolved) nor by
+            # overwriting it with a different derived value (the new case this guard adds).
+            # `preserve_telescope_class` is computed above, beside the derivation it gates on.
+            if preserve_telescope_class:
+                fields.pop('telescope_class', None)
+                # D-04: say so, mirroring the preserve_site guard's stderr reporting above --
+                # a preserved row is otherwise reported as `unchanged` by
+                # insert_or_create_campaign_run() (which only compares the surviving keys in
+                # `fields`), indistinguishable from a row where nothing was attempted.
+                telescope_class_preserved_count += 1
+                self.stderr.write(
+                    f'Row {row_num}: kept existing telescope_class '
+                    f'{existing.telescope_class!r} (derived {telescope_class!r} from this row); '
+                    f'CSV telescope_class discarded'
+                )
+
+            # WR-04: the summary reports how many rows END UP flagged, not how many flags
+            # this command wrote. When the site-preservation guard popped `site_needs_review`
+            # from `fields`, the value the command would have written is moot -- but the
+            # row's own existing flag is not. A preserved row whose existing flag is already
+            # True (the projection-failed retry state) really is in the staff queue, and
+            # `runs_needing_site_review()` (campaign_views.py) lists it; counting only
+            # written flags reported it as absent. `existing` is never None on the popped
+            # branch -- the guard requires an existing row with a resolved site.
+            resulting_needs_review = needs_review if 'site_needs_review' in fields else existing.site_needs_review
+            if resulting_needs_review:
+                site_needs_review_count += 1
+
             run, action = insert_or_create_campaign_run(lookup, fields)
             if action == 'created':
                 created_count += 1
@@ -218,6 +435,8 @@ class Command(BaseCommand):
             f'unchanged: {unchanged_count}, '
             f'skipped: {skipped_count}, '
             f'site_needs_review: {site_needs_review_count}, '
-            f'window_needs_review: {window_needs_review_count}'
+            f'window_needs_review: {window_needs_review_count}, '
+            f'site_preserved: {site_preserved_count}, '
+            f'telescope_class_preserved: {telescope_class_preserved_count}'
         )
         return

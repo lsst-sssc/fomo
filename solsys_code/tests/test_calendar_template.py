@@ -2,7 +2,7 @@
 
 Asserts the DISPLAY-02/03 dashed-border + tooltip markers appear for fallback-labeled
 events only, on both the all-day and timed render branches, and that a CalendarEvent
-with no CalendarEventTelescopeLabel sidecar row renders without raising (DISPLAY-01
+with no CalendarEventMeta sidecar row renders without raising (DISPLAY-01
 read-side default, A1).
 
 Phase 9 additions cover DISPLAY-04/05/06/07: proposal-color fills, [QUEUED] override
@@ -10,17 +10,21 @@ fix, status box-shadow rings, composition with Phase 8 dashed border, and the fo
 legend with click-to-filter infrastructure.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
+from pathlib import Path
 
+from django.contrib.auth.models import User
 from django.db import connection
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils.formats import date_format
 from tom_calendar.models import CalendarEvent
+from tom_targets.models import TargetList
 
-from solsys_code.models import CalendarEventTelescopeLabel
-from solsys_code.templatetags.calendar_display_extras import proposal_color
+from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color, telescope_stripe_color
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
 TOOLTIP_SUBSTRING = 'estimate'
@@ -48,14 +52,14 @@ class CalendarTemplateTest(TestCase):
             start_time=datetime(2026, 6, 10, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 11, 6, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.all_day_fallback, is_verified=False)
+        CalendarEventMeta.objects.create(event=self.all_day_fallback, is_verified=False)
 
         self.all_day_verified = CalendarEvent.objects.create(
             title='All-day verified',
             start_time=datetime(2026, 6, 12, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 13, 6, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.all_day_verified, is_verified=True)
+        CalendarEventMeta.objects.create(event=self.all_day_verified, is_verified=True)
 
         self.all_day_no_row = CalendarEvent.objects.create(
             title='All-day no sidecar row',
@@ -69,14 +73,14 @@ class CalendarTemplateTest(TestCase):
             start_time=datetime(2026, 6, 16, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 16, 23, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.timed_fallback, is_verified=False)
+        CalendarEventMeta.objects.create(event=self.timed_fallback, is_verified=False)
 
         self.timed_verified = CalendarEvent.objects.create(
             title='Timed verified',
             start_time=datetime(2026, 6, 17, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 17, 23, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.timed_verified, is_verified=True)
+        CalendarEventMeta.objects.create(event=self.timed_verified, is_verified=True)
 
         self.timed_no_row = CalendarEvent.objects.create(
             title='Timed no sidecar row',
@@ -125,7 +129,18 @@ class CalendarTemplateTest(TestCase):
             start_time=datetime(2026, 6, 27, 10, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 27, 11, 0, tzinfo=dt_timezone.utc),
         )
-        CalendarEventTelescopeLabel.objects.create(event=self.queued_fallback_timed, is_verified=False)
+        CalendarEventMeta.objects.create(event=self.queued_fallback_timed, is_verified=False)
+
+        # quick-260724-osc fixture: classical-schedule (empty-proposal) all-day event with
+        # a telescope set — exercises the per-telescope left-edge stripe + legend.
+        # June 1-2 is a free date range not touched by any other fixture above.
+        self.classical_with_telescope = CalendarEvent.objects.create(
+            title='Classical NTT run',
+            proposal='',
+            telescope='NTT',
+            start_time=datetime(2026, 6, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 6, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
 
         # The all-day fallback event spans 2 calendar days (Jun 10-11), so the calendar
         # view's day-cell bucketing (offset_date(start) <= d <= offset_date(end)) renders
@@ -140,6 +155,18 @@ class CalendarTemplateTest(TestCase):
         """Proves the silenced DoesNotExist path (A1): no-row events don't 500."""
         response = self._get_calendar()
         self.assertEqual(response.status_code, 200)
+
+    def test_calendar_partial_data_url_carries_utc_offset(self):
+        """Regression for BUGFIX-CAL-UTC: the calRefresh reload URL must carry utc_offset.
+
+        A non-zero offset proves the user's actual selection is threaded through the
+        data-url (not just that a literal '0' happens to appear).
+        """
+        response = self.client.get(
+            reverse('calendar:calendar'), {'year': self.year, 'month': self.month, 'utc_offset': 5}
+        )
+        url = reverse('calendar:calendar')
+        self.assertContains(response, f'data-url="{url}?month=6&year=2026&utc_offset=5"')
 
     def test_fallback_events_get_dashed_border_and_tooltip(self):
         response = self._get_calendar()
@@ -281,3 +308,399 @@ class CalendarTemplateTest(TestCase):
         content = response.content.decode()
         # DISPLAY-09: the todo count parenthetical must appear in the rendered output.
         self.assertIn('(1)', content)
+
+    # --- quick-260724-osc: per-telescope left-edge stripe + legend ---
+
+    def _event_div_html(self, content, event, window=500):
+        """Return a slice of rendered HTML starting at the given event's update-event link.
+
+        Isolates one event's markup so stripe assertions can be scoped to a single
+        event's div rather than the whole page.
+        """
+        marker = f'/calendar/update/{event.id}/"'
+        idx = content.index(marker)
+        return content[idx : idx + window]
+
+    def test_osc_classical_event_renders_telescope_stripe(self):
+        """quick-260724-tiz: classical-schedule all-day event gets the cal-event-classical
+        class and a --tel-color custom property (pseudo-element stripe, no inline border-left).
+
+        quick-260724-vb0: --tel-color is fed from telescope_stripe_color()
+        (TELESCOPE_STRIPE_PALETTE), not telescope_color() -- the stripe and the legend
+        chip now resolve through different palettes gated against different backgrounds.
+        """
+        tel_hex = telescope_stripe_color('NTT')
+        response = self._get_calendar()
+        content = response.content.decode()
+        div_html = self._event_div_html(content, self.classical_with_telescope)
+        self.assertIn('cal-event-classical', div_html)
+        self.assertIn(f'--tel-color: {tel_hex};', div_html)
+
+    def test_osc_proposal_having_event_has_no_telescope_stripe(self):
+        """quick-260724-tiz: proposal-having all-day events render neither the
+        cal-event-classical class nor a --tel-color custom property."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        for event in (self.queued_event, self.terminal_event):
+            with self.subTest(event=event.title):
+                div_html = self._event_div_html(content, event)
+                self.assertNotIn('cal-event-classical', div_html)
+                self.assertNotIn('--tel-color', div_html)
+
+    def test_tiz_legends_render_chip_swatches(self):
+        """quick-260724-tiz: both legends render .cal-legend-chip swatches with the
+        correct background-color, replacing the thin ▌ glyph."""
+        tel_hex = telescope_color('NTT')
+        prop_hex = proposal_color(self.queued_event.proposal)
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn(f'<span class="cal-legend-chip" style="background-color: {tel_hex};">', content)
+        self.assertIn(f'<span class="cal-legend-chip" style="background-color: {prop_hex};">', content)
+
+    def test_osc_telescope_legend_renders_when_classical_event_visible(self):
+        """quick-260724-osc: the display-only telescope legend renders and decodes NTT."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn('cal-legend-telescope', content)
+        self.assertIn('NTT', content)
+
+    def test_osc_telescope_legend_is_not_click_to_filter_wired(self):
+        """quick-260724-osc: the telescope legend must not hook into the proposal
+        click-to-filter JS (no data-proposal attribute, no cal-legend-swatch class)."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        # Skip the <style> block's own class-definition occurrence and find the
+        # first rendered <span class="cal-legend-telescope..."> markup instance.
+        body_start = content.index('</style>')
+        idx = content.index('cal-legend-telescope', body_start)
+        # Look at the opening <span ...> tag containing the class to confirm it
+        # carries no data-proposal attribute and isn't also tagged cal-legend-swatch.
+        tag_start = content.rindex('<span', 0, idx)
+        tag_end = content.index('>', idx)
+        tag_html = content[tag_start:tag_end]
+        self.assertNotIn('data-proposal', tag_html)
+        self.assertNotIn('cal-legend-swatch', tag_html)
+
+    # --- quick-260724-vb0: two-palette split (legend vs stripe) ---
+
+    def test_vb0_legend_and_stripe_render_different_hex_for_same_telescope(self):
+        """quick-260724-vb0: the legend chip renders telescope_color() (TELESCOPE_PALETTE,
+        gated against white) while the stripe renders telescope_stripe_color()
+        (TELESCOPE_STRIPE_PALETTE, gated against the gray fill) -- for the same telescope
+        name these must resolve to two different hex values, so a future accidental
+        re-merge of the two paths fails loudly here rather than silently."""
+        legend_hex = telescope_color('NTT')
+        stripe_hex = telescope_stripe_color('NTT')
+        self.assertNotEqual(legend_hex, stripe_hex)
+
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn(f'<span class="cal-legend-chip" style="background-color: {legend_hex};">', content)
+        div_html = self._event_div_html(content, self.classical_with_telescope)
+        self.assertIn(f'--tel-color: {stripe_hex};', div_html)
+
+
+class EventModalCampaignRunLinkTest(TestCase):
+    """Phase 27 Plan 05 (CANON-05/D-08/D-09/D-10): the event_form.html override links a
+    calendar event back to its owning CampaignRun when the run is publicly visible, and
+    renders nothing for a run that has not yet been approved -- for both a non-staff and a
+    staff visitor.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS')
+        cls.staff_user = User.objects.create_user(username='modalstaff', password='pw', is_staff=True)
+
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 7, 4),
+            window_end=date(2026, 7, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=date(2026, 7, 5),
+            window_end=date(2026, 7, 5),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        cls.event_with_approved_run = CalendarEvent.objects.create(
+            title='Event with approved run',
+            start_time=datetime(2026, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_approved_run, run=cls.approved_run)
+
+        cls.event_with_pending_run = CalendarEvent.objects.create(
+            title='Event with pending run',
+            start_time=datetime(2026, 7, 5, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 6, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_pending_run, run=cls.pending_run)
+
+        cls.event_with_null_run = CalendarEvent.objects.create(
+            title='Event with null run',
+            start_time=datetime(2026, 7, 6, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 7, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_null_run, run=None)
+
+        cls.event_with_no_meta_row = CalendarEvent.objects.create(
+            title='Event with no companion row at all',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+
+        # WR-04: a TBD run (window_start/window_end both NULL) linked to a
+        # publicly-visible event must still render its telescope/instrument and
+        # campaign link, but never the literal "(None-None)" window.
+        cls.tbd_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='TBD Window Scope',
+            window_start=None,
+            window_end=None,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.event_with_tbd_run = CalendarEvent.objects.create(
+            title='Event with TBD-window run',
+            start_time=datetime(2026, 7, 8, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 9, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_tbd_run, run=cls.tbd_run)
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def _campaign_table_href(self):
+        return reverse('campaigns:table', args=[self.campaign.pk])
+
+    def test_approved_run_shows_run_block_to_anonymous_visitor(self):
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('FTN/MuSCAT3', content)
+        self.assertIn(self._campaign_table_href(), content)
+
+    def test_pending_run_shows_no_run_block_to_anonymous_visitor(self):
+        response = self.client.get(self._modal_url(self.event_with_pending_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', content)
+        self.assertNotIn(self._campaign_table_href(), content)
+
+    def test_pending_run_shows_no_run_block_to_staff_visitor(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.event_with_pending_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', content)
+        self.assertNotIn(self._campaign_table_href(), content)
+
+    def test_null_run_companion_row_renders_200_with_no_run_block(self):
+        response = self.client.get(self._modal_url(self.event_with_null_run))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(self._campaign_table_href(), response.content.decode())
+
+    def test_no_companion_row_at_all_renders_200_with_no_exception(self):
+        """The read-side default path (D-08): a conference/proposal-deadline event with no
+        CalendarEventMeta row at all must render exactly as it does today."""
+        response = self.client.get(self._modal_url(self.event_with_no_meta_row))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(self._campaign_table_href(), response.content.decode())
+
+    def test_template_source_never_contains_pending_review_literal(self):
+        """Asserted against the template file's own contents (source-level), not rendered
+        output, so a future inline-literal regression is caught even if no test scenario
+        happens to render it (D-10)."""
+        template_path = (
+            Path(__file__).resolve().parents[2] / 'src' / 'templates' / 'tom_calendar' / 'partials' / 'event_form.html'
+        )
+        content = template_path.read_text()
+        self.assertNotIn('pending_review', content)
+
+    def test_modal_renders_no_django_comment_delimiters(self):
+        """The exact defect the UAT reporter saw: a multi-line {# ... #} block renders
+        literally into the modal instead of being parsed as a comment. Covers both the
+        approved-run modal and the TBD-window modal, since the third comment block sits
+        inside the {% if run.is_publicly_visible %} branch and only that branch's
+        rendering exercises it."""
+        for event in (self.event_with_approved_run, self.event_with_tbd_run):
+            with self.subTest(event=event.title):
+                response = self.client.get(self._modal_url(event))
+                self.assertEqual(response.status_code, 200)
+                content = response.content.decode()
+                self.assertNotIn('{#', content)
+                self.assertNotIn('#}', content)
+                self.assertNotIn('FOMO override of the upstream tom_calendar partial', content)
+
+    def test_calendar_page_renders_no_django_comment_delimiters(self):
+        """Covers FOMO's OTHER tom_calendar override (calendar.html), so the render-level
+        assertion spans both surfaces the phase criterion names, not just the modal."""
+        response = self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 7})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('{#', content)
+        self.assertNotIn('#}', content)
+
+    def test_tbd_run_renders_no_none_window(self):
+        response = self.client.get(self._modal_url(self.event_with_tbd_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('TBD Window Scope', content)
+        self.assertIn(self._campaign_table_href(), content)
+        self.assertNotIn('(None', content)
+        self.assertNotIn('None&ndash;None', content)
+
+    def test_resolved_run_still_renders_its_window(self):
+        """The window render must be byte-identical to before Task 1's Edit B for a run
+        that has a resolved window -- only the TBD case changes."""
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        expected = date_format(date(2026, 7, 4))
+        self.assertIn(f'({expected}&ndash;{expected})', content)
+
+
+class EventModalAttributionHintTest(TestCase):
+    """27-07 gap closure (27-UAT.md Test 9, .planning/debug/calendar-event-run-link-inconsistent.md):
+    the event_form.html modal for an unlinked event with a HIGH-band attribution-queue
+    candidate now surfaces a staff-only "Possible campaign run match" hint naming the
+    candidate and linking to the attribution queue filtered to band=high.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Didymos 2026')
+        cls.staff_user = User.objects.create_user(username='attrmodalstaff', password='pw', is_staff=True)
+
+        cls.matched_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # unlinked_event_with_candidate: mirrors the real dev-DB pk=59 shape exactly --
+        # instrument is deliberately IDENTICAL to matched_run.telescope_instrument so
+        # instrument_similarity() is a deterministic 1.0, not dependent on fuzzy-match tuning.
+        cls.unlinked_event_with_candidate = CalendarEvent.objects.create(
+            title='[EXPIRED] 2m0 2M0-SCICAM-MUSCAT',
+            telescope='2m0',
+            instrument='FTS/MuSCAT4',
+            target_list=cls.campaign,
+            start_time=datetime(2026, 7, 16, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 16, 11, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.unlinked_event_with_candidate, is_verified=True, run=None)
+
+        # unlinked_event_no_campaign: a conference/proposal-deadline shape -- no target_list,
+        # no CalendarEventMeta row at all, so candidates_for_event() returns [].
+        cls.unlinked_event_no_campaign = CalendarEvent.objects.create(
+            title='SBAG Meeting',
+            start_time=datetime(2026, 7, 17, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 17, 11, 0, tzinfo=dt_timezone.utc),
+        )
+
+        # linked_event: already attributed to matched_run.
+        cls.linked_event = CalendarEvent.objects.create(
+            title='Didymos 2026: FTS/MuSCAT4 (window 2026-07-07..2026-07-21)',
+            target_list=cls.campaign,
+            start_time=datetime(2026, 7, 18, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 18, 11, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.linked_event, is_verified=True, run=cls.matched_run)
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def test_staff_sees_high_band_hint_for_unlinked_event(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Possible campaign run match', content)
+        self.assertIn(f'{reverse("campaigns:attribution")}?band=high', content)
+
+    def test_anonymous_does_not_see_hint(self):
+        response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Possible campaign run match', content)
+        self.assertNotIn(f'{reverse("campaigns:attribution")}?band=high', content)
+
+    def test_no_candidate_event_shows_no_hint(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.unlinked_event_no_campaign))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Possible campaign run match', content)
+
+    def test_linked_event_shows_run_block_not_hint(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self._modal_url(self.linked_event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Possible campaign run match', content)
+        self.assertIn(reverse('campaigns:table', args=[self.campaign.pk]), content)
+
+    def test_stale_wr03_comment_removed_from_template_source(self):
+        """Asserted against the template file's own contents (source-level), same pattern as
+        test_template_source_never_contains_pending_review_literal above."""
+        template_path = (
+            Path(__file__).resolve().parents[2] / 'src' / 'templates' / 'tom_calendar' / 'partials' / 'event_form.html'
+        )
+        content = template_path.read_text()
+        self.assertNotIn('no production code writes CalendarEventMeta.run yet', content)
+
+
+class TemplateCommentSyntaxSweepTest(SimpleTestCase):
+    """Repo-wide sweep for the class of defect fixed in event_form.html: Django's
+    {# ... #} comment syntax is single-line only, so a multi-line block renders as
+    literal text instead of being parsed as a comment. This makes the 27-UAT.md
+    grep-based survey a permanent, automated guard rather than a one-off check.
+
+    Scoped to src/templates/ because src/fomo/settings.py:96 names it as the only
+    entry in TEMPLATES[0]['DIRS'], and no installed FOMO app ships its own
+    templates/ directory (APP_DIRS=True is set, but solsys_code/ has no
+    templates/ subdirectory) -- so "anywhere in the repo" and "everything under
+    src/templates/" are the same search space today.
+    """
+
+    def test_no_multiline_django_comment_blocks_in_fomo_templates(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        templates_root = repo_root / 'src' / 'templates'
+        html_files = sorted(templates_root.rglob('*.html'))
+        # Guard against a path typo silently making this test vacuously green.
+        self.assertGreater(len(html_files), 0, f'No .html files found under {templates_root}')
+
+        failures = []
+        for html_file in html_files:
+            content = html_file.read_text()
+            search_from = 0
+            while True:
+                start = content.find('{#', search_from)
+                if start == -1:
+                    break
+                end = content.find('#}', start + 2)
+                if end == -1:
+                    # WR-05: record the unterminated marker and keep scanning the SAME file
+                    # from just past it. Breaking out here abandoned the rest of the file, so
+                    # a single stray '{#' -- in a JS object literal, a CSS selector, or a
+                    # {% verbatim %} block -- silently disabled this guard for every later
+                    # comment block in that template, which is exactly the content that makes
+                    # the heuristic fire in the first place.
+                    line_no = content.count('\n', 0, start) + 1
+                    failures.append(f'{html_file}:{line_no}: unterminated "{{#" (no matching "#}}")')
+                    search_from = start + 2
+                    continue
+                span = content[start:end]
+                if '\n' in span:
+                    line_no = content.count('\n', 0, start) + 1
+                    failures.append(f'{html_file}:{line_no}: multi-line {{# ... #}} block renders literally')
+                search_from = end + 2
+
+        self.assertEqual(failures, [], 'Multi-line Django comment blocks found:\n' + '\n'.join(failures))

@@ -27,15 +27,34 @@ updates only the affected nights.
 
    >> python3 manage.py load_telescope_runs path/to/schedule.txt
 
+An optional ``--campaign <name>`` flag associates every ``CalendarEvent`` the
+file creates or updates with a named campaign (a ``tom_targets.TargetList``),
+matched by exact name. It is genuinely optional: if you omit it, no campaign
+association is set on any event -- the same behavior this command had before
+the flag existed. The name is resolved once, up front, before any schedule
+line is processed, so an unknown or ambiguous campaign name fails
+immediately rather than half-way through the file.
+
+.. code-block:: console
+
+   >> python3 manage.py load_telescope_runs path/to/schedule.txt --campaign "3I/ATLAS"
+
+.. note::
+   Don't confuse this optional ``--campaign`` with ``import_campaign_csv``'s
+   ``--campaign`` (below): here, omitting it means "no campaign"; on
+   ``import_campaign_csv`` the flag is **required**.
+
 How do I sync LCO/SOAR queue observations?
 ---------------------------------------------
 
 ``sync_lco_observation_calendar`` syncs LCO and SOAR queue
 ``ObservationRecord`` rows onto the calendar as one ``CalendarEvent`` per
 record, keyed on the LCO portal URL. A record still awaiting placement by
-the LCO scheduler becomes a ``[QUEUED]`` scheduling-window banner; once the
-scheduler places it, re-running the command updates the same event in
-place to the real placed block times.
+the LCO scheduler becomes a ``[QUEUED]`` scheduling-window banner, unless its
+status is already a successful terminal state (for example ``COMPLETED``) --
+such a record is never bannered as still queued, even if no placement block
+was ever resolved for it. Once the scheduler places it, re-running the
+command updates the same event in place to the real placed block times.
 
 The required ``--proposal`` flag accepts:
 
@@ -50,6 +69,61 @@ The required ``--proposal`` flag accepts:
 
    >> python3 manage.py sync_lco_observation_calendar --proposal LCO2026A-001
    >> python3 manage.py sync_lco_observation_calendar --proposal ALL
+
+How do I backfill ObservationRecords for LCO observations submitted outside FOMO?
+------------------------------------------------------------------------------------
+
+``backfill_lco_observation_records`` queries the LCO Observation Portal's "Get
+All RequestGroups" API for a proposal, keeps only RequestGroups whose name
+starts with ``--name-prefix``, and creates one ``ObservationRecord`` per child
+request. A request that already has an ``ObservationRecord`` is skipped, so
+the command is safe to re-run.
+
+It exists to create the ObservationRecords for observations submitted
+directly at the LCO portal rather than through FOMO -- those records are what
+``sync_lco_observation_calendar`` above then projects onto the calendar, so
+run this command first, then the sync.
+
+The required ``--proposal <code>`` (exact match) and ``--name-prefix
+<string>`` flags select which RequestGroups to backfill.
+
+``--campaign <name>`` is optional here too, but omitting it means something
+different from omitting it on ``load_telescope_runs``: each request's target
+is matched **by name** against the Targets already belonging to this
+campaign, and a request whose target isn't a member is skipped and logged,
+never guessed at -- but if ``--campaign`` itself is omitted, the command
+prints the available campaigns and prompts for a selection interactively.
+
+``--create-missing-targets`` is opt-in, default off. It changes the
+unmatched-target case from "skip" to: reuse an existing Target of that name
+if one exists anywhere in FOMO, otherwise build a new SIDEREAL field Target
+from the request's own RA/Dec -- carrying across epoch, proper motion, and
+parallax when the request supplies them -- then add it to the campaign and
+process the request normally. A *reused* Target is left untouched; only
+newly built ones get those fields populated. This is the single most
+surprising detail of the flag.
+
+``--username <user>`` optionally attributes created records to that user;
+default is unattributed. An unknown username is a hard error.
+
+Always run with ``--dry-run`` first to see what would be created --
+including which field Targets would be created versus reused -- without
+writing anything, in the same spirit as ``reconcile_campaign_runs`` below:
+
+.. code-block:: console
+
+   >> python3 manage.py backfill_lco_observation_records --proposal LCO2026A-001 --name-prefix "3I/ATLAS" --campaign "3I/ATLAS" --dry-run
+   >> python3 manage.py backfill_lco_observation_records --proposal LCO2026A-001 --name-prefix "3I/ATLAS" --campaign "3I/ATLAS"
+
+Immediately after each new record is saved (non-dry-run only), the command
+makes one live best-effort status call to LCO so the record's status,
+``scheduled_start``, and ``scheduled_end`` are populated right away instead
+of staying unset until the next poll. If that call fails it is logged and
+counted, never fatal, and the already-created record is not rolled back.
+
+The final summary line reports these counters::
+
+   Created: 4, already existed: 12, unmatched target: 1, no usable configuration: 0, created field targets: 1, status sync failed: 0
 
 How do I sync Gemini queue observations?
 -------------------------------------------
@@ -72,6 +146,144 @@ or is otherwise derived from its Target-of-Opportunity type (a Rapid ToO
 gets a 24-hour window from submission; a Standard ToO gets a 24-hour to
 7-day window).
 
+How do I reach the approval queue?
+---------------------------------------
+
+The approval queue (``campaigns:approval_queue``) hosts **two independent
+work queues**, not one:
+
+* **Sites Needing Review — action required** -- approved runs whose
+  observing site never resolved and for which no ``telescope_class``
+  explains the absence (quote the card heading verbatim so it's easy to
+  match while scanning the page).
+* **Pending Review** -- public submissions awaiting a staff approve/reject
+  decision.
+
+Sites Needing Review now renders first on the page -- it is the only
+queue that's actionable when no submissions are pending -- followed by
+Pending Review and then Recently Decided (27-UAT.md Test 8 gap closure).
+
+The entry point is the warning banner at the top of ``/campaigns/``,
+visible to staff only. As of this phase, it appears whenever **either**
+queue has rows, and names each count separately -- for example "3
+submissions pending review" and "2 runs needing site review" together, or
+either sentence alone if only one queue has rows.
+
+**Behavior change:** before this phase, the banner was driven by the
+pending-review count alone. With zero pending submissions -- the normal
+steady state -- there was no link to the approval queue at all, even when
+the Sites Needing Review queue was full of actionable rows. If you
+remember the old all-or-nothing banner, this is the fix: either queue
+having rows is now enough to show the banner and its "Review queue" link.
+
+When both queues are empty, the banner does not appear at all; the page
+is still reachable directly by URL.
+
+See "``import_campaign_csv`` unresolved rows" below for *why* a row lands
+in the Sites Needing Review queue in the first place, and "How do I
+re-resolve campaign run sites that have gone stale?" above for the bulk
+alternative to resolving rows one at a time from this page.
+
+How do I attribute existing calendar events and observation records to a run?
+--------------------------------------------------------------------------------
+
+The attribution page (``campaigns:attribution``, at ``/campaigns/attribution/``)
+is where staff connect a calendar event or an observation record that
+already exists to the ``CampaignRun`` that actually produced it. It sits
+alongside the approval queue as a second staff decision surface: the
+campaign-list warning banner now names a third count -- "N orphans
+awaiting attribution" -- with its own "Attribution queue" link, following
+the same nested-``{% if %}`` staff-only rule the pending/site-review counts
+already use.
+
+**The two worklists, and why an orphan may be absent.** The page lists
+"Calendar events awaiting attribution" and "Observation records awaiting
+attribution" as two sibling tables. Only an event or record with *at
+least one* candidate run appears in either one -- the same campaign/target
+boundary check that keeps a suggestion from ever crossing into the wrong
+campaign also filters out the noise. A conference or proposal-deadline
+calendar event has no campaign at all, so it produces no candidate and
+never shows up here. **The queue shows attributable orphans, not every
+un-attributed row** -- an empty worklist does not mean nothing is
+un-attributed, only that nothing un-attributed has a run to offer it to.
+
+**A rejected run is never offered as a match.** A run a staff member
+rejected in the approval queue is never suggested for any orphan, on
+either worklist -- an approved run and a still-pending submission both
+remain offerable (a pending submission being suggested is useful evidence
+that the submission is genuine), only a rejected one is excluded. The
+filter is applied once, where candidates are chosen, so the attribution
+queue, the campaign-list "N orphans awaiting attribution" banner count
+and the calendar modal's staff hint all agree with each other -- none of
+them can drift out of sync and show a rejected run as a match somewhere
+staff would not think to look. An attribution a staff member already
+confirmed stays confirmed if the run is rejected afterwards: rejecting a
+run never unlinks an association that already exists.
+
+**What the evidence columns mean.** Every candidate row shows four
+separate facts side by side, never collapsed into one cell: the matched
+telescope, the date overlap between the orphan's window and the run's
+window (stated in words, including the mismatch when there is one), the
+campaign the run belongs to, and the instrument-string similarity between
+the orphan's instrument text and the run's. The numeric score is
+additional to these facts, never a replacement for them -- it renders as a
+small, visually subordinate chip after the evidence, there for staff to
+sanity-check the banding while the matcher is new, not to be read on its
+own. Each row is also tagged with a named confidence band -- **High**,
+**Medium** or **Low** -- and the band filter at the top of the page
+narrows either worklist to one band at a time.
+
+**The checkbox gate.** A checkbox appears on a candidate row only when it
+is a High-band candidate *and* the only High-band candidate for its
+orphan -- if two candidates for the same orphan are both High, neither
+gets a checkbox, and a staff member must pick one explicitly with the
+per-row Confirm button instead. The server re-checks both conditions
+again when a bulk "Confirm selected" submission arrives, never trusting
+that a checkbox was only rendered for an eligible row. A checkbox is
+therefore a shortcut for a decision a human would make unhesitatingly for
+an unambiguous pair, not a bulk guess across ambiguous ones.
+
+**What a dismissal means.** Dismissing a candidate records that a
+suggested pair was rejected -- who rejected it, when, and why, from a
+required free-text reason. A dismissal is **not an association**:
+persisting one never creates a link between the orphan and the run, and
+an unconfirmed guess can never be mistaken for ownership. It exists so
+the queue can actually drain -- without it, a rejected candidate would
+return on every page load -- and it is fully reversible from the
+collapsed "Dismissed" section on the same page, which lists who dismissed
+each pair and offers an Undo button for every row. That reason box is
+required for Dismiss only -- clicking Confirm on the same row never asks
+for one, because a confirmation records the pair itself rather than a
+rejection of it.
+
+Undoing a *confirmed* attribution writes a dismissal for that same pair
+as part of the same action. This is what keeps the undo attributable (the
+link's own audit fields are cleared by the undo, so the trace has to live
+somewhere else) and what stops the matcher immediately re-suggesting the
+exact pair a staff member just decided was wrong. A freshly-undone
+confirmation therefore appears in the Dismissed section, not directly
+back in an open worklist, until that dismissal is itself undone.
+
+**The done signal Phase 29 depends on.** The attribution pass is complete
+when both worklists are empty and the page shows its "Attribution
+complete" heading, naming how many orphans still have no matching run at
+all and confirming that the Phase 29 reconcile sweep is safe to run.
+There is no backlog-reporting management command -- this signal is read
+from the page itself, by design.
+
+**Behavior change:** before this phase, the only mechanism that could
+create a run-to-event link was the Django admin's foreign-key picker on
+``CalendarEventMeta``/``CampaignRunObservation``, with no evidence, no
+worklist, and no undo. That admin path still exists and remains available
+for a pair the matcher never offers a candidate for, but the attribution
+page above is now the primary, evidence-backed route for the common case.
+A link created through the admin's ``CalendarEventMeta`` page is now
+stamped automatically with the staff member who saved it and the time
+they saved it -- those two fields are no longer editable by hand on that
+page, and clearing the run there clears them too -- so an association
+created through either surface is attributable, not only one created
+through the attribution queue.
+
 How do I mark a run cancelled or weathered-out?
 --------------------------------------------------
 
@@ -88,6 +300,77 @@ no revert button, but the action is a safe, idempotent no-op to re-click:
 clicking the same button again, or clicking the other button to correct a
 mis-click, simply re-applies the new prefix without creating duplicate
 events or losing any data.
+
+Can I correct a run's source?
+----------------------------------
+
+A run that came in through the public submission form (``source = web``)
+has no editable ``source`` in the Django admin. The field is not rendered
+on its change page **at any approval status** -- pending, approved or
+rejected alike.
+
+Why: ``source = web`` combined with ``approval_status`` is the only record
+that a human reviewed a public submission. An approved run whose source is
+not ``web`` reads as "no approval was required" -- a different fact -- and
+nothing on the run stores the old value, so overwriting it cannot be undone
+or reconstructed.
+
+What this closes: it used to be possible to open a ``web`` run while it was
+still pending, change its ``source`` there (the admin allowed it), and then
+approve it. That sequence reached the same lost-provenance state as editing
+an already-approved run, just by a longer route.
+
+Every other run keeps an editable ``source``: ``legacy``, ``csv_import``
+and the queue sources can all still be corrected in the admin, which is
+what that editability was for -- a ``web`` label is never a guess, because
+only the submission form can produce it.
+
+**What happens to an already-reconciled run's calendar events when you
+correct its** ``telescope_class`` **or** ``site`` **(its source does not
+change this):** ``reconcile_run()`` re-derives which calendar-event family
+(a single whole-window entry, or one entry per observing night) a run
+belongs to from its *current* ``telescope_class``/``site`` values every time
+it runs. If the correction moves the run into the other family -- for
+example, setting a ``telescope_class`` on a run that previously had a
+resolved site, or correcting a run's ``site`` to a satellite site -- the
+next reconcile (either a full ``reconcile_campaign_runs`` sweep, or the
+run's own next staff-action reconcile) automatically detaches the old
+family's events from the run rather than leaving them on the calendar
+looking like a live commitment forever. Detaching, not deleting: the old
+events stay on the calendar but return to the attribution page's worklist
+(``campaigns:attribution``, see "How do I attribute existing calendar
+events and observation records to a run?" above), where a staff member can
+re-confirm or discard them. The correction itself does not
+trigger this -- it happens on the *next* reconcile, same as any other
+calendar-visibility change only renders correctly once a sweep runs
+afterward.
+
+**The cost:** if a ``web`` run's source really is wrong, correcting it now
+needs a shell or a data migration. This is the same restriction the CSV
+re-import path already applies -- see the re-import gotcha note below.
+
+**What stays possible:** the rule looks at the run's current source, so a
+non-``web`` run can still be relabelled *to* ``web``, and it locks once
+saved. That direction invents a review rather than erasing one, it takes a
+deliberate act, and the Django admin's own history log records who changed
+the field and when -- so it is visible after the fact, unlike the
+direction that was closed.
+
+.. warning::
+   **That relabel cannot be taken back from the admin.** The moment you save
+   a ``legacy`` or ``csv_import`` run as ``web``, the rule above starts
+   applying to it and ``source`` disappears from its change page -- so you
+   cannot correct your own mis-click here, only through a shell or a data
+   migration. Re-importing the CSV that produced the row will not fix it
+   either: ``import_campaign_csv`` leaves ``source`` and ``approval_status``
+   alone on any row that already reads ``web``. If the row was also
+   ``approved``, it now reads permanently as "a human approved this public
+   submission", and the admin history records only that ``source`` changed,
+   not what it changed *from*. Treat the ``source`` dropdown on a non-``web``
+   run as a one-way door.
+
+Creating a new run in the admin is unaffected: ``source`` is editable on
+the add form, so a run can still be created with any source.
 
 How do I bootstrap-import a campaign from a CSV?
 ----------------------------------------------------
@@ -106,32 +389,278 @@ into ``CampaignRun`` rows, one row per CSV line.
    auto-resolved value. If a staff member manually corrected a row's
    ``target`` in the Django admin after a previous import, that correction
    is silently overwritten the next time this command runs over the same
-   campaign CSV. This is expected behavior for a bootstrap-import command,
-   not a bug -- but it is easy to be surprised by, so re-import
-   deliberately, not routinely.
+   campaign CSV.
 
-How do I backfill calendar events for older approved range-window runs?
-----------------------------------------------------------------------------
+   The same is true of ``source`` and ``approval_status``: a re-import
+   applies ``source = csv_import`` and ``approval_status = approved`` to an
+   already-existing row, not just to a newly created one. The one exception
+   is a row that came in through the public submission form (``source =
+   web``) -- such a row keeps its own ``source`` **and**
+   ``approval_status``, so a re-import can never turn an unreviewed public
+   submission into something that reads as vetted, publicly-visible
+   backfill. Every one of its other fields is still overwritten from the
+   CSV. The Django admin applies the same rule -- see "Can I correct a
+   run's source?" above.
 
-``backfill_range_calendar_events`` is a one-off command for a narrow
-historical gap: a multi-night range-window ``CampaignRun`` that was already
-approved and site-resolved *before* per-night calendar projection existed
-never got any ``CalendarEvent`` at all, and normal approval/resolve actions
-only project events going forward, not retroactively. This command finds
-every already-approved, site-resolved range-window run with no existing
-calendar event and projects one per night, exactly as if it had just been
-approved.
+   All of this is expected behavior for a bootstrap-import command, not a
+   bug -- but it is easy to be surprised by, so re-import deliberately, not
+   routinely.
 
-Always run with ``--dry-run`` first to see which runs would be backfilled,
-with no database writes:
+   **Site preservation (Phase 27.1, WR-01):** the exception above no longer
+   stops at ``source``/``approval_status``. A row whose ``site`` is already
+   resolved keeps its ``site``, ``site_raw`` **and** ``site_needs_review``
+   when the CSV's own ``Site Code`` cell does not resolve this time (a blank
+   cell, or one that only reaches the tier-3 placeholder path) -- so
+   re-importing after "How do I re-resolve campaign run sites that have gone
+   stale?" above (``repair_stale_campaign_run_sites``) can no longer silently
+   revert that repair. A ``Site Code`` cell that *does* genuinely resolve
+   still wins, so correcting a wrong code in the sheet and re-importing still
+   moves the site as before. The accepted cost: a site can no longer be
+   *cleared* through a re-import -- clearing one now requires the Django
+   admin or a shell.
+
+   **A correction that does not resolve is discarded, and the command says
+   so.** The guard cannot tell "the sheet's cell is still blank" from "someone
+   typed a new code that MPC does not know" -- both are "did not resolve", so
+   both keep the old ``site`` **and** the old ``site_raw``. Each such row now
+   prints a line on stderr naming the site it kept and the ``Site Code`` it
+   discarded, and the summary line ends with a ``site_preserved:`` count. Read
+   those: the row itself is still reported as ``unchanged``, because nothing
+   the command was allowed to write actually changed. If your correction is
+   real, fix the site from the Django admin (or the Sites Needing Review
+   queue) rather than through the sheet.
+
+   A preserved row also gets **no** newly-derived ``telescope_class``: the
+   class records *why there is no site*, and a preserved row still has one, so
+   there is nothing for a class to explain. A non-blank ``telescope_class`` is
+   never blanked by a re-import, and -- as of this phase (D-04) -- it is also
+   **never replaced by a different derived value**: the class this command
+   computes is always an inference from the sheet's free text, and an
+   inference never overwrites a stored value, it only ever fills a blank one.
+   This is consistent with the "it is **permanent**: it is never cleared by
+   any command" sentence in the note below -- before Phase 27.1 the importer
+   *did* blank it whenever the site resolved, and before this phase a
+   re-import could still silently replace a hand-corrected class with a
+   different derived one. Each such row prints a line on stderr beginning
+   ``kept existing telescope_class``, naming the value that was kept and the
+   one the CSV derived and discarded, and the summary line carries a
+   ``telescope_class_preserved:`` count alongside ``site_preserved:`` -- the
+   row itself is still reported as ``unchanged``, so the stderr line and the
+   summary count are the only places a preserved correction is visible.
+
+   The ``site_needs_review`` count in the command's summary
+   line reports how many rows **end up** flagged, not how many flags the
+   command wrote -- so a preserved row that is already resolved and unflagged
+   no longer inflates it, and a preserved row that is still flagged (a
+   resolved site whose review flag was never cleared) is still counted, because
+   it really is in the Sites Needing Review queue.
+
+.. note::
+   **What the command now writes (CANON-01/CANON-02):** every imported row
+   records ``source = csv_import`` and is created ``approved`` -- a
+   bootstrap import is vetted backfill, not a community submission awaiting
+   review, so approval gating applies to web submissions only. On a
+   *re-import* those same two values are re-applied to an already-existing
+   row, except for a ``source = web`` row (see the re-import gotcha above).
+   A row whose
+   ``Site Code`` does not resolve now also gets a derived
+   ``telescope_class`` when its ``Telescope / Instrument`` text names a
+   telescope class (``2m0``/``1m0``/``0m4``), or ``SPACE`` when it names a
+   space observatory with no MPC code, and stays blank otherwise. A row that
+   gets a derived ``telescope_class`` is **deliberately NOT flagged** for
+   site review -- the class is the answer to "why is there no site", not a
+   resolution failure, and it is **permanent**: it is never cleared by any
+   command, even if a site is later resolved for the same row. Only a row
+   with no site *and* no derivable class is flagged (``site_needs_review``)
+   -- that combination is what a genuine resolution failure looks like.
+
+How do I re-resolve campaign run sites that have gone stale?
+------------------------------------------------------------------
+
+``repair_stale_campaign_run_sites`` is a one-off command for approved
+``CampaignRun`` rows whose site never resolved because they were imported
+before the JPL Horizons observer-notation alias table existed (added
+2026-07-26). It re-runs the real site-resolution path
+(``resolve_site()``) against every approved, site-less row, so a row that
+would now resolve (for example, a JWST row whose ``Site Code`` is
+``500@-170``) gets a genuine chance to.
+
+It deliberately does not touch ``approval_status``, ``run_status``, the
+observing window, or ``target`` -- only ``site``, ``site_needs_review``,
+and (for one known stale row) ``site_raw`` are ever written -- and it
+never creates or updates a calendar event; reconciling a repaired run onto
+the calendar is Phase 29's reconciler.
+
+A candidate row that already carries a ``telescope_class`` is skipped
+entirely -- its site, ``site_raw``, and ``site_needs_review`` are all left
+untouched, and it is reported under its own ``skipped_class_wide`` counter
+in the summary line. A class-carrying row is permanently site-less by
+design (the class already answers "why is there no site"), so there is
+nothing for this command to repair.
+
+Always run with ``--dry-run`` first. Its limitation: it only performs a
+tier-1 (local ``Observatory``) existence check, so a row that would need a
+live tier-2 MPC lookup is reported as "would query MPC" rather than
+resolved, and nothing is written either way:
 
 .. code-block:: console
 
-   >> python3 manage.py backfill_range_calendar_events --dry-run
-   >> python3 manage.py backfill_range_calendar_events
+   >> python3 manage.py repair_stale_campaign_run_sites --dry-run
+   >> python3 manage.py repair_stale_campaign_run_sites
 
-The command is safe to re-run: a run that already has a calendar event is
-skipped, so running it again after a real backfill is a no-op.
+The real (non-dry-run) run may make a live MPC Obscodes API call for any
+row that needs a tier-2 lookup. If the network is unavailable, that row
+stays site-less and flagged for review -- no placeholder ``Observatory``
+is ever fabricated on a network failure (the command always passes
+``create_placeholder=False``). It is safe to re-run: a row that resolves
+stays resolved, and a row still lacking a site code is skipped again with
+no field changes.
+
+How do I get every campaign run onto the calendar?
+---------------------------------------------------------
+
+``reconcile_campaign_runs`` is the one idempotent sweep that projects and
+refreshes calendar events for every ``CampaignRun`` in the database, in a
+single pass. Running it a second time against unchanged data writes
+nothing -- a repeat sweep reports the same runs as ``unchanged`` rather than
+touching them again. It replaces the now-retired one-off range-window
+backfill command and the whole per-gap-backfill pattern it belonged to:
+instead of a new command for each historical gap, this one command
+re-derives every run's calendar state from the run itself, so there is
+nothing left to backfill separately.
+
+Always run with ``--dry-run`` first to preview what would change, with no
+database writes:
+
+.. code-block:: console
+
+   >> python3 manage.py reconcile_campaign_runs --dry-run
+   >> python3 manage.py reconcile_campaign_runs
+
+The final summary line reports these counters -- ``would_create``/
+``would_update``/``would_leave_unchanged`` in ``--dry-run`` mode, or
+``created``/``updated``/``unchanged`` for a real sweep, alongside ``runs``,
+``skipped``, ``failed`` and ``blocked`` either way::
+
+   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0
+   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0
+
+A run that does not project onto the calendar at all is reported on stderr
+with one of these skip reasons, one line per run:
+
+* ``not approved`` -- the run is still ``pending_review`` or ``rejected``.
+  Approve (or reject) it from the approval queue first; an unapproved web
+  submission must never reach the shared calendar.
+* ``missing telescope/instrument`` -- the run has no
+  ``telescope_instrument`` value at all; there is nothing to title the
+  calendar entry with until one is set.
+* ``TBD window`` -- the run has no concrete ``window_start``/``window_end``
+  yet (an unparsed ``Obs. Date``); there is nothing to project until the
+  window resolves.
+* ``unresolved site`` -- the run has no resolved ``site`` and no
+  ``telescope_class`` to explain the absence. Resolve it from the "Sites
+  Needing Review" queue on the approval page, or set a ``telescope_class``
+  if it is genuinely a class-wide or space allocation.
+* ``window_end before window_start`` -- the run's ``window_end`` is earlier
+  than its ``window_start`` (a hand-edited admin value, or an upstream
+  window-parsing bug). Correct the window fields in the admin; there is
+  nothing to project until they describe a real forward-running range.
+
+A run whose site has no ``timezone`` set fails differently -- it reaches the
+per-night sunset/sunrise calculation and raises there, so it is reported
+separately as ``Run pk=N: reconcile failed (...) -- skipping`` rather than
+one of the five skip reasons above. See "Observatory missing timezone" in
+Troubleshooting below for the fix. This now also applies to a
+queue-scheduled run at such a site: it used to bypass this calculation
+entirely (getting a whole-window entry instead), but a queue-scheduled run
+with a resolved site follows the same per-night path as a classically-
+scheduled run there, so a blank ``timezone`` fails it the same way.
+
+What an operator sees on the calendar afterwards, in plain terms: any run
+with a resolved ground site -- queue-scheduled or classically-scheduled --
+shows one calendar entry per observing night, spanning that site's
+sunset-to-sunrise, sitting alongside the individual observation entries the
+LCO/Gemini sync commands already create for it. Only a class-wide
+allocation with no fixed site, and a satellite run, show a single entry
+spanning their whole window instead -- a run at a fixed site can only
+observe during that site's own dark time, so it gets a per-night entry
+there regardless of how it was scheduled.
+
+The run's free-text ``Telescope / Instrument`` value is split on the first
+``/`` or ``+`` into the calendar entry's separate **Telescope** and
+**Instrument** fields in the event pop-up; a value with no delimiter goes
+wholly into Telescope. The entry's title still shows the full combined text
+either way. Entries for class-wide and satellite runs pick this up
+automatically on the next sweep, because that whole-window entry is
+rewritten from the run every time. Per-night entries -- for a
+classically-scheduled run, or a queue-scheduled run with a resolved site --
+created before this change keep their old combined value, because a
+per-night entry's Telescope/Instrument and its sunset/sunrise window are
+deliberately never rewritten after it is first created -- that is what
+protects a night adopted from ``load_telescope_runs`` from having its own
+more precise values overwritten.
+
+**You will rarely need to run this by hand.** The same reconciliation now
+happens automatically, immediately, for a single run the moment staff
+approve it, resolve its site, or mark it cancelled or weather-failed from
+the approval queue -- ``reconcile_campaign_runs`` is for sweeping every run
+at once (for example, after a bulk site repair) or backfilling a gap found
+later, not for routine day-to-day use.
+
+.. _campaign-run-block-manual-only:
+
+Why doesn't the calendar pop-up show a "Campaign run" block?
+----------------------------------------------------------------
+
+Clicking a calendar entry opens a pop-up that can show a **Campaign run**
+block naming the run that owns the event, its window, and its run status.
+That block appears only when the event carries a companion record whose
+owning-run link is filled in.
+
+**As of this phase, every event the reconciler creates or adopts gets that
+link set automatically** -- via ``reconcile_campaign_runs`` and via
+approving a run, resolving its site, or marking it cancelled or
+weather-failed, all of which now reconcile through the same shared
+function (see "How do I get every campaign run onto the calendar?" above).
+An event owned by a ``CampaignRun`` therefore shows the Campaign run block
+the moment it is created, with no separate linking step.
+
+The manual admin path below still exists, and remains the right tool for an
+event the reconciler never touches at all -- a ``load_telescope_runs``- or
+sync-command-created event that has not (yet) been attributed to a run
+through the attribution queue, or a hand-created calendar entry:
+
+1. Go to **Django admin -> Solsys code -> Campaign runs** and open the run.
+2. In the **Calendar event metas** inline at the bottom, add a row and pick
+   the calendar event that belongs to this run.
+3. Save. The pop-up for that event now shows the Campaign run block.
+
+Two things to know about that inline:
+
+* The **calendar event** field is frozen once a row is saved, because it is
+  that record's identity. To point the link at a different event, delete
+  the row and add a new one -- do not try to edit it in place.
+* Clearing the **owning campaign run** value un-owns the event without
+  deleting the companion record, so the event's telescope-label
+  verification history survives.
+
+An event with no companion record at all, or with the run link left blank,
+still means "not owned by any campaign run" -- never "needs fixing". That
+is the normal state for conferences, proposal deadlines, and any
+un-attributed sync-command entry the reconciler has not adopted, and it is
+why those entries show no Campaign run block.
+
+**27-UAT.md Test 9 gap closure:** when a High-band attribution-queue
+candidate already exists for one of these still-unlinked events, the
+pop-up now shows a "Possible campaign run match" hint naming the
+candidate run and linking straight to the attribution queue (filtered to
+the High band) to confirm it. This hint is staff-only -- the attribution
+queue itself requires staff, and a candidate run may not yet be publicly
+visible -- and an event with zero candidates (the conference/proposal-
+deadline case just described) still shows nothing extra. The hint only
+ever names a real match that already passed the same scoring the
+attribution queue itself uses; see "How do I attribute existing calendar
+events and observation records to a run?" above.
 
 .. _command-cheat-sheet:
 
@@ -146,20 +675,27 @@ Command cheat-sheet
      - Key flags
      - One-line description
    * - ``load_telescope_runs``
-     - ``<filepath>`` (positional)
+     - ``<filepath>`` (positional), ``--campaign <name>`` (optional)
      - Ingest a classical-schedule text file into per-night CalendarEvents.
    * - ``sync_lco_observation_calendar``
      - ``--proposal <code|A,B,C|ALL>`` (required)
      - Sync LCO/SOAR queue ObservationRecords to CalendarEvents.
+   * - ``backfill_lco_observation_records``
+     - ``--proposal <code>``, ``--name-prefix <str>`` (both required); ``--campaign <name>``,
+       ``--username <user>``, ``--create-missing-targets``, ``--dry-run`` (optional)
+     - Backfill ObservationRecords for LCO RequestGroups submitted outside FOMO.
    * - ``sync_gemini_observation_calendar``
      - (none)
      - Sync every Gemini ToO ObservationRecord to CalendarEvents.
    * - ``import_campaign_csv``
      - ``--campaign <name>`` (required), ``<filepath>`` (positional)
      - Bootstrap-import a campaign coordination CSV into CampaignRun rows.
-   * - ``backfill_range_calendar_events``
+   * - ``repair_stale_campaign_run_sites``
      - ``--dry-run`` (optional)
-     - One-off backfill of CalendarEvents for older approved range-window runs.
+     - One-off re-resolution of approved CampaignRuns whose site never resolved.
+   * - ``reconcile_campaign_runs``
+     - ``--dry-run`` (optional)
+     - Idempotent sweep projecting/refreshing CalendarEvents for every CampaignRun.
 
 Troubleshooting
 ------------------
@@ -175,7 +711,7 @@ Observatory missing timezone
 
 Any command that needs to compute sunset/sunrise or the -15 deg dark
 window for a site (``sync_lco_observation_calendar``,
-``backfill_range_calendar_events``, and any future projection over that
+``reconcile_campaign_runs``, and any future projection over that
 Observatory) will fail with an error like this, observed running a real
 backfill against the dev database:
 
@@ -214,9 +750,11 @@ summary count.
   ``telescope_api_failed`` counter, separate from ``skipped``, and the
   record still gets a ``CalendarEvent``.
 
-* ``backfill_range_calendar_events`` skips a candidate run on a
-  ``ValueError`` (for example, the Observatory-timezone gap above) and
-  continues to the next candidate, never aborting the whole backfill.
+* ``reconcile_campaign_runs`` catches any exception a single run's
+  reconciliation raises (for example, the Observatory-timezone gap above) at
+  the batch-loop level only, reports it as ``Run pk=N: reconcile failed
+  (...) -- skipping`` on stderr, and continues to the next run, never
+  aborting the whole sweep.
 
 ``import_campaign_csv`` unresolved rows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -232,13 +770,41 @@ summary line, e.g.::
 
 Rows flagged ``site_needs_review`` surface in the approval queue's "Sites
 Needing Review" card so staff can resolve them without re-running the
-import.
+import -- see the "reach the approval queue" section above for how staff
+get there, including the case where zero submissions are pending review.
+Only rows with no derivable ``telescope_class`` signal surface
+there -- a row whose site failed to resolve but whose instrument text
+names a telescope class or a space observatory is not a genuine resolution
+failure, so it never appears in this queue and there is nothing to
+resolve for it. Per-site detail for a class-wide campaign (e.g. a
+multi-site LCO 1m0 network allocation) arrives later, per observation, on
+the linked ``ObservationRecord`` rows (CANON-04) -- never by resolving the
+run itself to a single site.
 
-Also recall the re-import ``target``-reset gotcha covered above under "How
-do I bootstrap-import a campaign from a CSV?": re-running
-``import_campaign_csv`` over the same ``--campaign`` always resets every
-row's ``target`` back to its auto-resolved value, silently overwriting any
-manual correction made since the previous import.
+If a previously-unresolvable ``Site Code`` has since become resolvable
+(for example, a Horizons observer-notation code added to the alias table
+after the row was imported), see "How do I re-resolve campaign run sites
+that have gone stale?" above -- ``repair_stale_campaign_run_sites`` re-runs
+site resolution for every approved, site-less row without re-importing the
+whole CSV.
+
+Also recall the re-import reset gotcha covered above under "How do I
+bootstrap-import a campaign from a CSV?": re-running ``import_campaign_csv``
+over the same ``--campaign`` always resets every row's ``target`` back to
+its auto-resolved value, and re-applies ``source = csv_import`` and
+``approval_status = approved``, silently overwriting any manual correction
+made since the previous import. Rows created by the public submission form
+(``source = web``) keep their own ``source`` and ``approval_status``. This
+reset does **not** extend to ``site``/``site_raw``/``site_needs_review`` or
+``telescope_class``, though: as of Phase 27.1, a row whose site is already
+resolved keeps it (and its ``telescope_class``, if any) across a re-import
+whose ``Site Code`` cell does not itself resolve -- see "Site preservation"
+in the re-import gotcha note above. More generally, and independent of
+whether a site is preserved: as of this phase (D-04) a row's already-stored
+non-blank ``telescope_class`` is never overwritten by a re-import, even when
+the row's own cell derives a genuinely different, non-blank class -- see the
+paragraph on ``telescope_class_preserved`` in the re-import gotcha note
+above.
 
 See also
 -----------
@@ -247,3 +813,7 @@ See also
   syntax.
 * :doc:`/design/telescope_runs_calendar` for the astronomy and data-model
   rationale behind these commands.
+* :doc:`/notebooks/pre_executed/campaign_lifecycle_demo` for the full
+  campaign-lifecycle walkthrough -- a worked, pre-executed example of the
+  submission, approval, site-resolution and attribution steps this runbook
+  describes.

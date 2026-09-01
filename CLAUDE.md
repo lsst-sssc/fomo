@@ -16,22 +16,24 @@ ephemerides for non-sidereal targets and ingests minor-body orbits from JPL.
 ./.setup_dev.sh
 
 # Run the Django dev server / any admin task. Settings module is src.fomo.settings (set by manage.py).
-./manage.py runserver
-./manage.py migrate
-./manage.py createsuperuser
+# Always invoke as `python manage.py ...` — `./manage.py` is not a supported entry point.
+python manage.py runserver
+python manage.py migrate
+python manage.py createsuperuser
 
 # Custom management command: query JPL SBDB and create Targets from new matches
-./manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
-./manage.py fetch_jplsbdb_objects --orbit_class IEO
+python manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
+python manage.py fetch_jplsbdb_objects --orbit_class IEO
 
-# Tests — there are TWO independent test suites (see "Testing" below):
-python -m pytest                          # pytest suite: tests/, src/, docs/ only
-./manage.py test                          # Django app tests (solsys_code et al.)
-./manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
+# Tests — the Django test runner is the only functioning suite (see "Testing" below):
+python manage.py test                          # Django app tests (solsys_code et al.)
+python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
 
-# Lint / format (also enforced by pre-commit). Single quotes, 120-col line length.
-ruff check . --fix
-ruff format .
+# Lint / format: run through pre-commit, which pins ruff to the version .pre-commit-config.yaml
+# enforces (v0.2.1) -- an unpinned `ruff` on PATH can report findings the enforced gate does not
+# have (see D-07). Single quotes, 120-col line length.
+pre-commit run ruff --all-files
+pre-commit run ruff-format --all-files
 ```
 
 ## Layout (non-obvious)
@@ -79,10 +81,13 @@ target-detail buttons are injected via the app-config integration hooks (`nav_it
 
 ## Testing
 
-`pyproject.toml` sets `testpaths = ["tests", "src", "docs"]`, so **`python -m pytest` does NOT collect
-the Django app tests** under `solsys_code/`. Those use `django.test.TestCase` and run under the Django
-test runner (`./manage.py test`). When adding tests, put pure-Python/packaging tests under `tests/` and
-Django/DB-dependent tests under the relevant app's `tests/` package.
+**The Django test runner (`python manage.py test`) is the only functioning test setup.** All real tests
+live under `solsys_code/` and use `django.test.TestCase`. Add new tests there, in the relevant app's
+`tests/` package.
+
+The pytest configuration in `pyproject.toml` (`testpaths = ["tests", "src", "docs"]`) and the tests
+under `tests/fomo/` are a legacy of the LINCC project template. `python -m pytest` does not collect the
+Django app tests, and that suite will likely be removed — do not add tests to it.
 
 ## Conventions
 
@@ -98,35 +103,55 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
 - pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, builds Sphinx
   docs, and runs the pytest suite. CI (`.github/workflows/`) tests Python 3.10–3.12.
+- **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
+  `merge`, `cherry-pick`, `commit --amend`, etc.) — these operate on whatever `HEAD` currently
+  points to, not the branch name mentioned in a prior command. `git push origin <branch>` in
+  particular does **not** require `<branch>` to be checked out, so a push followed by a rebase
+  targeting a *different* branch can silently rebase whatever is actually checked out. Run `git
+  branch --show-current` (or `git status`) immediately before any such command whenever a session
+  has touched more than one local branch, especially right after a `git push origin <branch>` that
+  didn't require a checkout.
 - **Planning-doc terminology:** in CONTEXT.md/RESEARCH.md/PLAN.md/PATTERNS.md and other
   `.planning/` artifacts, prefer plain English over DB jargon. Write "create or update" /
   "find-or-create" / "create the record if missing, otherwise update it in place" instead of
   "upsert". This applies to every GSD subagent (discuss-phase, researcher, planner, checker) —
   they all read this file before producing planning docs.
-- **Demo notebook companions are part of the deliverable**, not optional polish added after the
-  fact. Each of `solsys_code/telescope_runs.py`,
-  `solsys_code/management/commands/load_telescope_runs.py`,
-  `solsys_code/management/commands/sync_lco_observation_calendar.py`, and
-  `solsys_code/management/commands/sync_gemini_observation_calendar.py` has a paired demo notebook
-  under `docs/notebooks/pre_executed/` — `telescope_runs_demo.ipynb`,
-  `load_telescope_runs_demo.ipynb`, `sync_lco_observation_calendar_demo.ipynb`, and
-  `sync_gemini_observation_calendar_demo.ipynb` respectively —
-  that must stay in sync with the module's behavior. Any plan whose tasks change one of these
-  modules' behavior (new extraction logic, new parameters, new fixture shapes — not pure
-  refactors or typo fixes) must include its paired notebook in `files_modified` and add or update
-  cells exercising the new behavior with real executed output, regenerated via
-  `jupyter nbconvert --to notebook --execute --inplace` and committed (pre-commit clears notebook
-  output everywhere else, but `pre_executed/` copies are committed with output, per the
-  pre-commit convention noted above). When a new module gets its own demo notebook, extend this
-  list. This gap was hit twice already — Phase 5 (fixed after the fact via quick task
-  `260619-f7u`) and Phase 6 (fixed via quick task `260620-v9x`) — both times because the plan's
-  `files_modified` never scoped the notebook in. This applies to every GSD subagent touching
-  these modules: the planner (scope the paired notebook into `files_modified` and into a task up
-  front, not as a follow-up); the plan-checker (treat this as part of CLAUDE.md Compliance —
-  flag any plan that modifies one of the listed modules' behavior without its paired notebook in
-  `files_modified`); the executor (update the notebook as part of plan execution, not as an
-  afterthought); and the verifier (treat a missing or stale notebook update as a must-have gap,
-  not a nice-to-have, whenever the plan touched one of these modules).
+- **Paired docs are part of the deliverable**, not optional polish added after the fact. Scope:
+  the paired pre-executed demo notebook, plus — scoped by directory, not by filename, so a future
+  second runbook page is covered automatically with no list to keep in sync — any page under
+  `docs/runbooks/` whose documented behavior the change affects (today's only instance:
+  `docs/runbooks/telescope_runs_calendar.rst`, wired into the Sphinx toctree at
+  `docs/index.rst:24`). Notebook pairing reference (kept for lookup, not as the rule's scope):
+  `solsys_code/telescope_runs.py` -> `telescope_runs_demo.ipynb`;
+  `solsys_code/management/commands/load_telescope_runs.py` -> `load_telescope_runs_demo.ipynb`;
+  `solsys_code/management/commands/sync_lco_observation_calendar.py` ->
+  `sync_lco_observation_calendar_demo.ipynb`;
+  `solsys_code/management/commands/sync_gemini_observation_calendar.py` ->
+  `sync_gemini_observation_calendar_demo.ipynb`;
+  `solsys_code/campaign_reconciler.py` and
+  `solsys_code/management/commands/reconcile_campaign_runs.py` ->
+  `reconcile_campaign_runs_demo.ipynb`; the v2.2 campaign submission/approval/
+  site-resolution/attribution surfaces (`solsys_code/campaign_views.py`,
+  `campaign_forms.py`, `campaign_attribution.py`, `campaign_reconciler.py`) collectively
+  -> `campaign_lifecycle_demo.ipynb`, which covers the full v2.2 campaign lifecycle
+  (Phases 26-29) rather than a single module and therefore has no 1:1 module counterpart
+  (all notebooks live under
+  `docs/notebooks/pre_executed/`). Extend this map when a new module gets its own demo notebook.
+  Trigger: a plan whose tasks change one of these modules' *behavior* (new extraction logic, new
+  parameters, new fixture shapes — not pure refactors or typo fixes) must include its paired
+  notebook, and any affected `docs/runbooks/` page, in `files_modified` up front, not as a
+  follow-up, and add or update cells/prose exercising the new behavior with real executed output.
+  Notebooks are regenerated via `jupyter nbconvert --to notebook --execute --inplace` and
+  committed (pre-commit clears notebook output everywhere else, but `pre_executed/` copies are
+  committed with output, per the pre-commit convention noted above). This applies to every GSD
+  subagent touching these modules or runbook pages: the planner (scope the paired artifacts into
+  `files_modified` and into a task up front); the plan-checker (treat this as CLAUDE.md
+  Compliance — flag any plan that misses it); the executor (update the artifacts during
+  execution, not as an afterthought); and the verifier (treat a missing or stale update as a
+  must-have gap, not a nice-to-have). Breach history: Phase 5 (`260619-f7u`) and Phase 6
+  (`260620-v9x`) — both notebook-scope misses — and quick task `260726-kdp`, where the operator
+  runbook went stale because `docs/runbooks/` wasn't covered by the rule at all, since it didn't
+  exist when the rule was originally written.
 
 <!-- GSD:project-start source:PROJECT.md -->
 
@@ -169,7 +194,8 @@ experiment actually validates). Either failing is a meaningful result.
 
 - **Testing**: DB-dependent tests (Observatory lookups) go in
   `solsys_code/tests/`, run with `./manage.py test solsys_code`. Quality gates:
-  `ruff check .` and `ruff format --check .` must stay clean.
+  `pre-commit run ruff --all-files` and `pre-commit run ruff-format --all-files` must stay
+  clean (D-07).
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->

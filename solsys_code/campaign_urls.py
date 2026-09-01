@@ -8,6 +8,8 @@ from django.views.generic import TemplateView
 
 from solsys_code.campaign_views import (
     ApprovalQueueView,
+    AttributionDecisionView,
+    AttributionQueueView,
     CampaignGapAnalysisView,
     CampaignListView,
     CampaignRunDecisionView,
@@ -27,6 +29,13 @@ urlpatterns = [
         name='submission_thanks',
     ),
     path('approval-queue/', ApprovalQueueView.as_view(), name='approval_queue'),
+    # ATTRIB-01/D-02: deliberately NOT <int:pk>/-prefixed like campaigns:decide -- an
+    # attribution action names a PAIR (an orphan of one of two kinds, and a run), so both
+    # identifiers travel in the POST body where AttributionDecisionView re-validates them
+    # together, mirroring CampaignRunDecisionView's single-dispatching-view-with-an-`action`-
+    # POST-param shape rather than one URL per action.
+    path('attribution/', AttributionQueueView.as_view(), name='attribution'),
+    path('attribution/decide/', AttributionDecisionView.as_view(), name='attribution_decide'),
     path('site-search/', SiteSearchView.as_view(), name='site_search'),
     path('<int:pk>/decide/', CampaignRunDecisionView.as_view(), name='decide'),
     path('<int:pk>/gaps/', CampaignGapAnalysisView.as_view(), name='gap_analysis'),

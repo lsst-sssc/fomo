@@ -1,5 +1,4 @@
 from datetime import datetime
-from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
@@ -9,13 +8,14 @@ from tom_observations.models import ObservationRecord
 
 from solsys_code.calendar_utils import (
     InstrumentExtractionError,
-    _coarse_telescope_label,
-    _derive_telescope,
-    _extract_instrument,
-    _resolve_placement_block,
+    coarse_telescope_label,
+    derive_telescope,
+    extract_instrument,
     insert_or_create_calendar_event,
+    record_time_window,
+    resolve_placement_block,
 )
-from solsys_code.models import CalendarEventTelescopeLabel
+from solsys_code.models import CalendarEventMeta
 
 # TERM-01/D-04: terminal-failure status -> title prefix. COMPLETED is deliberately
 # absent here (D-06 research correction) — it is terminal per
@@ -31,6 +31,22 @@ _FAILURE_PREFIX_BY_STATUS = {
     'FAILURE_LIMIT_REACHED': '[FAILED]',
     'NOT_ATTEMPTED': '[FAILED]',
 }
+
+# IN-01: single source of truth for the per-facility counter keys (D-08). The literal dict
+# used to be spelled out three times, so adding a seventh counter meant editing three places
+# -- and missing the third (the defensive unknown-facility path in handle(), which no test
+# exercises) would raise KeyError at exactly the moment the defensive path was needed.
+_COUNTER_KEYS = ('created', 'updated', 'unchanged', 'skipped', 'extraction_failed', 'telescope_api_failed')
+
+
+def _new_counters() -> dict[str, int]:
+    """Return a fresh zeroed counter dict for one facility.
+
+    Returns:
+        dict[str, int]: every key in ``_COUNTER_KEYS`` mapped to 0. A NEW dict each call --
+            never a shared module-level instance, which every facility would then increment.
+    """
+    return dict.fromkeys(_COUNTER_KEYS, 0)
 
 
 def _failure_prefix(status: str, facility: LCOFacility) -> str | None:
@@ -75,7 +91,14 @@ def _title_for(
     prefix = _failure_prefix(record.status, facility)
     if prefix is not None:
         return f'{prefix} {telescope} {instrument}'
-    if record.scheduled_start is None:
+    # D-06 (same reasoning as the failure-prefix branch above): a record whose status
+    # is already a successful-terminal state (e.g. COMPLETED) must never carry a
+    # prefix implying the observation hasn't happened yet, even if scheduled_start
+    # was never resolved (no observation block reported COMPLETED at the block level).
+    # LCOFacility/SOARFacility expose no get_successful_observing_states() method, so
+    # the successful-terminal set is derived as terminal states minus failure states.
+    successful_states = set(facility.get_terminal_observing_states()) - set(facility.get_failed_observing_states())
+    if record.scheduled_start is None and record.status not in successful_states:
         return f'[QUEUED] {telescope} {instrument}'
     if label_was_fallback:
         return f'[UNVERIFIED] {telescope} {instrument}'
@@ -84,6 +107,10 @@ def _title_for(
 
 def _time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     """Derive the active start/end time window for a record (SYNC-02/SYNC-03).
+
+    Delegates to ``calendar_utils.record_time_window()`` (promoted, Plan 28-02 Task 2) --
+    this thin wrapper exists only so this module's existing callers and tests keep working
+    unchanged; the parsing rules and raising contract live in one place now.
 
     Args:
         record: the ObservationRecord being synced.
@@ -97,20 +124,7 @@ def _time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
             or if scheduled_start/scheduled_end are inconsistently populated (one set,
             the other None) — a state CalendarEvent's non-nullable times cannot accept.
     """
-    if record.scheduled_start is None and record.scheduled_end is None:
-        # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
-        # explicitly since LCO request-submission times are conventionally UTC.
-        start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
-        end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
-    elif record.scheduled_start is not None and record.scheduled_end is not None:
-        start_time = record.scheduled_start
-        end_time = record.scheduled_end
-    else:
-        raise ValueError(
-            f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
-            f'scheduled_end={record.scheduled_end!r}'
-        )
-    return start_time, end_time
+    return record_time_window(record)
 
 
 def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dict[str, Any]:
@@ -120,7 +134,7 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
     banner-stage record (scheduled_start is None) gets the coarse fallback label
     with no API call (D-01) and is never counted/flagged as a failure (D-02/D-07). A
     placed record attempts a single live API resolution via
-    _resolve_placement_block; an API failure/timeout AND a successfully-returned but
+    resolve_placement_block; an API failure/timeout AND a successfully-returned but
     unmapped (site, telescope_code) pair are the SAME fallback bucket (Pitfall 4) --
     both set label_was_fallback=True, route to the coarse label, and increment the
     same telescope_api_failed counter.
@@ -131,24 +145,27 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
 
     Returns:
         dict[str, Any]: keyword args for CalendarEvent (url, title, description,
-            start_time, end_time, telescope, instrument, proposal), plus a
-            'telescope_api_failed' bool key that the caller (Command.handle()) pops
-            before constructing CalendarEvent kwargs, exactly like 'url' is already
-            popped.
+            start_time, end_time, telescope, instrument, proposal, target_list),
+            plus a 'telescope_api_failed' bool key that the caller (Command.handle())
+            pops before constructing CalendarEvent kwargs, exactly like 'url' is
+            already popped. 'target_list' is the record's Target's campaign
+            TargetList, picked deterministically by name (alphabetically first) when
+            the Target belongs to more than one, or None if the Target belongs to
+            none.
 
     Raises:
         KeyError: if a required parameters key (proposal/start/end) is missing.
         ValueError: if parameters['start']/['end'] cannot be parsed as datetimes.
-        InstrumentExtractionError: if _extract_instrument (D-01..D-06) finds no
+        InstrumentExtractionError: if extract_instrument (D-01..D-06) finds no
             science config and no exposure-signal config anywhere in parameters.
     """
-    instrument = _extract_instrument(record.parameters)
+    instrument = extract_instrument(record.parameters)
     if instrument is None:
         raise InstrumentExtractionError(
             f'No recognized configuration_type or exposure signal found in observation_id='
             f'{record.observation_id!r} parameters'
         )
-    coarse = _coarse_telescope_label(instrument, record.facility)
+    coarse = coarse_telescope_label(instrument, record.facility)
 
     if record.scheduled_start is None:
         # D-01: banner stage -- no API call attempted; D-02/D-07: never counted as a
@@ -156,12 +173,12 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
         telescope = coarse
         label_was_fallback = False
     else:
-        block = _resolve_placement_block(record.observation_id, facility)
+        block = resolve_placement_block(record.observation_id, facility)
         # T-07-03: a malformed/tampered API block validates 'state' upstream but never
         # 'site'/'telescope' -- read via .get() so a missing key yields None and routes
         # to the same coarse-fallback bucket as an unmapped pair, instead of raising
         # KeyError into the generic except clause one layer up in handle().
-        resolved = _derive_telescope(block.get('site'), block.get('telescope')) if block is not None else None
+        resolved = derive_telescope(block.get('site'), block.get('telescope')) if block is not None else None
         if resolved is None:
             # Pitfall 4: an API call failure/timeout (block is None) and a
             # successfully-returned but unmapped (site, telescope_code) pair
@@ -176,6 +193,10 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
     url = facility.get_observation_url(record.observation_id)
     start_time, end_time = _time_window(record)
     title = _title_for(record, telescope, instrument, facility, label_was_fallback)
+    # Campaign TargetList association: picked deterministically by name (alphabetically
+    # first) when the Target belongs to more than one, None if the Target belongs to
+    # none -- CalendarEvent.target_list is a nullable FK, so None is a safe value.
+    target_list = record.target.targetlist_set.order_by('name').first()
     description = (
         f'Proposal: {proposal}\n'
         f'Status: {record.status}\n'
@@ -195,6 +216,7 @@ def _build_event_fields(record: ObservationRecord, facility: LCOFacility) -> dic
         'telescope': telescope,
         'instrument': instrument,
         'proposal': proposal,
+        'target_list': target_list,
         # D-02 scope: True only for a PLACED record whose label was a fallback --
         # never True for a banner-stage record. Popped by handle() before
         # constructing CalendarEvent kwargs, mirroring 'url'.
@@ -271,24 +293,7 @@ class Command(BaseCommand):
         # visible in the summary line. 'extraction_failed' (D-06) and
         # 'telescope_api_failed' (SYNC-06/D-02) are dedicated counters distinct from
         # 'skipped' and from each other.
-        counters = {
-            'LCO': {
-                'created': 0,
-                'updated': 0,
-                'unchanged': 0,
-                'skipped': 0,
-                'extraction_failed': 0,
-                'telescope_api_failed': 0,
-            },
-            'SOAR': {
-                'created': 0,
-                'updated': 0,
-                'unchanged': 0,
-                'skipped': 0,
-                'extraction_failed': 0,
-                'telescope_api_failed': 0,
-            },
-        }
+        counters = {'LCO': _new_counters(), 'SOAR': _new_counters()}
 
         records = ObservationRecord.objects.filter(facility__in=['LCO', 'SOAR'])
         codes = _parse_proposal_arg(proposal)
@@ -304,17 +309,7 @@ class Command(BaseCommand):
                 self.stderr.write(
                     f'Skipping observation_id={record.observation_id!r}: unrecognized facility {record.facility!r}'
                 )
-                counters.setdefault(
-                    record.facility,
-                    {
-                        'created': 0,
-                        'updated': 0,
-                        'unchanged': 0,
-                        'skipped': 0,
-                        'extraction_failed': 0,
-                        'telescope_api_failed': 0,
-                    },
-                )
+                counters.setdefault(record.facility, _new_counters())
                 counters[record.facility]['skipped'] += 1
                 continue
 
@@ -351,9 +346,7 @@ class Command(BaseCommand):
             # fields changed -- kept as a separate statement, never folded into
             # `fields` or `changed`. is_verified reflects the outcome of the most
             # recent sync run that included this record, not real-time state.
-            CalendarEventTelescopeLabel.objects.update_or_create(
-                event=event, defaults={'is_verified': not telescope_api_failed}
-            )
+            CalendarEventMeta.objects.update_or_create(event=event, defaults={'is_verified': not telescope_api_failed})
 
         # D-08: per-facility breakdown. Each facility's six counts use the same
         # 'created: N' / 'updated: N' / 'unchanged: N' / 'skipped: N' /

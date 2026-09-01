@@ -344,6 +344,90 @@ class TestContactPublicOptIn(CampaignViewTestBase):
         self.assertNotIn('contact_email', ALLOWED_FIELDS_FOR_NON_STAFF)
 
 
+class TestTelescopeClassVisibleSourceStaffOnly(CampaignViewTestBase):
+    """D-18/Phase 27 CANON-01/02: telescope_class is visible to non-staff; source stays
+    staff-only, and the existing non-staff approval-gating behaviour is unchanged
+    (success criterion 1).
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.class_wide_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='LCO 1m',
+            window_start=_BASE_DATE + timedelta(days=200),
+            window_end=_BASE_DATE + timedelta(days=200),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+            source=CampaignRun.Source.CSV_IMPORT,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=_BASE_DATE + timedelta(days=201),
+            window_end=_BASE_DATE + timedelta(days=201),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+    def test_allowed_fields_includes_telescope_class_excludes_source(self):
+        from solsys_code.campaign_views import ALLOWED_FIELDS_FOR_NON_STAFF
+
+        self.assertIn('telescope_class', ALLOWED_FIELDS_FOR_NON_STAFF)
+        self.assertNotIn('source', ALLOWED_FIELDS_FOR_NON_STAFF)
+
+    def test_non_staff_queryset_selects_telescope_class(self):
+        """D-18: telescope_class is present in the non-staff .values() queryset -- the SQL
+        SELECT itself fetches it -- proven directly against the queryset the same way
+        TestContactPublicOptIn._non_staff_values_row() proves contact-field gating.
+        """
+        from solsys_code.campaign_views import CampaignRunTableView
+
+        view = CampaignRunTableView()
+        view.kwargs = {'pk': self.campaign.pk}
+        view.request = type('Req', (), {'user': type('U', (), {'is_staff': False})()})()
+        row = view.get_queryset().get(pk=self.class_wide_run.pk)
+        self.assertEqual(row['telescope_class'], CampaignRun.TelescopeClass.ONE_M0)
+
+    def test_non_staff_response_body_renders_telescope_class(self):
+        """WR-02: fetching telescope_class into the queryset is not what D-18 promised --
+        a non-staff READER has to be able to see it. Asserted against the rendered response
+        body, not the queryset, because the previous version of this test passed while the
+        field was fetched and then silently discarded by every table column.
+        """
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertIn('Telescope class', content)  # column header
+        self.assertIn('>1m0<', content)  # the run's own stored value, rendered
+
+    def test_staff_and_non_staff_render_telescope_class_identically(self):
+        """WR-02: model-instance rows (staff) would otherwise get django-tables2's automatic
+        get_telescope_class_display() label while dict rows (non-staff) get the raw code --
+        two reader classes seeing different text for the same run. render_telescope_class
+        resolves the raw code for both.
+        """
+        anonymous = self.client.get(self.table_url()).content.decode()
+        self.client.force_login(self.staff_user)
+        staff = self.client.get(self.table_url()).content.decode()
+        for content in (anonymous, staff):
+            self.assertIn('>1m0<', content)
+            self.assertNotIn('>1m0 class allocation<', content)
+
+    def test_non_staff_response_body_never_exposes_source(self):
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertNotIn('csv_import', content)
+        self.assertNotIn('CSV import', content)
+
+    def test_non_staff_response_still_excludes_pending_review_run(self):
+        """Regression guard for success criterion 1: this plan's ALLOWED_FIELDS_FOR_NON_STAFF
+        edit leaves the existing non-staff approval-gating queryset behaviour unchanged.
+        """
+        response = self.client.get(self.table_url())
+        content = response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', content)
+
+
 class TestCampaignRunFilterSet(CampaignViewTestBase):
     """VIEW-04: run_status multi-select (OR) + open_to_collaboration boolean; unfiltered default.
 
@@ -396,6 +480,94 @@ class TestCampaignListView(CampaignViewTestBase):
             1 for run in self.runs if run.approval_status == CampaignRun.ApprovalStatus.PENDING_REVIEW
         )
         self.assertEqual(response.context['pending_count'], expected_pending)
+
+
+class TestCampaignListSiteReviewEntryPoint(CampaignViewTestBase):
+    """27.1-03: the campaign-list staff banner is driven by either queue -- pending_count or
+    site_review_count -- not pending_count alone (T-27.1-08 mitigation for the widened,
+    NESTED {% if %} gate in campaign_list.html)."""
+
+    def _clear_pending(self):
+        """Approve every PENDING_REVIEW run in the base fixture, so pending_count is 0."""
+        CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW).update(
+            approval_status=CampaignRun.ApprovalStatus.APPROVED
+        )
+
+    def _flag_one_for_site_review(self):
+        """Set site_needs_review=True on one already-APPROVED run, so site_review_count is 1."""
+        run = CampaignRun.objects.filter(approval_status=CampaignRun.ApprovalStatus.APPROVED).first()
+        run.site_needs_review = True
+        run.save(update_fields=['site_needs_review'])
+        return run
+
+    def test_staff_zero_pending_one_site_review_row(self):
+        self._clear_pending()
+        self._flag_one_for_site_review()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        # Precondition assertion (plan-mandated): the test must not pass for the wrong reason.
+        self.assertEqual(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 1)
+        self.assertContains(response, reverse('campaigns:approval_queue'))
+        self.assertContains(response, 'needing site review')
+        self.assertNotContains(response, 'pending review')
+
+    def test_staff_some_pending_zero_site_review_rows(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        self.assertGreater(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 0)
+        self.assertContains(response, reverse('campaigns:approval_queue'))
+        self.assertContains(response, 'pending review')
+        self.assertNotContains(response, 'needing site review')
+
+    def test_staff_both_queues_non_empty(self):
+        self._flag_one_for_site_review()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        self.assertGreater(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 1)
+        self.assertContains(response, 'pending review')
+        self.assertContains(response, 'needing site review')
+        self.assertContains(response, reverse('campaigns:approval_queue'), count=1)
+
+    def test_staff_both_queues_empty(self):
+        self._clear_pending()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.list_url())
+        self.assertEqual(response.context['pending_count'], 0)
+        self.assertEqual(response.context['site_review_count'], 0)
+        self.assertNotContains(response, reverse('campaigns:approval_queue'))
+
+    def test_anonymous_both_queues_non_empty(self):
+        self._flag_one_for_site_review()
+        response = self.client.get(self.list_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('campaigns:approval_queue'))
+        self.assertNotContains(response, 'needing site review')
+        self.assertNotContains(response, 'pending review')
+
+    def test_non_staff_authenticated_both_queues_non_empty(self):
+        self._flag_one_for_site_review()
+        non_staff_user = User.objects.create_user(username='regularvisitor', password='pw', is_staff=False)
+        self.client.force_login(non_staff_user)
+        response = self.client.get(self.list_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('campaigns:approval_queue'))
+        self.assertNotContains(response, 'needing site review')
+        self.assertNotContains(response, 'pending review')
+
+    def test_site_review_count_agrees_with_approval_queue_page(self):
+        """The count shown on the campaign list and the rows the approval queue itself lists
+        come from one definition (runs_needing_site_review()), so they cannot drift apart."""
+        self._flag_one_for_site_review()
+        self.client.force_login(self.staff_user)
+        list_response = self.client.get(self.list_url())
+        queue_response = self.client.get(reverse('campaigns:approval_queue'))
+        self.assertEqual(
+            list_response.context['site_review_count'],
+            len(queue_response.context['review_table'].rows),
+        )
 
 
 class TestNonStaffPendingReviewHidden(CampaignViewTestBase):

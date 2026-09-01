@@ -6,7 +6,9 @@ sync_gemini, load_telescope_runs) can share a single implementation, plus the
 no-churn CalendarEvent create-or-update function used by all three consumers.
 """
 
-from datetime import timedelta
+import re
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any
 from urllib.parse import urljoin
 
@@ -16,6 +18,9 @@ from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
+from tom_observations.models import ObservationRecord
+
+from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 
 # (site, aperture_class) -> 'SITECODE-CLASS' telescope label (TELESCOPE-01/D-03/D-04).
 # Verified, real-data-grounded inventory of the 7 real LCO-network sites this
@@ -74,14 +79,14 @@ _MUSCAT_CHANNEL_SUFFIXES = ('g', 'r', 'i', 'z')
 
 
 class InstrumentExtractionError(Exception):
-    """Raised when _extract_instrument finds no usable config (D-06 total extraction failure).
+    """Raised when extract_instrument finds no usable config (D-06 total extraction failure).
 
     Caught separately in handle() so a fully-malformed record is routed to the
     dedicated 'extraction_failed' counter, never silently merged into 'skipped'.
     """
 
 
-def _aperture_class_from_telescope_code(telescope_code: str | None) -> str | None:
+def aperture_class_from_telescope_code(telescope_code: str | None) -> str | None:
     """Extract the aperture-class token (D-04 vocabulary) from a 4-char telescope code.
 
     Args:
@@ -103,7 +108,128 @@ def _aperture_class_from_telescope_code(telescope_code: str | None) -> str | Non
     return None
 
 
-def _derive_telescope(site: str | None, telescope_code: str | None) -> str | None:
+# D-11/D-16: JPL Horizons/SPICE observer notation (`500@<NAIF SPK ID>`) names a space
+# observatory that has NO MPC obscode assigned at all -- SPACE's one specific meaning.
+# JUICE (site_raw='500@-28') is a real example, but its dev-DB row also carries a blank
+# site_raw for some real ingest paths, so a site_raw-only check (tier a, below) cannot
+# see it. This constant covers that "telescope_instrument names a known no-obscode space
+# observatory" case (tier b). Extension rule, same as HORIZONS_OBSERVER_TO_OBSCODE
+# (campaign_utils.py): only add a name after verifying on BOTH sides that the
+# observatory has a Horizons code and genuinely no MPC obscode -- never infer from the
+# name alone. Swift (obscode 'C52'), HST ('250') and JWST ('274') are deliberately NOT
+# members: they resolve like any ground site, and widening SPACE back to "any space
+# mission" is exactly the premise D-11 falsified.
+NO_OBSCODE_SPACE_OBSERVATORIES: frozenset[str] = frozenset({'juice'})
+
+# T-27-04: linear, non-backtracking patterns over CSV free text (CampaignRun.
+# telescope_instrument, max_length=255) -- a bounded numeric group plus optional
+# whitespace plus a literal 'm', no nested quantifiers, no alternation spanning the
+# whole string.
+# Matches an already-canonical 3-char aperture-class token ('0m4'/'1m0'/'2m0'/'4m0'),
+# word-bounded so it can't match inside a longer token.
+_APERTURE_TOKEN_PATTERN = re.compile(r'\b(0m4|1m0|2m0|4m0)\b')
+# Matches a metre-aperture phrase: '0.4m', '1m'/'1.0m', '2m'/'2.0m', '4m'/'4.0m', with
+# optional whitespace between the number and 'm'. The digit must be word-bounded on the
+# left and 'm' must be word-bounded on the right, so 'MuSCAT4' (m before the digit, not
+# after) and '43cm' (no 'm' immediately after the digits) can never match.
+_APERTURE_METRE_PATTERN = re.compile(r'\b(\d(?:\.\d)?)\s?m\b')
+
+# Canonicalises a matched metre-phrase capture group to the same 3-char token vocabulary
+# aperture_class_from_telescope_code uses.
+_METRE_TO_APERTURE_TOKEN = {
+    '0.4': '0m4',
+    '1': '1m0',
+    '1.0': '1m0',
+    '2': '2m0',
+    '2.0': '2m0',
+    '4': '4m0',
+    '4.0': '4m0',
+}
+
+
+def derive_telescope_class(site_raw: str | None, telescope_instrument: str | None) -> str:
+    """Derive a CampaignRun.telescope_class value from primitives, never a model instance.
+
+    D-20: this helper takes only primitives (not a CampaignRun) so a data migration's
+    RunPython step can import and call it without coupling to a model that keeps
+    changing through Phases 28-29. Note that this module still imports
+    ``tom_calendar.models.CalendarEvent`` at module scope, so "no live models" was never
+    literally true of the whole module -- what D-20 buys is that the *signature* stays
+    model-free. Both call sites (the Phase 27-04 backfill migration
+    and Phase 27-06's import_campaign_csv) gate derivation on "the run has no resolved
+    site" -- the migration filters site__isnull=True and the importer only calls this when
+    resolve_site() returned None. D-06 (26-CONTEXT.md:94): a non-blank return is the
+    ANSWER to "why is there no site", not a resolution failure -- callers still gate
+    derivation on "no resolved site", but nothing ever clears an already-derived class, and
+    a non-blank return means the caller must NOT flag the row for site review
+    (``site_needs_review``).
+
+    Args:
+        site_raw: the run's free-text site string (e.g. '500@-28', '250', '' or None).
+        telescope_instrument: the run's free-text telescope/instrument string (e.g.
+            'LCO 1m', 'JUICE', 'SOAR 4m', '' or None).
+
+    Returns:
+        str: '2m0'/'1m0'/'0m4' (D-21: stored lowercase, matching
+            aperture_class_from_telescope_code's existing vocabulary, so D-12's subset
+            assertion compares directly with no case-folding), 'SPACE' (D-11: a space
+            observatory with a Horizons code but no MPC obscode assigned -- deliberately
+            kept uppercase since it has no calendar_utils aperture counterpart to
+            normalise against), or '' if neither signal fires -- the correct value for a
+            genuine site-resolution failure, since site_needs_review already carries
+            "unresolved" (D-13). Never raises.
+    """
+    if site_raw:
+        stripped_site = site_raw.strip()
+        # WR-07: HORIZONS_OBSERVER_TO_OBSCODE comes from solsys_code.observer_codes (imported
+        # at module scope above), which imports no Django models at all. It used to be a
+        # function-local import from campaign_utils, with a comment claiming that kept the
+        # live CampaignRun model out of a data migration's import graph -- but a
+        # function-local import still executes at CALL time, and migration 0011 calls this
+        # function once per site-less row, so the very first '500@' row pulled
+        # solsys_code.models in mid-migration regardless. The claim is now true.
+        if stripped_site.startswith('500@') and stripped_site not in HORIZONS_OBSERVER_TO_OBSCODE:
+            # WR-09: `500@<N>` is Horizons *observer* notation for "geocentric observer at
+            # body N", and body N need not be a spacecraft -- 500@399 is the Earth's centre,
+            # 500@10 the Sun, 500@301 the Moon, and '500@oops' is simply a typo. Only
+            # NEGATIVE NAIF IDs are spacecraft, so only those can mean "a space observatory
+            # with a Horizons code but no MPC obscode" (D-11). Everything else falls through
+            # to the telescope_instrument tier and, failing that, to '' -- which is the
+            # correct value for "we could not resolve this", since site_needs_review already
+            # carries exactly that meaning (D-13). This mirrors NO_OBSCODE_SPACE_OBSERVATORIES'
+            # own extension rule above: never infer a space observatory from string shape alone.
+            naif_id = stripped_site[len('500@') :]
+            if naif_id.startswith('-') and naif_id[1:].isdigit():
+                # D-11: a Horizons observer code with no MPC-obscode alias is exactly
+                # what SPACE means.
+                return 'SPACE'
+
+    if telescope_instrument:
+        lowered = telescope_instrument.lower()
+        tokens = re.split(r'[^a-z0-9]+', lowered)
+        if NO_OBSCODE_SPACE_OBSERVATORIES.intersection(tokens):
+            return 'SPACE'
+
+        token_match = _APERTURE_TOKEN_PATTERN.search(lowered)
+        if token_match:
+            aperture = token_match.group(1)
+        else:
+            metre_match = _APERTURE_METRE_PATTERN.search(lowered)
+            aperture = _METRE_TO_APERTURE_TOKEN.get(metre_match.group(1)) if metre_match else None
+
+        if aperture == '4m0':
+            # D-12: 4m0 (SOAR) is a real, deliberately-excluded value -- it stays in
+            # calendar_utils' aperture-class set (SITE_TELESCOPE_MAP has ('sor', '4m0'))
+            # but CampaignRun.TelescopeClass's vocabulary is only 2m0/1m0/0m4. Do not
+            # "fix" this by adding 4m0 to the model.
+            return ''
+        if aperture in {'2m0', '1m0', '0m4'}:
+            return aperture
+
+    return ''
+
+
+def derive_telescope(site: str | None, telescope_code: str | None) -> str | None:
     """Map a resolved (site, telescope_code) pair to a verified label via SITE_TELESCOPE_MAP.
 
     Args:
@@ -120,13 +246,13 @@ def _derive_telescope(site: str | None, telescope_code: str | None) -> str | Non
             parsed -- caller falls back to the coarse instrument-class label
             (TELESCOPE-03). Never raises.
     """
-    aperture_class = _aperture_class_from_telescope_code(telescope_code)
+    aperture_class = aperture_class_from_telescope_code(telescope_code)
     if aperture_class is None:
         return None
     return SITE_TELESCOPE_MAP.get((site, aperture_class))
 
 
-def _resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[str, Any] | None:
+def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[str, Any] | None:
     """Call the LCO Observation Portal API once to resolve a placed record's block.
 
     Issues a single, timeout-bounded GET to /api/requests/{observation_id}/observations/
@@ -226,7 +352,7 @@ def _find_exposure_signal_config(parameters: dict[str, Any]) -> int | None:
     return None
 
 
-def _extract_instrument(parameters: dict[str, Any]) -> str | None:
+def extract_instrument(parameters: dict[str, Any]) -> str | None:
     """Extract the scientifically meaningful instrument_type from a record's parameters.
 
     Scans the real c_1..c_5-prefixed multi-configuration shape (D-01..D-06): first by
@@ -255,7 +381,7 @@ def _extract_instrument(parameters: dict[str, Any]) -> str | None:
     return parameters.get('instrument_type')
 
 
-def _coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
+def coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
     """Derive the coarse aperture-class fallback label from instrument_type and facility.
 
     LCO instrument type codes are prefixed with the aperture class token (e.g.
@@ -292,6 +418,44 @@ def _coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
         if candidate in {'0m4', '1m0', '2m0', '4m0'}:
             return candidate
     return instrument_type
+
+
+def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
+    """Derive the active start/end time window for an ObservationRecord (SYNC-02/SYNC-03).
+
+    Promoted from ``sync_lco_observation_calendar._time_window()`` (Plan 28-02 Task 2) so the
+    attribution matcher (``campaign_attribution.py``) and the LCO/SOAR sync command share one
+    definition of "this record's active window" instead of two independently-maintained
+    copies. Body and raising contract are byte-identical to the original -- a pure move, no
+    behaviour change (CLAUDE.md's paired-notebook trigger is deliberately NOT fired for this
+    reason; see 28-02-SUMMARY.md).
+
+    Args:
+        record: the ObservationRecord being synced or matched.
+
+    Returns:
+        tuple[datetime, datetime]: (start_time, end_time), timezone-aware UTC.
+
+    Raises:
+        KeyError: if scheduled_start is None and parameters lacks 'start'/'end'.
+        ValueError: if parameters['start']/['end'] are not valid ISO datetime strings,
+            or if scheduled_start/scheduled_end are inconsistently populated (one set,
+            the other None) -- a state CalendarEvent's non-nullable times cannot accept.
+    """
+    if record.scheduled_start is None and record.scheduled_end is None:
+        # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
+        # explicitly since LCO request-submission times are conventionally UTC.
+        start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
+        end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
+    elif record.scheduled_start is not None and record.scheduled_end is not None:
+        start_time = record.scheduled_start
+        end_time = record.scheduled_end
+    else:
+        raise ValueError(
+            f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
+            f'scheduled_end={record.scheduled_end!r}'
+        )
+    return start_time, end_time
 
 
 def _update_or_unchanged(event: CalendarEvent, fields: dict[str, Any]) -> tuple[CalendarEvent, str]:
@@ -376,3 +540,56 @@ def insert_or_create_calendar_event(
     if created:
         return event, 'created'
     return _update_or_unchanged(event, fields)
+
+
+def update_calendar_event_key_and_fields(
+    event: CalendarEvent, url: str, fields: dict[str, Any]
+) -> tuple[CalendarEvent, str]:
+    """Re-key an already-identified CalendarEvent's url and refresh its other fields, no-churn.
+
+    External modules that already hold a specific CalendarEvent instance (e.g. the Phase 29
+    reconciler's adopt-and-rekey step, D-02) must call this instead of importing the
+    module-private `_update_or_unchanged()` directly -- a cross-module import of a private
+    helper is the exact anti-pattern the retired `backfill_range_calendar_events` command
+    exemplified and the v2.2 milestone's locked constraints call out.
+
+    This exists because `insert_or_create_calendar_event()` structurally cannot perform this
+    write: `url` is its `get_or_create()` lookup key, and `get_or_create()`'s `defaults` dict
+    never touches a field that is also a lookup key, so there is no way to hand it "find this
+    event some other way, then write a new url onto it."
+
+    Args:
+        event: the already-identified CalendarEvent to re-key.
+        url: the new url value to write onto the event.
+        fields: additional field-value mapping to set alongside url.
+
+    Returns:
+        tuple[CalendarEvent, str]: (event, 'updated') if url or any field differed from the
+            event's current values and the row was saved, or (event, 'unchanged') if url and
+            every field already matched and no save was issued (no-churn contract).
+    """
+    all_fields = {**fields, 'url': url}
+    return _update_or_unchanged(event, all_fields)
+
+
+def preview_calendar_event_action(event: CalendarEvent | None, fields: dict[str, Any]) -> str:
+    """Report what the real no-churn writers above would do, without writing or querying.
+
+    This is the `--dry-run` counterpart (D-05/RECON-06) of both
+    `insert_or_create_calendar_event()` and `update_calendar_event_key_and_fields()`. It must
+    use the identical `getattr(event, f) != v` comparison rule `_update_or_unchanged()` uses,
+    so a dry-run count can never disagree with what the real write would report.
+
+    Args:
+        event: the already-matched CalendarEvent, or None if no event exists yet for this key.
+        fields: field-value mapping that would be applied.
+
+    Returns:
+        str: 'created' when event is None; 'updated' when any field in fields differs from
+            the event's current value; 'unchanged' when none do. Writes nothing, issues no
+            query.
+    """
+    if event is None:
+        return 'created'
+    changed = [f for f, v in fields.items() if getattr(event, f) != v]
+    return 'updated' if changed else 'unchanged'
