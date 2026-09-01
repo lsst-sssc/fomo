@@ -29,9 +29,11 @@ python -m pytest                          # pytest suite: tests/, src/, docs/ on
 ./manage.py test                          # Django app tests (solsys_code et al.)
 ./manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
 
-# Lint / format (also enforced by pre-commit). Single quotes, 120-col line length.
-ruff check . --fix
-ruff format .
+# Lint / format: run through pre-commit, which pins ruff to the version .pre-commit-config.yaml
+# enforces (v0.2.1) -- an unpinned `ruff` on PATH can report findings the enforced gate does not
+# have (see D-07). Single quotes, 120-col line length.
+pre-commit run ruff --all-files
+pre-commit run ruff-format --all-files
 ```
 
 ## Layout (non-obvious)
@@ -181,7 +183,8 @@ experiment actually validates). Either failing is a meaningful result.
 
 - **Testing**: DB-dependent tests (Observatory lookups) go in
   `solsys_code/tests/`, run with `./manage.py test solsys_code`. Quality gates:
-  `ruff check .` and `ruff format --check .` must stay clean.
+  `pre-commit run ruff --all-files` and `pre-commit run ruff-format --all-files` must stay
+  clean (D-07).
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
