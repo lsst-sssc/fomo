@@ -1,8 +1,8 @@
 ---
 phase: 26
 slug: canonical-record-spike
-status: draft
-nyquist_compliant: false
+status: validated
+nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-27
 ---
@@ -137,13 +137,35 @@ non-interactive second data point — but not as a replacement for the actual br
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or a recorded manual-only justification
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references — *satisfied: no Wave 0 needed*
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 126s
-- [ ] Every Evidence Map row is tagged "confirmed against real rows" vs "confirmed via
+- [x] All tasks have `<automated>` verify or a recorded manual-only justification
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references — *satisfied: no Wave 0 needed*
+- [x] No watch-mode flags
+- [x] Feedback latency < 126s
+- [x] Every Evidence Map row is tagged "confirmed against real rows" vs "confirmed via
       constructed input", and the decision doc preserves that distinction (Phase 18 D-09)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated (Phase 30 plan 30-04, D-08 reconciliation)
+
+## Validation Audit 2026-08-31
+
+Reconciled by Phase 30 plan 30-04 (D-08). Investigation-only phase, no application code, so
+audit means re-checking that each Evidence Map claim has real recorded evidence, not running
+new tests.
+
+| Evidence Map row | Verified against | Result |
+|---|---|---|
+| Criterion 1 (SPIKE-01) | `26-DECISION.md:370-392` — 4 blocks, 5 PASS lines, 0 FAIL lines, including both negative controls on the existing unique constraints | Confirmed present |
+| Criterion 2 (SPIKE-02) | `26-DECISION.md` classical/LCO real-row snapshot output; Gemini confirmed via constructed input only, and the doc states that distinction explicitly | Confirmed present |
+| Criterion 3 (SPIKE-03) | `26-DECISION.md:816` — 5 PASS/0 FAIL across the three-copy adopt/gap-fill/rejected-baseline comparison; D-05 fan-out figure flagged as computed, not executed | Confirmed present |
+| Criterion 4a (migration) | `26-DECISION.md:370-392` PASS block re-run against the scratch copy | Confirmed present |
+| Criterion 4b (test suite) | `26-DECISION.md:254-255` — narrow six-module suite green post-fix, cited per integration point | Confirmed present |
+| Criterion 4c (manual `/calendar/` load) | `26-DECISION.md:321-362` — a human loaded `/calendar/?year=2026&month=7` against the scratch copy with a companion row temporarily flipped to `is_verified=False`; HTTP 200, `[CANCELLED]` dashed border with hover text confirmed rendering (closing the "Known gap" option (a) this file itself flagged) | Confirmed present, closes the documented known gap |
+| Criterion 5 (durable docs page) | `docs/design/canonical_record_spike.rst` exists (19782 bytes), wired into `docs/design/design.rst:47`'s toctree → `docs/index.rst:23`; `python -m sphinx -b html docs docs/_build/html -q` produces no warning naming this file (pre-existing warnings are all unrelated: `autoapi/fomo/urls`, `sync_lco_observation_calendar_demo.ipynb`, `ESO_How_to_download_data.ipynb`) | Confirmed present |
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
