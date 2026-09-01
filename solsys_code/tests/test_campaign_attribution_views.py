@@ -782,7 +782,7 @@ class TestEvidenceColumns(AttributionViewTestBase):
         # instead of the confidence badge -- the row's border-left border-success is
         # the High-band signal here. TestBandFilterAndBanner's
         # test_checkbox_absent_when_orphan_has_two_high_band_candidates exercises the
-        # non-checkboxable High case where badge-success itself renders.
+        # non-checkboxable High case where text-bg-success itself renders.
         self.assertIn('border-success', content)
 
     def test_non_staff_get_redirects(self):
@@ -881,8 +881,8 @@ class TestBandFilterAndBanner(AttributionViewTestBase):
         self.assertNotIn(f'value="event:{event.pk}:{self.campaign_run.pk}"', content)
         self.assertNotIn(f'value="event:{event.pk}:{second_run.pk}"', content)
         # Neither candidate is checkboxable, so both render the confidence badge in the
-        # leading cell instead -- the one case where badge-success itself appears.
-        self.assertIn('badge-success', content)
+        # leading cell instead -- the one case where text-bg-success itself appears.
+        self.assertIn('text-bg-success', content)
 
     def test_staff_campaign_list_banner_shows_count_and_link(self):
         self._make_event()

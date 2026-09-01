@@ -75,18 +75,18 @@ sentence reads cleanly at true completion.
         <input type="checkbox" class="form-check-input" form="bulk-confirm-events"
                name="candidate_ids" value="event:{{ group.orphan.pk }}:{{ candidate.run.pk }}">
         {% elif candidate.band == 'high' %}
-        <span class="badge badge-success">High</span>
+        <span class="badge text-bg-success">High</span>
         {% elif candidate.band == 'medium' %}
-        <span class="badge badge-warning text-dark">Medium</span>
+        <span class="badge text-bg-warning">Medium</span>
         {% else %}
-        <span class="badge badge-secondary">Low</span>
+        <span class="badge text-bg-secondary">Low</span>
         {% endif %}
       </td>
       <td><span class="small font-weight-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
       <td><span class="small font-weight-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
       <td><span class="small font-weight-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
       <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
-      <td><span class="badge badge-light border">{{ candidate.score }}</span></td>
+      <td><span class="badge text-bg-light border">{{ candidate.score }}</span></td>
       <td>
         {% comment %}
         CR-01 (28-VERIFICATION.md / 28-REVIEW.md): the free-text `reason` input below carries
@@ -177,18 +177,18 @@ form without nesting.
         <input type="checkbox" class="form-check-input" form="bulk-confirm-records"
                name="candidate_ids" value="record:{{ group.orphan.pk }}:{{ candidate.run.pk }}">
         {% elif candidate.band == 'high' %}
-        <span class="badge badge-success">High</span>
+        <span class="badge text-bg-success">High</span>
         {% elif candidate.band == 'medium' %}
-        <span class="badge badge-warning text-dark">Medium</span>
+        <span class="badge text-bg-warning">Medium</span>
         {% else %}
-        <span class="badge badge-secondary">Low</span>
+        <span class="badge text-bg-secondary">Low</span>
         {% endif %}
       </td>
       <td><span class="small font-weight-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
       <td><span class="small font-weight-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
       <td><span class="small font-weight-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
       <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
-      <td><span class="badge badge-light border">{{ candidate.score }}</span></td>
+      <td><span class="badge text-bg-light border">{{ candidate.score }}</span></td>
       <td>
         {% comment %}
         CR-01: the validation-opt-out attribute on the Confirm button below is deliberate and

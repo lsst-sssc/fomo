@@ -16,18 +16,18 @@ ephemerides for non-sidereal targets and ingests minor-body orbits from JPL.
 ./.setup_dev.sh
 
 # Run the Django dev server / any admin task. Settings module is src.fomo.settings (set by manage.py).
-./manage.py runserver
-./manage.py migrate
-./manage.py createsuperuser
+# Always invoke as `python manage.py ...` — `./manage.py` is not a supported entry point.
+python manage.py runserver
+python manage.py migrate
+python manage.py createsuperuser
 
 # Custom management command: query JPL SBDB and create Targets from new matches
-./manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
-./manage.py fetch_jplsbdb_objects --orbit_class IEO
+python manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
+python manage.py fetch_jplsbdb_objects --orbit_class IEO
 
-# Tests — there are TWO independent test suites (see "Testing" below):
-python -m pytest                          # pytest suite: tests/, src/, docs/ only
-./manage.py test                          # Django app tests (solsys_code et al.)
-./manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
+# Tests — the Django test runner is the only functioning suite (see "Testing" below):
+python manage.py test                          # Django app tests (solsys_code et al.)
+python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
 
 # Lint / format: run through pre-commit, which pins ruff to the version .pre-commit-config.yaml
 # enforces (v0.2.1) -- an unpinned `ruff` on PATH can report findings the enforced gate does not
@@ -81,10 +81,13 @@ target-detail buttons are injected via the app-config integration hooks (`nav_it
 
 ## Testing
 
-`pyproject.toml` sets `testpaths = ["tests", "src", "docs"]`, so **`python -m pytest` does NOT collect
-the Django app tests** under `solsys_code/`. Those use `django.test.TestCase` and run under the Django
-test runner (`./manage.py test`). When adding tests, put pure-Python/packaging tests under `tests/` and
-Django/DB-dependent tests under the relevant app's `tests/` package.
+**The Django test runner (`python manage.py test`) is the only functioning test setup.** All real tests
+live under `solsys_code/` and use `django.test.TestCase`. Add new tests there, in the relevant app's
+`tests/` package.
+
+The pytest configuration in `pyproject.toml` (`testpaths = ["tests", "src", "docs"]`) and the tests
+under `tests/fomo/` are a legacy of the LINCC project template. `python -m pytest` does not collect the
+Django app tests, and that suite will likely be removed — do not add tests to it.
 
 ## Conventions
 
@@ -100,6 +103,14 @@ Django/DB-dependent tests under the relevant app's `tests/` package.
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
 - pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, builds Sphinx
   docs, and runs the pytest suite. CI (`.github/workflows/`) tests Python 3.10–3.12.
+- **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
+  `merge`, `cherry-pick`, `commit --amend`, etc.) — these operate on whatever `HEAD` currently
+  points to, not the branch name mentioned in a prior command. `git push origin <branch>` in
+  particular does **not** require `<branch>` to be checked out, so a push followed by a rebase
+  targeting a *different* branch can silently rebase whatever is actually checked out. Run `git
+  branch --show-current` (or `git status`) immediately before any such command whenever a session
+  has touched more than one local branch, especially right after a `git push origin <branch>` that
+  didn't require a checkout.
 - **Planning-doc terminology:** in CONTEXT.md/RESEARCH.md/PLAN.md/PATTERNS.md and other
   `.planning/` artifacts, prefer plain English over DB jargon. Write "create or update" /
   "find-or-create" / "create the record if missing, otherwise update it in place" instead of
