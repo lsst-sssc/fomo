@@ -1,167 +1,176 @@
 # Feature Research
 
-**Domain:** Observatory scheduling / telescope time-allocation coordination — specifically "one canonical run record" reconciliation between an awarded allocation, the calendar events showing it, and the observation records realising it
-**Researched:** 2026-07-26
-**Confidence:** MEDIUM
+**Domain:** Automatic sync of robotically-scheduled observations + outcome propagation to a canonical run record (FOMO v2.3, "Automatic Run Sync & Outcome Propagation")
+**Researched:** 2026-09-01
+**Confidence:** MEDIUM (HIGH on FOMO-codebase facts — direct source reads of `campaign_reconciler.py`, `models.py`, `campaign_utils.py`, `sync_lco_observation_calendar.py`; MEDIUM on general cross-domain patterns — CI/CD conclusion aggregation and Kubernetes Job status are well-documented but generically-sourced, not astronomy-specific, since no TOM-Toolkit-specific prior art exists for this exact problem)
 
-## Context: what real systems this draws on
+## Context
 
-- **LCO Observation Portal** (`observe.lco.global`) — the facility FOMO already syncs from (`sync_lco_observation_calendar.py`). Proposal = TAC award; Request = a submission against that award; sub-request states include `PENDING`/`WINDOW_EXPIRED`/`COMPLETED`. FOMO already models the placed-block vs. window-banner distinction for this facility (SYNC-02/03).
-- **Gemini Phase II OT / GPP** — the facility FOMO already syncs from (`sync_gemini_observation_calendar.py`). Program time allocation vs. GEMMA's real-time-updated observing plan; public "Schedules and Queue" pages report percent-of-allocated-time-executed as a *separate* surface from the scheduling tool.
-- **ESO P2** — investigated in FOMO's own Phase 13 feasibility spike (not re-researched here beyond the OB/`obStatus` model, which bears directly on the "single record whose status mutates" design question below).
-- **ALMA Observing Tool** — Scheduling Blocks (SBs) repeated to reach a target/allocation, tracked against project priority + Executive time balance.
-- **JWST APT** — Observation (PI-specified plan) decomposed into Visits (the schedulable unit); Visit Planner checks schedulability.
-- **astroplan / TOM Toolkit** — `ObservingBlock` + scheduler abstractions exist upstream, but TOM Toolkit itself (FOMO's base framework) has **no built-in TAC-allocation model** — it stops at the request/`ObservationRecord` layer. This confirms `CampaignRun` is filling a real gap, not duplicating framework functionality.
-- **OpenRefine reconciliation** — not astronomy-specific, but the best-documented real system for a confirm/reject matching UX at scale (confidence-scored suggestions, bulk-approve-above-threshold, facet-to-triage).
-
-All findings below are MEDIUM confidence (uncorroborated live web search, cross-checked across multiple independent pages per claim) unless flagged otherwise; see Sources.
+There is no direct astronomy-domain precedent for "sync a robotic scheduler's outcomes up to a program record" — TOM Toolkit itself stops at `ObservationRecord` (one row per facility submission) and has no higher-level "campaign"/"program" concept; FOMO's `CampaignRun` is a FOMO-original abstraction. The closest real prior art is general software engineering: CI/CD systems aggregating per-job status into a pipeline "conclusion" (GitHub Actions, Jenkins), and Kubernetes' Job controller aggregating per-pod-index outcomes into Job status. Both of those domains have already solved "many child task outcomes, one parent record, don't let a single failure erase a partial success" — this is the primary transferable pattern used below. Findings are framed against FOMO's own already-shipped v2.2 infrastructure (`campaign_reconciler.py`, `campaign_attribution.py`, `CampaignRunObservation`), since that infrastructure is what v2.3 has to extend correctly, not invent from scratch.
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| A single durable record per awarded allocation, separate from its executions | Every real system studied keeps *some* plan/award concept distinct from execution — LCO Proposal, Gemini Program, ALMA project+SB, JWST Observation. `CampaignRun` already exists; v2.2 makes it the thing everything else points at rather than a peer of `CalendarEvent`/`ObservationRecord`. | MEDIUM | Already 90% built (`CampaignRun` model, v2.0-v2.1). v2.2's job is making linkage *structural* (FKs) not incidental (a click-time side effect). |
-| Calendar visibility for every awarded run, without a bespoke backfill command per gap | Table stakes for *any* scheduling tool — an award that doesn't show up anywhere is effectively invisible to the people who need to avoid double-booking it. FOMO's own dev DB already demonstrates the cost of not having this: 19 approved, windowed `CampaignRun`s have zero calendar presence today (per PROJECT.md). | MEDIUM-HIGH | This is the reconciler. Complexity is in idempotency (never fabricate a duplicate event) and in covering every entry path (CSV import, submission form, backfill, and future adapters) with one mechanism instead of N. |
-| Progressive resolution from "roughly this class of telescope, this day" to "this exact block, this outcome" | Every studied system defers precision until precision is actually known — LCO's window-banner-to-placed-block (already shipped in FOMO, SYNC-02/03), ESO's OB status field maturing from prepared to `C`/`M`/`A`/`F`, STScI's general guidance that JWST tools default to widest constraints and narrow only as real scheduling resolves. Nobody found guesses at exact times before the scheduler has resolved them. | MEDIUM | v2.2's four-stage pipeline (site → class → scheduled → completed) is a direct generalization of what FOMO already does for LCO alone. The work is making it run off `CampaignRun` state for *every* source, not just LCO. |
-| A run's status/outcome is visible without cross-referencing multiple tables | LCO/Gemini both surface allocation-vs-used-time on a dedicated status page rather than forcing users to diff two record types by hand. FOMO's coverage-gap analysis is the closest existing analog and is currently blind to non-`CampaignRun` calendar activity (LCO/Gemini-sourced events aren't counted), which the PROJECT.md context calls out as a live defect. | MEDIUM | v2.2 explicitly defers "provenance-blind gap analysis" to v2.3 — correctly scoped out, but flag it as the natural next-milestone follow-on so the roadmap doesn't lose it. |
-| Idempotent, non-destructive reconciliation (safe to re-run) | Every FOMO sync command already guarantees this (SYNC-04, GEM-NOCHURN-01, CAL-03) — it's an established codebase convention, not new territory, but the reconciler must hold to the same bar across four pipeline stages instead of one sync path. | MEDIUM | Direct precedent exists in-repo (`insert_or_create_calendar_event`); risk is in stage *transitions* (e.g. stage 2→3 narrowing) not introducing churn or losing manually-set data (see Anti-Features: silent overwrite). |
+Features required for the operator's stated "feature complete" bar (PR #43) — the milestone doesn't ship without these.
+
+| Feature | Why Expected | Complexity | Notes / Dependencies |
+|---------|--------------|------------|-----------------------|
+| Unattended recurring invocation of all three sync commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`) | This *is* the milestone's stated goal — "no operator running any command" | MEDIUM | Mechanism (cron vs. task queue) is explicitly deferred to the milestone's own phase-time spike; depends on real deployment constraints, not research. No FOMO infra dependency — these commands already run standalone. |
+| Failure visibility (a broken/stalled sync is noticed, not silently absent) | Table stakes for *any* unattended job — an operator who has to notice a gap on the calendar by chance is not "unattended," it's "unattended and untrustworthy" | LOW–MEDIUM | Minimum bar: non-zero exit code + logged traceback + some "last successful run" signal an operator can check (log line, status row, or cron's own mail-on-failure). Does not need a dashboard — see Anti-Features. |
+| Watch-list-driven discovery sweep (no per-invocation `--proposal`/`--name-prefix` args) | `backfill_lco_observation_records` today requires an explicit proposal + prefix per call — that's fundamentally incompatible with "no operator action" | MEDIUM | Needs a small config surface (Django setting or DB table of proposals/prefixes to watch) — new, but same shape as existing `SITE_TELESCOPE_MAP`-style static config already in `calendar_utils.py`. |
+| Adapter consolidation — adapters create/update `CampaignRun`s instead of writing `CalendarEvent`s directly (ADAPT-01..03) | Structural prerequisite: outcome propagation onto `CampaignRun.run_status` is meaningless if the run that "requested" an observation doesn't exist as a `CampaignRun` in the first place for queue/classical syncs | HIGH | Rewires three modules that currently call `insert_or_create_calendar_event()` directly. **Depends on:** `campaign_reconciler.reconcile_run()` (v2.2) as the *only* thing allowed to write `CalendarEvent`s from then on — adapters become pure `CampaignRun` writers, exactly the separation the reconciler was built to enable. Also depends on Phase 26's settled identity-key mapping (each adapter's existing natural key → a `CampaignRun` natural key). |
+| Idempotent, no-churn create-or-update for automatically-created `CampaignRun`s | Every existing FOMO ingest path (`insert_or_create_campaign_run`, `insert_or_create_calendar_event`) already enforces this; an automatic path that re-writes/duplicates on every scheduled tick would be a regression, not a new risk | LOW | Direct reuse of `insert_or_create_campaign_run()` — no new mechanism needed, just adapters calling it instead of writing events. |
+| Terminal-outcome propagation for the simple 1:1 case (one `CampaignRun` realised by exactly one `ObservationRecord`) | This is issue #37's original Stage 4 ask, in its simplest form, and the case FOMO's existing status vocabularies (`_FAILURE_PREFIX_BY_STATUS`, `map_observation_status`) already model per-record | MEDIUM | **Depends on:** `CampaignRunObservation` (Phase 28) as the *only* legitimate source of "which record(s) belong to this run" — must never infer the link from date/instrument overlap at propagation time; that inference is attribution's job and already requires a staff confirmation (ATTRIB-03) before a `CampaignRunObservation` row exists at all. |
+| Automatic derivation never fires ahead of evidence | A run with zero linked `ObservationRecord`s, or all still pending, must not get a terminal `run_status` invented for it | LOW | Pure guard clause — same shape as `campaign_reconciler._skip_reason()`'s existing itemized-skip idiom. |
+| Automatic derivation is idempotent / non-flapping across repeated reconcile passes | The reconciler's whole design principle (re-derive from current state every call, per RECON-01) must extend to status derivation, or a scheduled job re-computing `run_status` every N minutes will produce visible churn/flapping | MEDIUM | **Depends on:** `campaign_reconciler.reconcile_run()`'s existing idempotent, level-triggered shape — status derivation should be one more pure function of current linked-record state, computed fresh each call, not an incremental state-machine transition. |
+| Status-vocabulary unification (STATUS-01/02, carried from v2.2) | Outcome propagation cannot compare "is this record's status worse/better than that one" without first collapsing LCO's (`WINDOW_EXPIRED`/`CANCELED`/`FAILURE_LIMIT_REACHED`/`NOT_ATTEMPTED`/`COMPLETED`), Gemini's (`ready` flag + ToO type), and `CampaignRun.RunStatus`'s own 8-value vocabulary onto one shared precedence order | MEDIUM–HIGH | **Depends on:** the four already-separate prefix maps (`_CLASSICAL_STATUS_PREFIX`, `_FAILURE_PREFIX_BY_STATUS`, a would-be `_RUN_STATUS_CALENDAR_PREFIX` moved into the reconciler, and `calendar_display_extras._TERMINAL_PREFIXES`) — this milestone is the first time they need to agree on more than *display*, they need to agree on *ranking* for aggregation. |
 
 ### Differentiators (Competitive Advantage)
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Operator-assisted attribution (suggested, not automatic, links) | None of the large facility tools studied (LCO/Gemini/ESO/ALMA/JWST) need this feature at all — they're single-source-of-truth systems where the award *is* created in the same system that schedules it. FOMO's distinctive problem is that it aggregates 4+ independent ingest paths (classical file, LCO queue sync, Gemini queue sync, campaign CSV/web submission) that can describe the *same* real allocation without knowing about each other. This is closer to library/catalog reconciliation (OpenRefine) than to any observatory tool. | MEDIUM-HIGH | OpenRefine's pattern is the load-bearing lesson: score/threshold + bulk-approve-the-confident-tail + hand-review only the ambiguous remainder. A queue that shows every candidate link at equal weight (no scoring, no bulk action) will not survive contact with the real backlog (FOMO's own dev DB already has one confirmed double-representation case: `CampaignRun` pk=1 vs. 11 LCO-sourced events for the same FTS/MuSCAT4 run). |
-| `source` provenance on every run (web submission / classical file / LCO queue / Gemini queue / CSV import) | No facility tool needs this either, for the same reason — FOMO is unusual in unifying heterogeneous ingest paths under one record. Distinct approval gating per source (only web submissions need staff approval) is a genuinely FOMO-specific requirement, not a pattern borrowed from elsewhere. | LOW-MEDIUM | Already scoped as a target feature; low technical risk, mostly a schema + branching-logic change with existing precedent (`ApprovalStatus`/`RunStatus` TextChoices already exist). |
-| Telescope-class-only allocation made visible (stage 2 of the pipeline) | LCO/Gemini/ALMA all support class-wide or facility-wide time (e.g. "any 1m0 in the network") but their own UIs generally show this as an instrument/proposal filter, not as a first-class calendar presence spanning many sites at once. FOMO surfacing a genuine class-wide award as one visible thing (00:00-23:59 that day, not pinned to a site) is a real gap-closer: today `telescope_class=None` and `site=None` look identical, which the milestone context explicitly flags as a live ambiguity bug. | MEDIUM | Directly named in target features; the differentiator is disambiguating "this failed to resolve" from "this is legitimately class-wide," which nothing in the facility tools studied needed to solve because they don't ingest free-text schedules from multiple sources. |
-| Unused/never-realised awarded time surfaced explicitly | LCO/Gemini both track this, but on a *separate reporting page*, not inline with the scheduling calendar — that's a deliberate, repeated pattern across two independent real systems worth following. A `CampaignRun` that stops at stage 1 (allocated, never acquires an `ObservationRecord`) is exactly this case in FOMO's model, and it's cheap to compute once the linkage exists. | LOW (data model already there) | Not explicitly named as a v2.2 target feature — flag as a natural, low-cost v2.3 candidate once linkage exists, following the "separate status page, not folded into the calendar" pattern from LCO/Gemini. |
+Not required for "feature complete," but where FOMO would visibly beat the ad-hoc status quo (a human periodically checking the LCO portal / an email from Gemini and updating a spreadsheet).
+
+| Feature | Value Proposition | Complexity | Notes / Dependencies |
+|---------|-------------------|------------|-----------------------|
+| Non-regressive, "any-success-wins" mixed-outcome aggregation for multi-record runs | Directly answers the milestone's own open design question and the stated anti-pattern risk — see "Open Design Question" below for the concrete recommended rule | HIGH | **Depends on:** `CampaignRunObservation` (enumerates the linked set), the unified status vocabulary above (to rank each record), and a guard against overwriting a manually-set terminal status (`mark_cancelled`/`mark_weather_failure`) or a downstream human-owned lifecycle stage (`REDUCED`/`PUBLISHED`). |
+| Provenance-blind coverage-gap analysis (GAPB-01, carried from v2.2) | `campaign_gap.claimed_dates()` today only reads `CampaignRun` rows created by CSV import / web submission — once queue/classical syncs also write `CampaignRun`s (via ADAPT-01..03), gap analysis becomes correct for *all* sources instead of undercounting real allocated nights as "unclaimed" | MEDIUM | **Depends on:** ADAPT-01..03 shipping first — gap analysis gets this "for free" once every ingest path writes through the same model, it just needs to stop being source-scoped. |
+| Unused-allocation visual distinction (UNUSED-01, carried from v2.2) | Distinguishes "allocated but never observed" (a class-wide/queue window that expired with zero completed records) from "allocated and used" on the calendar — a genuinely new signal, not available from any of LCO/Gemini/SOAR's own UIs in this composed form | MEDIUM | **Depends on:** outcome propagation existing first (needs to know a window's terminal state to render it as unused vs. used) and the reconciler's existing container-vs-per-night event distinction (v2.2 four-stage pipeline). |
+| Per-record status detail surfaced alongside the aggregate (e.g. "3/4 nights completed, 1 weathered" rather than collapsing straight to one field) | Mirrors what CI dashboards (GitHub Actions per-job status inside one workflow conclusion) and Kubernetes Job's `succeededIndexes`/`failedIndexes` both preserve — losing this detail is exactly how "one bad observation regresses the whole run" becomes invisible/undebuggable to an operator | MEDIUM | **Depends on:** `CampaignRunObservation` already carrying the per-record link; this is a display/summary feature over data that already exists once ADAPT-01..03 + outcome propagation ship — no new model needed, a computed property or the approval-queue table's own render helpers would do. |
+| Reusing the attribution queue's confirm/dismiss gate for outcome-propagation edge cases (e.g. an ambiguous newly-discovered record that could belong to more than one open `CampaignRun`) | Turns an automatic-sync failure mode (mis-attributed outcome) into an operator-visible queue item instead of a silent wrong write — this is exactly the trust property Phase 28 built for record *discovery*, extended to outcome propagation | MEDIUM | **Depends on:** `campaign_attribution.py`'s existing scored-candidate + hard campaign/target boundary gate machinery, and its existing HIGH/MEDIUM/LOW confidence banding — outcome propagation should only auto-apply against a `CampaignRunObservation` row that already exists (staff-confirmed), never against a raw attribution *candidate*. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|------------------|-------------|
-| Auto-merge/auto-link suspected duplicates above a confidence threshold, no human step | Feels like it saves staff time; OpenRefine itself supports a "match each cell to its best candidate" bulk action, so it's a real pattern elsewhere. | FOMO's milestone context is explicit and correct that this is a merge/deduplication trap: `CampaignRun` pk=1 (the award) and its 11 LCO-sourced events (the realisation) are **not duplicates** — collapsing them would destroy the very distinction v2.2 exists to create. Any auto-link risks quietly merging two genuinely different real-world runs that merely share a telescope+date (e.g. two different campaigns both using FTS the same week). | Keep every suggested link human-confirmed (already the stated design: "never a silent merge"). Reserve threshold-based bulk action, if added later, for *link confirmation* only — never for `CampaignRun` record merging. |
-| One unified status vocabulary across all four ingest sources, done now | Feels like obvious cleanup once linkage exists — you'd naturally want `_CLASSICAL_STATUS_PREFIX`, `_FAILURE_PREFIX_BY_STATUS`, `_RUN_STATUS_CALENDAR_PREFIX`, and `calendar_display_extras._TERMINAL_PREFIXES` to agree by more than convention. | Correctly identified in PROJECT.md as **deliberately deferred to v2.3** — bundling it into v2.2 conflates "build the linkage" with "rationalize four independently-evolved status enums," doubling the blast radius of an already-substantial migration/attribution phase. | Ship v2.2's linkage first: prove the canonical-record model works, *then* unify vocabularies once there's one source of truth to unify them against. |
-| Rewiring all four ingest adapters to write `CampaignRun` directly instead of writing `CalendarEvent`/`ObservationRecord` and reconciling after the fact | Feels like the "real" fix — if `CampaignRun` is canonical, why not have every adapter create it directly and skip reconciliation entirely? | Correctly deferred to v2.3 in PROJECT.md. Doing it now means changing four working, tested, independently-evolved sync commands (LCO, Gemini, classical, campaign CSV/web) in the same milestone as building and proving the reconciler and attribution model — a large simultaneous-change surface with no fallback if the canonical-record design needs adjustment after real use. | Prove the reconciler against *existing* adapter output first (attribution, not rewrite). Only rewire adapters to write `CampaignRun` natively once the model is validated in production. |
-| A fully-automated scheduler that decides real telescope time allocation (à la GEMMA/astroplan priority scheduler) | Tempting scope creep once the domain research turns up real schedulers — "why not have FOMO actually schedule things?" | Out of scope by a wide margin: FOMO doesn't award time (TACs and facility portals do) or control telescopes; its job is coordination/visibility across records that already exist elsewhere. Building a scheduler duplicates work every facility studied already does better, with none of their operational safeguards (weather feeds, instrument constraints, guide-star availability). | Stay a reconciler/visibility layer, not a scheduler. This is consistent with FOMO's existing architecture (`solsys_code/telescope_runs.py` computes *observability*, not allocation). |
-| Real-time/live-updating reconciliation (webhooks, sub-minute refresh) matching GEMMA's real-time replanning | Sounds like parity with state-of-the-art facility tools. | FOMO's existing sync commands are all cron/manual-invocation batch jobs (management commands), and nothing in the milestone or the domain requires sub-day latency — `CampaignRun`s are awarded weeks/months ahead, and even LCO's own placed-block sync is periodic, not push-based. Real-time infrastructure (webhooks, queues, always-on workers) is a large new operational surface for no demonstrated user need. | Keep the reconciler an idempotent, periodically-invoked management command, matching every existing FOMO sync command's shape. |
-| Carry-forward / rollover semantics for unused allocated time | LCO's own docs make this sound plausible to add ("shouldn't unused nights roll to next window?"). | LCO explicitly does **not** allow unused-hour carryover between semesters — this is a deliberate telescope-time-allocation policy decision made by TACs/facilities, not a data-modeling gap. FOMO surfacing "never used" time is valuable (visibility); FOMO *inventing* rollover semantics on top of a facility's award would misrepresent the actual award and could mislead a PI about time they don't actually have. | Show unused/never-realised time as a fact ("this run never acquired a record"), never as a projected future re-allocation. |
+| "Any failure regresses the run" naive worst-status-wins aggregation | Looks like the simplest possible rule — just take the worst terminal status across all linked records | This is the exact anti-pattern the milestone flags: a class-wide run with 9/10 nights `COMPLETED` and 1 `WEATHER_TECH_FAILURE` would silently report as `WEATHER_TECH_FAILURE` overall, hiding real science data behind a status that reads as "this run got nothing" | Any-success-wins-once-all-terminal rule (see Open Design Question) — only regress to a failure status when *every* linked record is a failure |
+| Real-time/webhook-push ingestion from LCO/Gemini/SOAR | Sounds more "automatic" than polling on a schedule | None of the three facilities' APIs FOMO already integrates with expose an inbound webhook FOMO could register for (all existing FOMO/TOM-Toolkit facility clients are pull-based, per-record REST calls); building a webhook receiver is new attack surface and new infra (public endpoint, auth) for a milestone whose own spike is choosing between cron and a task queue, both pull-based | Poll on a documented recurring schedule (the milestone's own chosen mechanism) — "unattended" does not require "instant" |
+| Unbounded automatic retry/backoff loops on facility API failures within a single sync pass | Feels more resilient than failing fast | Contradicts FOMO's own existing convention (SYNC-08: explicit timeout, single attempt, no retry loop, precisely to bound a single sync run's worst-case duration and avoid hammering a struggling upstream API); a stuck retry loop inside an unattended job is worse than a fast, visible failure the next scheduled run will naturally retry | Single attempt with a timeout (existing pattern) + let the next scheduled invocation be the retry — this is what "recurring schedule" already buys for free |
+| Silent auto-creation of a `CampaignRun` for any newly-discovered orphan `ObservationRecord`, with no staff confirmation | Would make "fully automatic" feel more complete — no queue to check | Directly violates the hard rule Phase 28 was built around (ATTRIB-03 — no association without explicit staff confirmation) and repeats the exact anti-pattern quick task `260705-l1v` fixed once already (silently fabricating a placeholder record rather than surfacing ambiguity) | Auto-*discovery* is fine (the unattended sweep replacing `backfill_lco_observation_records`'s manual invocation); auto-*attribution* to an existing `CampaignRun` stays gated behind the existing confirm/dismiss queue |
+| A full notification/alerting pipeline (Slack, email digest, PagerDuty-style escalation) for sync failures | Sounds like the "proper" way to make a failure visible | Well beyond the stated bar ("a failure is visible to an operator rather than silently disappearing") and a genuinely new integration surface (credentials, delivery reliability, its own failure modes) for a milestone that's about sync/propagation, not ops tooling | A log line + an operator-checkable "last successful run" signal (status file, or a queryable timestamp) satisfies the stated requirement; a notification pipeline is a reasonable *future* differentiator, not this milestone's scope |
+| Rewriting `run_status` retroactively for runs already in a human-owned downstream lifecycle stage (`REDUCED`/`PUBLISHED`) based on late-arriving observation data | Seems "more correct" to keep everything in sync | Those stages represent human judgment about post-observation work (data reduction, publication) that has nothing to do with an `ObservationRecord`'s facility-reported terminal status — auto-overwriting them would erase real human progress with a machine's stale inference | Automatic derivation only ever writes `run_status` while the run is at or before `OBSERVED`; once a human has advanced it past that point, automatic propagation stops touching the field (see Open Design Question) |
+
+## Open Design Question: Mixed-Outcome `run_status` Derivation
+
+This is the milestone's explicitly flagged open question. Recommended rule, informed by FOMO's own idempotent-reconciler idiom and by CI/CD "conclusion" aggregation precedent (GitHub Actions job-matrix conclusions, Kubernetes Job `succeededIndexes`/`failedIndexes`):
+
+1. **Compute fresh every reconcile pass, from `CampaignRunObservation` alone.** Never mutate `run_status` incrementally from an event stream — derive it as a pure function of the *current* set of linked `ObservationRecord`s, exactly the way `campaign_reconciler.reconcile_run()` already re-derives calendar state from current run fields on every call. This guarantees RECON-01's "running it twice changes nothing" property extends to status.
+
+2. **Classify each linked record into three buckets**, reusing the vocabulary the unification work (STATUS-01/02) produces: `PENDING` (not yet terminal), `SUCCESS` (`COMPLETED`), `FAILURE` (`WINDOW_EXPIRED`/`CANCELED`/`FAILURE_LIMIT_REACHED`/`NOT_ATTEMPTED`, and Gemini's equivalent terminal-negative states).
+
+3. **Aggregate rule, in this precedence order:**
+   - Zero linked records → don't touch `run_status` (no evidence yet).
+   - Any record still `PENDING` → `PLANNED` (in progress; don't jump to a terminal verdict early).
+   - All records terminal, **at least one `SUCCESS`** → `OBSERVED` (any-success-wins — a 9-succeeded/1-weathered class-wide run reports as observed, because usable data exists; this is the concrete fix for "a single bad observation regressing an otherwise-successful multi-record run").
+   - All records terminal, **all `FAILURE`** → `WEATHER_TECH_FAILURE` (or `CANCELLED`, if every failure was itself a cancellation) — only a wholly-failed run regresses.
+
+4. **Two sticky exceptions, both borrowed from patterns FOMO already ships:**
+   - A staff-set terminal status (`mark_cancelled`/`mark_weather_failure`, already shipped in v2.1/Phase 23) is authoritative and must not be silently overwritten by a later automatic derivation pass — mirror the reconciler's existing `_may_write()`/ownership-guard idiom, applied to the status field instead of the calendar event.
+   - Once a human has advanced `run_status` past `OBSERVED` (into `REDUCED`/`PUBLISHED`), automatic derivation stops writing that field entirely — those stages are human judgment, not facility-reported outcome.
+
+**Complexity: HIGH.** Not because the rule itself is complex, but because it touches the status-vocabulary unification, requires a reliable per-record terminal classification for three different facility APIs, and needs the sticky-exception guard to avoid regressing either a staff decision or downstream human lifecycle progress — get any one of those three wrong and the milestone reproduces the exact anti-pattern it's trying to avoid.
 
 ## Feature Dependencies
 
 ```
-Companion-record generalization (CalendarEventTelescopeLabel -> run FK)
-    └──requires──> nothing new (extends existing sidecar model)
+Status-vocabulary unification (STATUS-01/02)
+    └──requires──> (LCO/Gemini/SOAR per-record terminal-status maps already exist, just unify them)
 
-ObservationRecord -> CampaignRun linkage
-    └──requires──> Companion-record generalization decided first (same migration-shape questions: nullable FK, natural-key mapping)
+Adapter consolidation (ADAPT-01..03)
+    └──requires──> campaign_reconciler.reconcile_run() (v2.2, already shipped)
+    └──requires──> Phase 26's settled per-adapter identity-key mapping (v2.2, already shipped)
 
-Operator-assisted attribution UI
-    └──requires──> Both linkage FKs existing (companion record + ObservationRecord link)
-    └──requires──> source/telescope_class fields (to disambiguate "legitimately class-wide" from "unresolved" before suggesting links)
+Unattended scheduling
+    └──requires──> Adapter consolidation (ADAPT-01..03)
+    └──requires──> Failure visibility (a silently-broken unattended job is worse than a manually-run one)
+    └──requires──> Watch-list config (replaces per-invocation --proposal/--name-prefix args)
 
-The reconciler (four-stage pipeline)
-    └──requires──> Both linkage FKs existing
-    └──requires──> source/telescope_class fields (stage 1 vs stage 2 branch on telescope_class)
-    └──enhances──> Coverage-gap analysis (future v2.3: gap analysis becomes provenance-blind once reconciler is the single writer of run-derived events)
+Terminal-outcome propagation (simple 1:1 case)
+    └──requires──> CampaignRunObservation (Phase 28, already shipped)
+    └──requires──> Status-vocabulary unification (STATUS-01/02)
 
-Spike (natural keys, adapter identity mapping, migration/attribution strategy)
-    └──blocks──> Operator-assisted attribution UI (can't design the confirm/reject queue without knowing what "same run" means per source)
-    └──blocks──> The reconciler (can't safely re-derive events without knowing the migration/backfill strategy for existing data)
+Mixed-outcome aggregation (multi-record case, the open design question)
+    └──requires──> Terminal-outcome propagation (simple case)
+    └──requires──> CampaignRunObservation as the sole source of "which records belong to this run"
 
-Unified status vocabulary (v2.3, anti-feature-flagged above if pulled into v2.2)
-    └──conflicts──> doing it inside v2.2 (see Anti-Features)
+Provenance-blind coverage-gap analysis (GAPB-01)
+    └──requires──> Adapter consolidation (ADAPT-01..03) — queue/classical CampaignRuns must exist first
 
-Adapter rewrite to write CampaignRun directly (v2.3)
-    └──conflicts──> doing it inside v2.2 (see Anti-Features)
+Unused-allocation visual distinction (UNUSED-01)
+    └──requires──> Terminal-outcome propagation (needs a window's terminal state to render used vs. unused)
+    └──requires──> v2.2 four-stage window pipeline (container vs. per-night events)
+
+Attribution-queue reuse for outcome-propagation edge cases ──enhances──> Terminal-outcome propagation
+    (does not gate it — only needed for ambiguous newly-discovered records, not the common case)
 ```
 
 ### Dependency Notes
 
-- **The spike blocks both the reconciler and the attribution UI:** this is already reflected in the target-feature list ("settles what milestone questioning did not"), and the research above reinforces why it has to go first — the OpenRefine lesson (score + bulk-approve + hand-review-the-tail) can't be designed without first knowing what a "candidate match" even looks like per source, which is exactly the identity-mapping question the spike is scoped to answer.
-- **Companion-record generalization should land before the `ObservationRecord` link**, not alongside it, because it's an extension of an existing, tested pattern (`CalendarEventTelescopeLabel`) while the `ObservationRecord` link is new surface (a `CampaignRun`-side many-to-many, per PROJECT.md, since `ObservationRecord` is third-party). Sequencing the known-shape change first de-risks the migration approach for the newer one.
-- **The reconciler enhances, but should not be gated on, coverage-gap analysis becoming provenance-blind** — that's explicitly v2.3 scope. The dependency arrow points the other way: gap analysis improvement *depends on* the reconciler existing, not vice versa. Don't let "let's also fix gap analysis" creep into a v2.2 phase.
-- **Unused/never-realised-time visibility (identified as a differentiator above) depends on the same linkage the reconciler needs**, so it's a near-zero-marginal-cost addition once v2.2's core model lands — worth flagging to the roadmap as a candidate final v2.2 phase or immediate v2.3 opener, following the LCO/Gemini pattern of a separate status view rather than folding it into the calendar UI itself.
+- **Adapter consolidation must land before unattended scheduling is meaningful:** scheduling the *current* adapters unattended would just automate direct `CalendarEvent` writes with no `CampaignRun` behind them — outcome propagation would have nothing to propagate to. This is why the milestone context lists ADAPT-01..03 as a target feature rather than a "nice to have."
+- **Outcome propagation must never bypass `CampaignRunObservation`:** the temptation, once adapters write `CampaignRun`s directly, is to compute status straight from a live `ObservationRecord` query filtered by date/instrument overlap — that recreates attribution logic without its staff-confirmation gate (ATTRIB-03) and would silently regress a hard rule the project already paid a full phase (28) to establish structurally.
+- **Status-vocabulary unification is a hard prerequisite, not parallel work,** for both terminal-outcome propagation and mixed-outcome aggregation — you cannot rank "is this record's outcome worse than that one" across three different facility vocabularies without first collapsing them onto one ordered scale.
+- **GAPB-01/UNUSED-01 are downstream beneficiaries, not independent features:** both were carried forward from v2.2 specifically *because* they're direct consequences of ADAPT-01..03 landing, per PROJECT.md's own framing — they don't need separate design work beyond "read from the now-complete `CampaignRun` set."
 
 ## MVP Definition
 
-### Launch With (v2.2 core, per PROJECT.md target features)
+### Launch With (v2.3 core — must ship for "feature complete")
 
-- [ ] Spike settling natural keys, adapter identity mapping, and migration/attribution strategy — nothing else can be soundly designed without this
-- [ ] Companion record generalization (`CalendarEventTelescopeLabel` → `run` FK) — extends a proven pattern, lowest-risk linkage
-- [ ] `source`/`telescope_class` fields on `CampaignRun` — needed to disambiguate stage-1-vs-stage-2 pipeline branching and to gate approval correctly per source
-- [ ] `ObservationRecord` → `CampaignRun` linkage — the second half of "a run owns what realises it"
-- [ ] The reconciler (four-stage pipeline) — the actual deliverable; retires `backfill_range_calendar_events`
-- [ ] Operator-assisted attribution for *existing* data — without this, the reconciler either fabricates duplicate events for the 19 already-invisible runs and the double-represented FTS run, or leaves them stuck; this is not optional polish, it's how existing data becomes usable under the new model
+- [ ] Phase-time spike settling cron vs. task queue against real deployment constraints — every other unattended-scheduling decision depends on this
+- [ ] Adapter consolidation (ADAPT-01..03) — adapters write `CampaignRun`s, reconciler owns all `CalendarEvent` writes
+- [ ] Unattended, watch-list-driven recurring invocation of all three sync commands, with failure visible to an operator
+- [ ] Watch-list-driven discovery sweep replacing `backfill_lco_observation_records`'s per-invocation args
+- [ ] Status-vocabulary unification (STATUS-01/02)
+- [ ] Terminal-outcome propagation for the simple 1:1 case (single linked `ObservationRecord` per run)
+- [ ] Mixed-outcome aggregation rule for multi-record runs (the "any-success-wins, sticky staff/lifecycle overrides" rule above) — this is explicitly in scope per the milestone's own open question, not deferrable
 
-### Add After Validation (v2.3 candidates, already flagged as deferred in PROJECT.md)
+### Add After Validation (v2.3.x, if the mixed-outcome rule needs iteration)
 
-- [ ] Unified status vocabulary across all four prefix maps/enums — do this once there's one canonical model to unify against, not before
-- [ ] Rewire the four ingest adapters to write `CampaignRun` directly instead of `CalendarEvent`/`ObservationRecord` — do this once the reconciler is proven against real (not synthetic) attribution outcomes
-- [ ] Provenance-blind coverage-gap analysis (count LCO/Gemini/classical-sourced events, not just `CampaignRun` rows) — natural follow-on once the reconciler makes those events reliably `run`-linked
-- [ ] Explicit "unused/never-realised allocation" rollup view — cheap once linkage exists; model it as a separate status view (LCO/Gemini pattern), not a calendar overlay
+- [ ] Per-record status detail surfaced in the UI alongside the aggregate (differentiator, not required for the propagation mechanism itself to work)
+- [ ] Provenance-blind coverage-gap analysis (GAPB-01) and unused-allocation visual distinction (UNUSED-01) — already carried forward, land once ADAPT-01..03 is stable
 
-### Future Consideration (defer indefinitely / out of scope)
+### Future Consideration (post-v2.3)
 
-- [ ] Any form of automated scheduling/allocation decision-making (GEMMA/astroplan-priority-scheduler-style) — not FOMO's job; FOMO coordinates and visualizes, it doesn't award or schedule telescope time
-- [ ] Real-time/webhook-driven reconciliation — no demonstrated need beyond FOMO's existing periodic-management-command cadence
-- [ ] Allocation rollover/carryover semantics — actively contradicts real facility policy (LCO explicitly disallows it); FOMO should reflect reality, not invent policy
+- [ ] Reusing the attribution queue for outcome-propagation edge cases (ambiguous newly-discovered records) — only needed once real unattended operation surfaces such a case
+- [ ] Any notification/alerting pipeline beyond log-based failure visibility
+- [ ] ESO sync (SEED-001/002 stay dormant this milestone)
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Spike (natural keys / adapter mapping / migration strategy) | HIGH (blocks everything else) | LOW-MEDIUM | P1 |
-| Companion record generalization | MEDIUM | LOW | P1 |
-| `source`/`telescope_class` fields | MEDIUM | LOW | P1 |
-| `ObservationRecord` → `CampaignRun` linkage | HIGH | MEDIUM | P1 |
-| The reconciler (four-stage pipeline) | HIGH | HIGH | P1 |
-| Operator-assisted attribution UI | HIGH | MEDIUM-HIGH | P1 |
-| Unused/never-realised allocation rollup | MEDIUM | LOW (once linkage exists) | P2 (v2.3 opener candidate) |
-| Unified status vocabulary | LOW-MEDIUM (developer-facing, not user-facing) | MEDIUM | P3 (v2.3) |
-| Adapters write `CampaignRun` natively | MEDIUM (removes reconciler as sole writer) | HIGH | P3 (v2.3) |
-| Provenance-blind gap analysis | MEDIUM | LOW (once linkage exists) | P3 (v2.3) |
-| Automated scheduling/allocation | N/A | N/A | Out of scope |
-| Real-time reconciliation | LOW | HIGH | Out of scope |
-| Allocation carryover semantics | N/A | N/A | Anti-feature |
+|---------|------------|----------------------|----------|
+| Adapter consolidation (ADAPT-01..03) | HIGH | HIGH | P1 |
+| Unattended scheduling + failure visibility | HIGH | MEDIUM | P1 |
+| Status-vocabulary unification | HIGH | MEDIUM | P1 |
+| Terminal-outcome propagation (1:1 case) | HIGH | MEDIUM | P1 |
+| Mixed-outcome aggregation rule | HIGH | HIGH | P1 |
+| Provenance-blind coverage-gap analysis | MEDIUM | LOW (once ADAPT-01..03 lands) | P2 |
+| Unused-allocation visual distinction | MEDIUM | MEDIUM | P2 |
+| Per-record status detail surfaced | MEDIUM | LOW | P2 |
+| Attribution-queue reuse for propagation edge cases | LOW–MEDIUM | MEDIUM | P3 |
+| Notification/alerting pipeline | LOW (for this milestone) | HIGH | P3 (explicitly deferred) |
 
 **Priority key:**
-- P1: Must have for v2.2 launch
-- P2: Should have, strong v2.3-opener candidate given near-zero marginal cost once P1 linkage exists
-- P3: Correctly deferred to v2.3 per PROJECT.md's own scoping
+- P1: Must have — this is what makes the branch behind PR #43 "feature complete"
+- P2: Should have — direct, low-cost consequence of P1 landing
+- P3: Nice to have — real, but not part of this milestone's stated bar
 
-## Competitor Feature Analysis
+## Cross-Domain Pattern Analysis
 
-| Feature | LCO Observation Portal | Gemini OT/GPP | ESO P2 | ALMA OT | FOMO's approach (v2.2) |
-|---------|------------------------|---------------|--------|---------|-------------------------|
-| Award vs. execution representation | Proposal (award) → Request → sub-request states | Program (award) → OT-defined observations/visits, GEMMA replans in real time | Single OB, `obStatus` field mutates in place (award and execution are the same row) | Project → ObsUnitSet → SB, SB *repeated* to reach allocation | `CampaignRun` (award, canonical) owns many `ObservationRecord`s (executions) via explicit FK/M2M — closer to LCO/ALMA's separated model than ESO's conflated one |
-| Unused-time visibility | Separate proposal-accounting page; no semester carryover | Separate "Schedules and Queue" percent-executed page, updated daily | Not surfaced as a distinct concept (status is per-OB, not aggregated) | Tracked via Executive time balance, not user-facing per-project | Deferred to v2.3; recommend following LCO/Gemini's separate-view pattern, not folding into the calendar |
-| Progressive window narrowing | Yes — window banner → placed block (already mirrored in FOMO's LCO sync) | Implicit via GEMMA real-time replanning; not user-facing as discrete stages | No — OB is prepared once, then executed; no intermediate narrowing UI | No — SB either executes or doesn't per attempt | Four explicit stages (site → class → scheduled → completed), more granular and more visible than any single system studied |
-| Cross-source reconciliation / attribution of independently-created records describing the same real allocation | Not applicable — single source of truth | Not applicable — single source of truth | Not applicable — single source of truth | Not applicable — single source of truth | **Novel to FOMO** — no facility tool needs this because none of them aggregate independent ingest paths; closest real-world analog is OpenRefine-style reconciliation (score + bulk-approve + hand-review), not any observatory tool |
+| Pattern | How CI/CD or Kubernetes Handles It | FOMO's Equivalent | Our Approach |
+|---------|--------------------------------------|--------------------|---------------|
+| Many child task outcomes → one parent status | GitHub Actions: workflow "conclusion" is `failure` only if a *required* job failed; a matrix with some failing legs still shows per-leg detail, not just one collapsed verdict | `CampaignRun.run_status` from N linked `ObservationRecord`s via `CampaignRunObservation` | Any-success-wins-once-all-terminal (see Open Design Question), never a naive worst-status-wins collapse |
+| Partial failure within a batch of indexed sub-tasks | Kubernetes Job (1.28+): `succeededIndexes`/`failedIndexes` are tracked as sets, not collapsed to a single boolean, precisely so partial progress isn't lost | Per-night/per-record status inside a multi-night `CampaignRun` | Preserve per-record detail (via `CampaignRunObservation`) even after computing the aggregate — don't discard the data that produced the verdict |
+| Idempotent, level-triggered status computation | Kubernetes controller-runtime: reconcilers must be idempotent — same observed state always yields the same outcome, recomputed from scratch each pass, never incrementally mutated | `campaign_reconciler.reconcile_run()` (v2.2, already ships exactly this for calendar events) | Extend the same idiom to `run_status` derivation — one more pure function of current state, not a new state machine |
+| Ownership/authority guard before an automatic writer touches shared state | Kubernetes: a controller must not clobber a field another controller (or a human, via `kubectl edit`) owns | `campaign_reconciler._may_write()` already guards `CalendarEvent` writes against staff/attribution ownership | Apply the identical guard shape to `run_status`: automatic derivation may only write while the run is at/before `OBSERVED` and has no staff-set terminal override |
 
 ## Sources
 
-- [Open Access Allocation Process - Las Cumbres Observatory](https://lco.global/observatory/proposals/open-access-time-allocation-process/)
-- [Time Refund Policy - Las Cumbres Observatory](https://lco.global/documentation/time-refund-policy/)
-- [LCO Developers](https://developers.lco.global/)
-- [Observing Tool (OT) | Gemini Observatory](https://www.gemini.edu/observing/phase-ii/ot)
-- [Schedules and Queue | Gemini Observatory](https://www.gemini.edu/observing/schedules-and-queue)
-- [Time Allocation Committees (TAC) processes | Gemini Observatory](https://www.gemini.edu/observing/phase-i-proposing-time/tac)
-- [Program execution status - ESO Operations Helpdesk](https://support.eso.org/en-US/kb/articles/program-execution-status)
-- [After the execution my OBs have "status" C, or A and M. What does it mean? - ESO Operations Helpdesk](https://support.eso.org/en-US/kb/articles/after-the-execution-my-obs-have-status-c-or-a-and-m-what-does-it-mean)
-- [What is an observing block? - ESO Operations Helpdesk](https://support.eso.org/en-US/kb/articles/what-is-an-observing-block)
-- [ALMA Observing Tool User Manual](https://almascience.nao.ac.jp/documents-and-tools/cycle-0/alma-ot-user-manual)
-- [Cycle 13 Proposer's Guide — ALMA Science Portal](https://almascience.eso.org/proposing/proposers-guide)
-- [astroplan: An Open Source Observation Planning Package in Python — IOPscience](https://iopscience.iop.org/article/10.3847/1538-3881/aaa47e)
-- [Observations — TOM Toolkit documentation](https://tom-toolkit.readthedocs.io/en/latest/api/tom_observations/)
-- [Planning and Scheduling Observations with Hubble and Webb | STScI](https://www.stsci.edu/contents/newsletters/2025-volume-42-issue-02/planning-and-scheduling-observations-with-hubble-and-webb)
-- [APT Visit Planner - JWST User Documentation](https://jwstcf.stsci.edu/jwst-astronomers-proposal-tool-overview/apt-workflow-articles/apt-visit-planner)
-- [Observation Specifications - JWST User Documentation](https://jwst-docs.stsci.edu/jppom/observation-specifications)
-- [Reconciling | OpenRefine](https://openrefine.org/docs/manual/reconciling)
-- [Reconciliation API | OpenRefine](https://openrefine.org/docs/technical-reference/reconciliation-api)
-- `.planning/PROJECT.md` (v2.2 "One Canonical Run Record" milestone context, existing v1.0-v2.1 shipped feature history)
+- FOMO codebase (HIGH confidence, primary source): `/home/tlister/git/fomo_devel/.planning/PROJECT.md`, `solsys_code/campaign_reconciler.py`, `solsys_code/models.py` (`CampaignRun`, `CampaignRunObservation`), `solsys_code/campaign_utils.py` (`map_observation_status`), `solsys_code/management/commands/sync_lco_observation_calendar.py` (`_FAILURE_PREFIX_BY_STATUS`), `solsys_code/management/commands/load_telescope_runs.py` (`_CLASSICAL_STATUS_PREFIX`), `solsys_code/templatetags/calendar_display_extras.py` (`_TERMINAL_PREFIXES`)
+- [Kubernetes 1.28: Improved failure handling for Jobs](https://kubernetes.io/blog/2023/08/21/kubernetes-1-28-jobapi-update/) — per-index status tracking, MEDIUM confidence (official k8s blog)
+- [Kubernetes Jobs documentation](https://kubernetes.io/docs/concepts/workloads/controllers/job/) — MEDIUM confidence (official docs)
+- [Kubebuilder Book — Good Practices](https://book.kubebuilder.io/reference/good-practices.html) — idempotent reconciler pattern, MEDIUM confidence (official framework docs)
+- [The Reconciler Pattern](https://www.farishuskovic.dev/blog/k8s-reconciler-pattern/) — LOW-MEDIUM confidence (independent blog, corroborated by the official docs above)
+- General CI/CD "conclusion" aggregation (GitHub Actions job/workflow status model) — LOW-MEDIUM confidence, drawn from general industry knowledge rather than a single cited source
 
 ---
-*Feature research for: observatory scheduling / telescope time-allocation coordination*
-*Researched: 2026-07-26*
+*Feature research for: automatic run sync and outcome propagation, FOMO v2.3*
+*Researched: 2026-09-01*

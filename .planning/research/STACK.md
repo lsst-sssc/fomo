@@ -1,252 +1,142 @@
 # Stack Research
 
-**Domain:** Django ORM patterns for linking a first-party model to pip-installed third-party models, and idempotent-reconciler design — FOMO v2.2 "One Canonical Run Record"
-**Researched:** 2026-07-26
-**Confidence:** HIGH (grounded in this repo's already-installed package source for `tom_calendar`/`tom_observations`, this repo's own existing sidecar/no-churn code, and Django's stable migration-operation semantics; MEDIUM on the small set of Django `RenameModel` edge-case tickets pulled via web search)
+**Domain:** Unattended/periodic execution of Django management commands, multi-proposal watch-list configuration, and failure visibility for a single-server, low-traffic TOM Toolkit deployment — FOMO v2.3 "Automatic Run Sync & Outcome Propagation"
+**Researched:** 2026-09-01
+**Confidence:** MEDIUM overall — HIGH on this repo's own architecture (direct source inspection: existing management commands, `_notify_staff`, settings.py, per-run failure isolation already established in `campaign_reconciler.py`); MEDIUM on the ecosystem comparison (cron vs. Celery/huey/APScheduler/django-crontab), which rests on web search rather than a primary-source library read, but is corroborated across multiple independent sources on facts that are stable and not contested (django-crontab's abandonment, Celery's broker requirement, huey's consumer-process requirement).
+
+**This file supersedes the previous contents** (dated 2026-07-26, scoped to the v2.2 "One Canonical Run Record" milestone's ORM/reconciler-idempotency patterns — that milestone shipped 2026-09-01). This is a narrow, question-scoped rewrite for v2.3's specific unattended-scheduling question, not a full project stack audit — see `milestone_context` for what's deliberately out of scope (adapter consolidation, outcome propagation, and the other v2.3 target features have their own research elsewhere in this milestone's research pass).
 
 ## Headline Finding
 
-**No new dependency is warranted for v2.2.** Every piece of this milestone — the companion-record generalisation, the `ObservationRecord` linkage, the reconciler, and its idempotency tests — is built from Django's own ORM (`ForeignKey`, `ManyToManyField` with a custom `through`, `migrations.RenameModel`/`AddField`) plus the ecosystem already installed for this project (Django 5.2.13 via `tomtoolkit==3.0.0a9`, `django.test.utils.CaptureQueriesContext`). This section documents the *techniques*, not new packages, because that is what actually blocks or unblocks the roadmap here.
-
-This is a **milestone addendum**, not a full project stack. Prior milestones' STACK.md findings (e.g. v2.1's `rapidfuzz` for site fuzzy-matching) remain in force and are not re-litigated; they're referenced only where directly relevant (see "What NOT to Use").
+**Plain OS-level cron invoking `python manage.py <command>` — no new Python dependency.** Every one of Celery+celery-beat, huey, APScheduler, django-crontab, and django-cron was considered and rejected for this specific deployment. The reasoning is not "cron is simpler" in the abstract — it is that **this codebase's commands are already built to the shape cron rewards** (idempotent, no-churn, per-item failure isolation — see `campaign_reconciler.reconcile_run()`/`reconcile_campaign_runs`, `insert_or_create_calendar_event()`), and every alternative's complexity buys a capability (distributed workers, sub-second scheduling precision, in-app schedule editing, retry/backoff queues) that a single-server, three-to-five-jobs-a-day astronomy coordination tool does not need. This finding directly informs the milestone's own planned "phase-time investigation spike" — treat it as the spike's starting hypothesis to confirm against the real target host, not a substitute for that spike.
 
 ## Recommended Stack
 
-### Core Technologies (already installed — no action needed)
+### Core Technologies
 
-| Technology | Version (installed) | Purpose in v2.2 | Why |
+| Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Django | 5.2.13 | ORM relations, migrations, admin, test framework | Pinned transitively via `tomtoolkit>=2.31.4` (currently `3.0.0a9`); `ForeignKey`/`ManyToManyField(through=...)`/`RenameModel`/`RenameField`/`CaptureQueriesContext` have been stable, unchanged APIs since well before Django 4, so nothing here is Django-5.2-specific or at risk from the project's 3.10–3.12 / Django-2.1-floor compatibility window. |
-| `tom_calendar` (bundled in `tomtoolkit`, not separately pip-pinned) | ships inside `tomtoolkit==3.0.0a9` | Owns `CalendarEvent` (plain `AutoField` PK, no custom manager) | Confirmed by reading the installed `tom_calendar/models.py` directly — `CalendarEvent` has no hooks for us to attach to except a reverse relation, which is exactly what the existing `CalendarEventTelescopeLabel` sidecar already does. |
-| `tom_observations` (bundled in `tomtoolkit`) | ships inside `tomtoolkit==3.0.0a9` | Owns `ObservationRecord` (plain `AutoField` PK) | Confirmed by reading the installed `tom_observations/models.py` — same shape: a plain model with no attachment point of its own, so the link must live on FOMO's side, same constraint the milestone context already states. |
+| OS cron (`crontab -e` / `/etc/cron.d/`) | whatever ships with the deployment OS (no version to pin) | Periodic invocation of management commands | Zero new dependency, zero new daemon/process, zero new infra (no broker, no worker, no beat process). Runs `python manage.py <command>` exactly the way an operator already runs it by hand today — the "unattended" story is additive, not a rewrite of how these commands work. |
+| `flock` (`util-linux`, present on essentially every Linux distro) | system package, not pip | Prevent overlapping runs if one invocation runs long | A sync command that takes longer than the cron interval (network-dependent — LCO/Gemini API calls) must not run twice concurrently against the same SQLite file; `flock -n /tmp/fomo-sync.lock python manage.py ...` is the standard, dependency-free guard. Matters more on SQLite (single-writer) than Postgres, but correct either way. |
+| Django's own `mail_admins()` / staff-email pattern (already in this codebase) | Django 5.2.17 (already installed) | In-command failure notification | No new dependency — reuses the exact idiom `campaign_views.py::_notify_staff()` already established (`send_mail(..., fail_silently=True)` to a staff email list), just triggered from a caught exception in the unattended command path instead of a submission POST. |
+| healthchecks.io (hosted free tier) or self-hosted [`healthchecks`](https://github.com/healthchecks/healthchecks) | n/a (external service / self-hosted Django app) | "The whole cron entry never fired" visibility | Catches the one failure class in-command error handling structurally cannot: the job not running at all (cron daemon down, host down, crontab misconfigured, silent SSH-key/permission failure). A single `curl -fsS --retry 3 https://hc-ping.com/<uuid>` appended to each cron line. Free tier (20 checks, no card required as of this research) covers this project's handful of jobs; self-hosted is a fallback if a third-party dependency for something this operationally load-bearing is unwelcome — it is itself a small open-source Django app, which fits this team's existing skill set if self-hosting is preferred. |
 
 ### Supporting Libraries
 
-**None added.** See "What NOT to Use" below for the specific libraries that were considered and rejected, and why.
+**None required.** No new pip package is warranted for the scheduling mechanism itself. See "What NOT to Use" for the specific packages considered and rejected, with reasons.
 
-### Development Tools (already in use, extended not replaced)
+### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `django.test.utils.CaptureQueriesContext` | Prove the reconciler is idempotent (no queries / no writes on a repeat run) | Already used exactly this way in `solsys_code/tests/test_calendar_template.py:272-289` (`test_display09_query_count_bounded`) — that test asserts query *count* doesn't grow; the reconciler idempotency test extends the same tool to assert query *content* (no `INSERT`/`UPDATE` SQL) on the second pass. Do not introduce a separate assertion library for this — see Testing section below. |
-| `ruff` | Lint/format (single quotes, 120 cols) | No config changes needed; the new companion model, through-model, and reconciler command are ordinary Python. |
+| `logger.exception(...)` (stdlib `logging`, already used throughout `solsys_code/`) | Capture full traceback on a caught failure before emailing a summary | Matches this codebase's existing logging convention (`logger = logging.getLogger(__name__)`, debug-level for expected failures) — an unattended-run failure is not "expected" in the same sense as e.g. a JPL query 404, so log at `exception`/`error`, not `debug`. |
+| `./manage.py test solsys_code` | Regression gate for the new orchestrator/watch-list code | No new test infra — same Django `TestCase` convention as every other management command in this repo. |
 
 ## Installation
 
-No installation required — no new runtime or dev dependency is added by this milestone. If a future phase discovers a genuine need, treat that as a signal to re-examine the design rather than a default to reach for — this milestone's own explicit prior ("strong prior: plain ORM") held up under research.
+```bash
+# No new pip package required for the scheduling mechanism.
+# The only new artifact is a crontab entry (or systemd timer, if the target host's
+# existing conventions prefer that over cron — confirm with the phase-time spike) and,
+# optionally, a healthchecks.io account (or self-hosted healthchecks instance).
 
----
-
-## Django Pattern 1 — Generalising `CalendarEventTelescopeLabel` (sidecar OneToOne, kept)
-
-### The decision already made (from PROJECT.md, not re-litigated here)
-
-The milestone context states the companion record **stays a one-to-one sidecar** on `CalendarEvent` (unchanged shape) and gains a nullable `run` FK to `CampaignRun`. This is the right call, and it's worth stating precisely *why*, because the alternatives (`ManyToManyField`, `GenericForeignKey`) were live options and the milestone context correctly rejected both implicitly:
-
-| Approach | Querying | Prefetching | Admin | Cascade behaviour | Verdict for the `CalendarEvent` link |
-|----------|----------|-------------|-------|--------------------|----------------------------------------|
-| **OneToOne sidecar** (`event = OneToOneField(CalendarEvent, primary_key=True, on_delete=CASCADE)`) — what's already there | Real SQL JOIN, indexed on the shared PK; `event.telescope_label_meta` and `label.event` both single-query | `.prefetch_related('telescope_label_meta')` is O(1) extra query regardless of event count — already proven in production by DISPLAY-09 (`solsys_code/views.py:114`) | Trivial `ModelAdmin`, `list_filter`/`search_fields` work natively — already registered (`solsys_code/admin.py:28-31`) | `on_delete=CASCADE` on `event` (deleting a `CalendarEvent` correctly deletes its companion row — no orphan); the *new* `run` FK should be `on_delete=SET_NULL` (deleting a `CampaignRun` must not delete calendar history — mirrors the existing `CampaignRun.site = ForeignKey(Observatory, on_delete=SET_NULL, ...)` pattern already in `solsys_code/models.py:77-84`) | **Correct, keep it.** Exactly one `CalendarEvent` ever needs exactly one companion row; there is no reason to allow more than one. |
-| `ManyToManyField` declared on `CampaignRun` pointing at `CalendarEvent` | Works, but wrong cardinality: a `CalendarEvent` never has more than one owning run in this milestone's model, so M2M would under-constrain (nothing stops two runs both claiming the same event) | Same O(1) prefetch benefit as OneToOne, no advantage here | `filter_horizontal` works but is the wrong widget for a should-be-1:1 relation | Default M2M cascade (only join row removed) — fine, but moot given the cardinality mismatch | **Rejected** — would let a bug or a bad reconciler pass double-attribute an event to two runs with no DB constraint to catch it. |
-| `GenericForeignKey` (`content_type` + `object_id` on the companion, pointed at either `CalendarEvent` or something else) | No real JOIN — a separate query per distinct `ContentType`; can't filter by the target's own fields (`.filter(run__telescope_class=...)`) in one query | `prefetch_related` works but issues one extra query *per distinct ContentType* present, not O(1) the way a direct FK is | No native `list_filter`/`search_fields` on the GFK target; needs hand-rolled admin code | **No DB-level referential integrity at all** — deleting the target leaves a dangling `(content_type, object_id)` unless the app manually cleans up; Django's own `GenericRelation` (which *does* provide cleanup) requires adding a field to the target model, which is impossible here since `tom_calendar` can't be edited | **Rejected** — GFK earns its complexity only when the companion needs to attach to an *open-ended* set of third-party model types. Here there are exactly two known, fixed target models (`CalendarEvent`, `ObservationRecord`), each already gets its own purpose-built relation, so GFK buys nothing and costs query-planning and admin ergonomics. |
-
-### Concrete field addition
-
-```python
-run = models.ForeignKey(
-    'solsys_code.CampaignRun',
-    on_delete=models.SET_NULL,
-    null=True,
-    blank=True,
-    related_name='calendar_links',
-    verbose_name='Owning campaign run',
-)
+# Example crontab line (adjust interval to real deployment cadence, e.g. every 15-30 min):
+# */15 * * * * flock -n /tmp/fomo-unattended-sync.lock \
+#   /path/to/venv/bin/python /path/to/fomo/manage.py run_unattended_sync \
+#   >> /var/log/fomo/unattended_sync.log 2>&1 \
+#   && curl -fsS --retry 3 https://hc-ping.com/<uuid> \
+#   || curl -fsS --retry 3 https://hc-ping.com/<uuid>/fail
 ```
 
-`related_name='calendar_links'` (or whatever name the plan settles on) gives `CampaignRun` its one-to-many reverse relation to the companion rows, and from there to events. A convenience accessor on `CampaignRun` keeps call sites from doing a manual double-hop:
+If a future data-volume increase genuinely outgrows cron (see "Stack Patterns by Variant" below), the next step up is `huey>=2.5,<4` (current stable line is 3.x; latest is `3.3.4` per `huey.readthedocs.io`) with its SQLite storage backend (`huey.contrib.djhuey`, no Redis needed) — but that is a documented escape hatch, not a recommendation to install now.
 
-```python
-def calendar_events(self) -> models.QuerySet[CalendarEvent]:
-    """All CalendarEvents currently attributed to this run, one query, real JOIN."""
-    return CalendarEvent.objects.filter(telescope_label_meta__run=self)
-```
+## Alternatives Considered
 
-(`telescope_label_meta` is the *existing* `related_name` on the `event` OneToOneField — see Pattern 2 below on why this name should very likely **not** be touched even though the model class itself is being renamed.) For a list view showing several `CampaignRun`s each with their events (e.g. the campaign table), use `Prefetch('calendar_links', queryset=CompanionModel.objects.select_related('event'))` — same O(1)-extra-query shape as the existing DISPLAY-09 prefetch, not a new pattern.
-
----
-
-## Django Pattern 2 — `RenameModel`/`RenameField` mechanics: what actually breaks, and safe ordering
-
-This repo has exactly **four** real integration points against `CalendarEventTelescopeLabel` today (confirmed by grep, not assumed):
-
-| # | File | What it references | Breaks on rename? |
-|---|------|---------------------|--------------------|
-| 1 | `solsys_code/admin.py:4,28,41` | `from solsys_code.models import CalendarEventTelescopeLabel`; `class CalendarEventTelescopeLabelAdmin(...)`; `admin.site.register(CalendarEventTelescopeLabel, ...)` | **Yes, at import time** (`ImportError`/`AttributeError` the moment Django loads `admin.py`) — this is the safest kind of break, caught immediately by `./manage.py check` or the first request. |
-| 2 | `solsys_code/management/commands/sync_lco_observation_calendar.py:18,369` | `from solsys_code.models import CalendarEventTelescopeLabel`; `CalendarEventTelescopeLabel.objects.update_or_create(event=event, defaults={'is_verified': ...})` | **Yes, at import time**, same as above — caught by that command's own test suite (`test_sync_lco_observation_calendar.py`, 49 tests including sidecar-write assertions) the moment it runs. |
-| 3 | `solsys_code/views.py:114` | `.prefetch_related('telescope_label_meta')` | **No** — this string is the FK's `related_name`, not the model's class name. Renaming the *model* does not touch `related_name` unless you deliberately also rename that. |
-| 4 | `src/templates/tom_calendar/partials/calendar.html:228,244` | `{% if event.telescope_label_meta.is_verified == False %}` | **No**, same reason as #3 — Django templates resolve attributes by string; the model's Python class name is invisible here. |
-
-**The load-bearing insight:** renaming the *model class* only breaks Python-level imports (#1, #2), both of which are compile-time-adjacent failures caught the instant the app boots or the command runs — low risk, easy to grep for (`grep -rn CalendarEventTelescopeLabel --include=*.py`). Renaming the `related_name` (`telescope_label_meta`) is the genuinely dangerous move, because #3 and #4 reference it as a bare string with **no static check at all** — a typo or missed occurrence there is a *runtime* `AttributeError`/silent-`None` bug, not an import error, and it can hide in an untested template branch. **Recommendation: keep `related_name='telescope_label_meta'` unchanged** even while renaming the model class and adding the `run` FK. The milestone's stated goal ("closes the pending naming todo") is about the *model's* name being misleading now that it does more than telescope labels — it does not require renaming the accessor, and not renaming the accessor removes two of the four break points from the blast radius entirely.
-
-### Safe migration ordering (concrete, in commit order)
-
-1. **Rename the class and add the field in `models.py` together.** Keep the OneToOne field's own name (`event`) and its `related_name` (`telescope_label_meta`) untouched; only the class name changes, plus the new `run` FK is added.
-2. **Hand-author the migration — do not rely on `makemigrations` autodetection.** Django cannot tell "renamed" from "deleted + created" by inspecting field diffs alone; run non-interactively (as CI does) and it will silently emit `DeleteModel`/`CreateModel` instead of `RenameModel`, which — because the OneToOne's `event_id` is the model's actual primary key — would **drop and recreate the table, losing every existing sidecar row**. This repo already hand-authors non-trivial migrations (e.g. `0004_campaignrun_window_schema.py`'s backfill→dedup→constraint-swap), so this is consistent with existing practice, not a new burden. Order **within** the migration matters:
-   ```python
-   operations = [
-       migrations.RenameModel(old_name='CalendarEventTelescopeLabel', new_name='<NewName>'),
-       migrations.AddField(
-           model_name='<newname>',  # lowercase, post-rename -- Django's migration state is
-                                     # cumulative, so by the time AddField runs it must refer
-                                     # to the model under its NEW name, not the old one.
-           name='run',
-           field=models.ForeignKey(null=True, blank=True, on_delete=models.SET_NULL,
-                                    related_name='calendar_links', to='solsys_code.campaignrun'),
-       ),
-   ]
-   ```
-   `RenameModel` first, `AddField` second, in the same migration or a directly-dependent next one — reversing the order (adding the field to the old model name, then renaming) also works technically but is more confusing to read and out of step with how the actual code change happens (class renamed first).
-3. **Data safety check:** `RenameModel` by default also emits `ALTER TABLE ... RENAME TO ...` at the DB level (Django derives the table name from `app_label_modelname` unless `Meta.db_table` is pinned, and this model doesn't pin one). Because the OneToOne's `event` field stays `primary_key=True` and is not touched, **no row data changes** — only the table's own name and Django's bookkeeping change. This satisfies the milestone's explicit "without losing its existing data" requirement without needing the zero-downtime `db_table`-pinning trick some high-traffic Postgres deployments use (that trick is unwarranted complexity for this project — SQLite dev DB, `DEBUG=True`, no rolling-deploy constraint; see "What NOT to Use").
-4. **Fix the two import sites** (`admin.py`, `sync_lco_observation_calendar.py`) — plain rename, same commit or immediately after.
-5. **Run `./manage.py test solsys_code`** — the existing 49-test `test_sync_lco_observation_calendar.py` suite and the admin test suite (`260714-jpd`) will catch anything missed; `ruff check .`/`ruff format --check .` stay clean since nothing about formatting changes.
-6. **Known Django `RenameModel` edge cases that do *not* apply here** (found via targeted search, listed so a future reader doesn't have to re-derive this): `RenameModel` mishandling `related_name='+'` on a *different* model's FK pointing at the renamed one (nothing else FKs to this model), and `RenameModel`-after-`RenameField` ordering bugs affecting M2M `through` tables (this model isn't used as anyone's `through` table). Both are non-issues for a leaf sidecar model with a single inbound OneToOne — flagged only so the plan doesn't need to re-investigate them.
-
-If the model rename and the `source`/`telescope_class` `CampaignRun` migrations land in the same phase, keep them as **separate migration files** even if both touch `solsys_code` — the rename migration should be revertible/reviewable independent of the unrelated `CampaignRun` field additions, and it keeps the "did the rename alone break anything" test run clean.
-
----
-
-## Django Pattern 3 — `ObservationRecord` linkage: `ManyToManyField` with a custom `through`, declared on `CampaignRun`
-
-`ObservationRecord` is third-party and un-editable, so — per the milestone context — the relation must be declared on `CampaignRun`. A bare `ManyToManyField(ObservationRecord)` would work mechanically (Django creates and owns the join table in `solsys_code`'s own migration state, no cross-app schema coordination needed with `tom_observations`), but it cannot carry the milestone's explicit **"Operator-assisted attribution... never a silent merge"** requirement — a plain M2M join row has no place to record "suggested by the reconciler, not yet confirmed by staff" vs. "staff-confirmed."
-
-**Recommendation: a custom `through` model**, deliberately mirroring the `is_verified` idiom this codebase already established for `CalendarEventTelescopeLabel` — don't invent a new attribution vocabulary when a matching one-bit-flag pattern already exists and is already well-understood by whoever reads this code next:
-
-```python
-class CampaignRunObservationRecord(models.Model):
-    """Attribution link between a CampaignRun and the ObservationRecord(s) that realise it.
-
-    A custom `through` model rather than a bare ManyToManyField because attribution
-    is operator-confirmed, not assumed (v2.2 scope): the reconciler creates rows with
-    is_confirmed=False when it *suggests* a match; staff review flips it to True.
-    Mirrors the is_verified idiom already established by the CalendarEvent companion.
-    """
-
-    run = models.ForeignKey('solsys_code.CampaignRun', on_delete=models.CASCADE, related_name='record_links')
-    observation_record = models.ForeignKey(
-        'tom_observations.ObservationRecord', on_delete=models.CASCADE, related_name='+'
-    )
-    is_confirmed = models.BooleanField(default=False, verbose_name='Confirmed by staff (not auto-suggested)')
-    created = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=('run', 'observation_record'), name='unique_run_observation_record_link'),
-        ]
-```
-
-```python
-# on CampaignRun:
-observation_records = models.ManyToManyField(
-    'tom_observations.ObservationRecord',
-    through='CampaignRunObservationRecord',
-    related_name='campaign_runs',
-    blank=True,
-)
-```
-
-Notes tied to the querying/prefetching/admin/cascade axes the milestone question asked about:
-
-- **Querying:** `run.observation_records.all()` and `record.campaign_runs.all()` both work as ordinary M2M traversal despite the custom `through`; filtering the *link* itself (e.g. only-confirmed links) goes through `run.record_links.filter(is_confirmed=True)`.
-- **Prefetching:** `.prefetch_related('record_links__observation_record')` or `Prefetch('observation_records', queryset=...)` — same O(1)-extra-query shape used everywhere else in this codebase (DISPLAY-09 precedent).
-- **Admin:** register `CampaignRunObservationRecord` directly (own `ModelAdmin`, `list_filter=['is_confirmed']`) rather than trying to force `filter_horizontal` on the plain M2M field — `filter_horizontal`/`filter_vertical` don't support extra `through` fields, and staff need to see/toggle `is_confirmed`, not just add/remove links.
-- **Cascade:** `on_delete=CASCADE` on both `through`-model FKs is correct and is the Django default behaviour for M2M anyway — deleting a `CampaignRun` or an `ObservationRecord` only removes the *link* row, never cascades to delete the other side. This matches the milestone's own framing: "these are not duplicates to be merged... the fix is attribution, not deduplication" — the link is disposable, the run and the record are not.
-- `related_name='+'` on the `observation_record` FK (no reverse accessor from `ObservationRecord` back to the through rows) is a deliberate minor choice — nothing in this milestone's scope needs to query "which through-rows reference this record" directly rather than via `record.campaign_runs`; drop the `+` and give it a real `related_name` if a later phase needs that.
-
----
-
-## Django Pattern 4 — Idempotent reconciliation: plain ORM, extending `insert_or_create_calendar_event()`
-
-**Confirms the milestone's stated strong prior.** `solsys_code/calendar_utils.py:insert_or_create_calendar_event()` already implements exactly the no-churn contract the reconciler needs — `get_or_create()`, then a field-by-field diff (`_update_or_unchanged()`) that only calls `.save(update_fields=...)` when something actually changed, returning `'created'`/`'updated'`/`'unchanged'` for the caller to tally. This is not a coincidence to work around; it's the load-bearing precedent to *reuse directly*, not reinvent:
-
-- The reconciler's per-stage event projection (stage 1 sunset→sunrise, stage 2 all-day, stage 3 narrowed-to-record, stage 4 COMPLETED) is structurally identical to what `sync_lco_observation_calendar` and `backfill_range_calendar_events` already do — key each projected event on a stable, deterministic lookup (this codebase's convention: `{'url': ...}` for URL-keyed records, or a composite `CAMPAIGN:{pk}:{date.isoformat()}`-style key for date-keyed ones), pass changed fields through `insert_or_create_calendar_event()`, and let its existing no-churn logic decide create/update/unchanged. Do not write a second, parallel diff-and-apply helper — extend or call the existing one.
-- For the companion-row attribution write (setting `run` on the generalised companion, and `is_confirmed` on `CampaignRunObservationRecord`), the same `update_or_create()`-plus-explicit-field-comparison shape `sync_lco_observation_calendar.py:369` already uses for `CalendarEventTelescopeLabel.objects.update_or_create(event=event, defaults={'is_verified': ...})` applies directly. **Caveat:** `update_or_create()` unconditionally calls `.save()` on an existing match even when nothing changed — for the strict no-churn behaviour the idempotency test needs to prove, prefer the explicit `_update_or_unchanged()`-style dict-diff (exactly as `insert_or_create_calendar_event()` already does) over bare `update_or_create()` for any write path whose second-pass silence is being asserted.
-- No `bulk_create`/`bulk_update` batching is needed at this milestone's real data scale (measured: 19 attributable `CampaignRun`s in the dev DB today, tens not thousands) — introducing bulk operations would trade away the per-row no-churn diff this pattern depends on for a performance win this codebase doesn't need yet. If a future milestone's data volume changes that calculus, that's a new, separately-justified decision — not a default to reach for now.
-
----
-
-## Testing Techniques: proving the reconciler is idempotent
-
-Follow the exact tool and idiom already established at `solsys_code/tests/test_calendar_template.py:272-289` (`test_display09_query_count_bounded`), extended from "query count doesn't grow" to "second pass writes nothing":
-
-```python
-from django.db import connection
-from django.test.utils import CaptureQueriesContext
-
-class ReconcilerIdempotencyTest(TestCase):
-    def test_second_run_is_a_no_op(self):
-        call_command('reconcile_campaign_runs')  # first pass: creates/updates as needed
-
-        # Snapshot state that a silent second-pass write would disturb.
-        before = list(
-            CalendarEvent.objects.order_by('pk').values('pk', 'modified')
-        )
-
-        with CaptureQueriesContext(connection) as ctx:
-            call_command('reconcile_campaign_runs')  # second pass
-
-        after = list(
-            CalendarEvent.objects.order_by('pk').values('pk', 'modified')
-        )
-        self.assertEqual(before, after)  # no new rows, no modified-timestamp churn
-
-        write_queries = [
-            q for q in ctx.captured_queries
-            if q['sql'].strip().upper().startswith(('INSERT', 'UPDATE', 'DELETE'))
-        ]
-        self.assertEqual(write_queries, [])  # second pass performs reads only
-```
-
-Key points, tied to what the milestone question specifically asked for:
-
-- **Standard `django.test.TestCase`** (not `TransactionTestCase`) is sufficient — the reconciler doesn't need to observe cross-transaction visibility, and `TestCase`'s wrapping-transaction-per-test is faster and is what every other command test in this codebase already uses.
-- **`CaptureQueriesContext(connection)`** is the right tool for two distinct assertions here, both already precedented in this codebase: (a) the existing DISPLAY-09-style "query count doesn't grow" check, useful for catching an accidental N+1 in the reconciler's own per-run loop, and (b) the new "zero write statements on pass two" check, which is a stronger and more direct proof of idempotency than a query *count* comparison alone (a second pass could in principle issue the same *number* of queries while still silently rewriting rows — asserting on `sql` content rules that out).
-- **Assert both directions**, mirroring how `test_sync_lco_observation_calendar.py`'s no-churn tests are already structured: run the reconciler against fixture data that should produce changes (created path) and against already-reconciled data that should produce none (unchanged path) — a single "run twice" test alone doesn't distinguish "correctly idempotent" from "silently does nothing on every run."
-- **Reuse the counters-dict reporting convention** already shared by all four sync commands (`counters[facility]['created'/'updated'/'unchanged']`) for the reconciler's own summary output — asserting on the command's own stdout/counters in addition to DB state gives a second, independent check of "nothing happened" without needing to inspect SQL text at all, and keeps the reconciler consistent with its siblings' operator-facing output shape (directly relevant to the paired-docs runbook this milestone will need to update per `CLAUDE.md`'s paired-docs rule).
-
----
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|--------------------------|
+| OS cron + `flock` | Celery + celery-beat | Only if a real driver for a message broker (Redis/RabbitMQ) and distributed workers already exists elsewhere in the deployment, or job volume/concurrency genuinely requires horizontal worker scaling. Neither is true here: this is a single server, a handful of periodic jobs, and no other part of FOMO uses a broker today. Introducing Celery here means running and operating two new long-lived daemons (a worker and a beat scheduler) plus a broker, purely to run `python manage.py sync_x` on a timer — the same outcome cron already provides for free. |
+| OS cron + `flock` | huey (Redis or SQLite-backed) | If the team later adds genuinely asynchronous, latency-sensitive background work (e.g. "kick off X the moment a web request happens, don't block the response") — a real use case distinct from *periodic* sync. Huey's SQLite storage backend removes the Redis dependency, which narrows the gap versus cron, but it still requires a long-running consumer process (`huey_consumer.py`) to be supervised (systemd unit, restart-on-crash, log rotation) — one more daemon to operate for jobs that are inherently "run every N minutes," which cron already does natively with no daemon of its own. |
+| OS cron + `flock` | APScheduler (in-process, `BackgroundScheduler`) | Only for a deployment that runs as a single long-lived Python process. This project is a WSGI Django app; if it's ever served by more than one worker process (gunicorn `-w 2+`, which is a normal production default, not an edge case), an in-process scheduler registered at Django startup fires once **per worker process**, silently multiplying every sync — a real, easy-to-miss correctness bug, not a hypothetical. It also stops running the moment the process restarts (deploy, crash, worker recycle) with no persistence of a missed run, unlike cron which is independent of the app process's lifecycle. |
+| OS cron + `flock` | django-cron (`django_cron`, DB-backed cron-job registry with admin visibility) | If the team wants job history/success-tracking *inside* Django admin without standing up healthchecks.io. It's a real, still-maintained option (ships `FailedRunsNotificationCronJob` for exactly the "N failures in a row -> email" pattern this milestone needs) and is lighter than Celery/huey. It was not chosen as the primary recommendation because it still requires *something* to invoke `python manage.py runcrons` on a schedule — i.e., it doesn't remove cron, it adds a DB-polling layer and a new dependency on top of cron, for a job-history UI this milestone's smaller healthchecks-ping + email-on-exception combination already covers at lower cost. Worth a second look if the operator later wants an in-app dashboard of pass/fail history rather than an external service. |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `django-dirtyfields` / `django-model-utils` `FieldTracker` | Solves exactly the "did this field change" question the codebase already answers explicitly and auditably via `_update_or_unchanged()`'s dict-diff; adding a change-tracking library on top would give the same answer through an opaque signal-based mechanism, one more thing to understand, with no capability gain. | The existing explicit field-diff pattern in `calendar_utils.py`. |
-| `django-reversion` (or any audit/versioning package) | This milestone is about *idempotent projection* (does a repeat run change anything), not *change history* (what did this row look like last week). Different problem; out of scope for v2.2. | Django's own `created`/`modified` timestamp fields, already present on every model here. |
-| `django-fsm` / other state-machine libraries for `CampaignRun.run_status` or the four-stage window pipeline | `CampaignRun`'s statuses are already plain `TextChoices` with transitions owned by explicit view/command logic (`CampaignRunDecisionView`), which this milestone doesn't change. The reconciler *reads* run state to decide which pipeline stage applies — it doesn't own state transitions, so a state-machine library would be modelling a state machine that doesn't actually exist in the reconciler's own responsibility. | Plain `if`/`elif` stage-selection logic keyed on the fields already present (`approval_status`, resolved site vs. `telescope_class`, presence of scheduled/completed `ObservationRecord`s) — directly mirrors the four-stage table already specified in `PROJECT.md`. |
-| A task queue (Celery, or reaching for the already-installed `django-tasks`) for the reconciler | All four existing sync/ingest commands (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`, `backfill_range_calendar_events`) are synchronous `BaseCommand`s, run on demand or via cron/operator action, at dev-DB scale (hundreds of rows, not thousands). The reconciler is the same shape of problem (retiring `backfill_range_calendar_events` explicitly, per the milestone goal) — there's no new latency/volume driver here that would justify async execution. | A synchronous management command, same convention as its four siblings. |
-| `rapidfuzz` (already declined once, in v2.1) | Not part of this milestone's scope at all, but worth reiterating as house precedent: Phase 18's spike explicitly tested `rapidfuzz` against real messy site-name data for a *different* feature (site fuzzy-matching) and found no match-quality win over stdlib `difflib` sufficient to justify the dependency (`docs/design/uncertain_scheduling_spike.rst`). The same "prove the stdlib is insufficient before adding a dependency" bar applies here, and nothing in v2.2's scope needs fuzzy text matching at all. | N/A — not applicable to v2.2, listed only to preempt the wrong instinct. |
-| `GenericForeignKey` for either link | See Pattern 1's comparison table — loses JOIN-ability, prefetch efficiency, admin ergonomics, and DB-level cascade integrity, and buys nothing since both target model types (`CalendarEvent`, `ObservationRecord`) are fixed and already known. | Purpose-built `ForeignKey`/`ManyToManyField(through=...)` per link, as above. |
-| Zero-downtime `db_table`-pinning trick for the `RenameModel` migration | A real technique for high-traffic production Postgres deployments doing rolling migrations without locking a live table — not this project's situation (SQLite dev DB, `DEBUG=True`, no concurrent-deploy constraint documented anywhere in `PROJECT.md`/`CLAUDE.md`). | A plain `RenameModel` operation, letting Django rename the underlying table too. |
+| `django-crontab` | Last released 2016 (`0.7.1`), effectively abandoned (no commits in ~8 years per package-health scans). It is also, mechanically, just a Python-side wrapper that writes real crontab entries on your behalf — for a project with no existing scheduler at all, hand-writing the crontab entry directly is strictly simpler and has no unmaintained dependency in the critical path. | A plain crontab entry, hand-managed (or provisioned via whatever config-management/deploy tooling the target host already uses). |
+| Celery + celery-beat + Redis/RabbitMQ | Requires standing up and operating a message broker plus two new long-lived daemons (worker, beat) for a workload that is "run 3-5 idempotent management commands a few times an hour." This is the textbook over-engineering case the milestone context explicitly warns against ("avoid a heavyweight broker... unless there's a concrete reason") — there is no concrete reason here: no other part of FOMO needs async task execution, and the sync commands are already synchronous, idempotent, and fast enough to run inline under cron. | OS cron. |
+| Bare `huey` with a Redis backend | Same broker-dependency problem as Celery, one notch smaller — still a new service (Redis) with no other consumer in this deployment. | If a queue is later justified, huey's SQLite backend removes this specific objection (see Alternatives table), but that's a distinct, deferred decision. |
+| APScheduler `BackgroundScheduler` registered at Django app-config startup | Multi-worker WSGI deployments (gunicorn, uWSGI with >1 worker) cause it to fire once per worker process, silently duplicating every sync — a correctness bug that's easy to ship and hard to notice until duplicate `CampaignRun`s/calendar events appear. It also has no execution history independent of the app process. | OS cron, which is worker-count-agnostic by construction (one crontab entry regardless of how many app workers are running). |
+| A bespoke in-house "scheduler" (e.g. a Django management command that sleeps in a loop, run once at boot under systemd) | Reinvents cron's job (interval scheduling, skip-if-still-running, restart-on-host-reboot) worse than cron already does it, and needs its own supervision (a `systemd` unit with `Restart=always`) to survive a crash — cron already survives process crashes because it isn't a process, it's invoked fresh each time by the system's own cron daemon. | OS cron (or, if the target host's own conventions already lean on `systemd`, a `systemd` timer unit — mechanically equivalent to cron for this purpose; confirm which the deployment already uses before introducing the other). |
+| `mail_admins()`/Django's `ADMINS` setting as the *sole* failure-visibility mechanism | `ADMINS` is currently unset in `src/fomo/settings.py` (confirmed by direct read), and even if configured, it only fires on an *exception the command actually raises and Django actually reports* — it cannot detect "the cron entry never fired," "the host was down," or "the process was OOM-killed before it could send mail." | Combine in-command email-on-exception (reusing the existing `_notify_staff`-style staff-email pattern, not a fresh `ADMINS` config) with an external dead-man's-switch ping — the two failure classes are genuinely different and neither alone is sufficient. |
 
 ## Stack Patterns by Variant
 
-**If a future phase needs the reconciler to run on a schedule (not just on-demand):** reach for whatever cron/scheduling mechanism the deployment already uses at the OS/hosting level (this project's `CLAUDE.md` documents no in-app scheduler) — still don't introduce Celery/`django-tasks` for that; a `BaseCommand` invoked by cron is the same pattern the other four sync commands already assume.
+**If deployment stays single-server SQLite (current dev reality) or moves to single-server Postgres (CLAUDE.md's stated production expectation):** the cron + `flock` recommendation is unchanged either way — nothing about the scheduling mechanism is database-specific. `flock` matters slightly more on SQLite (single-writer file lock contention is a real, visible failure mode under `database is locked` errors) but is correct and harmless on Postgres too.
 
-**If a later milestone needs the M2M-attribution UI to be richer than a two-state confirmed/unconfirmed flag (e.g. confidence scores, multiple candidate matches per record):** extend `CampaignRunObservationRecord` with more fields (it's already a first-class model, not a bare M2M) rather than reaching for a matching/scoring library — the existing site-fuzzy-match precedent (Phase 18/21/22) shows this codebase's default is to prove stdlib insufficiency first.
+**If job volume or latency needs genuinely grow** (e.g. dozens of proposals polled every minute, or a requirement for sub-cron-granularity scheduling): re-evaluate huey with its SQLite backend first (smallest step up, no Redis), and only reach for Celery if true multi-worker horizontal scaling of the *sync* workload itself becomes necessary — not just because "task queues are the standard approach" in general. This project's current real numbers (a handful of proposals, 3-4 management commands, dev-DB scale in the tens of rows) are nowhere near that threshold.
+
+**If the target production host already runs `systemd` and the team's operational convention is timers over crontabs:** a `systemd.timer` + `systemd.service` pair is a mechanically equivalent substitute for the crontab entry described above — same "no new Python dependency, no new daemon beyond what the OS already runs" property. This is a deployment-convention choice, not a different recommendation; confirm which the real target host already uses before the implementation phase, since CLAUDE.md documents no production deployment infra for this repo today.
 
 ## Version Compatibility
 
 | Package | Compatible With | Notes |
-|-----------|-----------------|-------|
-| Django 5.2.13 | Python 3.10–3.12 (project's tested range) | `RenameModel`/`RenameField`/`ManyToManyField(through=...)`/`CaptureQueriesContext` are long-stable Django APIs (predate Django 4) — nothing in this milestone is gated on Django 5.2 specifically, and nothing here is at risk if `tomtoolkit` moves off the `3.0.0aN` prerelease train to a different Django-supporting range later. |
-| `tomtoolkit==3.0.0a9` (bundles `tom_calendar`, `tom_observations`) | Django 5.2.13 (as currently installed in this venv) | Both target models (`CalendarEvent`, `ObservationRecord`) were read directly from the installed package source for this research — confirmed plain `AutoField` PKs, no custom managers/QuerySets that would complicate `select_related`/`prefetch_related`, no existing hooks for third-party attachment (i.e., the sidecar/through-model approach is not working around anything the library changed recently). |
+|---------|------------------|-------|
+| Django 5.2.17 (confirmed installed via `pip show django`) | Python 3.10-3.12 (project's tested range) | `mail_admins()`, `send_mail()`, and `django.core.management.call_command()` are long-stable, unchanged Django APIs — nothing about this recommendation is gated on Django 5.2 specifically. |
+| OS cron / `flock` | Any Linux server (dev machine or production host) | Not a Python dependency at all — no version-compatibility surface with Django/TOM Toolkit/`tomtoolkit` to track. |
+| `huey` (only if the escape hatch is later taken) | `huey==3.3.4` (current, per `huey.readthedocs.io`) supports Python 3.7+ and Django via `huey.contrib.djhuey` | Not needed now; recorded here only so a future re-evaluation starts from a current version, not a stale one found via search. |
+
+## New Django Convention This Milestone Needs: the Multi-Proposal Watch-List
+
+The milestone context is explicit that `backfill_lco_observation_records`-style discovery currently requires an explicit `--proposal`/name-prefix per invocation, and unattended discovery needs a configured watch-list instead. Four conventions were weighed against this codebase's existing patterns (Django/TOM Toolkit norms, not general Django advice):
+
+| Approach | Fits this codebase? | Verdict |
+|----------|----------------------|---------|
+| A small Django model (e.g. `WatchedProposal`: `proposal_code`, `facility` choice, `is_active`, optional `notes`), registered in `admin.py` | **Yes — this is the established convention here.** `Observatory` (site config) and `CampaignRun` (run config) are both plain models, editable via Django admin, with no code deploy needed to add a row. Staff already use Django admin for comparable operational data (`CalendarEventMetaAdmin`, `CampaignRunObservationInline`). | **Recommended.** Adding/removing a watched proposal is then an admin action, not a deploy — matches how this team already operates (staff-facing approval queues, admin actions like `mark_cancelled`), and the model can grow a `last_synced_at`/`last_result` field later without a settings-file migration. |
+| `settings.py` list (e.g. `WATCHED_LCO_PROPOSALS = [...]`) | Technically simplest to implement, but requires a code change + deploy/restart to add a proposal — proposals are seasonal/per-semester in this domain, so this would reintroduce exactly the kind of "operator can't self-serve" friction this milestone is trying to remove from `backfill_lco_observation_records`'s current `--proposal`-per-invocation requirement. | Rejected as the primary mechanism — acceptable only as a *bootstrap default* seeded once via a data migration, not as the ongoing edit surface. |
+| Environment variable (comma-separated proposal codes) | Same self-service problem as `settings.py`, worse ergonomics (no admin UI, easy to typo, invisible to anyone without shell/deploy access), and this codebase's existing env-var usage (`FINK_CREDENTIAL_*`, `LASAIR_TOKEN`) is reserved for *credentials/secrets*, not operational config that changes routinely — mixing the two would blur an existing, sensible convention. | Rejected. |
+| A YAML/JSON config file checked into the repo or mounted on the server | No existing precedent anywhere in this codebase (grep confirms no config-file-loading pattern exists today) — would be a genuinely new convention introduced solely for this one feature, and still requires filesystem/deploy access to edit, same self-service gap as the env-var option. | Rejected. |
+
+**Concrete shape**, deliberately as small as the existing `Observatory` model:
+
+```python
+class WatchedProposal(models.Model):
+    """A proposal/facility pair the unattended discovery sweep should poll without an
+    explicit --proposal argument (v2.3: closes the "one invocation per proposal" gap
+    backfill_lco_observation_records currently has).
+    """
+
+    proposal_code = models.CharField(max_length=64)
+    facility = models.CharField(max_length=32, choices=[('LCO', 'LCO'), ('SOAR', 'SOAR')])
+    is_active = models.BooleanField(default=True)
+    notes = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=('proposal_code', 'facility'), name='unique_watched_proposal'),
+        ]
+```
+
+The sweep command keeps its existing `--proposal` flag for one-off manual runs (backward compatible, useful for debugging a single proposal), and falls back to `WatchedProposal.objects.filter(is_active=True)` when no `--proposal` is supplied — the same "explicit argument overrides configured default" shape already used elsewhere in Django management commands, not a new pattern to learn.
+
+## Failure Visibility Pattern (concrete recommendation)
+
+Two independent layers, because they catch two independent, non-overlapping failure classes:
+
+1. **In-command exception -> staff email.** Wrap the unattended entry point in a `try`/`except Exception`, `logger.exception(...)` the traceback, and send a short email to staff using the exact idiom already shipped in `campaign_views.py::_notify_staff()` (`User.objects.filter(is_staff=True).exclude(email='')`, `send_mail(..., fail_silently=True)`) — reuse that helper (factor it out to a shared location if it isn't already importable) rather than inventing a second notification mechanism or introducing Django's separate, currently-unused `ADMINS`/`AdminEmailHandler` machinery. This catches "the job ran and broke."
+
+2. **Dead-man's-switch ping -> healthchecks.io (or self-hosted).** Append a ping to the *end* of the cron line itself (not inside Django) using the two-URL pattern (`.../ping/<uuid>` on success, `.../ping/<uuid>/fail` on any non-zero exit), with a grace period configured generously past the expected run time. This catches "the job never ran at all" — a class of failure no amount of in-app error handling can detect, because the app process never started.
+
+**Recommended orchestration shape:** rather than wiring `flock` + email + a healthchecks ping around *each* of the three ingest commands and the reconciler separately (four to five near-identical cron lines), introduce one small orchestrating management command (e.g. `run_unattended_sync`) that calls each step (`load_telescope_runs`, `sync_lco_observation_calendar`, `sync_gemini_observation_calendar`, then `reconcile_campaign_runs`) with **per-step failure isolation** — directly mirroring the per-run failure isolation `reconcile_campaign_runs` already established in v2.2 (one bad run/step doesn't abort the sweep). The orchestrator collects a pass/fail summary, emails staff once if anything failed (a single digest, not N separate emails), and exits non-zero only if something failed, which is what drives the healthchecks `/fail` ping. This gives cron exactly one line to manage and keeps the per-adapter isolation logic in Python (testable with `./manage.py test`) instead of shell.
 
 ## Sources
 
-- Direct inspection of installed package source (HIGH confidence — primary source, exact version pinned in this project's venv): `tom_calendar/models.py` (`CalendarEvent`, `EventTodo`) and `tom_observations/models.py` (`ObservationRecord`) at `~/venv/devel_fomo311_venv/lib64/python3.11/site-packages/`.
-- Direct inspection of this repository's own code (HIGH confidence): `solsys_code/models.py` (`CalendarEventTelescopeLabel`, `CampaignRun`), `solsys_code/calendar_utils.py` (`insert_or_create_calendar_event`, `_update_or_unchanged`), `solsys_code/admin.py`, `solsys_code/management/commands/sync_lco_observation_calendar.py`, `solsys_code/views.py`, `src/templates/tom_calendar/partials/calendar.html`, `solsys_code/tests/test_calendar_template.py` (`CaptureQueriesContext` precedent), `.planning/PROJECT.md` (v2.2 milestone context and prior Key Decisions, including the Phase 18 `difflib`-vs-`rapidfuzz` precedent).
-- [Django #23577 — Rename operations should rename indexes, constraints, sequences and triggers named after their former value](https://code.djangoproject.com/ticket/23577) — MEDIUM confidence (community/issue-tracker source, cross-checked against Django's own documented `RenameModel` semantics); informed the "known edge cases that don't apply here" note in Pattern 2.
-- [Django #27903 — RenameModel does not change ForeignKey with related_name='+'](https://code.djangoproject.com/ticket/27903) — MEDIUM confidence; same use as above.
-- [Django #29000 — RenameModel does not rename M2M column when run after RenameField](https://code.djangoproject.com/ticket/29000) — MEDIUM confidence; confirmed not applicable since the renamed model isn't a `through` table.
+- Direct inspection of this repository (HIGH confidence): `pyproject.toml` (no celery/huey/apscheduler/django-crontab/django-cron dependency present), `src/fomo/settings.py` (SQLite `DATABASES`, `EMAIL_BACKEND` console default, no `ADMINS`/`MANAGERS` configured, `TIME_ZONE='UTC'`), `solsys_code/campaign_views.py` (`_notify_staff()` — the existing staff-email idiom this recommendation reuses), `solsys_code/management/commands/backfill_lco_observation_records.py` (`--proposal` argument this milestone needs to make optional/watch-list-driven), `solsys_code/campaign_reconciler.py`/`reconcile_campaign_runs.py` (existing per-run failure isolation precedent the orchestrator recommendation mirrors), `.planning/PROJECT.md` (v2.3 milestone context, target features, explicit out-of-scope list).
+- [django-crontab package health (Snyk Advisor)](https://snyk.io/advisor/python/django-crontab) — MEDIUM confidence; corroborated by the PyPI/Cloudsmith listing showing `0.7.1` (2016-03-07) as latest.
+- [Huey documentation, latest](https://huey.readthedocs.io/en/latest/) and [Huey documentation, Django integration](https://huey.readthedocs.io/en/latest/django.html) — MEDIUM confidence (official project docs); confirms current `3.x` line, SQLite/Redis/Postgres/filesystem storage backends, `djhuey` periodic-task decorators.
+- [Healthchecks.io docs — Monitoring Cron Jobs](https://healthchecks.io/docs/monitoring_cron_jobs/) and [Healthchecks.io docs](https://healthchecks.io/docs/) — MEDIUM confidence (official project docs); confirms the ping-on-success/ping-on-fail pattern and grace-period semantics. Self-hosted alternative: [healthchecks/healthchecks on GitHub](https://github.com/healthchecks/healthchecks).
+- General web search corroboration (cron vs. Celery/huey/APScheduler tradeoffs; django-cron's `FailedRunsNotificationCronJob`; `mail_admins()`/`AdminEmailHandler` as the general Django failure-notification primitive) — LOW-to-MEDIUM confidence individually (blog/tutorial sources), used only where the claim was corroborated across multiple independent results and is consistent with this repo's own architecture, never as the sole basis for a recommendation.
 
 ---
-*Stack research for: FOMO v2.2 "One Canonical Run Record" — Django third-party-model linking, migration mechanics, and reconciler idempotency*
-*Researched: 2026-07-26*
+*Stack research for: FOMO v2.3 "Automatic Run Sync & Outcome Propagation" — unattended scheduling mechanism, multi-proposal watch-list, and failure visibility*
+*Researched: 2026-09-01*
