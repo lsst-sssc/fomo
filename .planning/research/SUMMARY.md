@@ -1,168 +1,143 @@
-# Research Summary: FOMO v2.2 "One Canonical Run Record"
+# Project Research Summary
 
-**Project:** FOMO Telescope Runs Calendar — v2.2 Milestone  
-**Domain:** Django/TOM Toolkit; idempotent calendar reconciler retrofit onto a live system with multi-source ingest and operator data  
-**Researched:** 2026-07-26  
-**Confidence:** HIGH (direct source inspection; MEDIUM on Django edge-case behavior from web search)
-
----
+**Project:** FOMO v2.3 "Automatic Run Sync & Outcome Propagation"
+**Domain:** Unattended scheduling + adapter rewiring + outcome propagation in a Django/TOM Toolkit app
+**Researched:** 2026-09-01
+**Confidence:** HIGH (grounded in direct codebase inspection and already-shipped v2.2 precedents)
 
 ## Executive Summary
 
-FOMO v2.2 consolidates observing runs into a single canonical `CampaignRun` record from which calendar events and observation-record linkages are derived — moving calendar projection from a side effect of a staff click to an idempotent reconciler function. The architecture is pure Django ORM with no new dependencies; the hard work is in (1) a careful migration strategy for the companion record's rename and FK addition that preserves the four existing integration points (admin, management commands, template, view prefetch), (2) settling natural-key semantics and attribution strategy in a spike before building the reconciler, and (3) building the reconciler's four-stage window pipeline with strict ownership scoping so it never silently deletes or mutates unowned calendar events.
-
-**Recommended approach:** Execute the spike first to settle `source`-field identity semantics and the per-adapter mapping strategy. Then sequence migrations (rename + companion-record generalization, then `source`/`telescope_class`, then `ObservationRecord` M2M) as three separate migration files. Build the reconciler in a new `campaign_reconciler.py` logic-layer module (peer to existing `campaign_gap.py`/`campaign_utils.py`, not a views-module helper) to resolve an existing anti-pattern where `backfill_range_calendar_events` imports a private `_project_calendar_event` function from views. Wire the reconciler into both `CampaignRunDecisionView` (per-run on staff actions) and a new `reconcile_campaign_runs` management command (batch sweep), and build the attribution surface last.
-
-**Key risks:** (1) The companion-record rename breaks template/prefetch/admin/command references silently if not re-verified after migration — this is the canonical test case for the spike's deliverable. (2) Stage transitions between the four-window-pipeline stages introduce churn if the key scheme drifts — must design one stable key scheme across all stages and prove idempotency with two consecutive runs. (3) Attribution heuristics will fail silently on the measured real-world case (FTS/MuSCAT4 pk=1 vs. 11 LCO queue events with date-off-by-one and instrument-string mismatch) unless built against that fixture from day one. (4) The reconciler's ownership scoping must be airtight — it must never touch an unattributed hand-created event or a pre-reconciler sync-command event in the same date window, proven by an explicit test fixture.
-
----
+FOMO v2.3 automates three observation-sync commands to run unattended on a schedule, with outcomes propagating automatically to a canonical `CampaignRun` record. The research identifies OS-level cron as the right scheduling mechanism (no new Python dependency, matches this codebase's command-centric design), but reveals a **critical structural decision that must be settled before any adapter is rewritten**: whether `CampaignRun.campaign` becomes nullable, and how non-campaign-linked observations (routine follow-up without a coordinated campaign) get a persistent identity. This is not an edge case — both LCO and Gemini syncs routinely encounter records with no campaign context. Recommended approach: one phase-time investigation spike to settle the schema/identity-key shape for all three adapters simultaneously, then execute the adapters and outcome-propagation sequentially once that foundation is solid. The outcome-derivation rule for mixed-outcome runs (e.g., "any-success-wins" for a multi-night run where some nights weather out but others complete) is explicitly designed rather than implicit, with CI/CD and Kubernetes precedent offering proven patterns.
 
 ## Key Findings
 
 ### Recommended Stack
 
-**No new runtime or development dependencies are warranted.** Every piece of v2.2 — companion-record generalization, `ObservationRecord` linkage, the reconciler, its idempotency tests — is built from Django's own ORM (`ForeignKey`, `ManyToManyField` with custom `through`, migrations `RenameModel`/`AddField`) and the ecosystem already installed for this project (Django 5.2.13 via `tomtoolkit==3.0.0a9`). This is a **milestone addendum**, not a full-project stack review; prior milestones' technologies (astropy, sorcha, ASSIST, SPICE) remain unchanged and in force.
+**Scheduling mechanism:** OS cron + `flock` for overlap prevention (no new Python dependency; matches this codebase's command-centric design). Optional: healthchecks.io (hosted, free tier) or self-hosted healthchecks for dead-man's-switch monitoring to catch scheduler failures that in-command error handling cannot.
 
-**Core technologies (all pre-installed, no action needed):**
-- **Django 5.2.13** — ORM relations, migrations, test framework (`ForeignKey`, `ManyToManyField(through=...)`, `RenameModel`, `CaptureQueriesContext`)
-- **`tomtoolkit==3.0.0a9`** (bundles `tom_calendar`, `tom_observations`) — source models (`CalendarEvent`, `ObservationRecord`) are plain Django models with no custom managers or hooks; sidecar/through-model approach is the only attachment point
-- **Django test utilities** (`CaptureQueriesContext`) — proves reconciler idempotency (zero writes on second pass), already precedented in this codebase (`test_calendar_template.py:272-289`)
-
-**What NOT to use (explicitly rejected by research):**
-- `django-dirtyfields`, `FieldTracker` — the explicit field-diff logic in `calendar_utils._update_or_unchanged()` already solves this, auditably
-- `django-fsm`, `django-tasks`/Celery — reconciler is a synchronous management command matching existing sync-command conventions
-- `rapidfuzz` — stdlib `difflib` proved sufficient in v2.1 (Phase 18/21 precedent); no match-quality need here
-- `GenericForeignKey` — both link targets (`CalendarEvent`, `ObservationRecord`) are fixed and known; loses JOIN, prefetch, admin ergonomics
-- Zero-downtime `db_table` pinning — not this project's situation (SQLite dev DB, `DEBUG=True`, no concurrent-deploy constraint)
+**Core technologies:**
+- **OS cron** — unattended invocation of management commands — zero new daemon, zero new infra, runs commands exactly as operators run them by hand.
+- **`flock` (util-linux)** — prevent overlapping command invocations — SQLite's single-writer model requires this guard.
+- **Django's `mail_admins()` pattern** (via existing `campaign_views.py::_notify_staff()`) — in-command failure notification — reuse existing idiom.
+- **healthchecks.io (optional)** — dead-man's-switch visibility — catches scheduler/host failures that in-command exception handling cannot.
+- **WatchedProposal model** — watch-list configuration surface — small Django model editable via admin without redeploy, matching how Observatory and CampaignRun are managed.
 
 ### Expected Features
 
-**Must have (table stakes for canonical-run model):**
-- Single durable `CampaignRun` record per awarded allocation, separate from its executions
-- Calendar visibility for every awarded run without a bespoke backfill command per gap (the reconciler solves this)
-- Progressive window resolution (site → class → scheduled → completed) matching real facility behavior
-- Idempotent, non-destructive reconciliation safe to re-run
-- Operator-assisted attribution (suggested, not automatic, links) — the measured real case is FTS pk=1 vs. 11 LCO events with date/instrument mismatch; must be surfaced with confidence scores and per-candidate evidence
+**Table stakes (must ship):**
+- Unattended recurring invocation with no per-invocation arguments (watch-list replaces `--proposal`/`--name-prefix`)
+- Failure visibility combining in-command logging + heartbeat/dead-man's-switch
+- Adapter consolidation: adapters write `CampaignRun` instead of `CalendarEvent`; reconciler owns all event writes
+- Idempotent, no-churn updates (re-sync identical data twice = zero database churn)
+- Terminal-outcome propagation for 1:1 and multi-record runs
+- Mixed-outcome aggregation rule: "any-success-wins-once-all-terminal" (prevents single bad observation from regressing otherwise-successful runs)
+- Status-vocabulary unification (LCO, Gemini, SOAR statuses onto one shared ranking)
 
-**Should have (competitive advantage):**
-- `source` provenance field (web submission / classical file / LCO queue / Gemini queue / CSV import) with approval gating per source
-- `telescope_class` field to distinguish "legitimately class-wide" from "site failed to resolve" (today both are `site=None`, structurally ambiguous)
-
-**Defer to v2.3 (explicitly out of scope):**
-- Unified status vocabulary across all four ingest sources (LCO, Gemini, classical, campaign CSV)
-- Adapter rewrite to write `CampaignRun` natively instead of events
-- Provenance-blind coverage-gap analysis (count LCO/Gemini/classical events, not just runs)
+**Competitive differentiators:**
+- Per-record status detail preserved (e.g., "3/4 nights completed, 1 weathered")
+- Provenance-blind coverage-gap analysis (counts all `CampaignRun`s regardless of source)
+- Visual distinction of unused allocations
 
 ### Architecture Approach
 
-The v2.2 reconciler extends an established pattern already in this codebase: `campaign_gap.py` and `campaign_utils.py` are pure-logic modules with zero Django-request concerns, imported by views — not the other way around. The reconciler is the third member of this family, living in a new `solsys_code/campaign_reconciler.py` module (not a views-module helper). This resolves an existing anti-pattern where `backfill_range_calendar_events` imports a private `_project_calendar_event()` function from the views layer — both the reconciler and any future management command should import shared logic from the same logic-layer home.
+Three major phases: (1) investigation spike settling schema/identity-key for all adapters, (2) adapter consolidation (adapters write `CampaignRun`, reconciler projects events), (3) outcome propagation (separate pass reading confirmed `CampaignRunObservation` links). The critical risk: `CampaignRun.campaign` is currently NOT NULL, but LCO and Gemini syncs routinely encounter records with no campaign. Must resolve: (a) whether `campaign` becomes nullable, (b) new identity field for queue-sourced runs, (c) new `UniqueConstraint` scoped by identity. These are settled before any adapter rewiring.
 
-**Major components:**
+**Major architectural components:**
+1. Scheduler entry point — orchestrates discovery → 3 adapters → reconcile sweep → outcome propagation
+2. Discovery sweep — loops watch-list, creates `ObservationRecord` rows
+3. Three rewired adapters — each calls `write_and_reconcile_campaign_run()` helper; LCO/Gemini also write automatic `CampaignRunObservation` link
+4. Reconcile sweep — safety net re-deriving calendar events
+5. Outcome propagation — separate pass deriving `run_status` from confirmed links, guarded-updating, refreshing calendar title
 
-1. **`campaign_reconciler.py` (new)** — Four-stage window pipeline: `_stage_for()` dispatcher (pure `if`/`elif`, no query), stage-specific window functions (`_site_window()`, `_class_wide_window()`, `_record_window()`), bulk query strategy (3 queries total to fetch runs + prefetch records + bulk-load existing companion rows, independent of run count), and write path (delegates unchanged to existing `insert_or_create_calendar_event()` with no new create-or-update code). Never imports `solsys_code.views` or `solsys_code.ephem_utils` (same SPICE-avoidance contract `campaign_gap.py` already states).
+### Critical Pitfalls
 
-2. **Generalized companion record** — `CalendarEventTelescopeLabel` gains a nullable `run` FK to `CampaignRun` (`on_delete=SET_NULL`), giving runs a one-to-many relation to events via the existing OneToOne sidecar. The event↔companion relation itself stays OneToOne (no cardinality change there); many-to-one comes from many companion rows pointing at the same run. **Critical: The related_name `telescope_label_meta` stays unchanged** — renaming it breaks template/prefetch strings with no static check. The model class itself is renamed (closing the pending naming todo), but the `related_name` doesn't need to change.
+1. **SQLite write-lock collision** between scheduled sync and concurrent staff action — **Mitigation:** `OPTIONS['timeout']` + no-overlap enforcement (flock or scheduler-native).
 
-3. **Attribution surface (new)** — Staff-facing "suggested associations" queue modeled on existing `ApprovalQueueView` pattern. Never auto-confirms; per-candidate evidence (matched telescope/date/campaign, visible date-overlap/string-similarity signals) required. Uses a through-model carrying `is_confirmed` flag (not a plain M2M), reusing the one-bit-flag idiom already established by `CalendarEventTelescopeLabel.is_verified`.
+2. **Silent scheduled-job failure** — in-command error handling cannot detect scheduler itself failing to invoke — **Mitigation:** heartbeat/dead-man's-switch as first-class feature.
 
-4. **Wire into callers** — `CampaignRunDecisionView.post()` (approve/resolve_site/mark_cancelled/mark_weather_failure branches) calls `reconcile_run(run)`. New `reconcile_campaign_runs` management command wraps `reconcile_runs()` with `--dry-run` flag.
+3. **Credential leakage through unattended-job logs** — new execution context exposes more of the command — **Mitigation:** audit every log line and exception message in adapters' new code paths; keep job-level credential out of CLI arguments.
 
-### Critical Pitfalls (Top 5)
+4. **Dual-write window during migration** — unmigrated adapter's direct writes + migrated adapter's reconciler-projected writes = duplicates — **Mitigation:** explicit cutover sequencing; verify reconciler's ownership guard leaves unmigrated events alone; treat migration duplicates as attribution-queue resolution.
 
-1. **Companion-record rename breaks silent integration points** — Four integration points reference the old name or its `related_name`: `admin.py` import, `sync_lco_observation_calendar.py` import, `views.py` prefetch string, `calendar.html` template lookups. Must re-verify all four in the same commit as the rename migration. Prevention: grep-verify the checklist, prefer keeping `related_name` unchanged (safest).
+5. **Adapter's idempotency key breaks against `CampaignRun` schema** — LCO URL/Gemini ID/classical start-time-tolerance key was designed for `CalendarEvent`, not `CampaignRun` — **Mitigation:** explicit per-adapter verification; no-churn test (re-sync identical data twice = zero field changes).
 
-2. **`run` FK added as required/CASCADE or NULL** — Existing `CalendarEventTelescopeLabel` rows (all LCO/SOAR/Gemini/classical-sync rows) have no `CampaignRun` at all. Must be `null=True, blank=True, on_delete=SET_NULL` so migration is a no-op data-wise; `CASCADE` destroys operator verification history. Prevention: migration reviewed for `null=True`/`SET_NULL`; no `RunPython` backfill.
+6. **One bad observation regresses run's status** — naive aggregation fails for multi-record runs — **Mitigation:** explicit dominance-order table before implementation; test mixed-outcome fixtures.
 
-3. **`source` field collides with existing unique constraints** — Adding `source` to constraint keys risks false collisions on future adapter writes. Keep `source` purely descriptive; let attribution (not the constraint) connect same-physical-run rows from different sources. Prevention: spike tests pk=1/11-LCO-events (both coexist without `IntegrityError`).
-
-4. **Attribution auto-links on loose heuristics** — Date+telescope overlap alone misses the measured case (pk=1 has one-day date discrepancy, instrument strings don't match). Must design against that fixture from day one. Hard filter on target/campaign. Prevention: attribution test includes pk=1 pair; dry run surfaces it with visible evidence.
-
-5. **Reconciler not actually idempotent across stage transitions** — Must design one canonical key scheme per run stable across all stages. Route every write through `insert_or_create_calendar_event()`. Prevention: run twice; assert zero `CalendarEvent.objects.count()` change and zero `modified` churn.
-
----
+7. **Status derivation fires on unconfirmed link, or bypasses confirmed `CampaignRunObservation`** — outcome propagation must read *only* confirmed links, never score candidates — **Mitigation:** guard: run with zero confirmed links stays as-is; test proving unconfirmed candidate never changes `run_status`.
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure (6 phases):
+**Recommended 8-phase structure:**
 
-### Phase 26: Spike — Natural Keys & Attribution Strategy
+1. **Investigation Spike — Schema & Identity** (Phase 1): Settles campaign-nullability, `source_identifier` field, new `UniqueConstraint`. Blocks everything after. Mirrored on Phase 26's role in v2.2.
 
-**Rationale:** This must come first; every other phase depends on decisions here.  
-**Delivers:** Natural-key semantics under `source`, per-adapter identity mapping, migration/backfill strategy, attribution heuristic shape.  
-**Must-have:** Reproduce pk=1/11-LCO-events scenario as executable test; document source enum and constraints; settle companion-record rename decision with four integration-point checklist.
+2. **Shared Helper & Groundwork** (Phase 2): `write_and_reconcile_campaign_run()` helper tested in isolation; gates adapters but independent.
 
-### Phase 27: Schema Changes — `source`, `telescope_class`, Companion Generalization
+3. **Scheduling Mechanism Spike** (Phase 3): Verifies cron vs. task-queue against real deployment; settles healthchecks/credential handling/overlap prevention. Can research in parallel with Phases 4-6.
 
-**Rationale:** These three schema additions are independent and execute spike decisions directly.  
-**Delivers:** Three separate migrations (not combined); `source` + `telescope_class` on `CampaignRun`; `observation_records` M2M with through-model; companion rename/FK addition.  
-**Avoids Pitfalls:** 1 (re-verified integration points), 2 (`null=True`/`SET_NULL`), 3 (`source` out of constraints), 11 (non-web adapters' `approval_status` set explicitly).
+4. **ADAPT-01 — Classical Adapter** (Phase 4a): Simplest identity key; validates shared helper against classical data.
 
-### Phase 28: Reconciler Core — Four-Stage Pipeline
+5. **ADAPT-02 — LCO Queue Adapter** (Phase 4b): Introduces `source_identifier`; first real automatic `CampaignRunObservation` linking.
 
-**Rationale:** Blocks view wiring and attribution; must not be blocked by attribution.  
-**Delivers:** `campaign_reconciler.py` with stage dispatcher/window functions/bulk query strategy; `reconcile_campaign_runs.py` command; idempotency test (two runs, zero writes).  
-**Must-have:** Never imports views/ephem_utils; fixture with unrelated event proves it survives untouched; pk=1/11-LCO proves reconciler is blind to unlinked events; non-UTC-friendly sites in date-boundary tests.  
-**Avoids Pitfalls:** 5–7 (stable key, no-churn reuse, ownership scoping), 9–10 (bounds, batch isolation), 13 (timezone semantics).
+6. **ADAPT-03 — Gemini Queue Adapter** (Phase 4c): Validates pattern generalizes to second facility identity scheme.
 
-### Phase 29: Wire Reconciler into Views & Commands
+7. **Discovery Sweep & Watch-List** (Phase 6): Can develop in parallel but wire into orchestrator only after Phase 4b exists.
 
-**Rationale:** Depends on Phase 28 existing; uses Phase 27 schema.  
-**Delivers:** `CampaignRunDecisionView.post()` calls `reconcile_run(run)`; deletes old `_project_calendar_event()` and friends.  
-**Must-have:** All existing tests pass; 19 invisible 3I/ATLAS runs now have calendar events.
+8. **Outcome Propagation** (Phase 5): Depends on adapters writing `CampaignRunObservation` links; implements the mixed-outcome aggregation rule.
 
-### Phase 30: Attribution Surface — Operator-Assisted Linking
+9. **Scheduler Entry Point** (Phase 7): Last; orchestrates every step once independently functional.
 
-**Rationale:** Depends on Phase 27 schema + Phase 28 reconciler; needed before first production reconcile (see operational note below).  
-**Delivers:** Staff "Suggested Associations" queue with per-candidate evidence; confirm/reject actions; unlink affordance.  
-**Must-have:** pk=1 fixture surfaces with visible evidence; target-hard-filter prevents cross-target matches; confirmation is per-candidate and logged; reversible.  
-**Avoids Pitfalls:** 4 (fixture-driven attribution), 5 (undo implemented).
+10. **Carried-Forward Work** (Phase 8): STATUS-01/02 unification, GAPB-01, UNUSED-01 — direct consequences of adapter rewiring, no independent cost.
 
-### Phase 31: Retire Old Code
+**Phase ordering rationale:**
+- Schema/identity (Phase 1) gates everything; must come first.
+- Adapters sequential (simplest first), each validating the shared pattern; all must ship before outcome propagation has data to read.
+- Outcome propagation separate from adapter rewiring (preserves reconciler's pure-projection contract).
+- Carried-forward work last (depends on new `CampaignRun`s existing).
 
-**Rationale:** Only after Phase 29 proves all reconciler call sites are in place.  
-**Delivers:** Delete `_project_calendar_event()`, related helpers, `backfill_range_calendar_events.py`.  
-**Must-have:** All tests pass after deletion.
+## Research Flags
 
-### Operational Note
+**Phases needing deeper research during planning:**
+- **Phase 1 (schema spike):** Whether `campaign` nullability is simple schema change or requires data-migration backfill; whether classical runs have identity surface supporting `source_identifier` field.
+- **Phase 3 (scheduling spike):** Real target deployment's cron vs. systemd-timer preference; healthchecks.io acceptability; flock availability.
+- **Phase 5 (outcome propagation):** Validate mixed-outcome rule against real historical data — do any existing multi-record runs have outcomes misclassified by "any-success-wins"?
 
-**Attribution must run before the first full production reconcile.** An unattributed first sweep will create fresh `CAMPAIGN:{pk}:{date}` events for nights that already have adapter-sourced events, producing visible double-booking until attribution links them. Run the attribution surface before or alongside the first `reconcile_campaign_runs` sweep.
-
----
+**Phases with standard patterns (skip research):**
+- **Phase 2:** Composition of existing building blocks; no research beyond spike's schema decision.
+- **Phases 4a-c:** Straightforward refactor; validated by existing SYNC-04-style no-churn tests.
+- **Phase 6:** Generalizes existing `backfill_lco_observation_records` logic.
+- **Phase 8:** All three features are consequences of adapter rewiring; no independent design research.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| **Stack** | **HIGH** | Direct reads of installed tomtoolkit source; Django ORM operations are long-stable (predate Django 4). |
-| **Features** | **MEDIUM** | Cross-checked against LCO/Gemini/ESO/ALMA/JWST real systems. Attribution heuristics and stage-2 semantics drawn from domain research; spike will validate. |
-| **Architecture** | **HIGH** | Grounded in direct inspection of existing `solsys_code/` modules. Pattern (pure-logic modules, not views helpers) already established. |
-| **Pitfalls** | **HIGH** | Most from measured dev-DB hazards (19 invisible runs, pk=1/11-LCO collision, FTN timezone). Tier-3 pitfalls confirmed by code inspection. |
+| **Stack** | HIGH | Direct codebase inspection; cron recommendation corroborated across sources; matches single-server/few-jobs reality. |
+| **Features** | HIGH | Rooted in `.planning/PROJECT.md` milestone scope and v2.2 infrastructure; aligns with PR #43's feature-complete bar. |
+| **Architecture** | HIGH | Grounded in v2.2 codebase; Phase 26 already settled per-adapter identity keys; research extends to write-time surface. Critical Integration Risk *identified*, not unresolved. |
+| **Pitfalls** | HIGH | All seven derive directly from this repo's code patterns and real operational scenarios; prevention strategies mirror existing codebase patterns. |
 
-**Overall:** **HIGH** — Spike is the only phase requiring new design; every subsequent phase executes established patterns.
+**Overall: HIGH** — Confidence is high because this is incremental infrastructure on a mature codebase with proven patterns. Main uncertainty (campaign-nullability schema) is identified upfront with clear resolution path (Phase 1 spike).
 
 ### Gaps to Address
 
-1. **Stage-2 class-wide fan-out:** Does stage 2 create one event per candidate site or one class-wide event? Spike deliverable; impacts event count and presentation.
-
-2. **Per-run reconciliation-failed surface:** If reconciler runs as batch sweep (not just per-run), a retry queue is needed (like existing `site_needs_review`). Spike decision; Phase 28 implements accordingly.
-
-3. **Date-boundary correctness:** Must test stage transitions against non-UTC-friendly real sites (Las Campanas, Siding Spring), not just UTC-convenient mocks. Phase 28 must include this.
-
----
+- **Real deployment scheduling constraints:** CLAUDE.md lacks production deployment infrastructure details; Phase 3 spike must validate against actual target host.
+- **Real data validation of mixed-outcome rule:** Needs validation against FOMO's historical run portfolio.
+- **Classical adapter's write-time identity surface:** Phase 1 spike must confirm whether classical runs have facility-specific key (like LCO/Gemini) or only tolerance-windowed match.
+- **Scheduler credential handling specifics:** Depends on Phase 3's scheduler choice (cron vs. task queue handle credentials differently).
 
 ## Sources
 
-**PRIMARY (HIGH confidence):**
-- `.planning/research/STACK.md` — Direct inspection of installed package source; Django migration edge cases from community tickets
-- `.planning/research/ARCHITECTURE.md` — Direct reads of `solsys_code/` modules and management commands
-- `.planning/research/PITFALLS.md` — Measured dev-DB hazards; code-inspection confirmations; established precedents
-- `.planning/PROJECT.md` — Current Milestone v2.2 section, concrete defects (19 invisible runs, pk=1/11-LCO collision, FTN timezone gap)
+### Primary (HIGH)
+- `solsys_code/campaign_reconciler.py`, `models.py`, `campaign_utils.py`, management commands
+- `.planning/PROJECT.md`, Phase 26 spike decision doc
+- `src/fomo/settings.py`
 
-**SECONDARY (MEDIUM confidence):**
-- `.planning/research/FEATURES.md` — Facility tool research (LCO, Gemini, ESO, ALMA, JWST); OpenRefine reconciliation pattern
+### Secondary (MEDIUM)
+- django-crontab package health, Huey docs, Healthchecks.io docs, Django SQLite locking
+- Kubernetes Job API documentation, GitHub Actions job-matrix patterns
 
 ---
 
-*Research completed: 2026-07-26*  
-*Confidence: HIGH*  
-*Ready for roadmap: YES*
+*Research completed: 2026-09-01*
+*Ready for roadmap creation: yes*
