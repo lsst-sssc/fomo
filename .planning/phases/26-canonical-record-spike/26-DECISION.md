@@ -1,13 +1,16 @@
 # Phase 26: Canonical-Record Spike - Decision
 
 **Investigated:** 2026-07-27
-**Status:** In progress. This document is built up across plans 26-01, 26-02 and 26-03.
+**Status:** Complete. This document was built up across all five plans of Phase 26.
 Plan 26-01 records the D-04 dated snapshot, D-16, SPIKE-02's four-adapter identity
 mapping, the stage-2/stage-0 inventory (D-05..D-08), the RECON-07 baseline, and
 SPIKE-04's migration-application and measured-rename-blast-radius findings. SPIKE-01's
 `IntegrityError` coexistence proof and SPIKE-03's adopt-vs-gap-fill prototype (D-11) are
 recorded by plan 26-02. `## Recommendation` and `## Durable summary` are completed by
-plan 26-03.
+plan 26-03. Plan 26-04 closed the SPIKE-03 gap verification found with the
+queue-versus-classical run inventory and the three-way span / none / per-night
+queue-run projection comparison. Plan 26-05 recorded the resulting queue-run projection
+decision and amended this document's Criterion 3 and Domain-correction sections to match.
 
 This phase is **investigation-only**, following the Phase 13 (ESO) and Phase 18
 (uncertain-scheduling) precedents. No `CampaignRun` schema migration, no
