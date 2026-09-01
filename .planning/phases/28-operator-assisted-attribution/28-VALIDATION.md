@@ -1,9 +1,9 @@
 ---
 phase: 28
 slug: operator-assisted-attribution
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-01
 ---
 
@@ -43,39 +43,43 @@ coverage is fixed by the table below; task IDs are assigned during planning.
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists |
 |--------|----------|-----------|-------------------|-------------|
-| ATTRIB-01 | Worklist shows evidence columns (telescope, date overlap, campaign, instrument) per candidate — never a bare score | unit + view | `python manage.py test solsys_code.tests.test_campaign_attribution_views.TestEvidenceColumns` | ❌ W0 |
-| ATTRIB-02 | Candidates confidence-scored and filterable by named band | unit | `python manage.py test solsys_code.tests.test_campaign_attribution.TestScoringAndBanding` | ❌ W0 |
-| ATTRIB-03 | No association without explicit confirmation; no cross-campaign/target suggestion ever offered | unit + view | `python manage.py test solsys_code.tests.test_campaign_attribution.TestCampaignBoundaryGate` | ❌ W0 |
-| ATTRIB-04 | Confirm and undo both attributable to a person and a time (event side *and* record side) | view + model | `python manage.py test solsys_code.tests.test_campaign_attribution_views.TestConfirmUndo` | ❌ W0 |
-| ATTRIB-05 | The real criterion-5 case is surfaced despite mismatched instrument strings and the one-day span difference | integration | `python manage.py test solsys_code.tests.test_campaign_attribution.TestCriterion5RealCase` | ❌ W0 |
-| ATTRIB-06 | Queue drains to zero and states the remaining count, before any reconcile sweep | view (end-to-end) | `python manage.py test solsys_code.tests.test_campaign_attribution_views.TestQueueDrainsToEmpty` | ❌ W0 |
+| ATTRIB-01 | Worklist shows evidence columns (telescope, date overlap, campaign, instrument) per candidate — never a bare score | unit + view | `python manage.py test solsys_code.tests.test_attribution_template` (`TestEvidenceColumns`) | ✅ exists | ✅ green |
+| ATTRIB-02 | Candidates confidence-scored and filterable by named band | unit | `python manage.py test solsys_code.tests.test_campaign_attribution` (`TestBandFilterAndBanner`, `TestSoleHighCandidateUnderBandFilter`) | ✅ exists | ✅ green |
+| ATTRIB-03 | No association without explicit confirmation; no cross-campaign/target suggestion ever offered | unit + view | `python manage.py test solsys_code.tests.test_campaign_attribution_views` (`TestConcurrencyAndTampering`) | ✅ exists | ✅ green |
+| ATTRIB-04 | Confirm and undo both attributable to a person and a time (event side *and* record side) | view + model | `python manage.py test solsys_code.tests.test_campaign_attribution_views solsys_code.tests.test_admin` (`TestConfirmUndo`, `TestUndoConfirmationOrdering`, `CalendarEventMetaStandaloneAdminAuditStampTests`) | ✅ exists | ✅ green |
+| ATTRIB-05 | The real criterion-5 case is surfaced despite mismatched instrument strings and the one-day span difference | integration | `python manage.py test solsys_code.tests.test_campaign_attribution` (`TestCriterion5RealCase`) | ✅ exists | ✅ green |
+| ATTRIB-06 | Queue drains to zero and states the remaining count, before any reconcile sweep | view (end-to-end) | `python manage.py test solsys_code.tests.test_campaign_attribution_views solsys_code.tests.test_attribution_dismissals` | ✅ exists | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
+**Source:** `28-VERIFICATION.md` (2026-08-02 re-verification, 8/8 truths, 146 tests across 5
+modules — `test_campaign_attribution`, `test_campaign_attribution_views`,
+`test_attribution_dismissals`, `test_admin`, `test_attribution_template` — independently
+re-run by the verifier). CR-01 (Confirm button gated behind Dismiss-only required field) and
+CR-02 (standalone admin audit fields unprotected) were BLOCKER findings from the initial pass,
+both closed and pinned by mutation-checked regression tests before this phase's final
+verification.
+
 ---
 
-## Wave 0 Requirements
+- [x] `solsys_code/tests/test_campaign_attribution.py` — matcher unit tests present, including
+      the measured real-case `difflib.SequenceMatcher` ratio proof.
+- [x] `solsys_code/tests/test_campaign_attribution_views.py` — view/POST integration tests
+      present (confirm event/record, dismiss, undo, double-submit, race, `StaffRequiredMixin`).
+- [x] `TestCriterion5RealCase` present in `test_campaign_attribution.py`, built as an
+      equivalent fixture using `NonSiderealTargetFactory`, unmodified since the gap-closure
+      round per 28-06's explicit requirement.
+- [x] `test_admin.py`'s `test_save_formset_stamps_calendar_event_meta_on_run_transition` and
+      the standalone-admin-page audit-stamp tests (`CalendarEventMetaStandaloneAdminAuditStampTests`,
+      7 tests, closing CR-02) both present.
+- [x] `test_attribution_template.py` added mid-phase (gap closure, 28-05) — 6 structure-only
+      tests that parse rendered HTML and never call `self.client.post()`, specifically designed
+      to catch CR-01's blind spot (a `<button>` gated behind an unrelated required field), which
+      124 previously-green tests had all missed.
 
-- [ ] `solsys_code/tests/test_campaign_attribution.py` — matcher unit tests: the weighted-sum
-      scoring formula, band cut-points, the campaign/target boundary as the single hard gate,
-      and instrument-string similarity. Must cover the measured real case directly:
-      `difflib.SequenceMatcher` on `"FTS/MuSCAT4"` vs `"2M0-SCICAM-MUSCAT"` ratios **0.500**,
-      below this codebase's own 0.6 fuzzy cutoff — proof that "instrument similarity must never
-      disqualify" (D-11) is load-bearing, not precautionary.
-- [ ] `solsys_code/tests/test_campaign_attribution_views.py` — view/POST integration tests:
-      confirm on the event side (atomic conditional `.update()`), confirm on the record side
-      (`get_or_create` + `IntegrityError`), dismiss, undo, double-submit no-op, the two-staff
-      race on both link types, and `StaffRequiredMixin` gating.
-- [ ] Criterion-5 acceptance test built as an equivalent fixture, **not** against live pks
-      53/58 verbatim — research confirmed those two rows are already claimed, leaving 10 genuine
-      orphans per side. Use `NonSiderealTargetFactory` (never `SiderealTargetFactory`) following
-      the fixture style in `test_campaign_run_observation.py`.
-- [ ] Extend `solsys_code/tests/test_admin.py`'s `CampaignRunAdminInlinesTests` with
-      `test_save_formset_stamps_calendar_event_meta_on_run_transition` — the `CalendarEventMeta`
-      branch needs a `run_id` None→not-None transition check, **not** the `pk is None` check the
-      `CampaignRunObservation` branch uses.
-- [ ] No framework install needed — `django.test.TestCase` / `TransactionTestCase` cover every
-      case above. No new dependency is permitted (`rapidfuzz` rejected twice; `difflib` is the tool).
+**All Wave 0 items closed during execution; the phase's own re-verification (2026-08-02) found
+2 BLOCKER regressions (CR-01, CR-02) in the first-pass implementation and confirmed both fixed
+with mutation-checked tests before signing off 8/8.**
 
 ---
 
@@ -90,11 +94,26 @@ coverage is fixed by the table below; task IDs are assigned during planning.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s for the quick command
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s for the quick command
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated (Phase 30 plan 30-04, D-08 reconciliation)
+
+## Validation Audit 2026-08-31
+
+Reconciled by Phase 30 plan 30-04 (D-08). This file was seeded by plan-phase with 6 Wave 0
+gaps (❌) before execution. Cross-referenced against `28-VERIFICATION.md` (2026-08-02
+re-verification, a second pass after the phase's own initial verification found 2 BLOCKER
+regressions): all Wave 0 test modules were created during execution, both blockers were
+closed with mutation-checked regression tests, and the full 146-test targeted suite was
+independently re-run by the verifier. No new test was written by this reconciliation.
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 6 (all pre-existing Wave 0 markers, already closed by execution) |
+| Resolved | 6 (confirmed closed via 28-VERIFICATION.md cross-reference, no new work needed) |
+| Escalated | 0 |
