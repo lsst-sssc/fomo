@@ -111,7 +111,7 @@
 - [x] **Phase 27.1: Close gap: staff surfaces and data-integrity risks from the canonical run record (INSERTED)** - Staff can reach the site-review queue, the event modal stops printing its own template source, the admin run picker becomes legible, and a CSV re-import stops silently reverting a site repair (all 5 plans executed 2026-07-31; criterion 6 closed by 27.1-05 — the `source` provenance lock widened to every `WEB` run at any approval status; a criterion-5 gap re-verification opened, a contaminated dev-DB snapshot in the paired `import_campaign_csv_demo.ipynb`, was closed by regenerating the notebook from a clean DB; verified 6/6, see 27.1-VERIFICATION.md) (completed 2026-07-31)
 - [x] **Phase 28: Operator-Assisted Attribution** (0/4 plans) - A staff queue of evidence-backed suggested run↔event and run↔record associations, confirmed one at a time and reversible (completed 2026-08-01)
 - [x] **Phase 29: The Reconciler** - One idempotent command (plus per-run reconciliation on staff decisions) projecting all four window-pipeline stages, retiring `backfill_range_calendar_events` and making the 19 invisible 3I/ATLAS runs appear (completed 2026-08-05)
-- [ ] **Phase 30: v2.2 Tech-Debt Cleanup** - Close out the deferred items with an accurate record: the attribution-candidate `approval_status` filter, the `telescope_class` re-import guard, the root cause behind three phases logging phantom ruff drift, the unreconciled Nyquist validation files, and correcting the milestone audit itself (goal rewritten 2026-08-31 after discuss-phase verified the WR-09/WR-10 runbook fixes and the ruff drift were already closed)
+- [x] **Phase 30: v2.2 Tech-Debt Cleanup** - Close out the deferred items with an accurate record: the attribution-candidate `approval_status` filter, the `telescope_class` re-import guard, the root cause behind three phases logging phantom ruff drift, the unreconciled Nyquist validation files, and correcting the milestone audit itself (goal rewritten 2026-08-31 after discuss-phase verified the WR-09/WR-10 runbook fixes and the ruff drift were already closed) (completed 2026-09-01)
 
 **Locked constraints** (settled during milestone questioning and the research pass — phase planning executes these, it does not re-open them):
 
@@ -381,7 +381,7 @@ follow-ups.
   6. The operator runbook tells staff that a rejected run is never offered as a match, and
      `campaign_lifecycle_demo.ipynb` shows that exclusion happening in real executed output
 
-**Plans:** 4/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 
@@ -434,7 +434,7 @@ Plans:
 | 27. The Canonical Run Record | v2.2 | 7/7 | Complete    | 2026-08-06 |
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete    | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete   | 2026-08-05 |
-| 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | In Progress|  |
+| 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete    | 2026-09-01 |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
