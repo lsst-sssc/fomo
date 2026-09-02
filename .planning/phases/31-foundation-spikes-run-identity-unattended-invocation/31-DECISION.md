@@ -330,6 +330,91 @@ Tag: **Confirmed against real rows** — every fact in this section is read dire
 the one real operator-supplied file and its live `parse_run_line()` outcomes; no
 documentation example or synthetic line was needed to fill a gap.
 
+### Scheduling track (SCHED-07)
+
+#### SCHED-07 evidence - interim host verification
+
+Dated 2026-09-02. Captured live, during this plan, to `tmp/31-host-probe.txt` (git-excluded;
+`git ls-files tmp/` prints nothing) via three probe commands run in sequence from the
+repository root, each appending to the same transcript. The crontab block was piped through
+a substitution that replaces the value part of any assignment whose name contains a
+secret-sounding word (`KEY`, `TOKEN`, `PASSWORD`, `SECRET`, `CREDENTIAL`) with `REDACTED`
+before anything was written to the transcript — no such assignment appears in the real
+crontab captured here, so the substitution had nothing to redact, which is itself recorded
+rather than silently assumed.
+
+```
+=== uname ===
+Linux tlister-thinkmate 5.14.0-687.42.1.el9_8.x86_64 #1 SMP PREEMPT_DYNAMIC Wed Aug 26 12:55:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+=== init ===
+systemd 252 (252-67.el9_8.4.rocky.0.1)
+=== flock ===
+flock from util-linux 2.37.4
+flock: probe exit 0
+=== crontab ===
+#30 11  * * *  python ~/update_sentry_risk.py > /tmp/sentry_risk.log 2>&1
+0 * * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py rundataquery 1
+17 * * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py updatescout --skip-designations
+47 4 * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py updatescout --skip-reconcile
+
+# scout-alert-bridge: Scout -> Hopskotch Scout.scout-test (strict filters)
+*/10 * * * * flock -n /tmp/scout-bridge-cycle.lock /home/tlister/git/scout-alert-bridge/scripts/run_cycle.sh >> /home/tlister/git/scout-alert-bridge/logs/cycle.log 2>&1
+37 4 * * * flock -n /tmp/scout-bridge-cycle.lock /home/tlister/git/scout-alert-bridge/scripts/run_cycle.sh designations >> /home/tlister/git/scout-alert-bridge/logs/designations.log 2>&1
+crontab: probe exit 0
+=== heartbeat egress ===
+301
+heartbeat: curl exit 0
+```
+
+Tag: **Confirmed against real rows** for all three probe outputs — this transcript was
+produced live during this plan's execution, not carried over from RESEARCH.md's earlier
+session, per the roadmap's own bar for Success Criterion 4.
+
+**First finding — lock utility.** `flock` is present: `flock from util-linux 2.37.4`, probe
+exit `0`. This is the technical half of D-03's first open question, confirmed for the
+interim host: the lock utility this mechanism depends on is already installed here, nothing
+needs adding to this host for the cron+flock mechanism to function.
+
+**Second finding — existing cron precedent, the one that matters most.** The real crontab
+already invokes this project's Django management commands today: **3 active entries**
+target `/home/tlister/git/fomo_fresh/manage.py` (`rundataquery 1`, hourly at `:00`;
+`updatescout --skip-designations`, hourly at `:17`; `updatescout --skip-reconcile`, daily at
+`4:47`). **0 of these 3 carry any overlap guard** — none is wrapped in `flock` or any other
+serialization mechanism. This confirms RESEARCH.md Pitfall 4's finding directly, one session
+later: the concurrent-write-contention risk in `.planning/codebase/CONCERNS.md:159` is a live
+condition on this host today, not a hypothetical this phase is inventing. This is the
+strongest single piece of evidence for D-02's cron+flock choice — the ratio is
+**0 guarded / 3 total FOMO management-command entries**. (The crontab also carries two
+`flock`-guarded entries for a different project, `scout-alert-bridge`, which invoke a shell
+script rather than a Django management command and are noted here only to be excluded from
+the 0/3 count above — they are not FOMO entries and do not change that ratio; a fifth line,
+the `update_sentry_risk.py` cron job, is commented out (`#`-prefixed) and therefore not an
+active entry at all.) Note also that these entries reference `/home/tlister/git/fomo_fresh`,
+a sibling checkout of this same project, not this repository's own working-tree path — this
+is exactly RESEARCH.md's own observation, carried forward rather than silently resolved; see
+the human-check below.
+
+**Third finding — outbound heartbeat egress.** The heartbeat check against `hc-ping.com`
+returned HTTP status **301** (a redirect response), with `curl` itself exiting `0`. A
+three-digit response proves egress: this host can reach a third-party heartbeat service over
+HTTPS today. This resolves only the **technical** half of D-03's second open question —
+whether an outbound ping to a third-party service is acceptable on policy or compliance
+grounds is a separate question this probe cannot answer and does not attempt to; RESEARCH.md
+logs it as Assumption A2, and it remains open here, routed to the operator via the human-check
+below and to Phase 34/task 3's recommendation as an explicit unresolved item.
+
+**Scope caveat governing the whole track:** these facts are about the shell this plan ran in.
+RESEARCH.md Open Question 3 records strong circumstantial evidence that this is the machine
+D-01 describes (the kernel string and crontab paths above are consistent with it), but only
+the operator can confirm it — and even a confirmed match proves nothing about the container
+image or the AWS target, which no probe run from this shell can reach.
+
+| Scope | Status |
+|---|---|
+| Interim host (Rocky 9 / WSL2, D-01) | **Reached** — flock present, 0/3 unguarded FOMO cron entries confirmed, heartbeat egress confirmed (HTTP 301) |
+| FOMO container image | Not reached by this task — see the next evidence subsection |
+| Eventual AWS Kubernetes target | Not reached by this task — see the next evidence subsection |
+
 ## Recommendation
 
 ### SCHEMA-01 - schema shape for a non-campaign run
