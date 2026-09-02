@@ -152,7 +152,14 @@
   4. The doc states the unattended-invocation mechanism chosen against the real target host's constraints — overlap prevention, credential handling, and how a missed invocation becomes visible — so Phase 34 implements a verified mechanism rather than a recommended one
   5. The decisions are readable outside `.planning/`: a `docs/design/` page carries the identity scheme and the scheduling verdict forward, and the test suite is unchanged because no source behaviour changed
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 31-01-PLAN.md — Schema-track evidence: real dev-DB snapshot, campaign-FK read-path blast radius, and a constraint probe of all three candidate shapes on a disposable DB copy
+- [ ] 31-02-PLAN.md — Schema verdicts: the chosen shape for a non-campaign run (blocking one-way decision gate) plus the write-time identity field, its constraint, and each ingest path's value
+- [ ] 31-03-PLAN.md — Classical write-time identity surface: obtain real schedule files from the operator, inspect them per run state, and answer the tolerance-match sufficiency question
+- [ ] 31-04-PLAN.md — Unattended invocation verified against the real host and container scope: overlap prevention, credential handling, missed-invocation visibility
+- [ ] 31-05-PLAN.md — Durable `docs/design/` page carrying both verdicts, plus the docs build and the no-source-change regression gate
 
 ### Phase 32: Adapter Consolidation
 

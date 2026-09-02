@@ -45,23 +45,47 @@ existing suite stays green.
 
 ## Per-Task Verification Map
 
+Reconciled against the five plans written on 2026-09-01. The substance is unchanged from this
+file's draft; the plan and task ids below are the real ones, and the SCHEMA-03 track moved into
+its own plan (31-03) because it opens with a blocking operator checkpoint that would otherwise
+stall the schema-evidence plan.
+
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 31-01-01 | 01 | 1 | SCHEMA-01 | — | N/A — investigation only | investigation script | `sqlite3 src/fomo_db.sqlite3 "SELECT COUNT(*) FROM solsys_code_campaignrun WHERE campaign_id IS NULL;"` | ✅ (real DB, already queried in research: 0/49) | ⬜ pending |
-| 31-01-02 | 01 | 1 | SCHEMA-02 | — | Credentials/no new input surface — N/A | disposable constraint-probe script | `python manage.py shell < tmp/31_constraint_probe.py` | ❌ W0 — executor writes this throwaway script | ⬜ pending |
-| 31-01-03 | 01 | 1 | SCHEMA-03 | — | N/A | manual inspection | N/A — depends on operator-supplied classical schedule file (Open Question 1, RESEARCH.md) | ❌ — no real file exists in-repo | ⬜ pending |
-| 31-02-01 | 02 | 1 | SCHED-07 | T-31-01 | Credential value never appears in a log line/notification (SCHED-10) | shell-level verification | `flock --version`, `crontab -l`, `curl -sS -o /dev/null -w '%{http_code}' https://hc-ping.com/` | ✅ (already run against interim host in research) | ⬜ pending |
-| 31-02-02 | 02 | 1 | SCHED-07 (container scope) | T-31-01 | Same as above, verified inside the real container image | shell-level verification | Same probes, re-run inside the FOMO container image | ❌ W0 — container-level check, not yet run | ⬜ pending |
-| 31-03-01 | 03 | 2 | Regression | — | N/A | full suite | `python manage.py test` (excluding `test_views.TestEphemeris`) | ✅ — suite already exists | ⬜ pending |
+| 31-01-01 | 01 | 1 | SCHEMA-01 | T-31-01, T-31-02 | Read-only probe; no contact-field values selected | investigation script (tracer) | `python manage.py shell < tmp/31_dbsnapshot_probe.py` then assert `FINGERPRINT_UNCHANGED=PASS` and the count keys | ❌ W0 — executor writes this throwaway script | ⬜ pending |
+| 31-01-02 | 01 | 1 | SCHEMA-01 | T-31-03 | N/A — read-only grep inventory | grep inventory, self-deriving | loop over `grep -rl '\.campaign\b'` non-test sources asserting each appears in `31-DECISION.md` | ✅ — real source tree | ⬜ pending |
+| 31-01-03 | 01 | 1 | SCHEMA-02 | T-31-02 | Hard DB-path guard before any write; live DB fingerprint re-compared | disposable constraint-probe script | `python manage.py shell < tmp/31_constraint_probe.py` asserting `GUARD_DISPOSABLE_COPY=OK`, ≥5 `PASS:`, 0 `FAIL:` | ❌ W0 — executor writes this throwaway script | ⬜ pending |
+| 31-02-01 | 02 | 2 | SCHEMA-01 | — | N/A | blocking-human decision checkpoint (one-way door, D-05) | none — checkpoint | N/A | ⬜ pending |
+| 31-02-02 | 02 | 2 | SCHEMA-01 | T-31-05 | N/A | document assertion | heading + candidate-shape mention count inside the SCHEMA-01 recommendation section | ✅ | ⬜ pending |
+| 31-02-03 | 02 | 2 | SCHEMA-02 | T-31-04, T-31-06 | Contact field named, never valued | document assertion | all three command names and all three `Source` values present inside the SCHEMA-02 section | ✅ | ⬜ pending |
+| 31-03-01 | 03 | 3 | SCHEMA-03 | T-31-07 | Operator files stay in git-excluded `tmp/` | blocking-human action checkpoint | none — checkpoint | N/A — depends on operator-supplied classical schedule file (Open Question 1, RESEARCH.md) | ⬜ pending |
+| 31-03-02 | 03 | 3 | SCHEMA-03 | T-31-07, T-31-08 | No PI name, title, email or raw line quoted into the committed doc | sample inspection + document assertion | sample count reconciliation, plus a negative search for credential/email tokens in `31-DECISION.md` | ❌ — no real file exists in-repo | ⬜ pending |
+| 31-03-03 | 03 | 3 | SCHEMA-03 | T-31-09 | N/A | document assertion | sufficiency verdict, tolerance reference and four failing-case mentions inside the SCHEMA-03 section | ✅ | ⬜ pending |
+| 31-04-01 | 04 | 4 | SCHED-07 | T-31-10, T-31-13 | Crontab redacted at capture time, before anything is written | shell-level verification | `flock --version` (util-linux banner), redacted `crontab -l` (a `manage.py` entry), `curl -w '%{http_code}'` to the heartbeat host (1xx-5xx) | ✅ — real host | ⬜ pending |
+| 31-04-02 | 04 | 4 | SCHED-07 (container + AWS scope) | T-31-10 | Same, verified inside a real image where one exists | shell-level verification | tracked build-file search, local image inventory, then the same two probes inside whichever image branch applies | ❌ W0 — container-level check, not yet run | ⬜ pending |
+| 31-04-03 | 04 | 4 | SCHED-07 | T-31-11, T-31-12, T-31-14, T-31-15 | No credential value in any committed artifact (SCHED-10) | document assertion + negative credential search | invocation-shape and two-layer-visibility assertions, plus `! grep -REiq` for credential-shaped tokens in `31-DECISION.md` | ✅ | ⬜ pending |
+| 31-05-01 | 05 | 5 | SCHEMA-01..03, SCHED-07 | T-31-16 | No credential, email or operator line on the published page | docs build precondition + document assertion | page structure, two decision tables, toctree entry, and a one-line-added diff assertion on `docs/design/design.rst` | ✅ | ⬜ pending |
+| 31-05-02 | 05 | 5 | Regression | T-31-17, T-31-18, T-31-19 | Disposable DB copy removed; nothing under `tmp/` tracked | Sphinx build + targeted suite + cleanliness gates | `sphinx-build -M html ./docs ./_readthedocs …` prints `build succeeded`; `python manage.py test` over six named modules ends `OK`; empty `git status -- solsys_code src`; empty `git ls-files tmp/` | ✅ — suite already exists | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+**Why the regression run names modules rather than running the app suite unqualified:** project
+convention (CLAUDE.md, and every v2.2 plan) forbids `python manage.py test solsys_code` on its own —
+`solsys_code.tests.test_views.TestEphemeris` segfaults in native ASSIST and importing
+`solsys_code.ephem_utils` triggers a very large SPICE kernel download. The six modules named in
+31-05-02 cover the model whose schema this phase reasoned about, the three ingest paths whose
+identity keys it inventoried, the reconciler that reads the campaign FK, and the canonical-record
+migration; none of them imports the ephemeris utilities. The primary regression signal for an
+investigation-only phase is the empty `git status` over `solsys_code/` and `src/`, with the test
+run as an independent second signal.
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `tmp/31_constraint_probe.py` — disposable, git-excluded probe script mirroring `tmp/26_integrity_check.py`'s pattern: write against a **disposable copy** of `src/fomo_db.sqlite3`, never the live file, to check candidate `source_identifier` schemes against both existing `UniqueConstraint`s without an unexpected `IntegrityError`.
-- [ ] Container-level shell check for `flock --version` / outbound HTTPS reachability to `hc-ping.com` (Pitfall 5 in RESEARCH.md) — not a test file, a one-time verification step whose output is quoted verbatim in `31-DECISION.md`.
+- [ ] `tmp/31_dbsnapshot_probe.py` — disposable, git-excluded **read-only** probe against the real `src/fomo_db.sqlite3`, recording a `stat -c '%s %Y'` fingerprint before and after and printing `KEY=value` population counts. Written by task 31-01-01 (the tracer).
+- [ ] `tmp/31_constraint_probe.py` — disposable, git-excluded probe script mirroring `tmp/26_integrity_check.py`'s pattern: write against a **disposable copy** of `src/fomo_db.sqlite3`, never the live file, to check all three candidate schema shapes and a candidate write-time identity field against both existing `UniqueConstraint`s. Must re-point the default connection and print `GUARD_DISPOSABLE_COPY=OK` before any write; must never touch `src/fomo/local_settings.py`, which holds a live credential on the real host. Written by task 31-01-03.
+- [ ] Container-level shell check for the lock utility and outbound HTTPS reachability to the heartbeat host (Pitfall 5 in RESEARCH.md) — not a test file, a one-time verification step whose output is quoted verbatim in `31-DECISION.md`. Run by task 31-04-02. This repository tracks no container build file, so that task must first establish whether a FOMO image exists at all and label a stand-in check as a stand-in.
 - [ ] No new `tests/*.py` file — this phase adds no source behavior to test.
 
 *Existing `solsys_code/tests/` infrastructure covers all phase requirements that touch source code (none, by design) — Wave 0 here is investigation tooling, not test scaffolding.*
