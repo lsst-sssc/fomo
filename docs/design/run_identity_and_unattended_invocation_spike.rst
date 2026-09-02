@@ -80,14 +80,24 @@ Decisions
      - ``sync_lco_observation_calendar`` writes the real LCO portal request URL it
        already extracts today; ``sync_gemini_observation_calendar`` writes its own
        constructed ``GEM:{program}/{observation-id}`` key; ``load_telescope_runs`` writes
-       a synthesized ``CLASSICAL:{telescope}:{instrument}:{start-time}`` key, matching
-       the same three fields its existing tolerance match already uses. All three
-       round-tripped cleanly through a find-or-create keyed on this field alone, with no
-       duplicate row created on a second write.
+       a synthesized ``CLASSICAL:{telescope}:{instrument}:{bucket}`` key, where
+       ``bucket`` quantises the computed ``start_time`` to a 5-minute boundary
+       (matching the existing tolerance match's ``timedelta(minutes=5)`` granularity)
+       rather than using the raw datetime — an exact-equality key on the unquantised
+       value would mint a new key for any sub-tolerance drift in a recomputed
+       ``start_time`` (an edited site altitude, an ephemeris update), silently
+       duplicating the row the tolerance match is trusted not to duplicate. This is
+       **not** an exact mirror of the tolerance match: a pair straddling a 5-minute
+       bucket boundary still splits into two keys, and this remains an open gap. All
+       three round-tripped cleanly through a find-or-create keyed on this field alone,
+       with no duplicate row created on a second write — though the classical probe
+       used a ``datetime.date`` value, not the ``datetime`` the loader actually
+       computes, so this result must be re-confirmed with a real datetime before
+       Phase 32 relies on it.
      - 32
    * - Classical adapter's tolerance match, on its own
      - Not sufficient. The existing five-minute telescope/instrument/start-time
-       tolerance match (and its ``source_identifier`` mirror) cannot tell apart two
+       tolerance match (and its quantised ``source_identifier`` counterpart) cannot tell apart two
        genuinely different proposals allocated the same telescope, the same instrument
        and the same night — neither the run's status nor any proposal identifier is part
        of that lookup, so the second proposal's write silently overwrites the first's

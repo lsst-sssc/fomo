@@ -686,6 +686,23 @@ then, the existing 5-minute telescope/instrument/start_time tolerance match
 `CalendarEvent`-level matching work; `source_identifier` on `CampaignRun` is an additional,
 independent identity surface, not a replacement for that tolerance match.
 
+**Correction, recorded during the code-review fix pass:** the synthesized key as written
+above (`f'CLASSICAL:{telescope}:{instrument}:{start_time.isoformat()}'`) is exact-string
+equality on a computed datetime, not a tolerance match — it is **not** a mirror of the
+5-minute tolerance match it is meant to accompany. A `start_time` recomputation that drifts
+by even one second (an edited site altitude, an ephemeris or library update) produces a
+different key, and a find-or-create keyed on it then creates a duplicate row — precisely
+the failure `source_identifier` exists to prevent. Phase 32 must quantise `start_time` to
+the same granularity the tolerance match implies (e.g. floor to the nearest 5-minute
+boundary) before formatting the key, and a 5-minute bucket still splits a pair straddling a
+boundary — an open gap, not fully closed by quantisation alone. Separately, the probe's
+`classical_start` value (`tmp/31_constraint_probe.py`) is a `datetime.date`
+(`date(2026, 9, 5)`), not the `datetime` the loader actually computes, so
+`CLASSICAL:SPIKE-NTT:SPIKE-EFOSC2:2026-09-05` in the Block (E) transcript above was
+produced with a value shape `load_telescope_runs.py` will never write. The round-trip
+result is real but must be re-confirmed with a genuine datetime before Phase 32 relies on
+it as proof the key works end-to-end.
+
 #### Phase 32 guidance (not work done in this phase)
 
 - **Promote, don't add alongside, once adapters ship:** per this plan's
