@@ -174,12 +174,20 @@ corrected mechanism.
        in-command extension of this project's existing staff-notification email, and an
        external heartbeat dead-man's-switch that fires when an expected ping fails to
        arrive. Only the external layer can catch the scheduler itself never invoking the
-       command at all. The heartbeat's technical reachability from the interim host is
-       confirmed (a real outbound request to a heartbeat service succeeded); whether
-       pinging a third-party service is acceptable on policy or compliance grounds from
-       the eventual AWS deployment **remains unresolved** and is a question for whoever
-       owns that deployment's network policy, not something a development-host probe can
-       answer.
+       command at all. The named helper, ``campaign_views.py``'s ``_notify_staff()``,
+       cannot be used as-is on the scheduler path: it builds its link via
+       ``self.request.build_absolute_uri(...)``, and a management command has no
+       ``request``; and it calls ``send_mail(..., fail_silently=True)``, which would
+       make this failure-alerting layer silently swallow its own delivery errors. Phase
+       34 must extract ``_notify_staff()`` into a request-free helper taking an explicit
+       base URL (from settings) and use ``fail_silently=False`` with a
+       caught-and-logged exception on the scheduler path, so a mail outage is at least
+       visible in the command's stderr and log. The heartbeat's technical reachability
+       from the interim host is confirmed (a real outbound request to a heartbeat
+       service succeeded); whether pinging a third-party service is acceptable on
+       policy or compliance grounds from the eventual AWS deployment **remains
+       unresolved** and is a question for whoever owns that deployment's network
+       policy, not something a development-host probe can answer.
      - 34
 
 Future scope
