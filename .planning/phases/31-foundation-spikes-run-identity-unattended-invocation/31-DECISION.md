@@ -23,6 +23,12 @@ duplicate-tuple count, with no individual value ever printed (see the correction
 The scheduling track (SCHED-07, plan 31-04) verifies real host/container facts directly
 rather than reasoning from documentation.
 
+**Correction posted 2026-09-02, after this phase sealed (gap G-31-3):** every Gemini
+reference in the SCHEMA-02 sections below overstated what FOMO can currently see into.
+Read "Correction (2026-09-02): Gemini is submission-echo, not facility read-back — SOAR
+is the real second facility" at the end of this document before relying on any Gemini row
+in the tables below.
+
 ## Findings
 
 ### Schema/identity track (SCHEMA-01/02/03)
@@ -243,7 +249,7 @@ it also provides **no** duplicate-prevention at all for non-campaign rows unless
 | Ingest path | `source_identifier` value written | Confidence |
 |---|---|---|
 | LCO (`sync_lco_observation_calendar.py`) | `https://observe.lco.global/requests/4247146` — a **real** LCO portal request `url` copied from an existing `CalendarEvent` row in the dev DB (via the disposable copy) | **Confirmed against real rows** |
-| Gemini (`sync_gemini_observation_calendar.py`) | `GEM:GS-2026A-Q-1/GS-2026A-Q-1-0001` — constructed per the adapter's own `f'GEM:{prog}/{obsid}'` pattern (`sync_gemini_observation_calendar.py:150`); no real `GEM:`-namespaced row exists in this dev DB to copy from (0/0, matching 26-DECISION.md's own finding) | **Constructed-input code-path check** |
+| Gemini (`sync_gemini_observation_calendar.py`) | `GEM:GS-2026A-Q-1/GS-2026A-Q-1-0001` — constructed per the adapter's own `f'GEM:{prog}/{obsid}'` pattern (`sync_gemini_observation_calendar.py:150`); no real `GEM:`-namespaced row exists in this dev DB to copy from (0/0, matching 26-DECISION.md's own finding). **Corrected 2026-09-02:** the deeper reason no such row exists is not missing test data — it is that `GEMFacility` has no facility read-back at all (`gemini.py:490-492`, `gemini.py:506-507`), so this command can only replay FOMO's own prior submission-echo, never read a real queue entry. This is a submission-echo path, not a facility read-back. See the correction section at the end of this document. | **Constructed-input code-path check** |
 | Classical (`load_telescope_runs.py`) | `CLASSICAL:SPIKE-NTT:SPIKE-EFOSC2:2026-09-05` — synthesized per RESEARCH.md Pitfall 3's suggested deterministic key (`f'CLASSICAL:{telescope}:{instrument}:{start_time.isoformat()}'`); the classical adapter has no natural single-string value to write today, unlike LCO/Gemini | **Constructed-input code-path check** |
 
 Each of the three rows was re-written a second time through a `get_or_create()` lookup keyed
@@ -266,6 +272,13 @@ live model against the real schema shape) and for the LCO row in Block (E) (copi
 real dev-DB `CalendarEvent.url`). Tag: **Constructed-input code-path check** for Blocks
 (B)/(C)/(D) (all synthetic `telescope_instrument`/window values on the disposable copy) and
 for the Gemini/classical rows in Block (E) (no real row exists to confirm against).
+
+**Corrected 2026-09-02:** the classical and Gemini rows are both tagged Constructed-input,
+but for different reasons — the classical row has no real sample run through it yet
+(SCHEMA-03, next section, obtains one), while the Gemini row cannot have a real
+counterpart at all, because the Gemini facility class exposes no read method that returns
+real state, only a submission-echo of FOMO's own prior write. See the correction section
+at the end of this document.
 
 #### SCHEMA-03 evidence - classical schedule-file sample inspection
 
@@ -707,7 +720,7 @@ either.
 |---|---|---|---|---|---|
 | `load_telescope_runs.py` | `CLASSICAL_FILE` | Synthesized deterministic key: `f'CLASSICAL:{parsed.telescope}:{parsed.instrument}:{start_time.isoformat()}'` | `load_telescope_runs.py:207-216` (the `insert_or_create_calendar_event()` call site, inside the per-night loop where `parsed.telescope`/`parsed.instrument`/`start_time` are all already computed) | Every case — telescope, instrument and `start_time` are computed for every processed night before this call | `CLASSICAL:SPIKE-NTT:SPIKE-EFOSC2:2026-09-05` created (pk=67), find-or-create idempotent on the second pass — Tag: **Constructed-input code-path check** (no real classical schedule file has been run through this path yet; see SCHEMA-03/plan 31-03) |
 | `sync_lco_observation_calendar.py` | `LCO_QUEUE` | The LCO portal request URL already extracted for the `CalendarEvent` lookup | `sync_lco_observation_calendar.py:329,341` (`url = fields.pop('url')`, then `insert_or_create_calendar_event({'url': url}, fields)`) | Every case where a `CampaignRun` would actually be written — records whose URL extraction fails are `continue`d past before reaching this point | `https://observe.lco.global/requests/4247146` created (pk=65), copied from a real dev-DB `CalendarEvent.url` — find-or-create idempotent on the second pass — Tag: **Confirmed against real rows** |
-| `sync_gemini_observation_calendar.py` | `GEMINI_QUEUE` | The constructed key already built for the `CalendarEvent` lookup | `sync_gemini_observation_calendar.py:150` (`url = f'GEM:{prog}/{record.observation_id}'`), used at line 163 | Every case — `prog` and `record.observation_id` are always present on the record | `GEM:GS-2026A-Q-1/GS-2026A-Q-1-0001` created (pk=66), find-or-create idempotent on the second pass — Tag: **Constructed-input code-path check** (no real `GEM:`-namespaced row exists in this dev DB to confirm against) |
+| `sync_gemini_observation_calendar.py` | `GEMINI_QUEUE` | The constructed key already built for the `CalendarEvent` lookup | `sync_gemini_observation_calendar.py:150` (`url = f'GEM:{prog}/{record.observation_id}'`), used at line 163. **Corrected 2026-09-02:** this key is synthesized entirely by FOMO — `prog` comes from a static settings dict and `record.observation_id` is FOMO's own prior ToO submission id — it is not obtained from Gemini via any facility read-back (`GEMFacility` has none; see the correction section at the end of this document). This is a submission-echo key, not a facility-read identifier, unlike the LCO row above. | Every case — `prog` and `record.observation_id` are always present on the record | `GEM:GS-2026A-Q-1/GS-2026A-Q-1-0001` created (pk=66), find-or-create idempotent on the second pass — Tag: **Constructed-input code-path check** (no real `GEM:`-namespaced row exists in this dev DB to confirm against) |
 
 The classical row states explicitly: `source_identifier` is **not** left blank for the
 classical path — it carries the synthesized deterministic key above, because the
@@ -756,7 +769,14 @@ it as proof the key works end-to-end.
   findable again through the primary identity key, for every supported
   `CampaignRun.Source` value — this test would go red the moment a later phase
   reintroduces the campaign-is-always-present assumption this plan's evidence has just
-  disproven for `LCO_QUEUE`/`GEMINI_QUEUE`/`CLASSICAL_FILE` rows.
+  disproven for `LCO_QUEUE`/`GEMINI_QUEUE`/`CLASSICAL_FILE` rows. **Corrected 2026-09-02:**
+  the set of `CampaignRun.Source` values this test must span is itself unsettled — this
+  bullet's facility inventory is wrong. `CampaignRun.Source` has no `SOAR_QUEUE` value
+  today even though SOAR, not Gemini, is the facility with real queue read-back, and
+  Gemini's read-back is structurally absent (it is a submission-echo path only) rather
+  than merely unconfirmed. Phase 32 must re-derive the correct enumeration against the
+  corrected inventory before writing this test; the corrected list itself is not decided
+  here — see the forward note in the correction section at the end of this document.
 
 **WR-05 finding (`26-DECISION.md` lines 835-859):** a `get_or_create()`/find-or-create
 lookup is only race-safe when its lookup fields are backed by a real database constraint.
@@ -771,6 +791,11 @@ Tag: **Confirmed against real rows** for the two existing constraints (read live
 Tag: **Constructed-input code-path check** for the proposed `source_identifier` field/
 constraint declaration itself (added via `schema_editor()` against the disposable copy,
 never migrated for real) and for the Gemini/classical rows' values.
+
+**Corrected 2026-09-02:** as above, the Gemini and classical rows are Constructed-input
+for different reasons — classical lacks a real sample run through it yet, while Gemini
+lacks any facility read-back to construct a real value from at all; it only has a
+submission-echo value. See the correction section at the end of this document.
 
 ### SCHEMA-03 - classical write-time identity surface
 
@@ -1014,3 +1039,87 @@ Phase 34 cron line has been written yet) and for the `_notify_staff()` adaptatio
 (reasoned from reading the existing code, not from having built the extension). The container
 and AWS scopes remain labelled **unconfirmed** per task 2's findings above — nothing in this
 section upgrades either scope's status on the strength of the interim-host evidence.
+
+## Correction (2026-09-02): Gemini is submission-echo, not facility read-back — SOAR is the real second facility
+
+This section corrects the facility-inventory premise behind the SCHEMA-02 sections above,
+closing gap G-31-3 in `31-UAT.md`, diagnosed in full at
+`.planning/debug/gemini-vs-soar-facility-scope.md`. It qualifies the sections above rather
+than replacing them — no earlier finding is deleted, and none of Phase 31's four verdicts
+(SCHEMA-01, SCHEMA-02, SCHEMA-03, SCHED-07) changes.
+
+### What is wrong, and what is not
+
+The `source_identifier` field, its partial unique constraint
+(`unique_campaign_run_source_identifier`), the find-or-create idempotency result recorded
+for all three rows (LCO, Gemini, classical), and the cited source line
+(`sync_gemini_observation_calendar.py:150`) are all correct and unchanged by this
+correction. What was wrong is the surrounding premise the SCHEMA-02 sections above were
+built on: that Gemini is one of three facilities FOMO can currently see into. It is not.
+`sync_gemini_observation_calendar` is live, working code, and its identity key is real and
+idempotent — but it is a submission-echo path, not a facility read-back: it replays FOMO's
+own prior Target-of-Opportunity submissions onto the calendar, never a state FOMO learned
+from Gemini itself.
+
+### Facility-class evidence: GEMFacility is submit-only
+
+`GEMFacility` (`tom_observations/facilities/gemini.py`) exposes no read method that
+returns real state. `get_observation_status()` (`gemini.py:506-507`) is a hardcoded stub
+returning `{'state': '', 'scheduled_start': None, 'scheduled_end': None}` regardless of
+its argument. `get_observation_url()` (`gemini.py:490-492`) returns an empty string, with
+the real URL commented out. The only outbound network call anywhere in the class is
+`submit_observation()` (`gemini.py:453-465`), a POST to the ToO submission endpoint.
+
+Separately, `sync_gemini_observation_calendar.py` never even imports `GEMFacility` and
+makes no outbound call of its own at all: it queries
+`ObservationRecord.objects.filter(facility='GEM')` — FOMO's own local database rows —
+and every field it writes, including line 150's
+`url = f'GEM:{prog}/{record.observation_id}'`, is built from a static local settings dict
+plus the record FOMO itself submitted. This is a submission-echo key, not an identifier
+obtained from Gemini.
+
+### The facility that does have read-back: SOAR
+
+`SOARFacility` (`tom_observations/facilities/soar.py:240`) subclasses `LCOFacility` and
+inherits its real read path: `get_observation_status()`
+(`tom_observations/facilities/ocs.py:1548`) issues a live GET request to the LCO portal
+API and returns the request's real state. There is no separate SOAR sync command to
+build — `sync_lco_observation_calendar.py` already treats SOAR as a distinct facility,
+with its own `SOARFacility()` instance and its own per-facility counters
+(`sync_lco_observation_calendar.py:289`, `sync_lco_observation_calendar.py:298`).
+
+### Why this phase's own probes could not catch it, and how the finding was lost once
+
+Phase 31's own SCHEMA-02 probe (Block (E), above) measured `SOURCE_gemini_queue=0` in the
+dev DB and tagged the Gemini row "Constructed-input code-path check" for missing test
+data. That framing was correct as an idempotency-probe result and wrong as an
+explanation: the probe tested constraint behaviour, not facility reachability, and could
+not distinguish "the adapter works but the DB happens to be empty" from "the adapter can
+never be fed a real row, because the facility exposes nothing to read." This same
+limitation was recorded once already — `v1.5-REQUIREMENTS.md`'s Out of Scope table logged
+"Live Gemini ODB status polling | GEMFacility.get_observation_status() is a stub returning
+empty state" — but that finding lived only in an archived v1.5 milestone document and
+never propagated into PROJECT.md's active limitations, the v2.2 `Source` vocabulary, or
+v2.3's REQUIREMENTS.md/ROADMAP.md.
+
+### Forward note for Phase 32 and Phase 33 (recorded here, not decided here)
+
+Three consequences follow from this correction. None is actioned by this plan; each is
+also recorded as a pending todo
+(`.planning/todos/pending/2026-09-02-retarget-adapt-03-to-soar-and-caveat-phase-33-gemini-outcome.md`)
+so a Phase 32 or Phase 33 planner meets it without having to open this document or
+`31-UAT.md`.
+
+1. `CampaignRun.Source` declares a `GEMINI_QUEUE` value and no `SOAR_QUEUE` one. Whichever
+   phase first writes a SOAR-sourced run owes a new value and its migration.
+2. ADAPT-03 and Phase 32's third success criterion currently name Gemini as the second
+   facility proving the pattern generalises. SOAR is the candidate that actually has
+   read-back, and it needs no third command — it is already a branch inside the existing
+   LCO adapter.
+3. Phase 33's outcome propagation needs to read a terminal observing state back from a
+   facility. That read is real for LCO and SOAR. For Gemini it is structurally
+   impossible, not merely unimplemented: `get_observation_status()` never leaves its
+   fixed empty-state stub.
+
+Evidence pointer: `.planning/debug/gemini-vs-soar-facility-scope.md` (diagnosed session),
+gap `G-31-3` in `31-UAT.md`.
