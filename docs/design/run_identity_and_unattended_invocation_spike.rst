@@ -158,9 +158,10 @@ corrected mechanism.
      - ``flock -n`` (non-blocking) against one lock file per management command name,
        never one shared lock across every scheduled command. A tick that arrives while
        the previous run still holds the lock is skipped outright, not queued and not
-       blocked — chosen because the real crontab on the interim host today runs three
-       FOMO management commands with zero overlap guards between them, a live condition
-       this spike measured directly rather than assumed.
+       blocked — chosen because a sibling FOMO checkout's crontab already invokes Django
+       management commands (from the ``tom_jpl`` and ``tom_dataservices`` plugins, not
+       FOMO's own) unguarded, 0 of 3, a live condition this spike measured directly
+       rather than assumed.
      - 34
    * - Credential handling
      - Environment variables, extending this project's existing ``FINK_CREDENTIAL_*``

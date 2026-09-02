@@ -376,23 +376,26 @@ interim host: the lock utility this mechanism depends on is already installed he
 needs adding to this host for the cron+flock mechanism to function.
 
 **Second finding — existing cron precedent, the one that matters most.** The real crontab
-already invokes this project's Django management commands today: **3 active entries**
-target `/home/tlister/git/fomo_fresh/manage.py` (`rundataquery 1`, hourly at `:00`;
+already invokes Django management commands today: **3 active entries** target
+`/home/tlister/git/fomo_fresh/manage.py` (`rundataquery 1`, hourly at `:00`;
 `updatescout --skip-designations`, hourly at `:17`; `updatescout --skip-reconcile`, daily at
-`4:47`). **0 of these 3 carry any overlap guard** — none is wrapped in `flock` or any other
-serialization mechanism. This confirms RESEARCH.md Pitfall 4's finding directly, one session
-later: the concurrent-write-contention risk in `.planning/codebase/CONCERNS.md:159` is a live
-condition on this host today, not a hypothetical this phase is inventing. This is the
-strongest single piece of evidence for D-02's cron+flock choice — the ratio is
-**0 guarded / 3 total FOMO management-command entries**. (The crontab also carries two
-`flock`-guarded entries for a different project, `scout-alert-bridge`, which invoke a shell
-script rather than a Django management command and are noted here only to be excluded from
-the 0/3 count above — they are not FOMO entries and do not change that ratio; a fifth line,
-the `update_sentry_risk.py` cron job, is commented out (`#`-prefixed) and therefore not an
-active entry at all.) Note also that these entries reference `/home/tlister/git/fomo_fresh`,
-a sibling checkout of this same project, not this repository's own working-tree path — this
-is exactly RESEARCH.md's own observation, carried forward rather than silently resolved; see
-the human-check below.
+`4:47`). **Correction, recorded during the code-review fix pass:** neither command exists in
+this repository (`grep -rn "rundataquery\|updatescout" --include=*.py .` returns nothing) —
+`updatescout` belongs to the third-party `tom_jpl` plugin and `rundataquery` to
+`tom_dataservices`, both invoked from `/home/tlister/git/fomo_fresh`, a sibling checkout of
+this same project, not FOMO's own management commands. **0 of these 3 carry any overlap
+guard** — none is wrapped in `flock` or any other serialization mechanism. This confirms
+RESEARCH.md Pitfall 4's finding directly, one session later: the concurrent-write-contention
+risk in `.planning/codebase/CONCERNS.md:159` is a live condition on this host today, not a
+hypothetical this phase is inventing. This is the strongest single piece of evidence for
+D-02's cron+flock choice — the ratio is **0 guarded / 3 total Django management-command
+entries (from the `tom_jpl` and `tom_dataservices` plugins, not FOMO's own management
+commands)**. (The crontab also carries two `flock`-guarded entries for a different project,
+`scout-alert-bridge`, which invoke a shell script rather than a Django management command and
+are noted here only to be excluded from the 0/3 count above — they do not change that ratio;
+a fifth line, the `update_sentry_risk.py` cron job, is commented out (`#`-prefixed) and
+therefore not an active entry at all.) This is exactly RESEARCH.md's own observation, carried
+forward rather than silently resolved; see the human-check below.
 
 **Third finding — outbound heartbeat egress.** The heartbeat check against `hc-ping.com`
 returned HTTP status **301** (a redirect response), with `curl` itself exiting `0`. A
@@ -893,10 +896,12 @@ below exists to catch, since a `flock -n` failure exit code, left unobserved, is
 silent failure mode.
 
 This overlap-prevention need is not hypothetical: task 1's transcript shows the real crontab
-already has **0 of 3** existing FOMO management-command entries carrying any overlap guard at
-all (`rundataquery`, `updatescout --skip-designations`, `updatescout --skip-reconcile`, all
-unguarded) — making the concurrent-write risk in `.planning/codebase/CONCERNS.md:159` a live
-condition on this host today, not a hypothetical this phase is inventing.
+already has **0 of 3** existing Django management-command entries (from the `tom_jpl` and
+`tom_dataservices` plugins, not FOMO's own management commands, invoked from a sibling
+checkout) carrying any overlap guard at all (`rundataquery`, `updatescout
+--skip-designations`, `updatescout --skip-reconcile`, all unguarded) — making the
+concurrent-write risk in `.planning/codebase/CONCERNS.md:159` a live condition on this host
+today, not a hypothetical this phase is inventing.
 
 **Credential handling.** Credentials reach an unattended run as **environment variables**,
 extending the pattern this project already uses for its alert-stream credentials —
