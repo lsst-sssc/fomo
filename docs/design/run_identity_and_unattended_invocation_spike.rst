@@ -135,17 +135,24 @@ corrected mechanism.
      - Decision
      - Phase
    * - Invocation mechanism
-     - Cron plus a per-command file lock (``flock``), running inside the FOMO container —
-       the same mechanism on today's interim host and on the eventual AWS Kubernetes
-       deployment, so migrating between them needs no scheduling redesign. Confirmed
-       against the real interim host: the lock utility is already installed there, and
-       the real crontab already runs this project's own management commands today. The
-       **container image and the AWS deployment target are both unconfirmed** — this
-       repository tracks no container build file at all, so the checks that could
-       confirm either scope were run against a generic stand-in image instead, which
-       proves nothing about an image that does not exist yet. Whoever writes FOMO's own
-       container definition inherits the requirement to install both cron and the lock
-       utility inside it.
+     - **Interim host:** cron plus a per-command file lock (``flock -n``), running
+       directly on the host — confirmed against the real interim host: the lock
+       utility is already installed there. **AWS Kubernetes:** ``flock`` on a
+       container-local lock file gives **no** mutual exclusion across pods — a rolling
+       update, a restarted pod, or any replica count above one each get their own
+       writable layer and therefore their own lock file, so two concurrent runs of the
+       same management command would both acquire "the" lock and both proceed. The
+       idiomatic and correct construct there is a ``CronJob`` per command with
+       ``concurrencyPolicy: Forbid`` (and ``startingDeadlineSeconds`` set); ``flock`` is
+       retained only as an in-container belt-and-braces guard against two processes
+       inside the *same* pod, never as the cross-pod migration story on its own. This is
+       carried as an open item for whoever owns the AWS deployment, not settled by this
+       spike. Separately, the **container image and the AWS deployment target are both
+       unconfirmed** — this repository tracks no container build file at all, so the
+       checks that could confirm either scope were run against a generic stand-in image
+       instead, which proves nothing about an image that does not exist yet. Whoever
+       writes FOMO's own container definition inherits the requirement to install both
+       cron and the lock utility inside it.
      - 34
    * - Overlap prevention
      - ``flock -n`` (non-blocking) against one lock file per management command name,

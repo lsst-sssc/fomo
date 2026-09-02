@@ -833,9 +833,21 @@ distinct full-night entries sharing one telescope and instrument.
 
 ### SCHED-07 - unattended invocation mechanism
 
-The mechanism is **cron plus a per-command file lock (`flock`), running inside the FOMO
-container** — the same mechanism on the interim host (Rocky 9 / WSL2) today and once
-deployed inside LCO's AWS Kubernetes cluster, per D-02. A task queue (Celery/huey/APScheduler)
+The mechanism is **cron plus a per-command file lock (`flock`)** on the interim host
+(Rocky 9 / WSL2) today, per D-02.
+
+**Correction, recorded during the code-review fix pass:** this is *not* the same mechanism
+that carries over unchanged once deployed inside LCO's AWS Kubernetes cluster. A `flock`
+lock lives on a single filesystem in a single container; on Kubernetes, two pods of the
+same workload (a rolling update overlapping old and new, a restarted pod, a CronJob with
+`concurrencyPolicy: Allow`, or any replica count above one) each get their own writable
+layer and therefore their own lock file, so two concurrent runs of the same management
+command would both acquire "the" lock and both proceed. The idiomatic and correct
+construct on Kubernetes is a `CronJob` per command with `concurrencyPolicy: Forbid` (and
+`startingDeadlineSeconds` set); `flock` is retained there only as an in-container
+belt-and-braces guard against two processes inside the *same* pod, never as the
+cross-pod migration story on its own. This is carried forward as an open item for
+whoever owns the AWS deployment, not settled by this spike. A task queue (Celery/huey/APScheduler)
 was not chosen: the project's own v2.3 Out-of-Scope table already states that no
 broker/worker infrastructure buys anything for a single-server, few-jobs-an-hour deployment,
 and this phase's evidence confirms no blocker was found to the simpler choice — flock is
