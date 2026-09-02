@@ -167,3 +167,95 @@ a code-reading judgement, not a profiling measurement — no profiler was run.
 Tag: **Confirmed against real rows** for the grep-derived inventory itself (the greps ran
 against the real, current source tree). Tag: **Constructed-input code-path check** for the
 hot-versus-cold judgement, since no profiling was run.
+
+#### SCHEMA-02 evidence - candidate-shape constraint probe
+
+Executed via `tmp/31_constraint_probe.py` (`python manage.py shell < tmp/31_constraint_probe.py`,
+captured verbatim to `tmp/31-constraint-probe.txt`) against a disposable copy of the dev
+database (`cp src/fomo_db.sqlite3 tmp/31-spike-db-copy.sqlite3`). The DB-path guard printed
+`GUARD_DISPOSABLE_COPY=OK` before any write; the schema changes below were applied
+in-process via `connection.schema_editor()` — no migration file was written
+(`git status --porcelain -- solsys_code/migrations` prints nothing). Five lettered blocks,
+19 `PASS:` lines, zero `FAIL:` lines:
+
+```
+RESOLVED_DB_NAME=/home/tlister/git/fomo_devel/tmp/31-spike-db-copy.sqlite3
+GUARD_DISPOSABLE_COPY=OK
+=== Block (A): constraint inventory ===
+  UniqueConstraint name='unique_campaign_run_resolved_window' fields=('campaign', 'telescope_instrument', 'window_start', 'window_end') condition=<Q: (AND: ('window_start__isnull', False))>
+  UniqueConstraint name='unique_campaign_run_tbd_natural_key' fields=('campaign', 'telescope_instrument', 'contact_person') condition=<Q: (AND: ('window_start__isnull', True))>
+  CheckConstraint name='campaign_run_window_start_end_null_together' fields=() condition=<Q: (OR: (AND: ('window_end__isnull', True), ('window_start__isnull', True)), (AND: ('window_end__isnull', False), ('window_start__isnull', False)))>
+PASS: source_identifier does not (yet) appear in any existing CampaignRun constraint field set.
+=== Block (B): Option A -- nullable campaign FK ===
+PASS: created CampaignRun pk=59 with campaign=None, no IntegrityError.
+PASS: constraint no longer fires, second row created (pk=60) -- two null-campaign rows sharing telescope_instrument/window_start/window_end did NOT collide on unique_campaign_run_resolved_window. NULL is never treated as equal in a unique index, so this constraint has silently stopped discriminating for exactly the rows Option A gives identity to.
+=== Block (C): Option B -- single shared sentinel TargetList ===
+Sentinel TargetList pk=7 name='SPIKE-No Campaign'
+PASS: created first sentinel-campaign resolved-window run pk=61, no IntegrityError.
+PASS: unique_campaign_run_resolved_window fires for two genuinely distinct sentinel-campaign runs: UNIQUE constraint failed: solsys_code_campaignrun.campaign_id, solsys_code_campaignrun.telescope_instrument, solsys_code_campaignrun.window_start, solsys_code_campaignrun.window_end
+PASS: created first sentinel-campaign TBD run pk=62, no IntegrityError.
+PASS: unique_campaign_run_tbd_natural_key fires for two genuinely distinct sentinel-campaign TBD runs: UNIQUE constraint failed: solsys_code_campaignrun.campaign_id, solsys_code_campaignrun.telescope_instrument, solsys_code_campaignrun.contact_person
+=== Block (D): Option C -- per-proposal auto-created default TargetList ===
+PASS: two runs under DIFFERENT proposal placeholders (pk=63, pk=64), same telescope_instrument/window, did not collide -- different campaign value each.
+PASS: two runs under the SAME proposal placeholder collide on unique_campaign_run_resolved_window: UNIQUE constraint failed: solsys_code_campaignrun.campaign_id, solsys_code_campaignrun.telescope_instrument, solsys_code_campaignrun.window_start, solsys_code_campaignrun.window_end
+OPEN QUESTION (Option C, recorded per RESEARCH.md): once a proposal later acquires a real coordinated campaign, does its placeholder TargetList's existing CampaignRun rows get re-pointed, or does the placeholder persist forever alongside the real campaign? Not settled by this probe -- a design question for whichever plan implements Option C, if it wins.
+=== Block (E): candidate source_identifier field ===
+PASS: source_identifier CharField(null=True) and its partial UniqueConstraint added via schema_editor.
+PASS: lco row pk=65 created=True source_identifier='https://observe.lco.global/requests/4247146'
+PASS: gemini row pk=66 created=True source_identifier='GEM:GS-2026A-Q-1/GS-2026A-Q-1-0001'
+PASS: classical row pk=67 created=True source_identifier='CLASSICAL:SPIKE-NTT:SPIKE-EFOSC2:2026-09-05'
+PASS: lco find-or-create on source_identifier created nothing new on the second pass (pk=65).
+PASS: gemini find-or-create on source_identifier created nothing new on the second pass (pk=66).
+PASS: classical find-or-create on source_identifier created nothing new on the second pass (pk=67).
+PASS: CampaignRun count unchanged across the re-write pass (58 before, 58 after).
+PASS: unique_campaign_run_resolved_window still fires unmodified with source_identifier present: UNIQUE constraint failed: solsys_code_campaignrun.campaign_id, solsys_code_campaignrun.telescope_instrument, solsys_code_campaignrun.window_start, solsys_code_campaignrun.window_end
+PASS: unique_campaign_run_tbd_natural_key still fires unmodified with source_identifier present: UNIQUE constraint failed: solsys_code_campaignrun.campaign_id, solsys_code_campaignrun.telescope_instrument, solsys_code_campaignrun.contact_person
+=== Summary ===
+FINAL_CAMPAIGNRUN_COUNT=58
+```
+
+**Comparison table (D-05's three candidates against both existing partial constraints):**
+
+| Shape | Collides with `unique_campaign_run_resolved_window`? | Collides with `unique_campaign_run_tbd_natural_key`? | What it costs |
+|---|---|---|---|
+| Option A — nullable `campaign` FK | **No** — never fires for any two null-campaign rows, regardless of telescope/instrument/window overlap (Block B) | Same — `contact_person` alone still discriminates the TBD branch, but the FK itself no longer contributes any discrimination | Cheapest migration (single `AlterField`), but silently loses the resolved-window constraint's discriminating power for every non-campaign row, on top of the 5-site read-path blast radius the prior section measured |
+| Option B — single shared sentinel `TargetList` | **Yes** — two genuinely distinct non-campaign runs sharing telescope/instrument/window collide and are correctly refused (Block C) | **Yes** — two genuinely distinct non-campaign TBD runs sharing telescope/instrument/contact_person collide and are correctly refused (Block C) | No schema change to `campaign` at all, but the collision is real: the SCHEMA-01 snapshot already found 4 pre-existing telescope/instrument/window tuples that recur across different real campaigns today — under Option B, any two *new* non-campaign runs sharing those same real-shaped combinations would be refused a second row, exactly the failure mode RESEARCH.md Pitfall 2 predicted, now confirmed constructed-input |
+| Option C — per-proposal auto-created placeholder `TargetList` | **Splits, does not eliminate:** two runs under *different* placeholders never collide (Block D); two runs under the *same* placeholder collide exactly like Option B (Block D) | Same split — not exercised separately in Block D's TBD case, but the mechanism is identical (`campaign` is still part of both constraints' field tuples) | Reduces Option B's collision surface by proposal, at the cost of one `TargetList` row per proposal ID and the open question this probe explicitly could not settle: what happens to a placeholder's existing rows once its proposal later gets a real coordinated campaign |
+
+**Block (B)'s null-campaign observation, stated explicitly:** two `CampaignRun` rows with
+`campaign=None`, an identical `telescope_instrument`, and an identical resolved window both
+saved with **zero** `IntegrityError` — SQLite (and every backend) never treats `NULL` as
+equal to `NULL` in a unique index, so `unique_campaign_run_resolved_window` silently stops
+discriminating for exactly the population Option A is meant to serve. This is Option A's
+load-bearing cost: it is cheap to migrate and reads none of Option B/C's collision risk, but
+it also provides **no** duplicate-prevention at all for non-campaign rows unless a new field
+(e.g. `source_identifier`) is added to do that job instead.
+
+**Block (E)'s per-ingest-path identity values, as actually written:**
+
+| Ingest path | `source_identifier` value written | Confidence |
+|---|---|---|
+| LCO (`sync_lco_observation_calendar.py`) | `https://observe.lco.global/requests/4247146` — a **real** LCO portal request `url` copied from an existing `CalendarEvent` row in the dev DB (via the disposable copy) | **Confirmed against real rows** |
+| Gemini (`sync_gemini_observation_calendar.py`) | `GEM:GS-2026A-Q-1/GS-2026A-Q-1-0001` — constructed per the adapter's own `f'GEM:{prog}/{obsid}'` pattern (`sync_gemini_observation_calendar.py:150`); no real `GEM:`-namespaced row exists in this dev DB to copy from (0/0, matching 26-DECISION.md's own finding) | **Constructed-input code-path check** |
+| Classical (`load_telescope_runs.py`) | `CLASSICAL:SPIKE-NTT:SPIKE-EFOSC2:2026-09-05` — synthesized per RESEARCH.md Pitfall 3's suggested deterministic key (`f'CLASSICAL:{telescope}:{instrument}:{start_time.isoformat()}'`); the classical adapter has no natural single-string value to write today, unlike LCO/Gemini | **Constructed-input code-path check** |
+
+Each of the three rows was re-written a second time through a `get_or_create()` lookup keyed
+on `source_identifier` alone; the `CampaignRun` count was identical before and after
+(`58` both times), confirming find-or-create idempotency on the new field for all three
+adapter shapes. Both original constraints (`unique_campaign_run_resolved_window`,
+`unique_campaign_run_tbd_natural_key`) were then re-exercised against a genuine duplicate
+with `source_identifier` now present in the schema, and both still raised `IntegrityError`
+unmodified — proving the candidate field is additive alongside the existing constraints,
+never a silent replacement for them.
+
+**Evidence posture:** writes for real against `tmp/31-spike-db-copy.sqlite3`, a disposable
+file copy — no rollback anywhere in the positive-case writes, only in the negative-control
+blocks (`transaction.atomic()`), and only to protect the connection from a poisoned
+transaction, not to undo a real write. `src/fomo_db.sqlite3`'s fingerprint
+(`1208320 1788271090`) is unchanged, matching Task 1's recorded value exactly.
+
+Tag: **Confirmed against real rows** for Block (A)'s constraint inventory (read from the
+live model against the real schema shape) and for the LCO row in Block (E) (copied from a
+real dev-DB `CalendarEvent.url`). Tag: **Constructed-input code-path check** for Blocks
+(B)/(C)/(D) (all synthetic `telescope_instrument`/window values on the disposable copy) and
+for the Gemini/classical rows in Block (E) (no real row exists to confirm against).
