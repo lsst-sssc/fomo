@@ -105,7 +105,12 @@ Decisions
        with no duplicate row created on a second write — though the classical probe
        used a ``datetime.date`` value, not the ``datetime`` the loader actually
        computes, so this result must be re-confirmed with a real datetime before
-       Phase 32 relies on it.
+       Phase 32 relies on it. The three keys share one global partial unique constraint
+       despite sitting at different cardinality granularities: one ``CampaignRun`` per
+       LCO **request**, per Gemini **observation**, and per classical
+       telescope/instrument/**night**. If Phase 32 instead wants several LCO requests on
+       the same telescope/night to map onto one run, the LCO key must move up to the
+       request-group URL rather than the individual request URL used today.
      - 32
    * - Classical adapter's tolerance match, on its own
      - Not sufficient. The existing five-minute telescope/instrument/start-time
