@@ -813,3 +813,135 @@ was observed in this 3-line sample; the failing case is reasoned directly from t
 own lookup/tolerance code, not from an observed collision. Phase 32 should re-check this
 verdict against the next real classical schedule file it sees, specifically watching for two
 distinct full-night entries sharing one telescope and instrument.
+
+### SCHED-07 - unattended invocation mechanism
+
+The mechanism is **cron plus a per-command file lock (`flock`), running inside the FOMO
+container** — the same mechanism on the interim host (Rocky 9 / WSL2) today and once
+deployed inside LCO's AWS Kubernetes cluster, per D-02. A task queue (Celery/huey/APScheduler)
+was not chosen: the project's own v2.3 Out-of-Scope table already states that no
+broker/worker infrastructure buys anything for a single-server, few-jobs-an-hour deployment,
+and this phase's evidence confirms no blocker was found to the simpler choice — flock is
+already installed on the interim host (`flock from util-linux 2.37.4`, task 1) and cron
+already runs this project's management commands there today. The one condition that would
+reopen this question: if a future job count or latency requirement genuinely needs
+concurrent, cross-host worker distribution that a single per-host file lock cannot express —
+nothing found during this phase's investigation suggests that condition exists today.
+
+**Overlap prevention.** The exact invocation shape Phase 34 will write into a cron line, per
+component:
+
+```
+/usr/bin/flock -n /var/lock/fomo/<command-name>.lock \
+    /path/to/venv/bin/python /path/to/checkout/manage.py <command-name> [args]
+```
+
+- **Lock utility, absolute path:** `/usr/bin/flock` (confirmed present, task 1's transcript
+  above; util-linux 2.37.4 on the interim host).
+- **Fail-fast flag:** `-n` (`--nb`, non-blocking) — a second invocation that finds the lock
+  already held gives up immediately rather than queuing behind it.
+- **Lock file path convention:** one lock file per command, not one shared lock across all
+  scheduled commands — e.g. `/var/lock/fomo/sync_lco_observation_calendar.lock`,
+  `/var/lock/fomo/sync_gemini_observation_calendar.lock`, one per management command name.
+  This is deliberate: a slow-running sync for one facility must never starve or delay an
+  unrelated command's own scheduled tick just because they happen to share a lock file.
+- **Interpreter, absolute path:** the project's virtualenv `python`, e.g.
+  `/home/tlister/venv/fomo311_venv/bin/python`, matching the exact pattern already in use by
+  this host's real crontab entries (task 1's transcript) — not the bare `python3` on `PATH`,
+  which may resolve to the wrong interpreter or environment under cron's minimal `PATH`.
+- **`manage.py`, absolute path:** the project checkout's `manage.py`, e.g.
+  `/path/to/checkout/manage.py` — cron does not run with the working directory Phase 34's
+  command expects, so a relative path is not reliable.
+- **Command name:** the specific management command being scheduled (e.g.
+  `sync_lco_observation_calendar`).
+
+**Adjacency question, answered directly:** when the previous run is still holding the lock as
+the next tick fires, the new invocation is **skipped**, not queued and not blocked — `flock
+-n` fails fast and exits immediately rather than waiting for the lock to release. A silently
+skipped tick is indistinguishable from a tick that ran and found nothing to do, so a skipped
+tick must be visible somewhere — this is exactly what the missed-invocation visibility layer
+below exists to catch, since a `flock -n` failure exit code, left unobserved, is itself a
+silent failure mode.
+
+This overlap-prevention need is not hypothetical: task 1's transcript shows the real crontab
+already has **0 of 3** existing FOMO management-command entries carrying any overlap guard at
+all (`rundataquery`, `updatescout --skip-designations`, `updatescout --skip-reconcile`, all
+unguarded) — making the concurrent-write risk in `.planning/codebase/CONCERNS.md:159` a live
+condition on this host today, not a hypothetical this phase is inventing.
+
+**Credential handling.** Credentials reach an unattended run as **environment variables**,
+extending the pattern this project already uses for its alert-stream credentials —
+`src/fomo/settings.py:309-314` reads `FINK_CREDENTIAL_URL`, `FINK_CREDENTIAL_USERNAME`,
+`FINK_CREDENTIAL_GROUP_ID`, and related `FINK_*` names via `os.getenv(...)` with a
+descriptive placeholder default when unset. New LCO/Gemini credentials for Phase 34's
+unattended run should follow the identical `<SERVICE>_CREDENTIAL_<FIELD>`-style naming
+convention, not any value itself.
+
+A credential must **never** be passed as a positional or keyword argument to a management
+command, because a process listing (`ps aux`) exposes the full argument vector to any local
+user of the same host — and the same applies to a cron line itself, which is world-readable
+to the owning user's own processes (and, depending on `crontab` file permissions, potentially
+to other local users). Environment-variable injection at the container/host level, read
+inside the process via `os.getenv()`, avoids both exposure paths.
+
+One further finding this phase surfaced, not previously recorded: `src/fomo/settings.py:400`
+imports `fomo.local_settings` at the end of the settings module — a git-excluded,
+machine-local override file that, per `.planning/codebase/CONCERNS.md`'s existing "Hardcoded
+API Keys in settings.py" finding, holds a live credential on the real host. This means **any
+probe, transcript, or documentation page that quotes settings output verbatim is one step
+away from committing a secret** — this phase's own task 1/task 2 probes deliberately never
+read `local_settings.py` or any facility credential dict for exactly this reason. This is
+named here as a **standing constraint on Phase 34's own evidence-gathering**, not just on its
+code: any future spike or debug session that dumps live settings values for diagnostic
+purposes must apply the same redaction discipline this phase's crontab capture used.
+
+**Missed-invocation visibility.** SCHED-09 requires two independent layers:
+
+The first lives **inside** the Django command: extend the existing staff-notification
+helper, `campaign_views.py:326-343`'s `_notify_staff()` — correcting the record where
+31-CONTEXT.md's canonical_refs section described it as a "`mail_admins()`-based
+staff-notification idiom": it does not call `mail_admins()` at all (zero matches anywhere in
+this codebase, confirmed by RESEARCH.md's own grep this milestone). The real mechanism emails
+every `is_staff=True` user with a non-blank email on file via `django.core.mail.send_mail()`.
+The concrete adaptation Phase 34 needs: `_notify_staff()` builds its approval-queue link via
+`self.request.build_absolute_uri(...)`, but a management command has no `request` object —
+so the extension must either build the link another way (e.g. a hardcoded or
+settings-derived base URL) or drop the link entirely for a scheduler-context failure
+notification, rather than assuming `self.request` is available.
+
+The second layer lives **outside** the process entirely: an external dead-man's-switch (e.g.
+healthchecks.io, pinged at `hc-ping.com`) that fires when an expected ping fails to arrive —
+the only mechanism that can catch the scheduler itself never invoking the command at all,
+since anything living inside the process cannot observe its own non-execution. Task 1's
+transcript recorded HTTP status **301** from this host to `hc-ping.com` — proof that outbound
+egress to a heartbeat service works from the interim host today. As stated in task 1's
+findings, this resolves only the technical half of the question; whether pinging a
+third-party service is acceptable on policy/compliance grounds remains **unresolved** and is
+routed to the operator, not assumed either way.
+
+**Empty-input question, answered directly:** the heartbeat must fire even on a run that found
+nothing to do — a zero-work sweep and a dead scheduler are otherwise indistinguishable from
+the outside. The heartbeat ping belongs on the command's normal successful-completion path,
+not gated on "did this run do anything," so a quiet night still reports as alive.
+
+**SCHED-10 obligation, recorded as a named Phase 34 requirement.** An exception's string form
+from an HTTP client (e.g. `requests`) can carry the full request, including any query-string
+credentials, verbatim into its `str()` representation. Any exception raised by an adapter
+must therefore be **sanitised before it reaches a notification body** — whether the in-command
+`_notify_staff()`-style email or any log line — rather than forwarded via a bare `str(exc)`.
+This is recorded here as a named obligation against **SCHED-10** specifically, not fixed by
+this phase (which ships no code), so Phase 34 cannot inherit it silently.
+
+**Open item carried forward for Phase 34, not answered here:** when several scheduled
+commands are due at the same minute, whether their relative invocation order needs
+specifying depends on whether they contend for the same database write lock — the command
+set is not final until Phase 34 defines it, so this plan records the question rather than
+guessing an answer to it.
+
+Tag: **Confirmed against real rows** for the flock version, the cron-entry guard ratio
+(0/3), and the heartbeat status code (301) — all quoted from task 1's live transcript above.
+Tag: **Constructed-input code-path check** for the invocation-shape recommendation itself (no
+Phase 34 cron line has been written yet) and for the `_notify_staff()` adaptation guidance
+(reasoned from reading the existing code, not from having built the extension). The container
+and AWS scopes remain labelled **unconfirmed** per task 2's findings above — nothing in this
+section upgrades either scope's status on the strength of the interim-host evidence.
