@@ -345,26 +345,33 @@ rather than silently assumed.
 
 ```
 === uname ===
-Linux tlister-thinkmate 5.14.0-687.42.1.el9_8.x86_64 #1 SMP PREEMPT_DYNAMIC Wed Aug 26 12:55:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+Linux [hostname redacted] [kernel build string redacted] x86_64 GNU/Linux
 === init ===
 systemd 252 (252-67.el9_8.4.rocky.0.1)
 === flock ===
 flock from util-linux 2.37.4
 flock: probe exit 0
 === crontab ===
-#30 11  * * *  python ~/update_sentry_risk.py > /tmp/sentry_risk.log 2>&1
+[1 unrelated commented-out cron entry redacted]
 0 * * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py rundataquery 1
 17 * * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py updatescout --skip-designations
 47 4 * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py updatescout --skip-reconcile
 
-# scout-alert-bridge: Scout -> Hopskotch Scout.scout-test (strict filters)
-*/10 * * * * flock -n /tmp/scout-bridge-cycle.lock /home/tlister/git/scout-alert-bridge/scripts/run_cycle.sh >> /home/tlister/git/scout-alert-bridge/logs/cycle.log 2>&1
-37 4 * * * flock -n /tmp/scout-bridge-cycle.lock /home/tlister/git/scout-alert-bridge/scripts/run_cycle.sh designations >> /home/tlister/git/scout-alert-bridge/logs/designations.log 2>&1
+[2 flock-guarded cron entries for an unrelated project redacted]
 crontab: probe exit 0
 === heartbeat egress ===
 301
 heartbeat: curl exit 0
 ```
+
+**Correction, recorded during the code-review fix pass:** the block above redacts the
+developer hostname, the exact kernel build string, one unrelated commented-out cron entry
+(`update_sentry_risk.py`), and two `flock`-guarded cron entries belonging to a different,
+unrelated project (`scout-alert-bridge`) that were reproduced verbatim here in an earlier
+version of this document. None of the redacted material was a credential or changes any
+finding below — the evidence this section rests on is unchanged: `flock` present, 3 active
+`manage.py` entries, 0 guarded. The unredacted transcript remains available locally at
+`tmp/31-host-probe.txt` (git-excluded, never committed).
 
 Tag: **Confirmed against real rows** for all three probe outputs — this transcript was
 produced live during this plan's execution, not carried over from RESEARCH.md's earlier
@@ -450,7 +457,7 @@ to establish what *is* available locally rather than assuming nothing is:
 scout-alert-bridge:uv-test
 scout-alert-bridge-bridge:latest
 postgres:16-alpine
-docker.lco.global/neoexchange:test_new_pyslalib
+[internal-registry]/neoexchange:test_new_pyslalib
 quay.io/minio/minio:RELEASE.2025-02-07T23-21-09Z
 apache/kafka:3.8.0
 rockylinux:9
@@ -463,7 +470,7 @@ dannygoldstein/zuds-db:0.1dev
 ```
 
 No image in this inventory plausibly belongs to FOMO (no `fomo`-named repository present;
-the closest neighbor, `docker.lco.global/neoexchange:test_new_pyslalib`, is a different LCO
+the closest neighbor, `[internal-registry]/neoexchange:test_new_pyslalib`, is a different LCO
 project). **Branch taken: no FOMO image exists, so the two checks were run inside a
 representative stand-in base image instead** — `python:3.11-slim`, pulled fresh for this
 task (egress to Docker Hub succeeded, itself confirming outbound network access works from
