@@ -5,16 +5,16 @@ milestone_name: Automatic Run Sync & Outcome Propagation
 current_phase: 31
 current_phase_name: Foundation Spikes — Run Identity & Unattended Invocation
 status: executing
-stopped_at: Completed 31-02-PLAN.md
-last_updated: "2026-09-02T14:08:35.853Z"
+stopped_at: Completed 31-03-PLAN.md
+last_updated: "2026-09-02T16:29:59.661Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 31 execution started
-state_head: 388ea681146eaaf748d988d33623a383ffeffd0b
+state_head: 836abd8e876e9b8404ebf6682f6c7b11ab2e9837
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-01 — v2.2 milestone archived, full 
 ## Current Position
 
 Phase: 31 (Foundation Spikes — Run Identity & Unattended Invocation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-09-01 — Phase 31 execution started
 
@@ -163,6 +163,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 30 P04 | 15min | 3 tasks | 6 files |
 | Phase 31 P01 | 25min | 3 tasks | 6 files |
 | Phase 31 P02 | 20min | 2 tasks | 2 files |
+| Phase 31 P03 | 25min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -189,6 +190,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - **SCHED-06 sits with outcome propagation (Phase 33), not with the other carried-forward work**, because the narrowing UI is what outcome propagation looks like on screen (four-stage pipeline stages 3→4) and depends on OUTCOME-01..04 existing.
 - [Phase 31]: SCHEMA-01/02 evidence gathered: 0/49 CampaignRun rows have a null campaign FK today; 4 pre-existing telinst/window tuples already collide across different real campaigns, falsifying Option B's zero-risk premise; Option A loses all duplicate protection for non-campaign rows. — Recommendation between the three D-05 candidate shapes deferred to plan 31-02's checkpoint; this plan only gathers evidence.
 - [Phase 31]: SCHEMA-01/02: Task 1 checkpoint chose nullable-fk (Option A - make CampaignRun.campaign nullable) over single-sentinel and per-proposal-placeholder; SCHEMA-02 locks a source_identifier CharField with a partial UniqueConstraint as the write-time identity surface, disjoint from and additive alongside both existing partial constraints.
+- [Phase 31]: SCHEMA-03: classical adapter's 5-minute telescope/instrument/start_time tolerance match is NOT sufficient as a write-time identity surface on its own (two proposals sharing telescope/instrument/night collide); source_identifier's synthesized key inherits the same gap; a proposal code is not currently a reliable fallback (present in only 1/3 real sample lines, unparseable where seen)
 
 ### Pending Todos
 
@@ -269,8 +271,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-02T14:08:35.839Z
-Stopped at: Completed 31-02-PLAN.md
+Last session: 2026-09-02T16:29:59.645Z
+Stopped at: Completed 31-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
