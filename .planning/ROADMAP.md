@@ -152,12 +152,12 @@
   4. The doc states the unattended-invocation mechanism chosen against the real target host's constraints — overlap prevention, credential handling, and how a missed invocation becomes visible — so Phase 34 implements a verified mechanism rather than a recommended one
   5. The decisions are readable outside `.planning/`: a `docs/design/` page carries the identity scheme and the scheduling verdict forward, and the test suite is unchanged because no source behaviour changed
 
-**Plans**: 5 plans
+**Plans**: 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 31-01-PLAN.md — Schema-track evidence: real dev-DB snapshot, campaign-FK read-path blast radius, and a constraint probe of all three candidate shapes on a disposable DB copy
+- [x] 31-01-PLAN.md — Schema-track evidence: real dev-DB snapshot, campaign-FK read-path blast radius, and a constraint probe of all three candidate shapes on a disposable DB copy
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -277,7 +277,7 @@ Plans:
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete | 2026-08-05 |
 | 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete | 2026-09-01 |
-| 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 0/TBD | Not started | - |
+| 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 1/5 | In Progress|  |
 | 32. Adapter Consolidation | v2.3 | 0/TBD | Not started | - |
 | 33. Outcome Propagation & Window Narrowing | v2.3 | 0/TBD | Not started | - |
 | 34. Unattended Scheduling & Discovery | v2.3 | 0/TBD | Not started | - |
