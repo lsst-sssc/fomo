@@ -63,9 +63,16 @@ Decisions
        combinations. A per-proposal placeholder only splits that collision risk by
        proposal, it does not eliminate it, and it opens an unanswered question of its own
        — what happens to a placeholder's rows once its proposal later gets a real
-       campaign. Nullable costs a single field-level migration and needs no backfill: 0 of
-       the 49 real ``CampaignRun`` rows today have a null campaign, so the change only
-       ever affects rows a future adapter writes.
+       campaign. Nullable costs a single field-level migration, no data backfill, and a
+       null guard at each existing ``CampaignRun.campaign`` read site (inventory in
+       ``31-DECISION.md``): 0 of the 49 real ``CampaignRun`` rows today have a null
+       campaign, so the migration itself only ever affects rows a future adapter writes,
+       but every existing read site the inventory names must still gain a guard before a
+       null-campaign row can safely reach it. **Accepted cost:** SQL NULL-inequality
+       means ``unique_campaign_run_resolved_window`` does not fire for null-campaign rows
+       (measured, not argued — two identical non-campaign runs were both accepted in the
+       constraint probe), so duplicate protection for adapter-written rows rests entirely
+       on the new ``source_identifier`` constraint below.
      - 32
    * - Write-time identity field and constraint
      - A new ``source_identifier`` field (nullable ``CharField``) with its own partial
