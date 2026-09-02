@@ -110,3 +110,9 @@ Plan 31-03 (SCHEMA-03, the classical adapter's identity surface) needs a real cl
 ---
 *Phase: 31-foundation-spikes-run-identity-unattended-invocation*
 *Completed: 2026-09-02*
+
+## Self-Check: PASSED
+
+Both created/modified files verified present (`31-DECISION.md`, `31-02-SUMMARY.md`); all
+three commit hashes (`507f0ac`, `6792748`, `388ea68`) confirmed present in
+`git log --oneline --all`.
