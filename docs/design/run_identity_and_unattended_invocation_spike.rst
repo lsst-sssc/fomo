@@ -2,9 +2,12 @@ Run Identity and Unattended Invocation Spike
 ============================================
 
 This document records the investigation spike that settled how a routine, non-campaign
-observation from FOMO's LCO and Gemini queue sync commands gets a persistent
-``CampaignRun`` identity, and how FOMO's three sync commands can run unattended on a real
-schedule. It was written after a live investigation (2026-09-01 through 2026-09-02) that
+observation from any of FOMO's three ingest paths gets a persistent ``CampaignRun``
+identity, and how FOMO's three sync commands can run unattended on a real schedule. The
+identity scheme covers all three paths; the facility read-back that would let FOMO learn
+about an observation it did not itself submit exists for the LCO path only (see the
+correction below, before the Decisions tables). It was written after a live investigation
+(2026-09-01 through 2026-09-02) that
 read the real dev database, applied throwaway schema changes to a disposable copy of it,
 inspected a real operator-supplied classical schedule file, and probed the real interim
 host and a stand-in container image, rather than reasoning from documentation alone. No
@@ -20,8 +23,9 @@ Background
 ----------
 
 Today, ``CampaignRun.campaign`` is a required foreign key to a coordinated campaign
-``TargetList`` — every row needs one. But a routine LCO or Gemini queue observation, or a
-classically scheduled night, is not part of any coordinated campaign. Before v2.3's
+``TargetList`` — every row needs one. But a routine LCO/SOAR queue observation, a Gemini
+ToO submission replayed onto the calendar, or a classically scheduled night, is not part
+of any coordinated campaign. Before v2.3's
 adapters (Phase 32) can write a ``CampaignRun`` for one of those, four concrete questions
 had to be settled against real data, so no later phase has to re-derive the answer from
 scratch, or discover it the hard way once adapters are already writing:
@@ -44,6 +48,16 @@ mechanism this spike verifies.
 
 Decisions
 ---------
+
+**Correction, recorded 2026-09-02, from this phase's own source reading — read this
+before the tables below, which it qualifies.** The Gemini facility class,
+``GEMFacility``, exposes no read method that returns real state: its status and URL
+methods (``get_observation_status()``, ``get_observation_url()``) are hardcoded stubs,
+and its only outbound call is the submission itself — so ``sync_gemini_observation_calendar``
+replays FOMO's own submissions rather than reading a queue. ``SOARFacility``, which does
+have a real portal read path inherited from the LCO facility, is already handled inside
+the existing LCO sync command as a distinct facility. See ``31-DECISION.md`` (path note
+above) for the full evidence.
 
 **Schema shape and write-time identity (SCHEMA-01/02/03)**
 
@@ -93,7 +107,9 @@ Decisions
    * - Per-ingest-path value
      - ``sync_lco_observation_calendar`` writes the real LCO portal request URL it
        already extracts today; ``sync_gemini_observation_calendar`` writes its own
-       constructed ``GEM:{program}/{observation-id}`` key; ``load_telescope_runs`` writes
+       constructed ``GEM:{program}/{observation-id}`` key — **corrected 2026-09-02:** this
+       key is FOMO's own synthesized string, echoing FOMO's own prior submission, not an
+       identifier obtained from the facility (see the correction below); ``load_telescope_runs`` writes
        a synthesized ``CLASSICAL:{telescope}:{instrument}:{bucket}`` key, where
        ``bucket`` quantises the computed ``start_time`` to a 5-minute boundary
        (matching the existing tolerance match's ``timedelta(minutes=5)`` granularity)
@@ -109,7 +125,9 @@ Decisions
        computes, so this result must be re-confirmed with a real datetime before
        Phase 32 relies on it. The three keys share one global partial unique constraint
        despite sitting at different cardinality granularities: one ``CampaignRun`` per
-       LCO **request**, per Gemini **observation**, and per classical
+       LCO **request**, per submitted Gemini Target-of-Opportunity **record**
+       (**corrected 2026-09-02:** not per facility-side observation — FOMO never sees a
+       facility-side Gemini observation), and per classical
        telescope/instrument/**night**. If Phase 32 instead wants several LCO requests on
        the same telescope/night to map onto one run, the LCO key must move up to the
        request-group URL rather than the individual request URL used today.
@@ -185,7 +203,10 @@ corrected mechanism.
      - 34
    * - Credential handling
      - Environment variables, extending this project's existing ``FINK_CREDENTIAL_*``
-       naming convention for any new LCO/Gemini credential a scheduled command needs.
+       naming convention for any new LCO, SOAR or Gemini credential a scheduled command
+       needs — **corrected 2026-09-02:** SOAR authenticates through the same LCO portal,
+       and a scheduled command touching the LCO sync path touches SOAR by construction
+       today, so its credential is named here alongside the others.
        Never a command-line argument to the management command and never embedded in the
        cron line itself — both are readable by any local process listing or, depending on
        file permissions, other local users of the same host.
@@ -245,3 +266,8 @@ Explicitly still open, carried forward rather than answered here:
 * Whether several scheduled commands due at the same minute need a specified relative
   invocation order — depends on a command set this milestone has not finalised yet
   (Phase 34).
+* Which facility the second and third ingest adapters should target, given that the
+  identity vocabulary declares a Gemini queue source value and no SOAR one, and that
+  outcome propagation can read a terminal observing state back for the LCO path but
+  never for Gemini — recorded here, not decided; see ``31-DECISION.md`` for the evidence
+  (Phase 32, Phase 33).
