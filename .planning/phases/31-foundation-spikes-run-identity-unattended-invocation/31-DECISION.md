@@ -528,3 +528,100 @@ Tag: **Confirmed against real rows** for the two existing constraints (read live
 Tag: **Constructed-input code-path check** for the proposed `source_identifier` field/
 constraint declaration itself (added via `schema_editor()` against the disposable copy,
 never migrated for real) and for the Gemini/classical rows' values.
+
+### SCHEMA-03 - classical write-time identity surface
+
+No — the existing 5-minute telescope/instrument/start_time tolerance match
+(`_START_TIME_MATCH_TOLERANCE = timedelta(minutes=5)`, `load_telescope_runs.py:22`, applied
+via the `{'telescope': parsed.telescope, 'instrument': parsed.instrument, 'start_time':
+start_time}` lookup passed to `insert_or_create_calendar_event()` at
+`load_telescope_runs.py:207-216`) is **not sufficient** as a write-time identity surface on
+its own. The concrete failing case: **two genuinely distinct proposals allocated the same
+telescope, the same instrument and the same night, with no partial-night window
+distinguishing them.** Neither `status` nor any proposal identifier is part of that lookup's
+field set, so two run lines sharing telescope + instrument + full night resolve to the
+identical `start_time` (a pure function of the site's sunset/sunrise geometry for that
+calendar date, per `sun_event()`) — the second `insert_or_create_calendar_event()` call
+therefore *updates* the first `CalendarEvent` row rather than creating a second one, silently
+overwriting whichever proposal's title/description got there first.
+
+Each of the four candidate cases, checked against the loader's actual lookup code:
+
+1. **Instrument swap on the same telescope, same night** — ruled out. `instrument` is
+   already one of the three tolerance-match fields (`load_telescope_runs.py:207-216`), so
+   two runs differing only by instrument never share a lookup key, regardless of night
+   overlap.
+2. **Night-convention shift** (the Las Campanas both-inclusive vs. ESO noon-to-noon rules
+   `_iter_run_nights` dispatches on) — ruled out for today's fixed `SITES`/
+   `ESO_NOON_TO_NOON_SITES` configuration. The convention is a static per-site lookup, not
+   something that varies between two ingests of the same schedule line, so re-ingesting an
+   unchanged line always computes the same night sequence and the same `start_time` (within
+   the ~2-second IERS drift the 5-minute tolerance is explicitly sized to absorb, per the
+   comment at `load_telescope_runs.py:12-21`). The residual risk is a *future code change*
+   reclassifying a site's convention, which would shift every existing event's expected
+   `start_time` by up to a full night — a code-deployment risk, not a data-variability one,
+   and unrelated to proposal identity; noted here, not treated as this plan's failing case.
+3. **Re-issued schedule file, run's status changed but nothing else did** — ruled out.
+   `status` is deliberately excluded from the tolerance-match lookup, so a line whose only
+   change is its status word (e.g. `allocation` -> `confirmed`) correctly matches the
+   existing `CalendarEvent` and updates it (new title prefix / description) instead of
+   creating a duplicate — this is the intended behavior, confirmed by reading the lookup
+   dict directly rather than assumed.
+4. **Two different proposals allocated the same telescope, instrument and night** — **named
+   as the failing case** (above). This also covers the sequential variant of the same gap: a
+   re-issued schedule file that *reassigns* a night from one proposal to a genuinely
+   different one (not merely relabeling its status) would silently overwrite the record via
+   the identical identity gap — which matters specifically because `CampaignRun`'s whole
+   purpose is proposal/campaign attribution, so an overwritten row loses the earlier
+   proposal's attribution history rather than merely losing a display label.
+
+**Consequence for the SCHEMA-02 field:** the classical path does **not** leave
+`source_identifier` blank — per plan 31-02's recommendation it writes the synthesized
+deterministic key `f'CLASSICAL:{telescope}:{instrument}:{start_time.isoformat()}'`. That
+formula uses exactly the same three fields as the tolerance-match lookup above, so it
+inherits the identical blind spot: two different proposals sharing telescope + instrument +
+night would also produce the identical synthesized `source_identifier` string, and a
+`get_or_create()` keyed on it would treat them as the same row. This is **not** a
+contradiction of plan 31-02's nullable-vs-synthesized decision — the field stays populated,
+exactly as planned, with no compatibility break — but it is an *incomplete* mitigation:
+promoting `source_identifier` to the primary identity key later (per SCHEMA-02's own
+Phase 32 guidance) would carry this exact gap forward unless a proposal-code component is
+folded into the formula.
+
+A proposal code is **not** currently a reliable substitute for closing this gap. Only 1 of
+the 3 real lines in this plan's sample carried a proposal-code-shaped token at all (2 of 3
+had none), and where present it did not even parse under today's grammar — it triggered a
+`ValueError` because its position (prefixed before the telescope token) breaks the
+documented `telescope instrument [status] daterange` format. A code available only
+sometimes, and only ever observed in an unparseable position, is not usable as a
+fallback-free identity key, per RESEARCH.md Pitfall 3's own warning against exactly this.
+
+**Recommendation for now:** keep the tolerance match (and its `source_identifier` mirror) as
+today's default — 2 of the 3 real sample lines parse cleanly and behave correctly under it —
+and accept the identified gap as a documented, low-observed-frequency risk (classical
+scheduling committees generally allocate one telescope+instrument to one proposal per full
+night; an actual double-booking or an unmarked proposal reassignment is the trigger, and
+neither was observed in this sample). Phase 32 inherits two explicit, separable follow-on
+items, not a closed question: (a) extend `ParsedRun`/`parse_run_line`'s grammar to recognize
+an optional leading proposal-code token — needed regardless of whether it becomes part of
+the identity key, since today's grammar rejects that shape outright; and (b) once a proposal
+code is reliably extractable, decide whether to fold it into both the `CalendarEvent` lookup
+and the `source_identifier` formula, or to keep the current pair with the
+double-booking/reassignment gap documented as an accepted risk.
+
+**Compatibility with plan 31-02:** this verdict is compatible with SCHEMA-01's nullable-FK
+decision — `campaign` nullability is orthogonal to this finding, which concerns
+`CalendarEvent`/`source_identifier` matching, not `CampaignRun.campaign`. It is also
+compatible with SCHEMA-02's decision to populate (not blank) `source_identifier` for the
+classical path — no contradiction there — but it does not fully resolve the gap that
+decision was meant to help close; Phase 32 inherits the two follow-on items above rather
+than a settled answer.
+
+Tag: **Confirmed against real rows** for the parse facts this verdict rests on (1 real file,
+3 real lines, 1 rejected, 1 proposal-code-shaped token observed in an unparseable position).
+Tag: **Constructed-input code-path check** for the sufficiency verdict and the
+two-proposals-same-night failing case itself — no actual collision between two proposals
+was observed in this 3-line sample; the failing case is reasoned directly from the loader's
+own lookup/tolerance code, not from an observed collision. Phase 32 should re-check this
+verdict against the next real classical schedule file it sees, specifically watching for two
+distinct full-night entries sharing one telescope and instrument.
