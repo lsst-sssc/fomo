@@ -4,17 +4,17 @@ milestone: v2.3
 milestone_name: Automatic Run Sync & Outcome Propagation
 current_phase: 31
 current_phase_name: Foundation Spikes — Run Identity & Unattended Invocation
-status: executing
-stopped_at: Completed 31-04-PLAN.md
-last_updated: "2026-09-02T16:39:25.477Z"
+status: verifying
+stopped_at: Completed 31-05-PLAN.md
+last_updated: "2026-09-02T16:48:47.215Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 31 execution started
-state_head: 4745ad7aae0f3e4e3d904f6d55bf2dce2f26cad1
+state_head: 39ff60c17d9402d85c154d82e60410766f992427
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-01 — v2.2 milestone archived, full 
 
 Phase: 31 (Foundation Spikes — Run Identity & Unattended Invocation) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-01 — Phase 31 execution started
 
 ## Roadmap Summary (v2.3 — in progress)
@@ -165,6 +165,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 31 P02 | 20min | 2 tasks | 2 files |
 | Phase 31 P03 | 25min | 3 tasks | 2 files |
 | Phase 31 P04 | 20min | 3 tasks | 1 files |
+| Phase 31 P05 | ~25min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 31]: SCHEMA-01/02: Task 1 checkpoint chose nullable-fk (Option A - make CampaignRun.campaign nullable) over single-sentinel and per-proposal-placeholder; SCHEMA-02 locks a source_identifier CharField with a partial UniqueConstraint as the write-time identity surface, disjoint from and additive alongside both existing partial constraints.
 - [Phase 31]: SCHEMA-03: classical adapter's 5-minute telescope/instrument/start_time tolerance match is NOT sufficient as a write-time identity surface on its own (two proposals sharing telescope/instrument/night collide); source_identifier's synthesized key inherits the same gap; a proposal code is not currently a reliable fallback (present in only 1/3 real sample lines, unparseable where seen)
 - [Phase 31]: SCHED-07: cron+flock inside the FOMO container confirmed against real host facts - flock present, 0/3 existing FOMO cron entries guarded, heartbeat egress confirmed (HTTP 301); no container build definition exists in the repo, container/AWS scopes remain unconfirmed
+- [Phase 31]: Phase 31 published both spike verdicts (schema/identity SCHEMA-01..03, scheduling SCHED-07) to docs/design/run_identity_and_unattended_invocation_spike.rst, closing roadmap Success Criterion 5's first half; Sphinx build and targeted 6-module regression both green, source tree/test suite proven unchanged.
 
 ### Pending Todos
 
@@ -273,8 +275,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-02T16:39:25.460Z
-Stopped at: Completed 31-04-PLAN.md
+Last session: 2026-09-02T16:48:37.133Z
+Stopped at: Completed 31-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
