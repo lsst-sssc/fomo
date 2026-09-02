@@ -343,6 +343,19 @@ before anything was written to the transcript — no such assignment appears in 
 crontab captured here, so the substitution had nothing to redact, which is itself recorded
 rather than silently assumed.
 
+**Commands and redaction accounting, recorded during the code-review fix pass (WR-09):**
+the three probe commands were, in sequence, `uname -a`; `systemctl --version | head -1`
+followed by `flock --version`; and `crontab -l | sed -E
+'s/^([A-Za-z_]+)=.*/\1=REDACTED/'` piped to the transcript, then a fourth command,
+`curl -s -o /dev/null -w '%{http_code}\n' https://hc-ping.com/<ping-id>`, for the
+heartbeat egress check. Redaction accounting: **0** environment-assignment lines were
+redacted from the crontab section above — the substitution ran and found nothing
+secret-shaped to replace, which is why the crontab lines appear unredacted by that rule
+(they are separately redacted for infrastructure-detail hygiene per WR-08, above). This
+note exists because the transcript itself carries no command or redaction marker, making
+it otherwise impossible to tell whether the mandated redaction removed a line or whether
+none existed to redact in the first place.
+
 ```
 === uname ===
 Linux [hostname redacted] [kernel build string redacted] x86_64 GNU/Linux
