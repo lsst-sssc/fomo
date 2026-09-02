@@ -176,7 +176,12 @@ corrected mechanism.
        blocked — chosen because a sibling FOMO checkout's crontab already invokes Django
        management commands (from the ``tom_jpl`` and ``tom_dataservices`` plugins, not
        FOMO's own) unguarded, 0 of 3, a live condition this spike measured directly
-       rather than assumed.
+       rather than assumed. (Two further entries on the same host, for an unrelated
+       project, are already ``flock -n`` guarded — which is where the confidence in the
+       mechanism itself comes from, even though they are excluded from the 0/3 ratio
+       above.) A ``flock -n`` skip is itself a silent failure unless logged: it exits
+       non-zero, and left unobserved, a permanently contended lock is indistinguishable
+       from a healthy no-op — Phase 34 must log the non-zero exit explicitly.
      - 34
    * - Credential handling
      - Environment variables, extending this project's existing ``FINK_CREDENTIAL_*``
