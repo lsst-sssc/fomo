@@ -259,3 +259,98 @@ live model against the real schema shape) and for the LCO row in Block (E) (copi
 real dev-DB `CalendarEvent.url`). Tag: **Constructed-input code-path check** for Blocks
 (B)/(C)/(D) (all synthetic `telescope_instrument`/window values on the disposable copy) and
 for the Gemini/classical rows in Block (E) (no real row exists to confirm against).
+
+## Recommendation
+
+### SCHEMA-01 - schema shape for a non-campaign run
+
+The chosen schema shape is **Option A - make `CampaignRun.campaign` nullable**, selected by
+the project owner at plan 31-02's Task 1 checkpoint (`checkpoint:decision`,
+`gate="blocking-human"`, D-05's one-way door) after reviewing all three evidence
+subsections above.
+
+The Django field declaration changes as follows, and only as follows — `related_name` and
+`on_delete` are unchanged from today's `models.py:167-173`:
+
+```python
+campaign = models.ForeignKey(
+    TargetList,
+    on_delete=models.PROTECT,   # unchanged here -- SET_NULL/SET() for a placeholder-row
+                                 # cleanup case is a separate follow-on decision
+                                 # (RESEARCH.md Pattern 2), not settled by this plan
+    null=True,                  # was: null=False
+    blank=True,                 # new
+    related_name='campaign_runs',   # unchanged
+    verbose_name='Campaign target list',  # unchanged
+)
+```
+
+Migration: a single `AlterField` — no `RunPython` backfill step, since D-06 confirms below
+that no existing row needs one.
+
+#### Why not the other two
+
+**Option B (single shared sentinel `TargetList`)** is rejected because the SCHEMA-01
+dev-DB snapshot found **4 pre-existing `(telescope_instrument, window_start, window_end)`
+tuples** that already recur across different real campaigns today, ignoring `campaign`
+entirely (`DUP_TELINST_WINDOW_TUPLES_IGNORING_CAMPAIGN=4`). Collapsing every non-campaign
+run at every facility onto one shared `campaign` value would make
+`unique_campaign_run_resolved_window` refuse a second row for at least those 4 real-shaped
+situations — a real collision risk, not a hypothetical one, confirmed further by the
+constraint probe's Block (C): two genuinely distinct sentinel-campaign resolved-window runs
+correctly collide (`UNIQUE constraint failed`), and the same for the TBD branch.
+
+**Option C (per-proposal auto-created placeholder)** is rejected because the constraint
+probe's Block (D) shows it only *splits* Option B's collision risk, it does not eliminate
+it: two runs under different placeholders (pk=63, pk=64) did not collide, but two runs
+under the *same* placeholder collide exactly like Option B (`UNIQUE constraint failed`,
+same as Block C). Since the SCHEMA-01 snapshot's 4 pre-existing colliding tuples are not
+known to be spread one-per-proposal, some of those 4 could recur within a single
+proposal's own placeholder, reproducing Option B's failure mode at proposal scale. Option
+C also carries an open design question the probe explicitly could not settle: what happens
+to a placeholder's existing `CampaignRun` rows once its proposal later acquires a real
+coordinated campaign.
+
+#### What Phase 32 inherits
+
+Because the chosen shape leaves `campaign` nullable, Phase 32 inherits the full read-site
+blast-radius inventory from the "campaign FK read-path blast radius" evidence above as an
+explicit obligation — every one of the 5 class-(a) sites must gain a `None`-guard before
+any adapter can write a null-campaign row, named here in priority order:
+
+1. `solsys_code/models.py:352` (`CampaignRun.__str__`) — named first: it is rendered on
+   the admin changelist, change-form title, delete-confirmation page, admin history
+   `object_repr`, and the `CalendarEventMetaAdmin.run` autocomplete JSON.
+2. `solsys_code/campaign_reconciler.py:176` (`event_title()`) — the hot site: called on
+   every `reconcile_run()` invocation.
+3. `solsys_code/campaign_tables.py:467` (`DismissalHistoryTable.render_run`)
+4. `solsys_code/campaign_tables.py:538` (second dismissal-table render method)
+5. `solsys_code/campaign_attribution.py:397` (candidate-evidence string builder)
+
+The 2 class-(b) pass-through sites (`campaign_reconciler.py:261,398`) survive a null
+`campaign` at the read layer, but their downstream `CalendarEvent.target_list` write
+behavior is Task 3's/Phase 32's concern, not resolved here. The `on_delete=PROTECT`
+question RESEARCH.md Pattern 2 raises (what a placeholder/real campaign deletion should do
+to the runs pointing at it) is explicitly **not** decided by this plan — it stays
+`PROTECT`, unchanged, and is a follow-on question for whichever plan next touches
+`campaign` deletion behavior.
+
+**What happens if a non-campaign run's proposal later acquires a real campaign:** under
+Option A this is the simple case the other two candidates complicate — the row's
+`campaign` FK is simply updated from `NULL` to the real `TargetList`; no re-migration of
+`source_identifier` or any other field is needed, since `source_identifier` (proposed
+below, SCHEMA-02) is an additive, independent field that Option A does not tie to
+campaign-presence. The row keeps the same primary key and the same `source_identifier`
+value throughout — nothing is re-pointed or duplicated the way Option C's placeholder rows
+would be — and it only gains real constraint-discrimination via `campaign` for the first
+time once the FK is set to a real value.
+
+D-06 is confirmed directly, not assumed: **0 of the 49** existing `CampaignRun` rows have
+a null `campaign` today (`NULL_CAMPAIGN_ROWS=0`, `TOTAL_CAMPAIGNRUN_ROWS=49`), so no
+existing row needs migrating under this shape — the nullable-FK migration serves only new,
+adapter-written rows.
+
+Tag: **Confirmed against real rows** for the 0/49 null-campaign count and the 4
+pre-existing colliding tuples (both read from the real, unmodified `src/fomo_db.sqlite3`).
+Tag: **Constructed-input code-path check** for the Block (C)/(D) collision demonstrations
+(both run against the disposable `tmp/31-spike-db-copy.sqlite3` copy, not real rows).
