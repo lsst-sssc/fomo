@@ -4,16 +4,16 @@ milestone: v2.3
 milestone_name: Automatic Run Sync & Outcome Propagation
 current_phase: 31
 current_phase_name: Foundation Spikes — Run Identity & Unattended Invocation
-status: verifying
+status: executing
 stopped_at: Completed 31-05-PLAN.md
-last_updated: "2026-09-02T16:48:47.215Z"
-last_activity: 2026-09-01
+last_updated: "2026-09-02T21:24:44.824Z"
+last_activity: 2026-09-02
 last_activity_desc: Phase 31 execution started
-state_head: 39ff60c17d9402d85c154d82e60410766f992427
+state_head: ad6fd761f46474a8a6f135d8ff16afc578ff6750
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 5
+  total_plans: 6
   completed_plans: 5
   percent: 0
 ---
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-01 — v2.2 milestone archived, full 
 ## Current Position
 
 Phase: 31 (Foundation Spikes — Run Identity & Unattended Invocation) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-09-01 — Phase 31 execution started
+Plan: 1 of 6
+Status: Executing Phase 31
+Last activity: 2026-09-02 — Phase 31 execution started
 
 ## Roadmap Summary (v2.3 — in progress)
 
@@ -221,6 +221,11 @@ v2.3 roadmap-structure decisions (2026-09-01):
   so the campaign-list page stops rebuilding both attribution backlogs per request
   (finding F1, downgraded Medium→Low after measuring 23 ms / 64 queries at 31 orphans
   on the dev DB; opportunistic fix, 2026-09-01 branch review).
+
+- `2026-09-02-retarget-adapt-03-to-soar-and-caveat-phase-33-gemini-outcome.md` —
+  ADAPT-03/Phase 32 should target SOAR, not Gemini (GEMFacility has no queue read-back),
+  and Phase 33's outcome propagation is structurally impossible for Gemini; found via
+  gap G-31-3 and diagnosed in `.planning/debug/gemini-vs-soar-facility-scope.md`.
 
 - Carried-forward items in Deferred Items below.
 
