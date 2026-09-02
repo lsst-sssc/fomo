@@ -1,13 +1,13 @@
 # Phase 31: Foundation Spikes — Run Identity & Unattended Invocation - Decision
 
 **Investigated:** 2026-09-01
-**Status:** In progress. This document is built up across all five plans of Phase 31.
-Plan 31-01 records the SCHEMA-01 dev-DB snapshot (block B/C/D/E of
+**Status:** Complete. This document was built up across all five plans of Phase 31.
+Plan 31-01 recorded the SCHEMA-01 dev-DB snapshot (block B/C/D/E of
 `tmp/31_dbsnapshot_probe.py`), the SCHEMA-01 read-path blast-radius inventory, and the
-SCHEMA-02 candidate-shape constraint probe. Plans 31-02 through 31-04 append the
+SCHEMA-02 candidate-shape constraint probe. Plans 31-02 through 31-04 appended the
 SCHEMA-01/02 recommendation checkpoint, the SCHEMA-03 classical-schedule-file findings,
-and the SCHED-07 scheduling-mechanism track respectively. Plan 31-05 completes
-`## Recommendation` and `## Durable summary` and publishes
+and the SCHED-07 scheduling-mechanism track respectively. Plan 31-05 completed
+`## Recommendation` (all four verdicts below) and published the durable summary at
 `docs/design/run_identity_and_unattended_invocation_spike.rst`.
 
 This phase is **investigation-only**, following the Phase 18 (uncertain-scheduling) and
