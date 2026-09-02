@@ -571,7 +571,11 @@ stage (re-verify inside the container, and ask the operator about SaaS-heartbeat
 as a policy question, not just a technical one); A3/A4 are low-risk technical assumptions with
 an easy fallback if wrong.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+Every question below is routed to a concrete plan task, recorded inline under each item. None is
+an unaddressed gap; a later verifier should read each **RESOLVED** line as the owning task rather
+than re-opening the question.
 
 1. **Does a real classical schedule file ever carry a proposal code, and in which run states?**
    - What we know: The only classical-schedule-line examples anywhere in this repo are the
@@ -593,6 +597,11 @@ an easy fallback if wrong.
      real file is obtainable, the spike should say so explicitly (mirroring 26-DECISION.md's
      honest "0 real rows" framing for the Gemini/CAMPAIGN: cases) rather than reasoning from the
      three documentation examples as if they were a representative sample.
+   - **RESOLVED:** routed to 31-03 Task 1 and Task 2 — Task 1 is a blocking operator checkpoint
+     that asks for a real classical schedule file and records "none obtainable" as an explicit
+     outcome if none is forthcoming; Task 2 inspects whatever samples that produces and records
+     what each carries per run state, so the proposal-code question is answered from real files
+     or is documented as unanswerable, not left silent.
 
 2. **Which of the three D-05 schema shapes has the smallest blast radius on existing read paths?**
    - What we know: `CampaignRun.__str__` (`models.py:352`) unconditionally dereferences
@@ -607,6 +616,9 @@ an easy fallback if wrong.
      the schema-track investigation, producing the same kind of "confirmed against real rows /
      six integration points, not four" table `26-DECISION.md`'s SPIKE-04 produced for its own
      rename blast-radius question — that is the right evidentiary bar for this question too.
+   - **RESOLVED:** routed to 31-01 Task 2 — a dedicated grep-and-read inventory of every read path
+     that dereferences the campaign FK, producing exactly the counted blast-radius table this
+     recommendation asks for, with hot and cold paths distinguished.
 
 3. **Is this session's shell genuinely the D-01 interim host, or merely similar to it?**
    - What we know: Kernel string (`Linux 5.14.0-687.42.1.el9_8.x86_64`) and `systemctl --version`
@@ -621,6 +633,10 @@ an easy fallback if wrong.
      explicitly as a cheap, high-value checkpoint before treating this session's flock/cron/
      network findings as closing D-03 for the interim host (they would still not close it for
      the container image or the eventual AWS target regardless of the answer).
+   - **RESOLVED:** routed to 31-04 Task 1 — its `human-check` asks the operator to confirm, against
+     the kernel string, init version and crontab paths quoted into `31-DECISION.md`, that the shell
+     the probes ran in is the D-01 machine and not a look-alike sandbox; the same task's three-scope
+     table keeps the container image and the AWS target labelled unconfirmed either way.
 
 ## Environment Availability
 
