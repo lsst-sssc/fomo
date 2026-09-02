@@ -17,10 +17,11 @@ one `docs/design/` page. **Evidence posture, stated explicitly per track:** the
 schema/identity track follows Phase 26's disposable-file-copy posture — write-probes run
 for real against `tmp/31-spike-db-copy.sqlite3`, with no rollback anywhere in the
 procedure, because the whole file is throwaway — while read-only probes touch the real
-`src/fomo_db.sqlite3` under the fingerprint-before/after discipline only, and never
-select `contact_person`/`contact_email` values. The scheduling track (SCHED-07, plan
-31-04) verifies real host/container facts directly rather than reasoning from
-documentation.
+`src/fomo_db.sqlite3` under the fingerprint-before/after discipline only, and never select
+`contact_email` values at all; `contact_person` is read only in aggregate for a
+duplicate-tuple count, with no individual value ever printed (see the correction below).
+The scheduling track (SCHED-07, plan 31-04) verifies real host/container facts directly
+rather than reasoning from documentation.
 
 ## Findings
 
@@ -31,7 +32,13 @@ documentation.
 Executed via `tmp/31_dbsnapshot_probe.py` (`python manage.py shell < tmp/31_dbsnapshot_probe.py`,
 captured verbatim to `tmp/31-dbsnapshot.txt`) against the real, unmodified
 `src/fomo_db.sqlite3`. The script never calls a write-style ORM method and never selects
-`contact_person`/`contact_email` values.
+`contact_email` at all. **Correction, recorded during the code-review fix pass (WR-05):**
+the script's own docstring previously claimed it "never selects contact_person or
+contact_email values," which was factually wrong — Block (C)'s TBD-branch collision count
+does `values_list('telescope_instrument', 'contact_person')`, reading every
+`contact_person` value into memory to build a duplicate-tuple count. The weaker, true
+guarantee (also now stated in the script's own docstring) is that no individual
+`contact_person` value is ever printed to output — only the resulting count is.
 
 ```
 FINGERPRINT_BEFORE=1208320 1788271090
