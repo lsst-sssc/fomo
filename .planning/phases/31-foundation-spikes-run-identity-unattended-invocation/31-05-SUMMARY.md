@@ -241,4 +241,3 @@ three are confirmations only the operator can give.
 - CONFIRMED: `31-DECISION.md` structural gate (4 verdict subsections below
   `## Recommendation`, 8 evidence subsections between `## Findings` and
   `## Recommendation`, both track headings present) passed
-</content>
