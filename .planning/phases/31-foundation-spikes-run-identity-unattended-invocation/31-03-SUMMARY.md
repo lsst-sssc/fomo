@@ -120,3 +120,8 @@ None. The operator-supplied sample's trailing Gemini-informational block (explic
 ---
 *Phase: 31-foundation-spikes-run-identity-unattended-invocation*
 *Completed: 2026-09-02*
+
+## Self-Check: PASSED
+
+Created/modified file confirmed present (`31-03-SUMMARY.md`); all three commit hashes
+(`a5ff9f2`, `836abd8`, `d32300e`) confirmed present in `git log --oneline --all`.
