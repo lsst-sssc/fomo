@@ -70,11 +70,15 @@ Decisions
    * - Write-time identity field and constraint
      - A new ``source_identifier`` field (nullable ``CharField``) with its own partial
        unique constraint, additive alongside both of ``CampaignRun``'s existing partial
-       constraints — proven, not just argued: after adding the field to a disposable copy
-       of the database, both existing constraints still refused a genuine duplicate
-       exactly as before. ``source_identifier`` shares no field with either existing
-       constraint's field set, so satisfying one can never force a violation of the
-       other.
+       constraints. The additive property is proven, not just argued: after adding the
+       field to a disposable copy of the database, both existing constraints still
+       refused a genuine duplicate exactly as before, and ``source_identifier`` shares no
+       field with either existing constraint's field set, so satisfying one can never
+       force a violation of the other. The new constraint's *own* behaviour — that it
+       rejects a duplicate non-null ``source_identifier`` and lets multiple ``NULL`` rows
+       coexist — is asserted from Django/SQLite partial-unique-index semantics, not
+       independently measured by a positive/negative control in the probe; close that gap
+       before relying on it as tested.
      - 32
    * - Per-ingest-path value
      - ``sync_lco_observation_calendar`` writes the real LCO portal request URL it
