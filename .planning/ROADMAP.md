@@ -155,10 +155,24 @@
 **Plans**: 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 31-01-PLAN.md — Schema-track evidence: real dev-DB snapshot, campaign-FK read-path blast radius, and a constraint probe of all three candidate shapes on a disposable DB copy
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 31-02-PLAN.md — Schema verdicts: the chosen shape for a non-campaign run (blocking one-way decision gate) plus the write-time identity field, its constraint, and each ingest path's value
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 31-03-PLAN.md — Classical write-time identity surface: obtain real schedule files from the operator, inspect them per run state, and answer the tolerance-match sufficiency question
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 31-04-PLAN.md — Unattended invocation verified against the real host and container scope: overlap prevention, credential handling, missed-invocation visibility
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 31-05-PLAN.md — Durable `docs/design/` page carrying both verdicts, plus the docs build and the no-source-change regression gate
 
 ### Phase 32: Adapter Consolidation
