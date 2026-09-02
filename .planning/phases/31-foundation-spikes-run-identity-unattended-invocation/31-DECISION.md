@@ -646,9 +646,16 @@ Tag: **Constructed-input code-path check** for the Block (C)/(D) collision demon
 ### SCHEMA-02 - write-time identity field and constraint
 
 The proposed write-time identity field is **`source_identifier`**: a
-`CharField(max_length=255, null=True, blank=True)` on `CampaignRun`. It is not separately
-`db_index`ed via an explicit `db_index=True` — its index is the one the proposed partial
-`UniqueConstraint` below already creates, so a redundant plain index is not needed.
+`CharField(max_length=500, null=True, blank=True)` on `CampaignRun`. **Correction,
+recorded during the code-review fix pass (WR-13):** this width must match what the
+constraint probe actually validated (`tmp/31_constraint_probe.py:157`,
+`max_length=500`) — an unvalidated `max_length=255` was recorded here previously, and
+`max_length` is baked into the migration at write time, so Phase 32 cannot silently
+re-derive a different number without re-running the probe against it. 500 is not
+proven to be exactly the right width for every possible LCO portal request URL, but it
+is the number that was actually exercised. It is not separately `db_index`ed via an
+explicit `db_index=True` — its index is the one the proposed partial `UniqueConstraint`
+below already creates, so a redundant plain index is not needed.
 
 The proposed uniqueness constraint, written out for Phase 32 to transcribe verbatim:
 

@@ -76,8 +76,10 @@ Decisions
        on the new ``source_identifier`` constraint below.
      - 32
    * - Write-time identity field and constraint
-     - A new ``source_identifier`` field (nullable ``CharField``) with its own partial
-       unique constraint, additive alongside both of ``CampaignRun``'s existing partial
+     - A new ``source_identifier`` field (nullable ``CharField(max_length=500)`` — the
+       width the probe actually validated, sized for a full LCO portal request URL) with
+       its own partial unique constraint, additive alongside both of ``CampaignRun``'s
+       existing partial
        constraints. The additive property is proven, not just argued: after adding the
        field to a disposable copy of the database, both existing constraints still
        refused a genuine duplicate exactly as before, and ``source_identifier`` shares no
