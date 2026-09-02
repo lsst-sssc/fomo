@@ -260,6 +260,76 @@ real dev-DB `CalendarEvent.url`). Tag: **Constructed-input code-path check** for
 (B)/(C)/(D) (all synthetic `telescope_instrument`/window values on the disposable copy) and
 for the Gemini/classical rows in Block (E) (no real row exists to confirm against).
 
+#### SCHEMA-03 evidence - classical schedule-file sample inspection
+
+Dated 2026-09-02. **1 real classical schedule file** was obtained from the operator and
+inspected: `tmp/31-classical-samples/didymos_2026_july_classical_runs.txt` (git-excluded,
+never staged; `git ls-files tmp/` prints nothing). `CLASSICAL_SAMPLE_FILES=1`. The file
+contains 10 total lines: **3 real classical run lines**, 1 blank separator line, a 5-line
+block the file itself marks "not classical-schedule format -- informational only" (a Gemini
+queue-program note, excluded from this inspection per its own label and per this plan's
+content-handling rule — no field from that block, including any name or title, is quoted
+anywhere below), and a trailing blank line.
+
+Each of the 3 real classical run lines was run through `solsys_code.telescope_runs.
+parse_run_line()` in a read-only `python manage.py shell` session (a pure-function parse; no
+database row was touched):
+
+| Line | Bare status word present? | `parse_run_line` outcome | Proposal-code-shaped token present? |
+|---|---|---|---|
+| 1 | Yes — `allocation` | **Rejected**: `ValueError` ("Unrecognized status 'EFOSC2'...") | **Yes** — a dot-delimited three-segment token (`digits.alphanumeric.digits`-shaped, resembling an ESO Tatoo/proposal-ID format), positioned before the telescope token |
+| 2 | No (defaults to `allocation`, per `ParsedRun.status`'s documented default) | Parsed successfully | No |
+| 3 | No (defaults to `allocation`) | Parsed successfully | No — the line's only trailing token is a partial-night window matching the documented `(BoN\|\d{4})-(EoN\|\d{4})` grammar, structurally distinct from a proposal code |
+
+**1 of 3 real lines was rejected** by `parse_run_line`. The rejection is not actually a
+status-vocabulary gap (`allocation` is a real `KNOWN_STATUSES` member and is found correctly
+by `_resolve_status()` before the failure) — it is positional. Today's grammar is
+`telescope instrument [status] daterange [(status)]`, with `telescope` = token 0 and
+`instrument` = token 1 of whatever remains once the status word is removed. Line 1 places
+its proposal-code-shaped token *before* the telescope name, so after status removal the
+remaining tokens are `[proposal-code, NTT, EFOSC2]`. `parse_run_line` reads token 0 (the
+proposal code) as the telescope, token 1 (`NTT`) as the instrument, leaving `EFOSC2` as an
+unconsumed third token — which the parser treats as an unrecognized status-shaped leftover,
+raising `ValueError: Unrecognized status 'EFOSC2'...`. This is a genuine, real-sample
+confirmed parser gap: any classical line carrying a leading proposal code in this position
+is rejected outright by today's grammar, independent of which status word it carries.
+
+**Distinct status words actually observed:** only `allocation` — the sole bare status word
+literally present in any of the 3 real lines (line 1). Lines 2 and 3 carry no status word at
+all and fall to `ParsedRun`'s documented default of `'allocation'`. No other
+`KNOWN_STATUSES` member (`proposed`, `confirmed`, `cancelled`, `not confirmed`) occurs
+anywhere in this sample.
+
+**Reconciling D-07 against the parser's real vocabulary:** `KNOWN_STATUSES` contains
+`{'allocation', 'proposed', 'confirmed', 'cancelled', 'not confirmed'}` — neither `planned`
+nor `observed` (D-07's remembered words) is a member. `CampaignRun.RunStatus`
+(`solsys_code/models.py:96-106`), by contrast, *does* declare exactly `PLANNED` and
+`OBSERVED` (alongside `REQUESTED`, `REDUCED`, `PUBLISHED`, `CANCELLED`, `NOT_AWARDED`,
+`WEATHER_TECH_FAILURE`). This real sample supports the conclusion that D-07's recollection
+belongs to `CampaignRun.RunStatus`'s lifecycle vocabulary, not to the classical
+schedule-file's `KNOWN_STATUSES` vocabulary: none of the 3 real lines contains `planned` or
+`observed` as a file-level status word, and none could, since neither word is a member of
+`KNOWN_STATUSES` at all.
+
+**Proposal-code / status correlation (weak, single data point):** the one line carrying a
+proposal-code-shaped token (line 1) is also the one line carrying an explicit status word
+(`allocation`); both lines with no proposal code (2, 3) fall to the default status rather
+than stating one explicitly. This is loosely suggestive of D-07's recollection (code present
+alongside a stated status, absent when status is merely implied), but rests on n=1 versus
+n=2 within a single 3-line file — far too thin to generalize, and stated here as an
+observation, not a conclusion.
+
+**`ParsedRun` field count:** 9 fields (`telescope`, `instrument`, `status`, `year`, `month`,
+`day1`, `day2`, `start_window`, `end_window`). None of them is a proposal code today. Any
+facility-specific key incorporating a proposal code would require a parser/grammar change in
+a later phase — both a new field and new positional handling, since line 1 shows the code
+does not sit in a position today's grammar reserves for anything — stated here as a
+consequence for Phase 32, not as work done in this plan.
+
+Tag: **Confirmed against real rows** — every fact in this section is read directly out of
+the one real operator-supplied file and its live `parse_run_line()` outcomes; no
+documentation example or synthetic line was needed to fill a gap.
+
 ## Recommendation
 
 ### SCHEMA-01 - schema shape for a non-campaign run
