@@ -415,6 +415,109 @@ image or the AWS target, which no probe run from this shell can reach.
 | FOMO container image | Not reached by this task — see the next evidence subsection |
 | Eventual AWS Kubernetes target | Not reached by this task — see the next evidence subsection |
 
+#### SCHED-07 evidence - container image and AWS scope
+
+Dated 2026-09-02. Captured live to `tmp/31-container-probe.txt` (git-excluded; `git ls-files
+tmp/` prints nothing).
+
+**This repository tracks no container build file at all.** A tracked-file search for any
+Dockerfile, Containerfile, docker-compose file, Helm chart or Kubernetes manifest returned
+`NONE`:
+
+```
+=== container build files tracked in this repo ===
+NONE
+```
+
+This is a genuine absence, not an oversight of the search: `git ls-files` enumerates every
+file this repository actually tracks, so a build definition living anywhere in this repo
+would have appeared here. **Consequence:** if the mechanism is cron plus a file lock inside
+the FOMO container, no such container is defined anywhere in this codebase today — something
+must both define that container image and, inside it, install a cron daemon and the lock
+utility, and run the daemon as the container's entry point. Whoever writes the container
+definition inherits that requirement; it is named here as an explicit **Phase 34
+dependency**, not left implied.
+
+Because no build definition exists, there is nothing to build a real FOMO image from. A local
+image inventory (via `docker image ls`, the runtime that responded on this host) was captured
+to establish what *is* available locally rather than assuming nothing is:
+
+```
+=== local image inventory ===
+scout-alert-bridge:uv-test
+scout-alert-bridge-bridge:latest
+postgres:16-alpine
+docker.lco.global/neoexchange:test_new_pyslalib
+quay.io/minio/minio:RELEASE.2025-02-07T23-21-09Z
+apache/kafka:3.8.0
+rockylinux:9
+rockylinux:8
+rabbitmq:3.10.6-management-alpine
+nginx:1.21-alpine
+dannygoldstein/zuds-demo:latest
+dannygoldstein/zuds:latest
+dannygoldstein/zuds-db:0.1dev
+```
+
+No image in this inventory plausibly belongs to FOMO (no `fomo`-named repository present;
+the closest neighbor, `docker.lco.global/neoexchange:test_new_pyslalib`, is a different LCO
+project). **Branch taken: no FOMO image exists, so the two checks were run inside a
+representative stand-in base image instead** — `python:3.11-slim`, pulled fresh for this
+task (egress to Docker Hub succeeded, itself confirming outbound network access works from
+this host beyond just `hc-ping.com`) — with the container removed afterward (`docker run
+--rm`, confirmed via `docker ps -a --filter ancestor=python:3.11-slim` returning no rows
+post-run):
+
+```
+=== stand-in base image: python:3.11-slim ===
+=== flock (base image) ===
+flock from util-linux 2.41.5
+flock: probe exit 0
+=== heartbeat egress (base image) ===
+bash: line 1: curl: command not found
+heartbeat: curl exit 127
+```
+
+This stand-in result is a genuinely mixed, useful finding, labeled for exactly what it is:
+`flock` **is** present in this particular slim Debian-based image (util-linux ships as part
+of Debian's base layer), but `curl` is **not** — a concrete, real example of RESEARCH.md's
+warning that slim base images often omit tools an unattended-invocation mechanism needs,
+here caught for the heartbeat check's own client rather than for `flock` itself. This proves
+nothing about FOMO's actual image, which does not exist yet: FOMO's own container definition,
+whenever written, must explicitly ensure both `flock` and an HTTP client (`curl`, or Python's
+already-available `requests`, since the heartbeat call happens from inside a Django management
+command rather than a shell script) are present, rather than assuming either survives from
+whatever base image is chosen.
+
+Tag: **Constructed-input code-path check** for both checks above — they ran inside a stand-in
+base image, not an actual FOMO image, per this task's instruction to tag any check against a
+substitute image this way rather than upgrading it to "Confirmed against real rows."
+
+**Container row of the scope table:** status remains **unconfirmed** — a stand-in check is
+informative but is not evidence about an image that does not exist. No tag upgrade is applied.
+
+**AWS row.** Nothing this phase can run reaches LCO's AWS Kubernetes cluster; its status is
+**unconfirmed by construction** — no probe was attempted, and none could succeed from this
+shell. Two concrete things a later phase (Phase 34, or a deployment phase) must check there,
+one technical and one policy:
+
+1. **Technical:** whether the container's base image, once one is written, ships the lock
+   utility (`flock`) — the same gate this task just demonstrated a slim base image can fail
+   silently for an adjacent tool (`curl`).
+2. **Policy:** whether outbound egress to a third-party heartbeat service (`hc-ping.com` or
+   equivalent) is permitted by the AWS cluster's network policy *and* by institutional policy
+   — this is the half of D-03's second open question no technical probe run from any shell can
+   settle; it requires an explicit answer from whoever owns that deployment's network and
+   compliance posture.
+
+Updated three-scope table:
+
+| Scope | Status |
+|---|---|
+| Interim host (Rocky 9 / WSL2, D-01) | **Reached** — flock present, 0/3 unguarded FOMO cron entries confirmed, heartbeat egress confirmed (HTTP 301) |
+| FOMO container image | **Unconfirmed** — no container build definition exists in this repository; checks ran against a stand-in `python:3.11-slim` image only (flock present, curl absent), which proves nothing about an image that does not exist yet |
+| Eventual AWS Kubernetes target | **Unconfirmed by construction** — no probe reaches this scope from any developer shell; two concrete follow-ups (lock-utility presence, network/institutional policy for outbound egress) are named above for a later phase |
+
 ## Recommendation
 
 ### SCHEMA-01 - schema shape for a non-campaign run
