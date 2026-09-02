@@ -354,3 +354,107 @@ Tag: **Confirmed against real rows** for the 0/49 null-campaign count and the 4
 pre-existing colliding tuples (both read from the real, unmodified `src/fomo_db.sqlite3`).
 Tag: **Constructed-input code-path check** for the Block (C)/(D) collision demonstrations
 (both run against the disposable `tmp/31-spike-db-copy.sqlite3` copy, not real rows).
+
+### SCHEMA-02 - write-time identity field and constraint
+
+The proposed write-time identity field is **`source_identifier`**: a
+`CharField(max_length=255, null=True, blank=True)` on `CampaignRun`. It is not separately
+`db_index`ed via an explicit `db_index=True` — its index is the one the proposed partial
+`UniqueConstraint` below already creates, so a redundant plain index is not needed.
+
+The proposed uniqueness constraint, written out for Phase 32 to transcribe verbatim:
+
+```python
+models.UniqueConstraint(
+    fields=('source_identifier',),
+    condition=models.Q(source_identifier__isnull=False),
+    name='unique_campaign_run_source_identifier',
+),
+```
+
+Both existing constraints, quoted verbatim from `solsys_code/models.py:288-303`, alongside
+the non-collision argument for each:
+
+```python
+models.UniqueConstraint(
+    fields=('campaign', 'telescope_instrument', 'window_start', 'window_end'),
+    condition=models.Q(window_start__isnull=False),
+    name='unique_campaign_run_resolved_window',
+),
+models.UniqueConstraint(
+    fields=('campaign', 'telescope_instrument', 'contact_person'),
+    condition=models.Q(window_start__isnull=True),
+    name='unique_campaign_run_tbd_natural_key',
+),
+```
+
+- `unique_campaign_run_resolved_window`'s field tuple (`campaign`, `telescope_instrument`,
+  `window_start`, `window_end`) shares **no field** with the proposed constraint's field
+  tuple (`source_identifier`) — the two constraints are disjoint by field set, so a row
+  can violate at most one independently of the other; there is no combination of field
+  values that could make satisfying one constraint force a violation of the other.
+- `unique_campaign_run_tbd_natural_key`'s field tuple (`campaign`, `telescope_instrument`,
+  `contact_person`) is likewise disjoint from `(source_identifier,)`, for the same reason.
+
+This is confirmed empirically, not just argued: the constraint probe's Block (E)
+re-exercised both existing constraints against a genuine duplicate *after* adding
+`source_identifier` to the schema, and both still raised `IntegrityError` unmodified
+(`unique_campaign_run_resolved_window still fires unmodified with source_identifier
+present`; `unique_campaign_run_tbd_natural_key still fires unmodified with
+source_identifier present`) — the new field is additive, never a silent replacement for
+either.
+
+**Per-ingest-path table** — the value each of the three ingest paths would write into
+`source_identifier`:
+
+| Management command | `CampaignRun.Source` value | `source_identifier` value written | Where the value comes from | Available every time, or only sometimes? | Block (E) probe result |
+|---|---|---|---|---|---|
+| `load_telescope_runs.py` | `CLASSICAL_FILE` | Synthesized deterministic key: `f'CLASSICAL:{parsed.telescope}:{parsed.instrument}:{start_time.isoformat()}'` | `load_telescope_runs.py:207-216` (the `insert_or_create_calendar_event()` call site, inside the per-night loop where `parsed.telescope`/`parsed.instrument`/`start_time` are all already computed) | Every case — telescope, instrument and `start_time` are computed for every processed night before this call | `CLASSICAL:SPIKE-NTT:SPIKE-EFOSC2:2026-09-05` created (pk=67), find-or-create idempotent on the second pass — Tag: **Constructed-input code-path check** (no real classical schedule file has been run through this path yet; see SCHEMA-03/plan 31-03) |
+| `sync_lco_observation_calendar.py` | `LCO_QUEUE` | The LCO portal request URL already extracted for the `CalendarEvent` lookup | `sync_lco_observation_calendar.py:329,341` (`url = fields.pop('url')`, then `insert_or_create_calendar_event({'url': url}, fields)`) | Every case where a `CampaignRun` would actually be written — records whose URL extraction fails are `continue`d past before reaching this point | `https://observe.lco.global/requests/4247146` created (pk=65), copied from a real dev-DB `CalendarEvent.url` — find-or-create idempotent on the second pass — Tag: **Confirmed against real rows** |
+| `sync_gemini_observation_calendar.py` | `GEMINI_QUEUE` | The constructed key already built for the `CalendarEvent` lookup | `sync_gemini_observation_calendar.py:150` (`url = f'GEM:{prog}/{record.observation_id}'`), used at line 163 | Every case — `prog` and `record.observation_id` are always present on the record | `GEM:GS-2026A-Q-1/GS-2026A-Q-1-0001` created (pk=66), find-or-create idempotent on the second pass — Tag: **Constructed-input code-path check** (no real `GEM:`-namespaced row exists in this dev DB to confirm against) |
+
+The classical row states explicitly: `source_identifier` is **not** left blank for the
+classical path — it carries the synthesized deterministic key above, because the
+constraint probe confirmed that key is idempotent under `get_or_create()` (Block (E): the
+second write pass created no new row) and additive alongside both existing constraints.
+This is a default recommendation, not a final answer for the classical facility
+specifically: RESEARCH.md Pitfall 3 and D-07 both note that a real classical schedule file
+might carry a proposal code for some run states, which plan 31-03's SCHEMA-03
+investigation is tasked with checking against real files; if plan 31-03 finds a better
+facility-specific key, it supersedes this default without touching the `source_identifier`
+field or constraint itself, only the value the classical adapter writes into it. Until
+then, the existing 5-minute telescope/instrument/start_time tolerance match
+(`load_telescope_runs.py:207-216`, unchanged by this plan) continues to do the actual
+`CalendarEvent`-level matching work; `source_identifier` on `CampaignRun` is an additional,
+independent identity surface, not a replacement for that tolerance match.
+
+#### Phase 32 guidance (not work done in this phase)
+
+- **Promote, don't add alongside, once adapters ship:** per this plan's
+  `<assumption_delta_decision>`, if Phase 32's adapters write through `source_identifier`
+  as their general write-time identity, Phase 32 should **promote** it to the primary
+  lookup key for adapter-written rows and demote the `campaign`-plus-window tuple to a
+  detail of the campaign-submission variant specifically — not add `source_identifier`
+  alongside a still-required `campaign`-plus-window lookup. Adding alongside is accepted
+  only if named explicitly as debt, with the condition that would force a later promotion
+  stated.
+- **Suggested invariant test (not a task in this phase, since this phase writes no source
+  code):** an invariant test asserting every `CampaignRun` written by any ingest path is
+  findable again through the primary identity key, for every supported
+  `CampaignRun.Source` value — this test would go red the moment a later phase
+  reintroduces the campaign-is-always-present assumption this plan's evidence has just
+  disproven for `LCO_QUEUE`/`GEMINI_QUEUE`/`CLASSICAL_FILE` rows.
+
+**WR-05 finding (`26-DECISION.md` lines 835-859):** a `get_or_create()`/find-or-create
+lookup is only race-safe when its lookup fields are backed by a real database constraint.
+`source_identifier` **is** proposed as part of a real partial `UniqueConstraint`
+(`unique_campaign_run_source_identifier`, above) — so a find-or-create keyed on it alone
+would be race-safe once Phase 32 implements it, unlike a design where the field existed
+with no backing constraint at all. This closes the WR-05 gap directly rather than leaving
+it open for Phase 32 to notice on its own.
+
+Tag: **Confirmed against real rows** for the two existing constraints (read live from
+`CampaignRun.Meta.constraints` against the real schema) and for the LCO row's value.
+Tag: **Constructed-input code-path check** for the proposed `source_identifier` field/
+constraint declaration itself (added via `schema_editor()` against the disposable copy,
+never migrated for real) and for the Gemini/classical rows' values.
