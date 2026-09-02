@@ -152,7 +152,7 @@
   4. The doc states the unattended-invocation mechanism chosen against the real target host's constraints — overlap prevention, credential handling, and how a missed invocation becomes visible — so Phase 34 implements a verified mechanism rather than a recommended one
   5. The decisions are readable outside `.planning/`: a `docs/design/` page carries the identity scheme and the scheduling verdict forward, and the test suite is unchanged because no source behaviour changed
 
-**Plans**: 5/5 plans executed
+**Plans**: 6 plans — 5 executed, 1 gap-closure plan pending (added after UAT gap G-31-3)
 
 Plans:
 **Wave 1**
@@ -174,6 +174,10 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 31-05-PLAN.md — Durable `docs/design/` page carrying both verdicts, plus the docs build and the no-source-change regression gate
+
+**Wave 6** *(gap closure — UAT gap G-31-3)*
+
+- [ ] 31-06-PLAN.md — Correct the Gemini-as-third-facility framing in both committed artifacts (Gemini is a submission-echo path with no facility read-back; SOAR is the facility that has one), and hand the Phase 32/33 facility-inventory consequences forward as a pending todo
 
 ### Phase 32: Adapter Consolidation
 
