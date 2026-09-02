@@ -98,3 +98,72 @@ shapes (nullable FK / single sentinel `TargetList` / per-proposal auto-created d
 18's and Phase 26's `{N}-DECISION.md` structure, re-applied here) is for the *investigation
 process and document structure*, not for the schema shape itself — this is a first-principles
 design decision, per 31-PATTERNS.md's "No Analog Found" entry.
+
+#### SCHEMA-01 evidence - campaign FK read-path blast radius
+
+Grep-derived inventory of every non-test, non-migration site in `solsys_code/` and `src/`
+that reads `CampaignRun.campaign`, so Option A's (nullable FK) blast radius is counted
+rather than assumed (RESEARCH.md Pitfall 1 / Open Question 2). Four access classes,
+reproduced with these exact commands (run from the repository root):
+
+```bash
+# Class (a): direct attribute read of the related object (raises AttributeError if null)
+grep -rn '\.campaign\.' --include='*.py' solsys_code src | grep -v '/migrations/' | grep -v '/tests/'
+
+# Class (b): related-object assignment/pass-through, not followed by a dot (survives null)
+grep -rn '\.campaign\b' --include='*.py' solsys_code src | grep -v '/migrations/' | grep -v '/tests/' | grep -v '\.campaign\.'
+
+# Class (c): queryset traversals assuming a joinable row
+grep -rn "select_related(.campaign" --include='*.py' solsys_code src | grep -v '/tests/'
+grep -rn "run__campaign" --include='*.py' solsys_code src | grep -v '/tests/'
+grep -rn "campaign__[a-z]" --include='*.py' solsys_code src | grep -v '/tests/'
+
+# Class (d): template-variable reads of the FK's related object
+grep -rn '\.campaign\.' src/templates solsys_code/*/templates 2>/dev/null
+grep -rln 'run\.campaign\|record\.run\.campaign' src/templates solsys_code 2>/dev/null
+```
+
+| File:Line | Class | Expression | Verdict under a null `campaign` |
+|---|---|---|---|
+| `solsys_code/models.py:352` | (a) | `self.campaign.name` (`CampaignRun.__str__`) | Raises `AttributeError` — this label is rendered on the admin changelist, change-form title, delete-confirmation page, admin history `object_repr`, and the `CalendarEventMetaAdmin.run` autocomplete JSON (per the docstring at `models.py:319-335`) |
+| `solsys_code/campaign_reconciler.py:176` | (a) | `run.campaign.name` (`event_title()`) | Raises `AttributeError` — called on every `reconcile_run()` invocation to build the projected `CalendarEvent`'s title |
+| `solsys_code/campaign_tables.py:467` | (a) | `record.run.campaign.name` (`DismissalHistoryTable.render_run`) | Raises `AttributeError` — rendered per row of the dismissal-history table |
+| `solsys_code/campaign_tables.py:538` | (a) | `record.run.campaign.name` (second dismissal-table render method) | Raises `AttributeError` — same risk as the row above, second table instance |
+| `solsys_code/campaign_attribution.py:397` | (a) | `run.campaign.name` (candidate-evidence string builder) | Raises `AttributeError` — called while building attribution-queue candidate evidence text |
+| `solsys_code/campaign_reconciler.py:261` | (b) | `'target_list': run.campaign,` (whole-window `CalendarEvent` fields dict) | Survives — assigns `None` into the fields dict; whether the downstream `CalendarEvent.target_list` write itself then raises is a write-path question, out of this read-path inventory's scope and covered by Task 3's constraint probe |
+| `solsys_code/campaign_reconciler.py:398` | (b) | `'target_list': run.campaign,` (per-night `CalendarEvent` fields dict) | Survives — same pass-through as the row above, per-night branch |
+| `solsys_code/campaign_views.py:366` | (c) | `.select_related('campaign', 'site')` (approval-queue queryset) | Survives at query time (`LEFT OUTER JOIN`, no raise for a null FK); the risk moves to wherever the resulting rows are later read |
+| `solsys_code/campaign_views.py:378` | (c) | `.select_related('campaign', 'site')` (second approval-queue queryset) | Survives at query time, same as above |
+| `solsys_code/campaign_views.py:405` | (c) | `runs_needing_site_review().select_related('campaign', 'site')` | Survives at query time |
+| `solsys_code/admin.py:225` | (c) | `.select_related('campaign', 'site')` (`CampaignRunAdmin.get_queryset`) | Survives at query time |
+| `solsys_code/campaign_attribution.py:572` | (c) | `_eligible_runs_for_event(event).select_related('campaign', 'site')` | Survives at query time |
+| `solsys_code/campaign_attribution.py:645` | (c) | `_eligible_runs_for_record(record).select_related('campaign', 'site')` | Survives at query time |
+| `solsys_code/campaign_views.py:981` | (c) | `.select_related('event', 'run__campaign', 'dismissed_by')` | Survives at query time |
+| `solsys_code/campaign_views.py:982` | (c) | `.select_related('observation_record', 'run__campaign', 'dismissed_by')` | Survives at query time |
+| `solsys_code/campaign_views.py:1001` | (c) | `.select_related('event', 'run__campaign', 'confirmed_by')` | Survives at query time |
+| `solsys_code/campaign_views.py:1002` | (c) | `.select_related('observation_record', 'run__campaign', 'confirmed_by')` | Survives at query time |
+| `solsys_code/admin.py:290` | (c) | `list_select_related = ['event', 'run', 'run__campaign', 'run__site']` (`CalendarEventMetaAdmin`) | Survives at query time |
+| `solsys_code/campaign_attribution.py:541` | (c) | `CampaignRun.objects.filter(campaign__in=record.target.targetlist_set.all())` | Survives — a null `campaign` simply never matches this `__in` filter, excluding the row rather than raising |
+| — | (d) | none found | **Zero** genuine `{{ run.campaign.<attr> }}`-style template traversals exist anywhere under `src/templates/` or a `solsys_code/*/templates/` directory — recorded as an explicit zero count, not a search gap. The one adjacent template site, `src/templates/tom_calendar/partials/event_form.html:136` (`{% url 'campaigns:table' run.campaign_id %}`), reads the raw FK id column (`campaign_id`), not the related object, so it is not a class (d) site; a null id there could still raise `NoReverseMatch` from the `{% url %}` tag (a raise, not a silent blank), noted here for completeness but not counted in class (d)'s total |
+
+**Totals:** Class (a) 5 sites, class (b) 2 sites, class (c) 12 sites, class (d) 0 sites (1
+adjacent non-class-(d) template site noted above). **32 additional occurrences of
+`.campaign.`** were excluded because they live under `solsys_code/*/tests/` (test fixtures
+constructing `CampaignRun` rows directly, e.g. `self.campaign.pk`/`self.campaign.name`
+where `self.campaign` is a test's own `TargetList` fixture, not a `CampaignRun.campaign`
+FK read) — 10 distinct test files.
+
+**Reading for the D-05 comparison:** under Option A, **5 sites** (all class (a)) would need
+an explicit null guard to avoid a new `AttributeError`, plus the 2 class (b) sites whose
+downstream write behavior is Task 3's concern, not this read-path inventory's. Of the 5,
+one (`campaign_reconciler.py:176`, `event_title()`) sits on a genuinely hot path — it runs
+on every `reconcile_run()` invocation, the core sync entry point every adapter will call.
+The other four (`models.py:352`, the two `campaign_tables.py` dismissal-table renderers,
+and `campaign_attribution.py:397`) are staff-facing UI render paths (admin labels,
+dismissal-history table, attribution-queue evidence text) — invoked per page view, not per
+sync tick, and are judged cold relative to the reconciler's hot path. This hot/cold split is
+a code-reading judgement, not a profiling measurement — no profiler was run.
+
+Tag: **Confirmed against real rows** for the grep-derived inventory itself (the greps ran
+against the real, current source tree). Tag: **Constructed-input code-path check** for the
+hot-versus-cold judgement, since no profiling was run.
