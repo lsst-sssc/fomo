@@ -57,10 +57,11 @@ Decisions
    * - Schema shape for a non-campaign run
      - Make ``CampaignRun.campaign`` nullable (``null=True, blank=True``), chosen over a
        shared sentinel campaign and a per-proposal placeholder campaign. A shared
-       sentinel collides: four real telescope/instrument/window combinations already
-       recur across different real campaigns today, so collapsing every non-campaign run
-       onto one shared campaign value would refuse a second row for at least those four
-       combinations. A per-proposal placeholder only splits that collision risk by
+       sentinel collides: four such telescope/instrument/window combinations recur among
+       today's 49 campaign-bearing rows, so the recurrence rate for a single shared
+       campaign value is demonstrably non-zero; a sentinel would refuse the second write
+       for any non-campaign combination that recurs the same way. A per-proposal
+       placeholder only splits that collision risk by
        proposal, it does not eliminate it, and it opens an unanswered question of its own
        — what happens to a placeholder's rows once its proposal later gets a real
        campaign. Nullable costs a single field-level migration, no data backfill, and a
