@@ -367,15 +367,15 @@ none existed to redact in the first place.
 === uname ===
 Linux [hostname redacted] [kernel build string redacted] x86_64 GNU/Linux
 === init ===
-systemd 252 (252-67.el9_8.4.rocky.0.1)
+[init version redacted]
 === flock ===
 flock from util-linux 2.37.4
 flock: probe exit 0
 === crontab ===
 [1 unrelated commented-out cron entry redacted]
-0 * * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py rundataquery 1
-17 * * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py updatescout --skip-designations
-47 4 * * * /home/tlister/venv/fomo311_venv/bin/python /home/tlister/git/fomo_fresh/manage.py updatescout --skip-reconcile
+0 * * * * [venv path redacted]/python [sibling checkout path redacted]/manage.py rundataquery 1
+17 * * * * [venv path redacted]/python [sibling checkout path redacted]/manage.py updatescout --skip-designations
+47 4 * * * [venv path redacted]/python [sibling checkout path redacted]/manage.py updatescout --skip-reconcile
 
 [2 flock-guarded cron entries for an unrelated project redacted]
 crontab: probe exit 0
@@ -385,7 +385,8 @@ heartbeat: curl exit 0
 ```
 
 **Correction, recorded during the code-review fix pass:** the block above redacts the
-developer hostname, the exact kernel build string, one unrelated commented-out cron entry
+developer hostname, the exact kernel build string, the init system's exact version banner,
+the venv and sibling-checkout absolute paths, one unrelated commented-out cron entry
 (`update_sentry_risk.py`), and two `flock`-guarded cron entries belonging to a different,
 unrelated project (`scout-alert-bridge`) that were reproduced verbatim here in an earlier
 version of this document. None of the redacted material was a credential or changes any
@@ -403,14 +404,14 @@ interim host: the lock utility this mechanism depends on is already installed he
 needs adding to this host for the cron+flock mechanism to function.
 
 **Second finding — existing cron precedent, the one that matters most.** The real crontab
-already invokes Django management commands today: **3 active entries** target
-`/home/tlister/git/fomo_fresh/manage.py` (`rundataquery 1`, hourly at `:00`;
+already invokes Django management commands today: **3 active entries** target a sibling
+checkout's `manage.py` (path redacted; `rundataquery 1`, hourly at `:00`;
 `updatescout --skip-designations`, hourly at `:17`; `updatescout --skip-reconcile`, daily at
 `4:47`). **Correction, recorded during the code-review fix pass:** neither command exists in
 this repository (`grep -rn "rundataquery\|updatescout" --include=*.py .` returns nothing) —
 `updatescout` belongs to the third-party `tom_jpl` plugin and `rundataquery` to
-`tom_dataservices`, both invoked from `/home/tlister/git/fomo_fresh`, a sibling checkout of
-this same project, not FOMO's own management commands. **0 of these 3 carry any overlap
+`tom_dataservices`, both invoked from that sibling checkout of this same project, not FOMO's
+own management commands. **0 of these 3 carry any overlap
 guard** — none is wrapped in `flock` or any other serialization mechanism. This confirms
 RESEARCH.md Pitfall 4's finding directly, one session later: the concurrent-write-contention
 risk in `.planning/codebase/CONCERNS.md:159` is a live condition on this host today, not a
@@ -912,8 +913,8 @@ component:
   This is deliberate: a slow-running sync for one facility must never starve or delay an
   unrelated command's own scheduled tick just because they happen to share a lock file.
 - **Interpreter, absolute path:** the project's virtualenv `python`, e.g.
-  `/home/tlister/venv/fomo311_venv/bin/python`, matching the exact pattern already in use by
-  this host's real crontab entries (task 1's transcript) — not the bare `python3` on `PATH`,
+  `/path/to/venv/bin/python` (venv path redacted; matching the exact shape already in use by
+  this host's real crontab entries, task 1's transcript) — not the bare `python3` on `PATH`,
   which may resolve to the wrong interpreter or environment under cron's minimal `PATH`.
 - **`manage.py`, absolute path:** the project checkout's `manage.py`, e.g.
   `/path/to/checkout/manage.py` — cron does not run with the working directory Phase 34's
