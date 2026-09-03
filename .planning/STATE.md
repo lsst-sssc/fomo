@@ -22,10 +22,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-01 — v2.2 milestone archived, full evolution review complete)
+See: .planning/PROJECT.md (updated 2026-09-02 — Phase 31 evolution: SCHEMA-01..03/SCHED-07 validated, gap-closure correction logged)
 
 **Core value:** Robotically scheduled LCO/SOAR observations and their outcomes appear and update on the calendar and their campaign runs without an operator running anything.
-**Current focus:** Phase 31 — Foundation Spikes — Run Identity & Unattended Invocation
+**Current focus:** Phase 32 — Adapter Consolidation
 
 ## Current Position
 
@@ -196,6 +196,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 31]: SCHEMA-03: classical adapter's 5-minute telescope/instrument/start_time tolerance match is NOT sufficient as a write-time identity surface on its own (two proposals sharing telescope/instrument/night collide); source_identifier's synthesized key inherits the same gap; a proposal code is not currently a reliable fallback (present in only 1/3 real sample lines, unparseable where seen)
 - [Phase 31]: SCHED-07: cron+flock inside the FOMO container confirmed against real host facts - flock present, 0/3 existing FOMO cron entries guarded, heartbeat egress confirmed (HTTP 301); no container build definition exists in the repo, container/AWS scopes remain unconfirmed
 - [Phase 31]: Phase 31 published both spike verdicts (schema/identity SCHEMA-01..03, scheduling SCHED-07) to docs/design/run_identity_and_unattended_invocation_spike.rst, closing roadmap Success Criterion 5's first half; Sphinx build and targeted 6-module regression both green, source tree/test suite proven unchanged.
+- [Phase 31, gap-closure plan 31-06]: UAT gap G-31-3 closed — corrected both committed artifacts' facility framing: Gemini has no facility read-back (`GEMFacility`'s status/URL methods are hardcoded stubs; `sync_gemini_observation_calendar` never imports that class and only replays FOMO's own prior submissions), SOAR is the facility that actually has one (inherits a real portal read path from `LCOFacility`, already handled inside the existing LCO sync command). All four verdicts unchanged. Three Phase 32/33 consequences (missing `SOAR_QUEUE` vocabulary value, ADAPT-03 re-target, Phase 33 Gemini-infeasibility caveat) recorded as a pending todo, not actioned here.
 
 ### Pending Todos
 
@@ -234,10 +235,11 @@ v2.3 roadmap-structure decisions (2026-09-01):
 
 None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 phases, 33 plans, 24/24 requirements). One non-blocking follow-up carried into the next milestone: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
-Two v2.3 planning-time notes, neither blocking roadmap approval:
+One v2.3 planning-time note remains, not blocking roadmap approval:
 
-- **Phase 31's scheduling track needs real host facts** that CLAUDE.md does not record (is there a production deployment target yet, does it run cron or systemd, is `flock` present, is an outbound heartbeat ping acceptable). Research flagged this as a gap; the spike must get the answers from the operator rather than assume them.
 - **Phase 33's aggregation rule wants validation against real data** — whether any existing multi-record run would be misclassified by any-success-wins-once-all-terminal. Research flagged this too; it is a phase-planning research item, not a roadmap blocker.
+
+Phase 31's scheduling-track host-facts gap (previously listed here) is resolved: the spike got real answers from the operator (cron + `flock -n`, confirmed present) — see SCHED-07 in PROJECT.md Key Decisions.
 
 ### Quick Tasks Completed
 
@@ -281,10 +283,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-02T16:48:37.133Z
+Last session: 2026-09-03T00:17:04.000Z
 Stopped at: Phase 31 complete, ready to plan Phase 32
 Resume file: None
 
 ## Operator Next Steps
 
-- Review `.planning/ROADMAP.md` (Phases 31-35), then start Phase 31 with `/gsd-discuss-phase 31`
+- Phase 31 complete (6/6 plans, verification passed). Start Phase 32 "Adapter Consolidation" with `/gsd-discuss-phase 32`
