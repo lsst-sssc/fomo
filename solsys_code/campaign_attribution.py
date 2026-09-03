@@ -393,7 +393,16 @@ class AttributionOrphanGroup:
 
 
 def _campaign_evidence(run: CampaignRun) -> str:
-    """Evidence string naming which campaign the pair's boundary-gate match is on."""
+    """Evidence string naming which campaign the pair's boundary-gate match is on.
+
+    Phase 32: a null-campaign run reaches this function only through the
+    ``ObservationRecord`` orphan path (``_eligible_runs_for_record``), since
+    ``_eligible_runs_for_candidate`` already returns ``CampaignRun.objects.none()`` for an
+    event with no ``target_list`` -- this guard is defence in depth, not a new scored-
+    attribution behaviour.
+    """
+    if run.campaign_id is None:
+        return f'run belongs to no campaign (run pk={run.pk}); no campaign gate applied'
     return f"run belongs to campaign '{run.campaign.name}' (pk={run.campaign_id}), matching the orphan's campaign"
 
 

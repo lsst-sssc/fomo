@@ -463,7 +463,13 @@ class AttributionDismissedTable(tables.Table):
         return f'{orphan.facility} observation {orphan.observation_id}'
 
     def render_run(self, record):
-        """The dismissed pair's candidate run, identified by telescope/instrument + campaign."""
+        """The dismissed pair's candidate run, identified by telescope/instrument + campaign.
+
+        Phase 32: the campaign parenthetical is omitted (no placeholder) for a run with no
+        campaign -- an empty parenthetical would be visual noise in a table cell.
+        """
+        if record.run.campaign_id is None:
+            return record.run.telescope_instrument
         return f'{record.run.telescope_instrument} ({record.run.campaign.name})'
 
     def render_actions(self, record):
@@ -534,7 +540,13 @@ class AttributionConfirmedTable(tables.Table):
         return f'{orphan.facility} observation {orphan.observation_id}'
 
     def render_run(self, record):
-        """The confirmed pair's run, identified by telescope/instrument + campaign."""
+        """The confirmed pair's run, identified by telescope/instrument + campaign.
+
+        Phase 32: the campaign parenthetical is omitted (no placeholder) for a run with no
+        campaign -- an empty parenthetical would be visual noise in a table cell.
+        """
+        if record.run.campaign_id is None:
+            return record.run.telescope_instrument
         return f'{record.run.telescope_instrument} ({record.run.campaign.name})'
 
     def render_actions(self, record):
