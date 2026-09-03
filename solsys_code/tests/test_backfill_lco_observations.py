@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.core.management import CommandError, call_command
 from django.test import TestCase
 from tom_observations.models import ObservationGroup, ObservationRecord
-from tom_targets.models import Target
+from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
@@ -87,6 +87,9 @@ def _expected_summary(
     embedded_blocks,
     fallback_lookups_needed,
     block_lookups_failed,
+    list_name='LCO2026A-003_targets',
+    list_reused=False,
+    targets_added=0,
 ):
     """Build the exact summary line a run over these counts should produce.
 
@@ -102,6 +105,11 @@ def _expected_summary(
     groups_created_label = 'groups would create' if dry_run else 'groups created'
     groups_reused_label = 'groups would reuse' if dry_run else 'groups reused'
     block_lookups_failed_value = 'n/a (dry-run)' if dry_run else str(block_lookups_failed)
+    if dry_run:
+        list_verb = 'would reuse' if list_reused else 'would create'
+    else:
+        list_verb = 'reused' if list_reused else 'created'
+    targets_added_label = 'targets would add to list' if dry_run else 'targets added to list'
     return (
         f'requestgroups seen: {requestgroups_seen}, '
         f'{created_label}: {created}, '
@@ -111,7 +119,9 @@ def _expected_summary(
         f'{groups_created_label}: {groups_created}, '
         f'{groups_reused_label}: {groups_reused}, '
         f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
-        f'block lookups failed: {block_lookups_failed_value}'
+        f'block lookups failed: {block_lookups_failed_value}, '
+        f'target list: {list_verb} {list_name!r}, '
+        f'{targets_added_label}: {targets_added}'
     )
 
 
@@ -331,6 +341,8 @@ class TestBackfillLcoObservations(TestCase):
         # setUpTestData already created 'Didymos'; dry-run must create no *new* target.
         self.assertEqual(Target.objects.count(), 1)
         self.assertFalse(ObservationGroup.objects.exists())
+        # T-kpy-01: a dry run performs zero TargetList writes -- no row at all.
+        self.assertFalse(TargetList.objects.exists())
         self.assertIn('requestgroups seen: 1', stdout.getvalue())
         self.mock_get_observation_status.assert_not_called()
         # Exact-line assertion, not just a fragment -- both requests are fresh, share the
@@ -348,6 +360,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=0,
             fallback_lookups_needed=2,
             block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
         )
         self.assertIn(expected, stdout.getvalue())
         # Django's BaseCommand.execute() writes handle()'s return value to self.stdout; an
@@ -385,6 +399,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=0,
             fallback_lookups_needed=1,
             block_lookups_failed=0,
+            list_reused=True,
+            targets_added=1,
         )
         self.assertIn(expected, stdout.getvalue())
         # The dry run must not have actually changed the record.
@@ -419,6 +435,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=1,
             fallback_lookups_needed=0,
             block_lookups_failed=0,
+            list_reused=True,
+            targets_added=1,
         )
         self.assertIn(expected, stdout.getvalue())
 
@@ -450,6 +468,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=0,
             fallback_lookups_needed=1,
             block_lookups_failed=0,
+            list_reused=True,
+            targets_added=1,
         )
         self.assertIn(expected, stdout.getvalue())
         self.mock_get_observation_status.assert_not_called()
@@ -491,6 +511,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=0,
             fallback_lookups_needed=2,
             block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
         )
         self.assertIn(expected, stdout.getvalue())
         self.assertEqual(Target.objects.filter(name='2026 CD2').count(), 0)
@@ -520,6 +542,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=0,
             fallback_lookups_needed=2,
             block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
         )
         self.assertIn(expected_create, stdout.getvalue())
         self.assertFalse(ObservationGroup.objects.exists())
@@ -544,6 +568,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=0,
             fallback_lookups_needed=2,
             block_lookups_failed=0,
+            list_reused=True,
+            targets_added=1,
         )
         self.assertIn(expected_reuse, stdout2.getvalue())
 
@@ -580,6 +606,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=1,
             fallback_lookups_needed=1,
             block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
         )
         self.assertIn(expected, stdout.getvalue())
         self.mock_get_observation_status.assert_not_called()
@@ -616,6 +644,8 @@ class TestBackfillLcoObservations(TestCase):
             embedded_blocks=1,
             fallback_lookups_needed=1,
             block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
         )
         self.assertIn(expected, stdout.getvalue())
         self.mock_get_observation_status.assert_called_once()
@@ -642,13 +672,282 @@ class TestBackfillLcoObservations(TestCase):
         expected_summary = (
             'requestgroups seen: 1, would create: 1, would update: 0, unchanged: 0, '
             'skipped: 0, targets would create: 1, groups would create: 0, groups would reuse: 0, '
-            'embedded blocks: 0, fallback lookups needed: 1, block lookups failed: n/a (dry-run)'
+            'embedded blocks: 0, fallback lookups needed: 1, block lookups failed: n/a (dry-run), '
+            "target list: would create 'LCO2026A-003_targets', targets would add to list: 1"
         )
         self.assertIn(expected_summary, stdout.getvalue())
         self.assertFalse(ObservationRecord.objects.exists())
         self.assertEqual(Target.objects.count(), 1)  # only setUpTestData's 'Didymos'
         self.assertFalse(ObservationGroup.objects.exists())
         self.mock_get_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_target_list_created_with_matched_and_new_targets(self, mock_make_request):
+        # TL-01: a real sweep collects both the fuzzy-matched existing target and the
+        # newly built one into the derived '<proposal>_targets' list.
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos and New 2026 - Multi',
+                    requests=[
+                        _request(10, target_name='Didymos'),
+                        _request(11, target_name='2026 AB1', elements=dict(_DEFAULT_ELEMENTS)),
+                    ],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=stdout, stderr=io.StringIO())
+
+        target_list = TargetList.objects.get(name='LCO2026A-003_targets')
+        new_target = Target.objects.get(name='2026 AB1')
+        self.assertEqual(set(target_list.targets.all()), {self.existing_target, new_target})
+        expected = _expected_summary(
+            dry_run=False,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=1,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+            list_reused=False,
+            targets_added=2,
+        )
+        self.assertIn(expected, stdout.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_target_list_rerun_is_idempotent(self, mock_make_request):
+        # TL-02: re-running the same sweep creates no second TargetList and adds no
+        # duplicate membership; run two's summary reports the reused verb with the same
+        # added count as run one (D-04).
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos and New 2026 - Multi',
+                    requests=[
+                        _request(10, target_name='Didymos'),
+                        _request(11, target_name='2026 AB1', elements=dict(_DEFAULT_ELEMENTS)),
+                    ],
+                )
+            ]
+        )
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        self.assertEqual(TargetList.objects.count(), 1)
+        count_after_run_one = TargetList.objects.get(name='LCO2026A-003_targets').targets.count()
+
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos and New 2026 - Multi',
+                    requests=[
+                        _request(10, target_name='Didymos'),
+                        _request(11, target_name='2026 AB1', elements=dict(_DEFAULT_ELEMENTS)),
+                    ],
+                )
+            ]
+        )
+        stdout2 = io.StringIO()
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=stdout2, stderr=io.StringIO())
+
+        self.assertEqual(TargetList.objects.count(), 1)
+        count_after_run_two = TargetList.objects.get(name='LCO2026A-003_targets').targets.count()
+        self.assertEqual(count_after_run_two, count_after_run_one)
+
+        expected = _expected_summary(
+            dry_run=False,
+            requestgroups_seen=1,
+            created=0,
+            updated=0,
+            unchanged=2,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=1,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+            list_reused=True,
+            targets_added=2,
+        )
+        self.assertIn(expected, stdout2.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_target_list_override_name(self, mock_make_request):
+        # TL-03: --target-list overrides the derived name; the derived name is never created.
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos and New 2026 - Multi',
+                    requests=[
+                        _request(10, target_name='Didymos'),
+                        _request(11, target_name='2026 AB1', elements=dict(_DEFAULT_ELEMENTS)),
+                    ],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations',
+            '--proposal=LCO2026A-003',
+            '--target-list=SweepList',
+            stdout=stdout,
+            stderr=io.StringIO(),
+        )
+
+        self.assertFalse(TargetList.objects.filter(name='LCO2026A-003_targets').exists())
+        target_list = TargetList.objects.get(name='SweepList')
+        new_target = Target.objects.get(name='2026 AB1')
+        self.assertEqual(set(target_list.targets.all()), {self.existing_target, new_target})
+        expected = _expected_summary(
+            dry_run=False,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=1,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+            list_name='SweepList',
+            list_reused=False,
+            targets_added=2,
+        )
+        self.assertIn(expected, stdout.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_target_list_dry_run_zero_writes_matches_real_pass_count(self, mock_make_request):
+        # TL-05/TL-06: a dry run over the same payload as
+        # test_target_list_created_with_matched_and_new_targets writes no TargetList row at
+        # all, yet reports the would-add count (2) matching what the real pass reports.
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos and New 2026 - Multi',
+                    requests=[
+                        _request(10, target_name='Didymos'),
+                        _request(11, target_name='2026 AB1', elements=dict(_DEFAULT_ELEMENTS)),
+                    ],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        self.assertFalse(TargetList.objects.exists())
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=1,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+            list_reused=False,
+            targets_added=2,
+        )
+        self.assertIn(expected, stdout.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_target_list_dry_run_would_reuse_after_real_run(self, mock_make_request):
+        # TL-05: after a real run creates the list, a following dry run reports the
+        # would-reuse verb and leaves the list's membership count unchanged.
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        count_after_real_run = TargetList.objects.get(name='LCO2026A-003_targets').targets.count()
+
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        self.assertEqual(TargetList.objects.count(), 1)
+        self.assertEqual(TargetList.objects.get(name='LCO2026A-003_targets').targets.count(), count_after_real_run)
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=0,
+            updated=0,
+            unchanged=1,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+            list_reused=True,
+            targets_added=1,
+        )
+        self.assertIn(expected, stdout.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_target_list_excludes_targets_from_skipped_requests(self, mock_make_request):
+        # TL-04: a target-step skip (Unmappable Object, wrong target type) and a
+        # parameters-step skip (Didymos, matched before its instrument_type is emptied)
+        # contribute nothing to the list -- proving collection sits after every skip branch,
+        # not before the parameters check.
+        request_c = _request(12, target_name='Didymos')
+        request_c['configurations'][0]['instrument_type'] = ''
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Mixed 2026 - Multi',
+                    requests=[
+                        _request(10, target_name='2026 AB1', elements=dict(_DEFAULT_ELEMENTS)),
+                        _request(11, target_name='Unmappable Object', target_type='SIDEREAL'),
+                        request_c,
+                    ],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=stdout, stderr=io.StringIO())
+
+        target_list = TargetList.objects.get(name='LCO2026A-003_targets')
+        self.assertEqual(list(target_list.targets.values_list('name', flat=True)), ['2026 AB1'])
+        expected = _expected_summary(
+            dry_run=False,
+            requestgroups_seen=1,
+            created=1,
+            updated=0,
+            unchanged=0,
+            skipped=2,
+            targets=1,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
+        )
+        self.assertIn(expected, stdout.getvalue())
 
     @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
     def test_created_date_filter_excludes_group_outside_window_even_if_portal_returns_it(self, mock_make_request):

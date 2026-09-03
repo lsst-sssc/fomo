@@ -1,4 +1,5 @@
-"""Backfill ObservationRecords, Targets, and ObservationGroups from LCO RequestGroups.
+"""Backfill ObservationRecords, Targets, and ObservationGroups from LCO RequestGroups, and
+collect every touched Target into a TargetList.
 
 Campaign-agnostic sibling of ``backfill_lco_observation_records`` (see that module's
 docstring): this command needs no campaign, updates existing records in place instead of
@@ -23,7 +24,7 @@ from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.base_models import REQUIRED_NON_SIDEREAL_FIELDS, REQUIRED_NON_SIDEREAL_FIELDS_PER_SCHEME
-from tom_targets.models import Target
+from tom_targets.models import Target, TargetList
 
 logger = logging.getLogger(__name__)
 
@@ -431,6 +432,12 @@ class Command(BaseCommand):
     schedule fields it would otherwise compare are never resolved under --dry-run. Such a
     record can therefore be reported unchanged by a dry run when only its schedule times
     would actually move on a real pass.
+
+    Every Target the sweep touches -- matched by fuzzy name or newly built from orbital
+    elements -- is collected into a TargetList named '<proposal>_targets', created on the
+    first run and reused on every re-run; --target-list NAME overrides the derived name. A
+    skipped request contributes nothing to the list. A dry run reports which list it would
+    create or reuse and how many targets it would add, without creating the list at all.
     """
 
     help = 'Backfill ObservationRecords, non-sidereal Targets and ObservationGroups from LCO RequestGroups'
@@ -462,10 +469,15 @@ class Command(BaseCommand):
             action='store_true',
             help='Report what would be created/updated without writing anything.',
         )
+        parser.add_argument(
+            '--target-list',
+            required=False,
+            help='Override the derived "<proposal>_targets" name for the TargetList the sweep collects into.',
+        )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
-        """Fetch matching RequestGroups and create/update ObservationRecords for their
-        requests.
+        """Fetch matching RequestGroups, create/update ObservationRecords for their requests,
+        and collect every touched Target into a TargetList.
 
         Returns:
             str | None: a one-line summary of the counts described in the class docstring.
@@ -501,6 +513,15 @@ class Command(BaseCommand):
         # matches it on the second, but a dry run never saves anything, so without this set
         # an unsaved shared target would be counted as newly-missing on every repeat.
         dry_run_target_names_seen: set[str] = set()
+        # D-01/D-02: every touched Target (matched or newly built), keyed by pk in a real
+        # run and, under --dry-run only, by name for a would-be-new target that was never
+        # saved and so has no pk -- an already-existing target is keyed by pk in both modes
+        # so two portal names fuzzy-matching one Target are collected once, not twice.
+        # Values are the Target instances, so the post-loop TargetList step can .add() them
+        # directly with no extra query. This is a separate container from
+        # dry_run_target_names_seen, which guards a different counter and must not be
+        # perturbed here.
+        collected_targets: dict[Any, Target] = {}
 
         for request_group in _iter_request_groups(
             facility, proposal, options.get('created_after'), options.get('created_before')
@@ -590,6 +611,11 @@ class Command(BaseCommand):
                     else:
                         target_verb = 'reuse'
 
+                    # D-01/D-02: keyed by pk when the target already exists (so it is
+                    # collected once even if a second portal name fuzzy-matches it later in
+                    # the same run), or by name for a would-be-new target with no pk yet.
+                    collected_targets[target.pk if target.pk else target_name] = target
+
                     self.stdout.write(
                         f'Would {target_verb} target {target_name!r}; '
                         f'would {record_verb} ObservationRecord '
@@ -601,6 +627,10 @@ class Command(BaseCommand):
                 if is_new_target:
                     target.save()
                     targets_created += 1
+
+                # D-01/D-02: every target reaching this line has a pk -- a matched one
+                # already had it, a new one was just saved above.
+                collected_targets[target.pk] = target
 
                 record, record_created = ObservationRecord.objects.get_or_create(
                     facility=facility.name,
@@ -645,6 +675,25 @@ class Command(BaseCommand):
                     else:
                         groups_reused += 1
 
+        list_name = options.get('target_list') or f'{proposal}_targets'
+        targets_added = len(collected_targets)
+        if dry_run:
+            # T-kpy-01: no get_or_create, no .add() -- reads only, so a dry run writes
+            # nothing at all.
+            list_reused = TargetList.objects.filter(name=list_name).exists()
+        else:
+            # D-05: the list is created unconditionally, even when the sweep touched zero
+            # targets, because get_or_create runs before .add() regardless.
+            target_list, list_was_created = TargetList.objects.get_or_create(name=list_name)
+            # The M2M add is set-like, which is what makes a re-run non-duplicating.
+            target_list.targets.add(*collected_targets.values())
+            list_reused = not list_was_created
+
+        if dry_run:
+            list_verb = 'would reuse' if list_reused else 'would create'
+        else:
+            list_verb = 'reused' if list_reused else 'created'
+
         summary = (
             f'requestgroups seen: {requestgroups_seen}, '
             f'{"would create" if dry_run else "created"}: {created}, '
@@ -654,6 +703,8 @@ class Command(BaseCommand):
             f'{"groups would create" if dry_run else "groups created"}: {groups_created}, '
             f'{"groups would reuse" if dry_run else "groups reused"}: {groups_reused}, '
             f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
-            f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}'
+            f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}, '
+            f'target list: {list_verb} {list_name!r}, '
+            f'{"targets would add to list" if dry_run else "targets added to list"}: {targets_added}'
         )
         return summary
