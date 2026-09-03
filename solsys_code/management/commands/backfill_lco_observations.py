@@ -304,7 +304,7 @@ def _select_block(blocks: list[dict[str, Any]]) -> dict[str, Any] | None:
     return current_block
 
 
-def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: bool) -> tuple[Any, Any, bool]:
+def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: bool) -> tuple[Any, Any, bool, bool]:
     """Resolve a request's scheduled_start/scheduled_end (D-B).
 
     Reads an embedded 'observations' block list from the request payload when present
@@ -319,27 +319,78 @@ def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: b
         dry_run: whether the command is running with --dry-run.
 
     Returns:
-        tuple[Any, Any, bool]: (scheduled_start, scheduled_end, lookup_failed), where the
-            first two are raw portal values (str or None) and the third is True only when
-            the live fallback call was attempted and failed.
+        tuple[Any, Any, bool, bool]: (scheduled_start, scheduled_end, lookup_failed,
+            embedded), where the first two are raw portal values (str or None), the third
+            is True only when the live fallback call was attempted and failed, and the
+            fourth is True when the request payload carried an embedded 'observations'
+            list at all (regardless of whether a usable block could be selected from it)
+            -- so 'handle' can count which schedule path the portal actually exercised
+            without re-deriving that from the two schedule values.
     """
     blocks = request.get('observations')
-    if blocks is not None:
+    embedded = blocks is not None
+    if embedded:
         current_block = _select_block(blocks)
         if current_block:
-            return current_block.get('start'), current_block.get('end'), False
-        return None, None, False
+            return current_block.get('start'), current_block.get('end'), False, embedded
+        return None, None, False, embedded
 
     if dry_run:
-        return None, None, False
+        return None, None, False, embedded
 
     observation_id = str(request.get('id'))
     try:
         result = facility.get_observation_status(observation_id)
     except Exception as exc:
         logger.debug(f'Observed-block lookup failed for observation_id={observation_id!r}: {exc}')
-        return None, None, True
-    return result.get('scheduled_start'), result.get('scheduled_end'), False
+        return None, None, True, embedded
+    return result.get('scheduled_start'), result.get('scheduled_end'), False, embedded
+
+
+def _changed_record_fields(
+    record: ObservationRecord,
+    status: str,
+    scheduled_start: datetime | None,
+    scheduled_end: datetime | None,
+    parameters: dict[str, Any],
+    compare_schedule: bool = True,
+) -> dict[str, Any]:
+    """Return the ObservationRecord fields whose desired value differs from the record's.
+
+    The single comparison the write branch and the dry-run branch both call, so an
+    updated-vs-unchanged decision can never drift between the two modes (T-ik7-02).
+
+    Args:
+        record: the existing ObservationRecord being compared against.
+        status: the request's current portal state.
+        scheduled_start: the resolved scheduled start, or None.
+        scheduled_end: the resolved scheduled end, or None.
+        parameters: the freshly built ObservationRecord.parameters dict.
+        compare_schedule: whether 'scheduled_start'/'scheduled_end' are compared at all.
+            Under --dry-run, a request with no embedded 'observations' block has no
+            resolved schedule -- the live fallback lookup that would otherwise produce one
+            is deliberately skipped (D-B) -- so comparing the two schedule fields against
+            None here would report a spurious change on every record that already has real
+            times. Callers pass the request's 'embedded' flag from _resolve_schedule() so a
+            fallback-path request is compared on status/parameters only, matching what a
+            dry run can actually know without making the network call it exists to avoid.
+
+    Returns:
+        dict[str, Any]: field name -> new value for each of the (up to four) fields whose
+            desired value differs from what 'record' currently holds. An empty dict means
+            nothing would change.
+    """
+    changes: dict[str, Any] = {}
+    if record.status != status:
+        changes['status'] = status
+    if compare_schedule:
+        if record.scheduled_start != scheduled_start:
+            changes['scheduled_start'] = scheduled_start
+        if record.scheduled_end != scheduled_end:
+            changes['scheduled_end'] = scheduled_end
+    if record.parameters != parameters:
+        changes['parameters'] = parameters
+    return changes
 
 
 def _group_name(request_group: dict[str, Any]) -> str:
@@ -372,6 +423,14 @@ class Command(BaseCommand):
 
     An LCO RequestGroup carrying more than one request is linked into a reusable
     ObservationGroup; a single-request RequestGroup gets no group.
+
+    A --dry-run pass reports what a real pass over the same portal payload would do -- same
+    created/updated/unchanged/target/group counts, labelled with the would-forms -- with one
+    honest caveat: for a request that would need the live fallback schedule lookup (no
+    embedded 'observations' block), a dry run compares status and parameters only, since the
+    schedule fields it would otherwise compare are never resolved under --dry-run. Such a
+    record can therefore be reported unchanged by a dry run when only its schedule times
+    would actually move on a real pass.
     """
 
     help = 'Backfill ObservationRecords, non-sidereal Targets and ObservationGroups from LCO RequestGroups'
@@ -435,6 +494,13 @@ class Command(BaseCommand):
         groups_created = 0
         groups_reused = 0
         block_lookups_failed = 0
+        embedded_blocks = 0
+        fallback_lookups_needed = 0
+        # De-dups the dry-run target counter within this invocation only (see the dry-run
+        # branch below): a real run saves the target on the first request in a group and
+        # matches it on the second, but a dry run never saves anything, so without this set
+        # an unsaved shared target would be counted as newly-missing on every repeat.
+        dry_run_target_names_seen: set[str] = set()
 
         for request_group in _iter_request_groups(
             facility, proposal, options.get('created_after'), options.get('created_before')
@@ -480,7 +546,14 @@ class Command(BaseCommand):
                     continue
 
                 status = request.get('state', '')
-                scheduled_start, scheduled_end, lookup_failed = _resolve_schedule(facility, request, dry_run)
+                scheduled_start, scheduled_end, lookup_failed, embedded = _resolve_schedule(facility, request, dry_run)
+                # Requests skipped above (no id, no named target, no usable elements/
+                # instrument_type) never reach here, so they are never counted under either
+                # schedule-path counter.
+                if embedded:
+                    embedded_blocks += 1
+                else:
+                    fallback_lookups_needed += 1
                 if lookup_failed:
                     block_lookups_failed += 1
                     self.stderr.write(f'Failed to resolve observed block for observation_id={observation_id!r}.')
@@ -488,12 +561,38 @@ class Command(BaseCommand):
                 scheduled_end = _parse_datetime_value(scheduled_end)
 
                 if dry_run:
-                    exists = ObservationRecord.objects.filter(
+                    existing_record = ObservationRecord.objects.filter(
                         facility=facility.name, observation_id=observation_id
-                    ).exists()
+                    ).first()
+                    if existing_record is None:
+                        created += 1
+                        record_verb = 'create'
+                    else:
+                        changes = _changed_record_fields(
+                            existing_record,
+                            status,
+                            scheduled_start,
+                            scheduled_end,
+                            parameters,
+                            compare_schedule=embedded,
+                        )
+                        if changes:
+                            updated += 1
+                            record_verb = 'update'
+                        else:
+                            unchanged += 1
+                            record_verb = 'leave unchanged'
+
+                    if is_new_target and target_name not in dry_run_target_names_seen:
+                        dry_run_target_names_seen.add(target_name)
+                        targets_created += 1
+                        target_verb = 'create'
+                    else:
+                        target_verb = 'reuse'
+
                     self.stdout.write(
-                        f'Would {"create" if is_new_target else "reuse"} target {target_name!r}; '
-                        f'would {"update" if exists else "create"} ObservationRecord '
+                        f'Would {target_verb} target {target_name!r}; '
+                        f'would {record_verb} ObservationRecord '
                         f'observation_id={observation_id!r} status={status!r}.'
                     )
                     processed_in_group.append(True)
@@ -518,20 +617,10 @@ class Command(BaseCommand):
                 if record_created:
                     created += 1
                 else:
-                    changed = False
-                    if record.status != status:
-                        record.status = status
-                        changed = True
-                    if record.scheduled_start != scheduled_start:
-                        record.scheduled_start = scheduled_start
-                        changed = True
-                    if record.scheduled_end != scheduled_end:
-                        record.scheduled_end = scheduled_end
-                        changed = True
-                    if record.parameters != parameters:
-                        record.parameters = parameters
-                        changed = True
-                    if changed:
+                    changes = _changed_record_fields(record, status, scheduled_start, scheduled_end, parameters)
+                    if changes:
+                        for field, value in changes.items():
+                            setattr(record, field, value)
                         record.save()
                         updated += 1
                     else:
@@ -543,6 +632,10 @@ class Command(BaseCommand):
                 group_name = _group_name(request_group)
                 if dry_run:
                     would_reuse = ObservationGroup.objects.filter(name=group_name).exists()
+                    if would_reuse:
+                        groups_reused += 1
+                    else:
+                        groups_created += 1
                     self.stdout.write(f'Would {"reuse" if would_reuse else "create"} ObservationGroup {group_name!r}.')
                 else:
                     group, group_was_created = ObservationGroup.objects.get_or_create(name=group_name)
@@ -557,9 +650,11 @@ class Command(BaseCommand):
             f'{"would create" if dry_run else "created"}: {created}, '
             f'{"would update" if dry_run else "updated"}: {updated}, '
             f'unchanged: {unchanged}, skipped: {skipped}, '
-            f'targets created: {targets_created}, '
-            f'groups created: {groups_created}, groups reused: {groups_reused}, '
-            f'block lookups failed: {block_lookups_failed}'
+            f'{"targets would create" if dry_run else "targets created"}: {targets_created}, '
+            f'{"groups would create" if dry_run else "groups created"}: {groups_created}, '
+            f'{"groups would reuse" if dry_run else "groups reused"}: {groups_reused}, '
+            f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
+            f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}'
         )
         self.stdout.write(summary)
         return summary

@@ -294,6 +294,36 @@ class TestBackfillLcoObservations(TestCase):
         self.mock_get_observation_status.assert_not_called()
 
     @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_reports_accurate_counters_end_to_end(self, mock_make_request):
+        # DRYRUN-01..04: a single-request fresh RequestGroup naming an absent target must
+        # report real counts, not structural zeros -- this is the whole bug being fixed.
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'New Object 2026 - ELP',
+                    requests=[_request(10, target_name='2026 AB1', elements=dict(_DEFAULT_ELEMENTS))],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        expected_summary = (
+            'requestgroups seen: 1, would create: 1, would update: 0, unchanged: 0, '
+            'skipped: 0, targets would create: 1, groups would create: 0, groups would reuse: 0, '
+            'embedded blocks: 0, fallback lookups needed: 1, block lookups failed: n/a (dry-run)'
+        )
+        self.assertIn(expected_summary, stdout.getvalue())
+        self.assertFalse(ObservationRecord.objects.exists())
+        self.assertEqual(Target.objects.count(), 1)  # only setUpTestData's 'Didymos'
+        self.assertFalse(ObservationGroup.objects.exists())
+        self.mock_get_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
     def test_created_date_filter_excludes_group_outside_window_even_if_portal_returns_it(self, mock_make_request):
         # The mock returns this group regardless of the created_after/created_before query
         # params sent, proving the client-side re-check (not the query param) is what
