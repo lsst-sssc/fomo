@@ -75,6 +75,13 @@ class CalendarEventMeta(models.Model):
         return f'{prefix} label for {self.event.title} ({start})'
 
 
+# Phase 32 (SCHEMA-01, 31-DECISION.md): the display label substituted for a null
+# `CampaignRun.campaign` wherever a reader today unconditionally dereferences
+# `run.campaign.name`. A queue- or classical-file-sourced run may now permanently carry no
+# campaign, so this is a legitimate rendering, not an error placeholder.
+NO_CAMPAIGN_LABEL = '(no campaign)'
+
+
 class CampaignRun(models.Model):
     """A single target-linked observing run within a coordination campaign (e.g. 3I/ATLAS).
 
@@ -126,11 +133,19 @@ class CampaignRun(models.Model):
         dedicated slot for it -- mapping those rows onto LCO_QUEUE would have been
         semantically wrong (they are not LCO-network runs), so the user chose to add a real
         value instead of overloading an existing one or leaving the rows under-classified.
+
+        SOAR_QUEUE added in Phase 32 (D-01, 32-CONTEXT.md): ``SOARFacility`` inherits a real
+        portal read-back from ``LCOFacility`` (unlike ``GEMFacility``, which is
+        submission-echo only), so SOAR-sourced records are the facility that actually proves
+        the write-and-reconcile pattern generalises to a second, live-read-back facility --
+        the same reasoning that gave ``ESO_QUEUE`` its own slot rather than folding under
+        ``LCO_QUEUE`` applies here.
         """
 
         WEB = 'web', 'Web submission'
         CLASSICAL_FILE = 'classical_file', 'Classical run file'
         LCO_QUEUE = 'lco_queue', 'LCO queue'
+        SOAR_QUEUE = 'soar_queue', 'SOAR queue'
         GEMINI_QUEUE = 'gemini_queue', 'Gemini queue'
         ESO_QUEUE = 'eso_queue', 'ESO queue'
         CSV_IMPORT = 'csv_import', 'CSV import'
@@ -164,10 +179,17 @@ class CampaignRun(models.Model):
         # counterpart to match the way 2m0/1m0/0m4 do. Do not lowercase this for consistency.
         SPACE = 'SPACE', 'Space observatory with no MPC code'
 
+    # Phase 32 (SCHEMA-01, 31-DECISION.md, one-way checkpoint D-05): null=True/blank=True is
+    # a legitimate, PERMANENT state for a queue- or classical-file-sourced run, not a
+    # placeholder awaiting later assignment -- such a run's identity is anchored by
+    # `source_identifier` below, never by a campaign relationship. Every reader that
+    # dereferences `run.campaign.name` must guard on `campaign_id is None` first
+    # (`NO_CAMPAIGN_LABEL` above is the shared substitution).
     campaign = models.ForeignKey(
         TargetList,
         on_delete=models.PROTECT,
-        null=False,
+        null=True,
+        blank=True,
         related_name='campaign_runs',
         verbose_name='Campaign target list',
     )
@@ -259,6 +281,13 @@ class CampaignRun(models.Model):
         default='',
         verbose_name='Telescope class allocation',
     )
+    # Phase 32 (SCHEMA-02, 31-DECISION.md): PROMOTED to the primary identity anchor for
+    # adapter-written rows -- the campaign-plus-window natural key is demoted to the
+    # campaign-submission and CSV-import variants specifically (RESEARCH.md Open Question 2).
+    # The partial UniqueConstraint below is what makes a get_or_create() keyed on
+    # source_identifier alone race-safe (WR-05); do not re-add a campaign-is-always-present
+    # assumption when reading this field.
+    source_identifier = models.CharField(max_length=500, null=True, blank=True, verbose_name='Write-time identity key')
 
     @property
     def is_publicly_visible(self) -> bool:
@@ -314,6 +343,14 @@ class CampaignRun(models.Model):
                 ),
                 name='campaign_run_window_start_end_null_together',
             ),
+            # SCHEMA-02 (31-DECISION.md): additive alongside both existing partial
+            # constraints above, never replacing either. Backs write_and_reconcile_campaign_run()'s
+            # get_or_create() lookup keyed on source_identifier alone (WR-05 race safety).
+            models.UniqueConstraint(
+                fields=('source_identifier',),
+                condition=models.Q(source_identifier__isnull=False),
+                name='unique_campaign_run_source_identifier',
+            ),
         ]
 
     def __str__(self):
@@ -332,6 +369,10 @@ class CampaignRun(models.Model):
         into surfaces broader than the change form (the changelist and the autocomplete
         JSON endpoint), and `admin.py`'s T-jpd-02 PII gate must not be undone by widening
         what `__str__` exposes.
+
+        Phase 32 (SCHEMA-01): a null ``campaign`` is a legitimate, permanent state for a
+        queue- or classical-file-sourced run, so the campaign-name part substitutes
+        ``NO_CAMPAIGN_LABEL`` rather than raising ``AttributeError``.
         """
         if self.window_start is None:
             window_label = 'TBD'
@@ -349,7 +390,8 @@ class CampaignRun(models.Model):
         else:
             site_label = 'no site'
 
-        return f'#{self.pk} {self.campaign.name} | {self.telescope_instrument} | {window_label} | {site_label}'
+        campaign_label = self.campaign.name if self.campaign_id else NO_CAMPAIGN_LABEL
+        return f'#{self.pk} {campaign_label} | {self.telescope_instrument} | {window_label} | {site_label}'
 
 
 @receiver(pre_delete, sender=CampaignRun)

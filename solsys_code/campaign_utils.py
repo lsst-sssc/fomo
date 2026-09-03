@@ -17,14 +17,18 @@ import logging
 import re
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 import requests
 from django.core.cache import cache
 from django.db.utils import IntegrityError
+from django.utils import timezone
+from tom_calendar.models import CalendarEvent
 from tom_dataservices.dataservices import MissingDataException
+from tom_observations.models import ObservationRecord
 
-from solsys_code.models import CampaignRun
+from solsys_code.campaign_reconciler import ReconcileResult, reconcile_run
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
@@ -851,3 +855,114 @@ def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]
         run.save(update_fields=list(fields.keys()))
         return run, 'updated'
     return run, 'unchanged'
+
+
+def adopt_event_into_run(event: CalendarEvent, run: CampaignRun) -> bool:
+    """Attribution bridge (Phase 32, ADAPT-05): attach a pre-existing ``CalendarEvent`` to
+    ``run`` via its ``CalendarEventMeta`` companion row, instead of letting a fresh
+    adapter-written run mint a second event for the same observation.
+
+    Closes the duplicate-event hole Phase 31's research flagged as this phase's
+    highest-risk correctness question: without this bridge, the first time a
+    ``CampaignRun`` written by :func:`write_and_reconcile_campaign_run` reconciles, it
+    would mint a brand-new ``CalendarEvent`` even when one already exists for the same
+    observation (e.g. a ``load_telescope_runs``-created classical event, or a
+    url-keyed queue event a sync command wrote before this phase's cutover).
+
+    Never touches a ``CalendarEvent`` field: setting ``CalendarEventMeta.run`` is an
+    attribution link, the same write Phase 28's confirmation queue already makes, not a
+    calendar write -- calling this does not re-acquire the direct ``CalendarEvent`` write
+    path the reconciler alone still owns.
+
+    Args:
+        event: the pre-existing ``CalendarEvent`` to (re-)attribute to ``run``.
+        run: the ``CampaignRun`` claiming attribution.
+
+    Returns:
+        bool: ``True`` when the event either had no companion row, an unset ``run``, or
+            already pointed at ``run`` (in every case, ``CalendarEventMeta.run`` now points
+            at ``run``). ``False``, writing nothing, when the companion row already points
+            at a DIFFERENT run -- a staff member's confirmed attribution through Phase 28's
+            queue outranks an adapter's guess.
+    """
+    meta = CalendarEventMeta.objects.filter(event=event).first()
+    if meta is not None and meta.run_id is not None and meta.run_id != run.pk:
+        return False
+    meta, _created = CalendarEventMeta.objects.get_or_create(event=event)
+    if meta.run_id != run.pk:
+        meta.run = run
+        meta.save(update_fields=['run'])
+    return True
+
+
+class WriteAndReconcileResult(NamedTuple):
+    """Outcome of one :func:`write_and_reconcile_campaign_run` call."""
+
+    run: CampaignRun
+    action: str
+    reconcile: ReconcileResult
+
+
+def write_and_reconcile_campaign_run(
+    lookup: dict[str, Any],
+    fields: dict[str, Any],
+    *,
+    observation_record: ObservationRecord | None = None,
+    adopt_event: CalendarEvent | None = None,
+) -> WriteAndReconcileResult:
+    """The single create-or-update-then-reconcile helper every Phase 32 adapter calls
+    instead of writing a ``CalendarEvent`` directly (ADAPT-05's cutover-safety machinery).
+
+    Wraps :func:`insert_or_create_campaign_run` (never reimplements its field-diff loop)
+    and hands the resulting run to :func:`solsys_code.campaign_reconciler.reconcile_run`
+    for calendar projection -- an adapter must never re-acquire a direct ``CalendarEvent``
+    write path after cutover.
+
+    ``fields`` must carry ``approval_status=CampaignRun.ApprovalStatus.APPROVED`` and the
+    caller's own non-``WEB`` ``source`` value, or the reconciler's stage-0 guard rejects the
+    row before any calendar projection is attempted (``_skip_reason()`` returns
+    ``'not approved'``). The returned ``WriteAndReconcileResult.reconcile.skipped_reason`` is
+    the caller's to report -- this helper never discards or swallows it.
+
+    When an existing row matched by ``lookup`` already carries ``source == Source.WEB``,
+    ``source``/``approval_status`` are dropped from ``fields`` before the write (T-32-01):
+    a public web submission must never be silently relabeled or auto-approved by a batch
+    ingest path (the same guard ``import_campaign_csv.py`` already applies).
+
+    Args:
+        lookup: the natural-key mapping passed straight through to
+            :func:`insert_or_create_campaign_run` (typically keyed on
+            ``source_identifier`` for an adapter-written row).
+        fields: the field-value mapping to create or update the run with.
+        observation_record: when given, creates the exact-identity
+            ``CampaignRunObservation`` link (system link -- ``confirmed_by=None``,
+            ``confirmed_at=timezone.now()``) before reconciling, so a fresh
+            single-observation queue run already has its link in place on its very
+            first reconcile.
+        adopt_event: when given, calls :func:`adopt_event_into_run` after the run write
+            and before reconciling, so the reconciler's own adopt paths can find the link.
+
+    Returns:
+        WriteAndReconcileResult: ``run``, the create/update ``action``
+            (``'created'``/``'updated'``/``'unchanged'``), and the ``ReconcileResult`` from
+            :func:`~solsys_code.campaign_reconciler.reconcile_run`.
+    """
+    existing = CampaignRun.objects.filter(**lookup).first()
+    if existing is not None and existing.source == CampaignRun.Source.WEB:
+        # T-32-01/WR-01/CANON-01 precedent (import_campaign_csv.py:356-358): never relabel
+        # or re-approve a public web submission from a batch ingest path.
+        fields = {k: v for k, v in fields.items() if k not in ('source', 'approval_status')}
+
+    run, action = insert_or_create_campaign_run(lookup, fields)
+
+    if observation_record is not None:
+        CampaignRunObservation.objects.get_or_create(
+            observation_record=observation_record,
+            defaults={'run': run, 'confirmed_at': timezone.now()},
+        )
+
+    if adopt_event is not None:
+        adopt_event_into_run(adopt_event, run)
+
+    reconcile_result = reconcile_run(run)
+    return WriteAndReconcileResult(run=run, action=action, reconcile=reconcile_result)

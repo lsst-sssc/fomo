@@ -172,8 +172,14 @@ def _split_telescope_instrument(text: str) -> tuple[str, str]:
 def event_title(run: CampaignRun) -> str:
     """Must keep the terminal cancelled/weathered prefix form
     (``RUN_STATUS_CALENDAR_PREFIX``) that ``calendar_display_extras``' terminal-prefix
-    ring matches on, so a cancelled/weathered run's event still gets the status ring."""
-    base = f'{run.campaign.name}: {run.telescope_instrument}'
+    ring matches on, so a cancelled/weathered run's event still gets the status ring.
+
+    Phase 32: the campaign prefix is OMITTED (never replaced with a placeholder) for a
+    run whose ``campaign`` is null -- this is the hot-path guard, since every
+    ``reconcile_run()`` call goes through it, and a placeholder string here would be
+    visual noise on a shared calendar.
+    """
+    base = run.telescope_instrument if run.campaign_id is None else f'{run.campaign.name}: {run.telescope_instrument}'
     if run.window_start != run.window_end:
         base = f'{base} (window {run.window_start}..{run.window_end})'
     prefix = RUN_STATUS_CALENDAR_PREFIX.get(run.run_status)
