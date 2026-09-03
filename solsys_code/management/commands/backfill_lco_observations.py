@@ -656,5 +656,4 @@ class Command(BaseCommand):
             f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
             f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}'
         )
-        self.stdout.write(summary)
         return summary

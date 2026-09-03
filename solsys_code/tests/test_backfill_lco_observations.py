@@ -350,6 +350,10 @@ class TestBackfillLcoObservations(TestCase):
             block_lookups_failed=0,
         )
         self.assertIn(expected, stdout.getvalue())
+        # Django's BaseCommand.execute() writes handle()'s return value to self.stdout; an
+        # explicit self.stdout.write(summary) inside handle() would double the line on the
+        # operator's terminal, so pin the count at exactly once.
+        self.assertEqual(stdout.getvalue().count(expected), 1)
 
     @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
     def test_dry_run_would_update_when_status_differs(self, mock_make_request):
