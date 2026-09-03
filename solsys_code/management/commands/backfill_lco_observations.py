@@ -1,0 +1,565 @@
+"""Backfill ObservationRecords, Targets, and ObservationGroups from LCO RequestGroups.
+
+Campaign-agnostic sibling of ``backfill_lco_observation_records`` (see that module's
+docstring): this command needs no campaign, updates existing records in place instead of
+skipping them, links multi-request RequestGroups into ``ObservationGroup``s, and only ever
+creates non-sidereal Targets (never a sidereal field Target). It is deliberately
+self-contained -- it does not import the sibling's helpers -- so it stays a plausible
+standalone contribution back to ``tom_toolkit``.
+"""
+
+import logging
+from datetime import date, datetime
+from datetime import time as dt_time
+from datetime import timezone as dt_timezone
+from typing import Any
+from urllib.parse import urlencode, urljoin
+
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from tom_observations.facilities.lco import LCOFacility
+from tom_observations.facilities.ocs import make_request
+from tom_observations.models import ObservationGroup, ObservationRecord
+from tom_targets.base_models import REQUIRED_NON_SIDEREAL_FIELDS, REQUIRED_NON_SIDEREAL_FIELDS_PER_SCHEME
+from tom_targets.models import Target
+
+logger = logging.getLogger(__name__)
+
+# Portal wire key -> TOM Target field name, the inverse of OCSFacility._build_target_fields'
+# own field_mapping (tom_observations/facilities/ocs.py:843-850), verified at plan time (D-E).
+_ELEMENT_WIRE_TO_TOM_FIELD = {
+    'orbinc': 'inclination',
+    'longascnode': 'lng_asc_node',
+    'argofperih': 'arg_of_perihelion',
+    'meandist': 'semimajor_axis',
+    'meananom': 'mean_anomaly',
+    'dailymot': 'mean_daily_motion',
+    'epochofel': 'epoch_of_elements',
+    'epochofperih': 'epoch_of_perihelion',
+}
+
+# Fields that carry across the portal payload unchanged (D-E).
+_ELEMENT_PASSTHROUGH_FIELDS = ('perihdist', 'eccentricity')
+
+
+def _iter_request_groups(facility: LCOFacility, proposal: str, created_after: str | None, created_before: str | None):
+    """Page through GET /api/requestgroups/ for a proposal, yielding every RequestGroup.
+
+    'created_after'/'created_before' are sent as server-side query parameters (D-C) purely
+    as a pre-filter to cut payload size -- the caller must still re-check
+    request_group['created'] client-side with ``_within_created_window()``, since a portal
+    that ignores an unrecognised query parameter would otherwise silently backfill the
+    whole proposal.
+
+    Args:
+        facility: an LCOFacility instance (for portal_url/api_key settings and headers).
+        proposal: LCO proposal code, exact match.
+        created_after: raw --created-after CLI value (ISO-8601), or None.
+        created_before: raw --created-before CLI value (ISO-8601), or None.
+
+    Yields:
+        dict: each RequestGroup object (with its nested 'requests' list) returned by the
+            portal, regardless of whether it passes the client-side created-window check.
+    """
+    params: dict[str, Any] = {'proposal': proposal, 'limit': 100}
+    if created_after:
+        params['created_after'] = created_after
+    if created_before:
+        params['created_before'] = created_before
+    query = urlencode(params)
+    url = urljoin(facility.facility_settings.get_setting('portal_url'), f'/api/requestgroups/?{query}')
+    while url:
+        response = make_request('GET', url, headers=facility._portal_headers())
+        payload = response.json()
+        yield from payload.get('results', [])
+        url = payload.get('next')
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    """Parse a portal or CLI ISO-8601 value into an aware UTC datetime.
+
+    Accepts a full ISO-8601 datetime string, a bare ISO-8601 date string (assumed
+    midnight), or an already-a-datetime value; a naive datetime is assumed UTC. Never
+    raises -- a value that cannot be parsed at all returns None, so a single malformed
+    portal field degrades a comparison rather than aborting the run.
+
+    Args:
+        value: a str, datetime, or falsy value read from a portal payload or CLI arg.
+
+    Returns:
+        datetime | None: an aware UTC datetime, or None if 'value' is falsy or unparseable.
+    """
+    if not value:
+        return None
+    if isinstance(value, str):
+        parsed = parse_datetime(value)
+        if parsed is None:
+            try:
+                parsed = datetime.combine(date.fromisoformat(value), dt_time.min)
+            except ValueError:
+                return None
+        value = parsed
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value, dt_timezone.utc)
+    return value
+
+
+def _parse_created_bound(raw_value: str | None) -> datetime | None:
+    """Parse a --created-after/--created-before CLI value into an aware datetime.
+
+    Args:
+        raw_value: the raw --created-after/--created-before CLI string, or None.
+
+    Returns:
+        datetime | None: the parsed, timezone-aware bound, or None if 'raw_value' is None.
+
+    Raises:
+        CommandError: 'raw_value' is set but not a valid ISO-8601 timestamp/date.
+    """
+    if not raw_value:
+        return None
+    parsed = _parse_datetime_value(raw_value)
+    if parsed is None:
+        raise CommandError(f'Invalid ISO-8601 timestamp: {raw_value!r}')
+    return parsed
+
+
+def _within_created_window(
+    request_group: dict[str, Any], created_after: datetime | None, created_before: datetime | None
+) -> bool:
+    """Client-side re-check of a RequestGroup's 'created' timestamp against the window (D-C).
+
+    Args:
+        request_group: the RequestGroup object, for its 'created' field.
+        created_after: the parsed --created-after bound, or None.
+        created_before: the parsed --created-before bound, or None.
+
+    Returns:
+        bool: True if no window is set, or the RequestGroup's 'created' timestamp falls
+            inside it. False if a window is set and 'created' is missing/unparseable
+            (fail closed, matching D-C's "never silently backfill the whole proposal")
+            or falls outside the window.
+    """
+    if created_after is None and created_before is None:
+        return True
+    created = _parse_datetime_value(request_group.get('created'))
+    if created is None:
+        return False
+    if created_after is not None and created < created_after:
+        return False
+    if created_before is not None and created > created_before:
+        return False
+    return True
+
+
+def _first_named_target(request: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the target dict of a request's first configuration that has a name.
+
+    Args:
+        request: a single request from request_group['requests'].
+
+    Returns:
+        dict[str, Any] | None: the first configuration's 'target' dict with a 'name', or
+            None if no configuration has one.
+    """
+    for configuration in request.get('configurations', []):
+        target = configuration.get('target') or {}
+        if target.get('name'):
+            return target
+    return None
+
+
+def _extract_orbital_elements(target_dict: dict[str, Any]) -> dict[str, Any]:
+    """Map a portal ORBITAL_ELEMENTS target dict onto TOM Target field names (D-E).
+
+    Reads each field by its LCO/OCS wire key first (e.g. 'orbinc'), falling back to the
+    TOM field name itself (e.g. 'inclination') when the payload already uses that
+    spelling -- so both 'epochofel' and 'epoch_of_elements' (etc.) are accepted.
+
+    Args:
+        target_dict: a request configuration's 'target' dict.
+
+    Returns:
+        dict[str, Any]: TOM Target field names mapped to their portal values, for every
+            field the payload actually carries a value for.
+    """
+    elements: dict[str, Any] = {}
+    for wire_key, tom_field in _ELEMENT_WIRE_TO_TOM_FIELD.items():
+        value = target_dict.get(wire_key, target_dict.get(tom_field))
+        if value is not None:
+            elements[tom_field] = value
+    for tom_field in _ELEMENT_PASSTHROUGH_FIELDS:
+        value = target_dict.get(tom_field)
+        if value is not None:
+            elements[tom_field] = value
+    # 'scheme' is read last so an alternate 'orbital_elements' spelling (occasionally seen
+    # on hand-built portal fixtures) is accepted as a fallback for the canonical key.
+    scheme = target_dict.get('scheme', target_dict.get('orbital_elements'))
+    if scheme is not None:
+        elements['scheme'] = scheme
+    return elements
+
+
+def _validate_orbital_elements(elements: dict[str, Any]) -> str | None:
+    """Check that 'elements' carries every field REQUIRED_NON_SIDEREAL_FIELDS(_PER_SCHEME)
+    demands for its declared scheme.
+
+    Args:
+        elements: the dict returned by _extract_orbital_elements().
+
+    Returns:
+        str | None: a short reason the elements are incomplete/unusable, or None if they
+            are sufficient to build a non-sidereal Target.
+    """
+    scheme = elements.get('scheme')
+    if scheme not in REQUIRED_NON_SIDEREAL_FIELDS_PER_SCHEME:
+        return f'unrecognised or missing orbital-element scheme {scheme!r}'
+    required = REQUIRED_NON_SIDEREAL_FIELDS + REQUIRED_NON_SIDEREAL_FIELDS_PER_SCHEME[scheme]
+    missing = [field for field in required if elements.get(field) is None]
+    if missing:
+        return f'missing required orbital elements for scheme {scheme!r}: {", ".join(missing)}'
+    return None
+
+
+def _build_non_sidereal_target(target_dict: dict[str, Any]) -> tuple[Target | None, str | None]:
+    """Build an unsaved non-sidereal Target from a request's orbital-element target dict.
+
+    Never assigns the sidereal Target type anywhere (D-G): a target dict this function
+    can't map to a complete non-sidereal Target simply isn't built at all.
+
+    Args:
+        target_dict: a request configuration's 'target' dict, per _first_named_target().
+
+    Returns:
+        tuple[Target | None, str | None]: (unsaved non-sidereal Target, None) on success,
+            or (None, reason) if the payload doesn't carry enough to build one.
+    """
+    name = target_dict.get('name')
+    if not name:
+        return None, 'target has no name'
+    if target_dict.get('type') != 'ORBITAL_ELEMENTS':
+        return None, f'target type {target_dict.get("type")!r} is not ORBITAL_ELEMENTS'
+    elements = _extract_orbital_elements(target_dict)
+    reason = _validate_orbital_elements(elements)
+    if reason:
+        return None, reason
+    return Target(name=name, type=Target.NON_SIDEREAL, **elements), None
+
+
+def _build_parameters(request_group: dict[str, Any], request: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a minimal flat ObservationRecord.parameters dict for a backfilled request.
+
+    Matches the legacy single-config flat shape ('proposal', 'instrument_type', 'start',
+    'end') that solsys_code.calendar_utils.extract_instrument() already falls back to when
+    no c_N_*-prefixed multi-configuration keys are present, so backfilled records stay
+    readable by the existing sync command.
+
+    Args:
+        request_group: the parent RequestGroup object (for 'proposal').
+        request: a single request from request_group['requests'] (for 'windows' and the
+            first configuration with an 'instrument_type').
+
+    Returns:
+        dict[str, Any] | None: the parameters dict, or None if the request has no
+            configuration with a usable instrument_type.
+    """
+    for configuration in request.get('configurations', []):
+        instrument_type = configuration.get('instrument_type')
+        if not instrument_type:
+            continue
+        parameters = {
+            'proposal': request_group.get('proposal'),
+            'instrument_type': instrument_type,
+        }
+        windows = request.get('windows') or []
+        if windows:
+            if windows[0].get('start'):
+                parameters['start'] = windows[0]['start']
+            if windows[0].get('end'):
+                parameters['end'] = windows[0]['end']
+        return parameters
+    return None
+
+
+def _select_block(blocks: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Apply the same block-selection rule as LCOFacility.get_observation_status:
+    first COMPLETED block, else last PENDING block.
+
+    Args:
+        blocks: a list of observation-block dicts (each carrying at least 'state').
+
+    Returns:
+        dict[str, Any] | None: the selected block, or None if no block is COMPLETED or
+            PENDING.
+    """
+    current_block = None
+    for block in blocks:
+        if block.get('state') == 'COMPLETED':
+            current_block = block
+            break
+        elif block.get('state') == 'PENDING':
+            current_block = block
+    return current_block
+
+
+def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: bool) -> tuple[Any, Any, bool]:
+    """Resolve a request's scheduled_start/scheduled_end (D-B).
+
+    Reads an embedded 'observations' block list from the request payload when present
+    (no extra HTTP call either way, so this is not skipped under --dry-run); otherwise
+    falls back to a live facility.get_observation_status() call, which *is* skipped
+    entirely under --dry-run. A failed fallback call is caught and reported via the
+    returned 'lookup_failed' flag -- never fatal, never counted as a skipped request.
+
+    Args:
+        facility: an LCOFacility instance.
+        request: a single request from request_group['requests'].
+        dry_run: whether the command is running with --dry-run.
+
+    Returns:
+        tuple[Any, Any, bool]: (scheduled_start, scheduled_end, lookup_failed), where the
+            first two are raw portal values (str or None) and the third is True only when
+            the live fallback call was attempted and failed.
+    """
+    blocks = request.get('observations')
+    if blocks is not None:
+        current_block = _select_block(blocks)
+        if current_block:
+            return current_block.get('start'), current_block.get('end'), False
+        return None, None, False
+
+    if dry_run:
+        return None, None, False
+
+    observation_id = str(request.get('id'))
+    try:
+        result = facility.get_observation_status(observation_id)
+    except Exception as exc:
+        logger.debug(f'Observed-block lookup failed for observation_id={observation_id!r}: {exc}')
+        return None, None, True
+    return result.get('scheduled_start'), result.get('scheduled_end'), False
+
+
+def _group_name(request_group: dict[str, Any]) -> str:
+    """Build a deterministic ObservationGroup name that always fits max_length=50 (D-D).
+
+    Args:
+        request_group: the parent RequestGroup object (for 'name' and 'id').
+
+    Returns:
+        str: the RequestGroup name, truncated so a ' (<requestgroup id>)' suffix always
+            fits inside 50 characters.
+    """
+    suffix = f' ({request_group.get("id")})'
+    max_name_length = 50 - len(suffix)
+    name = (request_group.get('name') or '')[:max_name_length]
+    return f'{name}{suffix}'
+
+
+class Command(BaseCommand):
+    """Backfill ObservationRecords, non-sidereal Targets, and ObservationGroups for LCO
+    RequestGroups, campaign-agnostic and safe to re-run.
+
+    Queries the LCO Observation Portal's 'Get All RequestGroups' API
+    (GET /api/requestgroups/) for a proposal and creates one ObservationRecord per child
+    request (facility='LCO', observation_id=<request id>). Unlike
+    backfill_lco_observation_records, a request whose ObservationRecord already exists is
+    updated in place (status/scheduled_start/scheduled_end/parameters) rather than skipped,
+    and a request whose target isn't already in FOMO gets a newly built non-sidereal Target
+    from its orbital elements -- never a sidereal one, and never interactively prompted for.
+
+    An LCO RequestGroup carrying more than one request is linked into a reusable
+    ObservationGroup; a single-request RequestGroup gets no group.
+    """
+
+    help = 'Backfill ObservationRecords, non-sidereal Targets and ObservationGroups from LCO RequestGroups'
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        """Parse command line arguments."""
+        parser.add_argument(
+            '--proposal',
+            required=True,
+            help='LCO proposal code to filter RequestGroups by (exact match).',
+        )
+        parser.add_argument(
+            '--created-after',
+            required=False,
+            help='Only backfill RequestGroups created on/after this ISO-8601 timestamp/date.',
+        )
+        parser.add_argument(
+            '--created-before',
+            required=False,
+            help='Only backfill RequestGroups created on/before this ISO-8601 timestamp/date.',
+        )
+        parser.add_argument(
+            '--username',
+            required=False,
+            help='Attribute created/updated ObservationRecords to this username (default: unattributed).',
+        )
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            help='Report what would be created/updated without writing anything.',
+        )
+
+    def handle(self, *args: Any, **options: Any) -> str | None:
+        """Fetch matching RequestGroups and create/update ObservationRecords for their
+        requests.
+
+        Returns:
+            str | None: a one-line summary of the counts described in the class docstring.
+        """
+        proposal = options['proposal']
+        dry_run = options['dry_run']
+        created_after = _parse_created_bound(options.get('created_after'))
+        created_before = _parse_created_bound(options.get('created_before'))
+
+        user = None
+        if options.get('username'):
+            try:
+                user = get_user_model().objects.get(username=options['username'])
+            except get_user_model().DoesNotExist as exc:
+                raise CommandError(f'Invalid username: {options["username"]!r}') from exc
+
+        facility = LCOFacility()
+        facility.set_user(user)
+
+        requestgroups_seen = 0
+        created = 0
+        updated = 0
+        unchanged = 0
+        skipped = 0
+        targets_created = 0
+        groups_created = 0
+        groups_reused = 0
+        block_lookups_failed = 0
+
+        for request_group in _iter_request_groups(
+            facility, proposal, options.get('created_after'), options.get('created_before')
+        ):
+            requestgroups_seen += 1
+            if not _within_created_window(request_group, created_after, created_before):
+                continue
+
+            requests_in_group = request_group.get('requests', [])
+            processed_in_group: list[Any] = []
+
+            for request in requests_in_group:
+                observation_id_raw = request.get('id')
+                if observation_id_raw is None:
+                    skipped += 1
+                    self.stderr.write('Skipping request: payload has no id.')
+                    continue
+                observation_id = str(observation_id_raw)
+
+                target_dict = _first_named_target(request)
+                if target_dict is None:
+                    skipped += 1
+                    self.stderr.write(f'Skipping request {observation_id}: no configuration with a named target.')
+                    continue
+
+                target_name = target_dict.get('name')
+                target = Target.matches.match_fuzzy_name(target_name).first()
+                is_new_target = False
+                if target is None:
+                    target, reason = _build_non_sidereal_target(target_dict)
+                    if target is None:
+                        skipped += 1
+                        self.stderr.write(f'Skipping request {observation_id}: {reason}.')
+                        continue
+                    is_new_target = True
+
+                parameters = _build_parameters(request_group, request)
+                if parameters is None:
+                    skipped += 1
+                    self.stderr.write(
+                        f'Skipping request {observation_id}: no configuration with a usable instrument_type.'
+                    )
+                    continue
+
+                status = request.get('state', '')
+                scheduled_start, scheduled_end, lookup_failed = _resolve_schedule(facility, request, dry_run)
+                if lookup_failed:
+                    block_lookups_failed += 1
+                    self.stderr.write(f'Failed to resolve observed block for observation_id={observation_id!r}.')
+                scheduled_start = _parse_datetime_value(scheduled_start)
+                scheduled_end = _parse_datetime_value(scheduled_end)
+
+                if dry_run:
+                    exists = ObservationRecord.objects.filter(
+                        facility=facility.name, observation_id=observation_id
+                    ).exists()
+                    self.stdout.write(
+                        f'Would {"create" if is_new_target else "reuse"} target {target_name!r}; '
+                        f'would {"update" if exists else "create"} ObservationRecord '
+                        f'observation_id={observation_id!r} status={status!r}.'
+                    )
+                    processed_in_group.append(True)
+                    continue
+
+                if is_new_target:
+                    target.save()
+                    targets_created += 1
+
+                record, record_created = ObservationRecord.objects.get_or_create(
+                    facility=facility.name,
+                    observation_id=observation_id,
+                    defaults={
+                        'target': target,
+                        'user': user,
+                        'status': status,
+                        'parameters': parameters,
+                        'scheduled_start': scheduled_start,
+                        'scheduled_end': scheduled_end,
+                    },
+                )
+                if record_created:
+                    created += 1
+                else:
+                    changed = False
+                    if record.status != status:
+                        record.status = status
+                        changed = True
+                    if record.scheduled_start != scheduled_start:
+                        record.scheduled_start = scheduled_start
+                        changed = True
+                    if record.scheduled_end != scheduled_end:
+                        record.scheduled_end = scheduled_end
+                        changed = True
+                    if record.parameters != parameters:
+                        record.parameters = parameters
+                        changed = True
+                    if changed:
+                        record.save()
+                        updated += 1
+                    else:
+                        unchanged += 1
+
+                processed_in_group.append(record)
+
+            if len(requests_in_group) > 1 and processed_in_group:
+                group_name = _group_name(request_group)
+                if dry_run:
+                    would_reuse = ObservationGroup.objects.filter(name=group_name).exists()
+                    self.stdout.write(f'Would {"reuse" if would_reuse else "create"} ObservationGroup {group_name!r}.')
+                else:
+                    group, group_was_created = ObservationGroup.objects.get_or_create(name=group_name)
+                    group.observation_records.add(*processed_in_group)
+                    if group_was_created:
+                        groups_created += 1
+                    else:
+                        groups_reused += 1
+
+        summary = (
+            f'requestgroups seen: {requestgroups_seen}, '
+            f'{"would create" if dry_run else "created"}: {created}, '
+            f'{"would update" if dry_run else "updated"}: {updated}, '
+            f'unchanged: {unchanged}, skipped: {skipped}, '
+            f'targets created: {targets_created}, '
+            f'groups created: {groups_created}, groups reused: {groups_reused}, '
+            f'block lookups failed: {block_lookups_failed}'
+        )
+        self.stdout.write(summary)
+        return summary
