@@ -51,6 +51,10 @@ file's draft; the plan and task ids below are the real ones, and the SCHEMA-03 t
 its own plan (31-03) because it opens with a blocking operator checkpoint that would otherwise
 stall the schema-evidence plan.
 
+Extended 2026-09-02 for gap-closure plan 31-06 (UAT gap G-31-3, wave 6) — three additional
+document-assertion tasks correcting the Gemini/SOAR facility framing, added below in the same
+row shape.
+
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 31-01-01 | 01 | 1 | SCHEMA-01 | T-31-01, T-31-02 | Read-only probe; no contact-field values selected | investigation script (tracer) | `python manage.py shell < tmp/31_dbsnapshot_probe.py` then assert `FINGERPRINT_UNCHANGED=PASS` and the count keys | ✅ — script written, transcript confirms `FINGERPRINT_UNCHANGED=PASS` | ✅ green |
@@ -67,6 +71,9 @@ stall the schema-evidence plan.
 | 31-04-03 | 04 | 4 | SCHED-07 | T-31-11, T-31-12, T-31-14, T-31-15 | No credential value in any committed artifact (SCHED-10) | document assertion + negative credential search | invocation-shape and two-layer-visibility assertions, plus `! grep -REiq` for credential-shaped tokens in `31-DECISION.md` | ✅ | ✅ green |
 | 31-05-01 | 05 | 5 | SCHEMA-01..03, SCHED-07 | T-31-16 | No credential, email or operator line on the published page | docs build precondition + document assertion | page structure, two decision tables, toctree entry, and a one-line-added diff assertion on `docs/design/design.rst` | ✅ | ✅ green — toctree diff confirmed exactly `1 0` (one line added, none removed) |
 | 31-05-02 | 05 | 5 | Regression | T-31-17, T-31-18, T-31-19 | Disposable DB copy removed; nothing under `tmp/` tracked | Sphinx build + targeted suite + cleanliness gates | `sphinx-build -M html ./docs ./_readthedocs …` prints `build succeeded`; `python manage.py test` over six named modules ends `OK`; empty `git status -- solsys_code src`; empty `git ls-files tmp/` | ✅ — suite already exists | ✅ green — build succeeded, 143 tests OK, source tree and tmp/ clean, DB copy removed |
+| 31-06-01 | 06 | 6 (gap closure, G-31-3) | SCHEMA-02 | T-31-23 | Original claims kept, dated qualification appended beside each — no earlier finding erased | document assertion (grep) | citation checks for `GEMFacility`, `gemini.py:490`/`:506`, `soar.py:240`, `ocs.py:1548`, the debug-session pointer and `G-31-3` in `31-DECISION.md`; ≥4 pre-heading / ≥6 total `submission-echo` occurrences; structural heading-order regression (4 verdict headings unchanged, ≥6 evidence subsections) | ✅ | ✅ green — all gates passed on first attempt (31-06-SUMMARY.md); independently re-derived at 31-VERIFICATION.md audit |
+| 31-06-02 | 06 | 6 (gap closure, G-31-3) | SCHEMA-02 | T-31-23, T-31-24 | Same correction idiom carried to the published page; no library line numbers on a public doc | document assertion (grep) + docs-build + cleanliness gate | `SOAR`/`GEMFacility`/`SOARFacility`/read-path-distinction checks; page-structure regression grep (headings, list-tables, `31-DECISION`, ingest-path names, `flock`, unconfirmed-scope labels); empty `git status -- docs/design/design.rst`; `sphinx-build …` prints `build succeeded` | ✅ | ✅ green — build succeeded; independently re-derived at 31-VERIFICATION.md audit (W-E: warning count differs from a stale local build dir, not a regression — see 31-VERIFICATION.md) |
+| 31-06-03 | 06 | 6 (gap closure, G-31-3) | SCHEMA-02 (hand-forward) | T-31-20, T-31-21, T-31-22 | No credential/contact value in any of the three touched artifacts; no edit under `solsys_code/`/`src/`; REQUIREMENTS.md/ROADMAP.md wording unchanged | document assertion + negative credential search + git status gates | new-todo grep checks (`SOAR_QUEUE`, `ADAPT-03`, `G-31-3`, debug-session pointer, `gemini.py:506`, `soar.py:240`) and STATE.md pending-list entry; empty `git status -- solsys_code src` and `-- solsys_code/migrations`; ADAPT-03/Phase-32-criterion presence checks in REQUIREMENTS.md/ROADMAP.md; three-artifact credential/contact negative regex scan | ✅ | ✅ green — all gates passed on first attempt; independently re-derived at 31-VERIFICATION.md audit (41/41 must-haves verified) |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -119,7 +126,7 @@ Three `<human-check>` items remain open for the operator, routed here per `workf
 - [x] Feedback latency < N/A (investigation-only phase)
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** validated 2026-09-02 — 0 gaps found across 14 tasks (12 automated, 2 checkpoint). All automated commands independently re-run/re-checked at audit time and confirmed passing. No `gsd-nyquist-auditor` subagent dispatch was needed — this phase adds no source-code test surface (investigation-only, per Success Criterion 5), so every requirement traces to a document/transcript assertion rather than a unit test, and all of those assertions passed on first execution with zero deviations across all five plans.
+**Approval:** validated 2026-09-02 — 0 gaps found across 17 tasks (15 automated, 2 checkpoint). All automated commands independently re-run/re-checked at audit time and confirmed passing. No `gsd-nyquist-auditor` subagent dispatch was needed — this phase adds no source-code test surface (investigation-only, per Success Criterion 5), so every requirement traces to a document/transcript assertion rather than a unit test, and all of those assertions passed on first execution with zero deviations across all six plans (including gap-closure plan 31-06).
 
 ## Validation Audit 2026-09-02
 
@@ -128,3 +135,17 @@ Three `<human-check>` items remain open for the operator, routed here per `workf
 | Gaps found | 0 |
 | Resolved | 0 (none needed) |
 | Escalated | 0 |
+
+## Validation Audit 2026-09-02 (gap closure — plan 31-06)
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 (none needed) |
+| Escalated | 0 |
+
+Extended coverage for gap-closure plan 31-06 (UAT gap G-31-3): 3 tasks added to the Per-Task
+Verification Map, all document-assertion / negative-search / git-status gates, all green on first
+execution (31-06-SUMMARY.md) and independently re-derived against the installed source tree during
+this phase's `31-VERIFICATION.md` audit. No new test infrastructure — this gap closure touches no
+file under `solsys_code/` or `src/`. `nyquist_compliant: true` unchanged.
