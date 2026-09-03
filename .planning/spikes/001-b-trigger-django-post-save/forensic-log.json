@@ -1,0 +1,145 @@
+{
+  "summary": {
+    "scenarios": 6,
+    "fired": 5,
+    "matched_expectation": 6,
+    "schedule_only_fires": true,
+    "updatestatus_placed_block_fires": true,
+    "queryset_update_fires": false,
+    "update_fields_seen_in_s6": [
+      "scheduled_end"
+    ]
+  },
+  "events": [
+    {
+      "ts": "2026-09-03T23:34:38.853424+00:00",
+      "category": "setup",
+      "signal": "post_save",
+      "sender": "ObservationRecord"
+    },
+    {
+      "ts": "2026-09-03T23:34:38.856478+00:00",
+      "category": "fixture",
+      "queued_only_count": 56,
+      "rec": "4378323",
+      "rec2": "4378331"
+    },
+    {
+      "ts": "2026-09-03T23:34:38.857076+00:00",
+      "category": "scenario",
+      "scenario": "S1 schedule-only change, status unchanged",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 72,
+          "observation_id": "4378323",
+          "status": "PENDING",
+          "created": false,
+          "raw": false,
+          "update_fields": null,
+          "scheduled_start": "2026-09-03T23:34:38.856484+00:00"
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.857944+00:00",
+      "category": "scenario",
+      "scenario": "S2 status change PENDING->COMPLETED",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 72,
+          "observation_id": "4378323",
+          "status": "COMPLETED",
+          "created": false,
+          "raw": false,
+          "update_fields": null,
+          "scheduled_start": "2026-09-03T23:34:38.856484+00:00"
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.868201+00:00",
+      "category": "scenario",
+      "scenario": "S3 creation",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 217,
+          "observation_id": "spike-001b-created",
+          "status": "PENDING",
+          "created": true,
+          "raw": false,
+          "update_fields": null,
+          "scheduled_start": null
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.868894+00:00",
+      "category": "scenario",
+      "scenario": "S4 updatestatus path, block placed, state unchanged",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 79,
+          "observation_id": "4378331",
+          "status": "PENDING",
+          "created": false,
+          "raw": false,
+          "update_fields": null,
+          "scheduled_start": "2026-09-03T23:34:38.856484+00:00"
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.869017+00:00",
+      "category": "scenario",
+      "scenario": "S5 queryset.update() bypass",
+      "fired": false,
+      "fire_count": 0,
+      "expected_fire": false,
+      "matches_expectation": true,
+      "calls": []
+    },
+    {
+      "ts": "2026-09-03T23:34:38.869318+00:00",
+      "category": "scenario",
+      "scenario": "S6 save(update_fields=[scheduled_end])",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 79,
+          "observation_id": "4378331",
+          "status": "PENDING",
+          "created": false,
+          "raw": false,
+          "update_fields": [
+            "scheduled_end"
+          ],
+          "scheduled_start": null
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.869325+00:00",
+      "category": "teardown",
+      "rolled_back": true
+    }
+  ]
+}

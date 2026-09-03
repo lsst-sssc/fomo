@@ -1,0 +1,102 @@
+{
+  "summary": {
+    "scenarios": 5,
+    "fired": 3,
+    "matched_expectation": 5,
+    "schedule_only_fires": false,
+    "updatestatus_placed_block_fires": false
+  },
+  "events": [
+    {
+      "ts": "2026-09-03T23:34:38.152848+00:00",
+      "category": "setup",
+      "hook": "hook_receiver.receiver"
+    },
+    {
+      "ts": "2026-09-03T23:34:38.155973+00:00",
+      "category": "fixture",
+      "queued_only_count": 56,
+      "rec": "4378323",
+      "rec2": "4378331"
+    },
+    {
+      "ts": "2026-09-03T23:34:38.156579+00:00",
+      "category": "scenario",
+      "scenario": "S1 schedule-only change, status unchanged",
+      "fired": false,
+      "fire_count": 0,
+      "expected_fire": false,
+      "matches_expectation": true,
+      "calls": []
+    },
+    {
+      "ts": "2026-09-03T23:34:38.157008+00:00",
+      "category": "scenario",
+      "scenario": "S2 status change PENDING->COMPLETED",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 72,
+          "observation_id": "4378323",
+          "status": "COMPLETED",
+          "previous_status": "PENDING",
+          "scheduled_start": "2026-09-03T23:34:38.155979+00:00"
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.167074+00:00",
+      "category": "scenario",
+      "scenario": "S3 creation",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 217,
+          "observation_id": "spike-001a-created",
+          "status": "PENDING",
+          "previous_status": null,
+          "scheduled_start": null
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.167782+00:00",
+      "category": "scenario",
+      "scenario": "S4 updatestatus path, block placed, state unchanged",
+      "fired": false,
+      "fire_count": 0,
+      "expected_fire": false,
+      "matches_expectation": true,
+      "calls": []
+    },
+    {
+      "ts": "2026-09-03T23:34:38.168371+00:00",
+      "category": "scenario",
+      "scenario": "S5 updatestatus path, state PENDING->COMPLETED",
+      "fired": true,
+      "fire_count": 1,
+      "expected_fire": true,
+      "matches_expectation": true,
+      "calls": [
+        {
+          "pk": 79,
+          "observation_id": "4378331",
+          "status": "COMPLETED",
+          "previous_status": "PENDING",
+          "scheduled_start": "2026-09-03T23:34:38.155979+00:00"
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:34:38.168378+00:00",
+      "category": "teardown",
+      "rolled_back": true
+    }
+  ]
+}
