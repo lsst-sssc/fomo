@@ -194,8 +194,9 @@ Plans:
   4. Re-running any of the three commands against unchanged data writes nothing — no-churn is proven against the new `CampaignRun` write path, not inherited from the old `CalendarEvent` one
   5. During the cutover, an operator looking at the calendar sees one event per night — the stated migration sequence produces no duplicated and no orphaned event at any point in the transition
   6. Running `sync_gemini_observation_calendar` creates or updates a `CampaignRun` from its own submission-echo data, and both the code and the runbook state explicitly that a Gemini-sourced run can never receive Phase 33's automatic outcome propagation
+  7. An LCO or SOAR queue run's calendar entry starts life spanning the observation's whole request window and then narrows automatically — with no staff action, regardless of how many times the underlying `ObservationRecord` is rescheduled — to the portal-scheduled block and then the actually-observed block, matching the precision the pre-cutover direct-write code already provided (2026-09-03 replan, closing the checkpoint-surfaced regression named in `32-CONTEXT.md`'s addendum)
 
-**Plans**: TBD
+**Plans**: 4 plans (32-01..32-04)
 
 ### Phase 33: Outcome Propagation & Window Narrowing
 
