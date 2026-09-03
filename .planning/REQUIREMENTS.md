@@ -17,9 +17,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [ ] **ADAPT-01**: `load_telescope_runs` creates or updates a `CampaignRun` instead of writing calendar events directly
 - [ ] **ADAPT-02**: `sync_lco_observation_calendar` creates or updates a `CampaignRun` instead of writing calendar events directly, and automatically links the realising `ObservationRecord` via `CampaignRunObservation` at creation time (exact identity, not scored attribution)
-- [ ] **ADAPT-03**: `sync_gemini_observation_calendar` creates or updates a `CampaignRun` instead of writing calendar events directly, and automatically links the realising `ObservationRecord` via `CampaignRunObservation` at creation time
+- [ ] **ADAPT-03**: `sync_lco_observation_calendar` does the same for SOAR-sourced observations, under a dedicated `CampaignRun.Source.SOAR_QUEUE` value (2026-09-02 correction, gap G-31-3: `SOARFacility` has a real portal read-back inherited from `LCOFacility`; `GEMFacility` is submission-echo only and cannot prove the pattern generalises to a facility with real read-back)
 - [ ] **ADAPT-04**: Each rewired adapter's own idempotency guarantee (no-churn on an unchanged re-sync) is verified against the new `CampaignRun` write path, not assumed to carry over from the old `CalendarEvent` write path
 - [ ] **ADAPT-05**: The migration from an adapter's old direct-`CalendarEvent`-write path to its new `CampaignRun`-write path has an explicit, stated cutover sequencing that never produces a duplicate or orphaned calendar event during the transition window
+- [ ] **ADAPT-06**: `sync_gemini_observation_calendar` creates or updates a `CampaignRun` from its own submission-echo data instead of writing calendar events directly, with an explicit, documented caveat that Gemini rows can never receive Phase 33's outcome propagation (`GEMFacility.get_observation_status()` is a hardcoded stub with no real queue read-back)
 
 ### Outcome Propagation
 
@@ -97,6 +98,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADAPT-03 | Phase 32 | Pending |
 | ADAPT-04 | Phase 32 | Pending |
 | ADAPT-05 | Phase 32 | Pending |
+| ADAPT-06 | Phase 32 | Pending |
 | OUTCOME-01 | Phase 33 | Pending |
 | OUTCOME-02 | Phase 33 | Pending |
 | OUTCOME-03 | Phase 33 | Pending |
@@ -113,10 +115,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 **Coverage:**
 
-- v1 requirements: 22 total
-- Mapped to phases: 22 ✓ (Phase 31: 4, Phase 32: 5, Phase 33: 5, Phase 34: 4, Phase 35: 4)
+- v1 requirements: 23 total
+- Mapped to phases: 23 ✓ (Phase 31: 4, Phase 32: 6, Phase 33: 5, Phase 34: 4, Phase 35: 4)
 - Unmapped: 0 — no orphans, no duplicates
 
 ---
 *Requirements defined: 2026-09-01*
-*Last updated: 2026-09-01 after v2.3 roadmap creation (traceability filled, Phases 31-35)*
+*Last updated: 2026-09-03 after Phase 32 discussion — ADAPT-03 retargeted to SOAR and ADAPT-06 added for Gemini's kept, caveated write path (2026-09-02 correction, gap G-31-3; see `.planning/todos/pending/2026-09-02-retarget-adapt-03-to-soar-and-caveat-phase-33-gemini-outcome.md`)*

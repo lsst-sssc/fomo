@@ -129,7 +129,7 @@
 
 - **The schema spike blocks the adapters.** Nothing in Phase 32 starts until SCHEMA-01..03 are settled: `CampaignRun.campaign` is NOT NULL today, but both the LCO and Gemini syncs routinely meet records with no campaign at all. This is not an edge case, and guessing it wrong means re-migrating every adapter.
 - **The reconciler stays the only writer of run-derived calendar events.** Adapters write runs; `campaign_reconciler.reconcile_run()` projects them. The v2.2 pure-projection contract is not reopened, and no adapter re-acquires a direct `CalendarEvent` write path.
-- **Adapters ship simplest-first:** classical → LCO → Gemini. Each one validates the shared write-and-reconcile helper before the next facility's identity scheme is attempted.
+- **Adapters ship simplest-first:** classical → LCO/SOAR → Gemini (2026-09-02 correction, gap G-31-3: SOAR is folded into the LCO plan as a distinct source value, not a separate command; Gemini moves last as ADAPT-06). Each one validates the shared write-and-reconcile helper before the next facility's identity scheme is attempted, and each flips its write path in the same commit it ships in — no dual-write period.
 - **Outcome propagation reads only confirmed `CampaignRunObservation` links** — never the Phase 28 attribution scorer. Scoring a candidate into a status change would structurally reopen the unconfirmed-merge risk `ATTRIB-03` closed.
 - **The outcome-aggregation rule is any-success-wins-once-all-terminal**, written down before it is implemented. A naive "worst status wins" would let one weathered night regress an otherwise-successful multi-night run.
 - **No task-queue dependency** (Celery / huey / APScheduler) unless Phase 31's spike produces host evidence that cron + `flock` cannot work. Research recommends cron; a broker and worker buy nothing for one server running a few jobs an hour.
@@ -181,18 +181,19 @@ Plans:
 
 ### Phase 32: Adapter Consolidation
 
-**Goal**: Every ingest path — classical schedule file, LCO queue, Gemini queue — creates or updates a `CampaignRun` and lets the reconciler draw the calendar, so a run is visible by construction rather than because someone remembered to run a command.
+**Goal**: Every ingest path — classical schedule file, LCO/SOAR queue, Gemini queue — creates or updates a `CampaignRun` and lets the reconciler draw the calendar, so a run is visible by construction rather than because someone remembered to run a command.
 **Depends on**: Phase 31 (the identity scheme and constraint each adapter writes against)
-**Requirements**: ADAPT-01, ADAPT-02, ADAPT-03, ADAPT-04, ADAPT-05
-**Scope note**: The shared write-and-reconcile helper is groundwork inside this phase (first plan), not a phase of its own — it exists to stop the same create-or-update-then-reconcile pattern being written three times, and the classical adapter is its first consumer.
-**Paired docs (CLAUDE.md rule)**: `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`, `sync_lco_observation_calendar_demo.ipynb`, `sync_gemini_observation_calendar_demo.ipynb` (all three commands change what they write — a behaviour change, so all three are in `files_modified` up front), plus `reconcile_campaign_runs_demo.ipynb` (the reconciler now receives adapter-created runs) and `docs/runbooks/telescope_runs_calendar.rst` (every command's documented effect changes).
+**Requirements**: ADAPT-01, ADAPT-02, ADAPT-03, ADAPT-04, ADAPT-05, ADAPT-06
+**Scope note**: The shared write-and-reconcile helper is groundwork inside this phase (first plan), not a phase of its own — it exists to stop the same create-or-update-then-reconcile pattern being written three times, and the classical adapter is its first consumer. **2026-09-02 correction (gap G-31-3):** ADAPT-03 targets SOAR, not Gemini, as the facility proving the pattern generalises — `SOARFacility` has a real portal read-back inherited from `LCOFacility` (already handled inside `sync_lco_observation_calendar`), while `GEMFacility` is submission-echo only. This adds a new `CampaignRun.Source.SOAR_QUEUE` value and its migration. Gemini's own write path stays in scope as ADAPT-06, a fourth ingest path with no facility read-back — kept because its submission-echo data is still real and useful for calendar visibility, but explicitly unable to support Phase 33 outcome propagation.
+**Paired docs (CLAUDE.md rule)**: `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`, `sync_lco_observation_calendar_demo.ipynb`, `sync_gemini_observation_calendar_demo.ipynb` (all three commands change what they write — a behaviour change, so all three are in `files_modified` up front), plus `reconcile_campaign_runs_demo.ipynb` (the reconciler now receives adapter-created runs) and `docs/runbooks/telescope_runs_calendar.rst` (every command's documented effect changes, including the new SOAR_QUEUE source and the Gemini outcome-propagation caveat).
 **Success Criteria** (what must be TRUE):
 
   1. Running `load_telescope_runs` on a classical schedule file creates or updates `CampaignRun`s, and the nightly calendar events appear because the reconciler projected them — the command itself no longer writes a `CalendarEvent`
   2. Running `sync_lco_observation_calendar` creates or updates a `CampaignRun` per synced observation and links the realising `ObservationRecord` automatically at creation time, by exact identity — an operator never has to attribute an LCO record by hand
-  3. Running `sync_gemini_observation_calendar` does the same for Gemini's own identity scheme, proving the pattern generalises to a second facility
+  3. Running `sync_lco_observation_calendar` does the same for SOAR-sourced observations under a dedicated `SOAR_QUEUE` source value, proving the pattern generalises to a second facility with real read-back
   4. Re-running any of the three commands against unchanged data writes nothing — no-churn is proven against the new `CampaignRun` write path, not inherited from the old `CalendarEvent` one
   5. During the cutover, an operator looking at the calendar sees one event per night — the stated migration sequence produces no duplicated and no orphaned event at any point in the transition
+  6. Running `sync_gemini_observation_calendar` creates or updates a `CampaignRun` from its own submission-echo data, and both the code and the runbook state explicitly that a Gemini-sourced run can never receive Phase 33's automatic outcome propagation
 
 **Plans**: TBD
 
@@ -293,4 +294,4 @@ Full phase detail for all shipped milestones lives in their respective `mileston
 
 🚧 **v2.3 Automatic Run Sync & Outcome Propagation** — Phases 31-35, started 2026-09-01.
 
-Coverage: 22/22 v1 requirements mapped, no orphans, no duplicates. Next: `/gsd-discuss-phase 31`.
+Coverage: 23/23 v1 requirements mapped, no orphans, no duplicates (ADAPT-06 added 2026-09-03, Phase 32 discussion). Next: `/gsd-plan-phase 32`.
