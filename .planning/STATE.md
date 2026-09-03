@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-02 — Phase 31 evolution: SCHEMA-01.
 Phase: 32 (Adapter Consolidation) — EXECUTING
 Plan: 1 of 4
 Status: Executing Phase 32
-Last activity: 2026-09-03 — Completed quick task 260903-jid: Fix backfill_lco_observations doubled summary line (drop explicit stdout write, keep return so Django prints it once)
+Last activity: 2026-09-03 — Completed quick task 260903-kpy: backfill_lco_observations now collects every touched Target into a <proposal>_targets TargetList (create-or-reuse, idempotent, dry-run aware, --target-list override)
 
 ## Roadmap Summary (v2.3 — in progress)
 
@@ -249,6 +249,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260903-h1v | Add backfill_lco_observations management command: backfill ObservationRecords, missing non-sidereal Targets, and ObservationGroups from the LCO portal by proposal code | 2026-09-03 | f874531 | complete | [260903-h1v-add-backfill-lco-observations-management](./quick/260903-h1v-add-backfill-lco-observations-management/) |
 | 260903-ik7 | Fix backfill_lco_observations --dry-run summary: wire would-create/update/unchanged, target and group counters, add embedded-block vs fallback-lookup counters | 2026-09-03 | ec11123 | complete | [260903-ik7-fix-backfill-lco-observations-dry-run-su](./quick/260903-ik7-fix-backfill-lco-observations-dry-run-su/) |
 | 260903-jid | Fix backfill_lco_observations doubled summary line: drop explicit stdout write, keep return so Django prints it once | 2026-09-03 | 699908a | complete | [260903-jid-fix-backfill-lco-observations-doubled-su](./quick/260903-jid-fix-backfill-lco-observations-doubled-su/) |
+| 260903-kpy | Collect every Target touched by a backfill_lco_observations sweep into a <proposal>_targets TargetList (create-or-reuse, idempotent, dry-run aware, --target-list override) | 2026-09-03 | 1082550 | complete | [260903-kpy-collect-every-target-touched-by-a-backfi](./quick/260903-kpy-collect-every-target-touched-by-a-backfi/) |
 
 ## Deferred Items
 
