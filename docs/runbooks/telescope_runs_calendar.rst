@@ -172,7 +172,12 @@ Always run with ``--dry-run`` first -- it reports every decision (which
 targets would be built vs. reused, which records would be created vs.
 updated, which groups would be created vs. reused) without writing
 anything, and skips the live observed-block lookup described below
-entirely:
+entirely. A dry run's counts are what the following real pass over the
+same portal payload will report -- the one honest caveat being that a
+request needing the live fallback lookup (no embedded ``observations``
+block) has its schedule compared by a real run but not by a dry run, so
+such a record can be reported ``unchanged`` by a dry run when only its
+schedule times would actually move:
 
 .. code-block:: console
 
@@ -190,9 +195,23 @@ counted under ``block lookups failed``, never fatal -- the record is still
 created or updated with whatever status the request payload itself
 reported, just without resolved schedule times.
 
-The final summary line reports these counters::
+The summary also reports ``embedded blocks`` and ``fallback lookups
+needed`` -- how many requests in this run carried an embedded
+``observations`` block versus how many would need (or, on a real run,
+used) the live per-request fallback lookup. Both counters are populated in
+both modes, so a dry run alone tells an operator which schedule path the
+portal actually exercises for a given proposal, without making a single
+network call beyond the initial ``RequestGroup`` listing.
 
-   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, block lookups failed: 0
+The final summary line reports these counters. A real pass::
+
+   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: 0
+
+A ``--dry-run`` pass over the same proposal -- same counts, would-forms,
+and ``block lookups failed`` reported as not applicable since the live
+fallback lookup that would produce it is skipped entirely::
+
+   requestgroups seen: 6, would create: 4, would update: 8, unchanged: 3, skipped: 1, targets would create: 2, groups would create: 1, groups would reuse: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: n/a (dry-run)
 
 How do I sync Gemini queue observations?
 -------------------------------------------
