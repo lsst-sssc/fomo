@@ -156,6 +156,12 @@ situation is an easy mistake.
   ``ObservationGroup`` linking every record built from it; re-running finds
   and reuses the same group rather than creating a second one. A
   single-request ``RequestGroup`` gets no group at all.
+* **Every touched Target is collected into a TargetList.** Every target the
+  sweep touches -- matched by fuzzy name or newly built from orbital
+  elements -- is added to a ``TargetList`` named ``<proposal>_targets``,
+  created on the first run and reused on every re-run; re-runs never
+  duplicate a membership. A skipped request contributes nothing to the
+  list. There is no way to opt out of the collection.
 
 **Date filtering instead of a name prefix.** ``--created-after`` and
 ``--created-before`` (ISO-8601 timestamps or bare dates) restrict the
@@ -168,6 +174,10 @@ holds even if the portal ignores the query parameters.
 that user; default is unattributed. An unknown username is a hard error,
 same as the sibling command.
 
+``--target-list <NAME>`` overrides the derived ``<proposal>_targets`` name
+for the ``TargetList`` the sweep collects into; the derived name is then
+never created. There is no way to opt out of the collection itself.
+
 Always run with ``--dry-run`` first -- it reports every decision (which
 targets would be built vs. reused, which records would be created vs.
 updated, which groups would be created vs. reused) without writing
@@ -177,7 +187,10 @@ same portal payload will report -- the one honest caveat being that a
 request needing the live fallback lookup (no embedded ``observations``
 block) has its schedule compared by a real run but not by a dry run, so
 such a record can be reported ``unchanged`` by a dry run when only its
-schedule times would actually move:
+schedule times would actually move. A dry run also reports which
+``TargetList`` it would create or reuse and how many targets it would
+add, without creating the list -- so an operator can see a name collision
+with an existing list before anything is written:
 
 .. code-block:: console
 
@@ -205,13 +218,19 @@ network call beyond the initial ``RequestGroup`` listing.
 
 The final summary line reports these counters. A real pass::
 
-   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: 0
+   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: 0, target list: created 'LCO2026A-001_targets', targets added to list: 11
 
 A ``--dry-run`` pass over the same proposal -- same counts, would-forms,
 and ``block lookups failed`` reported as not applicable since the live
 fallback lookup that would produce it is skipped entirely::
 
-   requestgroups seen: 6, would create: 4, would update: 8, unchanged: 3, skipped: 1, targets would create: 2, groups would create: 1, groups would reuse: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: n/a (dry-run)
+   requestgroups seen: 6, would create: 4, would update: 8, unchanged: 3, skipped: 1, targets would create: 2, groups would create: 1, groups would reuse: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: n/a (dry-run), target list: would reuse 'LCO2026A-001_targets', targets would add to list: 11
+
+**Campaign-surface consequence.** A ``TargetList`` is also what FOMO's
+campaign surfaces treat as a campaign, so a backfill-created list shows up
+in the campaign picker on the run submission form even though it has no
+runs. It does **not** appear on the campaign list page, which only shows
+lists that have at least one campaign run.
 
 How do I sync Gemini queue observations?
 -------------------------------------------
