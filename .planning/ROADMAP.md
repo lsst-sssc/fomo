@@ -119,7 +119,7 @@
 
 **Milestone Goal:** Robotically scheduled LCO/SOAR observations and their outcomes appear and update on the calendar and their campaign runs without an operator running anything — the feature-completeness bar the operator set for PR #43, and issue #37's original Stage 4.
 
-- [ ] **Phase 31: Foundation Spikes — Run Identity & Unattended Invocation** - Settle, before any code lands, how a non-campaign queue observation gets a persistent `CampaignRun` identity and how the unattended jobs will actually be invoked on the real host
+- [x] **Phase 31: Foundation Spikes — Run Identity & Unattended Invocation** - Settle, before any code lands, how a non-campaign queue observation gets a persistent `CampaignRun` identity and how the unattended jobs will actually be invoked on the real host (completed 2026-09-02)
 - [ ] **Phase 32: Adapter Consolidation** - All three ingest adapters create or update `CampaignRun`s and let the reconciler project the calendar, with a cutover that never doubles or orphans an event
 - [ ] **Phase 33: Outcome Propagation & Window Narrowing** - An observation's real outcome reaches its run's status automatically, and a run's window visibly narrows in the staff UI as its records are scheduled and observed
 - [ ] **Phase 34: Unattended Scheduling & Discovery** - The whole pipeline runs on a documented recurring schedule against an admin-editable watch-list, with failures visible to an operator and no credential ever logged
@@ -177,7 +177,7 @@ Plans:
 
 **Wave 6** *(gap closure — UAT gap G-31-3)*
 
-- [ ] 31-06-PLAN.md — Correct the Gemini-as-third-facility framing in both committed artifacts (Gemini is a submission-echo path with no facility read-back; SOAR is the facility that has one), and hand the Phase 32/33 facility-inventory consequences forward as a pending todo
+- [x] 31-06-PLAN.md — Correct the Gemini-as-third-facility framing in both committed artifacts (Gemini is a submission-echo path with no facility read-back; SOAR is the facility that has one), and hand the Phase 32/33 facility-inventory consequences forward as a pending todo
 
 ### Phase 32: Adapter Consolidation
 
@@ -281,7 +281,7 @@ Plans:
 | 28. Operator-Assisted Attribution | v2.2 | 6/6 | Complete | 2026-08-02 |
 | 29. The Reconciler | v2.2 | 6/6 | Complete | 2026-08-05 |
 | 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete | 2026-09-01 |
-| 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 5/5 | In Progress|  |
+| 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 6/6 | Complete    | 2026-09-02 |
 | 32. Adapter Consolidation | v2.3 | 0/TBD | Not started | - |
 | 33. Outcome Propagation & Window Narrowing | v2.3 | 0/TBD | Not started | - |
 | 34. Unattended Scheduling & Discovery | v2.3 | 0/TBD | Not started | - |
