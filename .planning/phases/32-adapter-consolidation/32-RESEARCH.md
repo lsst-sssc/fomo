@@ -626,7 +626,10 @@ mechanism, and when) changes.
 Legitimacy, or schema-value claims are assumed (all are `[VERIFIED]` against code or the locked
 31-DECISION.md), but the four rows above genuinely need a planner decision or a proving test.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+Both questions below were settled during planning. Each carries a **RESOLVED** line naming the
+plan and task that settles it; neither needs further research.
 
 1. **Does the classical adapter's cutover need explicit pre-existing-event adoption logic, or does the existing lookup already prevent duplication?**
    - What we know: `_adopted_event_for_night()` only adopts events already linked
@@ -644,6 +647,16 @@ Legitimacy, or schema-value claims are assumed (all are `[VERIFIED]` against cod
      already been ingested once under the old direct-write path, then re-ingested once under the
      new adapter — asserting the count does not increase. Treat this as the phase's highest-risk
      correctness question (see Assumption A4).
+   - **RESOLVED — yes, explicit adoption logic is needed.** Plan 32-01 Task 3 adds
+     `campaign_utils.adopt_event_into_run(event, run)` plus a matching adopt step in
+     `campaign_reconciler._reconcile_container()` (the container branch had no adopt path at
+     all), and each adapter passes its pre-cutover event read-only as `adopt_event=`. The
+     proving test Assumption A4 asked for is
+     `test_cutover_does_not_duplicate_existing_event` in plan 32-02 Task 2 (classical,
+     blank-url tolerance match), with siblings in 32-03 Task 2 (portal-url key) and 32-04
+     Task 2 (`GEM:` key). 32-01 Task 3 also asserts the inverse — that without the bridge the
+     same fixture mints a second event — so a future refactor that drops the bridge fails
+     loudly. Assumption A4 is therefore confirmed, not disproved.
 
 2. **Should the shared helper's signature take `source`/`source_identifier` as explicit keyword
    arguments, or expect them pre-merged into `fields`?**
@@ -656,6 +669,17 @@ Legitimacy, or schema-value claims are assumed (all are `[VERIFIED]` against cod
      three adapters always write non-`WEB` sources and none of them should ever collide with a
      `WEB` row's natural key in practice — but this deserves an explicit test either way.
    - Recommendation: planner's call; either shape is compatible with this research's findings.
+   - **RESOLVED — pre-merged into `fields`, with an explicit `WEB` guard.** Plan 32-01 Task 1
+     specifies the signature as
+     `write_and_reconcile_campaign_run(lookup, fields, *, observation_record=None, adopt_event=None)`:
+     `source` and `source_identifier` travel inside `fields` (matching
+     `insert_or_create_campaign_run()`'s existing contract), and the only special-casing is
+     step (1)'s guard — when the existing row found by `lookup` already has `source='web'`,
+     the helper drops `source` and `approval_status` from its local copy of `fields` before
+     writing, mirroring `import_campaign_csv.py:356-358`. The helper's docstring states that
+     callers must supply `approval_status=APPROVED` and their own non-`web` `source`, rather
+     than the helper injecting them. The explicit test the question asked for is the last two
+     `<behavior>` bullets of 32-01 Task 1, and the guard is registered as threat T-32-01.
 
 ## Environment Availability
 
