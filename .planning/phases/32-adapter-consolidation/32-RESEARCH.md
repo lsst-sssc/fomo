@@ -810,3 +810,343 @@ internal-codebase and locked-planning-artifact research.
 **Valid until:** 30 days (stable internal codebase; no external dependency to go stale) — but
 re-check against `31-DECISION.md` if Phase 31's directory is archived to `.planning/phases-archive/`
 before this phase plans, per the spike doc's own path-note.
+
+---
+
+## 2026-09-03 Addendum — Reconciler Precision for LCO/SOAR Queue Runs (targeted re-research)
+
+**Trigger:** 32-01-PLAN.md's Task 0 checkpoint was rejected by the user during execution
+(0/3 tasks of 32-01 ran — confirmed this session via `git log` on `solsys_code/` and
+`.planning/phases/32-adapter-consolidation/`: the only Phase-32 commit since context-gathering is
+`effaca7 docs(32): record checkpoint rejection`, and `campaign_utils.py`/`models.py` still have no
+`write_and_reconcile_campaign_run`, `adopt_event_into_run`, or `source_identifier` — verified by
+grep this session). Full brief:
+`.planning/phases/32-adapter-consolidation/32-CONTEXT.md`, "2026-09-03 addendum" section. This
+addendum answers the six research questions the re-plan brief posed, against the real code (not
+the plan's paraphrase of it), and ends with a concrete recommendation. It does not restate the
+original research above, which remains correct except where noted below.
+
+**Confidence:** HIGH for everything tagged `[VERIFIED: ...]` below (all read this session, from
+the real FOMO code, the real dev DB, or the real installed `tom_observations` package). MEDIUM for
+the recommended reconciler mechanism itself (a genuinely new design, not yet built or tested — the
+planner's own checkpoint must still confirm the SOAR-branch question raised in Q4/Q1 below).
+
+### Q1 — How `campaign_reconciler.reconcile_run()` branches today, and what a new precise-window branch needs
+
+`[VERIFIED: solsys_code/campaign_reconciler.py:483-500]` — quoted verbatim, this is the entire
+dispatch:
+
+```python
+reason = _skip_reason(run)
+if reason is not None:
+    return ReconcileResult(skipped_reason=reason)
+
+if run.telescope_class:
+    result = _reconcile_container(run, dry_run=dry_run)
+    active_urls = {run_container_url(run)}
+elif run.site is not None and run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
+    result = _reconcile_container(run, dry_run=dry_run)
+    active_urls = {run_container_url(run)}
+else:
+    result = _reconcile_classical_nights(run, dry_run=dry_run)
+    ...
+```
+
+Two branches only, both already correctly named by CONTEXT.md's paraphrase, but the actual
+dispatch key is `telescope_class` non-blank OR (`site` set AND satellite) → container;
+everything else (including a resolved, non-satellite ground site) → per-night. `source` never
+enters the dispatch decision (deliberately — see the module docstring's "never the run's `source`
+field" note, corrected by quick task `260805-tad`).
+
+Per 32-01-PLAN.md's checkpoint decision 4(a) (already user-confirmed, not reopened by this
+addendum), an LCO record derives a `telescope_class` (`2m0`/`1m0`/`0m4`) and keeps `site=None` →
+**container branch**. A SOAR record derives no class (D-12) and instead gets a resolved
+`Observatory` site → **per-night branch**, because `site is not None` and SOAR is not
+`SATELLITE_OBSTYPE`. This routing was chosen purely to satisfy `_skip_reason()`'s
+`site is None and not telescope_class` → `'unresolved site'` gate, not to produce the calendar
+shape the user is asking for — it is a side effect of D-12, not a design intended to answer this
+question.
+
+**Field authority differs by branch, and this matters for where precision can be added:**
+
+`[VERIFIED: solsys_code/campaign_reconciler.py:249-281]` `_reconcile_container()`'s docstring:
+"The container is the ONLY writer of the bare `RUN:{pk}` key, so it is authoritative for every
+field on both create and update — its span must track window edits." It builds
+`start_time`/`end_time` fresh from `run.window_start`/`run.window_end` (day-boundary
+`datetime.combine(..., dt_time(0,0)/dt_time(23,59))`) on **every** call, create or update. This is
+exactly the property needed for "regardless of how many times the record is rescheduled" — the
+container branch already re-derives its span from current state on every reconcile.
+
+`[VERIFIED: solsys_code/campaign_reconciler.py:338-374]` `_reconcile_classical_nights()`'s
+docstring states the opposite, verbatim: "on **update of an event that already exists (including
+an adopted one)**, it writes only `title`, `description`, `target_list` ... `start_time`,
+`end_time`, `telescope` and `instrument` are never rewritten after creation." The stated reason is
+that the classical adapter's own idempotent lookup key is `(telescope, instrument, start_time ±5
+min)` — moving `start_time` off the value it keys on would break that lookup. **This reason does
+not apply to a SOAR per-night event**, whose lookup key is the date-bearing `RUN:{pk}:{night}` url
+(`run_night_url()`), not the classical tolerance-match — so freezing `start_time`/`end_time` after
+creation is not structurally required for a SOAR-sourced per-night event the way it is for a
+classical one. It is simply the rule as currently written, applied uniformly to every consumer of
+this branch.
+
+**Conclusion for Q1:** a genuinely new capability is needed, not an existing hook to wire into.
+The container branch already has the right update-time re-derivation behavior and needs only a new
+data source; the per-night branch's freeze-after-create rule would need an explicit, scoped
+exception for SOAR before it could narrow after creation. This is a real design fork the planner
+must resolve (see Q4).
+
+### Q2 — What the retiring adapter code computes, and whether it is re-derivable from the DB after cutover
+
+`[VERIFIED: solsys_code/calendar_utils.py:423-458]` `record_time_window()`, quoted verbatim (the
+function `sync_lco_observation_calendar._time_window()` already delegates to — CONTEXT.md's
+"`_build_event_fields()`/`calendar_utils.record_time_window()`" description is accurate):
+
+```python
+if record.scheduled_start is None and record.scheduled_end is None:
+    start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
+    end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
+elif record.scheduled_start is not None and record.scheduled_end is not None:
+    start_time = record.scheduled_start
+    end_time = record.scheduled_end
+else:
+    raise ValueError(...)
+return start_time, end_time
+```
+
+This confirms the computation has exactly two inputs, both already on the `ObservationRecord` the
+adapter is already processing: `record.parameters['start']/['end']` (the request-window JSON, set
+at submission time) as a fallback, and `record.scheduled_start`/`record.scheduled_end` once the
+facility portal has scheduled or completed the observation. **Nothing here is adapter-private
+state — every input is a field the reconciler can read for itself, given the `ObservationRecord`,
+with no new field and no new migration.** The retiring code is not computing anything the DB
+doesn't already hold; it is only *reading* it at the wrong layer (the adapter, which this phase
+retires) instead of the layer that should own calendar rendering (the reconciler).
+
+### Q3 — Does the `CampaignRun`/`CampaignRunObservation`/`ObservationRecord` chain already expose enough?
+
+Yes, with no schema change. Chain, confirmed this session:
+
+- `[VERIFIED: solsys_code/models.py:406-421]` `CampaignRunObservation.run` (FK to `CampaignRun`,
+  `related_name='observation_links'`) and `CampaignRunObservation.observation_record` (FK to
+  `tom_observations.models.ObservationRecord`, `on_delete=CASCADE`). So from a `CampaignRun`
+  instance, `run.observation_links.all()` reaches every linked `ObservationRecord` via
+  `.observation_record`.
+- `[VERIFIED: /home/tlister/venv/devel_fomo311_venv/lib64/python3.11/site-packages/tom_observations/models.py:50-51]`
+  (the real installed third-party package, read this session, not assumed): `scheduled_start =
+  models.DateTimeField(null=True)` and `scheduled_end = models.DateTimeField(null=True)` — exactly
+  the two fields `record_time_window()` reads.
+- **New finding, not in the original research or the CONTEXT.md brief:** these two fields already
+  carry the *actual observed* block too, not just the *scheduled* one, with no third field needed.
+  `[VERIFIED: /home/tlister/venv/devel_fomo311_venv/lib64/python3.11/site-packages/tom_observations/facilities/ocs.py:1548-1575]`
+  (`OCSFacility.get_observation_status()`, the base class both `LCOFacility` and `SOARFacility`
+  inherit, per 31-DECISION.md's already-confirmed subclassing) — quoted verbatim:
+  ```python
+  for block in blocks:
+      if block['state'] == 'COMPLETED':
+          current_block = block
+          break
+      elif block['state'] == 'PENDING':
+          current_block = block
+  if current_block:
+      scheduled_start = current_block['start']
+      scheduled_end = current_block['end']
+  ```
+  A `COMPLETED` block is preferred over a `PENDING` one when both exist. So the *same* two fields
+  progress through exactly the three stages the user described: `None` (request/banner stage,
+  `record_time_window()` falls back to `parameters['start']/['end']`) → a `PENDING` block's
+  scheduled times → a `COMPLETED` block's actual times, once the observation has actually run. The
+  reconciler needs no new field to reach "actual observed block" — it is the same
+  `scheduled_start`/`scheduled_end` pair, refreshed by an existing mechanism (see the
+  operational note below).
+- **One real gap, not a schema gap: `CampaignRunObservation`'s own uniqueness is one-way.**
+  `[VERIFIED: solsys_code/models.py:444-447]` the constraint is
+  `UniqueConstraint(fields=('observation_record',), name='unique_campaign_run_observation_record')`
+  — one run per record, but **not** one record per run. A `CampaignRun` can in principle have more
+  than one linked `CampaignRunObservation` (e.g. a staff member later attributes a second record to
+  an existing class-wide run via Phase 28's queue). Any reconciler code that reads "the" linked
+  record for precision must explicitly check `run.observation_links.count() == 1` before trusting
+  it as an exact single-observation source — reading `.first()` without that guard would silently
+  pick an arbitrary one of several and mislabel a multi-record run as single-observation precise.
+
+**Operational note (not a blocker, but belongs in the runbook if this ships):**
+`record.scheduled_start`/`scheduled_end` are refreshed by TOM Toolkit's own
+`updatestatus` management command
+(`[VERIFIED: /home/tlister/venv/devel_fomo311_venv/lib64/python3.11/site-packages/tom_observations/management/commands/updatestatus.py]`,
+which calls `facility.update_all_observation_statuses()` → `get_observation_status()` above), not
+by `sync_lco_observation_calendar` itself. This dependency already exists today for the
+soon-to-be-retired direct-write behavior (`record_time_window()` already needs
+`updatestatus`-refreshed fields to show anything but the request window) — it is not a new
+operational requirement this fix introduces, but it is worth being explicit in the runbook that
+narrowing only happens once `updatestatus` has actually run for that record.
+
+### Q4 — Minimal-risk way to wire this in
+
+Recap of the three options the brief posed, evaluated against what Q1-Q3 found:
+
+- **(c) an adapter re-acquires a direct `CalendarEvent` write path — ruled out entirely, not a
+  live option.** `[VERIFIED: .planning/ROADMAP.md:131]`, quoted verbatim: "The reconciler stays
+  the only writer of run-derived calendar events. Adapters write runs;
+  `campaign_reconciler.reconcile_run()` projects them. The v2.2 pure-projection contract is not
+  reopened, and no adapter re-acquires a direct `CalendarEvent` write path." This is stated as a
+  locked constraint the planner executes, not one it re-opens — no design in this addendum
+  proposes touching it.
+- **(b) ship the coarse version now, document the regression, add a new follow-up phase/plan —
+  not recommended.** Q3 found the *inputs* this fix needs (`ObservationRecord.scheduled_start`/
+  `scheduled_end` via the `CampaignRunObservation` link) are created by ADAPT-02/03 *in this same
+  phase*. Deferring the reconciler-side read of that same link to a later phase means touching the
+  same two branch functions (`_reconcile_container`/`_reconcile_classical_nights`) a second time,
+  for the same facilities, after they've already shipped and been exercised in production —
+  strictly more total work than doing it once, now, while the link is being built. It also means
+  shipping a real, user-visible regression (a currently-working precise calendar block becomes a
+  day-wide or sunset-to-sunrise block) for however long the follow-up phase takes, which is the
+  exact outcome the user already rejected once at the Task 0 checkpoint. Recommend against.
+- **(a) — recommended — extend Phase 32's own scope so ADAPT-02/03 ship with reconciler-side
+  precision from day one.** Concretely, this needs a new reconciler-side read-through step:
+  1. A new helper (name for the planner to choose, e.g. `_linked_observation_window(run)`) in
+     `campaign_reconciler.py`: returns `(scheduled_start, scheduled_end)` when
+     `run.observation_links.count() == 1` and that link's `observation_record.scheduled_start`/
+     `scheduled_end` are both non-null; else `None`. This never writes anything — it is a read-only
+     query, so it does not touch the "reconciler is the only writer" boundary; it *is* the
+     reconciler doing the reading.
+  2. `_reconcile_container()`: when the helper returns a value, use it in place of
+     `datetime.combine(run.window_start, ...)`/`datetime.combine(run.window_end, ...)` for
+     `fields['start_time']`/`['end_time']`. Because the container branch already rebuilds these
+     fields from current state on every call (Q1), this alone gives LCO records exactly the
+     described behavior: whole-window span while queued, narrowing to the scheduled block once
+     placed, narrowing again to the observed block once completed — automatically, on every sync,
+     with no adapter or staff action.
+  3. **SOAR needs a decision, not just code, because of the per-night freeze-after-create rule
+     found in Q1.** Two candidate resolutions, presented for the planner's own checkpoint (this
+     addendum does not pick one on the user's behalf, since it changes reconciler branch semantics
+     Phase 29/30 already locked and tested — 45 existing tests in
+     `solsys_code/tests/test_campaign_reconciler.py`):
+     - **4a-i (recommended): route a single-observation queue run through the container branch
+       regardless of resolved site.** Add a third dispatch condition to `reconcile_run()` —
+       alongside `telescope_class` and satellite-`site` — for "this run has exactly one linked
+       `CampaignRunObservation`," ahead of the per-night fallback. This treats a queue-sourced
+       single request as what it structurally is: one observation, one calendar entry, one
+       precise (or whole-window, before scheduling) span — matching the LCO case exactly and
+       removing the SOAR-specific asymmetry the current plan introduces only as a side effect of
+       D-12. It changes `reconcile_run()`'s dispatch condition, which is exactly the kind of
+       one-way-feeling but actually-additive change (a new `elif` branch, ahead of the existing
+       fallback) that should go through its own `checkpoint:decision` task, not be decided
+       silently by an executor.
+     - **4a-ii: extend the per-night branch to also allow `start_time`/`end_time` convergence,
+       scoped to runs with a linked `CampaignRunObservation`** (i.e. never for a classical,
+       link-less night). More surgical, touches fewer existing tests, but keeps a SOAR run
+       rendered as N per-night events even when it is really one request for one night —
+       matching today's shape less well and adding a second special case to an already
+       carefully-commented function.
+     Either resolution keeps `CampaignRun.TelescopeClass` untouched (D-12 stays closed) and adds
+     no new field or migration — the fork is entirely about reconciler branch **selection**, not
+     schema.
+  4. Place this work as its own explicit task (or its own plan, e.g. inserted after 32-03 in the
+     same phase, since the `CampaignRunObservation` link it depends on is created by 32-03) —
+     not folded silently into 32-01's already-large groundwork plan, and not left as an implicit
+     side effect of 32-03's existing tasks. Name it plainly in the phase's success criteria (e.g.
+     "a queue run's calendar block narrows automatically as its observation record is scheduled
+     and completed, with no staff action") so a future reader can verify it the same way the
+     other five success criteria are verified.
+
+**On the ROADMAP's own SCHED-06 wording (a discrepancy worth surfacing, not resolving here):**
+`[VERIFIED: .planning/ROADMAP.md:212]`, Phase 33 success criterion 5, quoted verbatim: "A
+**space-mission or queue run's** window visibly narrows in the staff UI as its linked records are
+scheduled and then observed, following the v2.2 four-stage pipeline rather than the original
+pre-pipeline design." This is broader than `[VERIFIED: .planning/REQUIREMENTS.md:58]` SCHED-06's
+own formal requirement text, quoted verbatim: "A **space-mission run's** window visibly narrows in
+the staff UI as its linked `ObservationRecord`s are scheduled and observed" — no "or queue run"
+clause. CONTEXT.md's addendum read only the narrower REQUIREMENTS.md text and concluded "nothing
+on the current roadmap restores per-record time precision for LCO/SOAR" — that conclusion is
+still right for the traceable requirement (SCHED-06, the ID actually mapped to Phase 33 in the
+traceability table), but the ROADMAP's own phase-level prose for Phase 33 already contains
+language that reads as if it expected to cover queue runs too, without a requirement ID to back
+it. This is not evidence the gap is already planned for elsewhere — a phase-level success
+criterion with no requirement ID behind it is not a committed scope, and the discrepancy itself
+should be flagged to the user/discuss-phase rather than treated as license to defer this
+addendum's fix to Phase 33 on the strength of that sentence alone.
+
+### Q5 — Approval loop verification (independent check, not taken on the CONTEXT.md addendum's word)
+
+`[VERIFIED: solsys_code/models.py:116-120]`, `CampaignRun.Source`'s docstring, quoted verbatim:
+"Derivation rule (verbatim, 26-DECISION.md Criterion 1): `approval_status == APPROVED` together
+with `source != WEB` means no approval was required." This is a documented design rule, not yet
+enforced by any executed code — confirmed this session that **no adapter write path exists yet**
+(0/3 tasks of 32-01 executed; `campaign_utils.py` has no `write_and_reconcile_campaign_run`,
+`models.py` has no `source_identifier`). The rule is however already committed in the *unexecuted*
+plan text: `[VERIFIED: .planning/phases/32-adapter-consolidation/32-03-PLAN.md]`, Task 1's
+`run_fields` build sets `'approval_status': CampaignRun.ApprovalStatus.APPROVED` unconditionally,
+every sync, every record, with the plan's own comment: "required — without it `_skip_reason()`
+returns `'not approved'` and the record never reaches the calendar." There is no staff-review step
+anywhere in the planned write path, and `_skip_reason()`
+(`[VERIFIED: solsys_code/campaign_reconciler.py:204-205]`, quoted above) rejects any run whose
+`approval_status` is not `APPROVED` — an adapter that omitted the field would fail loudly (nothing
+reaches the calendar), not silently require a human. **This half of the user's worry is confirmed
+resolved by the plan as written**, matching CONTEXT.md's addendum.
+
+**A sharper, previously-unstated finding on the "masking" concern:** re-reading
+`insert_or_create_campaign_run()`'s diff loop (`campaign_utils.py:817-853`, quoted in the original
+research above) against 32-03-PLAN.md's proposed `run_fields`: `window_start`/`window_end` are
+date-only (`event_fields['start_time'].date()`), so a reschedule that only changes the *time of
+day* within the same night(s) would **not** change either field, and by itself would look like a
+no-op to the diff loop. The run is **not actually masked as unchanged**, though, because
+`run_fields['observation_details']` is set from `event_fields['description']`
+(`sync_lco_observation_calendar.py:200-203`), and that description text embeds the literal
+start/end time strings (`f'Window (UTC): {start_time...} to {end_time...}'`) — so a same-night
+reschedule still produces a text difference the diff loop detects, and the run is correctly
+reported `updated`, not `unchanged`. **What is still missing, with or without the precision fix,
+is a test proving this specific case** — none of 32-03-PLAN.md's fourteen named test methods
+exercises "reschedule within the same night" specifically (`test_rerun_no_churn_...` only proves
+the *unchanged* case for *identical* re-syncs). Recommend the planner add one, e.g.
+`test_reschedule_within_same_night_updates_run` — both to prove the run itself isn't silently
+masked, and (once Q4's fix lands) to prove the calendar event's time span actually moves.
+
+### Q6 — Gemini North obscode correction (independently re-verified, not taken on trust)
+
+`[VERIFIED: live dev-DB query this session]`:
+
+```
+568 -> [(23, 'Maunakea')]
+T15 -> []
+I33 -> []
+I11 -> [(13, 'Gemini South Observatory, Cerro Pachon')]
+```
+
+Confirms CONTEXT.md's addendum exactly: `568` resolves to a real, generic "Maunakea" row (not a
+Gemini-specific one), `T15` (Gemini North, per the user's direct domain correction) and `I33`
+(SOAR, Cerro Pachón) have no `Observatory` rows in the dev DB, and `I11` (Gemini South) already
+does. Any plan/runbook text that still says `568` for Gemini North must be corrected to `T15`.
+
+### Recommendation
+
+**Ship Option (a): fold the reconciler precision fix into Phase 32 itself, as new, explicitly
+named scope on the LCO/SOAR plan(s) — do not defer it, and do not let an adapter write a calendar
+event directly.**
+
+Concretely, for the planner:
+
+1. Add a read-only reconciler helper that looks up the run's single linked
+   `ObservationRecord.scheduled_start`/`scheduled_end` (via `CampaignRunObservation`, guarded to
+   exactly one link) and, when present, uses those exact times instead of the day-boundary default
+   — this needs no new field, no new migration, and reads data ADAPT-02/03 already writes this
+   phase.
+2. Wire it into the container branch immediately (low risk — the branch already re-derives its
+   span from current state on every call, so this is an additive data source, not a new code
+   path).
+3. Put a fresh `checkpoint:decision` task in front of the SOAR piece specifically, naming the two
+   candidate resolutions in Q4 above (route single-observation SOAR runs through the container
+   branch, vs. carve a narrow start/end-convergence exception into the per-night branch) — this is
+   a real fork in already-locked, already-tested reconciler semantics (45 existing tests) and
+   should not be resolved silently inside an `auto` task.
+4. Name the new behavior in the phase's own success criteria (ROADMAP.md Phase 32 section) so
+   "no regression in queue-run calendar precision" is a checked, verifiable outcome of this phase,
+   the same way the other five criteria already are — not left implicit inside a task's
+   `<behavior>` bullets where a future reader has no single place to confirm it shipped.
+5. Add the reschedule-masking test named in Q5 (`test_reschedule_within_same_night_updates_run` or
+   equivalent) so the "narrows automatically, regardless of how many times rescheduled" claim has
+   a test that would actually fail if a future change broke it.
+
+This keeps the phase's hard lock ("the reconciler stays the only writer of run-derived calendar
+events") completely intact, requires no schema change beyond what 32-01 already plans, and avoids
+doing the same reconciler-branch work twice across two phases. The only genuinely open technical
+question is the SOAR dispatch fork in step 3, and it is scoped narrowly enough to resolve with one
+checkpoint decision rather than a phase split.
