@@ -128,6 +128,7 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   `sync_lco_observation_calendar_demo.ipynb`;
   `solsys_code/management/commands/sync_gemini_observation_calendar.py` ->
   `sync_gemini_observation_calendar_demo.ipynb`;
+  `solsys_code/management/commands/backfill_lco_observations.py -> backfill_lco_observations_demo.ipynb`;
   `solsys_code/campaign_reconciler.py` and
   `solsys_code/management/commands/reconcile_campaign_runs.py` ->
   `reconcile_campaign_runs_demo.ipynb`; the v2.2 campaign submission/approval/

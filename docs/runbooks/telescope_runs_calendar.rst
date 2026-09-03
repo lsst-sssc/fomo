@@ -125,6 +125,75 @@ The final summary line reports these counters::
 
    Created: 4, already existed: 12, unmatched target: 1, no usable configuration: 0, created field targets: 1, status sync failed: 0
 
+How do I backfill ObservationRecords without a campaign?
+------------------------------------------------------------
+
+``backfill_lco_observations`` is the newer, campaign-agnostic sibling of
+``backfill_lco_observation_records`` above -- same LCO Observation Portal
+"Get All RequestGroups" source, different contract. Read this section
+carefully before choosing between the two; running the wrong one for your
+situation is an easy mistake.
+
+**How it differs from** ``backfill_lco_observation_records``:
+
+* **No campaign required.** There is no ``--campaign`` flag and no
+  ``--name-prefix`` flag -- every ``RequestGroup`` for the given
+  ``--proposal`` is considered, not just ones whose name matches a prefix.
+* **Re-running updates in place instead of skipping.** A request that
+  already has an ``ObservationRecord`` has its ``status``,
+  ``scheduled_start``, ``scheduled_end`` and ``parameters`` refreshed from
+  the portal -- ``backfill_lco_observation_records`` skips it entirely once
+  created.
+* **Unmatched targets are always built as non-sidereal**, from the
+  request's own orbital elements -- never a sidereal field ``Target`` from
+  RA/Dec, and there is no ``--create-missing-targets`` flag to opt in or
+  out of it; this is always the behavior. A request whose target can't be
+  matched or built (missing required orbital elements for its scheme, or
+  no named target at all) is skipped and the reason is printed to stderr,
+  never silently dropped.
+* **Multi-request RequestGroups are linked into an** ``ObservationGroup``.
+  A ``RequestGroup`` carrying more than one request gets one reusable
+  ``ObservationGroup`` linking every record built from it; re-running finds
+  and reuses the same group rather than creating a second one. A
+  single-request ``RequestGroup`` gets no group at all.
+
+**Date filtering instead of a name prefix.** ``--created-after`` and
+``--created-before`` (ISO-8601 timestamps or bare dates) restrict the
+backfill to ``RequestGroup``\\ s created in that window -- sent to the
+portal as query parameters, and re-checked client-side against each
+``RequestGroup``'s own ``created`` timestamp, so the restriction still
+holds even if the portal ignores the query parameters.
+
+``--username <user>`` optionally attributes created/updated records to
+that user; default is unattributed. An unknown username is a hard error,
+same as the sibling command.
+
+Always run with ``--dry-run`` first -- it reports every decision (which
+targets would be built vs. reused, which records would be created vs.
+updated, which groups would be created vs. reused) without writing
+anything, and skips the live observed-block lookup described below
+entirely:
+
+.. code-block:: console
+
+   >> python3 manage.py backfill_lco_observations --proposal LCO2026A-001 --dry-run
+   >> python3 manage.py backfill_lco_observations --proposal LCO2026A-001
+   >> python3 manage.py backfill_lco_observations --proposal LCO2026A-001 --created-after 2026-06-01 --created-before 2026-07-01
+
+**Scheduled times.** Unlike the sibling command's post-create live status
+call, this command resolves each request's observed block from an embedded
+block list on the RequestGroup payload when the portal supplies one, or
+otherwise falls back to a live, best-effort
+``LCOFacility.get_observation_status()`` call per request (skipped
+entirely under ``--dry-run``). A failed fallback lookup is logged and
+counted under ``block lookups failed``, never fatal -- the record is still
+created or updated with whatever status the request payload itself
+reported, just without resolved schedule times.
+
+The final summary line reports these counters::
+
+   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, block lookups failed: 0
+
 How do I sync Gemini queue observations?
 -------------------------------------------
 
