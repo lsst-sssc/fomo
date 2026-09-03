@@ -1,0 +1,50 @@
+{
+  "summary": {
+    "observation_id": "4378323",
+    "queued_span": [
+      "2026-09-03T18:07:00+00:00",
+      "2026-09-04T02:37:00+00:00"
+    ],
+    "placed_span": [
+      "2026-09-03T23:40:26+00:00",
+      "2026-09-03T23:59:26+00:00"
+    ],
+    "placed_title": "[SCHEDULED] 11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 1/28",
+    "observed_title": "11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 1/28",
+    "narrowed_without_sweep": true,
+    "title_moved_queued_to_scheduled": true,
+    "title_clean_when_observed": true,
+    "restored_after_rollback": true
+  },
+  "steps": [
+    {
+      "step": "queued (from sweep)",
+      "observation_id": "4378323",
+      "title": "[QUEUED] 11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 1/28",
+      "start": "2026-09-03T18:07:00+00:00",
+      "end": "2026-09-04T02:37:00+00:00",
+      "modified": "2026-09-03T23:40:25.133574+00:00"
+    },
+    {
+      "step": "placed (schedule-only save)",
+      "title": "[SCHEDULED] 11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 1/28",
+      "start": "2026-09-03T23:40:26+00:00",
+      "end": "2026-09-03T23:59:26+00:00",
+      "modified": "2026-09-03T23:40:26.216050+00:00"
+    },
+    {
+      "step": "observed (status save)",
+      "title": "11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 1/28",
+      "start": "2026-09-03T23:40:26+00:00",
+      "end": "2026-09-03T23:59:26+00:00",
+      "modified": "2026-09-03T23:40:26.218381+00:00"
+    },
+    {
+      "step": "after rollback",
+      "title": "[QUEUED] 11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 1/28",
+      "start": "2026-09-03T18:07:00+00:00",
+      "end": "2026-09-04T02:37:00+00:00",
+      "modified": "2026-09-03T23:40:25.133574+00:00"
+    }
+  ]
+}

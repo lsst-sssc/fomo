@@ -1,0 +1,1083 @@
+{
+  "summary": {
+    "records": 146,
+    "events": 146,
+    "one_event_per_record": true,
+    "span_ok": 146,
+    "span_bad": 0,
+    "terminal_marked": 16,
+    "terminal_unmarked": 0,
+    "groups": 9,
+    "groups_fully_titled": 9,
+    "idempotent": true,
+    "run_namespace_untouched": true,
+    "stages": {
+      "placed": 18,
+      "queued": 56,
+      "observed": 56,
+      "terminal-negative": 16
+    },
+    "runs": [
+      {
+        "run": 1,
+        "seconds": 0.29,
+        "counters": {
+          "created": 146
+        },
+        "per_stage": {
+          "placed": {
+            "created": 18
+          },
+          "queued": {
+            "created": 56
+          },
+          "observed": {
+            "created": 56
+          },
+          "terminal-negative": {
+            "created": 16
+          }
+        }
+      },
+      {
+        "run": 2,
+        "seconds": 0.12,
+        "counters": {
+          "unchanged": 146
+        },
+        "per_stage": {
+          "placed": {
+            "unchanged": 18
+          },
+          "queued": {
+            "unchanged": 56
+          },
+          "observed": {
+            "unchanged": 56
+          },
+          "terminal-negative": {
+            "unchanged": 16
+          }
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "ts": "2026-09-03T23:40:25.121176+00:00",
+      "category": "baseline",
+      "records": 146,
+      "existing_events_in_namespace": 0,
+      "run_namespace_events": 74
+    },
+    {
+      "ts": "2026-09-03T23:40:25.413042+00:00",
+      "category": "sweep",
+      "run": 1,
+      "seconds": 0.29,
+      "counters": {
+        "created": 146
+      },
+      "per_stage": {
+        "placed": {
+          "created": 18
+        },
+        "queued": {
+          "created": 56
+        },
+        "observed": {
+          "created": 56
+        },
+        "terminal-negative": {
+          "created": 16
+        }
+      }
+    },
+    {
+      "ts": "2026-09-03T23:40:25.536156+00:00",
+      "category": "sweep",
+      "run": 2,
+      "seconds": 0.12,
+      "counters": {
+        "unchanged": 146
+      },
+      "per_stage": {
+        "placed": {
+          "unchanged": 18
+        },
+        "queued": {
+          "unchanged": 56
+        },
+        "observed": {
+          "unchanged": 56
+        },
+        "terminal-negative": {
+          "unchanged": 16
+        }
+      }
+    },
+    {
+      "ts": "2026-09-03T23:40:25.541552+00:00",
+      "category": "point1",
+      "one_event_per_record": true,
+      "span_ok": 146,
+      "span_bad": [],
+      "terminal_marked": 16,
+      "terminal_unmarked": []
+    },
+    {
+      "ts": "2026-09-03T23:40:25.546289+00:00",
+      "category": "point2",
+      "groups": 9,
+      "report": [
+        {
+          "group": "10P_1M0-cad-20260801-0830_dither (2628454)",
+          "members": 28,
+          "titled_with_series": 28,
+          "sample": "10P 1m0 1M0-SCICAM-SINISTRO \u00b7 10P_1M0-cad-20260801-0830_dither (2628454) 28/28"
+        },
+        {
+          "group": "220P_1M0-cad-20260801-0830_dither (2628455)",
+          "members": 13,
+          "titled_with_series": 13,
+          "sample": "220P 1m0 1M0-SCICAM-SINISTRO \u00b7 220P_1M0-cad-20260801-0830_dither (2628455) 13/13"
+        },
+        {
+          "group": "169P_1M0-cad-20260801-0830_dither (2628456)",
+          "members": 14,
+          "titled_with_series": 14,
+          "sample": "[EXPIRED] 169P 1m0 1M0-SCICAM-SINISTRO \u00b7 169P_1M0-cad-20260801-0830_dither (2628456) 14/14"
+        },
+        {
+          "group": "259P_1M0-cad-20260812-0822 (2645236)",
+          "members": 4,
+          "titled_with_series": 4,
+          "sample": "259P 1m0 1M0-SCICAM-SINISTRO \u00b7 259P_1M0-cad-20260812-0822 (2645236) 4/4"
+        },
+        {
+          "group": "259P_1M0-cad-20260812-0823 (2645240)",
+          "members": 4,
+          "titled_with_series": 4,
+          "sample": "[CANCELLED] 259P 1m0 1M0-SCICAM-SINISTRO \u00b7 259P_1M0-cad-20260812-0823 (2645240) 4/4"
+        },
+        {
+          "group": "248370_1M0-cad-20260812-0824 (2645241)",
+          "members": 4,
+          "titled_with_series": 4,
+          "sample": "248370 1m0 1M0-SCICAM-SINISTRO \u00b7 248370_1M0-cad-20260812-0824 (2645241) 4/4"
+        },
+        {
+          "group": "220P_1M0-cad-20260903-1004_dither (2682235)",
+          "members": 16,
+          "titled_with_series": 16,
+          "sample": "[QUEUED] 220P 1m0 1M0-SCICAM-SINISTRO \u00b7 220P_1M0-cad-20260903-1004_dither (2682235) 16/16"
+        },
+        {
+          "group": "10P_1M0-cad-20260903-1004_dither (2682236)",
+          "members": 30,
+          "titled_with_series": 30,
+          "sample": "[QUEUED] 10P 1m0 1M0-SCICAM-SINISTRO \u00b7 10P_1M0-cad-20260903-1004_dither (2682236) 30/30"
+        },
+        {
+          "group": "11P_1M0-cad-20260903-1004_dither (2682493)",
+          "members": 28,
+          "titled_with_series": 28,
+          "sample": "[QUEUED] 11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 28/28"
+        }
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:40:25.546296+00:00",
+      "category": "point3",
+      "second_run_counters": {
+        "unchanged": 146
+      },
+      "idempotent": true
+    },
+    {
+      "ts": "2026-09-03T23:40:25.546538+00:00",
+      "category": "isolation",
+      "run_namespace_before": 74,
+      "run_namespace_after": 74,
+      "unchanged": true
+    }
+  ],
+  "rows": [
+    {
+      "observation_id": "4378366",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378323",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378324",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378325",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378326",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378328",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378329",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378330",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378331",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378332",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378333",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378334",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378335",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378336",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378337",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378338",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378339",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378340",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378341",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378342",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378343",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378344",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378345",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378346",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378347",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378348",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378349",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378350",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378351",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378037",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378038",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378039",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378040",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378041",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378042",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378043",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378044",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378045",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378046",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378047",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378048",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378049",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378050",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378051",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378052",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378053",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378054",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378055",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378056",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378057",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378058",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378059",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378060",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378061",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378062",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378063",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378064",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378065",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378066",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378021",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378022",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378023",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378024",
+      "status": "PENDING",
+      "stage": "placed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378025",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378026",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378027",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378028",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378029",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378030",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378031",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378032",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378033",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378034",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378035",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4378036",
+      "status": "PENDING",
+      "stage": "queued",
+      "action": "created"
+    },
+    {
+      "observation_id": "4361341",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338470",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338471",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338472",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338473",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338466",
+      "status": "CANCELED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338467",
+      "status": "CANCELED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338468",
+      "status": "CANCELED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338469",
+      "status": "CANCELED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338459",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338460",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338461",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4338462",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4325982",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4322394",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319029",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319030",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319031",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319032",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319033",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319034",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319035",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319036",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319037",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319038",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319039",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319040",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319041",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319042",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319016",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319017",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319018",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319019",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319020",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319021",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319022",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319023",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319024",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319025",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319026",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319027",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319028",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318988",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318989",
+      "status": "FAILURE_LIMIT_REACHED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318990",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318991",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318992",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318993",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318994",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318995",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318996",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318997",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318998",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318999",
+      "status": "WINDOW_EXPIRED",
+      "stage": "terminal-negative",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319000",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319001",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319002",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319003",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319004",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319005",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319006",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319007",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319008",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319009",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319010",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319011",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319012",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319013",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319014",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4319015",
+      "status": "COMPLETED",
+      "stage": "observed",
+      "action": "created"
+    },
+    {
+      "observation_id": "4318984",
+      "status": "CANCELED",
+      "stage": "terminal-negative",
+      "action": "created"
+    }
+  ]
+}

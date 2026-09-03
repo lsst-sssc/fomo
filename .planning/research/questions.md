@@ -19,7 +19,12 @@ treated as settled. Each entry records where it came from and what depends on th
 
 ### Q: Is `tom_calendar` maintained by the TOM Toolkit org, or is it a third-party/LCO package?
 
-- **Status:** unresolved — not researched. What is known (admitted, research pass):
+- **Status:** ANSWERED 2026-09-03 (spike 002) — `tom_calendar` ships inside tomtoolkit
+  itself: `tomtoolkit-3.0.1.dist-info/RECORD` lists 38 `tom_calendar/` files, there is no
+  separate `tom-calendar` distribution installed, and `src/fomo/urls.py:30` notes tomtoolkit
+  3.0 registers its routes from `tom_common.urls`. So it is TOM-org maintained, and the natural
+  upstream home for an observation projector is tomtoolkit (SEED-004's contribution target).
+- **Previously known** (admitted, research pass):
   it is installed in FOMO's site-packages and wired into `INSTALLED_APPS`
   (`src/fomo/settings.py:67`); its `CalendarEvent` model has no FK to `ObservationRecord`
   (`tom_calendar/models.py:1-58`).

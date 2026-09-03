@@ -25,6 +25,10 @@ a re-scope of v2.3 Phases 32–35.
 - Any Target fixture uses `tom_targets.tests.factories.NonSiderealTargetFactory`.
 - Trigger = a FOMO-owned Django `post_save` receiver on `ObservationRecord` (catches schedule-only placement saves and the real `updatestatus` path); TOM's `observation_change_state` hook is optional for transition semantics only; a sweep command remains the backstop for bulk `update()`/`bulk_create()` paths. (spike 001, refines D5)
 - The per-save projection must be idempotent, no-churn (write only on change), and cheap — it runs inside the caller's transaction on every save.
+- Observation-backed events are keyed by the facility's own observation URL (`facility.get_observation_url()`), the namespace the existing LCO sync already uses; the reconciler's `RUN:` namespace is never written by the base layer. (spike 002)
+- Series identity needs a real carrier in the build (e.g. an `observation_group`/`observation_record` FK on `CalendarEventMeta`); the title-suffix form spike 002 used is a stopgap and must not be the final design. (spike 002)
+- A placed-but-unobserved block is distinguishable from an observed one on the calendar (spike 002 used a `[SCHEDULED]` prefix); the status-vocabulary phase owns the final wording. (spike 002)
+- The campaign reconciler's adopt/re-key path must be inverted to annotate-only before the base layer and the campaign layer run side by side, or it will steal base-layer events. (spike 002 landmine)
 
 ## Spikes
 
@@ -32,3 +36,4 @@ a re-scope of v2.3 Phases 32–35.
 |---|------|------|------|-----------|---------|------|
 | 001a | observation-first-calendar | trigger-tom-hook | comparison | Given a PENDING record, when scheduled_start/end change with no status change and save() runs, then observation_change_state fires | PARTIAL ⚠ — fires on creation/status change only; misses placement | trigger, tom-hooks, updatestatus |
 | 001b | observation-first-calendar | trigger-django-post-save | comparison | Same, via a FOMO post_save receiver; also fires from the real updatestatus path | VALIDATED ✓ WINNER — fires on every save() incl. placement and updatestatus; silent on queryset.update() | trigger, django-signals, updatestatus |
+| 002 | observation-first-calendar | observation-projector | standard | Given the 146 real records, when projected, then one stage-correct event each, terminal nights marked, 9 groups series-titled, idempotent re-run, and a single save re-projects via post_save | VALIDATED ✓ — 146/146 spans, 16/16 marked, 9/9 groups, run 2 all unchanged, narrowing shown without a sweep; RUN: untouched | projector, tom_calendar, narrowing, idempotency |
