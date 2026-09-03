@@ -1,0 +1,96 @@
+{
+  "summary": {
+    "record": "4378323",
+    "night": "2026-09-03",
+    "allocation_nights": 3,
+    "events_before_link": 3,
+    "events_after_link": 2,
+    "retired_on_link": 1,
+    "retired_night_is_record_night": true,
+    "base_event_fields_unchanged_by_campaign_side": true,
+    "base_event_attributed_via_meta_run": true,
+    "idempotent_reproject": true,
+    "reversible_on_unlink": true,
+    "run_namespace_untouched": true,
+    "rolled_back_clean": true
+  },
+  "events": [
+    {
+      "ts": "2026-09-03T23:44:41.370162+00:00",
+      "category": "fixture",
+      "record": "4378323",
+      "night": "2026-09-03",
+      "run": 59,
+      "window": [
+        "2026-09-02",
+        "2026-09-04"
+      ],
+      "site": "K92"
+    },
+    {
+      "ts": "2026-09-03T23:44:42.196924+00:00",
+      "category": "step1 project allocation (no link)",
+      "counters": {
+        "created": 3,
+        "updated": 0,
+        "unchanged": 0,
+        "retired": 0
+      },
+      "alloc_events": [
+        "ALLOC:59:2026-09-02",
+        "ALLOC:59:2026-09-03",
+        "ALLOC:59:2026-09-04"
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:44:42.550667+00:00",
+      "category": "step2 link record, re-project",
+      "counters": {
+        "created": 0,
+        "updated": 0,
+        "unchanged": 2,
+        "retired": 1
+      },
+      "alloc_events": [
+        "ALLOC:59:2026-09-02",
+        "ALLOC:59:2026-09-04"
+      ],
+      "base_event": {
+        "title": "[QUEUED] 11P 1m0 1M0-SCICAM-SINISTRO \u00b7 11P_1M0-cad-20260903-1004_dither (2682493) 1/28",
+        "start": "2026-09-03T18:07:00+00:00",
+        "end": "2026-09-04T02:37:00+00:00",
+        "modified": "2026-09-03T23:40:25.133574+00:00",
+        "meta_run": 59
+      }
+    },
+    {
+      "ts": "2026-09-03T23:44:42.899656+00:00",
+      "category": "step3 re-project again (idempotent?)",
+      "counters": {
+        "created": 0,
+        "updated": 0,
+        "unchanged": 2,
+        "retired": 0
+      },
+      "alloc_events": [
+        "ALLOC:59:2026-09-02",
+        "ALLOC:59:2026-09-04"
+      ]
+    },
+    {
+      "ts": "2026-09-03T23:44:43.420039+00:00",
+      "category": "step4 unlink, re-project (reversible?)",
+      "counters": {
+        "created": 1,
+        "updated": 0,
+        "unchanged": 2,
+        "retired": 0
+      },
+      "alloc_events": [
+        "ALLOC:59:2026-09-02",
+        "ALLOC:59:2026-09-03",
+        "ALLOC:59:2026-09-04"
+      ]
+    }
+  ]
+}
