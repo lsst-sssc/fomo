@@ -5,11 +5,11 @@ milestone_name: Automatic Run Sync & Outcome Propagation
 current_phase: 32
 current_phase_name: Adapter Consolidation
 status: planning
-stopped_at: Phase 31 complete, ready to plan Phase 32
-last_updated: "2026-09-03T00:13:55.474Z"
+stopped_at: Phase 32 context gathered
+last_updated: "2026-09-03T04:00:27.553Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 31 complete, transitioned to Phase 32
-state_head: 331393b437e3440633506b3d4cc3cb9d64bd4407
+state_head: 3f29214f5d0628e93e6604f142d385b179a06227
 progress:
   total_phases: 5
   completed_phases: 1
@@ -39,12 +39,12 @@ Last activity: 2026-09-02 — Phase 31 complete, transitioned to Phase 32
 | Phase | Goal | Requirements |
 |-------|------|--------------|
 | 31. Foundation Spikes — Run Identity & Unattended Invocation | Settle how a non-campaign queue observation gets a persistent `CampaignRun` identity, and how unattended invocation works on the real host | SCHEMA-01..03, SCHED-07 |
-| 32. Adapter Consolidation | All three ingest adapters create or update `CampaignRun`s and let the reconciler project the calendar, with a duplicate-free cutover | ADAPT-01..05 |
+| 32. Adapter Consolidation | All three ingest adapters create or update `CampaignRun`s and let the reconciler project the calendar, with a duplicate-free cutover | ADAPT-01..06 |
 | 33. Outcome Propagation & Window Narrowing | An observation's real outcome reaches its run's status automatically; a run's window narrows visibly in the staff UI | OUTCOME-01..04, SCHED-06 |
 | 34. Unattended Scheduling & Discovery | The whole pipeline runs on a recurring schedule against an admin-editable watch-list, with failures visible and no credential logged | SCHED-08..10, DISCOVER-01 |
 | 35. Status Vocabulary, Provenance-Blind Gaps & Unused Allocation | One status vocabulary, gap analysis that counts classical and queue time, unused awarded nights made legible | STATUS-01..02, GAPB-01, UNUSED-01 |
 
-Coverage: 22/22 v1 requirements mapped, no orphans, no duplicates. Full phase detail in `.planning/ROADMAP.md`.
+Coverage: 23/23 v1 requirements mapped, no orphans, no duplicates (ADAPT-06 added 2026-09-03). Full phase detail in `.planning/ROADMAP.md`.
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -179,6 +179,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 - Phase 25 added (2026-07-17): Range-window CalendarEvent projection — closes the diagnosed gap where approved, site-resolved range-window CampaignRuns (e.g. the real GS-2026A-FT-115 Gemini FT allocation) never get a CalendarEvent, verified via `/gsd-debug` (`.planning/debug/range-window-calendar-event.md`, diagnose-only, root cause + before/after spec, no code changed). Root cause: Phase 19 D-06's guard was a behavior-preservation deferral, not a considered decision; Phase 23's `TestGeminiFtScenario` re-encoded the deferred behavior as contract. Fix scope per the spec: drop the guard's `window_start == window_end` clause (add a `window_end` truthiness check instead), give the ground branch multi-day date-math (satellite branch is already correct), and deliberately revise the 4 Phase 19/23 test assertions that currently assert zero events for range runs.
 - Phase 30 added: v2.2 Tech-Debt Cleanup: repo-wide ruff pass, runbook prose fixes, attribution candidate approval_status filter
 - Phase 30 edited: edited fields: goal, depends_on, success_criteria (added), scope list (added), locked-context pointer (added), paired-docs. Rewritten from 30-CONTEXT.md per D-11 — the original goal named the WR-09/WR-10 runbook fixes and a repo-wide ruff pass, all three of which discuss-phase verified as already closed, and specified excluding PENDING_REVIEW from attribution candidates, which D-01 reversed.
+- Phase 32 edited (2026-09-03, discuss-phase): resolved the pending retarget todo (`2026-09-02-retarget-adapt-03-to-soar-and-caveat-phase-33-gemini-outcome.md`, gap G-31-3) at discussion time rather than deferring it further. ADAPT-03 retargeted from Gemini to SOAR (folded into `sync_lco_observation_calendar` under a new `SOAR_QUEUE` source value) as the facility proving the pattern generalises to real read-back; Gemini's own write path kept in scope as new requirement ADAPT-06, explicitly caveated as unable to support Phase 33 outcome propagation. Coverage moves from 22/22 to 23/23. ROADMAP.md's Phase 32 goal/success-criteria/locked constraints and REQUIREMENTS.md's ADAPT-03/ADAPT-06 text updated to match; full rationale in `32-CONTEXT.md` and `32-DISCUSSION-LOG.md`.
 
 ### Decisions
 
@@ -283,9 +284,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-03T00:17:04.000Z
-Stopped at: Phase 31 complete, ready to plan Phase 32
-Resume file: None
+Last session: 2026-09-03T04:00:27.377Z
+Stopped at: Phase 32 context gathered
+Resume file: .planning/phases/32-adapter-consolidation/32-CONTEXT.md
 
 ## Operator Next Steps
 
