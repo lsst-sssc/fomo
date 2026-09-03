@@ -96,6 +96,81 @@ it only makes a `CampaignRun` exist, by construction, for every ingest path.
   no-churn re-syncs against the new write path — this fix removes wasted work on exactly
   those passes.
 
+### 2026-09-03 addendum — 32-01's Task 0 checkpoint outcome (blocking decision re-scoped)
+
+32-01-PLAN.md's opening `checkpoint:decision` task (cutover fidelity, classical
+identity-key form, one-way `SOAR_QUEUE` re-confirmation, and site-resolution obscodes)
+was put to the user before any implementation task ran. Three of its four
+sub-decisions are confirmed; the fourth (queue-sourced calendar fidelity, "1a") is
+**rejected as scoped** — this addendum records why and what replanning must resolve.
+No code was written; the executor stopped at the checkpoint with 0/3 tasks complete.
+
+- **Decision 2 (classical `source_identifier` form): CONFIRMED as recommended.** Use
+  `CLASSICAL:{telescope}:{instrument}:{night.isoformat()}` (observing-night date, not a
+  5-minute bucket of `start_time`) — drift-free.
+- **Decision 3 (`SOAR_QUEUE` one-way): RE-CONFIRMED**, matching D-01 above. Not
+  reopened.
+- **Decision 4 (SOAR/Gemini site resolution via `Observatory` obscode): CONFIRMED as
+  recommended (4a), with one correction.** `568` is the generic "Maunakea" code, not
+  Gemini-North-specific — verified against the live `Observatory` table (`568` already
+  resolves to a row named plain "Maunakea"). **Gemini North's obscode is `T15`**, per
+  the user directly (LCO/astronomy domain knowledge), not `568`. Neither `T15` (Gemini
+  North) nor `I33` (SOAR, Cerro Pachón) currently have `Observatory` rows in the dev DB;
+  `I11` (Gemini South) already does. The planner must carry `T15` forward everywhere
+  `32-01-PLAN.md` currently says `568` for Gemini North, and the runbook's
+  self-healing "which obscodes to create" list must name `T15`/`I33` as the two rows an
+  operator needs to create, not `568`.
+- **Decision 1 (queue-sourced calendar fidelity at cutover): REJECTED AS SCOPED.**
+  The checkpoint framed this as two losses (whole-window/whole-day span instead of a
+  precise scheduled block, and title-vocabulary collapse from 5 prefixes to 2), with
+  only the vocabulary loss named as returning later (Phase 35). The user's actual
+  requirement, stated directly: an LCO/SOAR `CampaignRun`'s `CalendarEvent` should
+  start life spanning the observation's whole request window (e.g. 8-24h) and then
+  **progressively narrow** — automatically, with no staff action, regardless of how
+  many times the underlying `ObservationRecord` is rescheduled to a different time or
+  site — down to the actual scheduled block, and finally the actual observed block
+  (e.g. "01:15-02:17 UTC"), as `record.scheduled_start`/`scheduled_end` become known.
+  Investigation into the existing codebase found this is **not a hypothetical ask — it
+  is a working feature today that this phase's plan removes with no replacement**:
+  - `sync_lco_observation_calendar.py` already computes exactly this precision via
+    `_build_event_fields()`/`calendar_utils.record_time_window()` (documented elsewhere
+    in this project's history as "RECON-04, stage 3/4") and writes its own
+    minute-precise `CalendarEvent`s directly, coexisting today alongside the
+    reconciler's coarser container/per-night events (RECON-02's "coexisting with
+    sync-command-produced per-observation events").
+  - 32-03-PLAN.md (the LCO/SOAR cutover plan) removes that direct write entirely — the
+    explicit goal of ADAPT-02/03 — but does not port the precision into the reconciler.
+    It takes the already-computed `start_time`/`end_time` and keeps only `.date()`
+    (32-03-PLAN.md around the `window_start = event_fields['start_time'].date()` line),
+    discarding the time-of-day permanently. 32-03-PLAN.md's own task text states this
+    plainly: "A queue observation's calendar entry is no longer the narrower
+    portal-scheduled block; it's the run's whole window."
+  - Phase 33's `SCHED-06` window-narrowing does **not** cover this gap: its
+    requirement text scopes it to "a **space-mission** run's window," a different run
+    type from LCO/SOAR ground-based robotic queue runs. Nothing on the current roadmap
+    restores per-record time precision for LCO/SOAR after this phase ships.
+  - **Approval-loop concern is separately resolved and not blocking:** `models.py`'s
+    `Source` docstring already establishes that `approval_status == APPROVED` together
+    with `source != WEB` means the adapter itself sets `APPROVED` at write time — no
+    staff review gates a reschedule, however many times it happens. This part of the
+    user's worry does not require design work; it was already correctly designed.
+  - **Replanning must resolve, before 32-03/32-01's schema work resumes:** how the
+    reconciler (not the retiring adapter code) renders a precise, automatically
+    narrowing `CalendarEvent` window for a `CampaignRun` with a linked
+    `CampaignRunObservation` whose `ObservationRecord` carries `scheduled_start`/
+    `scheduled_end` (and, later, actual observed times) — most plausibly new reconciler
+    logic keyed off that link, since `CampaignRunObservation.confirmed_at`-linked exact
+    identity already exists per adapter design (D-03 above) and needs no additional
+    schema. Whether this belongs inside Phase 32's own scope (so ADAPT-02/03 ship with
+    working precision from day one) or is split into an explicit new phase/plan is a
+    replanning call, not a decision to make silently — the user should see the
+    trade-off named, not have it resolved by omission the way the original checkpoint
+    did.
+  - **This is a phase re-scope, per the original checkpoint's own resume-signal text**
+    ("anything other than approval on decision 1 or 4 re-scopes the phase and planning
+    stops"). The user chose to stop and re-plan rather than accept the regression with
+    a documented follow-up.
+
 </decisions>
 
 <canonical_refs>
