@@ -74,6 +74,47 @@ def _page_response(results, next_url=None):
     return response
 
 
+def _expected_summary(
+    dry_run,
+    requestgroups_seen,
+    created,
+    updated,
+    unchanged,
+    skipped,
+    targets,
+    groups_created,
+    groups_reused,
+    embedded_blocks,
+    fallback_lookups_needed,
+    block_lookups_failed,
+):
+    """Build the exact summary line a run over these counts should produce.
+
+    Deliberately independent of the command module -- it spells every label out literally
+    and never imports or calls anything from backfill_lco_observations -- so this helper
+    is the test suite's own copy of the summary-line contract. A helper that re-derived the
+    labels from the command would agree with the command even when the command is wrong,
+    which defeats the point of an exact-line assertion (T-ik7-02).
+    """
+    created_label = 'would create' if dry_run else 'created'
+    updated_label = 'would update' if dry_run else 'updated'
+    targets_label = 'targets would create' if dry_run else 'targets created'
+    groups_created_label = 'groups would create' if dry_run else 'groups created'
+    groups_reused_label = 'groups would reuse' if dry_run else 'groups reused'
+    block_lookups_failed_value = 'n/a (dry-run)' if dry_run else str(block_lookups_failed)
+    return (
+        f'requestgroups seen: {requestgroups_seen}, '
+        f'{created_label}: {created}, '
+        f'{updated_label}: {updated}, '
+        f'unchanged: {unchanged}, skipped: {skipped}, '
+        f'{targets_label}: {targets}, '
+        f'{groups_created_label}: {groups_created}, '
+        f'{groups_reused_label}: {groups_reused}, '
+        f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
+        f'block lookups failed: {block_lookups_failed_value}'
+    )
+
+
 class TestBackfillLcoObservations(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -292,6 +333,288 @@ class TestBackfillLcoObservations(TestCase):
         self.assertFalse(ObservationGroup.objects.exists())
         self.assertIn('requestgroups seen: 1', stdout.getvalue())
         self.mock_get_observation_status.assert_not_called()
+        # Exact-line assertion, not just a fragment -- both requests are fresh, share the
+        # already-existing 'Didymos' target, and neither carries an embedded block.
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected, stdout.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_would_update_when_status_differs(self, mock_make_request):
+        # Pins the would-update counter: a pre-existing record whose portal status differs
+        # is counted 'would update: 1'.
+        mock_make_request.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='PENDING')])]
+        )
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_make_request.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='COMPLETED')])]
+        )
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=0,
+            updated=1,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected, stdout.getvalue())
+        # The dry run must not have actually changed the record.
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.status, 'PENDING')
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_unchanged_for_identical_embedded_block_request(self, mock_make_request):
+        # Pins the unchanged counter on the full four-field comparison path (embedded
+        # block present, so schedule times are compared too).
+        observations = [{'state': 'COMPLETED', 'start': '2026-07-01T00:05:00', 'end': '2026-07-01T00:15:00'}]
+        request_group = _request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, observations=observations)])
+        mock_make_request.return_value = _page_response([request_group])
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_make_request.return_value = _page_response([request_group])
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=0,
+            updated=0,
+            unchanged=1,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=1,
+            fallback_lookups_needed=0,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected, stdout.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_unchanged_for_identical_fallback_path_request(self, mock_make_request):
+        # Pins the unchanged counter on the fallback path (no embedded block, so the dry
+        # run compares status/parameters only -- per the compare_schedule=embedded caveat).
+        request_group = _request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='COMPLETED')])
+        mock_make_request.return_value = _page_response([request_group])
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_make_request.return_value = _page_response([request_group])
+        self.mock_get_observation_status.reset_mock()
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=0,
+            updated=0,
+            unchanged=1,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected, stdout.getvalue())
+        self.mock_get_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_targets_would_create_deduped_within_group(self, mock_make_request):
+        # Pins the targets counter's same-invocation de-duplication: two requests in one
+        # group naming the same absent target report 'targets would create: 1', matching
+        # what a real run reports.
+        elements = dict(_DEFAULT_ELEMENTS)
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'New Object 2026 - Multi',
+                    requests=[
+                        _request(10, target_name='2026 CD2', elements=elements),
+                        _request(11, target_name='2026 CD2', elements=elements),
+                    ],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=1,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected, stdout.getvalue())
+        self.assertEqual(Target.objects.filter(name='2026 CD2').count(), 0)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_groups_would_create_then_would_reuse(self, mock_make_request):
+        # Pins the groups counters: no existing ObservationGroup reports 'groups would
+        # create: 1'; after a real run has created it, a second dry run reports
+        # 'groups would reuse: 1'.
+        request_group = _request_group(1, 'Didymos 2026 - Multi', requests=[_request(10), _request(11)])
+        mock_make_request.return_value = _page_response([request_group])
+
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+        expected_create = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected_create, stdout.getvalue())
+        self.assertFalse(ObservationGroup.objects.exists())
+
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        self.assertEqual(ObservationGroup.objects.count(), 1)
+
+        stdout2 = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout2, stderr=io.StringIO()
+        )
+        expected_reuse = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=0,
+            updated=0,
+            unchanged=2,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=1,
+            embedded_blocks=0,
+            fallback_lookups_needed=2,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected_reuse, stdout2.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_reports_mixed_schedule_path_counters(self, mock_make_request):
+        # Pins the schedule-path counters and the dry-run failed-lookup label together, for
+        # a fixture with one embedded-block request and one fallback-path request.
+        observations = [{'state': 'COMPLETED', 'start': '2026-07-01T00:05:00', 'end': '2026-07-01T00:15:00'}]
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - Multi',
+                    requests=[_request(10, observations=observations), _request(11)],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command(
+            'backfill_lco_observations', '--proposal=LCO2026A-003', '--dry-run', stdout=stdout, stderr=io.StringIO()
+        )
+
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=1,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected, stdout.getvalue())
+        self.mock_get_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_real_run_reports_mixed_schedule_path_counters(self, mock_make_request):
+        # Pins the schedule-path counters in real-run mode, and the exact-count failed-
+        # lookup value (not the dry-run 'n/a' string): the fallback request triggers
+        # exactly one live get_observation_status call.
+        observations = [{'state': 'COMPLETED', 'start': '2026-07-01T00:05:00', 'end': '2026-07-01T00:15:00'}]
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - Multi',
+                    requests=[_request(10, observations=observations), _request(11)],
+                )
+            ]
+        )
+
+        stdout = io.StringIO()
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=stdout, stderr=io.StringIO())
+
+        expected = _expected_summary(
+            dry_run=False,
+            requestgroups_seen=1,
+            created=2,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=1,
+            groups_reused=0,
+            embedded_blocks=1,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+        )
+        self.assertIn(expected, stdout.getvalue())
+        self.mock_get_observation_status.assert_called_once()
 
     @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
     def test_dry_run_reports_accurate_counters_end_to_end(self, mock_make_request):
