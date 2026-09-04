@@ -54,7 +54,7 @@ view (Phase 37's TALLY-01 surface); any automatic `run_status` derivation.
   blocked and is reported as `blocked`, as today. Namespace is ownership, but a human
   attribution elsewhere still outranks an automated writer (T-29-19's reasoning stands). The
   reconciler never resets `meta.run` to itself on such a row.
-- **D-03: Past adopts stay in `RUN:`.** Events already re-keyed into `RUN:{pk}:{date}` by
+- **D-03: Past adopts stay in the RUN namespace.** Events already re-keyed into `RUN:{pk}:{date}` by
   earlier sweeps (among the 74 `RUN:` events in the dev DB) are reconciler-owned by key
   and are left alone; no data migration un-keys them. Phase 35's allocation cutover converts
   every `RUN:{pk}:{date}` event in one place.

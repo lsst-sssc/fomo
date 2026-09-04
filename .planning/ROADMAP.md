@@ -165,11 +165,20 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. Clearing `CalendarEventMeta.run` removes only the decoration; the event itself is untouched, and no event is deleted by the unlink
 
 **Plans**: 5 plans (3 waves)
+**Wave 1**
+
 - [ ] 33-01-PLAN.md — Reconciler inversion + attributed-event decoration (tracer): skip the attributed night, retire the adopt/re-key path, render the campaign from the link in the event modal, drop the campaign name from reconciler titles (wave 1)
-- [ ] 33-02-PLAN.md — Month-cell campaign marker, N+1-free prefetch, and the anchored/highlighted run row the decoration links to (wave 2)
 - [ ] 33-03-PLAN.md — Series-identity link fields (`observation_record`, `observation_group`), migration 0017, read-only admin exposure, migration-preserves-history proof (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 33-02-PLAN.md — Month-cell campaign marker, N+1-free prefetch, and the anchored/highlighted run row the decoration links to (wave 2)
 - [ ] 33-04-PLAN.md — One shared `unlink_event_from_run()` helper across all three clear-the-link call sites; clearing removes only the decoration and deletes nothing (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 33-05-PLAN.md — Paired docs: both demo notebooks re-executed (including D-04's real-database empty diff) and the operator runbook's three affected sections rewritten to attribution (wave 3)
+
 **UI hint**: yes
 
 ### Phase 34: The Observation Projector & Trigger
