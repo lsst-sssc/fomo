@@ -68,17 +68,21 @@ class TestCampaignRunStrGuard(NullCampaignGuardTestBase):
 
 
 class TestEventTitleGuard(NullCampaignGuardTestBase):
-    """campaign_reconciler.event_title() (Task 1, the hot-path guard)."""
+    """campaign_reconciler.event_title() (Task 1, the hot-path guard).
+
+    Phase 33 (D-12): the title carries no campaign label whether or not the run has a
+    campaign -- the decoration tag is now the single campaign label for every attributed
+    event."""
 
     def test_null_campaign_run_title_has_no_prefix(self):
         run = self._make_run(campaign=None)
 
         self.assertEqual(event_title(run), 'NTT/EFOSC2')
 
-    def test_with_campaign_title_is_unchanged(self):
+    def test_with_campaign_title_also_has_no_campaign_label(self):
         run = self._make_run()
 
-        self.assertEqual(event_title(run), '3I/ATLAS: NTT/EFOSC2')
+        self.assertEqual(event_title(run), 'NTT/EFOSC2')
 
 
 class TestDismissalHistoryTableRenderRunGuard(NullCampaignGuardTestBase):

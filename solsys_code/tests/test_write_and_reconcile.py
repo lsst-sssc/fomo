@@ -106,10 +106,11 @@ class TestNullableCampaignAndSourceIdentifierSchema(WriteAndReconcileTestBase):
 
 
 class TestEventTitleNullCampaignGuard(WriteAndReconcileTestBase):
-    """event_title() must not raise on a null-campaign run, and must be unchanged
-    with a campaign (the hot-path guard every reconcile_run() call goes through)."""
+    """event_title() must not raise on a null-campaign run, and no longer embeds a
+    campaign label whether or not the run has a campaign (D-12, Phase 33 -- the decoration
+    tag is now the single campaign label)."""
 
-    def test_null_campaign_run_title_has_no_campaign_prefix(self):
+    def test_null_campaign_run_title_has_no_campaign_label(self):
         run = CampaignRun.objects.create(
             campaign=None,
             telescope_instrument='NTT/EFOSC2',
@@ -123,7 +124,7 @@ class TestEventTitleNullCampaignGuard(WriteAndReconcileTestBase):
 
         self.assertEqual(event_title(run), 'NTT/EFOSC2')
 
-    def test_with_campaign_title_is_unchanged(self):
+    def test_with_campaign_title_also_has_no_campaign_label(self):
         run = CampaignRun.objects.create(
             campaign=self.campaign,
             telescope_instrument='FTN/MuSCAT3',
@@ -133,7 +134,7 @@ class TestEventTitleNullCampaignGuard(WriteAndReconcileTestBase):
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
         )
 
-        self.assertEqual(event_title(run), '3I/ATLAS: FTN/MuSCAT3')
+        self.assertEqual(event_title(run), 'FTN/MuSCAT3')
 
 
 class TestWriteAndReconcileCampaignRun(WriteAndReconcileTestBase):

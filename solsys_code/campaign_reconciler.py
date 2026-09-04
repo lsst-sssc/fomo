@@ -29,6 +29,13 @@ module or the heavy SPICE-loading ephemeris module -- the latter triggers a ~1.6
 kernel download at module load (CLAUDE.md "Heavy import side effect", v2.2 milestone-locked
 module-home constraint).
 
+D-17 (Phase 33): a set ``CalendarEventMeta.run`` means the event is ATTRIBUTED to that run,
+never that the run OWNS it -- what this module owns is the ``RUN:`` key namespace, and
+namespace identity is exactly what ``owned_events()``/``writable_events()`` express. An
+attributed event outside that namespace is read-only from this module's point of view: it
+informs the skip-the-night rule in ``_reconcile_classical_nights()`` (D-01) but is never
+created, modified, re-keyed or deleted here.
+
 Field authority differs deliberately between the two branches (see
 ``_reconcile_container()``/``_reconcile_classical_nights()`` docstrings below): the container
 branch is the sole writer of its key and is authoritative for every field on both create and
@@ -172,16 +179,15 @@ def _split_telescope_instrument(text: str) -> tuple[str, str]:
 
 
 def event_title(run: CampaignRun) -> str:
-    """Must keep the terminal cancelled/weathered prefix form
-    (``RUN_STATUS_CALENDAR_PREFIX``) that ``calendar_display_extras``' terminal-prefix
-    ring matches on, so a cancelled/weathered run's event still gets the status ring.
-
-    Phase 32: the campaign prefix is OMITTED (never replaced with a placeholder) for a
-    run whose ``campaign`` is null -- this is the hot-path guard, since every
-    ``reconcile_run()`` call goes through it, and a placeholder string here would be
-    visual noise on a shared calendar.
+    """No longer embeds a campaign label, with or without a campaign (D-12, Phase 33): the
+    campaign an event is attributed to is rendered from ``CalendarEventMeta.run`` at display
+    time by ``calendar_display_extras.campaign_decoration()`` instead -- this is the single
+    campaign label now, for every attributed event, ``RUN:`` or not. Must keep the terminal
+    cancelled/weathered prefix form (``RUN_STATUS_CALENDAR_PREFIX``) that
+    ``calendar_display_extras``' terminal-prefix ring matches on, so a cancelled/weathered
+    run's event still gets the status ring.
     """
-    base = run.telescope_instrument if run.campaign_id is None else f'{run.campaign.name}: {run.telescope_instrument}'
+    base = run.telescope_instrument
     if run.window_start != run.window_end:
         base = f'{base} (window {run.window_start}..{run.window_end})'
     prefix = RUN_STATUS_CALENDAR_PREFIX.get(run.run_status)
@@ -244,8 +250,11 @@ def _may_write(event: CalendarEvent | None, run: CampaignRun) -> bool:
 def _link_event_to_run(event: CalendarEvent, run: CampaignRun) -> None:
     """Writer WR-03 (27-REVIEW.md): set/keep ``CalendarEventMeta.run``, nothing else.
 
-    Never writes ``is_verified``, ``confirmed_by`` or ``confirmed_at`` -- an adopted row's
-    telescope-label verification history and Phase 28 attribution audit must survive
+    Setting ``run`` here records ATTRIBUTION (D-17), not ownership -- this module's own
+    ``RUN:``-keyed events happen to be self-attributed this way so the display-time
+    decoration path (``calendar_display_extras.campaign_decoration()``) covers them too.
+    Never writes ``is_verified``, ``confirmed_by`` or ``confirmed_at`` -- an already-linked
+    row's telescope-label verification history and Phase 28 attribution audit must survive
     untouched.
     """
     meta, _created = CalendarEventMeta.objects.get_or_create(event=event)
@@ -415,11 +424,13 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
     Detaching (``CalendarEventMeta.run = None``) -- rather than deleting the
     ``CalendarEvent`` rows outright, or merely logging/flagging -- returns them to Phase 28's
     attribution queue for a human to re-confirm or discard, matching every other
-    "un-owned" row's meaning (module docstring: "unset ... never 'touch me'").
+    unattributed row's meaning (D-17: an unset ``run`` means "not attributed to any
+    CampaignRun" -- never "touch me").
 
     A bulk ``.update()``, not a per-instance ``.save()`` loop, deliberately: this only ever
-    clears a FK on rows already known to belong to this run, so there is no per-row business
-    logic to run, and a bulk update avoids firing save-related signal handlers for every row.
+    clears a FK on rows already known to be attributed to this run, so there is no per-row
+    business logic to run, and a bulk update avoids firing save-related signal handlers for
+    every row.
 
     The extra ``run=run`` filter term (T-29-19) is not redundant: without it, a stale-family
     event that staff have since re-attributed to a DIFFERENT run gets its confirmed
