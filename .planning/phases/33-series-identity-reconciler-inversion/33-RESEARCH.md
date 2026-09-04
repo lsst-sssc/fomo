@@ -124,7 +124,7 @@ by Phases 27-32).
   kept for same-url updates.
 - Whether `ReconcileResult` gains a `skipped_nights` counter for D-01's skip rule, and how
   `--dry-run` reports it (D-05 of 29-CONTEXT fixes the created/updated/unchanged/skipped
-  summary shape; a supplementary count is optional).
+  summary form; a supplementary count is optional).
 - `related_name`s for the two new fields and the `__str__` of `CalendarEventMeta`.
 - Whether the `verbose_name` rename and the two `AddField`s ship as one migration
   (`0017_…`) or two.
@@ -155,7 +155,7 @@ automatic `run_status` derivation.
 
 | ID | Description | Research Support |
 |----|-------------|------------------|
-| PROJ-04 | Series identity for a record in an `ObservationGroup` is carried by real foreign keys on `CalendarEventMeta` (`observation_record`, `observation_group`) — a shared title stem and a link back to the group; spike 002's title-suffix stopgap is not the carrier | See "Standard Stack" (field shapes verified against `tom_observations.models`), "Code Examples" (migration skeleton), "Common Pitfalls" (related_name, `on_delete=SET_NULL`, migration dependency) |
+| PROJ-04 | Series identity for a record in an `ObservationGroup` is carried by real foreign keys on `CalendarEventMeta` (`observation_record`, `observation_group`) — a shared title stem and a link back to the group; spike 002's title-suffix stopgap is not the carrier | See "Standard Stack" (field definitions verified against `tom_observations.models`), "Code Examples" (migration skeleton), "Common Pitfalls" (related_name, `on_delete=SET_NULL`, migration dependency) |
 | ANNOT-01 | `CalendarEventMeta.run` means "attributed to", not "owned by"; `reconcile_run()` no longer adopts, re-keys, or detaches an event attributed to a run — it only annotates — so the base layer and the campaign layer can run side by side without one stealing the other's events | See "Architecture Patterns" (exact bodies of `_reconcile_classical_nights()`, `_adopted_event_for_night()`, `_may_write()`, `_detach_stale_family_events()` quoted verbatim), "Common Pitfalls" (D-01 rewrite of `TestAdoptAndRekey`/`TestRecordEventNonInterference`) |
 | ANNOT-02 | Campaign decoration of an observation-backed event (campaign prefix/label, link to its run) is rendered from the `CalendarEventMeta.run` link at display time, never written into the event's own fields, so base re-projection cannot erase it | See "Architecture Patterns" (`event_form.html`/`calendar.html` quoted), "Common Pitfalls" (the `campaigns:table` `NoReverseMatch` landmine for a campaign-less run) |
 </phase_requirements>
@@ -219,7 +219,7 @@ in the codebase:
 
 | Component | Version | Purpose | Why Standard |
 |-----------|---------|---------|--------------|
-| `django.db.models.OneToOneField`/`ForeignKey` | Django 2.1+ (project floor, TOM Toolkit) [VERIFIED: solsys_code/models.py:26-42 — `run = models.ForeignKey('CampaignRun', on_delete=models.SET_NULL, null=True, blank=True, related_name='calendar_event_metas', verbose_name='Owning campaign run',)`] | New link fields on `CalendarEventMeta` | Identical shape to the existing `run` FK on the same model — direct precedent in the file being edited |
+| `django.db.models.OneToOneField`/`ForeignKey` | Django 2.1+ (project floor, TOM Toolkit) [VERIFIED: solsys_code/models.py:26-42 — `run = models.ForeignKey('CampaignRun', on_delete=models.SET_NULL, null=True, blank=True, related_name='calendar_event_metas', verbose_name='Owning campaign run',)`] | New link fields on `CalendarEventMeta` | Identical form to the existing `run` FK on the same model — direct precedent in the file being edited |
 | `tom_observations.models.ObservationRecord` / `ObservationGroup` | tomtoolkit (pinned via `tomtoolkit>=2.31.4` in `pyproject.toml`, installed at `/home/tlister/venv/devel_fomo311_venv/.../tom_observations/models.py`) [VERIFIED: /home/tlister/venv/devel_fomo311_venv/lib64/python3.11/site-packages/tom_observations/models.py:11,95 — `class ObservationRecord(models.Model):` / `class ObservationGroup(models.Model):`] | FK targets for the two new fields | Already imported directly (not by string reference) in `solsys_code/models.py:6` — `from tom_observations.models import ObservationRecord`, used by `CampaignRunObservation.observation_record` |
 
 ### Supporting
@@ -352,7 +352,7 @@ docs/runbooks/
 
 ### Pattern 1: The existing `run` FK is the exact template for the two new FKs
 
-**What:** `CalendarEventMeta.run` (quoted verbatim below) is the field to copy the shape
+**What:** `CalendarEventMeta.run` (quoted verbatim below) is the field to copy the form
 of, substituting `on_delete=models.SET_NULL, null=True, blank=True` and picking new
 `related_name`s.
 
@@ -378,7 +378,7 @@ of, substituting `on_delete=models.SET_NULL, null=True, blank=True` and picking 
     )
 ```
 
-**When to use:** Directly for `observation_group` (plain `ForeignKey`, same shape as
+**When to use:** Directly for `observation_group` (plain `ForeignKey`, same form as
 `run`). For `observation_record`, use `OneToOneField` instead of `ForeignKey` per D-05 (DB-
 enforced one event per record) — same `on_delete=models.SET_NULL, null=True, blank=True`
 kwargs, `OneToOneField` in place of `ForeignKey`.
@@ -598,11 +598,11 @@ needs a dedicated fixture test, exactly the kind `EventModalCampaignRunLinkTest`
 (`test_calendar_template.py:403-472`) does not currently have, since every fixture run
 there sets `campaign=cls.campaign`).
 
-### Pitfall 2: Three separate call sites clear the link with three different shapes today — consolidating them is not a pure rename
+### Pitfall 2: Three separate call sites clear the link with three different call signatures today — consolidating them is not a pure rename
 **What goes wrong:** Assuming `unlink_event_from_run()` can be a drop-in replacement with
 identical call signatures at all three sites risks silently changing behavior at whichever
 site the planner doesn't look closely at.
-**Why it happens:** The three existing writers differ in shape:
+**Why it happens:** The three existing writers differ in call signature:
 1. `campaign_views._undo_confirmation()` — a **conditional bulk `.update()`**, filtered on
    both `event_id` and `run_id` for concurrency safety [VERIFIED: solsys_code/campaign_views.py:1326-1328 —
    `changed_count = CalendarEventMeta.objects.filter(event_id=orphan_pk, run_id=run_pk).update(run=None, confirmed_by=None, confirmed_at=None)`],
@@ -653,7 +653,7 @@ minted for that night" instead of "re-keyed."
 url values after the reconciler no longer re-keys anything — a silent contradiction between
 test and code that only a close read (not a test-run) will catch, since Python doesn't
 error on an assertion that happens to still be checking the old (now-impossible-to-produce
-via this path, but not otherwise-prevented) shape unless the fixture setup itself changes.
+via this path, but not otherwise-prevented) behavior unless the fixture setup itself changes.
 
 ### Pitfall 4: `TestRecordEventNonInterference` is very likely unaffected by D-01 — don't over-rewrite it
 **What goes wrong:** Assuming every test in `test_campaign_reconciler.py` involving
@@ -749,11 +749,11 @@ class CalendarEventMeta(models.Model):
     )
 ```
 
-### D-01's skip check (illustrative shape, not a full rewrite)
+### D-01's skip check (illustrative form, not a full rewrite)
 
 ```python
 # Source: adapted from the retiring _adopted_event_for_night() query
-# (solsys_code/campaign_reconciler.py:332-341) -- the query shape survives, the
+# (solsys_code/campaign_reconciler.py:332-341) -- the query form survives, the
 # consequence (skip vs. re-key) is what D-01 changes.
 def _night_already_attributed(run: CampaignRun, night, site_zone: ZoneInfo) -> bool:
     """D-01: True when a non-RUN: event is already attributed to this run for this
@@ -788,10 +788,13 @@ D-01's own stated scope — while this phase's own tests only need the blank-url
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
 | A1 | The D-01 skip check should generalize `_adopted_event_for_night()`'s query to any non-`RUN:` attributed event (not just blank-url), per D-01's forward reference to "a Phase 34 observation event later," even though no test in this phase exercises the URL-keyed case | Architecture Patterns Pattern 2, Code Examples | Low — if the planner narrows the skip check to blank-url only, Phase 34 will need to revisit `_reconcile_classical_nights()` again when it starts writing URL-keyed attributed events; not a Phase-33 correctness bug, only a scope-boundary judgment call CONTEXT.md leaves implicit rather than stating as a locked decision |
-| A2 | `unlink_event_from_run()` should accept a queryset/filter shape general enough to serve `_undo_confirmation`'s conditional bulk `.update()`, rather than only a single-instance signature | Common Pitfalls Pitfall 2 | Medium — if the planner designs a single-instance-only helper, `_undo_confirmation` either can't use it cleanly or loses its concurrency-safe conditional update; this is a design recommendation from this research, not a CONTEXT.md-locked API shape (D-16 leaves the exact signature to the planner) |
+| A2 | `unlink_event_from_run()` should accept a queryset/filter signature general enough to serve `_undo_confirmation`'s conditional bulk `.update()`, rather than only a single-instance signature | Common Pitfalls Pitfall 2 | Medium — if the planner designs a single-instance-only helper, `_undo_confirmation` either can't use it cleanly or loses its concurrency-safe conditional update; this is a design recommendation from this research, not a CONTEXT.md-locked API signature (D-16 leaves the exact signature to the planner) |
 | A3 | The `campaigns:table` `NoReverseMatch` risk (Pitfall 1) needs an explicit guard/test even though CONTEXT.md's decisions never mention campaign-nullness in the decoration context | Common Pitfalls Pitfall 1, Summary | Medium — if unaddressed, this is a genuine template crash risk (not merely a display gap) the moment Phase 35's allocation layer creates campaign-less runs whose events get decorated; currently latent because the dev DB has 0 such rows today (verified via direct query) |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+Both questions were closed by the planner during plan revision (2026-09-03). No open
+research question remains for this phase.
 
 1. **Does the D-01 skip rule need a companion migration/backfill note for the 1 non-`RUN:`
    event in the dev DB that already has `run` set today (per CONTEXT.md's "85 companion
@@ -805,6 +808,18 @@ D-01's own stated scope — while this phase's own tests only need the blank-url
    - Recommendation: the planner should have the D-04 notebook's before/after diff cell
      (already required) double as this check — if the diff isn't empty for that one row in
      a surprising way, it's the same evidence either way.
+   - **RESOLVED — no migration or backfill; a dry-run inspection precedes the real sweep.**
+     D-08 forbids any data step in this phase, so nothing about that row is migrated or
+     backfilled. The recommendation's inspection is now an explicit, ordered step rather
+     than a by-product of the diff: plan 33-05 Task 1's notebook takes the "before"
+     snapshot, then runs `reconcile_campaign_runs --dry-run` and prints its previewed
+     actions and its per-run `skipped_nights` for every non-`RUN:` event it would touch,
+     **and only then** runs the real sweep and takes the "after" snapshot. The dry-run cell
+     asserts the preview names no non-`RUN:` url at all, which is the direct check on that
+     one row — a surprise is caught before any write, not diagnosed after one. The
+     post-sweep diff is kept as the independent confirmation. Plan 33-01 Task 2's
+     URL-keyed fixture test covers the same rule at unit level, so the phase does not
+     depend on the state of any particular developer-database row.
 
 2. **Should the decoration cell marker be a new `{% simple_tag %}` returning a dict (for a
    template `{% include %}`) or an `{% inclusion_tag %}` rendering its own partial
@@ -818,6 +833,12 @@ D-01's own stated scope — while this phase's own tests only need the blank-url
    - Recommendation: default to `simple_tag` for consistency with the established pattern
      unless the marker's HTML grows non-trivial; this is a planner-level implementation
      choice, not a research gap.
+   - **RESOLVED — `simple_tag`, following the recommendation.** Plan 33-01 Task 1 adds a
+     single `@register.simple_tag` `campaign_decoration(event)` in
+     `calendar_display_extras.py` returning `None` or a fixed-key dict, and plan 33-02
+     Task 1 consumes the same tag inline in `calendar.html`'s two month-cell event loops.
+     No `inclusion_tag` and no new partial is introduced, so the codebase keeps one
+     template-tag convention.
 
 ## Validation Architecture
 
@@ -883,7 +904,7 @@ D-01's own stated scope — while this phase's own tests only need the blank-url
 | Pattern | STRIDE | Standard Mitigation |
 |---------|--------|---------------------|
 | A staff member (or a stale/tampered POST, per the existing WR-01 finding pattern already documented in `_undo_confirmation`'s own docstring) clearing an attribution they didn't confirm | Tampering | `_undo_confirmation`'s existing conditional `.filter(event_id=orphan_pk, run_id=run_pk).update(...)` pattern (already in place, not newly introduced) must be preserved by the shared `unlink_event_from_run()` helper — Pitfall 2 above documents exactly this requirement |
-| A campaign-less run's decoration crashing the calendar view for every visitor (a denial-of-service-shaped bug, not a deliberate attack, but same category of "one bad row takes down a shared public page") | Denial of Service (availability) | The `run.campaign_id is not None` guard (Pitfall 1) — this is a correctness fix with an availability angle: the calendar month view and event modal are public, unauthenticated surfaces, so an unhandled `NoReverseMatch` there is a full-page failure for every visitor, not a scoped error |
+| A campaign-less run's decoration crashing the calendar view for every visitor (a denial-of-service-style bug, not a deliberate attack, but same category of "one bad row takes down a shared public page") | Denial of Service (availability) | The `run.campaign_id is not None` guard (Pitfall 1) — this is a correctness fix with an availability angle: the calendar month view and event modal are public, unauthenticated surfaces, so an unhandled `NoReverseMatch` there is a full-page failure for every visitor, not a scoped error |
 | Information disclosure via the new FK fields in the admin | Information Disclosure | Not a new risk — `observation_record`/`observation_group` point at data already visible to staff (the admin is a staff-only surface throughout this codebase); read-only exposure (D-09) does not add a new disclosure surface beyond what `run` already established for `CampaignRun` |
 
 ## Sources
@@ -913,7 +934,7 @@ D-01's own stated scope — while this phase's own tests only need the blank-url
   inventory
 - `solsys_code/tests/test_campaign_reconciler.py`,
   `solsys_code/tests/test_calendar_template.py`,
-  `solsys_code/tests/test_campaign_attribution_views.py` — fixture and assertion shapes
+  `solsys_code/tests/test_campaign_attribution_views.py` — fixture and assertion conventions
 - `/home/tlister/venv/devel_fomo311_venv/lib64/python3.11/site-packages/tom_observations/models.py` —
   `ObservationRecord`/`ObservationGroup` field definitions, confirming no existing
   `related_name` collision
@@ -940,7 +961,7 @@ None.
 ## Metadata
 
 **Confidence breakdown:**
-- Standard stack: HIGH — no new packages; every field/tag shape has a direct in-repo
+- Standard stack: HIGH — no new packages; every field/tag form has a direct in-repo
   precedent read this session
 - Architecture: HIGH — every quoted code block was read from the actual file this session,
   not reconstructed from memory or CONTEXT.md's summary
