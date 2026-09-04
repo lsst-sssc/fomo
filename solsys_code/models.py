@@ -3,7 +3,7 @@ from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from tom_calendar.models import CalendarEvent
-from tom_observations.models import ObservationRecord
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -12,15 +12,18 @@ from solsys_code.solsys_code_observatory.models import Observatory
 class CalendarEventMeta(models.Model):
     """General companion record for a CalendarEvent (Phase 27 CANON-03): carries whether the
     event's telescope label was live-verified against the LCO API or fallback-guessed
-    (TELESCOPE-03/04), plus which CampaignRun, if any, owns this event. One row per
+    (TELESCOPE-03/04), plus which CampaignRun, if any, the event is attributed to. One row per
     CalendarEvent at most; no row at all means "verified" by documented default (e.g.
     classically-scheduled events from load_telescope_runs, which never go through
     telescope-label resolution). 26-DECISION chose this general name over
     `CalendarEventRunLink` precisely so a third field added in a future version needs no
     second rename.
 
-    A row whose ``run`` is unset means "not owned by any CampaignRun" -- never "touch me".
-    This is the ownership rule the Phase 29 reconciler reads.
+    A row whose ``run`` is unset means "not attributed to any campaign run" -- never "do not
+    touch". Phase 33 (PROJ-04, D-05/D-06/D-07) adds two further links: ``observation_record``
+    and ``observation_group`` carry which ``ObservationRecord`` and ``ObservationGroup`` the
+    event was drawn from. Both are written only by the observation projector (Phase 34), never
+    by a staff form -- the same rule that already governs ``run``.
     """
 
     event = models.OneToOneField(
@@ -39,7 +42,30 @@ class CalendarEventMeta(models.Model):
         null=True,
         blank=True,
         related_name='calendar_event_metas',
-        verbose_name='Owning campaign run',
+        verbose_name='Attributed campaign run',
+    )
+    # PROJ-04 (D-05/D-06/D-07, 33-CONTEXT.md): the carrier fields the observation projector
+    # (Phase 34) writes. `observation_record` is one-to-one -- the DB half of the
+    # one-calendar-event-per-observation-record contract -- while `observation_group` is a
+    # plain foreign key because several events in a series share one group. Both are
+    # `SET_NULL`: deleting the record or group clears only the link, so this row's
+    # attribution and audit history (`run`, `is_verified`, `confirmed_by`, `confirmed_at`)
+    # and the CalendarEvent itself all survive.
+    observation_record = models.OneToOneField(
+        ObservationRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='calendar_event_meta',
+        verbose_name='Observation record',
+    )
+    observation_group = models.ForeignKey(
+        ObservationGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='calendar_event_metas',
+        verbose_name='Observation group',
     )
     # D-12 (28-CONTEXT.md): Phase 28 deliberately reopens Phase 27's D-05, which left this FK
     # bare on purpose and accepted the resulting audit asymmetry with the observation link.
