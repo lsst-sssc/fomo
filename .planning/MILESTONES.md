@@ -1,5 +1,21 @@
 # Milestones
 
+## v2.3 Automatic Run Sync & Outcome Propagation (Superseded: 2026-09-03 — not shipped)
+
+**Phases completed:** 1 of 5 (Phase 31, 6 plans, investigation-only); Phase 32 stopped after plan 32-01 Tasks 1–2 (commits `f03553a`, `18ecded`)
+
+**Why superseded:** plan 32-01's checkpoint surfaced that routing observation-precision narrowing through `CampaignRun` was a middleman — the narrowing data already lives on `ObservationRecord`, refreshed by TOM's own `updatestatus`. A `/gsd-explore` session (`.planning/notes/observation-first-calendar-layering.md`) and five `/gsd-spike`s against 146 real `KEY2026B-004` records (`.planning/spikes/WRAP-UP-SUMMARY.md`, packaged as the `spike-findings-fomo_devel` skill) validated an observation-first layering instead, and recommended a new milestone (v2.4) over a re-scope because v2.3's core value and `ADAPT-*`/`OUTCOME-*` requirements describe the middleman itself.
+
+**What landed and is kept:**
+
+- Phase 31's four spike verdicts, published in `docs/design/run_identity_and_unattended_invocation_spike.rst`: `CampaignRun.campaign` nullable (D-05); `source_identifier` + partial `UniqueConstraint` as the shared write-time identity surface; the classical tolerance-windowed match ruled not sufficient alone; cron + `flock -n` as the unattended-invocation mechanism. Gap-closure plan 31-06 corrected the Gemini-has-read-back framing (SOAR is the facility that actually has it).
+- Plan 32-01 Tasks 1–2: `SOAR_QUEUE` source value, `write_and_reconcile_campaign_run()`, `adopt_event_into_run()`, five null guards — the "allocation without a campaign" foundation v2.4 builds on.
+- Quick tasks 260903-h1v/ik7/jid/kpy: `backfill_lco_observations` (campaign-free by design; the spike's data feed) plus its `<proposal>_targets` `TargetList` collection.
+
+**Dropped, not deferred:** ADAPT-01..06 (adapters routing through `CampaignRun`), OUTCOME-01..04 (automatic `run_status` aggregation from records). **Carried into v2.4:** SCHED-08..10, DISCOVER-01, STATUS-01/02, GAPB-01, UNUSED-01, SCHED-06.
+
+**Archived:** `.planning/milestones/v2.3-ROADMAP.md`, `v2.3-REQUIREMENTS.md`, `v2.3-phases/`.
+
 ## v2.2 One Canonical Run Record (Shipped: 2026-09-01)
 
 **Phases completed:** 6 phases, 33 plans, 96 tasks

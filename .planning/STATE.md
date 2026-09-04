@@ -1,40 +1,35 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.3
-milestone_name: Automatic Run Sync & Outcome Propagation
-current_phase: 32
-current_phase_name: Adapter Consolidation
-status: executing
-stopped_at: Phase 32 context gathered
-last_updated: "2026-09-03T14:58:59.593Z"
+milestone: v2.4
+milestone_name: Observation-First Calendar
+status: planning
+last_updated: "2026-09-04T01:04:36.772Z"
 last_activity: 2026-09-03
-last_activity_desc: Phase 32 execution started
-state_head: 717eb0c1aec797c1165fc4c3106ccac25bf7bb6b
 progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 10
-  completed_plans: 6
-  percent: 20
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-02 — Phase 31 evolution: SCHEMA-01..03/SCHED-07 validated, gap-closure correction logged)
+See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 superseded)
 
-**Core value:** Robotically scheduled LCO/SOAR observations and their outcomes appear and update on the calendar and their campaign runs without an operator running anything.
-**Current focus:** Phase 32 — Adapter Consolidation
+**Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
+**Current focus:** Defining v2.4 requirements
 
 ## Current Position
 
-Phase: 32 (Adapter Consolidation) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 32
-Last activity: 2026-09-03 — Completed quick task 260903-kpy: backfill_lco_observations now collects every touched Target into a <proposal>_targets TargetList (create-or-reuse, idempotent, dry-run aware, --target-list override)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-09-03 — Milestone v2.4 started
 
-## Roadmap Summary (v2.3 — in progress)
+## Roadmap Summary (v2.3 — superseded 2026-09-03, not shipped; Phase 31 complete, Phase 32 stopped at 32-01 Tasks 1–2; archived at `.planning/milestones/v2.3-ROADMAP.md`)
 
 | Phase | Goal | Requirements |
 |-------|------|--------------|
