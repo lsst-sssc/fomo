@@ -168,7 +168,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 **Wave 1**
 
 - [x] 33-01-PLAN.md — Reconciler inversion + attributed-event decoration (tracer): skip the attributed night, retire the adopt/re-key path, render the campaign from the link in the event modal, drop the campaign name from reconciler titles (wave 1)
-- [ ] 33-03-PLAN.md — Series-identity link fields (`observation_record`, `observation_group`), migration 0017, read-only admin exposure, migration-preserves-history proof (wave 1)
+- [x] 33-03-PLAN.md — Series-identity link fields (`observation_record`, `observation_group`), migration 0017, read-only admin exposure, migration-preserves-history proof (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
