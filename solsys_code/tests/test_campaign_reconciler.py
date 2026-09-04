@@ -1073,6 +1073,80 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         pre_fix_container.refresh_from_db()
         self.assertEqual(pre_fix_container.modified, container_modified_after_first)
 
+    def test_detach_clears_audit_fields_leaves_event_and_verification_flag_untouched(self):
+        """Plan 33-04 Task 3 (D-16, ROADMAP criterion 4): the detach step now clears
+        confirmed_by/confirmed_at with the link -- new behaviour Task 2 added -- and
+        proves it never touches is_verified or any CalendarEvent field. Triggered by
+        shrinking the window (the excluded night falls out of active_urls) rather than a
+        full family reclassification, so the reconcile that does the detaching creates no
+        new event of its own -- both object counts can be compared straight across it."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        reconcile_run(run)
+        stale_night_url = f'RUN:{run.pk}:{window_end.isoformat()}'
+        event = CalendarEvent.objects.get(url=stale_night_url)
+
+        staffer = User.objects.create(username='detach-audit-staffer')
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.is_verified = False
+        meta.confirmed_by = staffer
+        meta.confirmed_at = datetime(2026, 7, 1, 12, 0, tzinfo=dt_timezone.utc)
+        meta.save()
+
+        snapshot = {
+            'url': event.url,
+            'title': event.title,
+            'description': event.description,
+            'start_time': event.start_time,
+            'end_time': event.end_time,
+            'telescope': event.telescope,
+            'instrument': event.instrument,
+        }
+        event_count_before = CalendarEvent.objects.count()
+        meta_count_before = CalendarEventMeta.objects.count()
+
+        # Shrink the window by one night -- the classical branch no longer considers
+        # window_end's night active, so the detach step (not a re-classification this
+        # time) is what clears the excluded night's attribution and audit stamps.
+        run.window_end = window_start
+        run.save(update_fields=['window_end'])
+        reconcile_run(run)
+
+        event.refresh_from_db()
+        meta.refresh_from_db()
+        self.assertIsNone(meta.run_id)
+        self.assertIsNone(meta.confirmed_by_id)
+        self.assertIsNone(meta.confirmed_at)
+        self.assertFalse(meta.is_verified)
+        for field, value in snapshot.items():
+            self.assertEqual(getattr(event, field), value)
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+        self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_detach_never_clears_a_foreign_attribution_in_the_same_namespace(self):
+        """T-33-14 sibling to the audit-clearing test above: a stale-family event already
+        re-attributed to a DIFFERENT run keeps that attribution through a reconcile of the
+        run whose namespace the url still carries -- the run=run filter term (T-29-19) the
+        shared helper preserves."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        other_run = self._make_run(window_start=date(2026, 9, 1), window_end=date(2026, 9, 1))
+        reconcile_run(run)
+        stale_night_url = f'RUN:{run.pk}:{window_end.isoformat()}'
+        event = CalendarEvent.objects.get(url=stale_night_url)
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = other_run
+        meta.save(update_fields=['run'])
+
+        run.window_end = window_start
+        run.save(update_fields=['window_end'])
+        reconcile_run(run)
+
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, other_run.pk)
+
 
 class TestCampaignRunDeletionCascadesCalendarEvents(CampaignReconcilerTestBase):
     """WR-01 (29-REVIEW.md): deleting a CampaignRun must not permanently orphan the

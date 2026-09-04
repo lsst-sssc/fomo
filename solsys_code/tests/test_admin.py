@@ -314,16 +314,37 @@ class CalendarEventMetaStandaloneAdminAuditStampTests(TestCase):
     def test_clearing_the_run_clears_the_audit_fields(self) -> None:
         original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
         self._link_to_run_a_with_other_staffer(original_confirmed_at)
+        event_snapshot = {
+            'title': self.event.title,
+            'start_time': self.event.start_time,
+            'end_time': self.event.end_time,
+        }
+        event_count_before = CalendarEvent.objects.count()
+        meta_count_before = CalendarEventMeta.objects.count()
 
         response = self.client.post(
             self._change_url(),
             {'run': '', 'is_verified': 'on', '_save': 'Save'},
         )
         self.assertEqual(response.status_code, 302)
-        self.meta.refresh_from_db()
-        self.assertIsNone(self.meta.run_id)
-        self.assertIsNone(self.meta.confirmed_by)
-        self.assertIsNone(self.meta.confirmed_at)
+
+        # Plan 33-04 Task 3 (33-REVIEWS.md Agreed Concern 3): re-fetch from the database,
+        # never inspect the in-memory `self.meta` instance directly -- a helper `.update()`
+        # left un-synchronised with an `obj.save()` re-persist would pass an in-memory check
+        # and fail this one.
+        stored = CalendarEventMeta.objects.get(pk=self.event.pk)
+        self.assertIsNone(stored.run_id)
+        self.assertIsNone(stored.confirmed_by_id)
+        self.assertIsNone(stored.confirmed_at)
+        # ROADMAP criterion 4: clearing the link only ever changes the three link/audit
+        # values -- is_verified and the CalendarEvent itself are untouched, and nothing is
+        # deleted.
+        self.assertTrue(stored.is_verified)
+        self.event.refresh_from_db()
+        for field, value in event_snapshot.items():
+            self.assertEqual(getattr(self.event, field), value)
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+        self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
 
     def test_repointing_the_run_restamps_to_the_acting_user(self) -> None:
         original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)

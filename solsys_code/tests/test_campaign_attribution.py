@@ -665,6 +665,31 @@ class TestOrphanQuerysets(TestCase):
 
         self.assertNotIn(record.pk, {r.pk for r in orphan_observation_records()})
 
+    def test_event_with_observation_record_but_no_run_is_still_included(self):
+        """D-15 (33-CONTEXT.md, plan 33-04 Task 3): the event attribution queue keys off
+        the attribution link only, never the observation link -- an event whose companion
+        row has `observation_record` set but `run` unset is offered exactly like any other
+        unattributed event. This is the assertion that stops a later reader from
+        'optimising' observation-backed events out of Phase 28's queue."""
+        target = NonSiderealTargetFactory.create()
+        user = User.objects.create(username='orphan-queryset-observation-owner')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=user,
+            facility='LCO',
+            observation_id='ORPHANQ-D15',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        event = CalendarEvent.objects.create(
+            title='Observation-backed, unattributed event',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=None, observation_record=record)
+
+        self.assertIn(event.pk, {e.pk for e in orphan_calendar_events()})
+
 
 class TestSoleHighCandidateUnderBandFilter(TestCase):
     """28-REVIEW.md WR-02 regression: pins ``_sole_high_candidate_pk()``'s documented
