@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 33
-current_phase_name: Series Identity & Reconciler Inversion
+current_phase_name: series-identity-reconciler-inversion
 status: planning
 stopped_at: Phase 33 context gathered
-last_updated: "2026-09-04T05:02:27.259Z"
+last_updated: "2026-09-04T14:06:24.427Z"
 last_activity: 2026-09-03
 last_activity_desc: v2.4 roadmap created (Phases 33-37, 29/29 requirements mapped)
-state_head: d0eee2e4cab621acf7761970004a34644232486c
+state_head: c8ecf5771087861521e397801b29c8164b49ba79
 progress:
   total_phases: 5
   completed_phases: 0
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 
 ## Current Position
 
-Phase: 33 (Series Identity & Reconciler Inversion) — READY TO EXECUTE
+Phase: 33 (series-identity-reconciler-inversion) — READY TO EXECUTE
 Plan: —
 Status: Roadmap created, awaiting phase discussion
 Last activity: 2026-09-03 — v2.4 roadmap created (Phases 33-37, 29/29 requirements mapped)
