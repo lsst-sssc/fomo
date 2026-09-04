@@ -1,141 +1,185 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-06-12
+**Analysis Date:** 2026-09-04
 
 ## Naming Patterns
 
 **Files:**
-- Snake case for Python files (e.g., `test_ephem_utils.py`, `solsys_code_observatory`)
-- Test files follow pattern: `test_*.py` (e.g., `test_models.py`, `test_views.py`, `test_utils.py`)
-- Django app directories use descriptive snake_case with nested structures (e.g., `solsys_code/`, `solsys_code_observatory/`)
+- Snake case: `test_telescope_runs.py`, `ephem_utils.py`, `sync_lco_observation_calendar.py`
+- Test files: `test_*.py` pattern (e.g., `test_models.py`, `test_views.py`)
+- Django app directories: Descriptive snake_case with nested structures (e.g., `solsys_code/`, `solsys_code_observatory/`)
 
 **Functions:**
-- Snake case throughout (e.g., `split_number_unit_regex`, `convert_target_to_layup`, `add_magnitude`, `add_sky_motion`)
-- Private/internal functions use leading underscore (e.g., `_translate_constraints`)
-- Method names follow Django conventions: `get_*`, `form_valid`, `setUp`, `handle`
+- Snake case throughout (e.g., `split_number_unit_regex`, `convert_target_to_layup`, `add_magnitude`, `sun_event`)
+- Private/internal functions use leading underscore (e.g., `_translate_constraints`, `_local_noon_utc`, `_solar_altitude`)
+- Method names follow Django conventions: `get_*`, `form_valid`, `setUp`, `handle`, `setUpTestData`
 
-**Variables:**
-- Snake case for all variables and parameters (e.g., `target_id`, `start_time`, `obscode`, `test_observatory`)
-- Constants use UPPER_CASE (e.g., `AU_KM`, `SEC_PER_DAY`, `PI_OVER_2`, `MJD_TO_JD_CONVERSION`)
-- Class attributes and properties follow snake case (e.g., `test_target`, `bary_vec`, `sun_dict`)
+**Variables and Parameters:**
+- Snake case for all (e.g., `target_id`, `start_time`, `obscode`, `test_observatory`, `sunset`)
+- Astronomical variable names allowed per Rubin DM style (e.g., `H`, `G`, `RA_deg`) due to N8xx naming rule exceptions
 
-**Types:**
-- Use modern Python type hints (Python 3.10+): `tuple[float, float]`, `dict[str, Any]`, `Optional[dict[str, Any]]`
-- Return type annotations on methods: `def form_valid(self, form: EphemerisForm) -> HttpResponse:`
-- Parameter type annotations where helpful: `def query(self, obscode: str, dbg: bool = False)`
+**Constants:**
+- UPPER_CASE (e.g., `AU_KM`, `SEC_PER_DAY`, `PI_OVER_2`, `MJD_TO_JD_CONVERSION`, `NEEDS_REVIEW_NAME_PREFIX`)
 
 **Classes:**
-- PascalCase for class names (e.g., `Observatory`, `EphemerisForm`, `JPLSBDBQuery`, `FakeSorchaArgs`)
-- Inner/nested classes allowed (e.g., `Meta` in Django models)
+- PascalCase (e.g., `Observatory`, `EphemerisForm`, `JPLSBDBQuery`, `FakeSorchaArgs`, `ParsedRun`, `TestTelescopeRuns`)
+- Inner/nested classes allowed (e.g., `Meta` in Django models, `ApprovalStatus` in CampaignRun)
+
+**Class Attributes:**
+- Snake case (e.g., `test_target`, `bary_vec`, `sun_dict`, `obscode`, `is_verified`)
 
 ## Code Style
 
 **Formatting:**
-- Line length: 120 characters (enforced by `ruff` and `black`)
-- Quote style: Single quotes preferred by ruff formatter (e.g., `'ephem_form.html'`)
+- Line length: 120 characters (enforced by `ruff` v0.2.1)
+- Quote style: Single quotes (e.g., `'ephem_form.html'`, `'NON_SIDEREAL'`)
 - Target Python version: 3.10+
+- Ruff version: 0.2.1 (pinned in `.pre-commit-config.yaml`)
 
-**Linting:**
+**Tool Configuration:**
 - Tool: `ruff` for linting and formatting
-- Configuration in `pyproject.toml`: `[tool.ruff]`
+- Configuration in `pyproject.toml`: `[tool.ruff]` section
 - Pre-commit hook runs `ruff --fix` and `ruff-format` on all Python files
-- Ruff lint rules include: E (pycodestyle), W (warnings), F (Pyflakes), N (pep8-naming), UP (pyupgrade), B (bugbear), SIM (simplify), I (isort)
-- Per-file ignores for tests: `D101`, `D102` (missing docstrings)
-- Per-file ignores for migrations: `D100`, `D101`, `D102`, `D103`, `E501`, `RUF012`
-- Exceptions to naming rules: `N802`, `N803`, `N806`, `N812`, `N813`, `N815`, `N816`, `N999` (allow some variations for scientific/Numpy compatibility)
+
+**Ruff Rules:**
+- Selected: E (pycodestyle), W (warnings), F (Pyflakes), N (pep8-naming), UP (pyupgrade), B (bugbear), SIM (flake8-simplify), I (isort), D101/D102/D103 (docstrings)
+- Per-file ignores:
+  - Test files: `D101`, `D102` (missing docstrings)
+  - Migrations: `D100`, `D101`, `D102`, `D103`, `E501`, `RUF012`
+  - Apps files: `D101`, `D102`
+- Ignored rules (Rubin DM style): `N802`, `N803`, `N806`, `N812`, `N813`, `N815`, `N816`, `N999` (allow variations for scientific/NumPy compatibility)
+
+## Type Hints
+
+**Style:**
+- Modern Python 3.10+ syntax required: `tuple[float, float]`, `dict[str, Any]`, `Optional[dict[str, Any]]`
+- No legacy `Tuple[...]`, `Dict[...]`, `Union[...]` syntax
+- Return type annotations on all public functions: `def form_valid(self, form: EphemerisForm) -> HttpResponse:`
+- Parameter type annotations where helpful: `def query(self, obscode: str, dbg: bool = False)`
+- Use `u.Quantity` for astropy units (e.g., `def horizon_dip(altitude_m: float) -> u.Quantity`)
+- Tuple returns with type hints: `-> tuple[Time, Time]`, `-> tuple[str, str]`
 
 ## Import Organization
 
 **Order:**
-1. Standard library imports (`import logging`, `from datetime import timezone`, `from pathlib import Path`)
-2. Third-party imports (`import numpy as np`, `from astropy import units as u`, `from django.test import TestCase`)
-3. Local imports (`from solsys_code.views import ...`, `from .forms import EphemerisForm`)
+1. Standard library (`datetime`, `re`, `logging`, `json`, `pathlib`)
+2. Third-party packages (`django`, `astropy`, `numpy`, `rebound`, `spiceypy`)
+3. Relative imports from current app (`. models`, `. forms`, `. ephem_utils`)
 
-**Path Aliases:**
-- No path aliases defined in this project; relative imports use dot notation (e.g., `from .forms import`, `from .ephem_utils import`)
-- Absolute imports from installed packages: `from tom_targets.models import Target`
+**Absolute imports from packages:**
+- `from django.test import TestCase`
+- `from tom_targets.models import Target`
+- `from tom_targets.tests.factories import NonSiderealTargetFactory`
 
-**Isort Configuration:**
-- Profile: `black`
-- Line length: 120
+**Relative imports within app:**
+- `from .forms import EphemerisForm`
+- `from .ephem_utils import horizon_dip`
+- `from solsys_code.telescope_runs import get_site, sun_event`
+
+**Path aliases:**
+- No path aliases defined in this project; absolute imports and relative dot notation used
 
 ## Error Handling
 
-**Patterns:**
-- Use generic `try/except` blocks for expected failures (e.g., `ValueError` when parsing time strings)
+**Pattern:**
+- Use generic `try/except` blocks for expected failures
+- `KeyError` when dictionary lookup fails: wrap in `Observatory.DoesNotExist` or similar
+- `ValueError` when constraint parsing fails or invalid arguments provided
 - Custom exceptions not extensively used; rely on built-in exceptions and Django exceptions
-- Logging at `debug` level for expected failures: `logger.debug(f'Query failed with status {resp.status_code}')`
-- Raise generic `Exception` for invariant violations (e.g., `raise Exception('Must provide target_id')`)
+- `IntegrityError` for database constraint violations (wrapped in `transaction.atomic()`)
 
-Example from `views.py`:
+**Example:**
 ```python
 try:
-    start_time = Time(start_time, scale='utc')
-except ValueError:
-    start_time = Time.now()
-    start_time = Time(start_time.datetime.replace(hour=0, minute=0, second=0, microsecond=0), scale='utc')
+    obscode = SITES[name]
+except KeyError as exc:
+    raise Observatory.DoesNotExist(f'No site registered in SITES for telescope {name!r}') from exc
 ```
+
+**Raising exceptions:**
+- Raise generic `Exception` for invariant violations: `raise Exception('Must provide target_id')`
+- Raise `ValueError` for invalid input: `raise ValueError(f'Invalid "is defined" constraint: {c}')`
+- Raise `CommandError` in management commands: `from django.core.management.base import CommandError`
 
 ## Logging
 
-**Framework:** `logging` (standard library)
-
-**Patterns:**
+**Setup:**
 - Get logger with `__name__`: `logger = logging.getLogger(__name__)`
-- Log at `debug` level for diagnostic info: `logger.debug('No data found in results')`
-- Test files can disable logging during test runs: `logging.disable(logging.CRITICAL)`
-- Use f-strings for log messages: `logger.debug(f'Query failed with status {resp.status_code}')`
+- Avoid logging in test runs: `logging.disable(logging.CRITICAL)` at module top for test files
+
+**Level:**
+- Log at `debug` level for diagnostic/expected failures: `logger.debug(f'Query failed with status {resp.status_code}')`
+- Use f-strings for messages: `logger.debug(f'No data found in results')`
+
+**Sorcha logger:**
+- Suppress verbose Sorcha logs in module-level setup:
+  ```python
+  sorcha_logger = logging.getLogger('sorcha.ephemeris.simulation_setup')
+  sorcha_logger.setLevel(logging.WARNING)
+  ```
 
 ## Comments
 
-**When to Comment:**
-- Comment non-obvious algorithmic steps (e.g., "Convert from heliocentric->barycentric using the Sun's position")
+**When to comment:**
+- Comment non-obvious algorithmic steps (e.g., "Convert from heliocentric→barycentric using the Sun's position")
 - Comment constants and their meaning (e.g., "Speed of light in km/s")
-- Comment field meanings in data structures (e.g., chi-square values, degrees of freedom)
-- Use comments to explain the "why" not the "what" (code should be readable, comments explain intent)
+- Comment field meanings in data structures
+- Use comments to explain the "why" not the "what" (code should be readable)
 - Block comments above code sections that need context
 
-**JSDoc/TSDoc:**
-- Not used (Python project, not TypeScript)
-- Docstrings use Google-style format with `Args:`, `Returns:`, `Raises:` sections
+**Example:**
+```python
+# dip = 1.76 arcmin * sqrt(altitude in metres).
+# This is the Nautical Almanac dip formula (terrestrial refraction k~1/6
+# folded into the spherical-geometry estimate dip ~ sqrt(2h/R), R=6371 km)
+def horizon_dip(altitude_m: float) -> u.Quantity:
+```
 
 ## Docstring Style
 
-**Module and Function Docstrings:**
-- Google-style docstrings (not NumPy style, despite presence of NumPy code)
-- Example from `ephem_utils.py`:
+**Format:**
+- Google-style docstrings (not NumPy style)
+- Sections: `Args:`, `Returns:`, `Raises:`
+
+**Class docstrings:**
+- Simple one-liner allowed: `"""View for making an ephemeris"""`
+- Full docstrings for complex classes explaining purpose and behavior
+
+**Function/Method docstrings:**
+- Include Args and Returns sections
+- Include Raises section for documented exceptions
+- One-liner functions may skip docstrings if name is self-explanatory
+
+**Example:**
 ```python
-def convert_target_to_layup(target, sun_dict=None):
-    """Converts a `Target` to a numpy array in format needed for 'layup'
+def get_site(name: str) -> Observatory:
+    """Resolves a telescope name to its Observatory record.
 
     Args:
-        target (tom_targets.model.Target): Target
-        sun_dict (dict): [Optional] A dict with a key of a JD_TDB pointing
-            at a dict of {x,y,z,vx,vy,vz} for position and velocity of the
-            Sun to override the internal rebound determination
+        name: Telescope name, a key of SITES (e.g. 'Magellan-Clay').
 
     Returns:
-        output (numpy structured array): Data converted to layup input format
+        Observatory: the observatory record for this telescope's site.
+
+    Raises:
+        Observatory.DoesNotExist: if name is not a key in SITES, or no
+            Observatory record exists for the resolved MPC obscode.
     """
 ```
 
-- Class docstrings: Simple one-liner (e.g., `"""View for making an ephemeris"""`)
-- Method docstrings: Include Parameters and Returns sections
-- One-liner functions may skip docstrings if name is self-explanatory
-
 ## Function Design
 
-**Size:** 
-- Methods typically 10-50 lines
-- Longer methods acceptable for view handlers (50-100+ lines) due to Django boilerplate
+**Size:**
+- Typical: 10–50 lines
+- Longer methods acceptable for view handlers (50–100+ lines) due to Django boilerplate
 - Extract complex logic into helper functions
 
-**Parameters:** 
-- Use keyword arguments for optional form parameters
-- Type hints on parameters are encouraged
+**Parameters:**
+- Type hints on parameters encouraged
 - Default parameters for optional behavior (e.g., `sun_dict=None`)
+- Use keyword arguments for optional form parameters
 
-**Return Values:**
+**Return values:**
 - Use type hints for return values
 - Return `HttpResponse` from views
 - Return `Optional[...]` for nullable types
@@ -148,22 +192,33 @@ def convert_target_to_layup(target, sun_dict=None):
 - No `__all__` definitions observed; relies on convention (no leading underscore = public)
 - Internal/private use indicated by leading underscore
 
-**Barrel Files:**
+**Barrel files:**
 - No barrel files (index-style `__init__.py`) in use
-- Package `__init__.py` files are typically empty or minimal
+- Package `__init__.py` files typically empty or minimal
+
+**Module-level state:**
+- Avoid module-level mutable state
+- Exception: `ephem_utils.py` loads and caches SPICE ephemeris kernels at module load time (`fomo_furnish_spiceypy()`), acceptable for initialization
+- Module-level constants like `SITES` dict documented above their definition
 
 ## Code Quality Standards
 
-**Docstring Requirements (per ruff):**
+**Docstring enforcement:**
 - `D101`: Missing docstring in public class (enforced except in tests)
 - `D102`: Missing docstring in public method (enforced except in tests)
 - `D103`: Missing docstring in public function
 - Test files (`**/tests/*`) exempt from `D101`, `D102` requirements
 
-**No Global State:**
-- Avoid module-level mutable state
-- Exception: `ephem_utils.py` loads and caches SPICE ephemeris kernels at module load time (acceptable for initialization)
+**Code organization:**
+- One class per file when possible (e.g., `models.py` contains model definitions, `forms.py` contains form classes)
+- Related functions grouped with clear purpose comments
+- Constants defined at module top before functions
+
+**Validation:**
+- Form validation via `clean()` method in Django forms
+- Model-level validation via `clean()` method
+- Database-level validation via `ValidationError`, `IntegrityError`
 
 ---
 
-*Convention analysis: 2026-06-12*
+*Convention analysis: 2026-09-04*
