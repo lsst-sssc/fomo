@@ -450,7 +450,10 @@ events and observation records to a run?" above), where a staff member can
 re-confirm or discard them. The correction itself does not
 trigger this -- it happens on the *next* reconcile, same as any other
 calendar-visibility change only renders correctly once a sweep runs
-afterward.
+afterward. That detach also clears the row's confirmation stamps
+(who confirmed the attribution, and when) together with the link, so a
+detached row never goes on displaying a confirmation for an attribution
+that no longer exists.
 
 **The cost:** if a ``web`` run's source really is wrong, correcting it now
 needs a shell or a data migration. This is the same restriction the CSV
