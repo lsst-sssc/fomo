@@ -59,6 +59,7 @@ from .campaign_utils import (
     resolve_site,
     selection_to_obscode,
     substring_or_fuzzy_match_candidates,
+    unlink_event_from_run,
 )
 from .mixins import StaffRequiredMixin
 from .models import (
@@ -1321,11 +1322,12 @@ class AttributionDecisionView(StaffRequiredMixin, View):
         defaults = {'dismissed_by': request.user, 'dismissed_at': timezone.now(), 'reason': reason}
         with transaction.atomic():
             if kind == 'event':
-                # Event side: an .update(), still conditional on the currently-owning run so
-                # a concurrent re-point cannot be silently clobbered.
-                changed_count = CalendarEventMeta.objects.filter(event_id=orphan_pk, run_id=run_pk).update(
-                    run=None, confirmed_by=None, confirmed_at=None
-                )
+                # Event side: routed through the shared unlink_event_from_run() helper
+                # (D-16, plan 33-04), which preserves this call's own conditional-on-both-
+                # event-and-run property -- still gated on the currently-owning run so a
+                # concurrent re-point cannot be silently clobbered -- and returns the
+                # changed count this view's dismissal-write gate below depends on.
+                changed_count = unlink_event_from_run(orphan_pk, run_pk)
             else:
                 # Record side: the link row itself is deleted (Phase 27 D-01: its existence
                 # IS the confirmation).

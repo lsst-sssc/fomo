@@ -421,30 +421,36 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
     would either be silently orphaned forever -- no code path ever revisits them again --
     or, worse, silently miscounted as belonging to a family they no longer match.
 
-    Detaching (``CalendarEventMeta.run = None``) -- rather than deleting the
-    ``CalendarEvent`` rows outright, or merely logging/flagging -- returns them to Phase 28's
-    attribution queue for a human to re-confirm or discard, matching every other
-    unattributed row's meaning (D-17: an unset ``run`` means "not attributed to any
-    CampaignRun" -- never "touch me").
+    Detaching -- rather than deleting the ``CalendarEvent`` rows outright, or merely
+    logging/flagging -- returns them to Phase 28's attribution queue for a human to
+    re-confirm or discard, matching every other unattributed row's meaning (D-17: an unset
+    ``run`` means "not attributed to any CampaignRun" -- never "touch me"). Plan 33-04
+    (D-16) routes this through the shared :func:`~solsys_code.campaign_utils.
+    unlink_event_from_run` helper -- the single writer of what clearing an attribution
+    means -- rather than this module's own ad-hoc update, which is a deliberate behaviour
+    change: the helper also clears ``confirmed_by``/``confirmed_at``, which this step did
+    not do before. A detached row that kept "confirmed by X at T" was displaying a
+    confirmation for an attribution that no longer exists.
 
-    A bulk ``.update()``, not a per-instance ``.save()`` loop, deliberately: this only ever
-    clears a FK on rows already known to be attributed to this run, so there is no per-row
-    business logic to run, and a bulk update avoids firing save-related signal handlers for
-    every row.
-
-    The extra ``run=run`` filter term (T-29-19) is not redundant: without it, a stale-family
-    event that staff have since re-attributed to a DIFFERENT run gets its confirmed
-    attribution silently cleared by a reconcile of the run whose namespace the url happens to
-    carry. It also loses nothing -- rows with ``run`` already unset were a no-op update, and
-    rows with no companion row were never in the queryset.
+    The extra ``run=run`` filter term (T-29-19) is not redundant, and the helper preserves
+    it: without it, a stale-family event that staff have since re-attributed to a DIFFERENT
+    run gets its confirmed attribution silently cleared by a reconcile of the run whose
+    namespace the url happens to carry. It also loses nothing -- rows with ``run`` already
+    unset are a no-op, and rows with no companion row were never in the queryset.
 
     Args:
         run: the ``CampaignRun`` just reconciled.
         active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
             considers current for this run (one container url, or one url per night).
     """
+    # Local import to avoid a circular import at module load time: campaign_utils.py
+    # imports reconcile_run/ReconcileResult from this module at its own top level, so a
+    # top-level import here of campaign_utils would deadlock on whichever module Python
+    # loads first.
+    from solsys_code.campaign_utils import unlink_event_from_run
+
     stale = owned_events(run).exclude(url__in=active_urls)
-    CalendarEventMeta.objects.filter(event__in=stale, run=run).update(run=None)
+    unlink_event_from_run(stale, run)
 
 
 def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult:
