@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 33
 current_phase_name: Series Identity & Reconciler Inversion
 status: executing
-stopped_at: Completed 33-03-PLAN.md
-last_updated: "2026-09-04T15:52:52.069Z"
+stopped_at: Completed 33-02-PLAN.md
+last_updated: "2026-09-04T16:32:55.263Z"
 last_activity: 2026-09-04
 last_activity_desc: Phase 33 execution started
-state_head: 89ce52c2a7c3477b509502ab1888ee6bdb592fed
+state_head: adb84689b865f283cd4bb88abb551e8c7b61783d
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 ## Current Position
 
 Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-09-04 — Phase 33 execution started
 
@@ -171,6 +171,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 31 P05 | ~25min | 2 tasks | 2 files |
 | Phase 33 P01 | 73min | 3 tasks | 7 files |
 | Phase 33-series-identity-reconciler-inversion P03 | 40min | 3 tasks | 6 files |
+| Phase 33 P02 | ~39min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -205,6 +206,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 31]: Phase 31 published both spike verdicts (schema/identity SCHEMA-01..03, scheduling SCHED-07) to docs/design/run_identity_and_unattended_invocation_spike.rst, closing roadmap Success Criterion 5's first half; Sphinx build and targeted 6-module regression both green, source tree/test suite proven unchanged.
 - [Phase 31, gap-closure plan 31-06]: UAT gap G-31-3 closed — corrected both committed artifacts' facility framing: Gemini has no facility read-back (`GEMFacility`'s status/URL methods are hardcoded stubs; `sync_gemini_observation_calendar` never imports that class and only replays FOMO's own prior submissions), SOAR is the facility that actually has one (inherits a real portal read path from `LCOFacility`, already handled inside the existing LCO sync command). All four verdicts unchanged. Three Phase 32/33 consequences (missing `SOAR_QUEUE` vocabulary value, ADAPT-03 re-target, Phase 33 Gemini-infeasibility caveat) recorded as a pending todo, not actioned here.
 - [Phase 33]: Phase 33 Plan 01: retired _adopted_event_for_night() outright rather than leaving it as dead code; _attributed_nights() carries no blank-url restriction so a facility-URL-keyed attributed event is skipped too; campaign_decoration() builds its campaign-table link with reverse() in Python so a null campaign_id returns table_url=None instead of NoReverseMatch; event_title() dropped its campaign-name branch entirely -- the decoration tag is now the single campaign label everywhere.
+- [Phase 33]: 33-02: marker glyph is a single flag character styled by .cal-campaign-chip (currentColor + flex-shrink:0), never a new color constant — keeps the chip from competing with the entry's own accessible foreground or the proposal fill
+- [Phase 33]: 33-02: CampaignRunTable row_attrs resolves pk via Accessor(...).resolve(record, quiet=True), returning None (never 'run-None') so django-tables2 drops the id attribute for an unresolvable pk — works identically for staff model-instance rows and non-staff .values() dict rows
 
 ### Pending Todos
 
@@ -295,8 +298,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T15:52:52.016Z
-Stopped at: Completed 33-03-PLAN.md
+Last session: 2026-09-04T16:32:46.433Z
+Stopped at: Completed 33-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
