@@ -354,7 +354,7 @@ an unambiguous pair, not a bulk guess across ambiguous ones.
 suggested pair was rejected -- who rejected it, when, and why, from a
 required free-text reason. A dismissal is **not an association**:
 persisting one never creates a link between the orphan and the run, and
-an unconfirmed guess can never be mistaken for ownership. It exists so
+an unconfirmed guess can never be mistaken for a confirmed attribution. It exists so
 the queue can actually drain -- without it, a rejected candidate would
 return on every page load -- and it is fully reversible from the
 collapsed "Dismissed" section on the same page, which lists who dismissed
@@ -377,6 +377,19 @@ complete" heading, naming how many orphans still have no matching run at
 all and confirming that the Phase 29 reconcile sweep is safe to run.
 There is no backlog-reporting management command -- this signal is read
 from the page itself, by design.
+
+**Attributing changes nothing about the entry itself.** Confirming a
+candidate here only sets the entry's attribution link
+(``CalendarEventMeta.run``) plus who confirmed it and when -- it never
+rewrites the entry's title, description, or any other field. The entry
+then shows its campaign as a pop-up decoration and a month-cell marker
+(see "Why doesn't the calendar pop-up show an 'Attributed campaign run'
+block?" below), rendered from that link at request time, and nothing
+else changes. An entry backed by a real observation record
+(``CalendarEventMeta.observation_record``) is offered in this queue
+exactly like any other unattributed entry -- the queue keys off the
+attribution link alone, never off whether an observation link is also
+present.
 
 **Behavior change:** before this phase, the only mechanism that could
 create a run-to-event link was the Django admin's foreign-key picker on
@@ -706,9 +719,27 @@ rewritten from the run every time. Per-night entries -- for a
 classically-scheduled run, or a queue-scheduled run with a resolved site --
 created before this change keep their old combined value, because a
 per-night entry's Telescope/Instrument and its sunset/sunrise window are
-deliberately never rewritten after it is first created -- that is what
-protects a night adopted from ``load_telescope_runs`` from having its own
-more precise values overwritten.
+deliberately never rewritten after it is first created.
+
+**A night that already has an entry attributed to this run gets no
+reconciler entry at all.** The attributed entry -- whether it comes from
+``load_telescope_runs``, a hand entry, or any other writer -- IS that
+night's calendar entry, and the campaign shows on it as a pop-up
+decoration (see "Why doesn't the calendar pop-up show an 'Attributed
+campaign run' block?" below) rather than as a second, reconciler-created
+entry sitting alongside it. The reconciler now only ever creates, updates
+or removes entries it keyed itself (its own ``RUN:{pk}:{date}``/``RUN:{pk}``
+urls); it never re-keys or edits another writer's entry.
+
+**One-time title change.** Reconciler-created entries no longer carry the
+campaign name in their title -- only the telescope/instrument text (and,
+for a cancelled/weathered run, its status prefix). The campaign name now
+appears only as the month-cell marker and the pop-up block described in
+"Why doesn't the calendar pop-up show an 'Attributed campaign run' block?"
+below, rendered from the entry's attribution link rather than written into
+the title. The first sweep after this change updates the titles of every
+one of the reconciler's own existing entries once, dropping the old
+campaign-name prefix; that one-time title change is expected, not a fault.
 
 **You will rarely need to run this by hand.** The same reconciliation now
 happens automatically, immediately, for a single run the moment staff
@@ -719,46 +750,77 @@ later, not for routine day-to-day use.
 
 .. _campaign-run-block-manual-only:
 
-Why doesn't the calendar pop-up show a "Campaign run" block?
-----------------------------------------------------------------
+Why doesn't the calendar pop-up show an "Attributed campaign run" block?
+------------------------------------------------------------------------------
 
-Clicking a calendar entry opens a pop-up that can show a **Campaign run**
-block naming the run that owns the event, its window, and its run status.
-That block appears only when the event carries a companion record whose
-owning-run link is filled in.
+Clicking a calendar entry opens a pop-up that can show an **Attributed
+campaign run** block naming the run the entry is attributed to, that run's
+telescope and instrument, its window and its run status, plus a link to
+the campaign table anchored to that run's own row. The block is rendered
+from the entry's attribution link (``CalendarEventMeta.run``) every time
+the page is drawn -- it is never written into the entry's own title or
+description -- so nothing that rewrites those fields (a base-layer
+re-projection, a hand edit, anything) can erase it.
 
-**As of this phase, every event the reconciler creates or adopts gets that
-link set automatically** -- via ``reconcile_campaign_runs`` and via
-approving a run, resolving its site, or marking it cancelled or
-weather-failed, all of which now reconcile through the same shared
-function (see "How do I get every campaign run onto the calendar?" above).
-An event owned by a ``CampaignRun`` therefore shows the Campaign run block
-the moment it is created, with no separate linking step.
+A month-view cell shows a small campaign marker on every attributed entry
+whose run is publicly visible, with the campaign name as its tooltip -- the
+same attribution link the pop-up block reads, rendered a second time at a
+glance.
+
+That block/marker appears only when the entry carries a companion record
+whose attribution link is filled in.
+
+**As of Phase 33, an entry the reconciler creates never carries the
+campaign name in its own title** -- see "How do I get every campaign run
+onto the calendar?" above for the one-time title change this caused. The
+campaign now shows only through the block and the marker described above,
+rendered from the attribution link, never written into the entry's
+fields.
+
+**Every entry the reconciler creates gets that link set automatically** --
+via ``reconcile_campaign_runs`` and via approving a run, resolving its
+site, or marking it cancelled or weather-failed, all of which now
+reconcile through the same shared function (see "How do I get every
+campaign run onto the calendar?" above). An entry the reconciler creates
+therefore shows the Attributed campaign run block the moment it is
+created, with no separate linking step. An entry ALREADY attributed to
+this run through another writer never gets a second, reconciler-created
+entry at all (see the skip rule in that same section above) -- its own
+existing attribution is what makes the block appear.
 
 The manual admin path below still exists, and remains the right tool for an
-event the reconciler never touches at all -- a ``load_telescope_runs``- or
-sync-command-created event that has not (yet) been attributed to a run
+entry the reconciler never touches at all -- a ``load_telescope_runs``- or
+sync-command-created entry that has not (yet) been attributed to a run
 through the attribution queue, or a hand-created calendar entry:
 
 1. Go to **Django admin -> Solsys code -> Campaign runs** and open the run.
 2. In the **Calendar event metas** inline at the bottom, add a row and pick
-   the calendar event that belongs to this run.
-3. Save. The pop-up for that event now shows the Campaign run block.
+   the calendar event this run's entry is attributed to.
+3. Save. The pop-up for that entry now shows the Attributed campaign run
+   block.
 
 Two things to know about that inline:
 
 * The **calendar event** field is frozen once a row is saved, because it is
   that record's identity. To point the link at a different event, delete
   the row and add a new one -- do not try to edit it in place.
-* Clearing the **owning campaign run** value un-owns the event without
-  deleting the companion record, so the event's telescope-label
-  verification history survives.
+* Clearing the **Attributed campaign run** value un-attributes the entry:
+  it removes only the pop-up block and the month-cell marker, and clears
+  the "confirmed by"/"confirmed at" record along with it -- a confirmation
+  for an attribution that no longer exists would be misleading. The entry
+  itself, and its telescope-label verification history, survive
+  untouched; nothing is deleted.
+* Two further fields on that same inline, **Observation record** and
+  **Observation group**, are read-only: they record which real observation
+  an entry was drawn from, are filled in by code only, and are empty for
+  every entry today. The phase that fills them in is named in the roadmap
+  (Phase 34, the observation projector).
 
-An event with no companion record at all, or with the run link left blank,
-still means "not owned by any campaign run" -- never "needs fixing". That
-is the normal state for conferences, proposal deadlines, and any
-un-attributed sync-command entry the reconciler has not adopted, and it is
-why those entries show no Campaign run block.
+An entry with no companion record at all, or with the attribution link
+left blank, still means "not attributed to any campaign run" -- never
+"needs fixing". That is the normal state for conferences, proposal
+deadlines, and any un-attributed sync-command entry, and it is why those
+entries show no Attributed campaign run block.
 
 **27-UAT.md Test 9 gap closure:** when a High-band attribution-queue
 candidate already exists for one of these still-unlinked events, the
