@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Observation-First Calendar
 status: planning
-last_updated: "2026-09-04T01:04:36.772Z"
+last_updated: "2026-09-03T18:15:00.000Z"
 last_activity: 2026-09-03
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,26 +20,28 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 superseded)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Defining v2.4 requirements
+**Current focus:** v2.4 roadmap created — Phases 33-37, 29/29 requirements mapped. Next: `/gsd-discuss-phase 33`
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 33 — Series Identity & Reconciler Inversion (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-09-03 — Milestone v2.4 started
+Status: Roadmap created, awaiting phase discussion
+Last activity: 2026-09-03 — v2.4 roadmap created (Phases 33-37, 29/29 requirements mapped)
 
-## Roadmap Summary (v2.3 — superseded 2026-09-03, not shipped; Phase 31 complete, Phase 32 stopped at 32-01 Tasks 1–2; archived at `.planning/milestones/v2.3-ROADMAP.md`)
+## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
 | Phase | Goal | Requirements |
 |-------|------|--------------|
-| 31. Foundation Spikes — Run Identity & Unattended Invocation | Settle how a non-campaign queue observation gets a persistent `CampaignRun` identity, and how unattended invocation works on the real host | SCHEMA-01..03, SCHED-07 |
-| 32. Adapter Consolidation | All three ingest adapters create or update `CampaignRun`s and let the reconciler project the calendar, with a duplicate-free cutover | ADAPT-01..06 |
-| 33. Outcome Propagation & Window Narrowing | An observation's real outcome reaches its run's status automatically; a run's window narrows visibly in the staff UI | OUTCOME-01..04, SCHED-06 |
-| 34. Unattended Scheduling & Discovery | The whole pipeline runs on a recurring schedule against an admin-editable watch-list, with failures visible and no credential logged | SCHED-08..10, DISCOVER-01 |
-| 35. Status Vocabulary, Provenance-Blind Gaps & Unused Allocation | One status vocabulary, gap analysis that counts classical and queue time, unused awarded nights made legible | STATUS-01..02, GAPB-01, UNUSED-01 |
+| 33. Series Identity & Reconciler Inversion | Give `CalendarEventMeta` the real link fields the base layer needs, and turn the campaign reconciler from an owner into an annotator so the two layers can run side by side | PROJ-04, ANNOT-01, ANNOT-02 |
+| 34. The Observation Projector & Trigger | Every LCO/SOAR observation record draws and keeps current its own calendar event on every save, with a sweep as backstop; the old LCO sync command is retired in its favour | PROJ-01..03, PROJ-05, PROJ-06, TRIG-01..03, SCHED-06, ANNOT-03 |
+| 35. Allocation Layer & Classical Cutover | An allocation projects its own sunset→sunrise intent nights and hands each night over when a real observation links to it; `load_telescope_runs` writes allocations instead of events | ALLOC-01..05 |
+| 36. Unattended Operation | The sweep, the discovery backfill and the reconciler run on the real host on a cron + `flock` schedule against an admin-editable watched-proposal list, with failures visible and no credential logged | SCHED-08..10, DISCOVER-01 |
+| 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | One status vocabulary, an ongoing public tally per run and campaign, unused awarded nights that look unused, and coverage gaps that count every observation | STATUS-01..02, TALLY-01..03, UNUSED-01, GAPB-01 |
 
-Coverage: 23/23 v1 requirements mapped, no orphans, no duplicates (ADAPT-06 added 2026-09-03). Full phase detail in `.planning/ROADMAP.md`.
+Coverage: 29/29 v1 requirements mapped, no orphans, no duplicates. Phase numbering continues from the superseded v2.3 (last phase: 32). Full phase detail, locked constraints and paired-docs scope in `.planning/ROADMAP.md`.
+
+**Superseded predecessor:** v2.3's roadmap (Phases 31-35, ADAPT-*/OUTCOME-*) is archived at `.planning/milestones/v2.3-ROADMAP.md`. Phase 31's four verdicts and plan 32-01 Tasks 1–2 are kept as v2.4's allocation-without-campaign foundation; ADAPT-01..06 and OUTCOME-01..04 are dropped, not deferred.
 
 ## Roadmap Summary (v2.1 — shipped 2026-07-18)
 
@@ -167,6 +169,8 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 
 ### Roadmap Evolution
 
+- v2.4 roadmap created (2026-09-03): 5 phases (33-37), 29/29 requirements mapped. Phase numbering continues from the superseded v2.3 (last phase: 32); v2.3's ADAPT-*/OUTCOME-* work is dropped, not re-planned. Structure is driven by the spike-established ordering, not by category grouping: the reconciler inversion (ANNOT-01/02) plus the `CalendarEventMeta` link fields (PROJ-04) form Phase 33 and land **before** the base layer and the campaign layer ever run side by side, because the reconciler's adopt/re-key/detach paths read `CalendarEventMeta.run` as ownership and would otherwise steal base-layer events (spike 002's named landmine). The projector, its `post_save` trigger and its sweep share Phase 34, and ANNOT-03 (retiring `sync_lco_observation_calendar`) rides with them because the takeover is a plain update in the same key namespace and can only be proven equivalent once the projector and sweep exist; SCHED-06 sits there too as the verification-over-time requirement that closes spike 004's PARTIAL verdict against the real `KEY2026B-004` nights. The allocation layer and the `load_telescope_runs` cutover (ALLOC-01..05) follow in Phase 35 because the handoff rule needs observation events to hand over to, and ALLOC-04/05 additionally depend on Phase 31's SCHEMA-03 finding that a classical `source_identifier` needs a facility-specific key. Unattended operation (Phase 36) comes after the sweep command exists, since that is what cron invokes. The public tallies, the status vocabulary and provenance-blind gap analysis close the milestone in Phase 37 because they all read the projected events and the `CalendarEventMeta` links the earlier phases create — and Phase 34's provisional title prefixes are deliberately left for Phase 37 to settle. No investigation-only phase was added: the five spikes already did that work.
+
 - v2.3 roadmap created (2026-09-01): 5 phases (31-35), 22/22 requirements mapped. Phase numbering continues from v2.2's last phase (30). Structure derived from `research/SUMMARY.md`'s recommended 8-phase sequence, compressed to 5 under the `coarse` granularity setting: the scheduling-mechanism spike (SCHED-07) is folded into the schema spike phase as an independent parallel track rather than standing alone (both are investigation-only, and running them together preserves the spike-before-implementation discipline for each); the shared `write_and_reconcile_campaign_run()` helper is groundwork inside Phase 32 rather than a phase with no requirements of its own; and the three adapters share one phase, shipping simplest-first (classical → LCO → Gemini) as ordered plans so each still validates the shared pattern before the next facility's identity scheme is attempted. Hard dependency order from research is respected: schema spike gates the adapters; adapters gate outcome propagation (nothing to read without confirmed `CampaignRunObservation` links); the scheduler entry point comes after everything it orchestrates; carried-forward work (STATUS/GAPB/UNUSED) comes last, once a `CampaignRun` exists for every ingest path. SCHED-06 sits with outcome propagation because the narrowing UI is that feature's visible face (pipeline stages 3→4).
 - Phase 27.1 inserted after Phase 27 (2026-07-30) (URGENT): Close gap: staff surfaces and data-integrity risks from the canonical run record. Sources: `27-UAT.md` (5 passed / 2 issues → 3 gaps — no nav path to the Sites Needing Review queue, the event modal rendering its own multi-line `{# #}` header as literal text, and an illegible admin run picker) plus `27-VERIFICATION.md` review warnings WR-01 (CSV re-import can silently revert a `repair_stale_campaign_run_sites` fix), WR-03 (`source` freely editable in admin) and WR-04 (a TBD run renders "(None–None)" in the public modal). Scheduled before Phase 28 because the admin FK picker is the only mechanism that creates run↔event links until the attribution queue ships. **WR-02 deliberately excluded** as a stale finding: the verification report calls "never clears `telescope_class` on site resolution" an invariant violation, but `models.py:213-219` documents the opposite invariant and the user already rejected code-review finding CR-01 which proposed clearing it.
 - Phase 22 added (2026-07-14): Site Matching at Submission and Unmatched-Site Resolution Workflow — closes the Phase 21 functionality gap. Decisions confirmed with operator: (a) the public submission form's Observing site field gets HTMX live-search autocomplete (new endpoint running `fuzzy_match_candidates()` over `build_site_candidates()`), also replacing the approval queue's static per-row datalist; (b) "site failure never blocks approval" is kept, with a new "Sites needing review" surface for approved runs with `site_needs_review=True` whose resolution triggers the deferred CalendarEvent projection.
@@ -283,10 +287,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-03T04:00:27.377Z
-Stopped at: Phase 32 context gathered
-Resume file: .planning/phases/32-adapter-consolidation/32-CONTEXT.md
+Last session: 2026-09-03
+Stopped at: v2.4 roadmap created (Phases 33-37)
+Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Phase 31 complete (6/6 plans, verification passed). Start Phase 32 "Adapter Consolidation" with `/gsd-discuss-phase 32`
+- v2.4 roadmap created: 5 phases (33-37), 29/29 requirements mapped. Start Phase 33 "Series Identity & Reconciler Inversion" with `/gsd-discuss-phase 33`
+- Phase 33 is deliberately first: it inverts the reconciler to annotate-only before the base layer ships, which is the one ordering landmine the spikes named (spike 002)

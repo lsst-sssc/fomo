@@ -99,12 +99,41 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| PROJ-01 | Phase 34 | Pending |
+| PROJ-02 | Phase 34 | Pending |
+| PROJ-03 | Phase 34 | Pending |
+| PROJ-04 | Phase 33 | Pending |
+| PROJ-05 | Phase 34 | Pending |
+| PROJ-06 | Phase 34 | Pending |
+| SCHED-06 | Phase 34 | Pending |
+| TRIG-01 | Phase 34 | Pending |
+| TRIG-02 | Phase 34 | Pending |
+| TRIG-03 | Phase 34 | Pending |
+| ALLOC-01 | Phase 35 | Pending |
+| ALLOC-02 | Phase 35 | Pending |
+| ALLOC-03 | Phase 35 | Pending |
+| ALLOC-04 | Phase 35 | Pending |
+| ALLOC-05 | Phase 35 | Pending |
+| ANNOT-01 | Phase 33 | Pending |
+| ANNOT-02 | Phase 33 | Pending |
+| ANNOT-03 | Phase 34 | Pending |
+| SCHED-08 | Phase 36 | Pending |
+| SCHED-09 | Phase 36 | Pending |
+| SCHED-10 | Phase 36 | Pending |
+| DISCOVER-01 | Phase 36 | Pending |
+| TALLY-01 | Phase 37 | Pending |
+| TALLY-02 | Phase 37 | Pending |
+| TALLY-03 | Phase 37 | Pending |
+| UNUSED-01 | Phase 37 | Pending |
+| STATUS-01 | Phase 37 | Pending |
+| STATUS-02 | Phase 37 | Pending |
+| GAPB-01 | Phase 37 | Pending |
 
 **Coverage:**
-- v1 requirements: 28 total
-- Mapped to phases: 0
-- Unmapped: 28 ⚠️
+- v1 requirements: 29 total
+- Mapped to phases: 29 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-09-03*
-*Last updated: 2026-09-03 after initial definition*
+*Last updated: 2026-09-03 after roadmap creation (Phases 33-37; 29/29 mapped, no orphans, no duplicates)*
