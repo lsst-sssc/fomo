@@ -4,17 +4,17 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 33
 current_phase_name: Series Identity & Reconciler Inversion
-status: executing
-stopped_at: Completed 33-04-PLAN.md
-last_updated: "2026-09-04T17:03:14.522Z"
+status: verifying
+stopped_at: Completed 33-05-PLAN.md -- Phase 33 complete, all 5 plans have SUMMARY.md
+last_updated: "2026-09-04T17:49:17.795Z"
 last_activity: 2026-09-04
 last_activity_desc: Phase 33 execution started
-state_head: b48e49dbfeb7c6dbe321eb1cf052cc165e332679
+state_head: c57eb12a19f70e59d11f6e408a8896f0dbb24795
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 
 Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-04 — Phase 33 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -173,6 +173,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33-series-identity-reconciler-inversion P03 | 40min | 3 tasks | 6 files |
 | Phase 33 P02 | ~39min | 3 tasks | 6 files |
 | Phase 33 P04 | 28min | 3 tasks | 10 files |
+| Phase 33-series-identity-reconciler-inversion P05 | 44min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -210,6 +211,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33]: 33-02: marker glyph is a single flag character styled by .cal-campaign-chip (currentColor + flex-shrink:0), never a new color constant — keeps the chip from competing with the entry's own accessible foreground or the proposal fill
 - [Phase 33]: 33-02: CampaignRunTable row_attrs resolves pk via Accessor(...).resolve(record, quiet=True), returning None (never 'run-None') so django-tables2 drops the id attribute for an unresolvable pk — works identically for staff model-instance rows and non-staff .values() dict rows
 - [Phase 33]: 33-04: unlink_event_from_run() in campaign_utils.py is now the single writer that clears a CalendarEventMeta attribution -- run, confirmed_by and confirmed_at together -- with a null-run guard that returns 0 before any queryset is built (T-33-21); all three existing clear-the-link call sites (undo view, reconciler detach, admin clear branch) route through it. The reconciler's detach step now also clears the audit stamps (D-16, closing a stale-confirmation leak) via a local import that breaks the circular dependency with campaign_utils' own top-level import of campaign_reconciler.
+- [Phase 33-series-identity-reconciler-inversion]: Phase 33 Plan 05: D-04's real-database diff proof split across two notebook cells to satisfy the plan's cell-ordering verify script; skip-rule demo deletes this run's own already-created event rather than mutating classical_run's window (which is part of its own natural-key lookup).
 
 ### Pending Todos
 
@@ -300,8 +302,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T17:03:14.457Z
-Stopped at: Completed 33-04-PLAN.md
+Last session: 2026-09-04T17:49:17.734Z
+Stopped at: Completed 33-05-PLAN.md -- Phase 33 complete, all 5 plans have SUMMARY.md
 Resume file: None
 
 ## Operator Next Steps

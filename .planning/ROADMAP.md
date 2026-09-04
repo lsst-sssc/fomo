@@ -177,7 +177,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 33-05-PLAN.md — Paired docs: both demo notebooks re-executed (including D-04's real-database empty diff) and the operator runbook's three affected sections rewritten to attribution (wave 3)
+- [x] 33-05-PLAN.md — Paired docs: both demo notebooks re-executed (including D-04's real-database empty diff) and the operator runbook's three affected sections rewritten to attribution (wave 3)
 
 **UI hint**: yes
 
