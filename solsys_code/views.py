@@ -20,7 +20,7 @@ from astropy.table import QTable
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
 from django.contrib import messages
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -35,6 +35,7 @@ from tom_calendar.models import CalendarEvent
 from tom_calendar.views import DAY_NAMES, MoonPhase
 from tom_targets.models import Target, TargetList
 
+from solsys_code.models import CalendarEventMeta
 from solsys_code.solsys_code_observatory.models import Observatory
 
 from .ephem_utils import (
@@ -106,12 +107,18 @@ def fomo_render_calendar(request, month=None):
 
     # DISPLAY-09: prefetch telescope_label_meta to eliminate OneToOneField N+1;
     # annotate active_todo_count to eliminate active_todos.count() N+1.
+    # Phase 33 Plan 02 (ANNOT-02): the prefetched companion row also selects its run and
+    # the run's campaign, because the month cell's campaign marker
+    # (campaign_decoration()) dereferences run.campaign.name per event -- without the
+    # select_related here that dereference would N+1 once per attributed event.
     events = (
         CalendarEvent.objects.filter(
             start_time__date__lte=weeks[-1][-1],
             end_time__date__gte=weeks[0][0],
         )
-        .prefetch_related('telescope_label_meta')
+        .prefetch_related(
+            Prefetch('telescope_label_meta', queryset=CalendarEventMeta.objects.select_related('run__campaign'))
+        )
         .annotate(active_todo_count=Count('todos', filter=Q(todos__is_completed=False)))
     )
 

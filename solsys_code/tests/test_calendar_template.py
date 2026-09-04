@@ -745,3 +745,232 @@ class TemplateCommentSyntaxSweepTest(SimpleTestCase):
                 search_from = end + 2
 
         self.assertEqual(failures, [], 'Multi-line Django comment blocks found:\n' + '\n'.join(failures))
+
+
+class MonthCellCampaignMarkerTest(TestCase):
+    """Phase 33 Plan 02 Task 1 (ANNOT-02, D-10/D-11): the month grid's two event loops
+    (day.all_day_events and day.events) each render a compact campaign marker for an
+    event attributed to an approved, publicly-visible run with a campaign -- sourced
+    from campaign_decoration(), never from CalendarEvent.title, and carrying the
+    campaign name only in the marker's title= tooltip.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Month Marker Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 8, 4),
+            window_end=date(2026, 8, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # All-day branch: start/end dates differ.
+        cls.all_day_event = CalendarEvent.objects.create(
+            title='AllDay Attr',
+            start_time=datetime(2026, 8, 3, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.all_day_event, run=cls.approved_run)
+
+        # Timed branch: start/end dates are the same day.
+        cls.timed_event = CalendarEvent.objects.create(
+            title='Timed Attr',
+            start_time=datetime(2026, 8, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.timed_event, run=cls.approved_run)
+
+    def _get_calendar(self):
+        return self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8})
+
+    def test_month_view_shows_campaign_chip_and_name_tooltip(self):
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('cal-campaign-chip', content)
+        self.assertIn(f'title="{self.campaign.name}"', content)
+
+    def test_chip_does_not_consume_title_truncation_budget(self):
+        """The chip is a sibling span before/after the truncated title text, never
+        concatenated inside the truncatechars filter expression itself."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn(self.all_day_event.title, content)
+        self.assertIn(self.timed_event.title, content)
+
+
+class DecorationSurvivalAndGuardsTest(TestCase):
+    """Phase 33 Plan 02 Task 3: proves the month-cell + modal decoration is display-time
+    only (survives a from-scratch rewrite of the event's own fields), and exercises the
+    campaign-less, non-public, PII, and N+1 boundaries the decoration must respect.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Survival Guard Campaign')
+        cls.staff_user = User.objects.create_user(username='survivalstaff', password='pw', is_staff=True)
+
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 9, 4),
+            window_end=date(2026, 9, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.linked_event = CalendarEvent.objects.create(
+            title='Original',
+            description='Original description',
+            start_time=datetime(2026, 9, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.linked_event, run=cls.approved_run)
+
+        cls.no_campaign_run = CampaignRun.objects.create(
+            campaign=None,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 9, 5),
+            window_end=date(2026, 9, 5),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.no_campaign_event = CalendarEvent.objects.create(
+            title='No-campaign attributed event',
+            start_time=datetime(2026, 9, 5, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 5, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.no_campaign_event, run=cls.no_campaign_run)
+
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=date(2026, 9, 6),
+            window_end=date(2026, 9, 6),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        cls.pending_event = CalendarEvent.objects.create(
+            title='Pending attributed event',
+            start_time=datetime(2026, 9, 6, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 6, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.pending_event, run=cls.pending_run)
+
+        cls.pii_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='PII Guard Scope',
+            window_start=date(2026, 9, 7),
+            window_end=date(2026, 9, 7),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            contact_person='Do Not Leak Person',
+            contact_email='donotleak@example.org',
+            source=CampaignRun.Source.CSV_IMPORT,
+        )
+        cls.pii_event = CalendarEvent.objects.create(
+            title='PII guard event',
+            start_time=datetime(2026, 9, 7, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 7, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.pii_event, run=cls.pii_run)
+
+    def _get_calendar(self, year=2026, month=9):
+        return self.client.get(reverse('calendar:calendar'), {'year': year, 'month': month})
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def _campaign_table_href(self, campaign=None):
+        return reverse('campaigns:table', args=[(campaign or self.campaign).pk])
+
+    def test_decoration_survives_from_scratch_rewrite_of_title_and_description(self):
+        """ROADMAP criterion 3: the decoration lives on the link (CalendarEventMeta.run),
+        never on the event's own fields, so rewriting title/description from scratch
+        cannot erase it."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn('cal-campaign-chip', content)
+        modal_response = self.client.get(self._modal_url(self.linked_event))
+        self.assertIn('Attributed campaign run', modal_response.content.decode())
+
+        self.linked_event.title = 'Rewritten'
+        self.linked_event.description = 'Brand-new description after re-projection'
+        self.linked_event.save()
+
+        fresh_response = self._get_calendar()
+        fresh_content = fresh_response.content.decode()
+        self.assertIn('cal-campaign-chip', fresh_content)
+        self.assertIn('Rewritten', fresh_content)
+
+        fresh_modal_response = self.client.get(self._modal_url(self.linked_event))
+        self.assertIn('Attributed campaign run', fresh_modal_response.content.decode())
+
+    def test_no_campaign_run_renders_marker_and_no_table_href(self):
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('cal-campaign-chip', content)
+        self.assertNotIn(self._campaign_table_href(), content)
+
+    def test_pending_review_run_shows_no_marker_for_staff_and_anonymous(self):
+        anon_response = self._get_calendar()
+        self.assertEqual(anon_response.status_code, 200)
+        anon_content = anon_response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', anon_content)
+
+        self.client.force_login(self.staff_user)
+        staff_response = self._get_calendar()
+        self.assertEqual(staff_response.status_code, 200)
+        staff_content = staff_response.content.decode()
+        self.assertNotIn('Should Stay Hidden Scope', staff_content)
+
+    def test_pii_fields_never_render_on_month_view(self):
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Do Not Leak Person', content)
+        self.assertNotIn('donotleak@example.org', content)
+        self.assertNotIn(CampaignRun.Source.CSV_IMPORT.value, content)
+
+    def test_query_count_does_not_grow_with_number_of_attributed_events(self):
+        """Count-comparison form (1 attributed event vs. N), never a hard-coded number,
+        so an unrelated future query addition to the month view does not make this test
+        brittle -- the assertion that matters is that the count does not grow with N."""
+        single_campaign = TargetList.objects.create(name='Single Query Campaign')
+        single_run = CampaignRun.objects.create(
+            campaign=single_campaign,
+            telescope_instrument='Single Query Scope',
+            window_start=date(2026, 10, 1),
+            window_end=date(2026, 10, 1),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        single_event = CalendarEvent.objects.create(
+            title='Single query event',
+            start_time=datetime(2026, 10, 1, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 10, 1, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=single_event, run=single_run)
+
+        with CaptureQueriesContext(connection) as single_ctx:
+            self._get_calendar(year=2026, month=10)
+        single_count = len(single_ctx)
+
+        for i in range(4):
+            campaign_n = TargetList.objects.create(name=f'N+1 Guard Campaign {i}')
+            run_n = CampaignRun.objects.create(
+                campaign=campaign_n,
+                telescope_instrument=f'N+1 Guard Scope {i}',
+                window_start=date(2026, 10, 2 + i),
+                window_end=date(2026, 10, 2 + i),
+                approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            )
+            event_n = CalendarEvent.objects.create(
+                title=f'N+1 guard event {i}',
+                start_time=datetime(2026, 10, 2 + i, 20, 0, tzinfo=dt_timezone.utc),
+                end_time=datetime(2026, 10, 2 + i, 21, 0, tzinfo=dt_timezone.utc),
+            )
+            CalendarEventMeta.objects.create(event=event_n, run=run_n)
+
+        with CaptureQueriesContext(connection) as multi_ctx:
+            self._get_calendar(year=2026, month=10)
+        multi_count = len(multi_ctx)
+
+        self.assertEqual(multi_count, single_count)

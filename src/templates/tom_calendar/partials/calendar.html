@@ -99,6 +99,23 @@
     position: relative;
     padding-left: 10px;
   }
+  /* Phase 33 Plan 02 (ANNOT-02, D-10/D-11): compact campaign-attribution marker.
+     color: currentColor -- an all-day entry sets its own foreground inline via the
+     text_color_for_bg WCAG-AA computation against the proposal fill; inheriting
+     currentColor keeps the chip legible on every proposal fill, the neutral classical
+     fill, and the white cell alike, instead of failing contrast on a dark fill like
+     #005f9e / #5b2080 / #9e1c1c with a hard-coded glyph colour (33-REVIEWS.md Agreed
+     Concern 6).
+     flex-shrink: 0 -- .cal-event-timed is display flex with .cal-event-title already
+     flex 1 and min-width 0; without this the chip is a shrinkable flex item and gets
+     squeezed or clipped in a narrow day cell. */
+  .cal-campaign-chip {
+    color: currentColor;
+    flex-shrink: 0;
+    margin-right: 2px;
+    font-size: 0.7rem;
+    line-height: 1;
+  }
   .cal-event-classical::before {
     /* quick-260724-vb0: the stripe's outward-facing sides (left/top/bottom, which
        border the white day cell -- and, on a terminal-status chip, the composited
@@ -220,6 +237,7 @@
               {% status_border_css event.title as status_border %}
               {% text_color_for_bg bg_color as text_color %}
               {% telescope_stripe_color event.telescope as tel_color %}
+              {% campaign_decoration event as campaign_deco %}
               <div class="cal-event cal-event-all-day-row"
                    data-proposal="{{ bg_color }}"
                    hx-get="{% url 'calendar:update-event' event.id %}"
@@ -231,6 +249,9 @@
                 {% else %}
                 <div class="cal-event-all-day{% if bg_color == neutral_color %} cal-event-classical{% endif %}" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}{% if bg_color == neutral_color %} --tel-color: {{ tel_color }};{% endif %}">
                 {% endif %}
+                  {% if campaign_deco %}
+                  <span class="cal-campaign-chip" title="{{ campaign_deco.campaign_name }}">&#9873;</span>
+                  {% endif %}
                   {{ event.title|truncatechars:18 }}
                   {% if event.active_todo_count %}
                   ({{ event.active_todo_count }})
@@ -241,6 +262,7 @@
             {% for event in day.events %}
               {% proposal_color event.proposal as bg_color %}
               {% status_border_css event.title as status_border %}
+              {% campaign_decoration event as campaign_deco %}
               {% if event.telescope_label_meta.is_verified == False %}
               <div class="cal-event cal-event-timed"
                    data-proposal="{{ bg_color }}"
@@ -256,6 +278,9 @@
               {% endif %}
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
                 <span class="cal-event-bullet" style="color: {{ bg_color }};">▌</span>
+                {% if campaign_deco %}
+                <span class="cal-campaign-chip" title="{{ campaign_deco.campaign_name }}">&#9873;</span>
+                {% endif %}
                 <span class="cal-event-title">
                   {{ event.title|truncatechars:16 }}
                   {% if event.active_todo_count %}
