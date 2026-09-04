@@ -857,6 +857,59 @@ def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]
     return run, 'unchanged'
 
 
+def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | int | None) -> int:
+    """Clear an event's attribution to ``run`` and take its audit stamps with it (D-16).
+
+    The inverse of :func:`adopt_event_into_run`: where that function links an event to a
+    run, this one is the single writer that clears the link again, for every call site that
+    needs to (RESEARCH.md Pitfall 2) -- the attribution-undo view's conditional per-pair
+    clear, the reconciler's bulk detach step, and the admin's standalone clear branch. Like
+    its mirror, it never touches a ``CalendarEvent`` field and never removes a row --
+    clearing an attribution is a change to three link/audit values on the companion row,
+    nothing else (ROADMAP criterion 4).
+
+    The run filter is not a defensive nicety: without it, a stale or tampered caller could
+    clear a confirmation made for a DIFFERENT run than the one actually named (T-29-19) -- a
+    human attribution elsewhere always outranks an automated or stale-POST clear. And
+    because clearing the link erases the very fields that recorded who confirmed it, the
+    audit stamps are cleared together with the link in the same write, so no row can go on
+    displaying a confirmation for an attribution that no longer exists (D-16).
+
+    Args:
+        events: the event(s) to unlink -- a single ``CalendarEvent`` instance, a bare event
+            primary key, or a queryset/iterable of event primary keys/instances to clear in
+            bulk.
+        run: the ``CampaignRun`` (or its primary key) the event(s) must currently be linked
+            to for the clear to apply. Passing ``None``, or a run whose primary key is
+            ``None``, changes nothing.
+
+    Returns:
+        int: the number of companion rows actually changed. ``0`` means no row matched
+            (already unlinked, linked to a different run, or the resolved run had no
+            primary key) -- the caller can use this to gate its own follow-on writes
+            (28-REVIEW WR-01).
+    """
+    run_pk = getattr(run, 'pk', run)
+    if not run_pk:
+        # 33-REVIEWS.md Agreed Concern 2 / T-33-21: bail out here, before building any
+        # filter at all. A None run would otherwise build a lookup keyed on a null run,
+        # which in SQL matches every companion row whose link is ALREADY empty -- silently
+        # wiping confirmation stamps on rows that belong to no attribution the caller ever
+        # named. Do not delete this guard as redundant.
+        return 0
+
+    if isinstance(events, CalendarEvent):
+        event_filter = {'event_id': events.pk}
+    elif isinstance(events, int):
+        event_filter = {'event_id': events}
+    else:
+        event_filter = {'event__in': events}
+
+    return CalendarEventMeta.objects.filter(run_id=run_pk, **event_filter).update(
+        run=None, confirmed_by=None, confirmed_at=None
+    )
+
+
 def adopt_event_into_run(event: CalendarEvent, run: CampaignRun) -> bool:
     """Attribution bridge (Phase 32, ADAPT-05): attach a pre-existing ``CalendarEvent`` to
     ``run`` via its ``CalendarEventMeta`` companion row, instead of letting a fresh

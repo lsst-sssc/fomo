@@ -25,6 +25,7 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import campaign_attribution
 from solsys_code.campaign_attribution import candidates_for_event, event_attribution_backlog
+from solsys_code.campaign_utils import unlink_event_from_run
 from solsys_code.campaign_views import AttributionQueueView
 from solsys_code.models import (
     CalendarEventDismissal,
@@ -985,3 +986,127 @@ class TestQueueDrainsToEmpty(AttributionViewTestBase):
         self.assertIn('Attribution complete', content)
         self.assertIn('None still have no matching run', content)
         self.assertNotIn('0 orphan', content)
+
+
+class TestUnlinkEventFromRun(AttributionViewTestBase):
+    """Plan 33-04 Task 1: ``unlink_event_from_run()`` is the single writer that clears an
+    event's attribution -- ``run``, ``confirmed_by`` and ``confirmed_at`` together -- and
+    refuses to touch anything the caller did not explicitly name."""
+
+    def _linked_meta(self, run=None, night_offset: int = 0):
+        """One event whose companion row is linked to `run` (default self.campaign_run)
+        with populated audit stamps -- the "currently attributed" starting state most of
+        these tests need."""
+        event = self._make_event(night_offset=night_offset)
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = run or self.campaign_run
+        meta.confirmed_by = self.staff_user
+        meta.confirmed_at = datetime(2026, 7, 1, 12, 0, tzinfo=dt_timezone.utc)
+        meta.save()
+        return event, meta
+
+    def test_clears_the_matching_run_and_returns_one(self):
+        event, meta = self._linked_meta()
+
+        changed = unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(changed, 1)
+        meta.refresh_from_db()
+        self.assertIsNone(meta.run_id)
+        self.assertIsNone(meta.confirmed_by_id)
+        self.assertIsNone(meta.confirmed_at)
+
+    def test_wrong_run_returns_zero_and_changes_nothing(self):
+        event, meta = self._linked_meta()
+
+        changed = unlink_event_from_run(event, self.other_run)
+
+        self.assertEqual(changed, 0)
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+        self.assertEqual(meta.confirmed_by_id, self.staff_user.pk)
+        self.assertIsNotNone(meta.confirmed_at)
+
+    def test_no_companion_row_returns_zero_and_raises_nothing(self):
+        event = CalendarEvent.objects.create(
+            title='No companion row at all',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+
+        changed = unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(changed, 0)
+
+    def test_already_unlinked_row_returns_zero_and_leaves_audit_fields(self):
+        # _make_event()'s companion row starts with run=None (RESEARCH.md Pitfall 2 shape).
+        event = self._make_event()
+
+        changed = unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(changed, 0)
+
+    def test_null_run_returns_zero_and_never_touches_an_already_unlinked_rows_audit_fields(self):
+        """T-33-21 / 33-REVIEWS.md Agreed Concern 2: run=None must never build a
+        run_id=None filter, which would match every already-unlinked companion row and
+        wipe audit stamps that belong to no attribution at all."""
+        stamped_at = datetime(2026, 6, 1, 8, 0, tzinfo=dt_timezone.utc)
+        event = self._make_event(night_offset=1)
+        meta = CalendarEventMeta.objects.get(event=event)
+        # run stays unset (the fixture's default), but the audit fields are stale-populated
+        # -- exactly the second-row shape 33-REVIEWS.md's concern names.
+        meta.confirmed_by = self.staff_user
+        meta.confirmed_at = stamped_at
+        meta.save()
+
+        changed = unlink_event_from_run(event, None)
+
+        self.assertEqual(changed, 0)
+        meta.refresh_from_db()
+        self.assertIsNone(meta.run_id)
+        self.assertEqual(meta.confirmed_by_id, self.staff_user.pk)
+        self.assertEqual(meta.confirmed_at, stamped_at)
+
+    def test_campaign_run_shaped_argument_with_no_pk_behaves_like_none(self):
+        event, meta = self._linked_meta()
+        unsaved_run = CampaignRun(campaign=self.campaign, telescope_instrument='FTN/MuSCAT3')
+        self.assertIsNone(unsaved_run.pk)
+
+        changed = unlink_event_from_run(event, unsaved_run)
+
+        self.assertEqual(changed, 0)
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+
+    def test_verification_flag_is_never_touched(self):
+        event, meta = self._linked_meta()
+        meta.is_verified = False
+        meta.save(update_fields=['is_verified'])
+
+        unlink_event_from_run(event, self.campaign_run)
+
+        meta.refresh_from_db()
+        self.assertFalse(meta.is_verified)
+
+    def test_neither_event_nor_companion_row_is_deleted(self):
+        event, meta = self._linked_meta()
+        event_count_before = CalendarEvent.objects.count()
+        meta_count_before = CalendarEventMeta.objects.count()
+
+        unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+        self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_clears_every_matching_row_in_a_multi_row_filter(self):
+        event_a, meta_a = self._linked_meta(night_offset=0)
+        event_b, meta_b = self._linked_meta(night_offset=1)
+
+        events = CalendarEvent.objects.filter(pk__in=[event_a.pk, event_b.pk])
+        changed = unlink_event_from_run(events, self.campaign_run)
+
+        self.assertEqual(changed, 2)
+        meta_a.refresh_from_db()
+        meta_b.refresh_from_db()
+        self.assertIsNone(meta_a.run_id)
+        self.assertIsNone(meta_b.run_id)
