@@ -7,6 +7,7 @@ files:
   - solsys_code/campaign_reconciler.py:381
   - solsys_code/campaign_reconciler.py:406
   - solsys_code/tests/test_campaign_reconciler.py
+resolves_phase: 35
 ---
 
 ## Problem
@@ -43,3 +44,7 @@ on the raise happening for the update-only path (check
 `campaign_views.py`). Add/adjust a regression test asserting an idempotent
 re-reconcile of an existing multi-night run performs no sun-event computation
 (e.g. mock `campaign_reconciler.sun_event` and assert not called).
+
+## v2.4 routing note (2026-09-03)
+
+v2.4 Phase 35 (Allocation Layer & Classical Cutover) rewrites `_reconcile_classical_nights()`'s per-night `RUN:{pk}:{date}` projection into allocation events (ALLOC-01/05). The no-churn early-exit this todo asks for should be built into the new allocation projector rather than patched into the code being retired.

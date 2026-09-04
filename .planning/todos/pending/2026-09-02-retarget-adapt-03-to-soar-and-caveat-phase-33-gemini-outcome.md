@@ -7,6 +7,7 @@ files:
   - solsys_code/models.py
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
+resolves_phase: 34
 ---
 
 ## Problem
@@ -84,3 +85,7 @@ Evidence: `.planning/debug/gemini-vs-soar-facility-scope.md` (diagnosed session)
 `G-31-3` in `.planning/phases/31-foundation-spikes-run-identity-unattended-invocation/31-UAT.md`,
 and the correction section appended to
 `.planning/phases/31-foundation-spikes-run-identity-unattended-invocation/31-DECISION.md`.
+
+## v2.4 routing note (2026-09-03)
+
+v2.3's ADAPT-03 and Phase 33 no longer exist (milestone superseded by v2.4). The intent — SOAR as a second source of robotic `ObservationRecord`s flowing through the same path as LCO ones, distinct from the submission-echo Gemini path — is carried by v2.4's PROJ-01 ("every LCO/SOAR `ObservationRecord`"), SCHED-08 and DISCOVER-01, and the Gemini no-read-back caveat by ANNOT-03. All land in Phase 34 (The Observation Projector & Trigger). The `SOAR_QUEUE` source value already shipped in plan 32-01 Task 1 (`f03553a`).
