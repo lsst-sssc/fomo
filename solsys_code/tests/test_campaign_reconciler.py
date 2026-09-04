@@ -503,6 +503,123 @@ class TestAttributedNightSkip(CampaignReconcilerTestBase):
         meta.refresh_from_db()
         self.assertEqual(meta.run_id, run.pk)
 
+    def test_facility_url_keyed_attributed_event_skips_its_night(self):
+        """D-01's Phase 34 case: a facility-URL-keyed attributed event (not just a
+        blank-url one) also skips its night -- the skip query carries no blank-url
+        restriction."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/777777/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+
+
+class TestAttributedEventsSurviveReconcile(CampaignReconcilerTestBase):
+    """D-04 proof (ROADMAP criterion 2): an attributed non-`RUN:` event -- blank-url or
+    facility-URL-keyed alike -- is byte-identical across a `reconcile_run()` call, and a
+    second call over the same state remains idempotent."""
+
+    def _snapshot(self, event: CalendarEvent, meta: CalendarEventMeta) -> tuple:
+        return (
+            event.url,
+            event.title,
+            event.description,
+            event.start_time,
+            event.end_time,
+            event.telescope,
+            event.instrument,
+            meta.run_id,
+            meta.is_verified,
+            meta.confirmed_by_id,
+            meta.confirmed_at,
+        )
+
+    def test_blank_url_attributed_event_survives_reconcile(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+        event = CalendarEvent.objects.create(
+            title='FTN MuSCAT3',
+            url='',
+            description='Ingested by load_telescope_runs',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        meta = CalendarEventMeta.objects.create(event=event, run=run, is_verified=False)
+        before = self._snapshot(event, meta)
+
+        result = reconcile_run(run)
+
+        event.refresh_from_db()
+        meta.refresh_from_db()
+        self.assertEqual(self._snapshot(event, meta), before)
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 0)
+
+    def test_facility_url_keyed_attributed_event_survives_reconcile(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/999999/',
+            description='Synced by sync_lco_observation_calendar',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        meta = CalendarEventMeta.objects.create(event=event, run=run, is_verified=True)
+        before = self._snapshot(event, meta)
+
+        result = reconcile_run(run)
+
+        event.refresh_from_db()
+        meta.refresh_from_db()
+        self.assertEqual(self._snapshot(event, meta), before)
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 0)
+
+    def test_second_reconcile_over_attributed_events_is_idempotent(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+        event = CalendarEvent.objects.create(
+            title='FTN MuSCAT3',
+            url='https://observe.lco.global/api/requestgroups/888888/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        meta = CalendarEventMeta.objects.create(event=event, run=run)
+        before = self._snapshot(event, meta)
+
+        first = reconcile_run(run)
+        second = reconcile_run(run)
+
+        event.refresh_from_db()
+        meta.refresh_from_db()
+        self.assertEqual(self._snapshot(event, meta), before)
+        self.assertEqual(first.skipped_nights, 1)
+        self.assertEqual(second.skipped_nights, 1)
+        self.assertEqual(second.created, 0)
+        self.assertEqual(second.updated, 0)
+        self.assertEqual(CalendarEvent.objects.count(), 1)
+
 
 class TestClassicalStage1(CampaignReconcilerTestBase):
     """RECON-02's classical half: one dip-corrected event per night under date-bearing
@@ -707,6 +824,56 @@ class TestRecordEventNonInterference(CampaignReconcilerTestBase):
         reconcile_run(run)
         record_event.refresh_from_db()
         self.assertEqual(record_event.modified, modified_before)
+
+    def test_record_derived_event_attributed_via_meta_is_then_skipped(self):
+        """Copies this class's fixture and additionally creates the CalendarEventMeta link
+        -- the night is then skipped instead of getting a minted RUN: event alongside the
+        record-derived one, because the attribution link (not CampaignRunObservation) is
+        what the reconciler reads (D-14, RESEARCH.md Pitfall 4)."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(
+            source=CampaignRun.Source.LCO_QUEUE,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        target = NonSiderealTargetFactory.create()
+        record_owner = User.objects.create(username='record-owner-attributed')
+        scheduled_start = datetime(2026, 8, 2, 3, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = datetime(2026, 8, 2, 5, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=record_owner,
+            facility='LCO',
+            observation_id='666666',
+            status='COMPLETED',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={'proposal': 'TEST'},
+        )
+        expected_start, expected_end = record_time_window(record)
+        record_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/666666/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=expected_start,
+            end_time=expected_end,
+        )
+        CampaignRunObservation.objects.create(run=run, observation_record=record)
+        CalendarEventMeta.objects.create(event=record_event, run=run)
+
+        result = reconcile_run(run)
+
+        record_event.refresh_from_db()
+        self.assertEqual(record_event.url, 'https://observe.lco.global/api/requestgroups/666666/')
+        # The record's site-local night (Aug 2, Australia/Sydney) is now skipped -- only
+        # the un-attributed first night (Aug 1) gets a minted RUN: event.
+        n_nights = (window_end - window_start).days + 1
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertEqual(CalendarEvent.objects.count(), 1 + (n_nights - 1))
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_end.isoformat()}').exists())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_start.isoformat()}').exists())
 
 
 class TestContainerRecordEventNonInterference(CampaignReconcilerTestBase):
@@ -1018,6 +1185,46 @@ class TestCrossRunOwnershipGuards(CampaignReconcilerTestBase):
         for pk in pks:
             self.assertFalse(CalendarEvent.objects.filter(pk=pk).exists())
             self.assertFalse(CalendarEventMeta.objects.filter(event_id=pk).exists())
+
+    def test_reconcile_reports_blocked_for_a_night_attributed_to_a_different_run(self):
+        """D-02: a RUN:{pk}:{date} event whose companion row points at a DIFFERENT run is
+        reported as blocked by reconcile_run(run_a) itself, and meta.run_id is never reset
+        to run_a."""
+        night = date(2026, 8, 1)
+        run_a = self._make_run(window_start=night, window_end=night)
+        run_b = self._make_run(telescope_instrument='Other Telescope/Instrument')
+        event = CalendarEvent.objects.create(
+            title='Foreign attribution',
+            url=f'RUN:{run_a.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run_b)
+
+        result = reconcile_run(run_a)
+
+        self.assertGreaterEqual(result.blocked, 1)
+        event.refresh_from_db()
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run_b.pk)
+
+    def test_run_owned_night_event_is_refreshed_in_place_url_unchanged(self):
+        """D-03: an existing RUN:{pk}:{date} event attributed to this same run is still
+        refreshed in place (title/description) -- this phase un-keys nothing."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        event_pk = event.pk
+
+        run.observation_details = 'Updated observation details'
+        run.save(update_fields=['observation_details'])
+        result = reconcile_run(run)
+
+        event.refresh_from_db()
+        self.assertEqual(event.pk, event_pk)
+        self.assertEqual(event.url, f'RUN:{run.pk}:{night.isoformat()}')
+        self.assertIn('Updated observation details', event.description)
+        self.assertEqual(result.updated, 1)
 
 
 class TestWindowEndBeforeWindowStart(CampaignReconcilerTestBase):
