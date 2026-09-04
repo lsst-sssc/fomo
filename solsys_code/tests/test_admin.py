@@ -32,11 +32,16 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from tom_calendar.models import CalendarEvent
-from tom_observations.models import ObservationRecord
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory, SiderealTargetFactory
 
-from solsys_code.admin import CalendarEventMetaInline, CampaignRunAdmin, CampaignRunObservationInline
+from solsys_code.admin import (
+    CalendarEventMetaAdmin,
+    CalendarEventMetaInline,
+    CampaignRunAdmin,
+    CampaignRunObservationInline,
+)
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 
@@ -1097,3 +1102,108 @@ class SourceProvenanceTwoStepBypassTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.pending_csv_import.refresh_from_db()
         self.assertEqual(self.pending_csv_import.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+
+
+class CalendarEventMetaObservationLinksReadOnlyTests(TestCase):
+    """PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group are read-only on
+    both CalendarEventMetaAdmin (the standalone change form) and CalendarEventMetaInline
+    (the CampaignRun change page) -- only the observation projector (Phase 34) writes
+    either value, so no staff surface may bind them. Mirrors
+    CalendarEventMetaStandaloneAdminAuditStampTests' pattern for confirmed_by/confirmed_at.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='obs-links-readonly-admin', email='obs-links-readonly@example.test', password='pw'
+        )
+        cls.target = NonSiderealTargetFactory.create()
+        cls.record = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.superuser,
+            facility='LCO',
+            observation_id='obs-links-readonly-1',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        cls.other_record = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.superuser,
+            facility='LCO',
+            observation_id='obs-links-readonly-2',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        cls.group = ObservationGroup.objects.create(name='obs-links-readonly-group')
+        cls.event = CalendarEvent.objects.create(
+            title='PROJ-04 read-only exposure event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.meta = CalendarEventMeta.objects.create(
+            event=cls.event, is_verified=True, observation_record=None, observation_group=None
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+        self.factory = RequestFactory()
+
+    def _change_url(self):
+        return reverse('admin:solsys_code_calendareventmeta_change', args=[self.event.pk])
+
+    def _staff_request(self):
+        request = self.factory.get(self._change_url())
+        request.user = self.superuser
+        return request
+
+    def test_standalone_admin_get_readonly_fields_lists_both_links(self) -> None:
+        admin_obj = CalendarEventMetaAdmin(CalendarEventMeta, django_admin.site)
+        readonly = admin_obj.get_readonly_fields(self._staff_request(), self.meta)
+        self.assertIn('event', readonly)
+        self.assertIn('confirmed_by', readonly)
+        self.assertIn('confirmed_at', readonly)
+        self.assertIn('observation_record', readonly)
+        self.assertIn('observation_group', readonly)
+
+    def test_inline_get_readonly_fields_lists_both_links(self) -> None:
+        inline = CalendarEventMetaInline(CampaignRun, django_admin.site)
+        readonly = inline.get_readonly_fields(self._staff_request(), self.meta)
+        self.assertIn('confirmed_by', readonly)
+        self.assertIn('confirmed_at', readonly)
+        self.assertIn('observation_record', readonly)
+        self.assertIn('observation_group', readonly)
+
+    def test_change_form_does_not_expose_observation_links_as_editable(self) -> None:
+        response = self.client.get(self._change_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('name="observation_record"', content)
+        self.assertNotIn('name="observation_group"', content)
+
+    def test_posting_an_observation_record_value_does_not_bind(self) -> None:
+        response = self.client.post(
+            self._change_url(),
+            {
+                'run': '',
+                'is_verified': 'on',
+                'observation_record': str(self.other_record.pk),
+                '_save': 'Save',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertIsNone(self.meta.observation_record_id)
+
+    def test_posting_an_observation_group_value_does_not_bind(self) -> None:
+        response = self.client.post(
+            self._change_url(),
+            {
+                'run': '',
+                'is_verified': 'on',
+                'observation_group': str(self.group.pk),
+                '_save': 'Save',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertIsNone(self.meta.observation_group_id)

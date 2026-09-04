@@ -72,10 +72,10 @@ class CalendarEventMetaInlineFormSet(BaseInlineFormSet):
 
 
 class CalendarEventMetaInline(admin.TabularInline):
-    """D-06: a row appearing here means the calendar event is owned by this run. Removing
-    the `run` value on a row un-owns the event without deleting the companion row itself
-    (CalendarEventMeta.run is SET_NULL, not CASCADE) -- the row, and its is_verified
-    history, survive.
+    """D-06/D-17: a row appearing here means the calendar event is attributed to this run.
+    Clearing the `run` value on a row un-attributes the event without deleting the companion
+    row itself (CalendarEventMeta.run is SET_NULL, not CASCADE) -- the row, and its
+    is_verified history and audit fields, survive.
 
     WR-08: `event` is this model's primary key, so it is frozen on existing rows via
     CalendarEventMetaInlineFormSet -- add and delete are the only operations on the link
@@ -85,13 +85,19 @@ class CalendarEventMetaInline(admin.TabularInline):
     here for the same reason CampaignRunObservationInline's are -- CampaignRunAdmin.
     save_formset is the only place that sets them, so a staff member can never hand-type
     either value through this form; a submitted value is simply not bound.
+
+    PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group are also read-only
+    here -- only the observation projector (Phase 34) writes them, never a staff form.
     """
 
     model = CalendarEventMeta
     formset = CalendarEventMetaInlineFormSet
     fk_name = 'run'
     extra = 0
-    readonly_fields = ['confirmed_by', 'confirmed_at']
+    # D-09: only the observation projector writes observation_record/observation_group, so
+    # no staff surface may bind them -- the same mechanism already protecting
+    # confirmed_by/confirmed_at.
+    readonly_fields = ['confirmed_by', 'confirmed_at', 'observation_record', 'observation_group']
 
 
 class CampaignRunObservationInline(admin.TabularInline):
@@ -294,7 +300,10 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
     # widget) and an arbitrary confirmed_at, fabricating attribution to someone who never
     # made the decision. Applies on add as well as change -- save_model() below is the only
     # writer of either field on this surface.
-    readonly_fields = ['confirmed_by', 'confirmed_at']
+    # PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group join the same list
+    # for the same reason -- only the observation projector (Phase 34) writes these links,
+    # so no staff surface may bind them.
+    readonly_fields = ['confirmed_by', 'confirmed_at', 'observation_record', 'observation_group']
 
     def get_readonly_fields(self, request, obj=None):
         """CR-02: extend the WR-08 primary-key freeze to the standalone change form.
@@ -341,7 +350,7 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
         this model's primary key: on the add form the pk is populated from the submitted
         `event`, and a row with that pk cannot exist yet, so ``prior_run_id`` is correctly
         ``None`` either way. `save_formset`'s own comment already records that "no row exists
-        yet" and "row exists with run=None" both mean "not owned by any run", so the
+        yet" and "row exists with run=None" both mean "not attributed to any run", so the
         transition condition fires identically here.
 
         Three branches, in order, before delegating to ``super().save_model()``:
