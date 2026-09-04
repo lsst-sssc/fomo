@@ -19,7 +19,7 @@
    Below this point, this file starts as an exact copy of the upstream partial with one
    new block inserted after </form> and before the Todo list heading (D-08).
 {% endcomment %}
-{% load django_bootstrap5 attribution_display_extras %}
+{% load django_bootstrap5 attribution_display_extras calendar_display_extras %}
 <form {% if action == "create" %}
         hx-post="{% url 'calendar:create-event' %}"
       {% else %}
@@ -118,6 +118,11 @@
 {% with run=event.telescope_label_meta.run %}
 {% if run.is_publicly_visible %}
     {% comment %}
+       D-14/D-17 (Phase 33): CalendarEventMeta.run means the event is ATTRIBUTED to that
+       run, never that the run OWNS it. The block below is rendered from that link at
+       request time via campaign_decoration() -- nothing is written to the event's own
+       fields -- so a base-layer re-projection of this event's title/description cannot
+       erase the attribution.
        D-09/D-10: gated on the model's own visibility property so a run not yet approved
        renders no link here, for every user including staff -- mirrors
        CampaignRunTableView.get_queryset()'s existing exclude(). There is no run-detail view
@@ -128,29 +133,34 @@
        modal is a non-staff-visible surface, contact fields are PII gated elsewhere by
        contact_public_opt_in, and source is staff-only per D-18.
     {% endcomment %}
+    {% campaign_decoration event as deco %}
+    {% if deco %}
     <div class="row">
       <div class="col">
         <label>
-          Campaign run
+          Attributed campaign run
           <small>
-            <a href="{% url 'campaigns:table' run.campaign_id %}" target="_blank">View campaign ↗</a>
+            {% if deco.table_url %}
+            <a href="{{ deco.table_url }}" target="_blank">View campaign ↗</a>
+            {% endif %}
           </small>
         </label>
         <div>
-          {{ run.telescope_instrument }}
+          {{ deco.campaign_name }} &mdash; {{ deco.telescope_instrument }}
           {% comment %}
              WR-04: window_start and window_end are guaranteed both-NULL or both-set by
              the campaign_run_window_start_end_null_together CheckConstraint, so gating
              on window_start alone is sufficient -- a TBD run (both NULL) must not render
              the literal "(None-None)" here.
           {% endcomment %}
-          {% if run.window_start %}
-          ({{ run.window_start }}&ndash;{{ run.window_end }})
+          {% if deco.window_start %}
+          ({{ deco.window_start }}&ndash;{{ deco.window_end }})
           {% endif %}
-          &mdash; {{ run.get_run_status_display }}
+          &mdash; {{ deco.run_status_display }}
         </div>
       </div>
     </div>
+    {% endif %}
 {% elif not run and request.user.is_staff %}
     {% comment %}
        27-07 gap closure (27-UAT.md Test 9, T-27-21): `not run` is true both when

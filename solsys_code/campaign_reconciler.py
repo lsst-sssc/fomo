@@ -83,6 +83,9 @@ class ReconcileResult(NamedTuple):
     updated: int = 0
     unchanged: int = 0
     blocked: int = 0
+    skipped_nights: int = 0
+    """Classical nights left untouched because a non-``RUN:`` event is already attributed
+    to this run for that night (D-01, ANNOT-01) -- the reconciler wrote nothing for them."""
     skipped_reason: str | None = None
 
 
@@ -143,8 +146,7 @@ def _split_telescope_instrument(text: str) -> tuple[str, str]:
     instrument halves.
 
     Submitters write this field as ``<telescope>/<instrument>`` or
-    ``<telescope>+<instrument>`` -- the convention ``_adopted_event_for_night()``'s
-    docstring already names. Splits on the FIRST ``/`` or ``+`` delimiter (``maxsplit=1``,
+    ``<telescope>+<instrument>``. Splits on the FIRST ``/`` or ``+`` delimiter (``maxsplit=1``,
     so ``'A/B/C'`` returns ``('A', 'B/C')``, never splitting a second time), and strips
     whitespace from both halves.
 
@@ -287,58 +289,34 @@ def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
     return ReconcileResult(**{action: 1})
 
 
-def _adopted_event_for_night(run: CampaignRun, night, site_zone: ZoneInfo) -> CalendarEvent | None:
-    """D-02's adopt step: find a classical night already attributed to this run.
+def _attributed_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
+    """The set of site-local observing nights already covered by an attributed non-``RUN:``
+    event (D-01, ANNOT-01): a night with an attributed non-``RUN:`` event has no reconciler
+    event -- the same rule Phase 35's allocation handoff will use.
 
-    Queries ``CalendarEventMeta.objects.filter(run_id=run.pk)`` -- rows Phase 28's
-    attribution queue writes once a staff member confirms a ``load_telescope_runs``-created
-    (blank-``url``) event belongs to this run -- and returns the first candidate whose
-    ``start_time``, converted into ``site_zone`` and reduced to ``.date()``, equals
-    ``night``. ``site_zone`` is a ``ZoneInfo`` built once per run (from ``run.site.timezone``)
-    by the caller, not once per night. Ordered by ``event__start_time`` so the pick is
-    deterministic in the (should-never-happen) case that two candidates share a night.
-    Returns None when nothing matches -- the caller then falls through to minting.
+    Runs ONE query, called once per ``_reconcile_classical_nights()`` call, before the
+    per-night loop is entered (33-REVIEWS.md Agreed Concern 5): a predicate called inside
+    ``for i in range(n_nights)`` would issue one ORM round-trip per night, and a multi-week
+    allocation would pay that cost for every night of the window.
 
-    Matches on ``CalendarEventMeta.run_id`` plus the site-local night ONLY (RESEARCH.md
-    Assumption A3, resolved explicitly here): this deliberately does NOT also filter the
-    candidate's stored telescope field against the run's telescope_instrument. The
-    ``CalendarEventMeta.run`` FK is already an explicit, human-confirmed attribution
-    statement written by Phase 28's queue
-    -- layering a free-text telescope comparison on top of an already-confirmed link can
-    only cause a miss (a ``CampaignRun.telescope_instrument`` string like ``'FTN/MuSCAT3'``
-    need not equal a ``load_telescope_runs`` ``telescope`` value like ``'FTN'``), and a miss
-    silently contradicts D-02 by falling through to minting a duplicate event for a night
-    that already has one.
+    Carries NO blank-url restriction, unlike the retired per-night adopt helper this
+    supersedes: a facility-URL-keyed attributed event (a Phase 34 observation event) must
+    match too -- any url outside the ``RUN:`` namespace counts, blank or not.
 
-    ``event__url=''`` (29-REVIEW.md CR-01): candidates are restricted to
-    ``load_telescope_runs``-created, blank-``url`` events, matching this docstring's own
-    stated intent. Without this filter, a run's own STALE bare container event from a prior
-    reconcile under the other key family (see ``_detach_stale_family_events()``) also
-    carries ``CalendarEventMeta.run == run`` and would match here, "adopting" it into a
-    per-night slot -- re-keying its ``url`` while leaving its ``start_time``/``end_time`` at
-    the original whole-window span, since neither field is rewritten on adopt. That silently
-    produced a calendar entry keyed and titled as one observing night but timed as the
-    entire original multi-night window.
+    Args:
+        run: the ``CampaignRun`` being reconciled.
+        site_zone: the run's site timezone, built once by the caller.
 
-    Why re-keying the matched event's ``url`` is safe for the other writer:
-    ``load_telescope_runs`` looks up its own events by ``(telescope, instrument, start_time
-    +/- 5 min)`` and never reads or writes ``url`` at all, so moving the ``url`` here does
-    not break its idempotent lookup -- this is exactly the asymmetry D-02 cites as the
-    reason adopt (not gap-fill) was chosen for classical runs. Accepted consequence carried
-    over from plan 29-01: ``title``/``description`` on an adopted night alternate between
-    this module and ``load_telescope_runs`` on re-ingest -- key stability, not field-write
-    exclusivity, is what D-02's churn analysis guaranteed.
+    Returns:
+        set: the site-local observing ``date``s already covered by an attributed
+        non-``RUN:`` event.
     """
-    candidates = (
-        CalendarEventMeta.objects.filter(run_id=run.pk, event__url='')
+    metas = (
+        CalendarEventMeta.objects.filter(run_id=run.pk)
+        .exclude(event__url__startswith=RUN_URL_NAMESPACE)
         .select_related('event')
-        .order_by('event__start_time')
     )
-    for meta in candidates:
-        event = meta.event
-        if event.start_time.astimezone(site_zone).date() == night:
-            return event
-    return None
+    return {meta.event.start_time.astimezone(site_zone).date() for meta in metas}
 
 
 def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
@@ -353,45 +331,37 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
     (plan 29-03) and the staff-action call sites (plan 29-04) can each apply their own
     already-differentiated handling.
 
-    Per-night resolution order (D-02): (1) an existing event already keyed at
-    ``run_night_url(run, night)`` -- the common idempotent-rerun case; (2) failing that,
-    ``_adopted_event_for_night(...)`` -- a ``load_telescope_runs``-created event already
-    attributed to this run for this night via Phase 28's confirmation queue, re-keyed in
-    place; (3) failing both, mint a new event. Both (1) and (2) go through ``_may_write()``
-    before any write -- the ownership rule stays the first condition checked (RECON-05
+    Per-night resolution order (D-01, ANNOT-01 -- retires the D-02 adopt/re-key contract):
+    (1) an event already keyed at ``run_night_url(run, night)`` -- the common
+    idempotent-rerun case; (2) otherwise, if the night is already attributed to this run
+    through a non-``RUN:`` event (``_attributed_nights()``), skip the night entirely -- no
+    event is created, modified or re-keyed for it, only the ``skipped_nights`` counter moves;
+    (3) otherwise, mint a new event. ``_may_write()`` remains the first condition checked on
+    every write -- resolution step (1) still goes through it before any write (RECON-05
     defence in depth; see T-29-05).
 
     Field authority deliberately differs from the container branch: on **create**, this
     writes ``title``, ``description``, ``target_list``, ``telescope``, ``instrument``,
-    ``start_time``, ``end_time``; on **update of an event that already exists (including an
-    adopted one)**, it writes only ``title``, ``description``, ``target_list`` and (for an
-    adopted event) the new ``url`` -- ``start_time``, ``end_time``, ``telescope`` and
-    ``instrument`` are never rewritten after creation, for two reasons: (a) a night adopted
-    from ``load_telescope_runs`` already carries that command's own correct ``telescope``/
-    ``instrument`` pair and its file-derived BoN/EoN window, which is more precise than this
-    coarse sunset-to-sunrise span, and neither must be overwritten by this run's free text;
-    (b) ``load_telescope_runs`` keys its own idempotent lookup on ``(telescope, instrument,
-    start_time +/- 5 min)``, so moving ``start_time`` off the value it keys on would make its
-    next re-ingest create a second event for the same night. Refreshing ``title``/``description`` is still required
-    so a ``mark_cancelled``/``mark_weather_failure`` decision reaches this run's events,
-    exactly as ``_set_run_status()`` does today. Accepted consequence: for an adopted
-    night, ``title``/``description`` alternate between this module and
-    ``load_telescope_runs`` on re-ingest -- key stability, not field-write exclusivity, is
-    what D-02's churn analysis guaranteed.
+    ``start_time``, ``end_time``; on **update of an event that already exists at its own
+    ``RUN:`` key**, it writes only ``title``, ``description`` and ``target_list`` --
+    ``start_time``, ``end_time``, ``telescope`` and ``instrument`` are never rewritten after
+    creation. Refreshing ``title``/``description`` is still required so a
+    ``mark_cancelled``/``mark_weather_failure`` decision reaches this run's events, exactly
+    as ``_set_run_status()`` does today.
     """
-    totals = {'created': 0, 'updated': 0, 'unchanged': 0, 'blocked': 0}
+    totals = {'created': 0, 'updated': 0, 'unchanged': 0, 'blocked': 0, 'skipped_nights': 0}
     n_nights = (run.window_end - run.window_start).days + 1
     site_zone = ZoneInfo(run.site.timezone)
+    attributed_nights = _attributed_nights(run, site_zone)
     for i in range(n_nights):
         night = run.window_start + timedelta(days=i)
         sunset, sunrise = sun_event(run.site, night, kind='sun')
         url = run_night_url(run, night)
 
         existing = CalendarEvent.objects.filter(url=url).first()
-        adopting = False
-        if existing is None:
-            existing = _adopted_event_for_night(run, night, site_zone)
-            adopting = existing is not None
+        if existing is None and night in attributed_nights:
+            totals['skipped_nights'] += 1
+            continue
 
         if not _may_write(existing, run):
             logger.warning('Reconcile blocked: event pk=%s is not owned by run pk=%s.', existing.pk, run.pk)
@@ -416,11 +386,7 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
             fields = common_fields
 
         if dry_run:
-            # An about-to-be-adopted night must report 'updated', not 'created' -- merge
-            # the new url into the preview fields so preview_calendar_event_action() sees
-            # the re-key, exactly as the real write below would.
-            preview_fields = {**fields, 'url': url} if adopting else fields
-            totals[preview_calendar_event_action(existing, preview_fields)] += 1
+            totals[preview_calendar_event_action(existing, fields)] += 1
             continue
 
         if existing is None:
@@ -444,8 +410,7 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
     forward-pointer). Nothing else detects a re-classification (an admin correction to one
     of those fields on an already-reconciled run): without this, the OLD family's events
     would either be silently orphaned forever -- no code path ever revisits them again --
-    or, worse, accidentally "adopted" into the new family and corrupted (see
-    ``_adopted_event_for_night()``).
+    or, worse, silently miscounted as belonging to a family they no longer match.
 
     Detaching (``CalendarEventMeta.run = None``) -- rather than deleting the
     ``CalendarEvent`` rows outright, or merely logging/flagging -- returns them to Phase 28's

@@ -10,6 +10,8 @@ Provides simple_tags consumed by calendar.html (Plan 02):
   parallel to telescope_color but gated against the gray fill (quick-260724-vb0)
 - visible_classical_telescopes: current-month classical-schedule telescope legend data (quick-260724-osc)
 - neutral_slot_color: assignment tag exposing NEUTRAL_SLOT_COLOR to templates (quick-260724-osc)
+- campaign_decoration: read-only campaign attribution decoration for event_form.html,
+  rendered from CalendarEventMeta.run at request time (ANNOT-02, Phase 33 D-10/D-11/D-13/D-14)
 
 All values returned by proposal_color, telescope_color, and status_border_css are drawn
 from fixed internal constants — the raw proposal/telescope/title string is used only as
@@ -21,6 +23,11 @@ import hashlib
 from collections import defaultdict
 
 from django import template
+from django.core.exceptions import ObjectDoesNotExist
+from django.urls import reverse
+from tom_calendar.models import CalendarEvent
+
+from solsys_code.models import NO_CAMPAIGN_LABEL
 
 register = template.Library()
 
@@ -421,3 +428,56 @@ def visible_classical_telescopes(weeks) -> list[dict]:
         )
 
     return result
+
+
+@register.simple_tag
+def campaign_decoration(event: CalendarEvent) -> dict | None:
+    """Read-only campaign attribution decoration for a CalendarEvent (ANNOT-02, D-10/D-11/D-13/D-14).
+
+    Renders the campaign an event is attributed to from ``CalendarEventMeta.run`` at
+    request time -- never from a value written into the event's own fields -- so a
+    base-layer re-projection of this event's title/description cannot erase the decoration.
+    Reads only: never calls ``.save()``, ``.update()``, ``.create()`` or ``get_or_create()``,
+    and never imports the views module or the SPICE-kernel-loading ephemeris module.
+
+    Never raises. Returns ``None`` for an event with no companion row (guards the reverse
+    one-to-one ``telescope_label_meta`` accessor against ``ObjectDoesNotExist``), for a
+    companion row whose ``run`` is unset, and for a run that is not publicly visible
+    (``CampaignRun.is_publicly_visible`` -- keeps a pending-review run's campaign name off
+    the public calendar).
+
+    Args:
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: exactly the keys ``campaign_name``, ``run_pk``, ``table_url``,
+        ``telescope_instrument``, ``window_start``, ``window_end`` and
+        ``run_status_display``, or ``None``. Never exposes any PII contact field or the
+        run's provenance-only ingest field -- those stay behind their existing
+        staff/PII gates.
+    """
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    run = meta.run
+    if run is None or not run.is_publicly_visible:
+        return None
+
+    table_url = None
+    if run.campaign_id is not None:
+        # Built with reverse() in Python, not {% url %} in the template (RESEARCH.md
+        # Pitfall 1): 'campaigns:table' resolves against path('<int:pk>/', ...), and a null
+        # campaign pk raises NoReverseMatch, which on the public calendar is a whole-page
+        # failure -- is_publicly_visible alone does not cover campaign nullness.
+        table_url = f"{reverse('campaigns:table', args=[run.campaign_id])}#run-{run.pk}"
+
+    return {
+        'campaign_name': run.campaign.name if run.campaign_id is not None else NO_CAMPAIGN_LABEL,
+        'run_pk': run.pk,
+        'table_url': table_url,
+        'telescope_instrument': run.telescope_instrument,
+        'window_start': run.window_start,
+        'window_end': run.window_end,
+        'run_status_display': run.get_run_status_display(),
+    }

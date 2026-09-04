@@ -378,8 +378,11 @@ class TestContainerIdempotency(CampaignReconcilerTestBase):
         self.assertEqual(CalendarEventMeta.objects.count(), 0)
 
 
-class TestAdoptAndRekey(CampaignReconcilerTestBase):
-    """D-02: an already-attributed classical night is re-keyed in place, never duplicated."""
+class TestAttributedNightSkip(CampaignReconcilerTestBase):
+    """D-01: a classical night already attributed to this run through a non-`RUN:` event is
+    skipped entirely -- the reconciler mints nothing for it and never adopts, re-keys or
+    writes any field on the attributed event (ANNOT-01, retires the D-02 adopt/re-key
+    contract)."""
 
     def _make_adopted_event(self, night: date, *, minutes_offset: int = 7) -> CalendarEvent:
         """A CalendarEvent shaped like one `load_telescope_runs` creates: blank url,
@@ -401,57 +404,76 @@ class TestAdoptAndRekey(CampaignReconcilerTestBase):
             end_time=end_time,
         )
 
-    def test_adopted_night_is_rekeyed_in_place_and_not_duplicated(self):
+    def _snapshot(self, event: CalendarEvent) -> tuple:
+        return (
+            event.url,
+            event.title,
+            event.description,
+            event.start_time,
+            event.end_time,
+            event.telescope,
+            event.instrument,
+        )
+
+    def test_attributed_night_is_skipped_and_event_untouched(self):
         first_night = date(2026, 8, 1)
         second_night = date(2026, 8, 2)
         run = self._make_run(window_start=first_night, window_end=second_night)
-        adopted_event = self._make_adopted_event(first_night)
-        adopted_pk = adopted_event.pk
-        meta = CalendarEventMeta.objects.create(event=adopted_event, run=run, is_verified=False)
-        adopted_start, adopted_end = adopted_event.start_time, adopted_event.end_time
+        attributed_event = self._make_adopted_event(first_night)
+        attributed_pk = attributed_event.pk
+        meta = CalendarEventMeta.objects.create(event=attributed_event, run=run, is_verified=False)
+        before = self._snapshot(attributed_event)
 
         result = reconcile_run(run)
 
-        # One adopted (re-keyed) event + one minted for the second night -- never 3.
+        # One attributed event (left byte-identical) + one minted for the un-attributed
+        # second night -- never a third, and no re-key of the attributed event's url.
         self.assertEqual(CalendarEvent.objects.count(), 2)
-        adopted_event.refresh_from_db()
-        self.assertEqual(adopted_event.pk, adopted_pk)
-        self.assertEqual(adopted_event.url, f'RUN:{run.pk}:{first_night.isoformat()}')
-        # The file-derived window survived untouched.
-        self.assertEqual(adopted_event.start_time, adopted_start)
-        self.assertEqual(adopted_event.end_time, adopted_end)
-        self.assertEqual(adopted_event.title, event_title(run))
+        attributed_event.refresh_from_db()
+        self.assertEqual(attributed_event.pk, attributed_pk)
+        self.assertEqual(self._snapshot(attributed_event), before)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{first_night.isoformat()}').exists())
         meta.refresh_from_db()
         self.assertFalse(meta.is_verified)
         self.assertEqual(meta.run_id, run.pk)
         second_night_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{second_night.isoformat()}')
-        self.assertNotEqual(second_night_event.pk, adopted_pk)
-        self.assertEqual(result.updated, 1)
+        self.assertNotEqual(second_night_event.pk, attributed_pk)
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertEqual(result.updated, 0)
         self.assertEqual(result.created, 1)
 
-    def test_rekey_is_sticky_and_second_reconcile_reports_unchanged(self):
+    def test_skip_is_sticky_and_second_reconcile_reports_skipped_again(self):
         first_night = date(2026, 8, 1)
         second_night = date(2026, 8, 2)
         run = self._make_run(window_start=first_night, window_end=second_night)
-        adopted_event = self._make_adopted_event(first_night)
-        CalendarEventMeta.objects.create(event=adopted_event, run=run)
+        attributed_event = self._make_adopted_event(first_night)
+        meta = CalendarEventMeta.objects.create(event=attributed_event, run=run)
+        before = self._snapshot(attributed_event)
 
         first = reconcile_run(run)
-        self.assertEqual(first.updated, 1)
+        self.assertEqual(first.skipped_nights, 1)
         self.assertEqual(first.created, 1)
-        adopted_event.refresh_from_db()
-        modified_after_first = adopted_event.modified
+        self.assertEqual(first.updated, 0)
+        attributed_event.refresh_from_db()
+        self.assertEqual(self._snapshot(attributed_event), before)
+        modified_after_first = attributed_event.modified
 
         second = reconcile_run(run)
 
-        self.assertEqual(second.unchanged, 2)
+        self.assertEqual(second.skipped_nights, 1)
+        self.assertEqual(second.unchanged, 1)
+        self.assertEqual(second.created, 0)
+        self.assertEqual(second.updated, 0)
         self.assertEqual(CalendarEvent.objects.count(), 2)
-        adopted_event.refresh_from_db()
-        self.assertEqual(adopted_event.modified, modified_after_first)
+        attributed_event.refresh_from_db()
+        self.assertEqual(attributed_event.modified, modified_after_first)
+        self.assertEqual(self._snapshot(attributed_event), before)
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, run.pk)
 
-    def test_adopt_matches_on_site_local_night_not_naive_utc_date(self):
+    def test_skip_matches_on_site_local_night_not_naive_utc_date(self):
         """Mirrors 26-DECISION.md's measured event pk=54 case: a start_time whose naive-UTC
-        date is one day before its Australia/Sydney site-local date is still adopted for
+        date is one day before its Australia/Sydney site-local date is still skipped for
         the site-local observing night, not the naive-UTC one."""
         night = date(2026, 7, 9)
         run = self._make_run(window_start=night, window_end=night)
@@ -459,7 +481,7 @@ class TestAdoptAndRekey(CampaignReconcilerTestBase):
         # local -- naive-UTC date is 2026-07-08, one day before the site-local night.
         start_time = datetime(2026, 7, 8, 14, 8, 19, tzinfo=dt_timezone.utc)
         end_time = start_time + timedelta(hours=8)
-        adopted_event = CalendarEvent.objects.create(
+        attributed_event = CalendarEvent.objects.create(
             title='FTN MuSCAT3',
             url='',
             telescope='FTN',
@@ -467,13 +489,19 @@ class TestAdoptAndRekey(CampaignReconcilerTestBase):
             start_time=start_time,
             end_time=end_time,
         )
-        CalendarEventMeta.objects.create(event=adopted_event, run=run)
+        meta = CalendarEventMeta.objects.create(event=attributed_event, run=run)
+        before = self._snapshot(attributed_event)
 
-        reconcile_run(run)
+        result = reconcile_run(run)
 
-        adopted_event.refresh_from_db()
-        self.assertEqual(adopted_event.url, f'RUN:{run.pk}:{night.isoformat()}')
+        attributed_event.refresh_from_db()
+        self.assertEqual(self._snapshot(attributed_event), before)
         self.assertEqual(CalendarEvent.objects.count(), 1)
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertEqual(result.updated, 0)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, run.pk)
 
 
 class TestClassicalStage1(CampaignReconcilerTestBase):

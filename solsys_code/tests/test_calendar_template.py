@@ -471,6 +471,23 @@ class EventModalCampaignRunLinkTest(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.event_with_tbd_run, run=cls.tbd_run)
 
+        # Phase 33 (ANNOT-02, D-11): an approved run whose campaign is None must still
+        # render its decoration -- table_url is None (no href), campaign_name is
+        # NO_CAMPAIGN_LABEL.
+        cls.no_campaign_run = CampaignRun.objects.create(
+            campaign=None,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 7, 10),
+            window_end=date(2026, 7, 10),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.event_with_no_campaign_run = CalendarEvent.objects.create(
+            title='Event with no-campaign run',
+            start_time=datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_no_campaign_run, run=cls.no_campaign_run)
+
     def _modal_url(self, event):
         return reverse('calendar:update-event', args=[event.id])
 
@@ -483,6 +500,27 @@ class EventModalCampaignRunLinkTest(TestCase):
         content = response.content.decode()
         self.assertIn('FTN/MuSCAT3', content)
         self.assertIn(self._campaign_table_href(), content)
+
+    def test_approved_run_shows_attributed_label_and_anchored_campaign_link(self):
+        """D-13/D-17: the block's label reads 'Attributed campaign run' (never 'owned'),
+        and the campaign-table link is anchored to this run's row."""
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Attributed campaign run', content)
+        self.assertIn(f'{self._campaign_table_href()}#run-{self.approved_run.pk}', content)
+
+    def test_no_campaign_run_renders_200_with_telescope_instrument_and_no_campaign_link(self):
+        """D-11/T-33-01: a run with no campaign still decorates (telescope/instrument,
+        run status), but table_url is None so no campaign-table link is emitted -- the
+        modal must never raise NoReverseMatch on a null campaign pk."""
+        response = self.client.get(self._modal_url(self.event_with_no_campaign_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('NTT/EFOSC2', content)
+        self.assertIn('Attributed campaign run', content)
+        self.assertNotIn('View campaign', content)
+        self.assertNotIn(self._campaign_table_href(), content)
 
     def test_pending_run_shows_no_run_block_to_anonymous_visitor(self):
         response = self.client.get(self._modal_url(self.event_with_pending_run))
@@ -498,6 +536,9 @@ class EventModalCampaignRunLinkTest(TestCase):
         content = response.content.decode()
         self.assertNotIn('Should Stay Hidden Scope', content)
         self.assertNotIn(self._campaign_table_href(), content)
+        # ANNOT-02: a pending-review run's event renders no decoration for any visitor,
+        # staff included.
+        self.assertNotIn('Attributed campaign run', content)
 
     def test_null_run_companion_row_renders_200_with_no_run_block(self):
         response = self.client.get(self._modal_url(self.event_with_null_run))
