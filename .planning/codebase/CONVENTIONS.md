@@ -201,6 +201,27 @@ def get_site(name: str) -> Observatory:
 - Exception: `ephem_utils.py` loads and caches SPICE ephemeris kernels at module load time (`fomo_furnish_spiceypy()`), acceptable for initialization
 - Module-level constants like `SITES` dict documented above their definition
 
+## Paired Documentation
+
+**Paired docs are part of the deliverable**, not follow-up polish (see `CLAUDE.md`, "Paired docs are part of the deliverable"):
+
+- Behavior changes (new extraction logic, parameters, fixture shapes — not pure refactors or typo fixes) to a module with a paired demo notebook must update that notebook in the same plan, with real executed output.
+- Notebooks live under `docs/notebooks/pre_executed/` and are regenerated with `jupyter nbconvert --to notebook --execute --inplace`, then committed **with output** (pre-commit strips notebook output everywhere else).
+- Any page under `docs/runbooks/` whose documented behavior the change affects must be updated too (scoped by directory, not filename; today's only page is `docs/runbooks/telescope_runs_calendar.rst`, wired into `docs/index.rst`).
+- The paired artifacts go in the plan's `files_modified` up front; the plan-checker treats a miss as a CLAUDE.md compliance gap and the verifier treats a stale update as a must-have gap.
+
+**Current module -> notebook map** (extend when a new module gets its own demo notebook):
+
+| Module | Notebook |
+|--------|----------|
+| `solsys_code/telescope_runs.py` | `telescope_runs_demo.ipynb` |
+| `solsys_code/management/commands/load_telescope_runs.py` | `load_telescope_runs_demo.ipynb` |
+| `solsys_code/management/commands/sync_lco_observation_calendar.py` | `sync_lco_observation_calendar_demo.ipynb` |
+| `solsys_code/management/commands/sync_gemini_observation_calendar.py` | `sync_gemini_observation_calendar_demo.ipynb` |
+| `solsys_code/management/commands/backfill_lco_observations.py` | `backfill_lco_observations_demo.ipynb` |
+| `solsys_code/campaign_reconciler.py`, `solsys_code/management/commands/reconcile_campaign_runs.py` | `reconcile_campaign_runs_demo.ipynb` |
+| `solsys_code/campaign_views.py`, `campaign_forms.py`, `campaign_attribution.py`, `campaign_reconciler.py` (v2.2 lifecycle, Phases 26-29) | `campaign_lifecycle_demo.ipynb` |
+
 ## Code Quality Standards
 
 **Docstring enforcement:**
