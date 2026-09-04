@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 33
-current_phase_name: series-identity-reconciler-inversion
-status: planning
-stopped_at: Phase 33 context gathered
-last_updated: "2026-09-04T14:06:24.427Z"
-last_activity: 2026-09-03
-last_activity_desc: v2.4 roadmap created (Phases 33-37, 29/29 requirements mapped)
-state_head: c8ecf5771087861521e397801b29c8164b49ba79
+current_phase_name: Series Identity & Reconciler Inversion
+status: executing
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-09-04T15:24:54.463Z"
+last_activity: 2026-09-04
+last_activity_desc: Phase 33 execution started
+state_head: a740fcd0393c422effe735df8e7837280f210b13
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 superseded)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** v2.4 roadmap created — Phases 33-37, 29/29 requirements mapped. Next: `/gsd-discuss-phase 33`
+**Current focus:** Phase 33 — Series Identity & Reconciler Inversion
 
 ## Current Position
 
-Phase: 33 (series-identity-reconciler-inversion) — READY TO EXECUTE
-Plan: —
-Status: Roadmap created, awaiting phase discussion
-Last activity: 2026-09-03 — v2.4 roadmap created (Phases 33-37, 29/29 requirements mapped)
+Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-09-04 — Phase 33 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -169,6 +169,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 31 P03 | 25min | 3 tasks | 2 files |
 | Phase 31 P04 | 20min | 3 tasks | 1 files |
 | Phase 31 P05 | ~25min | 2 tasks | 2 files |
+| Phase 33 P01 | 73min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 31]: SCHED-07: cron+flock inside the FOMO container confirmed against real host facts - flock present, 0/3 existing FOMO cron entries guarded, heartbeat egress confirmed (HTTP 301); no container build definition exists in the repo, container/AWS scopes remain unconfirmed
 - [Phase 31]: Phase 31 published both spike verdicts (schema/identity SCHEMA-01..03, scheduling SCHED-07) to docs/design/run_identity_and_unattended_invocation_spike.rst, closing roadmap Success Criterion 5's first half; Sphinx build and targeted 6-module regression both green, source tree/test suite proven unchanged.
 - [Phase 31, gap-closure plan 31-06]: UAT gap G-31-3 closed — corrected both committed artifacts' facility framing: Gemini has no facility read-back (`GEMFacility`'s status/URL methods are hardcoded stubs; `sync_gemini_observation_calendar` never imports that class and only replays FOMO's own prior submissions), SOAR is the facility that actually has one (inherits a real portal read path from `LCOFacility`, already handled inside the existing LCO sync command). All four verdicts unchanged. Three Phase 32/33 consequences (missing `SOAR_QUEUE` vocabulary value, ADAPT-03 re-target, Phase 33 Gemini-infeasibility caveat) recorded as a pending todo, not actioned here.
+- [Phase 33]: Phase 33 Plan 01: retired _adopted_event_for_night() outright rather than leaving it as dead code; _attributed_nights() carries no blank-url restriction so a facility-URL-keyed attributed event is skipped too; campaign_decoration() builds its campaign-table link with reverse() in Python so a null campaign_id returns table_url=None instead of NoReverseMatch; event_title() dropped its campaign-name branch entirely -- the decoration tag is now the single campaign label everywhere.
 
 ### Pending Todos
 
@@ -292,9 +294,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T03:05:00.547Z
-Stopped at: Phase 33 context gathered
-Resume file: .planning/phases/33-series-identity-reconciler-inversion/33-CONTEXT.md
+Last session: 2026-09-04T15:24:54.416Z
+Stopped at: Completed 33-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
