@@ -164,7 +164,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   3. A user looking at a calendar event attributed to a campaign run sees the campaign decoration (label, link back to the run), and that decoration is still there after the event's own title and description are rewritten from scratch
   4. Clearing `CalendarEventMeta.run` removes only the decoration; the event itself is untouched, and no event is deleted by the unlink
 
-**Plans**: 3/5 plans executed (3 waves)
+**Plans**: 4/5 plans executed (3 waves)
 **Wave 1**
 
 - [x] 33-01-PLAN.md — Reconciler inversion + attributed-event decoration (tracer): skip the attributed night, retire the adopt/re-key path, render the campaign from the link in the event modal, drop the campaign name from reconciler titles (wave 1)
@@ -173,7 +173,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 33-02-PLAN.md — Month-cell campaign marker, N+1-free prefetch, and the anchored/highlighted run row the decoration links to (wave 2)
-- [ ] 33-04-PLAN.md — One shared `unlink_event_from_run()` helper across all three clear-the-link call sites; clearing removes only the decoration and deletes nothing (wave 2)
+- [x] 33-04-PLAN.md — One shared `unlink_event_from_run()` helper across all three clear-the-link call sites; clearing removes only the decoration and deletes nothing (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -288,7 +288,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 | 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete | 2026-09-01 |
 | 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 6/6 | Complete (milestone superseded) | 2026-09-02 |
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
-| 33. Series Identity & Reconciler Inversion | v2.4 | 3/5 | In Progress|  |
+| 33. Series Identity & Reconciler Inversion | v2.4 | 4/5 | In Progress|  |
 | 34. The Observation Projector & Trigger | v2.4 | 0/TBD | Not started | - |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 0/TBD | Not started | - |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |

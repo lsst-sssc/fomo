@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 33
 current_phase_name: Series Identity & Reconciler Inversion
 status: executing
-stopped_at: Completed 33-02-PLAN.md
-last_updated: "2026-09-04T16:32:55.263Z"
+stopped_at: Completed 33-04-PLAN.md
+last_updated: "2026-09-04T17:03:14.522Z"
 last_activity: 2026-09-04
 last_activity_desc: Phase 33 execution started
-state_head: adb84689b865f283cd4bb88abb551e8c7b61783d
+state_head: b48e49dbfeb7c6dbe321eb1cf052cc165e332679
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 ## Current Position
 
 Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-09-04 — Phase 33 execution started
 
@@ -172,6 +172,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33 P01 | 73min | 3 tasks | 7 files |
 | Phase 33-series-identity-reconciler-inversion P03 | 40min | 3 tasks | 6 files |
 | Phase 33 P02 | ~39min | 3 tasks | 6 files |
+| Phase 33 P04 | 28min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -208,6 +209,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33]: Phase 33 Plan 01: retired _adopted_event_for_night() outright rather than leaving it as dead code; _attributed_nights() carries no blank-url restriction so a facility-URL-keyed attributed event is skipped too; campaign_decoration() builds its campaign-table link with reverse() in Python so a null campaign_id returns table_url=None instead of NoReverseMatch; event_title() dropped its campaign-name branch entirely -- the decoration tag is now the single campaign label everywhere.
 - [Phase 33]: 33-02: marker glyph is a single flag character styled by .cal-campaign-chip (currentColor + flex-shrink:0), never a new color constant — keeps the chip from competing with the entry's own accessible foreground or the proposal fill
 - [Phase 33]: 33-02: CampaignRunTable row_attrs resolves pk via Accessor(...).resolve(record, quiet=True), returning None (never 'run-None') so django-tables2 drops the id attribute for an unresolvable pk — works identically for staff model-instance rows and non-staff .values() dict rows
+- [Phase 33]: 33-04: unlink_event_from_run() in campaign_utils.py is now the single writer that clears a CalendarEventMeta attribution -- run, confirmed_by and confirmed_at together -- with a null-run guard that returns 0 before any queryset is built (T-33-21); all three existing clear-the-link call sites (undo view, reconciler detach, admin clear branch) route through it. The reconciler's detach step now also clears the audit stamps (D-16, closing a stale-confirmation leak) via a local import that breaks the circular dependency with campaign_utils' own top-level import of campaign_reconciler.
 
 ### Pending Todos
 
@@ -298,8 +300,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T16:32:46.433Z
-Stopped at: Completed 33-02-PLAN.md
+Last session: 2026-09-04T17:03:14.457Z
+Stopped at: Completed 33-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
