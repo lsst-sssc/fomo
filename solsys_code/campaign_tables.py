@@ -53,6 +53,33 @@ TELESCOPE_CLASS_LABELS = {choice.value: choice.label for choice in CampaignRun.T
 _FREE_TEXT_ATTRS = {'td': {'class': 'text-truncate', 'style': 'max-width: 200px;'}}
 
 
+def _campaign_run_row_id(record):
+    """Anchor id for a CampaignRunTable row: ``run-{pk}`` (D-13, Phase 33 Plan 02).
+
+    Consumed by the calendar decoration's campaign-table link
+    (``calendar_display_extras.campaign_decoration()``'s ``table_url``, built as
+    ``.../campaigns/<pk>/#run-{run.pk}``) -- do not delete this even though nothing in
+    this module reads it back; the far end of the link is a row id in rendered HTML,
+    not a Python reference.
+
+    Resolved via ``Accessor('pk').resolve(record, quiet=True)`` rather than
+    ``record.pk``: staff rows are ``CampaignRun`` model instances but non-staff rows are
+    dicts from ``CampaignRunTableView.get_queryset()``'s ``.values()`` projection, and
+    only the Accessor form works for both -- the same reason ``render_run_status``/
+    ``render_approval_status``/``render_telescope_class`` below use it.
+
+    Returns ``None`` (never the string ``'run-None'``) when the pk cannot be resolved.
+    django-tables2's ``AttributeDict._iteritems()`` drops any key whose value is
+    ``None``, so this deliberately omits the ``id`` attribute entirely rather than
+    emitting a literal ``id="run-None"`` that could collide with a genuine anchor target
+    (33-REVIEWS.md Agreed Concern 6).
+    """
+    pk = Accessor('pk').resolve(record, quiet=True)
+    if pk is None:
+        return None
+    return f'run-{pk}'
+
+
 class CampaignRunTable(tables.Table):
     """Spreadsheet-parity CampaignRun table (D-09), PII-gated via the view's ``exclude=`` kwarg."""
 
@@ -86,6 +113,12 @@ class CampaignRunTable(tables.Table):
         template_name = 'django_tables2/bootstrap4-responsive.html'
         attrs = {'class': 'table table-bordered table-sm'}
         empty_text = 'No runs match these filters. Clear filters to see all runs for this campaign.'
+        # D-13: gives the calendar decoration's campaign-table link a real landing spot --
+        # see _campaign_run_row_id's docstring for why this must never be deleted as
+        # "unused". ApprovalQueueTable (a subclass below) inherits this unchanged.
+        row_attrs = {'id': _campaign_run_row_id}
+        # _campaign_run_row_id returns None (never the literal 'run-None') when the pk
+        # cannot be resolved, so django-tables2's AttributeDict drops the id attribute.
 
     observation_details = tables.Column(attrs=_FREE_TEXT_ATTRS)
     weather = tables.Column(attrs=_FREE_TEXT_ATTRS)

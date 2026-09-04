@@ -2,6 +2,16 @@
 {% load django_tables2 %}
 {% block title %}{{ campaign.name }} — Observing Runs{% endblock %}
 
+<style>
+  /* D-13 (Phase 33 Plan 02): highlight the run row the calendar decoration's
+     #run-{pk} link lands on. Pure CSS -- no JavaScript -- so it works whether the
+     fragment arrives on first load or via an in-page hash change. */
+  tr:target {
+    background-color: #fff3cd;
+    box-shadow: inset 4px 0 0 0 #ffc107;
+  }
+</style>
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="font-weight-bold mb-0">{{ campaign.name }} — Observing Runs</h4>

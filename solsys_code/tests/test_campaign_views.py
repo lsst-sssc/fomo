@@ -18,7 +18,7 @@ from django.urls import reverse
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.campaign_tables import CampaignRunTable
+from solsys_code.campaign_tables import CampaignRunTable, _campaign_run_row_id
 from solsys_code.models import CampaignRun
 
 # Cycle of run_status values for the "filler" rows -- deliberately excludes PLANNED/OBSERVED/
@@ -629,3 +629,33 @@ class TestCampaignDetailIntegration(CampaignViewTestBase):
         response = self.client.get(self.list_url())
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'<a class="nav-link" href="{self.list_url()}">Campaigns</a>')
+
+
+class TestCampaignRunRowAnchor(CampaignViewTestBase):
+    """D-13 (Phase 33 Plan 02): every CampaignRunTable row carries an id="run-{pk}"
+    anchor -- the landing spot for the calendar decoration's campaign-table link -- for
+    staff (model-instance rows) and anonymous (dict rows from .values()) readers alike,
+    and a row whose pk cannot be resolved carries no id attribute at all.
+    """
+
+    def test_staff_get_contains_run_row_id(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(f'id="run-{self.most_recent_run.pk}"', content)
+        self.assertNotIn('id="run-None"', content)
+
+    def test_anonymous_get_contains_run_row_id(self):
+        """The dict-row branch -- the case _campaign_run_row_id's Accessor form exists
+        for and the one most likely to regress."""
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(f'id="run-{self.most_recent_run.pk}"', content)
+        self.assertNotIn('id="run-None"', content)
+
+    def test_row_attrs_callable_returns_none_for_unresolvable_pk(self):
+        """Direct unit assertion on the callable itself: an empty dict is the cheapest
+        record with no resolvable pk -- must return None, never the string 'run-None'."""
+        self.assertIsNone(_campaign_run_row_id({}))
