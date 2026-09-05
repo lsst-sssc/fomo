@@ -1,0 +1,25 @@
+{% comment %}
+   Phase 33 Plan 06 (WR-07/IN-01/IN-03/IN-05): the single campaign-attribution chip
+   definition, included from both the all-day and timed month-grid loops in
+   calendar.html so there is exactly one markup source for the marker. Guarded on
+   {% if deco %} so an unattributed or non-publicly-visible event (campaign_decoration()
+   already returns None for both) includes nothing at all.
+
+   role="img" plus a title/aria-label pair gives the glyph an accessible name instead of
+   being tooltip-only (IN-03). table_url is None exactly when the run has no campaign
+   (campaign_decoration() only sets it inside `if run.campaign_id is not None`), so it
+   is reused here as the existing campaign-presence signal rather than adding a new key
+   to the tag's "exactly these keys" contract. The no-campaign branch names the run
+   itself (IN-05/IN-01) so it reads distinctly from the campaign-bearing tooltip and
+   gives campaign_decoration()'s run_pk key a rendered consumer.
+
+   Relies entirely on Django's autoescape for both attributes -- no |safe, no manual
+   escaping (T-33-06-02).
+{% endcomment %}
+{% if deco %}
+{% if deco.table_url %}
+<span class="cal-campaign-chip" role="img" title="{{ deco.campaign_name }}" aria-label="Campaign: {{ deco.campaign_name }}">&#9873;</span>
+{% else %}
+<span class="cal-campaign-chip" role="img" title="Attributed run #{{ deco.run_pk }} {{ deco.campaign_name }}" aria-label="Attributed run #{{ deco.run_pk }} {{ deco.campaign_name }}">&#9873;</span>
+{% endif %}
+{% endif %}

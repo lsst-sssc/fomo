@@ -455,6 +455,12 @@ def campaign_decoration(event: CalendarEvent) -> dict | None:
         ``run_status_display``, or ``None``. Never exposes any PII contact field or the
         run's provenance-only ingest field -- those stay behind their existing
         staff/PII gates.
+
+        Rendered consumers (Phase 33 Plan 06, IN-01): ``run_pk`` is consumed by
+        ``campaign_chip.html``'s no-campaign tooltip and accessible name -- the only
+        place this key is rendered. ``table_url`` doubles as the campaign-presence
+        signal that partial branches on (it is set only inside ``if run.campaign_id is
+        not None`` above, so ``table_url is None`` is equivalent to "no campaign").
     """
     try:
         meta = event.telescope_label_meta

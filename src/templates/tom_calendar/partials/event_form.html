@@ -115,26 +115,30 @@
    docs/runbooks/telescope_runs_calendar.rst, "Why doesn't the calendar pop-up show a
    'Campaign run' block?".
 {% endcomment %}
-{% with run=event.telescope_label_meta.run %}
-{% if run.is_publicly_visible %}
-    {% comment %}
-       D-14/D-17 (Phase 33): CalendarEventMeta.run means the event is ATTRIBUTED to that
-       run, never that the run OWNS it. The block below is rendered from that link at
-       request time via campaign_decoration() -- nothing is written to the event's own
-       fields -- so a base-layer re-projection of this event's title/description cannot
-       erase the attribution.
-       D-09/D-10: gated on the model's own visibility property so a run not yet approved
-       renders no link here, for every user including staff -- mirrors
-       CampaignRunTableView.get_queryset()'s existing exclude(). There is no run-detail view
-       today (D-06 defers it to Phase 28, where the attribution UI it would host gets
-       built), so the run's identity is rendered inline here rather than relying on the
-       link alone to answer "which run is this" -- and the link below targets the campaign
-       table instead. Contact fields and source are deliberately never rendered here: this
-       modal is a non-staff-visible surface, contact fields are PII gated elsewhere by
-       contact_public_opt_in, and source is staff-only per D-18.
-    {% endcomment %}
-    {% campaign_decoration event as deco %}
-    {% if deco %}
+{% comment %}
+   D-14/D-17 (Phase 33): CalendarEventMeta.run means the event is ATTRIBUTED to that
+   run, never that the run OWNS it. The block below is rendered from that link at
+   request time via campaign_decoration() -- nothing is written to the event's own
+   fields -- so a base-layer re-projection of this event's title/description cannot
+   erase the attribution.
+   WR-07 (Phase 33 Plan 06): campaign_decoration()'s own `run is None or not
+   run.is_publicly_visible` rule is now the ONLY place that visibility gate lives --
+   there is no second, independent `run.is_publicly_visible` gate in this template.
+   A run not yet approved therefore renders no link here, for every user including
+   staff -- mirrors CampaignRunTableView.get_queryset()'s existing exclude(). There is
+   no run-detail view today (D-06 defers it to Phase 28, where the attribution UI it
+   would host gets built), so the run's identity is rendered inline here rather than
+   relying on the link alone to answer "which run is this" -- and the link below
+   targets the campaign table instead. Contact fields and source are deliberately
+   never rendered here: this modal is a non-staff-visible surface, contact fields are
+   PII gated elsewhere by contact_public_opt_in, and source is staff-only per D-18.
+   A reverse one-to-one accessor with no row (event.telescope_label_meta) resolves
+   silently in a template because ObjectDoesNotExist sets silent_variable_failure --
+   campaign_decoration() itself guards this, so no {% with %} wrapper is needed here
+   to pre-resolve it.
+{% endcomment %}
+{% campaign_decoration event as deco %}
+{% if deco %}
     <div class="row">
       <div class="col">
         <label>
@@ -160,8 +164,7 @@
         </div>
       </div>
     </div>
-    {% endif %}
-{% elif not run and request.user.is_staff %}
+{% elif not event.telescope_label_meta.run and request.user.is_staff %}
     {% comment %}
        27-07 gap closure (27-UAT.md Test 9, T-27-21): `not run` is true both when
        event.telescope_label_meta has no companion row at all and when the companion row
@@ -190,7 +193,6 @@
     </div>
     {% endif %}
 {% endif %}
-{% endwith %}
 <h6 class="mb-2">Todo list</h6>
 <hr>
 <div id="cal-todos">

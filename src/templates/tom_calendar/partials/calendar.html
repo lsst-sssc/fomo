@@ -249,9 +249,7 @@
                 {% else %}
                 <div class="cal-event-all-day{% if bg_color == neutral_color %} cal-event-classical{% endif %}" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}{% if bg_color == neutral_color %} --tel-color: {{ tel_color }};{% endif %}">
                 {% endif %}
-                  {% if campaign_deco %}
-                  <span class="cal-campaign-chip" title="{{ campaign_deco.campaign_name }}">&#9873;</span>
-                  {% endif %}
+                  {% include 'tom_calendar/partials/campaign_chip.html' with deco=campaign_deco %}
                   {{ event.title|truncatechars:18 }}
                   {% if event.active_todo_count %}
                   ({{ event.active_todo_count }})
@@ -278,9 +276,7 @@
               {% endif %}
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
                 <span class="cal-event-bullet" style="color: {{ bg_color }};">▌</span>
-                {% if campaign_deco %}
-                <span class="cal-campaign-chip" title="{{ campaign_deco.campaign_name }}">&#9873;</span>
-                {% endif %}
+                {% include 'tom_calendar/partials/campaign_chip.html' with deco=campaign_deco %}
                 <span class="cal-event-title">
                   {{ event.title|truncatechars:16 }}
                   {% if event.active_todo_count %}
