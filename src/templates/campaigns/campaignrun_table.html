@@ -2,15 +2,22 @@
 {% load django_tables2 %}
 {% block title %}{{ campaign.name }} — Observing Runs{% endblock %}
 
+{% block additional_css %}
 <style>
   /* D-13 (Phase 33 Plan 02): highlight the run row the calendar decoration's
      #run-{pk} link lands on. Pure CSS -- no JavaScript -- so it works whether the
-     fragment arrives on first load or via an in-page hash change. */
+     fragment arrives on first load or via an in-page hash change. CR-01 (Phase 33
+     Plan 06): a top-level node in a template that extends a parent template is
+     discarded by Django's ExtendsNode -- only content inside a declared block is
+     rendered -- so this element must live inside additional_css, the CSS hook
+     tom_common/base.html declares inside the document head (empty in the parent,
+     so block.super is not needed). */
   tr:target {
     background-color: #fff3cd;
     box-shadow: inset 4px 0 0 0 #ffc107;
   }
 </style>
+{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">

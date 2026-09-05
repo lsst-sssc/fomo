@@ -659,3 +659,70 @@ class TestCampaignRunRowAnchor(CampaignViewTestBase):
         """Direct unit assertion on the callable itself: an empty dict is the cheapest
         record with no resolvable pk -- must return None, never the string 'run-None'."""
         self.assertIsNone(_campaign_run_row_id({}))
+
+    def test_staff_get_contains_tr_target_highlight_rule(self):
+        """CR-01 (Phase 33 Plan 06): the D-13 highlight rule must actually be served in the
+        rendered page, not just sit in the template source outside any rendered block."""
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'tr:target')
+
+    def test_anonymous_get_contains_tr_target_highlight_rule(self):
+        """CR-01, anonymous/dict-row branch -- the highlight rule is page-level CSS, not
+        per-row markup, so it must be served identically regardless of viewer."""
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'tr:target')
+
+    def test_empty_campaign_still_serves_tr_target_highlight_rule(self):
+        """ANNOT-02 empty edge: the highlight rule ships with the page, not with a row --
+        a campaign with zero run rows must still serve it."""
+        response = self.client.get(self.table_url(campaign=self.empty_campaign))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'tr:target')
+
+
+class TestCampaignRunAnchorPagination(CampaignViewTestBase):
+    """WR-08 (Phase 33 Plan 06): pins a known, documented limitation as a tested constraint
+    rather than a silent dead link. The calendar decoration's #run-{pk} campaign-table link
+    carries no page parameter, so it always lands on page 1 -- a run that sorts past page 1
+    under CampaignRunTableView's default window_start-descending order has no id="run-{pk}"
+    anchor in the unpaginated page-1 document at all. See docs/runbooks/telescope_runs_calendar.rst
+    (added by plan 33-08) for the operator-facing wording.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.pagination_campaign = TargetList.objects.create(name='Pagination Campaign')
+        cls.pagination_runs = []
+        for i in range(26):
+            # Descending-distinct window_start values so run i=0 (earliest date, therefore
+            # LAST under window_start-descending sort) is the one run that falls onto page 2
+            # under per_page: 25.
+            window_date = _BASE_DATE + timedelta(days=i)
+            cls.pagination_runs.append(
+                CampaignRun.objects.create(
+                    campaign=cls.pagination_campaign,
+                    telescope_instrument=f'FTN/MuSCAT3-page-{i}',
+                    window_start=window_date,
+                    window_end=window_date,
+                    run_status=CampaignRun.RunStatus.PLANNED,
+                    approval_status=CampaignRun.ApprovalStatus.APPROVED,
+                )
+            )
+        # Oldest window_start -- sorts last (descending), so it's the sole page-2 row.
+        cls.oldest_run = cls.pagination_runs[0]
+
+    def _pagination_table_url(self):
+        return reverse('campaigns:table', kwargs={'pk': self.pagination_campaign.pk})
+
+    def test_oldest_run_has_no_anchor_on_page_1(self):
+        response = self.client.get(self._pagination_table_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(f'id="run-{self.oldest_run.pk}"', response.content.decode())
+
+    def test_oldest_run_anchor_present_on_page_2(self):
+        response = self.client.get(self._pagination_table_url(), {'page': 2})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f'id="run-{self.oldest_run.pk}"', response.content.decode())
