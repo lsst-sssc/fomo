@@ -164,7 +164,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   3. A user looking at a calendar event attributed to a campaign run sees the campaign decoration (label, link back to the run), and that decoration is still there after the event's own title and description are rewritten from scratch
   4. Clearing `CalendarEventMeta.run` removes only the decoration; the event itself is untouched, and no event is deleted by the unlink
 
-**Plans**: 4/5 plans executed (3 waves)
+**Plans**: 5/8 plans executed (3 waves executed, 2 gap-closure waves added 2026-09-04 from 33-REVIEW.md)
 **Wave 1**
 
 - [x] 33-01-PLAN.md — Reconciler inversion + attributed-event decoration (tracer): skip the attributed night, retire the adopt/re-key path, render the campaign from the link in the event modal, drop the campaign name from reconciler titles (wave 1)
@@ -178,6 +178,15 @@ Superseded after five spikes showed that routing observation-precision narrowing
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 33-05-PLAN.md — Paired docs: both demo notebooks re-executed (including D-04's real-database empty diff) and the operator runbook's three affected sections rewritten to attribution (wave 3)
+
+**Gap closure — Wave 1** *(from 33-REVIEW.md: CR-01/CR-02/CR-03 blockers plus WR/IN findings)*
+
+- [ ] 33-06-PLAN.md — CR-01: the D-13 row-highlight CSS actually renders, plus one chip definition with an accessible name and month-view tests that fail for the reason they claim (gap wave 1)
+- [ ] 33-07-PLAN.md — One declaration of what clearing an attribution means, shared by the helper and the admin path, and a dispatch that rejects a string primary key (gap wave 1)
+
+**Gap closure — Wave 2** *(blocked on gap Wave 1 completion)*
+
+- [ ] 33-08-PLAN.md — CR-02/CR-03: the observing night is anchored at local noon and the skip rule is unconditional; the superseded reconciler entry is detached, counted and logged; paired notebooks and runbook re-executed (gap wave 2)
 
 **UI hint**: yes
 
