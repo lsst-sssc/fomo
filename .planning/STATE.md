@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 33
 current_phase_name: Series Identity & Reconciler Inversion
 status: executing
-stopped_at: Completed 33-06-PLAN.md -- CR-01/WR-05/WR-07/IN-01/IN-03/IN-05 closed, WR-08 pinned
-last_updated: "2026-09-06T00:13:48.660Z"
+stopped_at: Completed 33-07-PLAN.md -- WR-02/WR-04/WR-06(code) closed
+last_updated: "2026-09-06T00:56:55.303Z"
 last_activity: 2026-09-05
 last_activity_desc: Phase 33 execution started
-state_head: 7201f4d6d1ca627d08c06c362fe7b142d2799bc1
+state_head: 380e28444901031d1edceca926e20cf7dee33464
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 ## Current Position
 
 Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-09-05 — Phase 33 execution started
 
@@ -175,6 +175,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33 P04 | 28min | 3 tasks | 10 files |
 | Phase 33-series-identity-reconciler-inversion P05 | 44min | 3 tasks | 3 files |
 | Phase 33 P06 | 32min | 3 tasks | 7 files |
+| Phase 33 P07 | 26min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -215,6 +216,9 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33-series-identity-reconciler-inversion]: Phase 33 Plan 05: D-04's real-database diff proof split across two notebook cells to satisfy the plan's cell-ordering verify script; skip-rule demo deletes this run's own already-created event rather than mutating classical_run's window (which is part of its own natural-key lookup).
 - [Phase 33]: 33-06: CR-01 fixed by moving the tr:target style into tom_common/base.html's empty additional_css block -- a top-level node in a template that extends is silently discarded by Django's ExtendsNode.
 - [Phase 33]: 33-06: WR-08's positional-page-resolution fix deferred -- would add a per-event ordered query, contradicting plan 33-02's no-per-event-query must-have; the gap is pinned by a test instead.
+- [Phase 33]: Phase 33: 33-07: UNLINK_CLEARED_FIELDS is the single declaration of what clearing a campaign attribution means, consumed by unlink_event_from_run()'s bulk .update() and CalendarEventMetaAdmin.save_model()'s in-memory clear via a function-local import (WR-02).
+- [Phase 33]: Phase 33: 33-07: unlink_event_from_run() rejects str/bytes events arguments with TypeError, closing the per-character event__in expansion hole (WR-04).
+- [Phase 33]: Phase 33: 33-07: CalendarEventMetaInline's docstring corrected to describe Django's actual rendering -- fk_name='run' produces a hidden InlineForeignKeyField for parent linkage, never an editable widget (WR-06 code-side half).
 
 ### Pending Todos
 
@@ -305,8 +309,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T00:13:48.484Z
-Stopped at: Completed 33-06-PLAN.md -- CR-01/WR-05/WR-07/IN-01/IN-03/IN-05 closed, WR-08 pinned
+Last session: 2026-09-06T00:56:55.089Z
+Stopped at: Completed 33-07-PLAN.md -- WR-02/WR-04/WR-06(code) closed
 Resume file: None
 
 ## Operator Next Steps
