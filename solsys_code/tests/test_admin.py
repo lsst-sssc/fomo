@@ -42,6 +42,7 @@ from solsys_code.admin import (
     CampaignRunAdmin,
     CampaignRunObservationInline,
 )
+from solsys_code.campaign_utils import UNLINK_CLEARED_FIELDS
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 
@@ -312,6 +313,11 @@ class CalendarEventMetaStandaloneAdminAuditStampTests(TestCase):
         self.assertTrue(self.meta.is_verified)
 
     def test_clearing_the_run_clears_the_audit_fields(self) -> None:
+        """33-REVIEW.md WR-02 drift guard: the post-clear assertion below iterates
+        ``UNLINK_CLEARED_FIELDS`` rather than naming ``run``/``confirmed_by``/``confirmed_at``
+        by hand, so this test needs no edit if a fourth key is ever added to that set --
+        iterating the exported set is what makes it a drift guard rather than a duplicate of
+        the constant's own field list."""
         original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
         self._link_to_run_a_with_other_staffer(original_confirmed_at)
         event_snapshot = {
@@ -333,9 +339,8 @@ class CalendarEventMetaStandaloneAdminAuditStampTests(TestCase):
         # left un-synchronised with an `obj.save()` re-persist would pass an in-memory check
         # and fail this one.
         stored = CalendarEventMeta.objects.get(pk=self.event.pk)
-        self.assertIsNone(stored.run_id)
-        self.assertIsNone(stored.confirmed_by_id)
-        self.assertIsNone(stored.confirmed_at)
+        for field, expected_value in UNLINK_CLEARED_FIELDS.items():
+            self.assertEqual(getattr(stored, field), expected_value)
         # ROADMAP criterion 4: clearing the link only ever changes the three link/audit
         # values -- is_verified and the CalendarEvent itself are untouched, and nothing is
         # deleted.
@@ -345,6 +350,39 @@ class CalendarEventMetaStandaloneAdminAuditStampTests(TestCase):
             self.assertEqual(getattr(self.event, field), value)
         self.assertEqual(CalendarEvent.objects.count(), event_count_before)
         self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_clearing_the_run_honours_a_fourth_key_added_to_unlink_cleared_fields(self) -> None:
+        """33-REVIEW.md WR-02, fourth-key drift proof: iterating today's three keys (the test
+        above) cannot distinguish a real loop from three hand-written assignments -- a set
+        with three keys iterated three times looks the same either way. Patching a fourth,
+        sentinel key into ``UNLINK_CLEARED_FIELDS`` and asserting the admin's in-memory clear
+        path (``CalendarEventMetaAdmin.save_model()`` branch 2) honours it, with no edit to
+        ``admin.py``, is what actually proves the branch derives its field set from the
+        constant rather than naming three fields by hand.
+
+        The sentinel is a plain, non-model attribute -- ``CalendarEventMeta`` has only two
+        other nullable columns and both are the PROJ-04 carrier fields this plan's
+        prohibitions forbid touching, so a real field would need a migration and would risk
+        writing a forbidden column. ``patch.dict`` mutates the same dict object the admin's
+        function-local import resolves at call time, so the patched key is visible to
+        ``save_model()`` without any import juggling.
+        """
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+
+        with patch.dict('solsys_code.campaign_utils.UNLINK_CLEARED_FIELDS', {'_wr02_sentinel': None}):
+            obj = CalendarEventMeta.objects.get(pk=self.event.pk)
+            obj._wr02_sentinel = 'not-yet-cleared'
+            obj.run = None
+
+            request = RequestFactory().post(self._change_url())
+            request.user = self.superuser
+            CalendarEventMetaAdmin(CalendarEventMeta, django_admin.site).save_model(request, obj, None, True)
+
+            self.assertIsNone(obj._wr02_sentinel)
+            self.assertIsNone(obj.run_id)
+            self.assertIsNone(obj.confirmed_by_id)
+            self.assertIsNone(obj.confirmed_at)
 
     def test_repointing_the_run_restamps_to_the_acting_user(self) -> None:
         original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
