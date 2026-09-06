@@ -389,22 +389,33 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
             obj.confirmed_by = request.user
             obj.confirmed_at = timezone.now()
         elif obj.run_id is None and prior_run_id is not None:
-            # Branch 2: the link was cleared -- null both audit fields so no row can display
-            # a confirmation for an association that no longer exists. These two in-memory
-            # assignments ARE the in-memory half of the same clear
+            # Branch 2: the link was cleared -- null every field the helper declares so no
+            # row can display a confirmation for an association that no longer exists. This
+            # loop IS the in-memory half of the same clear
             # solsys_code.campaign_utils.unlink_event_from_run() (D-16, plan 33-04) performs
-            # in the database -- that helper is the shared, single definition of what
-            # clearing an attribution means. Kept as a plain in-memory mutation here rather
-            # than also calling the helper: super().save_model() below delegates to
-            # obj.save(), which writes every field of this instance back to the row --
-            # calling the helper first (a separate bulk .update()) would not touch this
-            # in-memory obj, so obj.save() would immediately re-persist whatever
-            # confirmed_by/confirmed_at obj still held over the row the helper just cleared,
-            # making the clear appear to silently fail (33-REVIEWS.md Agreed Concern 3). DO
-            # NOT remove these two lines -- removing them re-persists stale audit values
-            # through obj.save() even though the run link itself still clears correctly.
-            obj.confirmed_by = None
-            obj.confirmed_at = None
+            # in the database -- that helper's UNLINK_CLEARED_FIELDS is the shared, single
+            # definition of what clearing an attribution means (WR-02), and this branch now
+            # derives its field set from it instead of keeping its own hand-written copy, so
+            # a fourth key added to the helper reaches this branch with no edit here. Kept as
+            # a plain in-memory mutation here rather than also calling the helper:
+            # super().save_model() below delegates to obj.save(), which writes every field of
+            # this instance back to the row -- calling the helper first (a separate bulk
+            # .update()) would not touch this in-memory obj, so obj.save() would immediately
+            # re-persist whatever confirmed_by/confirmed_at obj still held over the row the
+            # helper just cleared, making the clear appear to silently fail (33-REVIEWS.md
+            # Agreed Concern 3). DO NOT remove this loop -- removing it re-persists stale
+            # audit values through obj.save() even though the run link itself still clears
+            # correctly.
+            #
+            # Imported here, not at module level: campaign_utils imports campaign_reconciler
+            # at its own top level, which in turn pulls telescope_runs and its astropy
+            # dependency into every Django admin autodiscover -- the same reason
+            # campaign_reconciler._detach_stale_family_events() imports campaign_utils
+            # locally rather than at its own module level.
+            from solsys_code.campaign_utils import UNLINK_CLEARED_FIELDS
+
+            for field, value in UNLINK_CLEARED_FIELDS.items():
+                setattr(obj, field, value)
         # Branch 3 (implicit): run unchanged -- touch neither field.
         super().save_model(request, obj, form, change)
 

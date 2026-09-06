@@ -857,6 +857,21 @@ def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]
     return run, 'unchanged'
 
 
+# 33-REVIEW.md WR-02: the single declaration of what clearing an attribution means, so
+# `unlink_event_from_run()`'s bulk `.update()` and `CalendarEventMetaAdmin.save_model()`'s
+# in-memory clear (solsys_code/admin.py) both derive from the same field set instead of each
+# keeping its own copy -- a fourth key added here reaches both writers with no second edit.
+#
+# `is_verified` and the two PROJ-04 carrier fields (`observation_record`, `observation_group`)
+# must NEVER be added to this set: unlinking a campaign attribution must not touch
+# verification history or the observation projector's links (D-09).
+UNLINK_CLEARED_FIELDS: dict[str, None] = {
+    'run': None,
+    'confirmed_by': None,
+    'confirmed_at': None,
+}
+
+
 def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | int | None) -> int:
     """Clear an event's attribution to ``run`` and take its audit stamps with it (D-16).
 
@@ -866,7 +881,10 @@ def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | 
     clear, the reconciler's bulk detach step, and the admin's standalone clear branch. Like
     its mirror, it never touches a ``CalendarEvent`` field and never removes a row --
     clearing an attribution is a change to three link/audit values on the companion row,
-    nothing else (ROADMAP criterion 4).
+    nothing else (ROADMAP criterion 4). The three fields cleared, and their shared value of
+    ``None``, are the single declaration in :data:`UNLINK_CLEARED_FIELDS` above -- this
+    function's own ``.update()`` and ``CalendarEventMetaAdmin.save_model()``'s in-memory
+    clear both consume it (WR-02), so the two writers cannot drift apart.
 
     The run filter is not a defensive nicety: without it, a stale or tampered caller could
     clear a confirmation made for a DIFFERENT run than the one actually named (T-29-19) -- a
@@ -905,9 +923,7 @@ def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | 
     else:
         event_filter = {'event__in': events}
 
-    return CalendarEventMeta.objects.filter(run_id=run_pk, **event_filter).update(
-        run=None, confirmed_by=None, confirmed_at=None
-    )
+    return CalendarEventMeta.objects.filter(run_id=run_pk, **event_filter).update(**UNLINK_CLEARED_FIELDS)
 
 
 def adopt_event_into_run(event: CalendarEvent, run: CampaignRun) -> bool:
