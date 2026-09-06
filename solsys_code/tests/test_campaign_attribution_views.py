@@ -1067,6 +1067,76 @@ class TestUnlinkEventFromRun(AttributionViewTestBase):
         self.assertEqual(meta.confirmed_by_id, self.staff_user.pk)
         self.assertEqual(meta.confirmed_at, stamped_at)
 
+    def test_bare_int_primary_key_clears_exactly_that_one_event(self):
+        """33-REVIEW.md WR-04: the bare-int branch is the shape
+        ``campaign_views._undo_confirmation()`` actually calls with (``orphan_pk`` from
+        ``_as_pk_or_none()``). Asserted directly here rather than only inferred from the
+        ``CalendarEvent``-instance branch."""
+        event_a, meta_a = self._linked_meta(night_offset=10)
+        event_b, meta_b = self._linked_meta(night_offset=11)
+
+        changed = unlink_event_from_run(event_a.pk, self.campaign_run)
+
+        self.assertEqual(changed, 1)
+        meta_a.refresh_from_db()
+        self.assertIsNone(meta_a.run_id)
+        self.assertIsNone(meta_a.confirmed_by_id)
+        self.assertIsNone(meta_a.confirmed_at)
+        # The second event, attributed to the same run, is untouched.
+        meta_b.refresh_from_db()
+        self.assertEqual(meta_b.run_id, self.campaign_run.pk)
+        self.assertEqual(meta_b.confirmed_by_id, self.staff_user.pk)
+        self.assertIsNotNone(meta_b.confirmed_at)
+
+    def test_queryset_clears_every_matching_event(self):
+        """33-REVIEW.md WR-04: the queryset branch is the shape
+        ``campaign_reconciler._detach_stale_family_events()`` actually calls with."""
+        event_a, meta_a = self._linked_meta(night_offset=12)
+        event_b, meta_b = self._linked_meta(night_offset=13)
+        queryset = CalendarEvent.objects.filter(pk__in=[event_a.pk, event_b.pk])
+
+        changed = unlink_event_from_run(queryset, self.campaign_run)
+
+        self.assertEqual(changed, 2)
+        meta_a.refresh_from_db()
+        meta_b.refresh_from_db()
+        self.assertIsNone(meta_a.run_id)
+        self.assertIsNone(meta_b.run_id)
+
+    def test_string_primary_key_raises_type_error_and_changes_nothing(self):
+        """33-REVIEW.md WR-04: a string is iterable, and the previous catch-all branch would
+        silently expand it into a per-character ``event__in`` filter -- e.g. ``'12'`` would
+        match whichever events actually hold primary keys 1 and 2, clearing the wrong
+        attributions with no error raised. Builds the dangerous string from these two
+        events' own primary keys, so it demonstrates the exact failure shape the type check
+        prevents, then confirms neither event's attribution changed."""
+        event_1, meta_1 = self._linked_meta(night_offset=14)
+        event_2, meta_2 = self._linked_meta(night_offset=15)
+        dangerous_string = f'{event_1.pk}{event_2.pk}'
+
+        with self.assertRaises(TypeError):
+            unlink_event_from_run(dangerous_string, self.campaign_run)
+
+        meta_1.refresh_from_db()
+        meta_2.refresh_from_db()
+        self.assertEqual(meta_1.run_id, self.campaign_run.pk)
+        self.assertEqual(meta_2.run_id, self.campaign_run.pk)
+
+    def test_bytes_primary_key_raises_type_error_and_changes_nothing(self):
+        """33-REVIEW.md WR-04: ``bytes`` is iterable the same way a ``str`` is (yielding
+        per-byte ints on Python 3), so it must be rejected identically."""
+        event_1, meta_1 = self._linked_meta(night_offset=16)
+        event_2, meta_2 = self._linked_meta(night_offset=17)
+        dangerous_bytes = f'{event_1.pk}{event_2.pk}'.encode()
+
+        with self.assertRaises(TypeError):
+            unlink_event_from_run(dangerous_bytes, self.campaign_run)
+
+        meta_1.refresh_from_db()
+        meta_2.refresh_from_db()
+        self.assertEqual(meta_1.run_id, self.campaign_run.pk)
+        self.assertEqual(meta_2.run_id, self.campaign_run.pk)
+
     def test_campaign_run_shaped_argument_with_no_pk_behaves_like_none(self):
         event, meta = self._linked_meta()
         unsaved_run = CampaignRun(campaign=self.campaign, telescope_instrument='FTN/MuSCAT3')
