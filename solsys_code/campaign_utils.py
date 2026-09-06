@@ -895,8 +895,9 @@ def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | 
 
     Args:
         events: the event(s) to unlink -- a single ``CalendarEvent`` instance, a bare event
-            primary key, or a queryset/iterable of event primary keys/instances to clear in
-            bulk.
+            primary key (``int``), or a queryset/iterable of event primary keys/instances to
+            clear in bulk. A ``str`` or ``bytes`` value is rejected (see Raises) rather than
+            accepted as an iterable of characters/bytes.
         run: the ``CampaignRun`` (or its primary key) the event(s) must currently be linked
             to for the clear to apply. Passing ``None``, or a run whose primary key is
             ``None``, changes nothing.
@@ -906,6 +907,14 @@ def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | 
             (already unlinked, linked to a different run, or the resolved run had no
             primary key) -- the caller can use this to gate its own follow-on writes
             (28-REVIEW WR-01).
+
+    Raises:
+        TypeError: if ``events`` is a ``str`` or ``bytes``. Both are iterable, so falling
+            through to the queryset/iterable branch would silently expand a string primary
+            key into a per-character ``event__in`` filter (WR-04) -- clearing whichever
+            events happen to hold those digits as primary keys, with no error raised. Checked
+            after the ``run_pk`` guard above, so a null run with a string argument still
+            returns 0 rather than raising.
     """
     run_pk = getattr(run, 'pk', run)
     if not run_pk:
@@ -920,6 +929,17 @@ def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | 
         event_filter = {'event_id': events.pk}
     elif isinstance(events, int):
         event_filter = {'event_id': events}
+    elif isinstance(events, str | bytes):
+        # WR-04: str/bytes are iterable, so without this check the catch-all branch below
+        # would silently expand a string primary key into a per-character `event__in`
+        # filter -- e.g. '12' would clear whichever events hold primary keys 1 and 2,
+        # not the (nonexistent) event with primary key '12'. An integer primary key is
+        # required instead.
+        raise TypeError(
+            f'unlink_event_from_run() received a {type(events).__name__} for `events` '
+            f'({events!r}); a str/bytes is iterable and would be silently expanded into a '
+            'per-character event__in filter. Pass an int primary key instead.'
+        )
     else:
         event_filter = {'event__in': events}
 
