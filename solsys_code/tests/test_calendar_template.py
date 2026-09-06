@@ -20,10 +20,11 @@ from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils.formats import date_format
+from django.utils.html import escape
 from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
-from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.models import NO_CAMPAIGN_LABEL, CalendarEventMeta, CampaignRun
 from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color, telescope_stripe_color
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
@@ -766,17 +767,20 @@ class MonthCellCampaignMarkerTest(TestCase):
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
         )
 
-        # All-day branch: start/end dates differ.
+        # All-day branch: start/end dates differ. Title is exactly 18 characters -- the
+        # all-day loop's truncatechars:18 budget -- so WR-05.2 can prove the chip is a
+        # sibling of the filtered title, never folded inside the filter expression.
         cls.all_day_event = CalendarEvent.objects.create(
-            title='AllDay Attr',
+            title='AllDayAttrEighteen',
             start_time=datetime(2026, 8, 3, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 8, 4, 6, 0, tzinfo=dt_timezone.utc),
         )
         CalendarEventMeta.objects.create(event=cls.all_day_event, run=cls.approved_run)
 
-        # Timed branch: start/end dates are the same day.
+        # Timed branch: start/end dates are the same day. Title is exactly 16
+        # characters -- the timed loop's truncatechars:16 budget.
         cls.timed_event = CalendarEvent.objects.create(
-            title='Timed Attr',
+            title='TimedAttrSixteen',
             start_time=datetime(2026, 8, 4, 20, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 8, 4, 21, 0, tzinfo=dt_timezone.utc),
         )
@@ -793,12 +797,16 @@ class MonthCellCampaignMarkerTest(TestCase):
         self.assertIn(f'title="{self.campaign.name}"', content)
 
     def test_chip_does_not_consume_title_truncation_budget(self):
-        """The chip is a sibling span before/after the truncated title text, never
-        concatenated inside the truncatechars filter expression itself."""
+        """WR-05.2: each fixture title sits exactly at its own filter's budget (18 for
+        all-day, 16 for timed), so any character the chip contributed inside the
+        truncatechars filter expression would visibly shorten it. Asserting the chip's
+        own attribute string is also present proves the chip is a sibling of the
+        filtered title, not part of it."""
         response = self._get_calendar()
         content = response.content.decode()
         self.assertIn(self.all_day_event.title, content)
         self.assertIn(self.timed_event.title, content)
+        self.assertIn(f'title="{self.campaign.name}"', content)
 
 
 class DecorationSurvivalAndGuardsTest(TestCase):
@@ -841,8 +849,14 @@ class DecorationSurvivalAndGuardsTest(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.no_campaign_event, run=cls.no_campaign_run)
 
+        # WR-05.1: pending_run gets its own campaign, distinct from Survival Guard
+        # Campaign, so test_pending_review_run_shows_no_marker_for_staff_and_anonymous
+        # can discriminate on this campaign's own name -- if pending_run shared
+        # cls.campaign, the campaign-name discriminator would also match linked_event's
+        # and pii_event's chips, contributing nothing to the outcome.
+        cls.pending_campaign = TargetList.objects.create(name='Pending Review Campaign')
         cls.pending_run = CampaignRun.objects.create(
-            campaign=cls.campaign,
+            campaign=cls.pending_campaign,
             telescope_instrument='Should Stay Hidden Scope',
             window_start=date(2026, 9, 6),
             window_end=date(2026, 9, 6),
@@ -904,23 +918,38 @@ class DecorationSurvivalAndGuardsTest(TestCase):
         self.assertIn('Attributed campaign run', fresh_modal_response.content.decode())
 
     def test_no_campaign_run_renders_marker_and_no_table_href(self):
+        """WR-05.3: asserts on the no-campaign chip's own tooltip string -- linked_event
+        and pii_event in the same September grid already carry the shared
+        cal-campaign-chip class, so that class alone proves nothing about
+        no_campaign_run specifically. campaign_decoration()'s table_url is never
+        rendered into the month-cell chip (only the modal's <a href> uses it), so
+        _campaign_table_href() retargeted at no_campaign_run.campaign (None, which the
+        helper falls back to self.campaign for) is a namespace guard on the whole page
+        rather than a per-event assertion."""
         response = self._get_calendar()
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn('cal-campaign-chip', content)
-        self.assertNotIn(self._campaign_table_href(), content)
+        self.assertIn(f'Attributed run #{self.no_campaign_run.pk} {NO_CAMPAIGN_LABEL}', content)
+        self.assertNotIn(self._campaign_table_href(self.no_campaign_run.campaign), content)
 
     def test_pending_review_run_shows_no_marker_for_staff_and_anonymous(self):
+        """WR-05.1: discriminates on pending_campaign's own name -- a value only the
+        pending fixture can produce -- so this test fails if the is_publicly_visible
+        gate in campaign_decoration() is deleted. telescope_instrument is never
+        rendered by the month cell, so asserting on it (as this test previously did)
+        cannot detect a regression of the visibility gate."""
         anon_response = self._get_calendar()
         self.assertEqual(anon_response.status_code, 200)
         anon_content = anon_response.content.decode()
-        self.assertNotIn('Should Stay Hidden Scope', anon_content)
+        self.assertNotIn(f'title="{self.pending_campaign.name}"', anon_content)
+        self.assertNotIn(f'aria-label="Campaign: {self.pending_campaign.name}"', anon_content)
 
         self.client.force_login(self.staff_user)
         staff_response = self._get_calendar()
         self.assertEqual(staff_response.status_code, 200)
         staff_content = staff_response.content.decode()
-        self.assertNotIn('Should Stay Hidden Scope', staff_content)
+        self.assertNotIn(f'title="{self.pending_campaign.name}"', staff_content)
+        self.assertNotIn(f'aria-label="Campaign: {self.pending_campaign.name}"', staff_content)
 
     def test_pii_fields_never_render_on_month_view(self):
         response = self._get_calendar()
@@ -974,3 +1003,32 @@ class DecorationSurvivalAndGuardsTest(TestCase):
         multi_count = len(multi_ctx)
 
         self.assertEqual(multi_count, single_count)
+
+    def test_campaign_name_encoding_edge_escapes_consistently_in_title_and_aria_label(self):
+        """ANNOT-02 encoding edge: a campaign name containing &, < and " must be
+        HTML-escaped identically in the chip's title= and aria-label= attributes by
+        Django's autoescape -- the raw characters never reach the rendered attribute
+        values, and the two attributes agree on what the escaped campaign name is."""
+        raw_name = 'A & B < C "D"'
+        escaped_name = escape(raw_name)
+        encoding_campaign = TargetList.objects.create(name=raw_name)
+        encoding_run = CampaignRun.objects.create(
+            campaign=encoding_campaign,
+            telescope_instrument='Encoding Guard Scope',
+            window_start=date(2026, 9, 8),
+            window_end=date(2026, 9, 8),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        encoding_event = CalendarEvent.objects.create(
+            title='Encoding guard event',
+            start_time=datetime(2026, 9, 8, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 8, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=encoding_event, run=encoding_run)
+
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn(raw_name, content)
+        self.assertIn(f'title="{escaped_name}"', content)
+        self.assertIn(f'aria-label="Campaign: {escaped_name}"', content)
