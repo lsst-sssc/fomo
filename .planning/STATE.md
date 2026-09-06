@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 33
-current_phase_name: series-identity-reconciler-inversion
+current_phase_name: Series Identity & Reconciler Inversion
 status: executing
-stopped_at: Completed 33-05-PLAN.md -- Phase 33 complete, all 5 plans have SUMMARY.md
-last_updated: "2026-09-05T05:37:45.515Z"
-last_activity: 2026-09-04
+stopped_at: Completed 33-06-PLAN.md -- CR-01/WR-05/WR-07/IN-01/IN-03/IN-05 closed, WR-08 pinned
+last_updated: "2026-09-06T00:13:48.660Z"
+last_activity: 2026-09-05
 last_activity_desc: Phase 33 execution started
-state_head: 73177f658c9621cf7b4743218daa805f60614a50
+state_head: 7201f4d6d1ca627d08c06c362fe7b142d2799bc1
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 
 ## Current Position
 
-Phase: 33 (series-identity-reconciler-inversion) — READY TO EXECUTE
-Plan: 5 of 5
+Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
-Last activity: 2026-09-04 — Phase 33 execution started
+Last activity: 2026-09-05 — Phase 33 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -174,6 +174,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33 P02 | ~39min | 3 tasks | 6 files |
 | Phase 33 P04 | 28min | 3 tasks | 10 files |
 | Phase 33-series-identity-reconciler-inversion P05 | 44min | 3 tasks | 3 files |
+| Phase 33 P06 | 32min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -212,6 +213,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33]: 33-02: CampaignRunTable row_attrs resolves pk via Accessor(...).resolve(record, quiet=True), returning None (never 'run-None') so django-tables2 drops the id attribute for an unresolvable pk — works identically for staff model-instance rows and non-staff .values() dict rows
 - [Phase 33]: 33-04: unlink_event_from_run() in campaign_utils.py is now the single writer that clears a CalendarEventMeta attribution -- run, confirmed_by and confirmed_at together -- with a null-run guard that returns 0 before any queryset is built (T-33-21); all three existing clear-the-link call sites (undo view, reconciler detach, admin clear branch) route through it. The reconciler's detach step now also clears the audit stamps (D-16, closing a stale-confirmation leak) via a local import that breaks the circular dependency with campaign_utils' own top-level import of campaign_reconciler.
 - [Phase 33-series-identity-reconciler-inversion]: Phase 33 Plan 05: D-04's real-database diff proof split across two notebook cells to satisfy the plan's cell-ordering verify script; skip-rule demo deletes this run's own already-created event rather than mutating classical_run's window (which is part of its own natural-key lookup).
+- [Phase 33]: 33-06: CR-01 fixed by moving the tr:target style into tom_common/base.html's empty additional_css block -- a top-level node in a template that extends is silently discarded by Django's ExtendsNode.
+- [Phase 33]: 33-06: WR-08's positional-page-resolution fix deferred -- would add a per-event ordered query, contradicting plan 33-02's no-per-event-query must-have; the gap is pinned by a test instead.
 
 ### Pending Todos
 
@@ -302,8 +305,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T17:49:17.734Z
-Stopped at: Completed 33-05-PLAN.md -- Phase 33 complete, all 5 plans have SUMMARY.md
+Last session: 2026-09-06T00:13:48.484Z
+Stopped at: Completed 33-06-PLAN.md -- CR-01/WR-05/WR-07/IN-01/IN-03/IN-05 closed, WR-08 pinned
 Resume file: None
 
 ## Operator Next Steps
