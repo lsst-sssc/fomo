@@ -73,9 +73,24 @@ class CalendarEventMetaInlineFormSet(BaseInlineFormSet):
 
 class CalendarEventMetaInline(admin.TabularInline):
     """D-06/D-17: a row appearing here means the calendar event is attributed to this run.
-    Clearing the `run` value on a row un-attributes the event without deleting the companion
-    row itself (CalendarEventMeta.run is SET_NULL, not CASCADE) -- the row, and its
-    is_verified history and audit fields, survive.
+
+    33-REVIEW.md WR-06: this inline declares `fk_name = 'run'`, so Django's
+    `BaseInlineFormSet.add_fields()` binds `run` back onto the child form only as a hidden
+    `InlineForeignKeyField` -- the internal parent-linkage Django needs to validate the row
+    belongs to this run on POST -- never as a visible, editable widget. There is no `run`
+    value a staff member can see or clear here. The two operations that actually exist on
+    this surface are:
+
+    - Deleting the row un-attributes the event without deleting the row's own
+      identity/history: CalendarEventMeta.run is SET_NULL, not CASCADE, so the companion
+      row -- and its is_verified history and audit fields -- survive and are simply
+      re-populated by any later attribution.
+    - Clearing the value (which also nulls confirmed_by/confirmed_at) lives on the
+      standalone *Calendar event metas* change page, handled by
+      `CalendarEventMetaAdmin.save_model()` -- not on this inline.
+
+    See `docs/runbooks/telescope_runs_calendar.rst` for the operator-facing wording of this
+    same distinction (corrected by plan 33-08).
 
     WR-08: `event` is this model's primary key, so it is frozen on existing rows via
     CalendarEventMetaInlineFormSet -- add and delete are the only operations on the link

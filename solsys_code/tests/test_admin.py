@@ -510,6 +510,34 @@ class CampaignRunAdminInlinesTests(TestCase):
         self.assertIn('calendar_event_metas', observed_prefixes)
         self.assertIn('observation_links', observed_prefixes)
 
+    def test_calendar_event_meta_inline_renders_no_editable_attribution_field(self) -> None:
+        """33-REVIEW.md WR-06: `CalendarEventMetaInline` declares `fk_name = 'run'`, so
+        Django's `BaseInlineFormSet.add_fields()` binds `run` back onto the child form only
+        as a hidden `InlineForeignKeyField` (the internal parent-linkage Django needs to
+        validate the row belongs to this `CampaignRun` on POST) -- never as a visible,
+        editable widget a staff member could change. Derives the inline's own prefix from
+        the rendered HTML the same way `test_both_inline_formsets_are_reachable_on_the_change_page`
+        does, confirms the hidden linkage field is present (control: the row genuinely
+        rendered), then asserts no `<select>` widget for `run` exists on that row -- if a
+        future change drops `fk_name`, an editable widget reappears and this test goes red,
+        keeping the corrected docstring and runbook bullet true rather than assumed."""
+        event = CalendarEvent.objects.create(
+            title='WR-06 inline attribution-field probe',
+            start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=self.campaign_run, is_verified=True)
+
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        observed_prefixes = set(re.findall(r'name="([\w_]+)-TOTAL_FORMS"', content))
+        self.assertIn('calendar_event_metas', observed_prefixes)
+        # Control: the hidden parent-linkage field is present, so the row genuinely rendered.
+        self.assertIn('type="hidden" name="calendar_event_metas-0-run"', content)
+        # The actual claim: no editable <select> widget for the attribution exists.
+        self.assertNotIn('<select name="calendar_event_metas-0-run"', content)
+
     def test_save_formset_stamps_confirmed_by_and_confirmed_at_on_create(self) -> None:
         """D-07: a newly created CampaignRunObservation row is stamped with the acting
         staff user and a non-null confirmed_at."""
