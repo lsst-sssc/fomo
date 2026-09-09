@@ -337,6 +337,16 @@ DATA_SERVICES = {}
 # ]
 EXTRA_FIELDS = []
 
+# Override the "General search" box behaviour for a model's HTMX filter set. The TOM
+# Toolkit default matches Target.name only; ours also matches aliases, so an NEOCP
+# object stays findable under its trksub after the MPC designation rename.
+# The key must name the *concrete* model, not the `Target` alias that tom_targets'
+# own docstring shows -- a key that matches nothing is silently ignored. Change this to
+# 'solsys_code.UserDefinedTarget' if TARGET_MODEL_CLASS above is ever enabled.
+GENERAL_SEARCH_FUNCTIONS = {
+    'tom_targets.BaseTarget': 'solsys_code.search.target_general_search',
+}
+
 # Authentication strategy can either be LOCKED (required login for all views)
 # or READ_ONLY (read only access to views)
 AUTH_STRATEGY = 'READ_ONLY'
