@@ -14,7 +14,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **PROJ-01**: Every LCO/SOAR `ObservationRecord` has exactly one `CalendarEvent`, keyed by `facility.get_observation_url()` (the namespace the existing LCO sync already uses), created or updated in place — never a second event for the same record
 - [ ] **PROJ-02**: An event's span follows the record's stage: the request window while queued, the placed block once `scheduled_start`/`scheduled_end` are set, the observed block once COMPLETED — the existing `record_time_window` rule
 - [ ] **PROJ-03**: A terminal-negative record (`WINDOW_EXPIRED` / `CANCELED` / `FAILURE_LIMIT_REACHED`) keeps a visibly marked event on its window night — never silently dropped
-- [x] **PROJ-04**: Series identity for a record in an `ObservationGroup` is carried by real foreign keys on `CalendarEventMeta` (`observation_record`, `observation_group`) — a shared title stem and a link back to the group; spike 002's title-suffix stopgap is not the carrier
+- [ ] **PROJ-04**: Series identity for a record in an `ObservationGroup` is carried by real foreign keys on `CalendarEventMeta` (`observation_record`, `observation_group`) — a shared title stem and a link back to the group; spike 002's title-suffix stopgap is not the carrier
   - *Scope split (recorded 2026-09-03 during Phase 33 planning):* Phase 33 delivers the carrier — the two foreign keys, their migration and their read-only admin exposure. The **shared title stem** clause is delivered by the Phase 34 projector, which is the only writer of these fields and of an event's title (Phase 33 is schema and semantics only, per 33-CONTEXT.md D-08, and D-12 removes text from titles rather than adding it). Phase 34 must satisfy the title-stem clause alongside PROJ-06's compact-title requirement.
 - [ ] **PROJ-05**: Re-projecting an unchanged record writes nothing (no-churn); the projector never creates, modifies, or deletes an event it does not own, and never writes the reconciler's `RUN:`/allocation namespace
 - [ ] **PROJ-06**: Event titles have a compact form that fits a month cell on the calendar
@@ -36,8 +36,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Campaign Annotation (reconciler inversion)
 
-- [x] **ANNOT-01**: `CalendarEventMeta.run` means "attributed to", not "owned by"; `reconcile_run()` no longer adopts, re-keys, or detaches an event attributed to a run — it only annotates — so the base layer and the campaign layer can run side by side without one stealing the other's events
-- [x] **ANNOT-02**: Campaign decoration of an observation-backed event (campaign prefix/label, link to its run) is rendered from the `CalendarEventMeta.run` link at display time, never written into the event's own fields, so base re-projection cannot erase it
+- [ ] **ANNOT-01**: `CalendarEventMeta.run` means "attributed to", not "owned by"; `reconcile_run()` no longer adopts, re-keys, or detaches an event attributed to a run — it only annotates — so the base layer and the campaign layer can run side by side without one stealing the other's events
+- [ ] **ANNOT-02**: Campaign decoration of an observation-backed event (campaign prefix/label, link to its run) is rendered from the `CalendarEventMeta.run` link at display time, never written into the event's own fields, so base re-projection cannot erase it
 - [ ] **ANNOT-03**: `sync_lco_observation_calendar` is retired in favour of the projector + sweep (one writer per source; same key namespace, same events) with its runbook section, demo notebook, and tests migrated rather than duplicated; `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
 
 ### Unattended Operation (carried from v2.3)
@@ -103,7 +103,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROJ-01 | Phase 34 | Pending |
 | PROJ-02 | Phase 34 | Pending |
 | PROJ-03 | Phase 34 | Pending |
-| PROJ-04 | Phase 33 (carrier fields), Phase 34 (shared title stem) | Complete |
+| PROJ-04 | Phase 33 (carrier fields), Phase 34 (shared title stem) | Gaps Found |
 | PROJ-05 | Phase 34 | Pending |
 | PROJ-06 | Phase 34 | Pending |
 | SCHED-06 | Phase 34 | Pending |
@@ -115,8 +115,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALLOC-03 | Phase 35 | Pending |
 | ALLOC-04 | Phase 35 | Pending |
 | ALLOC-05 | Phase 35 | Pending |
-| ANNOT-01 | Phase 33 | Complete |
-| ANNOT-02 | Phase 33 | Complete |
+| ANNOT-01 | Phase 33 | Gaps Found |
+| ANNOT-02 | Phase 33 | Gaps Found |
 | ANNOT-03 | Phase 34 | Pending |
 | SCHED-08 | Phase 36 | Pending |
 | SCHED-09 | Phase 36 | Pending |
