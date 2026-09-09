@@ -56,9 +56,9 @@ ASSIST, which is why the command enumerates labels instead of running bare `mana
   notebooks re-executed with committed output.
 - **Max feedback latency:** **81 s** (quick run). Not the template's 33 s: this project's
   process-start SPICE furnish sets a hard floor in the tens of seconds, measured above.
-  Continuity is met — every one of the 32 tasks (15 original + 17 across the two gap-closure
-  runs) carries a real `<automated>` command, so no task, let alone three consecutive, runs
-  unsampled.
+  Continuity is met — every one of the 33 tasks (15 original + 18 across the two gap-closure
+  runs: 9 in GC1 and 9 in GC2) carries a real `<automated>` command, so no task, let alone three
+  consecutive, runs unsampled.
 
 ---
 
@@ -97,9 +97,13 @@ the original wave.
 > exist and each restarts its own wave numbering, so the Wave column carries the run: **GC1** =
 > first gap-closure run (plans 33-06/07/08, from `33-VERIFICATION.md`), **GC2** = second
 > gap-closure run (plans 33-09/10/11, from `33-UAT.md`'s gaps G-33-2 and G-33-4 plus the
-> CR-04/WR-10…WR-13 verification gaps). Every task listed already carries a real `<automated>`
+> CR-04/WR-10…WR-13 verification gaps). **GC2's wave labels were renumbered on 2026-09-09 in plan
+> revision 2**: 33-11 took `depends_on: [33-09]` and moved from wave 1 to wave 2 — 33-09 writes
+> `src/fomo/settings.py`, which every 33-11 test gate imports, and 33-09's residue cleanup removes
+> the campaign-attributed entries 33-11's browser check clicks — which pushed 33-10 to wave 3. GC2
+> is now three single-plan waves: 33-09 → 33-11 → 33-10. Every task listed already carries a real `<automated>`
 > block with a `<fails_when>` in its own plan — the commands below are quoted from those blocks,
-> not invented here, so the sampling-continuity claim in the sign-off holds for all 32 tasks.
+> not invented here, so the sampling-continuity claim in the sign-off holds for all 33 tasks.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
@@ -114,13 +118,13 @@ the original wave.
 | 33-08-03 | 08 | 3 (GC1) | ANNOT-01, ANNOT-02 | T-33-08-01…06 (plan register) | The paired notebooks carry committed output with no unguarded delete cell, and the runbook documents the two counters — the operator doc cannot drift from shipped behaviour | notebook (executed) + doc grep | `python -c "import json,sys; nb=json.load(open('docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb')); bad=[i for i,c in enumerate(nb['cells']) if c['cell_type']=='code' and '.delete()' in ''.join(c['source']) and 'assert' not in ''.join(c['source'])]; print('unguarded delete cells:', bad); sys.exit(1 if bad else 0)"` | ✅ both notebooks and the runbook exist | ✅ green (executed, `33-08-SUMMARY.md`) |
 | 33-09-01 | 09 | 1 (GC2) | ANNOT-01, ANNOT-02 | T-33-09-01 / T-33-09-02 | Both paired notebooks execute against a scratch copy of the developer database, assert the resolved path in committed output, and leave `src/fomo_db.sqlite3` byte-identical; with `FOMO_DATABASE_PATH` unset the default path is unchanged | settings probe + notebook (executed) | `FOMO_DATABASE_PATH=/tmp/fomo-settings-probe.sqlite3 python manage.py shell -c "from django.conf import settings; print(settings.DATABASES['default']['NAME'])"` then the md5-across-nbconvert gate (`DEV_DB_UNCHANGED`) | ✅ `settings.py` and both notebooks exist | ⬜ pending |
 | 33-09-02 | 09 | 1 (GC2) | ANNOT-02 | T-33-09-03 | Neither contact field name appears in the lifecycle notebook's source or committed output, and no code cell is committed unexecuted (33-05 P1 / 33-08 P5) | notebook (executed) + grep | `test "$(grep -c 'contact_person\|contact_email' docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb)" = "0"` plus the per-cell output check | ✅ notebook exists | ⬜ pending |
-| 33-09-03 | 09 | 1 (GC2) | ANNOT-01, ANNOT-02 | T-33-09-04 / T-33-09-05 | The developer database holds no demo-campaign residue (including detached event pk 335) AND a non-zero total event count, so an over-broad delete fails the gate instead of passing it | DB probe (`manage.py shell`) | the `DEMO_RESIDUE=0 TOTAL_EVENTS=[1-9]` probe (`RESIDUE_CLEAN`) | n/a — probes an untracked local sqlite file | ⬜ pending |
-| 33-10-01 | 10 | 2 (GC2) | ANNOT-01 | T-33-10-01 / T-33-10-02 / T-33-10-04 | An automated sweep never clears a human-confirmed attribution and reports what it declined; a foreign attribution stays `blocked` and keeps its url active; `--dry-run` previews the detach and writes nothing; no `CalendarEventDismissal` row is ever written | unit | `python manage.py test solsys_code.tests.test_campaign_reconciler solsys_code.tests.test_campaign_attribution_views solsys_code.tests.test_admin` | ✅ all three exist | ⬜ pending |
-| 33-10-02 | 10 | 2 (GC2) | ANNOT-01 | T-33-10-03 | Operator surfaces name only counts and this run's own calendar state; all four staff actions report a release, and 'run added to the calendar' appears only when something was added | unit (command + view) | `python manage.py test solsys_code.tests.test_reconcile_campaign_runs solsys_code.tests.test_campaign_approval solsys_code.tests.test_campaign_views` | ✅ all three exist | ⬜ pending |
-| 33-10-03 | 10 | 2 (GC2) | ANNOT-01 | T-33-10-05 | Both notebooks carry committed output for every code cell (against 33-09's scratch database, so a doc artifact cannot seed queue state), and the runbook no longer steers an operator into the destructive path | notebook (executed) + doc grep | the per-cell output check, then `test "$(grep -c 're-confirm or discard' docs/runbooks/telescope_runs_calendar.rst)" = "0" && …` (`RUNBOOK_CORRECTED`) | ✅ both notebooks and the runbook exist | ⬜ pending |
-| 33-11-01 | 11 | 1 (GC2) | ANNOT-02 | T-33-11-01 / T-33-11-04 | A real headless browser opens the pop-up from an attributed entry, an unattributed target and the New Event button with an empty `pageerror` list — a handler calling a global the page never loads fails the suite instead of silently disabling every click | browser (Playwright) | `python manage.py test solsys_code.tests.test_bootstrap5_rendering.TestBootstrap5Rendering` | ✅ module exists; this task adds the modal tests and a `setUpTestData` | ⬜ pending |
-| 33-11-02 | 11 | 1 (GC2) | ANNOT-02 | T-33-11-01 / T-33-11-02 | The served month partial contains no jQuery-style selector call and does contain the Bootstrap 5 opener, so neither a regression nor a deletion of the handlers can pass | template (rendered guard) | `python manage.py test solsys_code.tests.test_calendar_template` | ✅ exists | ⬜ pending |
-| 33-11-03 | 11 | 1 (GC2) | ANNOT-02 | — (documentation change; no new trust boundary) | The runbook's calendar pop-up section tells an operator how the pop-up is opened and how to tell a missing attribution apart from a front-end fault, and the three sections plan 33-10 owns are left byte-identical | doc grep + Sphinx build | `test "$(grep -c 'Bootstrap 5' docs/runbooks/telescope_runs_calendar.rst)" -ge "1" && …` (`POPUP_SECTION_DOCUMENTED`), then `pre-commit run sphinx-build --all-files` | ✅ runbook exists | ⬜ pending |
+| 33-09-03 | 09 | 1 (GC2) | ANNOT-01, ANNOT-02 | T-33-09-04 / T-33-09-05 | The developer database holds no demo-campaign residue (including detached event pk 335) AND a non-zero total event count, so an over-broad delete fails the gate instead of passing it; the same probe reports `ATTRIBUTED_SURVIVING` (a report, not a gate — any value passes) as the fixture receipt plan 33-11's browser check reads | DB probe (`manage.py shell`) | the `DEMO_RESIDUE=0 TOTAL_EVENTS=[1-9][0-9]* ATTRIBUTED_SURVIVING=[0-9]` probe (`RESIDUE_CLEAN`) | n/a — probes an untracked local sqlite file | ⬜ pending |
+| 33-10-01 | 10 | 3 (GC2) | ANNOT-01 | T-33-10-01 / T-33-10-02 / T-33-10-04 | An automated sweep never clears a human-confirmed attribution and reports what it declined; a foreign attribution stays `blocked` and keeps its url active; `--dry-run` previews the detach and writes nothing; no `CalendarEventDismissal` row is ever written | unit | `python manage.py test solsys_code.tests.test_campaign_reconciler solsys_code.tests.test_campaign_attribution_views solsys_code.tests.test_admin` | ✅ all three exist | ⬜ pending |
+| 33-10-02 | 10 | 3 (GC2) | ANNOT-01 | T-33-10-03 | Operator surfaces name only counts and this run's own calendar state; all four staff actions report a release, and 'run added to the calendar' appears only when something was added | unit (command + view) | `python manage.py test solsys_code.tests.test_reconcile_campaign_runs solsys_code.tests.test_campaign_approval solsys_code.tests.test_campaign_views` | ✅ all three exist | ⬜ pending |
+| 33-10-03 | 10 | 3 (GC2) | ANNOT-01 | T-33-10-05 | Both notebooks carry committed output for every code cell (against 33-09's scratch database, so a doc artifact cannot seed queue state), and the runbook no longer steers an operator into the destructive path | notebook (executed) + doc grep | the per-cell output check, then `test "$(grep -c 're-confirm or discard' docs/runbooks/telescope_runs_calendar.rst)" = "0" && …` (`RUNBOOK_CORRECTED`) | ✅ both notebooks and the runbook exist | ⬜ pending |
+| 33-11-01 | 11 | 2 (GC2) | ANNOT-02 | T-33-11-01 / T-33-11-04 | A real headless browser opens the pop-up from an attributed entry, an unattributed target and the New Event button with an empty `pageerror` list — a handler calling a global the page never loads fails the suite instead of silently disabling every click | browser (Playwright) | `python manage.py test solsys_code.tests.test_bootstrap5_rendering.TestBootstrap5Rendering` | ✅ module exists; this task adds the modal tests and a `setUpTestData` | ⬜ pending |
+| 33-11-02 | 11 | 2 (GC2) | ANNOT-02 | T-33-11-01 / T-33-11-02 | The served month partial contains no jQuery-style selector call and does contain the Bootstrap 5 opener, so neither a regression nor a deletion of the handlers can pass | template (rendered guard) | `python manage.py test solsys_code.tests.test_calendar_template` | ✅ exists | ⬜ pending |
+| 33-11-03 | 11 | 2 (GC2) | ANNOT-02 | — (documentation change; no new trust boundary) | The runbook's calendar pop-up section tells an operator how the pop-up is opened and how to tell a missing attribution apart from a front-end fault, and the three sections plan 33-10 owns are left byte-identical | doc grep + Sphinx build | `test "$(grep -c 'Bootstrap 5' docs/runbooks/telescope_runs_calendar.rst)" -ge "1" && …` (`POPUP_SECTION_DOCUMENTED`), then `pre-commit run sphinx-build --all-files` | ✅ runbook exists | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -128,7 +132,12 @@ Manual-only additions from the gap-closure runs: plan 33-11 Task 2 carries a
 `<verify><human-check>` re-running UAT test 2 in a real browser (pop-up opens on click, then
 'View campaign ↗' lands on the highlighted run row). It is checked once at the phase gate, like
 the three rows in "Manual-Only Verifications" below, because `workflow.human_verify_mode` is
-`end-of-phase`.
+`end-of-phase`. Its fixture is named rather than assumed: plan 33-09 Task 3 prints and records in
+its SUMMARY the surviving `CalendarEventMeta.objects.filter(run__isnull=False)` count and date
+range after the residue cleanup, and 33-11's human-check names the seeding path — a real non-demo
+`CampaignRun` with a resolved site plus one `reconcile_campaign_runs` sweep — for the expected
+case where that count is 0, because 33-UAT.md test 1 records that all 17 September attributions in
+the developer database were demo-campaign entries.
 
 ---
 
@@ -178,11 +187,14 @@ No framework install is required: Django's test runner is already the project's 
 
 ## Validation Sign-Off
 
-- [x] All 32 tasks have a real `<automated>` verify — no `MISSING` placeholders, no Wave 0
-      dependency left open. 15 in the original plan set (33-01 … 33-05), 9 in the first
-      gap-closure run (33-06 … 33-08) and 8 in the second (33-09 … 33-11); every one of the 17
-      gap-closure tasks also carries a `<fails_when>` naming the observable that proves the gate
-      is not vacuous.
+- [x] All 33 tasks have a real `<automated>` verify — no `MISSING` placeholders, no Wave 0
+      dependency left open. 15 in the original plan set (33-01 … 33-05, three tasks each), 9 in
+      the first gap-closure run (33-06 … 33-08, three each) and 9 in the second (33-09 … 33-11,
+      three each) — 18 gap-closure tasks in total; every one of those 18 also carries a
+      `<fails_when>` naming the observable that proves the gate is not vacuous. (Counts corrected
+      2026-09-09 in revision 2: the earlier "32 / 8 / 17" tally undercounted the second
+      gap-closure run by one task. Sampling coverage itself was never affected — every task under
+      review already had a row above with a real `<automated>` command.)
 - [x] Sampling continuity: every task is sampled; no run of tasks without automated verify
 - [x] Wave 0 covers all MISSING references (5 gaps, each mapped to a covering task above)
 - [x] No watch-mode flags in any command

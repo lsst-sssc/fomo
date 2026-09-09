@@ -188,14 +188,17 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 - [x] 33-08-PLAN.md — CR-02/CR-03: the observing night is anchored at local noon and the skip rule is unconditional; the superseded reconciler entry is detached, counted and logged; paired notebooks and runbook re-executed (gap wave 2)
 
-**Second gap closure (2026-09-09) — Wave 1** *(from 33-VERIFICATION.md Gaps 1-2 — the CR-04 confirm/erase loop and WR-13 — plus 33-UAT.md G-33-2/G-33-4; wave numbering restarts at 1 in the plan frontmatter, as the first gap-closure run did)*
+**Second gap closure (2026-09-09) — Wave 1** *(from 33-VERIFICATION.md Gaps 1-2 — the CR-04 confirm/erase loop and WR-13 — plus 33-UAT.md G-33-2/G-33-4; wave numbering restarts at 1 in the plan frontmatter, as the first gap-closure run did. Waves renumbered in plan revision 2: 33-11 took `depends_on: [33-09]` because 33-09 writes `src/fomo/settings.py` that every 33-11 test gate imports, and because 33-09's residue cleanup removes the campaign-attributed entries 33-11's browser check clicks — three single-plan waves, 33-09 → 33-11 → 33-10)*
 
-- [ ] 33-09-PLAN.md — G-33-4: both demo notebooks execute against a scratch copy of the developer database, the contact fields leave the lifecycle notebook's output, and the existing demo residue is cleaned out of `src/fomo_db.sqlite3` (gap wave 1)
-- [ ] 33-11-PLAN.md — G-33-2: the calendar pop-up opens again — the month partial's three modal handlers move from jQuery to the Bootstrap 5 API, with a browser-driven click test and a served-partial regression guard (gap wave 1)
+- [ ] 33-09-PLAN.md — G-33-4: both demo notebooks execute against a scratch copy of the developer database, the contact fields leave the lifecycle notebook's output, and the existing demo residue is cleaned out of `src/fomo_db.sqlite3` — with the surviving campaign-attributed row count recorded as the fixture receipt 33-11's browser check reads (gap wave 1)
 
 **Second gap closure — Wave 2** *(blocked on its Wave 1 completion)*
 
-- [ ] 33-10-PLAN.md — CR-04/WR-13: a human-confirmed attribution outranks the automated detach (UAT option B), ownership is decided before the night's outcome, `--dry-run` previews the detach, the four staff actions report a release, and the paired docs are re-executed and corrected (gap wave 2)
+- [ ] 33-11-PLAN.md — G-33-2: the calendar pop-up opens again — the month partial's three modal handlers move from jQuery to the Bootstrap 5 API, with a browser-driven click test and a served-partial regression guard (gap wave 2)
+
+**Second gap closure — Wave 3** *(blocked on its Wave 2 completion)*
+
+- [ ] 33-10-PLAN.md — CR-04/WR-13: a human-confirmed attribution outranks the automated detach (UAT option B), ownership is decided before the night's outcome, `--dry-run` previews the detach, the four staff actions report a release, and the paired docs are re-executed and corrected (gap wave 3)
 
 **UI hint**: yes
 
