@@ -107,3 +107,9 @@ Both gaps are TOM Toolkit issues rather than anything FOMO does wrong, and
 affect any TOM whose targets carry aliases.  Neither was reported on
 ``TOMToolkit/tom_base`` at the time of writing.  These workarounds should be
 removed once fixes land upstream.
+
+Drafted reports are kept alongside this note, in ``docs/design/upstream/``:
+``tom_base_alias_search.md`` covers the General Search box and the
+``GENERAL_SEARCH_FUNCTIONS`` key, ``tom_base_target_admin.md`` the admin.  They
+are Markdown, for pasting into the upstream tracker, and so are not part of this
+rendered documentation.  Record the issue numbers here once filed.
