@@ -17,9 +17,11 @@ convention doesn't arise here.
 """
 
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
 from io import StringIO
 
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
@@ -301,3 +303,165 @@ class TestRealDataShapeScenario(ReconcileCampaignRunsTestBase):
             self.assertGreaterEqual(owned_events(run).count(), 1)
 
         self.assertEqual(CalendarEventMeta.objects.filter(run__isnull=False).count(), total_events_written)
+
+
+class TestSkipAndDetachCounters(ReconcileCampaignRunsTestBase):
+    """WR-01/WR-03 (33-REVIEW.md): the sweep surfaces `skipped_nights` and `detached` so an
+    operator reading the output can tell "already converged" apart from "these nights are
+    covered elsewhere", and is told when a confirmation stamp was discarded."""
+
+    def test_real_sweep_reports_skipped_nights_for_a_night_attributed_elsewhere(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/444444/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        out = StringIO()
+        call_command('reconcile_campaign_runs', stdout=out)
+
+        output = out.getvalue()
+        self.assertIn(f'Run pk={run.pk}', output)
+        self.assertIn('night(s) skipped -- covered elsewhere', output)
+        summary = _parse_summary(output)
+        self.assertEqual(summary['skipped_nights'], 1)
+        self.assertEqual(summary['detached'], 0)
+
+    def test_real_sweep_reports_detached_for_a_superseded_run_keyed_event(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        call_command('reconcile_campaign_runs', stdout=StringIO())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+
+        staffer = User.objects.create(username='detach-counter-staffer')
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/555555/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=facility_event,
+            run=run,
+            confirmed_by=staffer,
+            confirmed_at=datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc),
+        )
+
+        out = StringIO()
+        err = StringIO()
+        call_command('reconcile_campaign_runs', stdout=out, stderr=err)
+
+        error_output = err.getvalue()
+        self.assertIn(f'Run pk={run.pk}', error_output)
+        self.assertIn('detached', error_output)
+        self.assertIn('confirmation', error_output)
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['detached'], 1)
+
+    def test_dry_run_reports_skipped_nights_and_would_detach_na_and_writes_nothing(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/888888/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        event_count_before = CalendarEvent.objects.count()
+        meta_count_before = CalendarEventMeta.objects.count()
+
+        out = StringIO()
+        call_command('reconcile_campaign_runs', '--dry-run', stdout=out)
+
+        output = out.getvalue()
+        summary = _parse_summary(output)
+        self.assertEqual(summary['skipped_nights'], 1)
+        self.assertIn('would_detach: n/a (dry-run)', output)
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+        self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_sweep_with_nothing_skipped_or_detached_reports_zero_and_no_per_run_lines(self):
+        self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 2))
+
+        out = StringIO()
+        err = StringIO()
+        call_command('reconcile_campaign_runs', stdout=out, stderr=err)
+
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['skipped_nights'], 0)
+        self.assertEqual(summary['detached'], 0)
+        self.assertNotIn('night(s) skipped', out.getvalue())
+        self.assertNotIn('event(s) detached', err.getvalue())
+
+    def test_both_counters_are_reported_together_in_the_same_sweep(self):
+        """The realistic ordering this phase exists to fix (CR-03): one run's night is
+        attributed before its first reconcile (skipped from the start), a second run is
+        reconciled first and only attributed afterwards (its RUN:-keyed event is later
+        detached) -- one sweep, both counters non-zero."""
+        skip_night = date(2026, 8, 1)
+        skip_run = self._make_run(
+            telescope_instrument='Skip run',
+            window_start=skip_night,
+            window_end=skip_night,
+            source=CampaignRun.Source.LCO_QUEUE,
+        )
+        skip_facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/111000/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=skip_facility_event, run=skip_run)
+
+        detach_night = date(2026, 8, 2)
+        detach_run = self._make_run(
+            telescope_instrument='Detach run',
+            window_start=detach_night,
+            window_end=detach_night,
+            source=CampaignRun.Source.LCO_QUEUE,
+        )
+
+        # First sweep: mints detach_run's RUN:-keyed event; skip_run's night is already
+        # attributed and skipped from the start.
+        call_command('reconcile_campaign_runs', stdout=StringIO())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{detach_run.pk}:{detach_night.isoformat()}').exists())
+
+        staffer = User.objects.create(username='both-counters-staffer')
+        detach_facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/222000/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 2, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=detach_facility_event,
+            run=detach_run,
+            confirmed_by=staffer,
+            confirmed_at=datetime(2026, 8, 2, 9, 0, tzinfo=dt_timezone.utc),
+        )
+
+        out = StringIO()
+        err = StringIO()
+        call_command('reconcile_campaign_runs', stdout=out, stderr=err)
+
+        summary = _parse_summary(out.getvalue())
+        self.assertGreaterEqual(summary['skipped_nights'], 1)
+        self.assertEqual(summary['detached'], 1)
+        self.assertIn(f'Run pk={skip_run.pk}', out.getvalue())
+        self.assertIn(f'Run pk={detach_run.pk}', err.getvalue())

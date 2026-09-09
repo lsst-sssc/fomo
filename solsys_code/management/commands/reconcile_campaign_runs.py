@@ -48,6 +48,8 @@ class Command(BaseCommand):
 
         created = updated = unchanged = blocked = 0
         skipped_count = 0
+        skipped_nights = 0
+        detached = 0
         failed_count = 0
         run_count = 0
 
@@ -70,8 +72,19 @@ class Command(BaseCommand):
             updated += result.updated
             unchanged += result.unchanged
             blocked += result.blocked
+            skipped_nights += result.skipped_nights
+            detached += result.detached
             if result.blocked:
                 self.stderr.write(f'Run pk={run.pk}: {result.blocked} event(s) blocked -- owned by someone else')
+            if result.skipped_nights:
+                # Normal, expected convergence (D-01/ANNOT-01): the night's entry already
+                # comes from another writer attributed to this run -- not a failure.
+                self.stdout.write(f'Run pk={run.pk}: {result.skipped_nights} night(s) skipped -- covered elsewhere')
+            if result.detached:
+                self.stderr.write(
+                    f'Run pk={run.pk}: {result.detached} event(s) detached -- superseded by a later '
+                    'attribution; confirmation stamp(s) cleared'
+                )
 
         if dry_run:
             self.stdout.write(
@@ -81,7 +94,9 @@ class Command(BaseCommand):
                 f'would_leave_unchanged: {unchanged}, '
                 f'skipped: {skipped_count}, '
                 f'failed: {failed_count}, '
-                f'blocked: {blocked}'
+                f'blocked: {blocked}, '
+                f'skipped_nights: {skipped_nights}, '
+                f'would_detach: n/a (dry-run)'
             )
         else:
             self.stdout.write(
@@ -91,6 +106,8 @@ class Command(BaseCommand):
                 f'unchanged: {unchanged}, '
                 f'skipped: {skipped_count}, '
                 f'failed: {failed_count}, '
-                f'blocked: {blocked}'
+                f'blocked: {blocked}, '
+                f'skipped_nights: {skipped_nights}, '
+                f'detached: {detached}'
             )
         return
