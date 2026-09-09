@@ -42,3 +42,4 @@ Design Notes
    target_origin_tracking
    scout_element_history
    fink_sso_support
+   target_search_limitations
