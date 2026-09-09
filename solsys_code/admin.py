@@ -13,9 +13,9 @@ class TargetNameInline(admin.TabularInline):
 class SolsysTargetAdmin(TargetAdmin):
     """TOM Toolkit's TargetAdmin with the search, filters and columns it omits.
 
-    Columns are chosen for a non-sidereal catalogue: ra/dec are null on every
-    NON_SIDEREAL row, so H and the orbit scheme carry the information a sidereal
-    TOM would take from coordinates.
+    The default columns suit the non-sidereal catalogue, where H and the orbit
+    scheme carry what coordinates carry for a sidereal target; see
+    get_list_display for the sidereal case.
     """
 
     search_fields = ('name', 'aliases__name')
@@ -23,6 +23,19 @@ class SolsysTargetAdmin(TargetAdmin):
     list_filter = ('type', 'scheme', 'created')
     ordering = ('-created',)
     inlines = TargetAdmin.inlines + [TargetNameInline]
+
+    def get_list_display(self, request):
+        """Swap in coordinates while the changelist is filtered to sidereal targets.
+
+        The two target types have disjoint useful fields -- ra/dec are null on every
+        non-sidereal row, scheme/abs_mag on every sidereal one -- so any single fixed
+        column set is half empty. Columns cannot vary per row (list_display is one
+        header row for the table), but they can follow the `type` filter, which is
+        already in list_filter.
+        """
+        if request.GET.get('type__exact') == Target.SIDEREAL:
+            return ('name', 'type', 'ra', 'dec', 'created')
+        return self.list_display
 
 
 admin.site.unregister(Target)

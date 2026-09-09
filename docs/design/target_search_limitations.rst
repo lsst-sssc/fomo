@@ -117,12 +117,23 @@ Both branches therefore rewrite ``solsys_code/admin.py`` from main's stub and
 both register a ``Target`` admin, so whichever lands second must resolve the
 collision.  The version here is the reconciled one and should be preferred.
 
-Its ``list_display`` deliberately does **not** follow ``b572dfb``'s
-``['name', 'type', 'ra', 'dec']``.  ``ra``/``dec`` are null on every
-``NON_SIDEREAL`` row -- at the time of writing, all 913 of them, against 11
-sidereal targets -- so those columns would be blank on virtually every row.
-``scheme`` and ``abs_mag`` are populated for essentially the whole catalogue and
-carry the information a sidereal TOM would read from coordinates.
+Its ``list_display`` deliberately does **not** follow ``b572dfb``'s fixed
+``['name', 'type', 'ra', 'dec']``.  The two target types have disjoint useful
+fields: ``ra``/``dec`` are null on every ``NON_SIDEREAL`` row, and
+``scheme``/``abs_mag`` on every ``SIDEREAL`` one, so any single fixed column set
+is half blank.
+
+Columns cannot vary per row -- ``list_display`` defines one header row for the
+whole table -- but ``get_list_display()`` may vary them per *request*, so they
+follow the ``type`` filter that ``list_filter`` already provides.  The default
+suits the non-sidereal catalogue, which dominates by count (at the time of
+writing 913 rows against 11); filtering to Sidereal swaps in the coordinates.
+
+The sidereal rows are not incidental.  They cover Rubin Science Verification
+field centres, sidereal positions for interstellar objects, and
+spectrophotometric standards such as CD-32 5216 -- and calibration stars for
+spectroscopic follow-up are expected to become a standing part of the
+catalogue, not a handful of one-offs.
 
 Upstream status
 ---------------

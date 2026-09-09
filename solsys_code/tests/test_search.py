@@ -52,5 +52,27 @@ class TestTargetGeneralSearch(TestCase):
 class TestTargetAdminOverride(TestCase):
     """solsys_code.admin must win over the bare ModelAdmin tom_targets registers."""
 
+    def setUp(self):
+        self.model_admin = admin.site._registry[Target]
+
+    def _columns(self, query=''):
+        return self.model_admin.get_list_display(RequestFactory().get(f'/admin/tom_targets/basetarget/{query}'))
+
     def test_admin_searches_aliases(self):
-        self.assertIn('aliases__name', admin.site._registry[Target].search_fields)
+        self.assertIn('aliases__name', self.model_admin.search_fields)
+
+    def test_unfiltered_changelist_shows_the_non_sidereal_columns(self):
+        """ra/dec are null on every non-sidereal row, so they must not be the default."""
+        columns = self._columns()
+        self.assertIn('abs_mag', columns)
+        self.assertIn('scheme', columns)
+        self.assertNotIn('ra', columns)
+
+    def test_filtering_to_sidereal_swaps_in_coordinates(self):
+        columns = self._columns('?type__exact=SIDEREAL')
+        self.assertIn('ra', columns)
+        self.assertIn('dec', columns)
+        self.assertNotIn('abs_mag', columns)
+
+    def test_filtering_to_non_sidereal_keeps_the_default_columns(self):
+        self.assertEqual(self._columns('?type__exact=NON_SIDEREAL'), self.model_admin.list_display)
