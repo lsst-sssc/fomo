@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 33
 current_phase_name: Series Identity & Reconciler Inversion
 status: executing
-stopped_at: Completed 33-07-PLAN.md -- WR-02/WR-04/WR-06(code) closed
-last_updated: "2026-09-06T00:56:55.303Z"
+stopped_at: Completed 33-08-PLAN.md -- CR-02/CR-03 closed, counters surfaced, paired docs re-executed
+last_updated: "2026-09-09T01:08:46.756Z"
 last_activity: 2026-09-05
 last_activity_desc: Phase 33 execution started
-state_head: 380e28444901031d1edceca926e20cf7dee33464
+state_head: 40109b8e451ed07cededa2768cccadd85fc5c0fe
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 ## Current Position
 
 Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-09-05 — Phase 33 execution started
 
@@ -176,6 +176,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33-series-identity-reconciler-inversion P05 | 44min | 3 tasks | 3 files |
 | Phase 33 P06 | 32min | 3 tasks | 7 files |
 | Phase 33 P07 | 26min | 3 tasks | 4 files |
+| Phase 33 P08 | 40min | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -219,6 +220,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33]: Phase 33: 33-07: UNLINK_CLEARED_FIELDS is the single declaration of what clearing a campaign attribution means, consumed by unlink_event_from_run()'s bulk .update() and CalendarEventMetaAdmin.save_model()'s in-memory clear via a function-local import (WR-02).
 - [Phase 33]: Phase 33: 33-07: unlink_event_from_run() rejects str/bytes events arguments with TypeError, closing the per-character event__in expansion hole (WR-04).
 - [Phase 33]: Phase 33: 33-07: CalendarEventMetaInline's docstring corrected to describe Django's actual rendering -- fk_name='run' produces a hidden InlineForeignKeyField for parent linkage, never an editable widget (WR-06 code-side half).
+- [Phase 33]: Adopted the local-noon anchored _observing_night(), superseding 26-DECISION.md D-10's plain site-local .date() derivation (checkpoint resolved by user: noon-anchor). — Matches the anchor sun_event() itself uses; closes CR-02's duplicate-night/uncovered-night defect.
+- [Phase 33]: Made the D-01/ANNOT-01 skip in _reconcile_classical_nights() unconditional on attribution alone, with a counted/logged detach of any superseded RUN:-keyed event. — Closes CR-03: reconcile-then-attribute and attribute-then-reconcile orderings now converge on the same result, per 29-REVIEW.md CR-01's detach-never-delete rule.
 
 ### Pending Todos
 
@@ -309,8 +312,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T00:56:55.089Z
-Stopped at: Completed 33-07-PLAN.md -- WR-02/WR-04/WR-06(code) closed
+Last session: 2026-09-09T01:08:46.554Z
+Stopped at: Completed 33-08-PLAN.md -- CR-02/CR-03 closed, counters surfaced, paired docs re-executed
 Resume file: None
 
 ## Operator Next Steps
