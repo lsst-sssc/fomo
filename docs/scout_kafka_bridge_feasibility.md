@@ -1,6 +1,9 @@
 # Feasibility study: a JPL Scout → Kafka bridge for Rubin ToO alerting
 
-*Status: proposal (2026-07-17). Companion prototype plan in §11–§12.*
+*Status: prototype running (first drafted 2026-07-17, updated 2026-09-02). Milestones
+M1–M3 are complete and the bridge has been publishing to the Hopskotch topic
+`Scout.scout-test` on a 10-minute cycle since 2026-08-31; see §12. Remaining work and
+the outstanding coordination gates are in §11–§12.*
 
 ## Summary
 
@@ -331,19 +334,31 @@ standard pattern:
 
 ## 12. Prototype milestones (~5–6 engineering weeks; external coordination dominates)
 
-- **M0** — circulate schema v1 to the Rubin ToO team and SSSC NEOs WG; request SCiMMA
-  credentials and a dev topic (longest lead time — start first); put the §11.4 questions
-  to LCO infrastructure; open the §11.2 conversation about a `ScoutAlertFilter` PR, since
-  that is a second external review cycle and should start early too.
-- **M1** — create `lsst-sssc/scout-alert-bridge`: Django/TOM project shell + `tom_jpl` +
-  `scout_publisher` app (filters copy, outbox model, `publish_scout_events --dry-run`);
+*Status as of 2026-09-02: M1–M3 complete, M0 partly resolved, M4 next.*
+
+- **M0 — partly done.** SCiMMA side resolved 2026-08-24: we are Owner of the `Scout`
+  hopauth group, so topic creation and write credentials turned out to be self-serve and
+  needed no SCiMMA action. `Scout.scout-test` and `Scout.scout-prod` exist; `rubin-too-dev`
+  holds Read on `-test` as of 2026-08-31. The §11.2 conversation opened with the Rubin ToO
+  team on 2026-09-01 (outcomes still to be recorded). *Outstanding*: schema v1 circulated
+  to the SSSC NEOs WG, the §11.4 LCO infrastructure questions, and confirming which group
+  Rubin's production ToO Producer authenticates as before granting on `scout-prod`.
+- **M1 — done 2026-07-18.** `lsst-sssc/scout-alert-bridge`: Django/TOM project shell +
+  `tom_jpl` + `scout_publisher` app (filters copy, outbox model, `publish_scout_events`);
   bootstrap fixture; Django-test-runner tests with canned Scout JSON fixtures covering a
   filter-crossing, an update, and a departure.
-- **M2** — publish real events to the Hopskotch `-test` topic; verify with `hop subscribe`.
-- **M3** — Dockerfile; local Postgres via docker compose; migration-job wiring; secrets
-  handling.
-- **M4** — `LCOGT/scout-alert-bridge-deploy` from the copier template; staging ArgoCD
-  app; one-week soak on the dev topic; tune event-noise suppression.
+- **M2 — done 2026-08-31.** 25 events published to `Scout.scout-test` and independently
+  verified off the broker with `hop subscribe`. Run under `--relaxed-filters`, which gates
+  on the identity filters only and stamps `provenance.filter_mode='relaxed_test'`: a real
+  `impact_rating >= 3` object is rare enough that this is the only practical way to
+  exercise the path end to end. Payloads still report the full, honest filter results.
+- **M3 — done 2026-07-18.** Dockerfile; local Postgres via docker compose; migration
+  wiring; secrets handling. Scheduling is currently a host `cron` entry guarded by
+  `flock`; the containerised CronJob arrives with M4.
+- **M4 — next.** `LCOGT/scout-alert-bridge-deploy` from the copier template; staging ArgoCD
+  app; two CronJob manifests (the 10-minute cycle and the daily MPC pass) with
+  `concurrencyPolicy: Forbid` replacing the host cron and `flock`; one-week soak on the dev
+  topic; tune event-noise suppression.
 - **M5** — `ScoutAlertFilter` for `scimma/rubin-ToO-producer` (§7): sky-map generation
   from RA/Dec and positional uncertainty, `alert_type` case names, `_test` header
   handling, unit tests against canned bridge messages; offered as a PR, with the
