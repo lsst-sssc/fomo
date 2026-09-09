@@ -11,10 +11,15 @@ class TargetNameInline(admin.TabularInline):
 
 
 class SolsysTargetAdmin(TargetAdmin):
-    """TOM Toolkit's TargetAdmin with the search, filters and columns it omits."""
+    """TOM Toolkit's TargetAdmin with the search, filters and columns it omits.
+
+    Columns are chosen for a non-sidereal catalogue: ra/dec are null on every
+    NON_SIDEREAL row, so H and the orbit scheme carry the information a sidereal
+    TOM would take from coordinates.
+    """
 
     search_fields = ('name', 'aliases__name')
-    list_display = ('name', 'type', 'created', 'modified')
+    list_display = ('name', 'type', 'scheme', 'abs_mag', 'created')
     list_filter = ('type', 'scheme', 'created')
     ordering = ('-created',)
     inlines = TargetAdmin.inlines + [TargetNameInline]

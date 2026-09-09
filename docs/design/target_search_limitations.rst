@@ -100,6 +100,30 @@ FOMO's workarounds
     inline.  This relies on ``tom_targets`` preceding ``solsys_code`` in
     ``INSTALLED_APPS`` so the original registration exists to unregister.
 
+An earlier, independent attempt
+-------------------------------
+
+Commit ``b572dfb`` ("register custom TargetAdmin with type filter",
+2026-07-22) had already added a ``TargetAdmin`` to ``solsys_code/admin.py`` on
+``issue37-telescope-runs-calendar``, and it was carried onto
+``issue37-code-only`` (via ``5a1f27e``), the branch behind the open draft PR.
+It is not on ``main``.  That version declares ``search_fields = ['name']``, so
+it restores a search box but not alias matching -- it closes the "no search at
+all" half of the problem and leaves the half that hid ``CERNQ52``.  It also
+subclasses ``admin.ModelAdmin`` directly rather than the toolkit's
+``TargetAdmin``, which drops the ``TargetExtra`` inline that ships with it.
+
+Both branches therefore rewrite ``solsys_code/admin.py`` from main's stub and
+both register a ``Target`` admin, so whichever lands second must resolve the
+collision.  The version here is the reconciled one and should be preferred.
+
+Its ``list_display`` deliberately does **not** follow ``b572dfb``'s
+``['name', 'type', 'ra', 'dec']``.  ``ra``/``dec`` are null on every
+``NON_SIDEREAL`` row -- at the time of writing, all 913 of them, against 11
+sidereal targets -- so those columns would be blank on virtually every row.
+``scheme`` and ``abs_mag`` are populated for essentially the whole catalogue and
+carry the information a sidereal TOM would read from coordinates.
+
 Upstream status
 ---------------
 
