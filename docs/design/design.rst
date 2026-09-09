@@ -41,3 +41,4 @@ Design Notes
 
    target_origin_tracking
    fink_sso_support
+   target_search_limitations
