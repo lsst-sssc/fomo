@@ -164,7 +164,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   3. A user looking at a calendar event attributed to a campaign run sees the campaign decoration (label, link back to the run), and that decoration is still there after the event's own title and description are rewritten from scratch
   4. Clearing `CalendarEventMeta.run` removes only the decoration; the event itself is untouched, and no event is deleted by the unlink
 
-**Plans**: 8/8 plans executed (3 waves executed, 2 gap-closure waves added 2026-09-04 from 33-REVIEW.md)
+**Plans**: 11 plans (8 executed; 3 added 2026-09-09 as gap-closure wave 3 from 33-VERIFICATION.md Gaps 1-2 and 33-UAT.md G-33-2/G-33-4)
 **Wave 1**
 
 - [x] 33-01-PLAN.md — Reconciler inversion + attributed-event decoration (tracer): skip the attributed night, retire the adopt/re-key path, render the campaign from the link in the event modal, drop the campaign name from reconciler titles (wave 1)
@@ -187,6 +187,15 @@ Superseded after five spikes showed that routing observation-precision narrowing
 **Gap closure — Wave 2** *(blocked on gap Wave 1 completion)*
 
 - [x] 33-08-PLAN.md — CR-02/CR-03: the observing night is anchored at local noon and the skip rule is unconditional; the superseded reconciler entry is detached, counted and logged; paired notebooks and runbook re-executed (gap wave 2)
+
+**Second gap closure (2026-09-09) — Wave 1** *(from 33-VERIFICATION.md Gaps 1-2 — the CR-04 confirm/erase loop and WR-13 — plus 33-UAT.md G-33-2/G-33-4; wave numbering restarts at 1 in the plan frontmatter, as the first gap-closure run did)*
+
+- [ ] 33-09-PLAN.md — G-33-4: both demo notebooks execute against a scratch copy of the developer database, the contact fields leave the lifecycle notebook's output, and the existing demo residue is cleaned out of `src/fomo_db.sqlite3` (gap wave 1)
+- [ ] 33-11-PLAN.md — G-33-2: the calendar pop-up opens again — the month partial's three modal handlers move from jQuery to the Bootstrap 5 API, with a browser-driven click test and a served-partial regression guard (gap wave 1)
+
+**Second gap closure — Wave 2** *(blocked on its Wave 1 completion)*
+
+- [ ] 33-10-PLAN.md — CR-04/WR-13: a human-confirmed attribution outranks the automated detach (UAT option B), ownership is decided before the night's outcome, `--dry-run` previews the detach, the four staff actions report a release, and the paired docs are re-executed and corrected (gap wave 2)
 
 **UI hint**: yes
 
