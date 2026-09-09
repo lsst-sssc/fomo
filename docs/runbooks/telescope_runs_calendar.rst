@@ -663,10 +663,30 @@ database writes:
 The final summary line reports these counters -- ``would_create``/
 ``would_update``/``would_leave_unchanged`` in ``--dry-run`` mode, or
 ``created``/``updated``/``unchanged`` for a real sweep, alongside ``runs``,
-``skipped``, ``failed`` and ``blocked`` either way::
+``skipped``, ``failed``, ``blocked``, ``skipped_nights`` and either
+``would_detach`` (``--dry-run``) or ``detached`` (a real sweep)::
 
-   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0
-   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0
+   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: n/a (dry-run)
+   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1
+
+``skipped_nights`` counts classical nights whose calendar entry already
+comes from another writer attributed to that run -- so
+``created: 0, updated: 0`` alongside a non-zero ``skipped_nights`` means
+"this run's nights are covered elsewhere", not "already converged" (those
+read identically without this counter). ``detached`` counts entries the
+reconciler released back into the attribution queue because the night
+they cover became attributed through another writer *after* this
+reconciler had already created its own entry for it -- releasing one
+always clears that entry's "confirmed by"/"confirmed at" record with it
+(see the skip rule below). ``--dry-run`` always prints
+``would_detach: n/a (dry-run)`` rather than a number, because the detach
+step is itself a write and does not run in a dry run -- there is nothing
+to preview.
+
+A per-run line accompanies each non-zero counter: a skipped-night line on
+stdout (normal, expected convergence, not a failure) and a detached line
+on stderr alongside the existing ``blocked`` line (naming the run and
+stating that a confirmation stamp was cleared).
 
 A run that does not project onto the calendar at all is reported on stderr
 with one of these skip reasons, one line per run:
@@ -731,6 +751,26 @@ entry sitting alongside it. The reconciler now only ever creates, updates
 or removes entries it keyed itself (its own ``RUN:{pk}:{date}``/``RUN:{pk}``
 urls); it never re-keys or edits another writer's entry.
 
+**Which observing night an entry's start time belongs to is anchored at
+local noon**, the same convention the sunset/sunrise calculation itself
+uses: the night runs from local noon of a date through local noon of the
+next date, so an entry starting after local midnight belongs to the
+PREVIOUS date's night, not the date its own local calendar date would
+name. A 02:00-local start on 9 August, for example, belongs to the night
+that began at sunset on 8 August.
+
+**The rule applies whether or not the reconciler had already made its own
+entry for that night.** If it had not, nothing is created for that night
+and the skip is the whole story. If it had -- the realistic case once
+another writer (a classical-schedule loader, a hand entry, or an
+observation record) attributes a real entry to the same run for a night
+the reconciler already covered -- that earlier reconciler-created entry is
+released (never deleted) back into the attribution queue for a human to
+re-confirm or discard, and its "confirmed by"/"confirmed at" record is
+cleared along with the release. Clearing the other entry's attribution
+later brings the reconciler's own entry back, in place (same record, same
+url), on the next sweep.
+
 **One-time title change.** Reconciler-created entries no longer carry the
 campaign name in their title -- only the telescope/instrument text (and,
 for a cancelled/weathered run, its status prefix). The campaign name now
@@ -761,6 +801,17 @@ from the entry's attribution link (``CalendarEventMeta.run``) every time
 the page is drawn -- it is never written into the entry's own title or
 description -- so nothing that rewrites those fields (a base-layer
 re-projection, a hand edit, anything) can erase it.
+
+**That "View campaign ↗" link carries the run's row anchor but no page
+number.** The campaign run table paginates at 25 rows, sorted by window
+start descending, so a run that sorts past page 1 -- a campaign with more
+runs than fit on one page -- will not be scrolled to; the browser opens on
+page 1 with no matching anchor anywhere on it, and nothing highlights. An
+active filter on the table can produce the same outcome on any page. If
+the link does not appear to do anything, use the table's filter controls
+or page forward to find the run's own row by hand. This is a known,
+tested constraint (a test pins the >25-run behaviour so it cannot regress
+silently), not a bug to report.
 
 A month-view cell shows a small campaign marker on every attributed entry
 whose run is publicly visible, with the campaign name as its tooltip -- the
@@ -799,17 +850,21 @@ through the attribution queue, or a hand-created calendar entry:
 3. Save. The pop-up for that entry now shows the Attributed campaign run
    block.
 
-Two things to know about that inline:
+Three things to know about that inline:
 
 * The **calendar event** field is frozen once a row is saved, because it is
   that record's identity. To point the link at a different event, delete
   the row and add a new one -- do not try to edit it in place.
-* Clearing the **Attributed campaign run** value un-attributes the entry:
-  it removes only the pop-up block and the month-cell marker, and clears
-  the "confirmed by"/"confirmed at" record along with it -- a confirmation
-  for an attribution that no longer exists would be misleading. The entry
-  itself, and its telescope-label verification history, survive
-  untouched; nothing is deleted.
+* On the run's own inline, the **Attributed campaign run** field is not
+  rendered at all -- the row IS the link, so there is no separate value to
+  clear there. To un-attribute an entry, delete the row instead. To clear
+  the value in place (which also clears the "confirmed by"/"confirmed at"
+  record, since a confirmation for an attribution that no longer exists
+  would be misleading), open the entry from **Django admin -> Solsys code
+  -> Calendar event metas** instead -- the standalone change page for that
+  record, not this inline -- and clear the **Attributed campaign run**
+  value there. Either way, the entry itself, and its telescope-label
+  verification history, survive untouched; nothing is deleted.
 * Two further fields on that same inline, **Observation record** and
   **Observation group**, are read-only: they record which real observation
   an entry was drawn from, are filled in by code only, and are empty for
