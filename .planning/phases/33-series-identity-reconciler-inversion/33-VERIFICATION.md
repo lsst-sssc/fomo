@@ -1,298 +1,284 @@
 ---
 phase: 33-series-identity-reconciler-inversion
-verified: 2026-09-04T18:09:09Z
-status: human_needed
-score: 49/50 must-haves verified
+verified: 2026-09-08T19:40:00Z
+status: gaps_found
+score: 80/83 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-decision_coverage:
-  honored: 17
-  total: 17
-  not_honored: []
+re_verification:
+  previous_status: human_needed
+  previous_score: 49/50
+  gaps_closed:
+    - "CR-01: the D-13 `tr:target` highlight rule is now inside `{% block additional_css %}` and is actually served (3 tests)"
+    - "CR-02: the observing night is anchored at local noon, matching `telescope_runs._local_noon_utc()` (5 boundary tests)"
+    - "CR-03 (attribution half): the skip is unconditional; exactly one entry per night is attributed to the run"
+    - "WR-01/WR-03: `skipped_nights` and `detached` reach `ReconcileResult` and the sweep's summary + per-run lines"
+    - "WR-02: `UNLINK_CLEARED_FIELDS` is the single declaration, consumed by both writers (sentinel-key test proves the loop)"
+    - "WR-04: `unlink_event_from_run()` raises `TypeError` on `str`/`bytes`"
+    - "WR-05.1/.2/.3: the three month-view tests now discriminate on fixture-specific values"
+    - "WR-06: `CalendarEventMetaInline` renders `run` only as a hidden `InlineForeignKeyField`; docstring and runbook corrected"
+    - "WR-07: one visibility gate, in `campaign_decoration()` only"
+    - "IN-01/IN-03/IN-05: one chip definition with `role=\"img\"`, an `aria-label`, and a no-campaign tooltip that consumes `run_pk`"
+    - "IN-02: the window arithmetic lives only in `_reconcile_classical_nights()`"
+    - "IN-04: the reconcile notebook's `.delete()` is gated on a pk captured in the same run"
+  gaps_remaining:
+    - "The abstained `verification: backstop` ordering item (unchanged: still no held-out test, still no production reader)"
+  regressions:
+    - "CR-04: the CR-03 detach + Phase 28 queue form a confirm/erase loop that erases human `confirmed_by`/`confirmed_at` on every sweep (reproduced independently by this verifier)"
+    - "WR-13: a night that is both attributed to this run and contested by another run now reports `skipped_nights=1, blocked=0` and drops out of the active url set — two clauses of 33-08 truth 9 no longer hold in that combination"
+gaps:
+  - truth: "A human-made attribution of a calendar event to a run survives an unattended reconcile sweep — the reconciler annotates, and never repeatedly clears a run link plus its confirmation stamps that a staff member has (re-)confirmed (phase goal, REQUIREMENTS.md ANNOT-01, reconciler D-17, `unlink_event_from_run()`'s own 'a human attribution always outranks an automated clear')."
+    status: failed
+    reason: >-
+      Independently reproduced (throwaway probe run under the Django test runner, then deleted;
+      no source file modified). After the reconciler mints `RUN:{pk}:{date}` and a facility event
+      for the same night is later attributed to the run, the sweep detaches the reconciler's own
+      event and clears `run`/`confirmed_by`/`confirmed_at`. No `CalendarEventDismissal` row is
+      written, `orphan_calendar_events()` treats the row as an orphan, and `candidates_for_event()`
+      re-offers it to the SAME run at HIGH band (score 0.82). A staff member draining the Phase 28
+      queue confirms it; the next sweep silently erases the stamp again — and again. Observed:
+      R2 detached=1 -> candidates [(run 1, 'high', 0.82)] -> staff re-confirm -> R3 detached=1,
+      run=None, confirmed_by=None, confirmed_at=None. Only a `logger.warning` records the loss.
+      The loop is newly reachable — before 33-08 every night stayed in `active_urls`, so a
+      re-attributed `RUN:` event was never stale. It is reachable from an interactive staff surface
+      (`_resolve_site()`) as well as from the unattended cron sweep Phase 36 will schedule, and its
+      trigger shape (a facility/observation-keyed event attributed to the run) is exactly what
+      Phase 34's projector starts producing next phase.
+    artifacts:
+      - path: "solsys_code/campaign_reconciler.py"
+        issue: "`_detach_stale_family_events()` (:469-528) clears a human confirmation with no compensating dismissal row and no once-only guard; the unconditional skip at :425-427 makes it repeat on every sweep"
+      - path: "solsys_code/campaign_views.py"
+        issue: "`_resolve_site()` (:681-699) drops `result.detached` and reports 'Site resolved — run added to the calendar.' even when created=0 and every night was skipped (WR-12); the approve (:527) and `_set_run_status()` (:759) call sites discard the result entirely"
+      - path: "solsys_code/tests/test_campaign_reconciler.py"
+        issue: "`test_second_reconcile_detaches_the_superseded_run_keyed_event_and_restore_on_third` (:686-746) clears the FACILITY event's link before the third reconcile, so it never exercises the staff-re-confirms-the-detached-RUN:-event path the queue actually steers operators into"
+      - path: "docs/runbooks/telescope_runs_calendar.rst"
+        issue: "Tells the operator the released entry is there 'for a human to re-confirm or discard' — re-confirming is the loop trigger, and discarding (a dismissal) never removes the entry"
+    missing:
+      - "Make the release un-re-offerable or non-repeatable: write the `CalendarEventDismissal` row inside the same write (mirroring `AttributionDecisionView._undo_confirmation()`), or skip an event whose `confirmed_by` is set and count it under a separate operator-visible counter"
+      - "A regression test that reconciles -> attributes -> reconciles -> RE-CONFIRMS the detached `RUN:` event to the same run -> reconciles, asserting the stamp survives or the pair is no longer offered"
+      - "Surface `result.detached` as a warning at all four staff-action call sites, and key `_resolve_site()`'s message on `created`/`updated`/`skipped_nights` rather than on `skipped_reason is None` alone (WR-12)"
+      - "Correct the runbook's 're-confirm or discard' instruction so it does not steer the operator into the destructive path"
+  - truth: "A night whose `RUN:`-keyed event is attributed to a DIFFERENT run stays `blocked`, keeps its url in the active set, and is never detached — the foreign attribution survives the refactor (33-08 truth 9, D-02)."
+    status: partial
+    reason: >-
+      Holds in the tested configuration, but not when the night is ALSO attributed to the
+      reconciling run through a non-`RUN:` event. `_reconcile_classical_nights()` performs the skip
+      `continue` (:425-427) BEFORE `active_urls.add(url)` and before `_may_write()`, so that
+      combination reports `skipped_nights=1, blocked=0` and the contested url drops out of the
+      active set. Two of the truth's three clauses fail there. The data is still safe — but only
+      because of one remaining layer (`unlink_event_from_run()`'s `run_id=run.pk` filter); the
+      `blocked` diagnostic that tells an operator 'someone else owns this night's entry' is lost,
+      and no test covers the combination.
+    artifacts:
+      - path: "solsys_code/campaign_reconciler.py"
+        issue: "Ownership is evaluated after the skip decision, so the two signals mask instead of composing (:425-436)"
+    missing:
+      - "Evaluate `_may_write()` on any existing event before the attributed-night skip, keeping the contested url in `active_urls`"
+      - "A test asserting `blocked == 1` for a night that is both attributed to this run and carries a foreign-attributed `RUN:` event"
+deferred:
+  - truth: "The superseded night no longer shows two calendar entries (WR-09 — CR-03's original 'a visibly duplicated night, forever' complaint; the detach removes the attribution, the `CalendarEvent` row survives by design and still renders, now with no campaign chip and no campaign name in its title)"
+    addressed_in: "Phase 35"
+    evidence: "Phase 35 success criterion 5: 'After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old load_telescope_runs events or the reconciler's RUN:{pk}:{date} events'; criterion 3 replaces this handoff with the allocation layer's own link/unlink."
 insufficient_spec_items:
   - truth: "No code added by this phase depends on the iteration order of the `observation_group` reverse manager: `CalendarEventMeta` gains no `Meta.ordering`, and no reader added here iterates `group.calendar_event_metas` expecting a stable order (PROJ-04 ordering edge)."
     reason: insufficient_spec
     tier: backstop
-    observed: "CalendarEventMeta declares no `class Meta` at all (solsys_code/models.py:12-88), and repo-wide grep finds no production reader of `group.calendar_event_metas` — the only hit is a string assertion on an admin inline prefix in solsys_code/tests/test_admin.py:472."
-    why_human: "Tagged `verification: backstop` by the edge probe — a non-inferable check. Absence-by-grep plus symbol presence is explicitly NOT sufficient evidence for a backstop truth; only a wired held-out/property-based test (e.g. one that shuffles insert order and asserts a stable outcome) or directly observed ordering behavior can confirm it. Abstaining rather than confidently false-passing."
+    observed: "Unchanged since the 2026-09-04 verification and re-checked against the gap-closure diff: `CalendarEventMeta` still declares no `class Meta` (solsys_code/models.py:12-88), and repo-wide grep finds no production reader of `group.calendar_event_metas` — the only hits are `related_name` declarations and a string assertion on an admin inline prefix in solsys_code/tests/test_admin.py:503-539. Plans 33-06/07/08 added no such reader."
+    why_human: "Tagged `verification: backstop` — non-inferable. Absence-by-grep plus symbol presence is explicitly NOT sufficient; only a wired held-out/property-based test (shuffle insert order, assert a stable outcome) or directly observed ordering behavior can confirm it."
+flagged_prohibitions:
+  - statement: "No notebook cell may delete a row it did not create earlier in the same notebook run, nor leave demo rows behind outside its own demo-scoped reset (33-08 P4 / 33-05 P2)."
+    verdict: "partially violated (NON-AUTHORITATIVE LLM-judge verdict)"
+    observed: "The delete half is clean — `reconcile_campaign_runs_demo.ipynb`'s only `.delete()` is gated on `blank_url_event_pk`, captured at creation in the same cell (IN-04 closed). But the cell's committed output shows it detaching the PRE-EXISTING `RUN:59:2026-09-02` (pk=335) and leaving it detached in `src/fomo_db.sqlite3`, where it appears in the real attribution queue as a HIGH-band candidate — i.e. a doc artifact seeds CR-04's starting state into the dev DB (IN-08)."
+    flag: "unverified-prohibition — human review recommended"
+  - statement: "No notebook cell may print or store a run's `contact_person`, `contact_email` or `source` into committed output (33-08 P5 / 33-05 P1)."
+    verdict: "technically violated, no PII leaked (NON-AUTHORITATIVE LLM-judge verdict)"
+    observed: "`campaign_lifecycle_demo.ipynb` cell 36's committed output prints `contact_person='' contact_email=''` for five demo runs (pre-existing cell, carried forward from 33-05 and flagged in the previous verification). The field names are printed; every value is the empty string, so no contact data is committed."
+    flag: "unverified-prohibition — human review recommended"
 human_verification:
   - test: "Open the month calendar (`/calendar/`) on a month containing at least one campaign-attributed all-day entry AND one attributed timed entry, across several different proposal fill colours. Look at the ⚑ campaign chip."
-    expected: "The chip is legible against every proposal fill (it inherits the entry's own foreground via `color: currentColor`), does not compress or clip in the timed entry's flex row (`flex-shrink: 0`), and hovering it shows the campaign name as a tooltip."
-    why_human: "Visual legibility and layout across dynamic, data-driven fill colours. Tests assert the CSS declarations and the tooltip attribute are present in the rendered HTML (solsys_code/tests/test_calendar_template.py MonthCellCampaignMarkerTest), but cannot judge whether the chip actually reads clearly on every fill."
-  - test: "Click a campaign-attributed calendar entry to open its pop-up, then click the 'View campaign ↗' link in the 'Attributed campaign run' block."
-    expected: "The campaign table page loads scrolled to that run's own row, and the row is visibly highlighted (the `tr:target` rule in src/templates/campaigns/campaignrun_table.html)."
-    why_human: "The anchor `id=\"run-{pk}\"` and the `tr:target` CSS rule are both asserted present by tests (solsys_code/tests/test_campaign_views.py:641-661), but browser anchor-scroll plus `:target` highlight rendering is real-browser behavior no server-side test observes."
-  - test: "Review the abstained backstop truth above: decide whether a held-out test pinning `observation_group` reverse-manager ordering independence is wanted before Phase 34's projector starts writing these links, or whether the absence evidence is accepted as-is."
-    expected: "Either a held-out/property-based test is added (shuffle insertion order of several CalendarEventMeta rows sharing one ObservationGroup; assert the consuming code's outcome is unchanged), or the item is explicitly accepted."
+    expected: "The chip is legible against every proposal fill (it inherits the entry's foreground via `color: currentColor`), does not compress or clip in the timed entry's flex row (`flex-shrink: 0`), and hovering it shows the campaign name as a tooltip."
+    why_human: "Visual legibility and layout across dynamic, data-driven fill colours. Tests assert the CSS declarations and the tooltip attribute are present in the rendered HTML, but cannot judge whether the chip reads clearly on every fill."
+  - test: "Click a campaign-attributed calendar entry to open its pop-up, then click 'View campaign ↗' in the 'Attributed campaign run' block."
+    expected: "The campaign table page loads scrolled to that run's own row, and the row is visibly highlighted (the `tr:target` rule now actually renders — it moved inside `{% block additional_css %}`)."
+    why_human: "The anchor `id=\"run-{pk}\"`, the `tr:target` rule and its presence in the served HTML are all asserted by tests (test_campaign_views.py:634-684), but browser anchor-scroll plus `:target` highlight rendering is real-browser behaviour no server-side test observes."
+  - test: "Decide the CR-04 remedy: dismissal-row-on-detach (make the released pair un-re-offerable) vs. once-only detach that yields to a human `confirmed_by` (make it non-repeatable)."
+    expected: "A chosen approach recorded as a decision, so the closure plan implements one of the two rather than inventing a third."
+    why_human: "A product/audit-policy choice — whether an automated release should be recorded as a dismissal or should simply lose to a human decision — not a code fact."
+  - test: "Review the two flagged judgment-tier prohibitions above (notebook residue in the dev DB; `contact_person=''`/`contact_email=''` in committed notebook output)."
+    expected: "Each is confirmed as still acceptable, or the deviation is corrected."
+    why_human: "unverified-prohibition — judgment-tier prohibitions carry no wired enforcement test; a model verdict is never authoritative for a must-NOT."
+  - test: "Review the abstained backstop ordering item: decide whether a held-out test pinning `observation_group` reverse-manager ordering independence is wanted before Phase 34's projector starts writing these links, or accept the absence evidence as-is."
+    expected: "Either a held-out/property-based test is added (shuffle insertion order of several `CalendarEventMeta` rows sharing one `ObservationGroup`; assert the consuming code's outcome is unchanged), or the item is explicitly accepted."
     why_human: "`verification: backstop` — non-inferable by design; routing, not diagnosis. reason: insufficient_spec (NOT ordinary manual UAT)."
-  - test: "Review the 11 judgment-tier prohibitions listed in the Prohibitions section of this report (LLM-judge verdicts are recorded there and are NON-AUTHORITATIVE), with particular attention to 33-05 P1 (notebook output shows `contact_person=''`/`contact_email=''` for demo runs in a pre-existing cell) and 33-05 P2 (the reconciler notebook writes to and deletes rows in the real developer database `src/fomo_db.sqlite3`)."
-    expected: "Each prohibition is confirmed as still not violated, or the deviation is accepted."
-    why_human: "unverified-prohibition — human review recommended. Judgment-tier prohibitions carry no wired enforcement test; a model verdict is never authoritative for a must-NOT."
 ---
 
-# Phase 33: Series Identity & Reconciler Inversion — Verification Report
+# Phase 33: Series Identity & Reconciler Inversion — Verification Report (re-verification)
 
 **Phase Goal:** `CalendarEventMeta` carries real series identity and attribution links, and the campaign reconciler annotates instead of owning — so the observation projector can land next phase without the campaign layer stealing its events.
-**Verified:** 2026-09-04T18:09:09Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Verified:** 2026-09-08
+**Status:** gaps_found
+**Re-verification:** Yes — after gap-closure plans 33-06, 33-07 and 33-08
+
+## Headline
+
+The gap-closure wave genuinely closed what it set out to close: 12 of the 13 prior blockers/warnings
+are verified closed in the code (not in the SUMMARYs), the full project suite passes (1005 tests, OK),
+and both ruff gates are clean. **But 33-08's CR-03 fix introduced a reproducible regression** — the
+detach step plus Phase 28's attribution queue form a confirm/erase loop that destroys a human's
+`confirmed_by`/`confirmed_at` on every subsequent sweep. I reproduced it independently (throwaway probe
+module, run then deleted; no source file modified), so this is not taken on the review's word.
+
+That is a goal-level failure, not just a code-quality finding. The phase goal is "the reconciler
+**annotates instead of owning**"; D-17 in the reconciler's own module header says a set
+`CalendarEventMeta.run` "means the event is ATTRIBUTED to that run, never that the run OWNS it"; and
+`unlink_event_from_run()`'s docstring states "a human attribution always outranks an automated or
+stale-POST clear." The shipped behaviour is the opposite for the reconciler's own namespace: the
+machine overrides the human, silently, on every sweep, and the runbook instructs the operator straight
+into it. The trigger shape — a facility/observation-keyed event attributed to the run — is precisely
+what Phase 34's projector starts producing next phase.
 
 ## Goal Achievement
 
 ### ROADMAP Success Criteria (the contract)
 
-| # | Criterion | Status | Evidence |
-|---|-----------|--------|----------|
-| 1 | Calendar event linkable to `ObservationRecord`/`ObservationGroup` through real FKs on `CalendarEventMeta`; every existing companion row survives migration with `run`/`is_verified`/`confirmed_by` intact | ✓ VERIFIED | `solsys_code/models.py:54-68` — `observation_record = OneToOneField(ObservationRecord, SET_NULL, null, blank)`, `observation_group = ForeignKey(ObservationGroup, SET_NULL, null, blank)`. `solsys_code/migrations/0017_calendareventmeta_observation_links.py` — two `AddField` + one `AlterField`, cross-app dependency on `tom_observations.0016`. Migration proved non-destructive by a real `MigrationExecutor` round trip: `TestCalendarEventMetaObservationLinksMigration` seeds two pre-0017 rows (one with audit fields populated, one NULL), migrates to 0017, asserts all four pre-existing values byte-identical and both new columns NULL. Ran `python manage.py test solsys_code.tests.test_calendar_event_meta_links` → 8 tests OK. `makemigrations --check` → "No changes detected". |
-| 2 | `reconcile_campaign_runs` over the existing dev DB no longer adopts, re-keys, or detaches any event outside the reconciler's own `RUN:` namespace | ✓ VERIFIED | Every write path is namespace-keyed: `_reconcile_container` and `_reconcile_classical_nights` look up `CalendarEvent.objects.filter(url=run_container_url/run_night_url)` only; `_detach_stale_family_events` operates on `owned_events(run)` (url `startswith` this run's `RUN:` prefix). The adopt/re-key helper `_adopted_event_for_night()` is deleted outright (`grep _adopted_event_for_night solsys_code/campaign_reconciler.py` → no hits). Fixture proof: `TestAttributedEventsSurviveReconcile` snapshots 11 fields (url/title/description/start/end/telescope/instrument + run_id/is_verified/confirmed_by/confirmed_at) and asserts byte-identity across `reconcile_run()` for blank-url and facility-URL-keyed attributed events, plus idempotency on a second call. Real-DB proof: `reconcile_campaign_runs_demo.ipynb` cells 15-16 (executed output committed) snapshot **166** non-`RUN:` events, preview via `reconcile_run(dry_run=True)` per run (touchable url set = 90, all inside `RUN:`), run the real sweep, and report `Differences found: 0`. |
-| 3 | A user sees campaign decoration on an attributed event, and it survives a from-scratch rewrite of the event's title and description | ✓ VERIFIED | `campaign_decoration()` (`solsys_code/templatetags/calendar_display_extras.py:434-483`) is a read-only `simple_tag` reading `CalendarEventMeta.run` at request time; rendered by `event_form.html:136-163` ("Attributed campaign run" block + `#run-{pk}` anchored campaign link) and `calendar.html:253,282` (month-cell ⚑ chip). Behavioral test `test_decoration_survives_from_scratch_rewrite_of_title_and_description` rewrites `title` and `description`, re-GETs both the modal and the month view, and asserts the decoration is still rendered. Notebook cell 28 shows the same against a real request with committed output. Nothing about the decoration is stored on `CalendarEvent` (no `.save()`/`.update()`/`.create()` anywhere in `calendar_display_extras.py`). Visual appearance routed to human verification. |
-| 4 | Clearing `CalendarEventMeta.run` removes only the decoration; the event is untouched and nothing is deleted | ✓ VERIFIED | `unlink_event_from_run()` (`solsys_code/campaign_utils.py:860-910`) performs one conditional `CalendarEventMeta.objects.filter(run_id=run_pk, **event_filter).update(run=None, confirmed_by=None, confirmed_at=None)` — no delete, no `CalendarEvent` write, no `is_verified`/`observation_*` write. `TestUnlinkEventFromRun` (9 tests) asserts `is_verified` untouched and both `CalendarEvent`/`CalendarEventMeta` counts unchanged. `test_detach_clears_audit_fields_leaves_event_and_verification_flag_untouched` snapshots 7 `CalendarEvent` fields across a real detach. Notebook cell 30: counts 256→256, title/description preserved, `Modal shows "Attributed campaign run" after unlink: False`. |
+| # | Success criterion | Status | Evidence |
+|---|-------------------|--------|----------|
+| 1 | Event links to `ObservationRecord`/`ObservationGroup` by real FKs; every companion row survives the migration with `run`/`is_verified`/`confirmed_by` intact | ✓ VERIFIED | `models.py:54-68` declares `observation_record` (OneToOne, SET_NULL) and `observation_group` (FK, SET_NULL); `migrations/0017_calendareventmeta_observation_links.py` is two nullable `AddField`s plus an `AlterField` on `run`'s verbose name/related_name only; `test_calendar_event_meta_links.py:229/240` assert pre-existing values survive byte-identical and both new columns are NULL on every migrated row |
+| 2 | `reconcile_campaign_runs` no longer adopts, re-keys or detaches any event **outside** the reconciler's own `RUN:` namespace — an attributed event keeps its key and its fields | ✓ VERIFIED | The attributed-night skip `continue`s before any write (`campaign_reconciler.py:425-427`); `test_attributed_night_is_skipped_and_event_untouched` asserts a 7-field byte-identical snapshot; `test_facility_url_keyed_attributed_event_skips_its_night` covers the Phase 34 url shape. My probe confirms the facility event's url/fields/link/stamps are untouched across three sweeps |
+| 3 | The campaign decoration is rendered from the link and survives a from-scratch rewrite of the event's title/description | ✓ VERIFIED | `campaign_decoration()` (`calendar_display_extras.py:433-489`) reads only — no `.save()`/`.update()`/`.create()`/`get_or_create()`/`.delete()` anywhere in the module; `test_decoration_survives_from_scratch_rewrite_of_title_and_description` (test_calendar_template.py:898) |
+| 4 | Clearing `CalendarEventMeta.run` removes only the decoration; the event is untouched and nothing is deleted | ✓ VERIFIED | `unlink_event_from_run()` issues a single `CalendarEventMeta.objects.filter(...).update(**UNLINK_CLEARED_FIELDS)` — three keys, no `CalendarEvent` write, no delete; 12 unlink/undo tests in `test_campaign_attribution_views.py` |
+| — | **Derived goal truth**: a human-made attribution survives an unattended sweep (the "annotates instead of owning" clause) | ✗ FAILED | Reproduced confirm/erase loop — see Gap 1 |
 
-### Plan Must-Haves (merged; roadmap-duplicating truths folded into the table above)
+### Gap-closure plan truths
 
-**Plan 33-01 — reconciler inversion + display-time decoration (12 truths, all ✓ VERIFIED)**
+**33-06 — display layer (11/11 verified)**
 
-| Truth | Evidence |
-|-------|----------|
-| Attributed non-`RUN:` night mints no `RUN:{pk}:{date}` event; reported in `skipped_nights` | `_reconcile_classical_nights:372-374` — `if existing is None and night in attributed_nights: totals['skipped_nights'] += 1; continue`. `TestAttributedNightSkip` (4 tests). Notebook cell 18 real output: `skipped_nights=1`, `'RUN:59:2026-09-02' present: False`. |
-| Skip matches site-local observing night, never naive UTC | `_attributed_nights:328` — `meta.event.start_time.astimezone(site_zone).date()`. Test `test_skip_matches_on_site_local_night_not_naive_utc_date`. |
-| Skip matches ANY url outside `RUN:` — blank and facility-URL alike | `.exclude(event__url__startswith=RUN_URL_NAMESPACE)` with no blank-url restriction. Tests `test_facility_url_keyed_attributed_event_skips_its_night`, `test_blank_url_attributed_event_survives_reconcile`. |
-| A `RUN:{pk}` event whose companion row points at a DIFFERENT run stays blocked; `meta.run` never reset | `_may_write:238-244` — exact-match on `meta.run_id` when set. `test_reconcile_reports_blocked_for_a_night_attributed_to_a_different_run`. |
-| Modal shows campaign name, telescope/instrument, window, run-status from `CalendarEventMeta.run` at request time | `event_form.html:136-163`; `EventModalCampaignRunLinkTest::test_approved_run_shows_attributed_label_and_anchored_campaign_link`. |
-| Modal campaign link targets `campaigns:table` with `#run-{pk}` | `calendar_display_extras.py:473` — `f"{reverse('campaigns:table', args=[run.campaign_id])}#run-{run.pk}"`. Same test asserts the anchored href. |
-| No companion row / unset run → no decoration, no raise | `try: meta = event.telescope_label_meta except ObjectDoesNotExist: return None`; `if run is None ... return None`. Tests `test_no_companion_row_at_all_renders_200_with_no_exception`, `test_null_run_companion_row_renders_200_with_no_run_block`. |
-| Run with `campaign=None` → decoration with no table link, 200, never `NoReverseMatch` | `if run.campaign_id is not None:` guard before `reverse()`; `table_url=None` otherwise. Test `test_no_campaign_run_renders_200_with_telescope_instrument_and_no_campaign_link`. |
-| Not-publicly-visible run → no decoration for staff or anonymous | `if run is None or not run.is_publicly_visible: return None`. Tests `test_pending_run_shows_no_run_block_to_anonymous_visitor` + `..._to_staff_visitor`. |
-| `RUN:` titles no longer carry a campaign-name prefix; `RUN_STATUS_CALENDAR_PREFIX` still leads | `event_title():181-195` — base is `run.telescope_instrument` (+ window), status prefix prepended; no campaign branch. `TestEventTitleGuard`, `TestEventTitleNullCampaignGuard`, `StatusBorderCssTest` all pass. |
-| Attributed-night set computed with ONE query before the per-night loop | `attributed_nights = _attributed_nights(run, site_zone)` at line 364, immediately before `for i in range(n_nights)` at 365; the helper issues a single `CalendarEventMeta` queryset with `select_related('event')`. |
-| `skipped_nights` seeded to 0 in the `totals` dict literal | Line 361 — `totals = {'created': 0, 'updated': 0, 'unchanged': 0, 'blocked': 0, 'skipped_nights': 0}`. |
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 1 | `tr:target` rule served to staff and anonymous | ✓ | `campaignrun_table.html:5-20` inside `{% block additional_css %}`; `tom_common/base.html:18` really declares that block; `test_staff_get_contains_tr_target_highlight_rule` / `test_anonymous_...` |
+| 2 | Still served with zero run rows | ✓ | `test_empty_campaign_still_serves_tr_target_highlight_rule` |
+| 3 | `&`, `<`, `"` escaped identically in `title=` and `aria-label=` | ✓ | Chip relies wholly on autoescape (no `\|safe`); `test_campaign_name_encoding_edge_escapes_consistently_in_title_and_aria_label` |
+| 4 | No-campaign chip names the run distinctly | ✓ | `campaign_chip.html:23` renders `Attributed run #{{ deco.run_pk }} {{ deco.campaign_name }}`; `test_no_campaign_run_renders_marker_and_no_table_href` asserts that exact string |
+| 5 | Chip carries `aria-label` and `role="img"` | ✓ | `campaign_chip.html:21,23` |
+| 6 | `event_form.html` has no second visibility gate | ✓ | Single `{% if deco %}` at :140-141; no `is_publicly_visible` in the template |
+| 7 | `run_pk` has a rendered consumer | ✓ | The no-campaign chip branch |
+| 8 | WR-05.1 sensitivity | ✓ | `test_pending_review_run_shows_no_marker_for_staff_and_anonymous` asserts absence of `title="{pending_campaign.name}"` — a value only the pending fixture produces, so deleting the gate makes it fail |
+| 9 | WR-05.2 sensitivity | ✓ | Fixture titles are exactly 18 (`AllDayAttrEighteen`) and 16 (`TimedAttrSixteen`) chars, matching their `truncatechars` budgets; the chip is a sibling `{% include %}`, not inside the filter expression |
+| 10 | WR-05.3 sensitivity | ✓ | Asserts that run's own tooltip string, not the shared `cal-campaign-chip` class |
+| 11 | Page-1-only anchor pinned by test, not a silent dead link | ✓ | `TestCampaignRunAnchorPagination` (`test_campaign_views.py:686-730`) + runbook §"That 'View campaign ↗' link carries the run's row anchor but no page number" |
 
-**Plan 33-02 — month-cell marker and campaign-table anchor (9 truths, all ✓ VERIFIED)**
+**33-07 — one declaration of what clearing an attribution means (7/7 verified)**
 
-| Truth | Evidence |
-|-------|----------|
-| Month-cell entry for a publicly-visible attributed run shows a compact marker with the campaign name as tooltip | `calendar.html:253` (all-day) and `:282` (timed) — `<span class="cal-campaign-chip" title="{{ campaign_deco.campaign_name }}">&#9873;</span>`. `test_month_view_shows_campaign_chip_and_name_tooltip`. |
-| Marker consumes none of the truncation budget; `truncatechars:18`/`:16` still over the event's own title only; campaign name only in the escaped tooltip | `{{ event.title\|truncatechars:18 }}` / `:16` are unchanged and outside the chip span. `test_chip_does_not_consume_title_truncation_budget`. |
-| `campaign=None` → marker with no table link, month view 200 | `test_no_campaign_run_renders_marker_and_no_table_href`. |
-| Not-publicly-visible run → no marker for staff or anonymous | `test_pending_review_run_shows_no_marker_for_staff_and_anonymous`. |
-| No per-event query for run/campaign — event queryset prefetches the companion row with run+campaign selected | `solsys_code/views.py:118-122` — `Prefetch('telescope_label_meta', queryset=CalendarEventMeta.objects.select_related('run__campaign'))`. `test_query_count_does_not_grow_with_number_of_attributed_events` (count-comparison form, 1 vs N). |
-| Campaign-table link lands on the run's own row; every row carries `id="run-{pk}"` for staff and non-staff; targeted row highlighted | `campaign_tables.py:119` — `row_attrs = {'id': _campaign_run_row_id}` on `CampaignRunTable.Meta`, inherited by `ApprovalQueueTable.Meta`. `campaignrun_table.html:9` — `tr:target` highlight rule. `test_staff_get_contains_run_row_id`, `test_anonymous_get_contains_run_row_id` (dict-row branch). Visual highlight routed to human verification. |
-| Month cell never renders `contact_person`, `contact_email`, or `CampaignRun.source` | `campaign_decoration()` returns an explicit 7-key dict with none of those; `test_pii_fields_never_render_on_month_view` asserts absence of both contact values and the source value. |
-| Marker inherits `color: currentColor` and does not compress (`flex-shrink: 0`) | `calendar.html:113-114` inside the `.cal-campaign-chip` rule. Legibility routed to human verification. |
-| A row whose pk cannot be resolved renders with NO `id` attribute (never `id="run-None"`) | `_campaign_run_row_id:78-80` returns `None` when `Accessor('pk').resolve(record, quiet=True)` is `None`. `test_..._returns_none(_campaign_run_row_id({}))`; both view tests assert `id="run-None"` is absent. |
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 1 | `UNLINK_CLEARED_FIELDS` declared once, both writers derive from it | ✓ | `campaign_utils.py:868-872`; consumed at `:946` (`.update(**...)`) and `admin.py:430-433` (loop) |
+| 2 | A fourth key reaches the admin path with no `admin.py` edit | ✓ | `test_admin.py:342` iterates the exported set; `:373` `patch.dict`s a `_wr02_sentinel` key and asserts the admin clears it — this distinguishes a loop from three hand-written assignments |
+| 3 | Admin standalone clear nulls every declared field, leaves `is_verified`/`observation_record`/`observation_group`/event untouched | ✓ | `admin.py:406-434` branch 2 + tests |
+| 4 | `str`/`bytes` raises `TypeError`, writes nothing | ✓ | `campaign_utils.py:928-937`, checked after the `run_pk` guard |
+| 5 | `int` and queryset branches both directly asserted | ✓ | Dedicated tests in `test_campaign_attribution_views.py` |
+| 6 | Inline renders no editable attribution field | ✓ | `fk_name = 'run'` (`admin.py:110`); `test_admin.py:537-539` asserts `type="hidden" name="calendar_event_metas-0-run"` present and `<select name="calendar_event_metas-0-run"` absent |
+| 7 | Inline docstring states the operation as it exists | ✓ | `admin.py:74-106`; mirrored in the runbook's inline bullets |
 
-**Plan 33-03 — real FK carrier fields (8 truths: 7 ✓ VERIFIED, 1 ⚠️ insufficient_spec)**
+**33-08 — noon anchor, unconditional skip, detach (13/14 verified, 1 partial)**
 
-| Truth | Status | Evidence |
-|-------|--------|----------|
-| `observation_record` is one-to-one — a second row on the same record raises `IntegrityError`; any number may be NULL | ✓ VERIFIED | `test_second_row_pointing_at_same_observation_record_raises_integrity_error`, `test_two_rows_may_both_leave_observation_record_null`, `test_several_rows_may_point_at_the_same_observation_group`. |
-| No code added depends on `observation_group` reverse-manager iteration order | ⚠️ insufficient_spec (abstained) | `verification: backstop`. Observed: no `class Meta` on `CalendarEventMeta`; no production reader of `group.calendar_event_metas`. Absence-by-grep is not explicit evidence for a backstop truth — routed to human (see frontmatter). |
-| Deleting an `ObservationRecord`/`ObservationGroup` clears only that link; row, `run`/`is_verified`/`confirmed_by`/`confirmed_at` and the `CalendarEvent` survive | ✓ VERIFIED | `SET_NULL` on both FKs. `test_deleting_observation_record_clears_only_that_link` and `test_deleting_observation_group_clears_only_that_link` assert the sibling link, all four audit/attribution values, and `CalendarEvent` existence. |
-| Both new fields read-only on `CalendarEventMetaAdmin` and the `CampaignRunAdmin` inline; a submitted value is not bound | ✓ VERIFIED | `admin.py:100` (inline) and `admin.py:306` (standalone) both list them in `readonly_fields`. `test_admin.py:1186-1230` — asserts they appear in `get_readonly_fields` for both surfaces, that `name="observation_record"`/`name="observation_group"` never appear in the rendered form, and that POSTing values leaves both `None`. |
-| `CalendarEventMeta.run` presents as attribution, not ownership | ✓ VERIFIED | `models.py:45` — `verbose_name='Attributed campaign run'` (also restated in migration 0017's `AlterField`). Model docstring: "A row whose `run` is unset means 'not attributed to any campaign run' -- never 'do not touch'." Inline/admin docstrings restated (`admin.py:74-77`). |
-| This phase writes no `observation_record`/`observation_group` value onto any existing row; additive schema only | ✓ VERIFIED | Migration 0017 contains only `AddField`×2 + `AlterField`×1 — no `RunPython`, no `RunSQL`. `test_both_new_link_columns_are_null_on_every_migrated_row`. |
-| PROJ-04's "shared title stem" clause deferred to Phase 34 — this plan's production diff adds no line writing `.title` | ✓ VERIFIED | `git show fe4d1ca d8b5676 -- solsys_code/models.py solsys_code/admin.py \| grep '^+' \| grep '\.title\|title='` → no output. REQUIREMENTS.md:18 records the scope split. |
-| Migration test restores the DB to migration head in `tearDown` regardless of assertion outcome | ✓ VERIFIED | `test_calendar_event_meta_links.py:224-228` — `tearDown` rebuilds the graph and migrates to `leaf_nodes()`. Subsequent 379 tests in the same runs passed with no stranded-schema failures. |
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 1 | Night anchored at local noon, same as `_local_noon_utc()` | ✓ | `_observing_night()` (`campaign_reconciler.py:309-337`) does `(local - timedelta(hours=12)).date()`; `telescope_runs._local_noon_utc()` anchors at `time(12, 0)` in the site zone. Both use wall-clock arithmetic |
+| 2 | 12:00:00 vs 11:59:59 boundary exact on both sides | ✓ | `test_exact_local_noon_boundary_belongs_to_the_date_that_just_started`, `test_one_second_before_local_noon_belongs_to_the_previous_date` |
+| 3 | Negative-offset site matches the observing night, not the UTC date | ✓ | `test_negative_utc_offset_site_resolves_by_observing_night_not_naive_utc_date` |
+| 4 | No attributed event ⇒ skips nothing, detaches nothing, one event per night (incl. single-night) | ✓ | `test_no_attributed_events_skips_nothing_and_mints_one_event_per_night`, `test_single_night_window_with_no_attribution_creates_exactly_one_event` |
+| 5 | Skip fires regardless of ordering; both orderings converge | ✓ | Skip is unconditional at `:425-427`; probe R2 = `skipped_nights=1, detached=1` |
+| 6 | Superseded `RUN:` event is DETACHED, never deleted; row survives; stamps cleared; back in the queue | ✓ | Probe: event pk survives with its url, `run`/`confirmed_by`/`confirmed_at` all None, `is orphan: True`. (This truth is met exactly as written — its downstream consequence is Gap 1) |
+| 7 | Exactly one entry attributed to the run for that night after the second reconcile | ✓ | Probe + `test_second_reconcile_detaches_...` assert `CalendarEventMeta.objects.filter(run=run).count() == 1` |
+| 8 | Clearing the attributed link restores the reconciler's entry in place (same pk, same url, created 0) | ✓ | Third-reconcile half of `test_second_reconcile_detaches_the_superseded_run_keyed_event_and_restore_on_third` |
+| 9 | A night whose `RUN:` event is attributed to a DIFFERENT run stays blocked, keeps its url active, is never detached | ⚠️ PARTIAL → counted FAILED | Holds when tested in isolation (`test_blocked_night_keeps_its_url_active_and_is_never_detached`), but the skip `continue`s before `active_urls.add()` and before `_may_write()`, so an attributed-AND-contested night reports `blocked=0` and drops out of the active set. Data still safe via the helper's `run_id` filter. See Gap 2 |
+| 10 | `_detach_stale_family_events()` returns the count, warns, and it reaches `ReconcileResult.detached` | ✓ | `:513-528`; probe shows the warning line and `detached=1` |
+| 11 | The sweep reports `skipped_nights` and `detached` in the summary and per-run lines | ✓ | `reconcile_campaign_runs.py:76-112`. (The four staff-action call sites do not — see WR-12; the truth names only the command) |
+| 12 | Window arithmetic computed in exactly one place | ✓ | `n_nights` only in `_reconcile_classical_nights()`; `reconcile_run()` consumes the returned `active_urls` |
+| 13 | Notebook has no unconditional `.delete()` | ✓ | The single `.delete()` is gated on `blank_url_event_pk` captured at creation, with an assert and a printed banner |
+| 14 | Both notebooks re-executed and committed with output; runbook describes the new counters, noon anchor, detach-on-supersede, the inline's real operation, and the page-1 anchor | ✓ (with WR-09/WR-10 accuracy warnings) | Commit `40109b8`; 9/9 and 18/18 code cells carry output showing post-fix values (`skipped_nights=1, detached=1`); all five runbook topics present at lines 666-690, 745-770, 800-815, 845-875 |
 
-**Plan 33-04 — one shared unlink helper (8 truths, all ✓ VERIFIED)**
-
-| Truth | Evidence |
-|-------|----------|
-| One shared helper `unlink_event_from_run()` in `campaign_utils.py` is the single writer that clears an attribution; clears `run`+`confirmed_by`+`confirmed_at` together and returns the changed count | `campaign_utils.py:908-910`. Repo-wide grep for any other `run=None`/`run_id=None` write outside comments: only this one line. Admin branch 2 keeps an in-memory nulling of the same three values (documented deviation — see Notes below), not a second bulk writer. |
-| Clearing never touches `is_verified` | `test_verification_flag_is_never_touched`; `test_detach_clears_audit_fields_leaves_event_and_verification_flag_untouched` asserts `is_verified` still `False` after detach. |
-| The undo view still clears only when the row currently points at the named run, and gates its dismissal write on the changed count | `campaign_views.py:1330` — `changed_count = unlink_event_from_run(orphan_pk, run_pk)`, followed by `if changed_count:` before the `CalendarEventDismissal.get_or_create`. `test_wrong_run_returns_zero_and_changes_nothing`. 113 attribution-view tests pass. |
-| The reconciler's detach step now clears `confirmed_by`/`confirmed_at` alongside `run` | `_detach_stale_family_events:450-453` routes through the helper. `test_detach_clears_audit_fields_leaves_event_and_verification_flag_untouched` asserts all three are `None` after a window shrink. |
-| Detach still only reaches events inside the reconciler's own `RUN:` namespace whose row points at the run being reconciled | `owned_events(run).exclude(url__in=active_urls)` + the helper's `run_id=run_pk` filter term. `test_detach_never_clears_a_foreign_attribution_in_the_same_namespace`, `test_reconcile_never_detaches_an_event_attributed_to_a_different_run`. |
-| An event with `observation_record` set but no `run` is still offered by the event attribution queue (D-15) | New `TestOrphanQuerysets` test in `test_campaign_attribution.py` (commit `7e1d7d8`); notebook cell 32 real output: `orphan_event.pk=333 in orphan_calendar_events(): True` with `run=None` and both observation links set. |
-| Called with no run (`None`, or a run whose pk is `None`) the helper returns 0 and writes nothing — never a `run_id=None` filter | `campaign_utils.py:892-899` — `run_pk = getattr(run, 'pk', run); if not run_pk: return 0`, placed before any `CalendarEventMeta.objects` reference. `test_null_run_returns_zero_and_never_touches_an_already_unlinked_rows_audit_fields`, `test_campaign_run_shaped_argument_with_no_pk_behaves_like_none`. |
-| Clearing through the admin standalone form leaves the STORED row with `confirmed_by`/`confirmed_at` both `None` | `admin.py:394-411` — in-memory nulling before `super().save_model()` delegates to `obj.save()`. `test_clearing_the_run_clears_the_audit_fields` extended to re-fetch from the database and assert `is_verified` + object-count invariance. |
-
-**Plan 33-05 — paired docs (9 truths, all ✓ VERIFIED)**
-
-| Truth | Evidence |
-|-------|----------|
-| Reconciler notebook shows a real sweep leaving every non-`RUN:` event's url/title/attribution unchanged; the before/after diff is empty | Cell 16 committed output: `Compared 166 non-RUN:-namespaced CalendarEvent row(s)... Differences found: 0`, with a hard `assert not diff`. |
-| The sweep is previewed first via `reconcile_run(run, dry_run=True)` for every run, showing the touchable url set holds nothing outside the namespace | Cell 15 committed output: per-run table for 53 runs, then `Touchable url set size: 90; every member starts with RUN_URL_NAMESPACE ('RUN:'): True`, and an explicit listing of attributed events whose url is outside the namespace with `Any of those urls in the touchable set: False`. |
-| Per-run detail comes from `ReconcileResult`, not from parsing `reconcile_campaign_runs` stdout | Cell 15 prints the aggregate stdout line separately under an explicit note: "the per-run detail and the url-namespace assertions above come from reconcile_run()s returned ReconcileResult, not from parsing this line". |
-| Notebook demonstrates the skip rule | Cell 18 committed output: attributed blank-url event url unchanged (`''`), `'RUN:59:2026-09-02' present: False`, `skipped_nights: 1`. |
-| Lifecycle notebook shows the decoration rendered from the link on a real request, and still rendered after a from-scratch title/description rewrite | Cells 26 and 28 committed output — label, campaign name, telescope/instrument, `#run-63` anchor; after rewrite, modal block and `cal-campaign-chip` both still `True`. |
-| Lifecycle notebook shows clearing the attribution removes the decoration and deletes nothing | Cell 30 committed output — counts 256→256, fields preserved, decoration absent. |
-| Runbook describes `CalendarEventMeta.run` as an attribution throughout its three affected sections | `docs/runbooks/telescope_runs_calendar.rst:381-391`, `:460-468`, `:753-823` — "Attributing changes nothing about the entry itself", "Attributed campaign run" block section, detach section noting audit stamps cleared with the link. |
-| Runbook tells operators what the reconciler now does with an already-attributed night, and that the one-time title change is expected | `:725-742` — "**A night that already has an entry attributed to this run gets no reconciler entry at all.**" and "**One-time title change.** ... that one-time title change is expected, not a fault." |
-| Both notebooks committed with executed output | JSON inspection: reconciler demo 9/9 code cells carry outputs; lifecycle demo 18/18 code cells carry outputs. |
-
-**Score:** 49/50 truths verified (0 present-but-behavior-unverified; 1 abstained `insufficient_spec`)
-
-### Required Artifacts
-
-| Artifact | Expected | Status | Details |
-|----------|----------|--------|---------|
-| `solsys_code/campaign_reconciler.py` | Skip rule, `skipped_nights`, no adopt/re-key, detach via shared helper | ✓ VERIFIED | 498 lines; `_adopted_event_for_night` absent; imported by `campaign_utils`, `campaign_views`, management commands |
-| `solsys_code/templatetags/calendar_display_extras.py` | `campaign_decoration()` read-only simple_tag | ✓ VERIFIED | 483 lines; no write call of any kind; used by both calendar templates |
-| `src/templates/tom_calendar/partials/event_form.html` | "Attributed campaign run" block, anchored link | ✓ VERIFIED | 202 lines; renders `deco.*` only |
-| `src/templates/tom_calendar/partials/calendar.html` | Month-cell chip + CSS | ✓ VERIFIED | 359 lines; chip in both all-day and timed branches |
-| `solsys_code/views.py` | Prefetch with `select_related('run__campaign')` | ✓ VERIFIED | Wired into `fomo_render_calendar` |
-| `solsys_code/campaign_tables.py` | `_campaign_run_row_id` + `row_attrs` | ✓ VERIFIED | Wired via `CampaignRunTable.Meta`, inherited by `ApprovalQueueTable` |
-| `src/templates/campaigns/campaignrun_table.html` | `tr:target` highlight | ✓ VERIFIED | 64 lines |
-| `solsys_code/models.py` | Two new FKs, attribution verbose_name | ✓ VERIFIED | 620 lines |
-| `solsys_code/migrations/0017_calendareventmeta_observation_links.py` | Additive schema only | ✓ VERIFIED | 30 lines; no RunPython/RunSQL; `makemigrations --check` clean |
-| `solsys_code/admin.py` | Read-only exposure of both links, clear branch | ✓ VERIFIED | 426 lines |
-| `solsys_code/campaign_utils.py` | `unlink_event_from_run()` | ✓ VERIFIED | 1021 lines; called by `campaign_views` and `campaign_reconciler` |
-| `solsys_code/campaign_views.py` | Undo view routed through helper | ✓ VERIFIED | Import at line 62, call at 1330 |
-| `solsys_code/tests/*` (6 files) | Coverage per plan | ✓ VERIFIED | 1401/976/1230/1112/247 lines etc.; 379 targeted tests executed, all OK |
-| `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` | Executed D-04 diff + skip rule | ✓ VERIFIED | 20 cells, all 9 code cells carry output |
-| `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb` | Executed criteria 3 & 4 + link fields | ✓ VERIFIED | 38 cells, all 18 code cells carry output |
-| `docs/runbooks/telescope_runs_calendar.rst` | Attribution wording, skip rule, title change | ✓ VERIFIED | 991 lines |
-
-CLAUDE.md paired-docs rule: satisfied. Both mapped notebooks and the `docs/runbooks/` page were updated in-phase (33-05 as planned work; 33-04 added the detach-behaviour sentence as a documented Rule-2 deviation).
-
-### Key Link Verification
-
-| From | To | Via | Status | Details |
-|------|----|-----|--------|---------|
-| `CalendarEventMeta.run` | `_reconcile_classical_nights()` skip branch | `_attributed_nights()` | ✓ WIRED | Line 364 call, line 372 skip |
-| `CalendarEventMeta.run` | `event_form.html` | `campaign_decoration()` | ✓ WIRED | `{% campaign_decoration event as deco %}` line 136 |
-| `CalendarEventMeta.run` | `calendar.html` month cell | `campaign_decoration()` | ✓ WIRED | Lines 240 / 265 |
-| `_may_write()` | every reconciler write path | first condition | ✓ WIRED | Container line 285, classical line 375 |
-| `views.fomo_render_calendar` queryset | `campaign_decoration()` | `Prefetch(... select_related('run__campaign'))` | ✓ WIRED | views.py:118-122; N+1 test passes |
-| `campaign_decoration().table_url` | `CampaignRunTable` row `id="run-{pk}"` | anchored href | ✓ WIRED | Both ends asserted by tests |
-| `CalendarEventMeta.observation_record` | `tom_observations.ObservationRecord` | OneToOneField SET_NULL | ✓ WIRED | Model + migration + DB-level IntegrityError test |
-| `CalendarEventMeta.observation_group` | `tom_observations.ObservationGroup` | ForeignKey SET_NULL | ✓ WIRED | Model + migration + multi-row test |
-| Migration 0017 | `tom_observations` migration | `dependencies` entry | ✓ WIRED | `('tom_observations', '0016_alter_facility_options')` |
-| `unlink_event_from_run()` | `campaign_views._undo_confirmation()` | direct call, changed-count gate | ✓ WIRED | campaign_views.py:1330 |
-| `unlink_event_from_run()` | `campaign_reconciler._detach_stale_family_events()` | local import + call | ✓ WIRED | campaign_reconciler.py:450-453 |
-| `unlink_event_from_run()` | `admin.CalendarEventMetaAdmin.save_model()` clear branch | **shared semantics, not a call** | ⚠️ PARTIAL (accepted) | The plan's key_link wording said the admin's in-memory mutation "becomes a call into the shared helper". The implementation deliberately keeps the in-memory nulling and only *documents* the helper as the shared definition — because `super().save_model()`'s `obj.save()` would re-persist stale values over a helper-only bulk clear (33-REVIEWS.md Agreed Concern 3). The plan's own *truth* for this case specifies exactly the implemented behavior ("the in-memory instance is nulled before `super().save_model()` delegates"), and it is proven by a re-fetch-from-database test. Not a gap — the key_link wording is superseded by its sibling truth. |
-
-### Data-Flow Trace (Level 4)
-
-| Artifact | Data value | Source | Produces real data | Status |
-|----------|-----------|--------|--------------------|--------|
-| `event_form.html` decoration block | `deco.campaign_name`, `telescope_instrument`, `window_*`, `run_status_display`, `table_url` | `campaign_decoration()` → `event.telescope_label_meta.run` → `CampaignRun` row | Yes | ✓ FLOWING |
-| `calendar.html` chip tooltip | `campaign_deco.campaign_name` | same tag, prefetched queryset | Yes | ✓ FLOWING |
-| `CampaignRunTable` row id | `Accessor('pk').resolve(record)` | model instance (staff) or `.values()` dict (anonymous) | Yes, both branches tested | ✓ FLOWING |
-| `_attributed_nights()` | site-local night set | `CalendarEventMeta` queryset joined to `CalendarEvent.start_time` | Yes | ✓ FLOWING |
-| `ReconcileResult.skipped_nights` | counter | incremented in the real skip branch | Yes — notebook shows `skipped_nights=1` against the dev DB | ✓ FLOWING |
-
-No hardcoded literals, static fallbacks, or hollow props found on any decoration path.
-
-### Behavioral Spot-Checks
-
-| Behavior | Command | Result | Status |
-|----------|---------|--------|--------|
-| Observation-link fields + migration 0017 non-destructive | `python manage.py test solsys_code.tests.test_calendar_event_meta_links` | Ran 8 tests, OK (1.6s) | ✓ PASS |
-| Reconciler skip rule, decoration, unlink helper, admin read-only | `python manage.py test solsys_code.tests.test_campaign_reconciler test_calendar_template test_campaign_attribution_views test_admin test_calendar_display_extras` | Ran 266 tests, OK (108s) | ✓ PASS |
-| Campaign-table anchors, attribution queue, title guards, reconcile command | `python manage.py test solsys_code.tests.test_campaign_views test_campaign_attribution test_null_campaign_guards test_write_and_reconcile test_reconcile_campaign_runs` | Ran 113 tests, OK (45s) | ✓ PASS |
-| No missing migrations | `python manage.py makemigrations --check --dry-run` | "No changes detected" | ✓ PASS |
-| Lint gate (D-07) | `pre-commit run ruff --all-files` | Passed | ✓ PASS |
-| Format gate (D-07) | `pre-commit run ruff-format --all-files` | Passed | ✓ PASS |
-| Notebooks carry executed output | JSON inspection of both `pre_executed/` notebooks | 9/9 and 18/18 code cells have outputs | ✓ PASS |
-| Adopt/re-key helper actually deleted | `grep _adopted_event_for_night solsys_code/campaign_reconciler.py` | no hits | ✓ PASS |
-| Chip legibility / anchor-scroll highlight in a browser | n/a | — | ? SKIP → human verification |
-
-379 phase-relevant tests executed by this verification, all passing. (The orchestrator's 980 + 40 full-suite runs are consistent with these results but were not the basis for any verdict here.)
-
-### Probe Execution
-
-N/A — no `scripts/*/tests/probe-*.sh` exist in this repository and no plan declares a probe.
-
-### Test Quality Audit
-
-| Test file | Linked req | Active | Skipped | Circular | Assertion level | Verdict |
-|-----------|-----------|--------|---------|----------|-----------------|---------|
-| `test_calendar_event_meta_links.py` | PROJ-04 | 8 | 0 | No | Value (field-by-field equality across a real `MigrationExecutor` round trip) | ✓ Sufficient |
-| `test_campaign_reconciler.py` | ANNOT-01 | 70 | 0 | No | Value/behavioral (11-field byte-identity snapshots, counter values) | ✓ Sufficient |
-| `test_calendar_template.py` | ANNOT-02 | 60 | 0 | No | Behavioral (real HTTP GETs, rewrite-then-re-render, query-count comparison) | ✓ Sufficient |
-| `test_campaign_attribution_views.py` | ANNOT-01 | 9 (unlink class) | 0 | No | Value (field-level + object-count invariance) | ✓ Sufficient |
-| `test_admin.py` | PROJ-04 | 8 (links class) | 0 | No | Behavioral (POST-does-not-bind, re-fetch from DB) | ✓ Sufficient |
-| `test_campaign_views.py` | ANNOT-02 | 3 (row-id class) | 0 | No | Value (exact `id="run-{pk}"` string, negative `id="run-None"`) | ✓ Sufficient |
-
-**Disabled tests on requirements:** 0. **Circular patterns detected:** 0 (no fixture-generating script imports the system under test; expected values are hand-written literals or independently-derived snapshots). **Insufficient assertions:** 0.
-
-One note on provenance: the roadmap-criterion-2 proof has two independent legs — hand-written fixture tests (expected values authored by hand) *and* a real-developer-database before/after diff whose "expected" is the pre-sweep state captured before any write. Neither leg derives its expected values from the reconciler's own output.
+**33-01..33-05 regression check (49 previously verified truths):** spot-checked, no regressions.
+The carrier fields, migration proof, decoration-survives-rewrite, PII exclusions, N+1 guard, unlink
+semantics and the paired-docs deliverables are all still in place and all covered by the passing suite.
 
 ### Requirements Coverage
 
-| Requirement | Source plans | Description | Status | Evidence |
-|-------------|-------------|-------------|--------|----------|
-| PROJ-04 | 33-03, 33-05 | Series identity carried by real FKs on `CalendarEventMeta` (`observation_record`, `observation_group`) | ✓ SATISFIED (carrier clause) | Both FKs, migration 0017, read-only admin, 8 passing tests. The "shared title stem" clause is an explicitly recorded split to Phase 34 (REQUIREMENTS.md:18), and this phase provably adds no `.title` write. |
-| ANNOT-01 | 33-01, 33-04, 33-05 | `CalendarEventMeta.run` means "attributed to"; `reconcile_run()` no longer adopts, re-keys, or detaches an attributed event | ✓ SATISFIED | Skip rule, deleted adopt helper, namespace-scoped detach with `run=run` filter, byte-identity tests, real-DB empty diff, attribution wording across model/admin/reconciler/runbook. |
-| ANNOT-02 | 33-01, 33-02, 33-05 | Campaign decoration rendered from the link at display time, never written into the event's fields | ✓ SATISFIED | `campaign_decoration()` read-only tag, modal block, month-cell chip, N+1-free prefetch, survives-rewrite test and notebook cell. |
+| Requirement | Source plans | Status | Evidence |
+|-------------|--------------|--------|----------|
+| PROJ-04 (Phase 33 half: carrier FKs) | 33-03 | ✓ SATISFIED | `observation_record` / `observation_group` on `CalendarEventMeta`, migration 0017, read-only in both admin surfaces, 8 link tests. Ordering edge abstained (backstop, see `insufficient_spec_items`) |
+| ANNOT-01 | 33-01, 33-08 | ⚠️ PARTIAL | Satisfied for the milestone's actual landmine — no adopt, no re-key, no touch of any non-`RUN:` event (SC 2 verified). NOT satisfied for its literal text "no longer ... detaches an event attributed to a run": inside the reconciler's own namespace a human's re-attribution is detached on every sweep (Gap 1) |
+| ANNOT-02 | 33-01, 33-02, 33-06 | ✓ SATISFIED | Decoration rendered from the link at request time, survives a from-scratch field rewrite, one chip definition with an accessible name, one visibility gate, escaping and empty-input edges tested |
 
-**Orphaned requirements:** none. `grep "Phase 33" .planning/REQUIREMENTS.md` maps exactly PROJ-04, ANNOT-01, ANNOT-02 to this phase; all three are claimed by plan frontmatter.
+No orphaned requirement IDs: REQUIREMENTS.md maps exactly PROJ-04 / ANNOT-01 / ANNOT-02 to Phase 33,
+and every one is claimed by a plan.
 
-### Decision Coverage
+### Key Link Verification
 
-All trackable CONTEXT.md decisions are honored by shipped artifacts — **17/17 honored, 0 not honored** (`gsd-tools query check.decision-coverage-verify`). Non-blocking gate; recorded for drift tracking.
+| From | To | Via | Status |
+|------|----|-----|--------|
+| `campaignrun_table.html` `<style>` | `tom_common/base.html:18` | `{% block additional_css %}` | ✓ WIRED (block confirmed present in the installed `tom_common`) |
+| `campaign_decoration(event)` | `campaign_chip.html` | `{% include %}` from both month-grid loops (`calendar.html:252, :279`) | ✓ WIRED |
+| `campaign_decoration(event)` | `event_form.html` | single `{% if deco %}` gate (:140) | ✓ WIRED |
+| `UNLINK_CLEARED_FIELDS` | `unlink_event_from_run()` | `.update(**...)` (`campaign_utils.py:946`) | ✓ WIRED |
+| `UNLINK_CLEARED_FIELDS` | `CalendarEventMetaAdmin.save_model()` | local import + loop (`admin.py:430-433`) | ✓ WIRED |
+| `CalendarEventMetaInline.fk_name` | Django inline formset field exclusion | hidden `InlineForeignKeyField` | ✓ WIRED (asserted on rendered HTML) |
+| `_observing_night()` | `_attributed_nights()` | single call site (`:371`) on `event.start_time` | ✓ WIRED |
+| `_reconcile_classical_nights()` active urls | `_detach_stale_family_events()` | `reconcile_run()` (`:560-574`) | ✓ WIRED |
+| `_detach_stale_family_events()` | `ReconcileResult.detached` → sweep summary | `result._replace(detached=...)` | ✓ WIRED |
+| `_detach_stale_family_events()` | Phase 28 queue (`orphan_calendar_events` / `candidates_for_event`) | **no `CalendarEventDismissal` written** | ✗ MISSING LINK — this is Gap 1's mechanism |
+| `reconcile_run()` result | four staff-action call sites | `result.detached` | ✗ NOT WIRED (WR-12) |
 
-### Prohibitions (judgment tier — NON-AUTHORITATIVE LLM-judge verdicts, human review recommended)
+### Behavioural Spot-Checks
 
-All 11 prohibitions across the five plans are `verification: judgment` with `status: resolved`. None has a wired negative-enforcement test, so none can be green: each is recorded below as a model judgement and flagged for human confirmation.
+| Behaviour | Command | Result | Status |
+|-----------|---------|--------|--------|
+| Full project suite | `python manage.py test $LABELS` (config `workflow.test_command`, first half) | `Ran 1005 tests in 457s — OK` | ✓ PASS |
+| Lint gate (D-07) | `pre-commit run ruff --all-files` | Passed | ✓ PASS |
+| Format gate (D-07) | `pre-commit run ruff-format --all-files` | Passed | ✓ PASS |
+| CR-04 confirm/erase loop | throwaway probe module under `solsys_code/tests/`, run then deleted | `R2 detached=1` → candidates `[(1,'high',0.82)]` → staff re-confirm → `R3 detached=1, run=None, confirmed_by=None, confirmed_at=None`; two entries remain on the night | ✗ FAIL (defect reproduced) |
+| Notebook outputs are post-fix | JSON inspection of both notebooks | 9/9 and 18/18 code cells carry output; reconcile demo prints `skipped_nights=1, detached=1` | ✓ PASS |
 
-| Plan | Prohibition (abbreviated) | LLM-judge verdict | Basis |
-|------|---------------------------|-------------------|-------|
-| 33-01 | `reconcile_run()` must not create/modify/delete any event outside the `RUN:` namespace | Holds | All writes keyed via `run_container_url`/`run_night_url`; detach via `owned_events()`; adopt helper deleted; real-DB diff over 166 events empty |
-| 33-01 | Decoration must not be written into any `CalendarEvent` field; no tag may call a write method | Holds | No `.save(`/`.update(`/`.create(`/`get_or_create`/`.delete(` anywhere in `calendar_display_extras.py` |
-| 33-01 | Decoration must not render contact fields or `CampaignRun.source` | Holds | Tag returns a fixed 7-key dict; none of the forbidden fields appear |
-| 33-02 | Marker must not consume title-truncation budget nor come from writing campaign text into `title` | Holds | Chip span sits outside the `truncatechars` filter; `event_title()` has no campaign branch |
-| 33-02 | Month cell must not render contact fields, `source`, or any field of a non-public run | Holds | `test_pii_fields_never_render_on_month_view`; `is_publicly_visible` gate in the tag |
-| 33-03 | Migration 0017 must contain no data transformation | Holds | File contains only `AddField`×2 + `AlterField`×1 |
-| 33-03 | The two link fields must not be writable through any staff form | Holds | `readonly_fields` on both admin surfaces; POST-does-not-bind tests |
-| 33-04 | Unlinking must not delete an event or the companion row, nor modify any `CalendarEvent` field | Holds | Single `.update()` of three columns; count-invariance and 7-field snapshot tests |
-| 33-04 | The helper must not write `is_verified`, `observation_record`, or `observation_group` | Holds | Those columns are absent from the `.update()` call |
-| 33-04 | The helper must not clear a row pointing at a different run | Holds | `filter(run_id=run_pk, ...)`; two foreign-attribution tests |
-| 33-05 | No notebook cell may print or store a run's `contact_person`, `contact_email`, or `source` into committed output | Holds, with a flag | The reconciler demo has zero occurrences. `campaign_lifecycle_demo.ipynb` cell 36 (pre-existing, not added by this phase) prints `contact_person=''  contact_email=''` for demo runs — empty strings demonstrating the PII gate, no value disclosed. Worth a human eyeball. |
-| 33-05 | No notebook cell may leave demo rows behind outside its own demo-scoped reset, nor delete rows it did not create | Holds, with a flag | Cell 18 deletes the `RUN:59:2026-09-02` event its own earlier sweep created in the same notebook run (stated in the cell comment and in its output). These notebooks write to the real developer DB (`src/fomo_db.sqlite3`), so this is worth a human eyeball. |
+### Anti-Patterns / Review Findings weighed against what the phase promised
 
-### Anti-Patterns Found
-
-| File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| `solsys_code/views.py` | 298 | `# XXX Could replace this by a creation of the missing Observatory` | ℹ️ Info | Pre-existing since commit `a8613bc` (2025-07-23), in `Ephemeris`/observatory code untouched by this phase — this phase's only `views.py` change is the `Prefetch`. Not a phase-33 debt marker. |
-| various | many | Literal `TBD` | ℹ️ Info | Domain vocabulary, not a debt marker: `TBD` is this project's term for a to-be-determined observing window (`_skip_reason()` returns `'TBD window'`; `CampaignRun.original_obs_date_raw` is "TBD rows only"). No `FIXME`, no `HACK`, no `PLACEHOLDER` comment, and no unreferenced debt marker introduced by this phase. |
-
-No stubs, empty implementations, static returns, or hollow props found on any path this phase touched.
+| Finding | Severity here | Is it a gap against the phase's promise? |
+|---------|---------------|------------------------------------------|
+| CR-04 confirm/erase loop | 🛑 BLOCKER | **Yes.** Contradicts the goal's "annotates instead of owning", ANNOT-01's literal text, and the module's own D-17/helper docstrings. Reproduced independently. Gap 1 |
+| WR-13 blocked signal swallowed | 🛑 gap (partial) | **Yes** — two clauses of declared truth 33-08.9 do not hold in a reachable configuration. Gap 2 |
+| WR-12 staff actions surface neither counter; "run added to the calendar" is false when nothing was added | ⚠️ WARNING | Partly — no must-have names the staff surfaces, but it is (a) CR-04's interactive reach and (b) a user-visible message regression created by 33-08's unconditional skip. Folded into Gap 1's closure list |
+| WR-09 duplicate entry survives; runbook's remedy removes neither | ⚠️ WARNING | Not a gap against this phase's must-haves (33-08 truth 7 was scoped to *attribution*, and it holds) — **deferred to Phase 35 SC 5**, which explicitly promises no leftover `RUN:{pk}:{date}` duplicates after cutover. The misleading "re-confirm or discard" wording is folded into Gap 1 |
+| WR-10 `detached` described as one cause, counts two | ⚠️ WARNING | No. Truth 33-08.14 required the counters to be described, and they are; the description is incomplete, not absent. Recommend fixing with Gap 1 since both touch the same operator wording |
+| WR-11 `--dry-run` cannot preview the detach | ⚠️ WARNING | No must-have required it, and the runbook documents the behaviour. But the reviewer is right that the count is a pure read and the one irreversible step is the one the preview hides — worth doing in the closure plan |
+| WR-08 page-1-only anchor (carried forward) | ℹ️ accepted | No. Plan 33-06's must-have was explicitly "pinned by a test rather than a silent dead link", and it is (2 tests + runbook). Recommend a backlog item, not a gap |
+| IN-06..IN-11 | ℹ️ INFO | No. Docstring drift, a `setUpTestData` without `super()`, `bool`/`0` pk edges, chip aria-label prefix inconsistency, notebook residue, DST-fixture thinness. IN-08 also feeds the flagged notebook prohibition |
+| Debt markers (`TBD`/`FIXME`/`XXX`) in phase-modified files | ✓ clean | The only `TBD` occurrences are the `CampaignRun` "TBD window" domain vocabulary, not debt markers |
 
 ### Human Verification Required
 
-#### 1. Month-cell campaign chip — visual legibility and layout
+5 items — see `human_verification` in the frontmatter (chip legibility across fills; browser anchor
+scroll + `:target` highlight; the CR-04 remedy decision; the two flagged judgment-tier prohibitions;
+the abstained backstop ordering item).
 
-**Test:** Open `/calendar/` on a month with at least one attributed all-day entry and one attributed timed entry, across several proposal fill colours. Inspect the ⚑ chip.
-**Expected:** Legible on every fill (inherits `color: currentColor`), no compression/clipping in the timed entry's flex row (`flex-shrink: 0`), campaign name shows as a tooltip on hover.
-**Why human:** Visual legibility against dynamic, data-driven fill colours. Tests assert the CSS declarations and the tooltip attribute exist in the rendered HTML; they cannot judge whether it actually reads clearly.
+## Gaps Summary
 
-#### 2. Campaign-table anchor landing and row highlight
+Two gaps, one root cause between them: `_reconcile_classical_nights()` now makes the night's outcome
+decision (skip) *before* it establishes ownership and before it records the url as active, and
+`_detach_stale_family_events()` then acts on that decision with a write that erases human audit data
+and leaves no trace the rest of the system can read.
 
-**Test:** Open an attributed entry's pop-up, click "View campaign ↗".
-**Expected:** The campaign table loads scrolled to that run's row, and the row is visibly highlighted.
-**Why human:** Anchor scroll plus `tr:target` highlight is real-browser rendering; both ends (the `id="run-{pk}"` attribute and the CSS rule) are asserted present server-side, the effect is not.
+- **Gap 1 (BLOCKER)** — the released pair is immediately re-offered to the run that released it, so a
+  human confirmation is destroyed on every sweep. The fix is one of two shapes (write the dismissal
+  row, or let a human `confirmed_by` outrank the automated release), plus the regression test that the
+  existing test stops one step short of, plus the four staff-action surfaces and the runbook wording.
+- **Gap 2 (PARTIAL)** — evaluate ownership before the skip so `blocked` and `skipped_nights` compose
+  instead of masking, and keep a contested url in the active set.
 
-#### 3. Backstop abstention — `observation_group` reverse-manager ordering (reason: `insufficient_spec`)
-
-**Test:** Decide whether a held-out test pinning ordering independence is wanted before Phase 34's projector starts writing these links, or accept the item as-is.
-**Expected:** Either a held-out/property-based test (shuffle insertion order of several rows sharing one group; assert the consuming outcome is unchanged) is added, or the item is explicitly accepted.
-**Why human:** `verification: backstop` — non-inferable by design. Observed evidence (no `Meta.ordering`; no production reader of `group.calendar_event_metas`) is absence-by-grep, which the honest-verifier protocol explicitly excludes as sufficient. This is an evidence gap, not a UX step.
-
-#### 4. Judgment-tier prohibition review (unverified-prohibition — human review recommended)
-
-**Test:** Review the 11 prohibitions in the Prohibitions table above, especially the two flagged 33-05 items (notebook output showing empty contact fields; notebook writes/deletes against the real developer database).
-**Expected:** Each confirmed still not violated, or the deviation accepted.
-**Why human:** Judgment-tier prohibitions have no wired enforcement test; a model verdict on a must-NOT is never authoritative.
-
-### Gaps Summary
-
-**No gaps.** Every ROADMAP success criterion is observably true in the codebase, backed by executed tests and — for criterion 2 — by a committed real-developer-database before/after diff over 166 events with zero differences. All three requirement IDs (PROJ-04 carrier clause, ANNOT-01, ANNOT-02) are satisfied, with PROJ-04's title-stem clause explicitly and traceably split to Phase 34. All 17 CONTEXT decisions are honored. Lint, format and migration gates are clean. The paired-docs rule is satisfied for both notebooks and the runbook.
-
-Three things keep this from `passed` rather than indicating broken work:
-
-1. One truth in plan 33-03 is tagged `verification: backstop` (non-inferable). Its supporting evidence is an absence check, which the honest-verifier protocol does not accept as explicit evidence — so it is abstained (`insufficient_spec`), never silently passed.
-2. The phase has a genuinely user-facing surface (the calendar decoration and month-cell chip, ANNOT-02 / criterion 3), whose visual legibility and browser anchor behavior no server-side test can observe. The infrastructure-phase auto-pass shortcut does not apply.
-3. All 11 prohibitions are judgment tier with no wired enforcement, so they are flagged rather than green.
-
-One documented, accepted deviation to be aware of when reading plan 33-04: the admin's clear branch keeps an in-memory nulling of the audit stamps instead of calling `unlink_event_from_run()`, because `super().save_model()`'s `obj.save()` would otherwise re-persist stale values over a helper-only bulk clear. This is what the plan's own truth for that case specifies, it is proven by a re-fetch-from-database test, and it leaves exactly one bulk writer of the cleared link in the codebase.
-
-Phase 34's observation projector is unblocked: the carrier fields exist with the one-to-one constraint enforced at the database level, and the reconciler no longer has any path that can adopt, re-key, or detach an event the projector will own.
+Everything else the gap-closure wave promised is in the code, wired, and covered by a passing suite.
+Phase 34 should not start on top of Gap 1: the projector's own attributed events are exactly what makes
+the loop routine rather than rare.
 
 ---
 
-_Verified: 2026-09-04T18:09:09Z_
+_Verified: 2026-09-08_
 _Verifier: Claude (gsd-verifier)_
+_Supersedes: 33-VERIFICATION.md of 2026-09-04 (49/50, human_needed)_
