@@ -93,6 +93,14 @@ class ReconcileResult(NamedTuple):
     skipped_nights: int = 0
     """Classical nights left untouched because a non-``RUN:`` event is already attributed
     to this run for that night (D-01, ANNOT-01) -- the reconciler wrote nothing for them."""
+    detached: int = 0
+    """Companion rows whose attribution the reconciler cleared during the stale/superseded
+    detach step (CR-03, 33-REVIEW.md WR-03) -- including the confirmation stamps
+    (``confirmed_by``/``confirmed_at``) that went with them. Includes both a re-classified
+    run's old-family events (29-REVIEW.md CR-01) and a classical night that became
+    attributed through a non-``RUN:`` event after this reconciler had already minted its
+    own event for it: that superseded event is detached, never deleted, back into Phase
+    28's attribution queue."""
     skipped_reason: str | None = None
 
 
@@ -298,6 +306,37 @@ def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
     return ReconcileResult(**{action: 1})
 
 
+def _observing_night(start_time: datetime, site_zone: ZoneInfo):
+    """The site-local observing night a ``start_time`` belongs to, anchored at local noon.
+
+    This is the same anchor ``telescope_runs._local_noon_utc()`` uses:
+    ``sun_event(site, date)`` computes sunset for the EVENING of ``date``, so the observing
+    night runs from local noon of ``date`` through local noon of ``date + 1``. Converting
+    ``start_time`` into ``site_zone`` and subtracting twelve hours before taking ``.date()``
+    maps any local time from noon through noon-plus-24-hours onto the date the night
+    started on -- in particular, a 02:00 local start belongs to the PREVIOUS date's night,
+    not the date its own naive site-local ``.date()`` would name.
+
+    This supersedes 26-DECISION.md D-10's plain site-local ``.date()`` derivation, which is
+    correct only for a start before local midnight (CR-02, 33-REVIEW.md): D-10's measured
+    comparison called event ``pk=54`` (``2026-07-08T14:08:19Z``, Sydney, 00:08 local on
+    2026-07-09) a 2026-07-09 night; under this anchor it is 2026-07-08 -- the night whose
+    sunset the run was actually scheduled against.
+
+    Forward-pointer: Phase 34/35 should promote this to a shared public helper next to
+    ``sun_event()`` when the observation projector needs the same event-to-night mapping.
+
+    Args:
+        start_time: an event's ``start_time`` (timezone-aware).
+        site_zone: the run's site timezone.
+
+    Returns:
+        date: the site-local observing night ``start_time`` belongs to.
+    """
+    local = start_time.astimezone(site_zone)
+    return (local - timedelta(hours=12)).date()
+
+
 def _attributed_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
     """The set of site-local observing nights already covered by an attributed non-``RUN:``
     event (D-01, ANNOT-01): a night with an attributed non-``RUN:`` event has no reconciler
@@ -310,7 +349,11 @@ def _attributed_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
 
     Carries NO blank-url restriction, unlike the retired per-night adopt helper this
     supersedes: a facility-URL-keyed attributed event (a Phase 34 observation event) must
-    match too -- any url outside the ``RUN:`` namespace counts, blank or not.
+    match too -- any url outside the ``RUN:`` namespace counts, blank or not. That relaxed
+    restriction is what made ``.date()``'s post-local-midnight defect (CR-02) reachable:
+    the retired helper's blank-url-only scope meant every matching event started at
+    beginning-of-night (before local midnight), so the derivation error never fired.
+    ``_observing_night()`` closes that gap.
 
     Args:
         run: the ``CampaignRun`` being reconciled.
@@ -325,10 +368,10 @@ def _attributed_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
         .exclude(event__url__startswith=RUN_URL_NAMESPACE)
         .select_related('event')
     )
-    return {meta.event.start_time.astimezone(site_zone).date() for meta in metas}
+    return {_observing_night(meta.event.start_time, site_zone) for meta in metas}
 
 
-def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
+def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> tuple[ReconcileResult, set[str]]:
     """The per-night branch (RECON-02 classical half).
 
     Ports the retired pre-reconciler projection helper's ground loop from
@@ -340,14 +383,19 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
     (plan 29-03) and the staff-action call sites (plan 29-04) can each apply their own
     already-differentiated handling.
 
-    Per-night resolution order (D-01, ANNOT-01 -- retires the D-02 adopt/re-key contract):
-    (1) an event already keyed at ``run_night_url(run, night)`` -- the common
-    idempotent-rerun case; (2) otherwise, if the night is already attributed to this run
-    through a non-``RUN:`` event (``_attributed_nights()``), skip the night entirely -- no
-    event is created, modified or re-keyed for it, only the ``skipped_nights`` counter moves;
-    (3) otherwise, mint a new event. ``_may_write()`` remains the first condition checked on
-    every write -- resolution step (1) still goes through it before any write (RECON-05
-    defence in depth; see T-29-05).
+    Per-night resolution order (D-01, ANNOT-01 -- retires the D-02 adopt/re-key contract;
+    CR-03 fix, 33-REVIEW.md): (1) if the night is already attributed to this run through a
+    non-``RUN:`` event (``_attributed_nights()``), skip the night entirely -- no event is
+    created, modified or re-keyed for it, only the ``skipped_nights`` counter moves. This is
+    now UNCONDITIONAL on whether a ``RUN:{pk}:{date}`` event already exists for that night,
+    so the reconcile-then-attribute ordering and the attribute-then-reconcile ordering
+    converge on the same result: a night that becomes attributed after this reconciler
+    already minted its own event for it drops that event's url out of the returned active-url
+    set, so ``_detach_stale_family_events()`` reclaims it. (2) otherwise, an event already
+    keyed at ``run_night_url(run, night)`` -- the common idempotent-rerun case; (3) otherwise,
+    mint a new event. ``_may_write()`` remains the first condition checked on every write --
+    resolution step (2) still goes through it before any write (RECON-05 defence in depth;
+    see T-29-05).
 
     Field authority deliberately differs from the container branch: on **create**, this
     writes ``title``, ``description``, ``target_list``, ``telescope``, ``instrument``,
@@ -357,20 +405,30 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
     creation. Refreshing ``title``/``description`` is still required so a
     ``mark_cancelled``/``mark_weather_failure`` decision reaches this run's events, exactly
     as ``_set_run_status()`` does today.
+
+    Returns:
+        tuple[ReconcileResult, set[str]]: the outcome, and the exact set of
+        ``CalendarEvent.url`` values this branch considers current -- every night that is
+        NOT skipped, including a blocked night and every night visited in ``dry_run``. This
+        is what lets ``reconcile_run()`` detach a superseded night's own event instead of
+        re-deriving the whole window a second time (IN-02, 33-REVIEW.md).
     """
     totals = {'created': 0, 'updated': 0, 'unchanged': 0, 'blocked': 0, 'skipped_nights': 0}
     n_nights = (run.window_end - run.window_start).days + 1
     site_zone = ZoneInfo(run.site.timezone)
     attributed_nights = _attributed_nights(run, site_zone)
+    active_urls: set[str] = set()
     for i in range(n_nights):
         night = run.window_start + timedelta(days=i)
-        sunset, sunrise = sun_event(run.site, night, kind='sun')
         url = run_night_url(run, night)
 
-        existing = CalendarEvent.objects.filter(url=url).first()
-        if existing is None and night in attributed_nights:
+        if night in attributed_nights:
             totals['skipped_nights'] += 1
             continue
+
+        active_urls.add(url)
+        sunset, sunrise = sun_event(run.site, night, kind='sun')
+        existing = CalendarEvent.objects.filter(url=url).first()
 
         if not _may_write(existing, run):
             logger.warning('Reconcile blocked: event pk=%s is not owned by run pk=%s.', existing.pk, run.pk)
@@ -405,10 +463,10 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> Reconcile
         _link_event_to_run(event, run)
         totals[action] += 1
 
-    return ReconcileResult(**totals)
+    return ReconcileResult(**totals), active_urls
 
 
-def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None:
+def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> int:
     """Convergence step (29-REVIEW.md CR-01, user-directed fix: DETACH, not delete or
     flag-only).
 
@@ -420,6 +478,12 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
     of those fields on an already-reconciled run): without this, the OLD family's events
     would either be silently orphaned forever -- no code path ever revisits them again --
     or, worse, silently miscounted as belonging to a family they no longer match.
+
+    A second case (CR-03, 33-REVIEW.md): a classical night that has become attributed
+    through a non-``RUN:`` event drops out of ``active_urls`` (see
+    ``_reconcile_classical_nights()``), so its reconciler-minted event is detached back
+    into Phase 28's queue here too, rather than lingering as a second attributed entry for
+    the same night.
 
     Detaching -- rather than deleting the ``CalendarEvent`` rows outright, or merely
     logging/flagging -- returns them to Phase 28's attribution queue for a human to
@@ -442,6 +506,10 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
         run: the ``CampaignRun`` just reconciled.
         active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
             considers current for this run (one container url, or one url per night).
+
+    Returns:
+        int: the number of companion rows actually cleared (WR-03, 33-REVIEW.md) --
+        including the confirmation stamps that went with them.
     """
     # Local import to avoid a circular import at module load time: campaign_utils.py
     # imports reconcile_run/ReconcileResult from this module at its own top level, so a
@@ -450,7 +518,14 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> None
     from solsys_code.campaign_utils import unlink_event_from_run
 
     stale = owned_events(run).exclude(url__in=active_urls)
-    unlink_event_from_run(stale, run)
+    detached = unlink_event_from_run(stale, run)
+    if detached:
+        logger.warning(
+            'Reconcile detached %s stale/superseded event(s) from run pk=%s; confirmation stamps cleared.',
+            detached,
+            run.pk,
+        )
+    return detached
 
 
 def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult:
@@ -483,16 +558,17 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
         result = _reconcile_container(run, dry_run=dry_run)
         active_urls = {run_container_url(run)}
     else:
-        result = _reconcile_classical_nights(run, dry_run=dry_run)
-        n_nights = (run.window_end - run.window_start).days + 1
-        active_urls = {run_night_url(run, run.window_start + timedelta(days=i)) for i in range(n_nights)}
+        result, active_urls = _reconcile_classical_nights(run, dry_run=dry_run)
 
     # CR-01 convergence step: detach (never delete) any of this run's owned events left
-    # over from a family it no longer belongs to. A no-op whenever the run has not been
-    # re-classified since its last reconcile (RECON-01 idempotency: every url this branch
-    # just wrote/confirmed is already in active_urls, so exclude() finds nothing stale).
-    # Skipped entirely in dry_run -- detaching is a write, and dry_run must write nothing.
+    # over from a family it no longer belongs to, OR a classical night's event superseded
+    # by a later attribution (CR-03, 33-REVIEW.md). A no-op whenever the run has not been
+    # re-classified and no night has been superseded since its last reconcile (RECON-01
+    # idempotency: every url this branch just wrote/confirmed/skipped-for is already in
+    # active_urls, so exclude() finds nothing stale). Skipped entirely in dry_run --
+    # detaching is a write, and dry_run must write nothing, so `detached` stays 0 there.
+    detached = 0
     if not dry_run:
-        _detach_stale_family_events(run, active_urls)
+        detached = _detach_stale_family_events(run, active_urls)
 
-    return result
+    return result._replace(detached=detached)

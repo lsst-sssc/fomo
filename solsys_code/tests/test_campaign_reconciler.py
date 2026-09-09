@@ -18,6 +18,7 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.calendar_utils import record_time_window
+from solsys_code.campaign_attribution import orphan_calendar_events
 from solsys_code.campaign_reconciler import (
     _split_telescope_instrument,
     event_description,
@@ -25,6 +26,7 @@ from solsys_code.campaign_reconciler import (
     owned_events,
     reconcile_run,
 )
+from solsys_code.campaign_utils import unlink_event_from_run
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import sun_event
@@ -471,38 +473,6 @@ class TestAttributedNightSkip(CampaignReconcilerTestBase):
         meta.refresh_from_db()
         self.assertEqual(meta.run_id, run.pk)
 
-    def test_skip_matches_on_site_local_night_not_naive_utc_date(self):
-        """Mirrors 26-DECISION.md's measured event pk=54 case: a start_time whose naive-UTC
-        date is one day before its Australia/Sydney site-local date is still skipped for
-        the site-local observing night, not the naive-UTC one."""
-        night = date(2026, 7, 9)
-        run = self._make_run(window_start=night, window_end=night)
-        # 2026-07-08T14:08:19Z + 10h (Sydney AEST, no DST in July) = 2026-07-09 00:08:19
-        # local -- naive-UTC date is 2026-07-08, one day before the site-local night.
-        start_time = datetime(2026, 7, 8, 14, 8, 19, tzinfo=dt_timezone.utc)
-        end_time = start_time + timedelta(hours=8)
-        attributed_event = CalendarEvent.objects.create(
-            title='FTN MuSCAT3',
-            url='',
-            telescope='FTN',
-            instrument='MuSCAT3',
-            start_time=start_time,
-            end_time=end_time,
-        )
-        meta = CalendarEventMeta.objects.create(event=attributed_event, run=run)
-        before = self._snapshot(attributed_event)
-
-        result = reconcile_run(run)
-
-        attributed_event.refresh_from_db()
-        self.assertEqual(self._snapshot(attributed_event), before)
-        self.assertEqual(CalendarEvent.objects.count(), 1)
-        self.assertEqual(result.skipped_nights, 1)
-        self.assertEqual(result.updated, 0)
-        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
-        meta.refresh_from_db()
-        self.assertEqual(meta.run_id, run.pk)
-
     def test_facility_url_keyed_attributed_event_skips_its_night(self):
         """D-01's Phase 34 case: a facility-URL-keyed attributed event (not just a
         blank-url one) also skips its night -- the skip query carries no blank-url
@@ -524,6 +494,274 @@ class TestAttributedNightSkip(CampaignReconcilerTestBase):
         self.assertEqual(result.skipped_nights, 1)
         self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
         self.assertEqual(CalendarEvent.objects.count(), 1)
+
+
+class TestObservingNightBoundary(CampaignReconcilerTestBase):
+    """CR-02 (33-REVIEW.md): `_observing_night()`'s local-noon anchor -- not a plain
+    site-local `.date()` -- decides which night an attributed event's start_time belongs
+    to. Covers a Sydney site (positive UTC offset, +10 in August) and a Chilean site
+    (negative UTC offset, -4 in August) side by side, plus the exact-noon adjacency
+    boundary (PROJ-04) and the empty (no attributed nights) case."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.chile_site = Observatory.objects.create(
+            obscode='W85',
+            name='LCO Cerro Tololo 1m',
+            short_name='CTIO-1m',
+            lat=-30.1673,
+            lon=-70.8046,
+            altitude=2198.0,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def test_cr02_post_midnight_start_skips_the_previous_nights_url_not_the_next(self):
+        """The CR-02 reproduction (33-REVIEW.md): a facility event starting after local
+        midnight belongs to the PREVIOUS date's night, not the date its own naive
+        site-local `.date()` would name. Under the pre-fix plain `.date()` derivation this
+        reproduced exactly backwards: a duplicate `RUN:{pk}:2026-08-01` was minted
+        alongside the attributed event, and 2026-08-02 was left with no coverage at all."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end, source=CampaignRun.Source.LCO_QUEUE)
+        # 2026-08-01T16:00Z + 10h (Sydney AEST) = 2026-08-02 02:00 local -- after local
+        # midnight, so belongs to the observing night that started at sunset on Aug 1.
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/111111/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 16, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 20, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertEqual(result.created, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_start.isoformat()}').exists())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_end.isoformat()}').exists())
+
+    def test_measured_pk_54_case_resolves_to_the_night_before_the_naive_utc_date(self):
+        """Mirrors 26-DECISION.md's measured event pk=54 case: `2026-07-08T14:08:19Z` in
+        Australia/Sydney. D-10's plain site-local `.date()` derivation called this event's
+        night 2026-07-09; the noon anchor corrects it to 2026-07-08, the night whose
+        sunset the run was actually scheduled against."""
+        night = date(2026, 7, 8)
+        run = self._make_run(window_start=night, window_end=night)
+        # 2026-07-08T14:08:19Z + 10h (Sydney AEST, no DST in July) = 2026-07-09 00:08:19
+        # local -- after local midnight, so belongs to the 2026-07-08 observing night.
+        start_time = datetime(2026, 7, 8, 14, 8, 19, tzinfo=dt_timezone.utc)
+        event = CalendarEvent.objects.create(
+            title='FTN MuSCAT3',
+            url='',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=start_time,
+            end_time=start_time + timedelta(hours=8),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+
+    def test_negative_utc_offset_site_resolves_by_observing_night_not_naive_utc_date(self):
+        """The Chilean case: a site whose UTC offset is negative can make the naive UTC
+        date differ from the observing night in the OPPOSITE direction from Sydney's -- an
+        evening start lands on the NEXT UTC date. A naive-UTC derivation would look for
+        2026-08-02; the noon anchor correctly resolves to 2026-08-01."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.chile_site,
+            site_raw='W85',
+            window_start=night,
+            window_end=night,
+            source=CampaignRun.Source.ESO_QUEUE,
+        )
+        # 2026-08-02T01:00Z - 4h (America/Santiago, no DST in August) = 2026-08-01 21:00
+        # local -- after sunset, before local midnight, so belongs to the 2026-08-01
+        # observing night, even though the naive UTC date is 2026-08-02.
+        event = CalendarEvent.objects.create(
+            title='ESO VLT record event',
+            url='https://example.eso.org/observation/999999/',
+            telescope='VLT',
+            instrument='FORS2',
+            start_time=datetime(2026, 8, 2, 1, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 5, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+
+    def test_exact_local_noon_boundary_belongs_to_the_date_that_just_started(self):
+        """PROJ-04's adjacency edge: a start time of exactly 12:00:00 local belongs to
+        THAT date's night."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end, source=CampaignRun.Source.LCO_QUEUE)
+        # 2026-08-02T02:00:00Z + 10h = 2026-08-02 12:00:00 local exactly -- the observing
+        # night that has JUST started, i.e. the 2026-08-02 night.
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/222222/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 2, 2, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 6, 0, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_end.isoformat()}').exists())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_start.isoformat()}').exists())
+
+    def test_one_second_before_local_noon_belongs_to_the_previous_date(self):
+        """The other side of the same boundary: 11:59:59 local belongs to the PREVIOUS
+        date's night."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end, source=CampaignRun.Source.LCO_QUEUE)
+        # 2026-08-02T01:59:59Z + 10h = 2026-08-02 11:59:59 local -- one second before local
+        # noon, so still the 2026-08-01 observing night.
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/333333/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 2, 1, 59, 59, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 5, 59, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=run)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_start.isoformat()}').exists())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{window_end.isoformat()}').exists())
+
+    def test_no_attributed_events_skips_nothing_and_mints_one_event_per_night(self):
+        """PROJ-04's empty edge: `_attributed_nights()`'s empty-set path -- no attributed
+        non-`RUN:` event means no night is skipped and nothing is detached."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 3)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.created, 3)
+
+    def test_single_night_window_with_no_attribution_creates_exactly_one_event(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_nights, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.created, 1)
+
+
+class TestReconcileThenAttributeOrdering(CampaignReconcilerTestBase):
+    """CR-03 (33-REVIEW.md): the skip fires whether or not a `RUN:{pk}:{date}` event
+    already exists for that night -- the reconcile-then-attribute ordering and the
+    attribute-then-reconcile ordering converge on the same result. A night that becomes
+    attributed after this reconciler already minted its own event for it has that event
+    DETACHED (never deleted) back into Phase 28's attribution queue (29-REVIEW.md CR-01's
+    user-directed rule), and clearing the attributed event's link restores the
+    reconciler's own entry on the next reconcile, in place (the spike's allocation-handoff
+    rule, 'unlinking restores it')."""
+
+    def test_second_reconcile_detaches_the_superseded_run_keyed_event_and_restore_on_third(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+
+        first = reconcile_run(run)
+        self.assertEqual(first.created, 1)
+        run_keyed_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        run_keyed_pk = run_keyed_event.pk
+
+        staffer = User.objects.create(username='attribution-staffer')
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/321321/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        facility_meta = CalendarEventMeta.objects.create(
+            event=facility_event,
+            run=run,
+            confirmed_by=staffer,
+            confirmed_at=datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc),
+        )
+
+        second = reconcile_run(run)
+
+        self.assertEqual(second.skipped_nights, 1)
+        self.assertEqual(second.detached, 1)
+        # The RUN:-keyed CalendarEvent still exists -- detached, never deleted.
+        run_keyed_event.refresh_from_db()
+        self.assertEqual(run_keyed_event.pk, run_keyed_pk)
+        self.assertEqual(run_keyed_event.url, f'RUN:{run.pk}:{night.isoformat()}')
+        run_keyed_meta = CalendarEventMeta.objects.get(event=run_keyed_event)
+        self.assertIsNone(run_keyed_meta.run_id)
+        self.assertIsNone(run_keyed_meta.confirmed_by_id)
+        self.assertIsNone(run_keyed_meta.confirmed_at)
+        # The facility event's own link/audit fields are untouched.
+        facility_meta.refresh_from_db()
+        self.assertEqual(facility_meta.run_id, run.pk)
+        self.assertEqual(facility_meta.confirmed_by_id, staffer.pk)
+        self.assertIsNotNone(facility_meta.confirmed_at)
+        # Exactly one entry for that night is attributed to the run.
+        self.assertEqual(CalendarEventMeta.objects.filter(run=run).count(), 1)
+        # The detached event is back in Phase 28's attribution queue.
+        self.assertIn(run_keyed_event, list(orphan_calendar_events()))
+
+        # Clearing the facility event's link and reconciling a third time restores the
+        # SAME RUN:-keyed CalendarEvent (same primary key, same url), created 0, no skip.
+        unlink_event_from_run(facility_event, run)
+
+        third = reconcile_run(run)
+
+        self.assertEqual(third.created, 0)
+        self.assertEqual(third.skipped_nights, 0)
+        run_keyed_event.refresh_from_db()
+        self.assertEqual(run_keyed_event.pk, run_keyed_pk)
+        self.assertEqual(run_keyed_event.url, f'RUN:{run.pk}:{night.isoformat()}')
+        restored_meta = CalendarEventMeta.objects.get(event=run_keyed_event)
+        self.assertEqual(restored_meta.run_id, run.pk)
+
+    def test_blocked_night_keeps_its_url_active_and_is_never_detached(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+        other_run = self._make_run(telescope_instrument='Other Telescope/Instrument')
+        clashing_event = CalendarEvent.objects.create(
+            title='Owned by a different run',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=clashing_event, run=other_run)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        self.assertEqual(result.detached, 0)
+        clashing_event.refresh_from_db()
+        self.assertEqual(CalendarEventMeta.objects.get(event=clashing_event).run_id, other_run.pk)
 
 
 class TestAttributedEventsSurviveReconcile(CampaignReconcilerTestBase):
