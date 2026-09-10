@@ -1,8 +1,8 @@
 ---
 phase: 33-series-identity-reconciler-inversion
-reviewed: 2026-09-08T00:00:00Z
+reviewed: 2026-09-09T00:00:00Z
 depth: deep
-files_reviewed: 26
+files_reviewed: 30
 files_reviewed_list:
   - docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb
   - docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb
@@ -17,8 +17,10 @@ files_reviewed_list:
   - solsys_code/models.py
   - solsys_code/templatetags/calendar_display_extras.py
   - solsys_code/tests/test_admin.py
+  - solsys_code/tests/test_bootstrap5_rendering.py
   - solsys_code/tests/test_calendar_event_meta_links.py
   - solsys_code/tests/test_calendar_template.py
+  - solsys_code/tests/test_campaign_approval.py
   - solsys_code/tests/test_campaign_attribution.py
   - solsys_code/tests/test_campaign_attribution_views.py
   - solsys_code/tests/test_campaign_reconciler.py
@@ -27,62 +29,77 @@ files_reviewed_list:
   - solsys_code/tests/test_reconcile_campaign_runs.py
   - solsys_code/tests/test_write_and_reconcile.py
   - solsys_code/views.py
+  - src/fomo/settings.py
   - src/templates/campaigns/campaignrun_table.html
   - src/templates/tom_calendar/partials/calendar.html
   - src/templates/tom_calendar/partials/campaign_chip.html
   - src/templates/tom_calendar/partials/event_form.html
 findings:
   critical: 1
-  warning: 6
+  warning: 8
   info: 6
-  total: 13
+  total: 15
 status: issues_found
 ---
 
-# Phase 33: Code Review Report (post-gap-closure re-review)
+# Phase 33: Code Review Report (post second gap-closure wave)
 
-**Reviewed:** 2026-09-08
+**Reviewed:** 2026-09-09
 **Depth:** deep
-**Files Reviewed:** 26
+**Files Reviewed:** 30
 **Status:** issues_found
 
 ## Summary
 
-Re-review of the full Phase 33 diff (`998b45e^..HEAD`) after gap-closure plans 33-06,
-33-07 and 33-08. Each of the 16 prior findings was re-verified against the code, not
-against the SUMMARY files.
+Re-review of the full Phase 33 diff (`998b45e^..HEAD`, HEAD `fb99f9a`) after the second
+gap-closure wave (plans 33-09, 33-10, 33-11). Each of the 13 findings in the 2026-09-08
+review was re-verified against the code at HEAD, not against the SUMMARY files.
 
-**Verified closed (14 of 16):** CR-01, CR-02, WR-01, WR-02, WR-03, WR-04, WR-05, WR-06,
-WR-07, IN-01, IN-02, IN-03, IN-04, IN-05. Spot-checks that actually held up:
-`tom_common/base.html` really does declare an `additional_css` block at line 18, so the
-`tr:target` rule now renders (three tests assert it); `_observing_night()`'s
-`local - 12h` wall-clock arithmetic matches `telescope_runs._local_noon_utc()` exactly on
-both sides of the boundary; `UNLINK_CLEARED_FIELDS` is genuinely consumed by both writers
-(the `patch.dict` sentinel test distinguishes a loop from three hand-written assignments);
-`unlink_event_from_run()` rejects `str`/`bytes` after the `run_pk` guard; the
-`CalendarEventMetaInline` docstring and the runbook bullet now describe what Django
-actually renders. `pre-commit run ruff` and `ruff-format` are clean, and the 187 tests in
-`test_campaign_reconciler`, `test_reconcile_campaign_runs`, `test_admin` and
-`test_campaign_attribution_views` pass.
+**Verified closed (8 of 13):** CR-04, WR-10, WR-11, WR-13, IN-08, and the bulk of WR-09 and
+WR-12. Spot-checks that actually held up:
 
-**Still open (1 of 16):** WR-08. The `#run-{pk}` link still lands nowhere for a run past
-page 1. Plan 33-06 explicitly deferred the fix and pinned it as a tested, documented
-constraint instead — which is the review's own stated minimum — so it is carried forward
-below rather than escalated, but the product behaviour is unchanged.
+- `_stale_attributions()` (`campaign_reconciler.py:482-527`) really is read-only — no
+  `.save()`/`.update()`/`.create()`/`.delete()` on that path — and is the *same* predicate
+  consumed by both the write path and the dry-run preview, so `would_detach` cannot drift
+  from what a real sweep clears (WR-11).
+- The `confirmed_by__isnull=True` filter genuinely closes CR-04's confirm/erase loop, and
+  `test_staff_reconfirmation_of_the_detached_run_keyed_event_survives_every_later_sweep`
+  exercises the exact reconcile→attribute→reconcile→**re-confirm**→reconcile→reconcile
+  sequence the prior review said was missing, asserting the stamp survives *and* that no
+  `CalendarEventDismissal` is written.
+- Ownership is now decided before the night's outcome, and the blocked night's url is added
+  to `active_urls`, so an attributed-and-contested night reports `blocked=1` (WR-13).
+- `_message_reconcile_side_effects()` exists once and is called from all three
+  `CampaignRunDecisionView` reconcile call sites, and `_resolve_site()`'s success message is
+  no longer keyed on `skipped_reason is None` alone (WR-12).
+- The notebooks really do run against a `tempfile.mkdtemp()` copy and assert the resolved
+  `DATABASES['default']['NAME']` in committed output, which retires IN-08 entirely.
 
-**Partially closed (1 of 16), and the source of this review's blocker:** CR-03. The skip
-is now unconditional and the superseded night's event is detached, so the *attribution*
-duplicate is gone. But detaching an event this reconciler minted, into a queue that
-immediately re-offers it at HIGH band to the very run that just released it, creates a
-new confirm/erase loop that destroys human audit stamps on every subsequent sweep. I
-reproduced this end to end with a throwaway test module under `solsys_code/tests/`, run
-and then deleted; no source file was modified.
+443 tests across the nine phase test modules pass, and `pre-commit run ruff` /
+`ruff-format` are clean.
 
-The remaining new findings cluster on operator visibility: the `detached` counter is
-described to operators as one thing when it counts two, `--dry-run` cannot preview the
-only step in the sweep that destroys audit data, and none of the four interactive staff
-actions surface either new counter — one of them still reports "run added to the
-calendar" when nothing was added.
+**Still open (5 of 13):** WR-08 (carried as accepted-and-documented), WR-09 (reduced), IN-06,
+IN-07, IN-09, IN-11. IN-10 is half-closed.
+
+**This review's blocker is new, and the green suite is exactly why it survived.** Plan 33-11
+correctly identified that the create-event modal renders `event_form.html` with **no `event`
+in context**, and guarded `campaign_decoration()` against the resulting empty-string
+placeholder. It did not guard the *other* tag invoked from the same template, in the branch
+that is now reachable precisely because `campaign_decoration()` returns `None` there —
+`high_band_attribution_candidates`. For any **staff** user, clicking "+ New Event", clicking
+an empty day cell, or submitting an invalid create form raises
+`ValueError: Field 'id' expected a number but got ''` — a 500 on the primary calendar-write
+path. I reproduced this with a throwaway test module under `solsys_code/tests/`, run and then
+deleted; no source file was modified.
+
+The phase's own G-33-2 browser test does not catch it for two independent reasons: it runs
+unauthenticated, and its only assertions (`#cal-modal.show` is visible, `pageerror` list is
+empty) are satisfied by a server 500 — htmx fires `htmx:afterRequest` for non-2xx responses,
+so the modal still opens, just with an unswapped body.
+
+The remaining new findings cluster on two themes: staff-facing messages that assert a cause
+they have not verified, and a Bootstrap 5 migration that stopped at the modal open call while
+the same two files still carry Bootstrap 4-only utility classes.
 
 ## Narrative Findings (AI reviewer)
 
@@ -90,257 +107,135 @@ calendar" when nothing was added.
 
 *(BLOCKER tier; `CR-` == `BL-` for downstream consumers.)*
 
-### CR-04: the CR-03 detach and Phase 28's queue form a confirm/erase loop that destroys audit stamps on every sweep
+### CR-01: the create-event modal 500s for every staff user — 33-11 guarded one tag on this template and left its twin
 
-**File:** `solsys_code/campaign_reconciler.py:425-427` and `:469-528`;
-`solsys_code/campaign_attribution.py:454-477`, `:555-599`
+**File:** `src/templates/tom_calendar/partials/event_form.html:167,178`;
+`solsys_code/templatetags/attribution_display_extras.py:39`;
+`solsys_code/campaign_attribution.py:575,577`;
+`solsys_code/templatetags/calendar_display_extras.py:465-474`
 **Severity:** BLOCKER
 
-**Issue:** The CR-03 fix makes the skip unconditional and drops the superseded night's url
-out of `active_urls`, so `_detach_stale_family_events()` clears that event's
-`run`/`confirmed_by`/`confirmed_at` via `unlink_event_from_run()`. Clearing `run` makes the
-event an orphan by `orphan_calendar_events()`'s definition
-(`Q(telescope_label_meta__run__isnull=True)`), and the reconciler writes **no**
-`CalendarEventDismissal` row — unlike `AttributionDecisionView._undo_confirmation()`, which
-writes one precisely so the matcher stops re-suggesting the pair.
-
-So `candidates_for_event()` immediately re-offers the detached event to the *same run that
-just released it*, at HIGH band, because the event's telescope/instrument/date were all
-copied from that run when the reconciler created it. A staff member draining the queue sees
-an obvious match, confirms it, and the next sweep silently detaches it again.
-
-Reproduced (Sydney site, single-night run, reconcile → attribute a facility event →
-reconcile → staff re-confirms → reconcile → staff re-confirms → reconcile):
-
-```
-R1 ReconcileResult(created=1, ..., skipped_nights=0, detached=0)
-R2 ReconcileResult(created=0, ..., skipped_nights=1, detached=1)
-detached meta run: None
-is orphan: True
-candidates offered for the detached event: [(1, 'high', 0.82)]
-R3 ReconcileResult(created=0, ..., skipped_nights=1, detached=1)
-after R3 -> run: None confirmed_by: None confirmed_at: None
-R4 ReconcileResult(created=0, ..., skipped_nights=1, detached=1)
-after R4 -> run: None
-calendar entries on that night: ['RUN:1:2026-08-01', 'https://observe.lco.global/api/requestgroups/7/']
-```
-
-Every unattended `reconcile_campaign_runs` run destroys the "confirmed by X at T" a human
-wrote minutes earlier, permanently and with no compensating record — only a
-`logger.warning`. This is not the pre-fix behaviour: before the CR-03 change, `active_urls`
-always contained every night in the window, so a re-attributed `RUN:` event was never stale
-and was never detached. The loop is newly reachable.
-
-The existing test `test_second_reconcile_detaches_the_superseded_run_keyed_event_and_restore_on_third`
-(`solsys_code/tests/test_campaign_reconciler.py:686-746`) stops one step short: it clears
-the *facility* event's link before the third reconcile, so it never exercises the "staff
-re-attributes the detached `RUN:` event" path the queue actually steers them into. The
-demo notebook's assertion `"the detached event must be back in Phase 28's attribution
-queue"` (`reconcile_campaign_runs_demo.ipynb`, skip-rule cell) celebrates exactly the state
-that starts the loop.
-
-**Fix:** the detach must make the pair un-re-offerable, or must not be repeatable. Either:
-
-1. Write the dismissal row the rest of the codebase already uses as the "this pair was
-   deliberately released" trace, inside the same write, so the matcher stops re-suggesting
-   it (mirrors `_undo_confirmation()`'s established discipline):
+**Issue:** `campaign_decoration()` now carries an explicit guard whose comment states the
+problem exactly:
 
 ```python
-def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> int:
-    from solsys_code.campaign_utils import unlink_event_from_run
-    from solsys_code.models import CalendarEventDismissal
-
-    stale = list(owned_events(run).exclude(url__in=active_urls))
-    detached = unlink_event_from_run(stale, run)
-    if detached:
-        for event in stale:
-            CalendarEventDismissal.objects.get_or_create(
-                event=event,
-                run=run,
-                defaults={
-                    'dismissed_by': None,
-                    'dismissed_at': timezone.now(),
-                    'reason': 'Released by the reconciler: this night is covered by another '
-                              'attributed entry (Phase 33 CR-03 skip rule).',
-                },
-            )
-        logger.warning(...)
-    return detached
+if not isinstance(event, CalendarEvent):
+    # Rule 1 fix (33-11): the create-event form context has no `event` key at all --
+    # Django's template engine resolves the missing variable to the empty-string
+    # invalid-variable placeholder rather than raising ...
+    return None
 ```
 
-2. Or narrow the detach so it only fires the first time — e.g. skip an event whose
-   `confirmed_by` is set (a human decision outranks an automated release), and count it
-   into a separate `blocked`-style counter so the operator is told a human has overridden
-   the skip rule for that night.
+That guard makes `deco` falsy on the create form, which hands control to the very next branch
+in the same template:
 
-Either way, add a regression test that reconciles, attributes, reconciles, **re-confirms
-the detached `RUN:` event to the same run**, reconciles again, and asserts the stamp
-survives (or that the pair is no longer offered).
+```django
+{% elif not event.telescope_label_meta.run and request.user.is_staff %}
+    ...
+    {% high_band_attribution_candidates event as attribution_candidates %}
+```
+
+`event` is the empty string here, so `event.telescope_label_meta.run` resolves to `None`,
+`not None` is `True`, and for a staff user the branch is taken. `high_band_attribution_candidates`
+receives `''` and passes it straight into
+`CalendarEventDismissal.objects.filter(event='')`, which raises.
+
+Reproduced against a real test database (`python manage.py test` on a throwaway module,
+since deleted):
+
+```
+ANON STATUS 200
+RAISED: ValueError Field 'id' expected a number but got ''.
+```
+
+Reachable from three ordinary staff actions on the calendar page, all of which `GET`
+`calendar:create-event`:
+
+1. the "+ New Event" button (`calendar.html:209-214`),
+2. clicking any empty area of a day cell (`calendar.html:225-229`),
+3. re-rendering after an invalid create submission (`tom_calendar/views.py:167` re-renders
+   `event_form.html` with `action='create'` and no `event`).
+
+The tag's own docstring claims "Never raises: delegates entirely to `candidates_for_event()`,
+which itself never raises" — `candidates_for_event()`'s "never raises" contract is written for
+a real `CalendarEvent`, and neither function type-checks its argument.
+
+This branch was equally reachable before Phase 33 (the old `{% with run=event.telescope_label_meta.run %}`
+form resolved `run` to `''`, so `{% elif not run and request.user.is_staff %}` was true for the
+same reason), so the defect is pre-existing — but 33-11 diagnosed this exact hazard on this
+exact template, fixed one of the two tags, and shipped a browser test that reports the
+surface as healthy.
+
+**Fix:** guard the tag the same way `campaign_decoration()` is guarded, so the "never raises"
+docstring is true:
+
+```python
+# solsys_code/templatetags/attribution_display_extras.py
+from tom_calendar.models import CalendarEvent
+
+@register.simple_tag
+def high_band_attribution_candidates(event) -> list[campaign_attribution.AttributionCandidate]:
+    if not isinstance(event, CalendarEvent):
+        # The create-event form context has no `event` key; Django resolves it to the
+        # empty-string invalid-variable placeholder. Same guard, same reason, as
+        # calendar_display_extras.campaign_decoration().
+        return []
+    return [c for c in campaign_attribution.candidates_for_event(event) if c.band == campaign_attribution.BAND_HIGH]
+```
+
+and add a plain Django test (no Playwright needed) that pins both roles, since nothing under
+`solsys_code/tests/` currently requests `calendar:create-event` at all:
+
+```python
+def test_create_event_form_renders_for_staff(self):
+    User.objects.create_user(username='s', password='pw', is_staff=True)
+    self.client.login(username='s', password='pw')
+    self.assertEqual(self.client.get(reverse('calendar:create-event')).status_code, 200)
+
+def test_create_event_form_renders_for_anonymous(self):
+    self.assertEqual(self.client.get(reverse('calendar:create-event')).status_code, 200)
+```
 
 ## Warnings
 
-### WR-08: the decoration's `#run-{pk}` link still lands nowhere for a run past page 1 (carried forward, unfixed)
+### WR-01: the G-33-2 browser tests pass against a 500 and never exercise a staff session
 
-**File:** `solsys_code/templatetags/calendar_display_extras.py:479-486`;
-`solsys_code/campaign_views.py` `table_pagination = {'per_page': 25}`
+**File:** `solsys_code/tests/test_bootstrap5_rendering.py:108-176`
 
-**Issue:** Unchanged from the prior review. `table_url` is still built as
-`reverse('campaigns:table', args=[run.campaign_id]) + f'#run-{run.pk}'` with no page
-parameter. Plan 33-06 deferred the positional-page fix (it would add a per-event ordered
-query, contradicting plan 33-02's no-per-event-query must-have) and instead pinned the
-behaviour with `TestCampaignRunAnchorPagination` and documented it in
-`docs/runbooks/telescope_runs_calendar.rst`. That satisfies the prior review's stated
-minimum ("at minimum document the limitation ... and add a test pinning the >25-run
-behaviour"), so this is recorded as accepted-and-documented rather than escalated — but
-the 3I/ATLAS coordination case this feature exists for is exactly a campaign with more
-than 25 runs, and the link is still silently dead there.
+**Issue:** All four new modal tests assert only that `#cal-modal.show` becomes visible and
+that the Playwright `pageerror` list is empty. Neither assertion is sensitive to the server
+response status: htmx fires `htmx:afterRequest` (and therefore the inline
+`hx-on::after-request` handler) for non-2xx responses too, and simply does not swap — so the
+modal opens with an empty body and the test passes. A server-side 500 is not a browser
+`pageerror`.
 
-**Fix:** carry as an explicit backlog item for Phase 34/35 (resolve the run's page in the
-view that renders the campaign table, or make the table sort/filter deterministic enough
-that a `?run=<pk>` query parameter can jump to it) rather than leaving it as a permanent
-documented limitation.
+`test_calendar_modal_opens_for_new_event_button_with_no_page_errors` (`:130-143`) is the only
+test covering `calendar:create-event`, and it has no content assertion at all — unlike its
+sibling at `:124-126`, which does check `#cal-modal-body` text. Combined with the fact that
+no test in the suite ever logs in for a calendar page, CR-01 is invisible to the entire
+443-test run.
 
----
-
-### WR-09: the superseded night still shows two calendar entries, and the runbook's stated remedy does not remove either
-
-**File:** `solsys_code/campaign_reconciler.py:469-528`;
-`docs/runbooks/telescope_runs_calendar.rst` ("released (never deleted) back into the
-attribution queue for a human to re-confirm or discard")
-
-**Issue:** CR-03's complaint was "two calendar entries for one observing night ... a
-visibly duplicated night, forever". The fix removes the *attribution* from one of them; the
-`CalendarEvent` row itself survives by design (detach, never delete) and keeps rendering in
-the month grid. Verified in the reproduction above: after the fix, the night still carries
-both `RUN:1:2026-08-01` and the facility event.
-
-Worse than before this phase: D-12 removed the campaign label from `event_title()`, so the
-leftover entry now renders as a bare `FTN/MuSCAT3` with no campaign chip (it was detached)
-and no campaign name in its title — an unexplained duplicate with nothing linking it back
-to the run it came from.
-
-The runbook tells the operator the released entry is there "for a human to re-confirm or
-discard". Re-confirming triggers CR-04's loop; "discard" in Phase 28's queue means writing
-a `CalendarEventDismissal`, which — as the same runbook states two sections earlier — "is
-not an association" and never touches the `CalendarEvent`. Dismissing hides the candidate
-from the queue and leaves the duplicate on the calendar. There is no documented operator
-action that actually removes it short of the Django admin.
-
-**Fix:** decide and document the real remedy. If the entry is genuinely disposable, the
-detach step should delete it (it is inside this module's own `RUN:` namespace, which this
-module is the sole writer of, so this does not violate "never delete another writer's
-entry"). If it must survive, say so in the runbook and name the Django-admin delete as the
-removal path, instead of implying the queue can dispose of it:
-
-```rst
-Releasing an entry does not remove it from the calendar. Dismissing the candidate
-in the attribution queue only stops it being re-suggested; to remove the duplicate
-entry itself, delete it under **Django admin -> Tom calendar -> Calendar events**.
-```
-
----
-
-### WR-10: `detached` is reported to operators as one thing but counts two
-
-**File:** `solsys_code/management/commands/reconcile_campaign_runs.py:83-87`;
-`docs/runbooks/telescope_runs_calendar.rst` (the `detached` counter description)
-
-**Issue:** The per-run stderr line reads:
+**Fix:** assert on the response, not just on visibility, and add a staff variant:
 
 ```python
-f'Run pk={run.pk}: {result.detached} event(s) detached -- superseded by a later '
-'attribution; confirmation stamp(s) cleared'
-```
-
-and the runbook says `detached` "counts entries the reconciler released back into the
-attribution queue because the night they cover became attributed through another writer
-*after* this reconciler had already created its own entry for it."
-
-But `_detach_stale_family_events()` is called for **both** branches and covers two distinct
-causes — its own docstring says so (`campaign_reconciler.py:469-487`): the CR-03
-supersession case *and* 29-REVIEW.md CR-01's re-classification case (an admin corrects
-`telescope_class`/`site`, so the whole old key family goes stale). `ReconcileResult.detached`'s
-own docstring is accurate; the two operator-facing surfaces are not.
-
-An operator who corrects a run's `telescope_class` and then sweeps will be told 15 events
-were "superseded by a later attribution" when nothing was attributed at all. That sends
-them looking for an attribution that does not exist.
-
-**Fix:** either report the two causes separately, or state the counter neutrally:
-
-```python
-if result.detached:
-    self.stderr.write(
-        f'Run pk={run.pk}: {result.detached} event(s) released back into the attribution '
-        'queue (superseded by another attributed entry, or left over from a key family '
-        'this run no longer belongs to); confirmation stamp(s) cleared'
-    )
-```
-
-and mirror the same two-cause wording in the runbook's counter description.
-
----
-
-### WR-11: `--dry-run` cannot preview the one step in the sweep that destroys audit data
-
-**File:** `solsys_code/campaign_reconciler.py:570-574`;
-`solsys_code/management/commands/reconcile_campaign_runs.py:89-100`
-
-**Issue:** `reconcile_run()` skips `_detach_stale_family_events()` entirely under
-`dry_run`, so `detached` is always 0 there, and the command prints the literal
-`would_detach: n/a (dry-run)`. The runbook explains this as "the detach step is itself a
-write and does not run in a dry run -- there is nothing to preview".
-
-That reasoning does not hold: computing how many rows *would* be detached is a pure read.
-`stale = owned_events(run).exclude(url__in=active_urls)` is already built from data the dry
-run has, and the count is
-`CalendarEventMeta.objects.filter(run_id=run.pk, event__in=stale).count()`. The runbook
-itself instructs operators to "always run this before a real sweep" — and the only
-irreversible thing a real sweep does (erasing `confirmed_by`/`confirmed_at`, per WR-03's
-whole premise) is precisely the thing the preview refuses to show.
-
-**Fix:** compute the count in dry-run mode without writing:
-
-```python
-def _count_detachable(run, active_urls: set[str]) -> int:
-    stale = owned_events(run).exclude(url__in=active_urls)
-    return CalendarEventMeta.objects.filter(run_id=run.pk, event__in=stale).count()
-
+responses = []
+self.page.on('response', lambda r: responses.append(r))
 ...
-if dry_run:
-    detached = _count_detachable(run, active_urls)   # read-only
-else:
-    detached = _detach_stale_family_events(run, active_urls)
+assert self.page.locator('#cal-modal-body').inner_text().strip() != ''
+assert all(r.status < 400 for r in responses if 'calendar' in r.url)
 ```
 
-and print `would_detach: {detached}` instead of `n/a (dry-run)`, updating
-`test_dry_run_reports_skipped_nights_and_would_detach_na_and_writes_nothing` to assert the
-number *and* that nothing was written.
+and log the Playwright context in as a staff user for at least one of the four cases (set the
+`sessionid` cookie from a `Client().login()`, or POST the login form once in `setUp`).
 
 ---
 
-### WR-12: the four staff-action call sites surface neither new counter, and `_resolve_site()` claims success it did not achieve
+### WR-02: `_resolve_site()`'s fallback message asserts a cause it has not checked, and can print a literal "0 night(s)"
 
-**File:** `solsys_code/campaign_views.py:681-699` (and the approve /
-`mark_cancelled` / `mark_weather_failure` call sites at `:527`, `:759`)
+**File:** `solsys_code/campaign_views.py:732-741`
 
-**Issue:** WR-03's fix threaded `detached` into `ReconcileResult` "so
-`reconcile_campaign_runs` and the four staff-action call sites can surface it". The command
-now does; none of the four staff actions do. `_set_run_status()` and the approve branch
-discard the result entirely; `_resolve_site()` reads only `skipped_reason`.
-
-Two consequences:
-
-1. A staff member clicking **Resolve** can silently destroy a colleague's confirmation
-   stamp (CR-04's mechanism, reachable from an interactive surface) and be shown only
-   `'Site resolved — run added to the calendar.'`
-2. That message is now outright false in the ordinary skip case. With the unconditional
-   skip, a run every one of whose nights is already attributed elsewhere returns
-   `skipped_reason=None, created=0, skipped_nights=n` — and the branch at line 696 keys on
-   `skipped_reason is None` alone, so it reports "run added to the calendar" when nothing
-   was added.
-
-**Fix:** key the message on what actually happened, and mention a detach:
+**Issue:** WR-12's fix keyed the success message on what happened, but the `else` branch
+treats "not created and not updated" as synonymous with "every night was already covered":
 
 ```python
 if result.skipped_reason is not None:
@@ -350,148 +245,313 @@ elif result.created or result.updated:
 else:
     messages.success(
         request,
-        f'Site resolved. {result.skipped_nights} night(s) are already covered by entries '
+        f'Site resolved — {result.skipped_nights} night(s) are already covered by entries '
         'attributed to this run, so no new calendar entries were created.',
-    )
-if result.detached:
-    messages.warning(
-        request,
-        f'{result.detached} superseded calendar entr(ies) were released back into the '
-        'attribution queue; their confirmation record was cleared.',
     )
 ```
 
-Apply the same `result.detached` warning to the approve and `_set_run_status()` branches,
-which currently drop the result on the floor.
+Two other outcomes land in that same branch with `skipped_nights == 0`:
+
+- `unchanged > 0` — the documented retry state. `_resolve_site()` is reachable with
+  `site_needs_review=True` and a real, non-placeholder site (finding 8c's "projection-failed
+  retry" path); a retry that now succeeds against already-existing events reports
+  `created=0, updated=0, unchanged=n`.
+- `blocked > 0` — every night's `RUN:` key is attributed to a different run.
+
+Both produce **"Site resolved — 0 night(s) are already covered by entries attributed to this
+run, so no new calendar entries were created."** The count is nonsense and the stated cause is
+false. `test_campaign_approval.py` only covers the `skipped_nights > 0` case
+(`:1117-1118`), so neither is caught.
+
+**Fix:** branch on the counter that is actually non-zero, and keep a neutral fallback:
+
+```python
+elif result.skipped_nights:
+    messages.success(
+        request,
+        f'Site resolved — {result.skipped_nights} night(s) are already covered by entries '
+        'attributed to this run, so no new calendar entries were created.',
+    )
+else:
+    messages.success(request, 'Site resolved — the calendar was already up to date.')
+```
 
 ---
 
-### WR-13: the unconditional skip silently swallows the `blocked` signal for a contested night
+### WR-03: `blocked` — the one signal that says "someone else owns this night" — reaches the sweep but none of the four staff actions
 
-**File:** `solsys_code/campaign_reconciler.py:425-436`
+**File:** `solsys_code/campaign_views.py:435-461`;
+`solsys_code/management/commands/reconcile_campaign_runs.py:79-80`
 
-**Issue:** The skip now runs *before* `_may_write()`:
+**Issue:** WR-13's premise was that `blocked` is "the one signal that tells an operator
+'someone else owns this night's entry, go look at it'". The reconciler now reports it
+correctly and `reconcile_campaign_runs` prints a per-run stderr line for it, but
+`_message_reconcile_side_effects()` — the shared "what did the reconcile actually do"
+messenger introduced by WR-12's fix for exactly these four surfaces — emits messages for
+`detached` and `detach_declined` only.
 
-```python
-if night in attributed_nights:
-    totals['skipped_nights'] += 1
-    continue
+A staff member clicking **Resolve**, **Approve**, **Mark cancelled** or **Mark weather
+failure** on a run whose nights are contested therefore sees "Site resolved" / "Run status
+updated" and nothing else, while `blocked=n` events were silently left alone. Under WR-02
+above they additionally get the false "0 night(s) are already covered" line.
 
-active_urls.add(url)
-sunset, sunrise = sun_event(run.site, night, kind='sun')
-existing = CalendarEvent.objects.filter(url=url).first()
-
-if not _may_write(existing, run):
-    ...
-    totals['blocked'] += 1
-```
-
-For a night that is both attributed to this run through a non-`RUN:` event **and** carries a
-`RUN:{pk}:{date}` event a staff member has since attributed to a *different* run, the
-reconciler now reports `skipped_nights=1, blocked=0` where it previously reported
-`blocked=1`. The `blocked` line — the one signal that tells an operator "someone else owns
-this night's entry, go look at it" — disappears. The data is safe (the detach step's
-`run_id=run.pk` filter still protects the foreign attribution), but the diagnostic is lost,
-and no test covers the combination.
-
-**Fix:** evaluate ownership before deciding the night's outcome, so the two signals compose
-rather than mask:
+**Fix:** add the third counter to the one place that exists for it:
 
 ```python
-existing = CalendarEvent.objects.filter(url=url).first()
-if existing is not None and not _may_write(existing, run):
-    logger.warning('Reconcile blocked: event pk=%s is not owned by run pk=%s.', existing.pk, run.pk)
-    totals['blocked'] += 1
-    active_urls.add(url)          # never detach a foreign attribution
-    continue
-if night in attributed_nights:
-    totals['skipped_nights'] += 1
-    continue
+if result.blocked:
+    messages.warning(
+        request,
+        f'{result.blocked} calendar entr{"y" if result.blocked == 1 else "ies"} in this '
+        "run's key namespace are attributed to a different run and were left untouched.",
+    )
 ```
 
-and add a test asserting `blocked == 1` for an attributed-and-contested night.
+---
+
+### WR-04: the Bootstrap 5 migration stopped at the modal call — both touched templates still carry Bootstrap 4-only utility classes
+
+**File:** `src/templates/tom_calendar/partials/calendar.html:218,220,225,299,305,312`;
+`src/templates/campaigns/campaignrun_table.html:24,27,29,30,40,41,51,52`
+
+**Issue:** This site runs Bootstrap 5 (`django_bootstrap5` + `crispy_bootstrap5` in
+`settings.py:53-54`, `CRISPY_TEMPLATE_PACK = 'bootstrap5'` at `:118`, tomtoolkit 3.0.1's
+`tom_common/base.html:10` emitting `{% bootstrap_css %}`), and plan 33-11's own comment in
+`calendar.html:208` states this as the reason for the modal change. But FOMO's *full override*
+of the month partial still uses classes Bootstrap 5 deleted:
+
+```django
+<div class="cal-grid border-top border-left">                      <!-- BS5: border-start -->
+  <div class="... font-weight-bold ... border-right border-bottom p-2">   <!-- BS5: fw-bold / border-end -->
+  <div class="cal-day... border-right border-bottom p-1"           <!-- BS5: border-end -->
+  <a class="text-secondary mr-2" ...>                              <!-- BS5: me-2 -->
+  <span class="cal-legend-swatch mr-3" ...>                        <!-- BS5: me-3 -->
+```
+
+The upstream partial this file was forked from has already been migrated
+(`border-top border-start`, `fw-bold`, `border-end`), so the divergence is visible side by
+side. Result: the month grid renders with no left/right cell borders, unbolded day headers,
+and legend chips with no right margin. `campaignrun_table.html` — which this phase edited to
+add the D-13 `additional_css` block — has the same problem (`font-weight-bold`, `mr-2`,
+`form-group`), so the very page the calendar decoration links to renders unstyled labels.
+
+Pre-existing, not introduced here — but the phase's stated scope for G-33-2 was "the calendar
+pop-up Bootstrap 5 migration", and it added a browser test suite whose whole purpose is
+proving BS5 rendering works.
+
+**Fix:** sweep both files for BS4-only utilities:
+`border-left`→`border-start`, `border-right`→`border-end`, `mr-N`→`me-N`, `ml-N`→`ms-N`,
+`font-weight-bold`→`fw-bold`, `form-group`→`mb-3`. Then add a rendering assertion to
+`test_bootstrap5_rendering.py` in the shape of the existing `.form-row` check:
+
+```python
+def test_calendar_page_has_no_bootstrap4_only_utility_classes(self):
+    self.page.goto(self._calendar_url())
+    for bs4_class in ('border-left', 'border-right', 'mr-2', 'mr-3', 'font-weight-bold'):
+        assert self.page.locator(f'.{bs4_class}').count() == 0, bs4_class
+```
+
+---
+
+### WR-05: the calendar create/update endpoints this phase's templates drive have no authentication at all
+
+**File:** `src/templates/tom_calendar/partials/calendar.html:209-233`;
+`tom_calendar/views.py:149` (`def create_event(request):`, no decorator/mixin)
+
+**Issue:** `calendar:create-event` is an unauthenticated read *and write* endpoint — an
+anonymous `GET` returns 200 (verified) and an anonymous `POST` calls `form.save()` and creates
+a `CalendarEvent` row on the shared calendar. FOMO's overridden month partial wires three
+separate click targets to it and this phase added four browser tests that exercise it
+anonymously without noticing.
+
+The defect is upstream (tomtoolkit 3.0.1), so it is not this phase's regression — but FOMO
+overrides this template, ships this calendar as a public page, and the phase's own work put
+new eyes on exactly these handlers.
+
+**Fix:** wrap the upstream views in FOMO's own URL layer rather than editing the vendored
+package, e.g. in `src/fomo/urls.py`:
+
+```python
+from django.contrib.auth.decorators import login_required
+from tom_calendar.views import create_event, update_event
+
+path('calendar/create/', login_required(create_event), name='create-event'),
+path('calendar/update/<int:pk>/', login_required(update_event), name='update-event'),
+```
+
+placed *before* `include('tom_calendar.urls')`, plus a test asserting an anonymous `POST`
+does not create a `CalendarEvent`. If the write is genuinely meant to be public, record that
+decision in `docs/runbooks/telescope_runs_calendar.rst` — right now it is neither gated nor
+documented.
+
+---
+
+### WR-06: a re-classified run's human-confirmed events can now never converge, and the runbook tells the operator there is nothing to do
+
+**File:** `solsys_code/campaign_reconciler.py:482-527,530-595`;
+`docs/runbooks/telescope_runs_calendar.rst` (`detach_declined` counter description)
+
+**Issue:** 33-10's `confirmed_by__isnull=True` guard is correct for CR-03's supersession case
+(the reconciler minted the event; a human later confirmed it; the sweep must not erase that).
+But `_detach_stale_family_events()` covers **two** causes — its own docstring and the
+`detached` field docstring both say so — and the guard is applied to both.
+
+For the 29-REVIEW.md CR-01 re-classification case (an admin corrects `telescope_class`/`site`
+so the whole old key family goes stale), a human-confirmed leftover event is now **never**
+detached. It stays attributed to the run, in a key family the run no longer belongs to, and
+keeps rendering on the calendar "looking like a live commitment forever" — the exact outcome
+the convergence step was added to prevent. Every subsequent sweep re-reports it as
+`detach_declined`, permanently.
+
+The runbook then closes the loop the wrong way:
+
+> There is nothing for an operator to do about a non-zero ``detach_declined``: it is a report
+> that a human decision was respected.
+
+That is true for supersession and false for re-classification, where the operator does need to
+act (clear the attribution from **Django admin -> Solsys code -> Calendar event metas**, or
+delete the stale event) before the calendar is correct again. No test covers a *confirmed*
+stale-family row on the re-classification path — `test_campaign_reconciler.py:1534`'s sibling
+test uses the shrink-the-window trigger, which is the supersession cause.
+
+**Fix:** split the counter by cause, or — cheaper and adequate — correct the runbook and give
+the operator the action:
+
+```rst
+``detach_declined`` counts companion rows the sweep deliberately did NOT release because a
+person had already confirmed the attribution. For a night superseded by another attributed
+entry there is nothing to do: the human decision stands. For an entry left over from a key
+family the run no longer belongs to (after a ``telescope_class``/``site`` correction), the
+entry is now stale *and* pinned by that confirmation -- clear its **Attributed campaign run**
+value under **Django admin -> Solsys code -> Calendar event metas**, or delete the entry,
+before the calendar is correct again.
+```
+
+and add a regression test asserting a confirmed stale-*family* row is declined and reported.
+
+---
+
+### WR-07: the `#run-{pk}` link still lands nowhere for a run past page 1 (carried forward from WR-08, unfixed by design)
+
+**File:** `solsys_code/templatetags/calendar_display_extras.py:479-486`;
+`solsys_code/campaign_views.py` (`table_pagination = {'per_page': 25}`)
+
+**Issue:** Unchanged. `table_url` is still `reverse('campaigns:table', args=[run.campaign_id]) + f'#run-{run.pk}'`
+with no page parameter. Plan 33-06 pinned the behaviour with `TestCampaignRunAnchorPagination`
+(`test_campaign_views.py:686-727`, one negative and one positive assertion — an adequate pair)
+and documented it in the runbook, which satisfies the prior review's stated minimum. Recorded
+as accepted-and-documented rather than escalated — but the 3I/ATLAS coordination case this
+feature exists for is exactly a campaign with more than 25 runs, and the link is still
+silently dead there.
+
+**Fix:** carry as an explicit backlog item for Phase 34/35 (resolve the run's page in the view
+that renders the campaign table, or support a `?run=<pk>` query parameter that jumps to it)
+rather than leaving it as a permanent documented limitation.
+
+---
+
+### WR-08: the superseded night still shows two calendar entries, and no operator action removes the leftover (reduced from WR-09)
+
+**File:** `solsys_code/campaign_reconciler.py:530-595`;
+`docs/runbooks/telescope_runs_calendar.rst` (skip-rule section)
+
+**Issue:** Half closed. The runbook's misleading "re-confirm **or discard**" is gone, the
+re-confirm path is now accurate and permanent, and "Clearing the other entry's attribution
+instead brings the reconciler's own entry back, in place (same record, same url), on the next
+sweep" is verifiably true (`_may_write()` falls through to the namespace check for a
+detached row, so the update path re-links it).
+
+Still open: the `CalendarEvent` row itself survives by design and keeps rendering in the month
+grid, so the night carries two entries. D-12 removed the campaign label from `event_title()`,
+so the released one now renders as a bare `FTN/MuSCAT3` with no campaign chip (it was
+detached) and no campaign name in its title — an unexplained duplicate with nothing linking it
+back to the run it came from. The runbook still names no way to remove it.
+
+**Fix:** name the removal path explicitly, one sentence in the skip-rule section:
+
+```rst
+Releasing an entry does not remove it from the calendar; it stays on the night alongside the
+attributed entry until someone re-confirms it or deletes it under **Django admin -> Tom
+calendar -> Calendar events**.
+```
 
 ## Info
 
-### IN-06: `writable_events()`'s docstring names a consumer that does not use it
+### IN-01: `writable_events()`'s docstring still names a consumer that does not use it
 
-**File:** `solsys_code/campaign_reconciler.py:136-156` vs. `:520`
-**Issue:** The docstring states "Every write path (reconcile's detach step, the
-run-deletion cascade) must go through `writable_events()` instead." The run-deletion
-cascade does (`models.py:453-455`); `_detach_stale_family_events()` uses `owned_events()`.
-Functionally safe — `unlink_event_from_run()`'s `run_id=run_pk` filter gives the same
-protection — but the docstring is now the only statement of a rule the code does not
-follow, which is exactly the drift WR-02 was raised about elsewhere.
-**Fix:** either switch the detach to `writable_events(run)` (a no-op change in behaviour,
-one query term more) or amend the docstring to say the detach achieves the same guarantee
-through the helper's run filter.
+**File:** `solsys_code/campaign_reconciler.py:142-162` vs. `:523`
+**Issue:** Unchanged from IN-06. The docstring says "Every write path (reconcile's detach
+step, the run-deletion cascade) must go through `writable_events()` instead." The cascade does
+(`models.py:453-455`); the detach step goes through `_stale_attributions()`, which uses
+`owned_events()` plus a `run_id=run.pk` companion-row filter. Functionally equivalent, but the
+docstring is the only statement of a rule the code does not follow.
+**Fix:** amend the docstring to say the detach achieves the same guarantee through
+`_stale_attributions()`'s `run_id` filter, or switch it to `writable_events(run)`.
 
-### IN-07: the WR-08 pagination test overrides `setUpTestData` without calling `super()`
+### IN-02: the WR-08 pagination test still overrides `setUpTestData` without calling `super()`
 
-**File:** `solsys_code/tests/test_campaign_views.py:696-716`
-**Issue:** `TestCampaignRunAnchorPagination` subclasses `CampaignViewTestBase` but replaces
-its `setUpTestData` entirely, so `cls.campaign`, `cls.staff_user`, `cls.empty_campaign` and
-`cls.most_recent_run` never exist for this class. It happens to be safe today because the
-class uses only its own `_pagination_table_url()`, but any inherited helper (`table_url()`,
-`list_url()`) would raise `AttributeError`.
-**Fix:** call `super().setUpTestData()` first, or subclass `TestCase` directly rather than
-`CampaignViewTestBase`.
+**File:** `solsys_code/tests/test_campaign_views.py:695-715`
+**Issue:** Unchanged from IN-07. `TestCampaignRunAnchorPagination` subclasses
+`CampaignViewTestBase` but replaces `setUpTestData` entirely, so `cls.campaign`,
+`cls.staff_user`, `cls.empty_campaign` and `cls.most_recent_run` never exist for this class.
+Safe today because it uses only its own `_pagination_table_url()`; any inherited helper would
+raise `AttributeError`.
+**Fix:** call `super().setUpTestData()` first, or subclass `TestCase` directly.
 
-### IN-08: the reconcile demo notebook leaves a permanently detached event in the shared dev database
+### IN-03: `unlink_event_from_run()`'s `int` branch still accepts `bool`, and `_as_pk_or_none('0')` still returns `0`
 
-**File:** `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` (skip-rule cell)
-**Issue:** IN-04's specific complaint is closed — the delete is now scoped to
-`blank_url_event_pk`, captured at creation time in the same cell. But the cell now leaves
-the superseded `RUN:{pk}:{date}` event behind, detached, in `src/fomo_db.sqlite3`, where it
-appears in the real attribution queue as a HIGH-band candidate (this is CR-04's starting
-state, seeded into the dev DB by a doc artifact). The next execution's cell-10 sweep
-re-links it, so it self-heals across runs, but it persists between them. The 33-08 summary
-already records having had to hand-clean `pk=322` from a prior execution of the previous
-cell design.
-**Fix:** note the residue in the markdown cell above, or clean the detached event by the
-`run_keyed_pk` the cell already captured once the assertions have run.
+**File:** `solsys_code/campaign_utils.py:928-946`; `solsys_code/campaign_views.py:829-842`
+**Issue:** Unchanged from IN-09. `isinstance(events, int)` is `True` for `bool`, and the
+`str | bytes` rejection added by 33-07 sits *after* the `int` branch, so
+`unlink_event_from_run(True, run)` still filters `event_id=1`. Separately `_as_pk_or_none('0')`
+returns `0`, which is not `None`, so `AttributionDecisionView.post()` accepts it and the
+downstream call quietly matches nothing with no error shown to the staff member.
+**Fix:** reject `bool` alongside `str`/`bytes` (`isinstance(events, bool)` checked first), and
+make `_as_pk_or_none()` return `None` for non-positive values.
 
-### IN-09: `unlink_event_from_run()`'s `int` branch accepts `bool`, and a `0` pk passes view validation
-
-**File:** `solsys_code/campaign_utils.py:928-930`; `solsys_code/campaign_views.py:786-799`
-**Issue:** `isinstance(events, int)` is true for `bool`, so `unlink_event_from_run(True, run)`
-filters `event_id=1`. Separately, `_as_pk_or_none('0')` returns `0`, which is not `None`, so
-`AttributionDecisionView.post()` accepts it and `unlink_event_from_run(0, run_pk)` falls
-into the `int` branch and quietly matches nothing (or, for `run_pk=0`, returns via the
-`not run_pk` guard) — the staff member gets no error either way. Neither is reachable
-through a real UI today, but both are exactly the "silently mis-filters a scalar" class
-WR-04 was raised about.
-**Fix:** reject `bool` alongside `str`/`bytes`, and make `_as_pk_or_none()` return `None`
-for non-positive values.
-
-### IN-10: the campaign chip's accessible name is inconsistent between its two branches
+### IN-04: the campaign chip's `title` and `aria-label` still disagree in the campaign branch
 
 **File:** `src/templates/tom_calendar/partials/campaign_chip.html:21,23`
-**Issue:** The campaign branch renders `title="{name}"` / `aria-label="Campaign: {name}"`
-(different strings); the no-campaign branch renders the identical string in both. A screen
-reader user hears "Campaign: 3I/ATLAS" in one case and "Attributed run #5 (no campaign)" in
-the other, with no shared prefix to signal they are the same control.
-**Fix:** give both branches the same `Campaign: ...` / `Attributed run #...` prefix
-convention, e.g. `aria-label="Attributed run #{{ deco.run_pk }} — campaign {{ deco.campaign_name }}"`
-for both.
+**Issue:** Half closed from IN-10. The no-campaign branch now renders the identical string in
+both attributes. The campaign branch still renders `title="{{ name }}"` against
+`aria-label="Campaign: {{ name }}"`, so a sighted user hovering and a screen-reader user hear
+two different names for the same control.
+**Fix:** use `title="Campaign: {{ deco.campaign_name }}"` in the campaign branch so both
+branches share the prefix convention.
 
-### IN-11: the phase's own reproduction fixtures are all `+10` sites, so the noon anchor is under-tested against DST
+### IN-05: `_observing_night()`'s wall-clock arithmetic is still untested across a DST transition
 
 **File:** `solsys_code/tests/test_campaign_reconciler.py:499-673`
-**Issue:** `TestObservingNightBoundary` covers Sydney (+10, August — no DST) and Santiago
-(-4, August — no DST). `_observing_night()` relies on Python's wall-clock arithmetic for
-`local - timedelta(hours=12)`, which is the behaviour that makes the helper correct across
-a DST transition — but no fixture crosses one. Both `America/Santiago` (early September)
-and `Australia/Sydney` (early April/October) transition inside the date ranges this feature
-operates on.
-**Fix:** add one fixture whose observing night spans a DST transition at each site and
-assert the derived night, so a future "simplification" to
-`(start_time - timedelta(hours=12)).astimezone(zone).date()` (absolute rather than
-wall-clock arithmetic — a one-hour-different answer) is caught.
+**Issue:** Unchanged from IN-11. `TestObservingNightBoundary` still covers only Sydney (+10,
+August) and Santiago (-4, August) — neither in DST. `_observing_night()` depends on Python's
+wall-clock `local - timedelta(hours=12)` being different from absolute arithmetic across a
+transition, and both `America/Santiago` (early September) and `Australia/Sydney` (early
+April/October) transition inside the date ranges this feature operates on.
+**Fix:** add one fixture per site whose observing night spans a transition and assert the
+derived night, so a future "simplification" to
+`(start_time - timedelta(hours=12)).astimezone(zone).date()` is caught.
+
+### IN-06: the modal-open expression is inlined three times where upstream keeps one helper
+
+**File:** `src/templates/tom_calendar/partials/calendar.html:212,228,233`
+**Issue:** `bootstrap.Modal.getOrCreateInstance(document.getElementById('cal-modal')).show();`
+is repeated verbatim in three `hx-on::after-request` attributes. Upstream's partial defines a
+single `showModal()` helper in a `{% block extra_javascript %}` at the end of the file; FOMO's
+override dropped the helper and duplicated the body. Three copies is three places to edit if
+the modal id or API ever changes, and the expression throws a `TypeError` on a null element
+with no guard.
+**Fix:** restore the upstream helper in this override and call `showModal()` from all three
+attributes, adding the null guard the duplication currently hides:
+
+```javascript
+function showModal() {
+  const el = document.getElementById('cal-modal');
+  if (el) { bootstrap.Modal.getOrCreateInstance(el).show(); }
+}
+```
 
 ---
 
-_Reviewed: 2026-09-08_
+_Reviewed: 2026-09-09_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
-_Supersedes: 33-REVIEW.md of 2026-09-04 (CR-01..CR-03, WR-01..WR-08, IN-01..IN-05)_
+_Supersedes: 33-REVIEW.md of 2026-09-08 (CR-04, WR-08..WR-13, IN-06..IN-11)_
