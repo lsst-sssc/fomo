@@ -198,7 +198,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 **Second gap closure — Wave 3** *(blocked on its Wave 2 completion)*
 
-- [ ] 33-10-PLAN.md — CR-04/WR-13: a human-confirmed attribution outranks the automated detach (UAT option B), ownership is decided before the night's outcome, `--dry-run` previews the detach, the four staff actions report a release, and the paired docs are re-executed and corrected (gap wave 3)
+- [x] 33-10-PLAN.md — CR-04/WR-13: a human-confirmed attribution outranks the automated detach (UAT option B), ownership is decided before the night's outcome, `--dry-run` previews the detach, the four staff actions report a release, and the paired docs are re-executed and corrected (gap wave 3)
 
 **UI hint**: yes
 
