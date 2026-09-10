@@ -456,17 +456,18 @@ resolved site, or correcting a run's ``site`` to a satellite site -- the
 next reconcile (either a full ``reconcile_campaign_runs`` sweep, or the
 run's own next staff-action reconcile) automatically detaches the old
 family's events from the run rather than leaving them on the calendar
-looking like a live commitment forever. Detaching, not deleting: the old
-events stay on the calendar but return to the attribution page's worklist
-(``campaigns:attribution``, see "How do I attribute existing calendar
-events and observation records to a run?" above), where a staff member can
-re-confirm or discard them. The correction itself does not
-trigger this -- it happens on the *next* reconcile, same as any other
-calendar-visibility change only renders correctly once a sweep runs
-afterward. That detach also clears the row's confirmation stamps
-(who confirmed the attribution, and when) together with the link, so a
-detached row never goes on displaying a confirmation for an attribution
-that no longer exists.
+looking like a live commitment forever -- unless a staff member has
+already confirmed one of those events to this run, in which case the
+sweep leaves it alone entirely (see ``detach_declined`` below): a human
+decision always outranks an automated sweep. Detaching, not deleting: the
+old events stay on the calendar but return to the attribution page's
+worklist (``campaigns:attribution``, see "How do I attribute existing
+calendar events and observation records to a run?" above), where a staff
+member can re-confirm them. Re-confirming a released entry is a permanent
+decision -- once a person has confirmed it, no later automated sweep
+releases it again. The correction itself does not trigger the detach -- it
+happens on the *next* reconcile, same as any other calendar-visibility
+change only renders correctly once a sweep runs afterward.
 
 **The cost:** if a ``web`` run's source really is wrong, correcting it now
 needs a shell or a data migration. This is the same restriction the CSV
@@ -663,30 +664,39 @@ database writes:
 The final summary line reports these counters -- ``would_create``/
 ``would_update``/``would_leave_unchanged`` in ``--dry-run`` mode, or
 ``created``/``updated``/``unchanged`` for a real sweep, alongside ``runs``,
-``skipped``, ``failed``, ``blocked``, ``skipped_nights`` and either
-``would_detach`` (``--dry-run``) or ``detached`` (a real sweep)::
+``skipped``, ``failed``, ``blocked``, ``skipped_nights``, either
+``would_detach`` (``--dry-run``) or ``detached`` (a real sweep), and
+``detach_declined``::
 
-   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: n/a (dry-run)
-   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1
+   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: 1, detach_declined: 0
+   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1, detach_declined: 0
 
 ``skipped_nights`` counts classical nights whose calendar entry already
 comes from another writer attributed to that run -- so
 ``created: 0, updated: 0`` alongside a non-zero ``skipped_nights`` means
 "this run's nights are covered elsewhere", not "already converged" (those
 read identically without this counter). ``detached`` counts entries the
-reconciler released back into the attribution queue because the night
-they cover became attributed through another writer *after* this
-reconciler had already created its own entry for it -- releasing one
-always clears that entry's "confirmed by"/"confirmed at" record with it
-(see the skip rule below). ``--dry-run`` always prints
-``would_detach: n/a (dry-run)`` rather than a number, because the detach
-step is itself a write and does not run in a dry run -- there is nothing
-to preview.
+reconciler released back into the attribution queue, for either of two
+reasons: a night superseded by another attributed entry (the skip rule
+below), or events left over from a key family a run no longer belongs to
+after a ``telescope_class``/``site`` correction (see the re-classification
+note above). ``--dry-run``'s ``would_detach`` reports the same number a
+real sweep would detach -- the count is a pure read, so there is nothing
+stopping the preview from showing it.
+
+``detach_declined`` counts companion rows the sweep deliberately did NOT
+release, because a person had already confirmed the attribution -- a human
+decision always outranks an automated sweep, and this counter exists so
+that fact is reported rather than left to look identical to "nothing to
+release". There is nothing for an operator to do about a non-zero
+``detach_declined``: it is a report that a human decision was respected.
 
 A per-run line accompanies each non-zero counter: a skipped-night line on
-stdout (normal, expected convergence, not a failure) and a detached line
-on stderr alongside the existing ``blocked`` line (naming the run and
-stating that a confirmation stamp was cleared).
+stdout (normal, expected convergence, not a failure); a detached line on
+stderr alongside the existing ``blocked`` line, naming the run and stating
+that entries were released back into the attribution queue; and, when a
+confirmed row was left alone, a declined line on stderr naming the run and
+the count.
 
 A run that does not project onto the calendar at all is reported on stderr
 with one of these skip reasons, one line per run:
@@ -765,11 +775,11 @@ and the skip is the whole story. If it had -- the realistic case once
 another writer (a classical-schedule loader, a hand entry, or an
 observation record) attributes a real entry to the same run for a night
 the reconciler already covered -- that earlier reconciler-created entry is
-released (never deleted) back into the attribution queue for a human to
-re-confirm or discard, and its "confirmed by"/"confirmed at" record is
-cleared along with the release. Clearing the other entry's attribution
-later brings the reconciler's own entry back, in place (same record, same
-url), on the next sweep.
+released (never deleted) back into the attribution queue, where a staff
+member can re-confirm it. Re-confirming it is a permanent decision: once a
+person has confirmed it, no later automated sweep releases it again.
+Clearing the other entry's attribution instead brings the reconciler's own
+entry back, in place (same record, same url), on the next sweep.
 
 **One-time title change.** Reconciler-created entries no longer carry the
 campaign name in their title -- only the telescope/instrument text (and,
