@@ -802,6 +802,19 @@ the page is drawn -- it is never written into the entry's own title or
 description -- so nothing that rewrites those fields (a base-layer
 re-projection, a hand edit, anything) can erase it.
 
+Before chasing a missing attribution, first confirm the pop-up opens at
+all: clicking a calendar entry opens the pop-up through the Bootstrap 5
+modal API, because the TOM Toolkit 3.x base page this site is built on
+loads the Bootstrap 5 bundle, htmx and Alpine and no jQuery. These are two
+different faults with two different fixes. A pop-up that opens but shows
+no Attributed campaign run block means the entry carries no attribution
+link -- the situation the rest of this section covers. A pop-up that does
+not open at all, on any entry, on a day cell, or on the "+ New Event"
+button, is a client-side JavaScript fault in the calendar page, not a
+missing attribution. Exactly that fault was found and fixed in Phase 33
+(UAT G-33-2); if it recurs, report it as a front-end regression and check
+the browser console, rather than looking for a missing campaign link.
+
 **That "View campaign ↗" link carries the run's row anchor but no page
 number.** The campaign run table paginates at 25 rows, sorted by window
 start descending, so a run that sorts past page 1 -- a campaign with more
