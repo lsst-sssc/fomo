@@ -27,7 +27,7 @@ from solsys_code.campaign_reconciler import (
     reconcile_run,
 )
 from solsys_code.campaign_utils import unlink_event_from_run
-from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
+from solsys_code.models import CalendarEventDismissal, CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import sun_event
 
@@ -763,6 +763,172 @@ class TestReconcileThenAttributeOrdering(CampaignReconcilerTestBase):
         clashing_event.refresh_from_db()
         self.assertEqual(CalendarEventMeta.objects.get(event=clashing_event).run_id, other_run.pk)
 
+    def test_staff_reconfirmation_of_the_detached_run_keyed_event_survives_every_later_sweep(self):
+        """CR-04 (33-REVIEW.md) / ANNOT-01, closed by the UAT option B decision
+        (33-UAT.md `## Decisions`, 2026-09-09): a staff re-confirmation of a detached
+        `RUN:`-keyed event is never erased again by an automated sweep, and the sweep
+        reports the declined count instead of silently repeating the erasure. This is the
+        confirm/erase loop the existing detach test (above) stops one step short of."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+
+        first = reconcile_run(run)
+        self.assertEqual(first.created, 1)
+        run_keyed_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        run_keyed_pk = run_keyed_event.pk
+
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/321321/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        second = reconcile_run(run)
+        self.assertEqual(second.detached, 1)
+        self.assertEqual(second.detach_declined, 0)
+        run_keyed_meta = CalendarEventMeta.objects.get(event=run_keyed_event)
+        self.assertIsNone(run_keyed_meta.run_id)
+
+        # A staff member re-confirms the just-detached RUN:-keyed event back to the SAME run.
+        staffer = User.objects.create(username='attribution-staffer')
+        confirmed_at = datetime(2026, 8, 2, 9, 0, tzinfo=dt_timezone.utc)
+        run_keyed_meta.run = run
+        run_keyed_meta.confirmed_by = staffer
+        run_keyed_meta.confirmed_at = confirmed_at
+        run_keyed_meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
+
+        third = reconcile_run(run)
+
+        self.assertEqual(third.detached, 0)
+        self.assertEqual(third.detach_declined, 1)
+        run_keyed_event.refresh_from_db()
+        self.assertEqual(run_keyed_event.pk, run_keyed_pk)
+        run_keyed_meta.refresh_from_db()
+        self.assertEqual(run_keyed_meta.run_id, run.pk)
+        self.assertEqual(run_keyed_meta.confirmed_by_id, staffer.pk)
+        self.assertEqual(run_keyed_meta.confirmed_at, confirmed_at)
+
+        # A further sweep changes nothing about it either.
+        fourth = reconcile_run(run)
+
+        self.assertEqual(fourth.detached, 0)
+        self.assertEqual(fourth.detach_declined, 1)
+        run_keyed_meta.refresh_from_db()
+        self.assertEqual(run_keyed_meta.run_id, run.pk)
+        self.assertEqual(run_keyed_meta.confirmed_by_id, staffer.pk)
+        self.assertEqual(run_keyed_meta.confirmed_at, confirmed_at)
+
+        self.assertEqual(CalendarEventDismissal.objects.count(), 0)
+
+    def test_unconfirmed_reattribution_of_the_detached_run_keyed_event_is_still_reclaimable(self):
+        """The same scenario as above, but with `confirmed_by` left null on the re-attached
+        row: an automated (not human-confirmed) re-link is still reclaimable by a later
+        sweep -- only a HUMAN confirmation outranks the automated detach."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+
+        reconcile_run(run)
+        run_keyed_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/456456/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        reconcile_run(run)  # detaches the RUN:-keyed event
+        run_keyed_meta = CalendarEventMeta.objects.get(event=run_keyed_event)
+        run_keyed_meta.run = run
+        run_keyed_meta.save(update_fields=['run'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.detached, 1)
+        self.assertEqual(result.detach_declined, 0)
+        run_keyed_meta.refresh_from_db()
+        self.assertIsNone(run_keyed_meta.run_id)
+
+    def test_attributed_and_contested_night_is_blocked_not_skipped_and_never_detached(self):
+        """WR-13 (33-REVIEW.md): a night that is BOTH attributed to this run through a
+        non-RUN: event AND carries a RUN:-keyed event attributed to a DIFFERENT run must
+        report blocked, not skip -- ownership is decided before the night's outcome, so
+        the foreign attribution is neither written nor detached."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        other_run = self._make_run(telescope_instrument='Other Telescope/Instrument')
+
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/654654/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        staffer = User.objects.create(username='other-run-staffer')
+        confirmed_at = datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc)
+        clashing_event = CalendarEvent.objects.create(
+            title='Owned by a different run',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=clashing_event, run=other_run, confirmed_by=staffer, confirmed_at=confirmed_at
+        )
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        self.assertEqual(result.skipped_nights, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.detach_declined, 0)
+        clashing_event.refresh_from_db()
+        clashing_meta = CalendarEventMeta.objects.get(event=clashing_event)
+        self.assertEqual(clashing_meta.run_id, other_run.pk)
+        self.assertEqual(clashing_meta.confirmed_by_id, staffer.pk)
+        self.assertEqual(clashing_meta.confirmed_at, confirmed_at)
+
+    def test_dry_run_previews_the_detach_count_and_writes_nothing(self):
+        """WR-11: `--dry-run` previews the one irreversible step (the detach) instead of
+        refusing to -- the previewed number comes from the same predicate the real sweep
+        detaches on, and the dry run still writes nothing at all."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+
+        reconcile_run(run)
+        run_keyed_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+        title_before = run_keyed_event.title
+
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/789789/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        preview = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(preview.detached, 1)
+        self.assertEqual(preview.detach_declined, 0)
+        self.assertEqual(CalendarEvent.objects.count(), 2)
+        run_keyed_event.refresh_from_db()
+        self.assertEqual(run_keyed_event.title, title_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=run_keyed_event).run_id, run.pk)
+
 
 class TestAttributedEventsSurviveReconcile(CampaignReconcilerTestBase):
     """D-04 proof (ROADMAP criterion 2): an attributed non-`RUN:` event -- blank-url or
@@ -1311,13 +1477,16 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         pre_fix_container.refresh_from_db()
         self.assertEqual(pre_fix_container.modified, container_modified_after_first)
 
-    def test_detach_clears_audit_fields_leaves_event_and_verification_flag_untouched(self):
-        """Plan 33-04 Task 3 (D-16, ROADMAP criterion 4): the detach step now clears
-        confirmed_by/confirmed_at with the link -- new behaviour Task 2 added -- and
+    def test_detach_clears_audit_fields_for_an_unconfirmed_row_leaves_event_and_verification_flag_untouched(self):
+        """Plan 33-04 Task 3 (D-16, ROADMAP criterion 4): the detach step clears
+        confirmed_by/confirmed_at with the link when the row is NOT human-confirmed, and
         proves it never touches is_verified or any CalendarEvent field. Triggered by
         shrinking the window (the excluded night falls out of active_urls) rather than a
         full family reclassification, so the reconcile that does the detaching creates no
-        new event of its own -- both object counts can be compared straight across it."""
+        new event of its own -- both object counts can be compared straight across it.
+        Revised for 33-10 (UAT option B): confirmed_by is deliberately left null here so
+        this exercises the still-detached (unconfirmed) branch -- see the sibling test
+        below for the now-declined confirmed-row branch."""
         window_start = date(2026, 8, 1)
         window_end = date(2026, 8, 2)
         run = self._make_run(window_start=window_start, window_end=window_end)
@@ -1325,11 +1494,8 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         stale_night_url = f'RUN:{run.pk}:{window_end.isoformat()}'
         event = CalendarEvent.objects.get(url=stale_night_url)
 
-        staffer = User.objects.create(username='detach-audit-staffer')
         meta = CalendarEventMeta.objects.get(event=event)
         meta.is_verified = False
-        meta.confirmed_by = staffer
-        meta.confirmed_at = datetime(2026, 7, 1, 12, 0, tzinfo=dt_timezone.utc)
         meta.save()
 
         snapshot = {
@@ -1349,13 +1515,64 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         # time) is what clears the excluded night's attribution and audit stamps.
         run.window_end = window_start
         run.save(update_fields=['window_end'])
-        reconcile_run(run)
+        result = reconcile_run(run)
 
+        self.assertEqual(result.detached, 1)
+        self.assertEqual(result.detach_declined, 0)
         event.refresh_from_db()
         meta.refresh_from_db()
         self.assertIsNone(meta.run_id)
         self.assertIsNone(meta.confirmed_by_id)
         self.assertIsNone(meta.confirmed_at)
+        self.assertFalse(meta.is_verified)
+        for field, value in snapshot.items():
+            self.assertEqual(getattr(event, field), value)
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+        self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_detach_declines_a_confirmed_row_leaving_run_and_audit_stamps_untouched(self):
+        """33-10 (UAT option B, 2026-09-09): the same shrink-the-window trigger as above,
+        but this time the excluded night's companion row IS human-confirmed -- the sweep
+        must decline to detach it, leaving `run`/`confirmed_by`/`confirmed_at` exactly as a
+        human left them, and must report the decline via `detach_declined`."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        reconcile_run(run)
+        stale_night_url = f'RUN:{run.pk}:{window_end.isoformat()}'
+        event = CalendarEvent.objects.get(url=stale_night_url)
+
+        staffer = User.objects.create(username='detach-audit-staffer')
+        confirmed_at = datetime(2026, 7, 1, 12, 0, tzinfo=dt_timezone.utc)
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.is_verified = False
+        meta.confirmed_by = staffer
+        meta.confirmed_at = confirmed_at
+        meta.save()
+
+        snapshot = {
+            'url': event.url,
+            'title': event.title,
+            'description': event.description,
+            'start_time': event.start_time,
+            'end_time': event.end_time,
+            'telescope': event.telescope,
+            'instrument': event.instrument,
+        }
+        event_count_before = CalendarEvent.objects.count()
+        meta_count_before = CalendarEventMeta.objects.count()
+
+        run.window_end = window_start
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.detach_declined, 1)
+        event.refresh_from_db()
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertEqual(meta.confirmed_by_id, staffer.pk)
+        self.assertEqual(meta.confirmed_at, confirmed_at)
         self.assertFalse(meta.is_verified)
         for field, value in snapshot.items():
             self.assertEqual(getattr(event, field), value)

@@ -94,13 +94,19 @@ class ReconcileResult(NamedTuple):
     """Classical nights left untouched because a non-``RUN:`` event is already attributed
     to this run for that night (D-01, ANNOT-01) -- the reconciler wrote nothing for them."""
     detached: int = 0
-    """Companion rows whose attribution the reconciler cleared during the stale/superseded
-    detach step (CR-03, 33-REVIEW.md WR-03) -- including the confirmation stamps
-    (``confirmed_by``/``confirmed_at``) that went with them. Includes both a re-classified
-    run's old-family events (29-REVIEW.md CR-01) and a classical night that became
-    attributed through a non-``RUN:`` event after this reconciler had already minted its
-    own event for it: that superseded event is detached, never deleted, back into Phase
-    28's attribution queue."""
+    """Companion rows the sweep actually released during the stale/superseded detach step
+    (CR-03, 33-REVIEW.md WR-03). By construction (Task 1, 33-10) a released row never had
+    ``confirmed_by`` set -- a human-confirmed attribution is never counted here, see
+    ``detach_declined`` instead. Includes both a re-classified run's old-family events
+    (29-REVIEW.md CR-01) and a classical night that became attributed through a non-``RUN:``
+    event after this reconciler had already minted its own event for it: that superseded
+    event is detached, never deleted, back into Phase 28's attribution queue."""
+    detach_declined: int = 0
+    """Superseded or stale companion rows the sweep deliberately did NOT release because
+    ``confirmed_by`` is set (UAT decision, 2026-09-09 ``## Decisions``: option B -- a human
+    decision outranks an automated sweep). Exists so an operator is told a release was
+    declined rather than left to infer it from an unchanged ``detached`` -- silence and
+    'nothing to release' are otherwise indistinguishable."""
     skipped_reason: str | None = None
 
 
@@ -384,18 +390,24 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> tuple[Rec
     already-differentiated handling.
 
     Per-night resolution order (D-01, ANNOT-01 -- retires the D-02 adopt/re-key contract;
-    CR-03 fix, 33-REVIEW.md): (1) if the night is already attributed to this run through a
+    CR-03 fix, 33-REVIEW.md; reordered again WR-13, 33-10): (0) ownership is decided BEFORE
+    the night's outcome -- ``_may_write(existing, run)`` is evaluated first of all, against
+    whatever event (if any) already sits at ``run_night_url(run, night)``. When it is False,
+    the night is blocked: no attribution skip, no write, and the url is added to
+    ``active_urls`` so a foreign run's attribution is never detached out from under it.
+    ``_may_write(None, run)`` returns True, so a night with no existing event falls straight
+    through to (1). (1) if the night is already attributed to this run through a
     non-``RUN:`` event (``_attributed_nights()``), skip the night entirely -- no event is
     created, modified or re-keyed for it, only the ``skipped_nights`` counter moves. This is
-    now UNCONDITIONAL on whether a ``RUN:{pk}:{date}`` event already exists for that night,
-    so the reconcile-then-attribute ordering and the attribute-then-reconcile ordering
-    converge on the same result: a night that becomes attributed after this reconciler
-    already minted its own event for it drops that event's url out of the returned active-url
-    set, so ``_detach_stale_family_events()`` reclaims it. (2) otherwise, an event already
-    keyed at ``run_night_url(run, night)`` -- the common idempotent-rerun case; (3) otherwise,
-    mint a new event. ``_may_write()`` remains the first condition checked on every write --
-    resolution step (2) still goes through it before any write (RECON-05 defence in depth;
-    see T-29-05).
+    UNCONDITIONAL on whether a ``RUN:{pk}:{date}`` event already exists for that night, so
+    the reconcile-then-attribute ordering and the attribute-then-reconcile ordering converge
+    on the same result: a night that becomes attributed after this reconciler already minted
+    its own event for it drops that event's url out of the returned active-url set, so
+    ``_detach_stale_family_events()`` reclaims it. (2) otherwise, an event already keyed at
+    ``run_night_url(run, night)`` -- the common idempotent-rerun case; (3) otherwise, mint a
+    new event. ``sun_event()`` is now reached only for a night this run will actually write
+    -- past both the blocked and the attributed-skip branches -- and D-06's ``ValueError``
+    propagation for such a night is unchanged.
 
     Field authority deliberately differs from the container branch: on **create**, this
     writes ``title``, ``description``, ``target_list``, ``telescope``, ``instrument``,
@@ -421,6 +433,13 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> tuple[Rec
     for i in range(n_nights):
         night = run.window_start + timedelta(days=i)
         url = run_night_url(run, night)
+        existing = CalendarEvent.objects.filter(url=url).first()
+
+        if not _may_write(existing, run):
+            logger.warning('Reconcile blocked: event pk=%s is not owned by run pk=%s.', existing.pk, run.pk)
+            totals['blocked'] += 1
+            active_urls.add(url)
+            continue
 
         if night in attributed_nights:
             totals['skipped_nights'] += 1
@@ -428,12 +447,6 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> tuple[Rec
 
         active_urls.add(url)
         sunset, sunrise = sun_event(run.site, night, kind='sun')
-        existing = CalendarEvent.objects.filter(url=url).first()
-
-        if not _may_write(existing, run):
-            logger.warning('Reconcile blocked: event pk=%s is not owned by run pk=%s.', existing.pk, run.pk)
-            totals['blocked'] += 1
-            continue
 
         common_fields: dict[str, Any] = {
             'title': event_title(run),
@@ -466,7 +479,55 @@ def _reconcile_classical_nights(run: CampaignRun, *, dry_run: bool) -> tuple[Rec
     return ReconcileResult(**totals), active_urls
 
 
-def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> int:
+def _stale_attributions(run: CampaignRun, active_urls: set[str]) -> tuple[list[int], int]:
+    """Read-only split of this run's stale/superseded owned events into what an automated
+    sweep may release and what it must leave alone (33-UAT.md ``## Decisions``, 2026-09-09):
+    *"Option B -- human outranks machine. The reconciler sweep detaches only rows with no
+    confirmed_by; a human-confirmed attribution is never cleared by an automated sweep."*
+
+    This closes the CR-04 confirm/erase loop: ``campaign_attribution.orphan_calendar_events()``
+    re-offers a detached row to the very run that released it at HIGH band the moment a
+    staff member re-confirms the obvious match, and -- before this guard -- the very next
+    unattended sweep erased that confirmation again, with only a ``logger.warning`` as a
+    record. That contradicted the phase goal ("the reconciler annotates instead of owning"),
+    ANNOT-01 and ``unlink_event_from_run()``'s own "a human attribution always outranks an
+    automated clear".
+
+    The guard deliberately lives HERE, on the reconciler side, and NOT in
+    :func:`~solsys_code.campaign_utils.unlink_event_from_run` or its ``UNLINK_CLEARED_FIELDS``
+    declaration: that helper's other callers -- Phase 28's undo view and the admin's
+    standalone clear branch -- are human-initiated and must keep being able to clear a
+    confirmed row. Only an *automated* sweep needs to defer to a prior human decision.
+
+    No dismissal-row model instance is written anywhere on this path, nor by this
+    function's caller: the UAT decision explicitly rejected the dismissal-row remedy
+    proposed in 33-REVIEW.md CR-04's fix block -- a dismissal is the trace of a human's own
+    decision, and an automated sweep declining to act is not one.
+
+    Performs reads only (one queryset built off ``owned_events()``, one companion-row
+    filter, one ``.values_list()`` and one ``.count()``) -- no ``.save()``, ``.update()``,
+    ``.create()`` or ``.delete()`` runs here, so ``reconcile_run()``'s dry-run branch can
+    call this directly to preview the detach without any write occurring (WR-11).
+
+    Args:
+        run: the ``CampaignRun`` just reconciled.
+        active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
+            considers current for this run (one container url, or one url per night).
+
+    Returns:
+        tuple[list[int], int]: ``(clearable_event_ids, declined)`` -- the primary keys of
+        events an automated sweep may release (their companion row's ``confirmed_by`` is
+        unset), and the count of companion rows left attributed because ``confirmed_by``
+        is set.
+    """
+    stale = owned_events(run).exclude(url__in=active_urls)
+    metas = CalendarEventMeta.objects.filter(run_id=run.pk, event__in=stale)
+    clearable_event_ids = list(metas.filter(confirmed_by__isnull=True).values_list('event_id', flat=True))
+    declined = metas.filter(confirmed_by__isnull=False).count()
+    return clearable_event_ids, declined
+
+
+def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tuple[int, int]:
     """Convergence step (29-REVIEW.md CR-01, user-directed fix: DETACH, not delete or
     flag-only).
 
@@ -486,15 +547,13 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> int:
     the same night.
 
     Detaching -- rather than deleting the ``CalendarEvent`` rows outright, or merely
-    logging/flagging -- returns them to Phase 28's attribution queue for a human to
-    re-confirm or discard, matching every other unattributed row's meaning (D-17: an unset
-    ``run`` means "not attributed to any CampaignRun" -- never "touch me"). Plan 33-04
-    (D-16) routes this through the shared :func:`~solsys_code.campaign_utils.
-    unlink_event_from_run` helper -- the single writer of what clearing an attribution
-    means -- rather than this module's own ad-hoc update, which is a deliberate behaviour
-    change: the helper also clears ``confirmed_by``/``confirmed_at``, which this step did
-    not do before. A detached row that kept "confirmed by X at T" was displaying a
-    confirmation for an attribution that no longer exists.
+    logging/flagging -- returns them to Phase 28's attribution queue where a staff member
+    can re-confirm them. Re-confirming a released entry is now safe and permanent (Task 1,
+    33-10): once ``confirmed_by`` is set on the re-linked row, no later automated sweep
+    detaches it again -- see ``_stale_attributions()``. Plan 33-04 (D-16) routes the actual
+    clear through the shared :func:`~solsys_code.campaign_utils.unlink_event_from_run`
+    helper -- the single writer of what clearing an attribution means -- rather than this
+    module's own ad-hoc update.
 
     The extra ``run=run`` filter term (T-29-19) is not redundant, and the helper preserves
     it: without it, a stale-family event that staff have since re-attributed to a DIFFERENT
@@ -508,8 +567,9 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> int:
             considers current for this run (one container url, or one url per night).
 
     Returns:
-        int: the number of companion rows actually cleared (WR-03, 33-REVIEW.md) --
-        including the confirmation stamps that went with them.
+        tuple[int, int]: ``(detached, declined)`` -- the number of companion rows actually
+        cleared (WR-03, 33-REVIEW.md), and the number left attributed because a human had
+        confirmed them (see :func:`_stale_attributions`).
     """
     # Local import to avoid a circular import at module load time: campaign_utils.py
     # imports reconcile_run/ReconcileResult from this module at its own top level, so a
@@ -517,15 +577,22 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> int:
     # loads first.
     from solsys_code.campaign_utils import unlink_event_from_run
 
-    stale = owned_events(run).exclude(url__in=active_urls)
-    detached = unlink_event_from_run(stale, run)
+    clearable_event_ids, declined = _stale_attributions(run, active_urls)
+    detached = unlink_event_from_run(clearable_event_ids, run) if clearable_event_ids else 0
     if detached:
         logger.warning(
-            'Reconcile detached %s stale/superseded event(s) from run pk=%s; confirmation stamps cleared.',
+            'Reconcile detached %s stale/superseded event(s) from run pk=%s.',
             detached,
             run.pk,
         )
-    return detached
+    if declined:
+        logger.warning(
+            'Reconcile declined to detach %s stale/superseded event(s) from run pk=%s: '
+            'a human confirmation outranks the automated sweep.',
+            declined,
+            run.pk,
+        )
+    return detached, declined
 
 
 def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult:
@@ -565,10 +632,15 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     # by a later attribution (CR-03, 33-REVIEW.md). A no-op whenever the run has not been
     # re-classified and no night has been superseded since its last reconcile (RECON-01
     # idempotency: every url this branch just wrote/confirmed/skipped-for is already in
-    # active_urls, so exclude() finds nothing stale). Skipped entirely in dry_run --
-    # detaching is a write, and dry_run must write nothing, so `detached` stays 0 there.
-    detached = 0
-    if not dry_run:
-        detached = _detach_stale_family_events(run, active_urls)
+    # active_urls, so exclude() finds nothing stale). WR-11: the count is a pure read either
+    # way -- `_stale_attributions()` only builds querysets and counts, so a dry run can
+    # preview exactly what a real sweep would detach/decline without writing anything; the
+    # one irreversible step in the sweep is precisely the step the preview used to refuse to
+    # show.
+    if dry_run:
+        clearable_event_ids, declined = _stale_attributions(run, active_urls)
+        detached, detach_declined = len(clearable_event_ids), declined
+    else:
+        detached, detach_declined = _detach_stale_family_events(run, active_urls)
 
-    return result._replace(detached=detached)
+    return result._replace(detached=detached, detach_declined=detach_declined)
