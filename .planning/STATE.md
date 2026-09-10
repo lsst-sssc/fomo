@@ -2,37 +2,37 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Observation-First Calendar
-current_phase: 33
-current_phase_name: Series Identity & Reconciler Inversion
-status: executing
-stopped_at: Completed 33-10-PLAN.md -- human confirmation outranks the automated reconciler detach (CR-04 closed), ownership decided before night outcome (WR-13), operator surfaces report detach_declined truthfully
-last_updated: "2026-09-10T06:29:26.266Z"
-last_activity: 2026-09-09
-last_activity_desc: Phase 33 execution started
-state_head: f881ead7aecc85e5e6dbbebe04baf31cd61bdb48
+current_phase: 34
+current_phase_name: The Observation Projector & Trigger
+status: planning
+stopped_at: Phase 33 complete, ready to plan Phase 34
+last_updated: "2026-09-10T16:33:51.681Z"
+last_activity: 2026-09-10
+last_activity_desc: Phase 33 complete, transitioned to Phase 34
+state_head: cbd13b5bd8157de4dd209b49f127222f80ae5cf7
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 11
   completed_plans: 11
-  percent: 0
+  percent: 20
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 superseded)
+See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Phase 33 — Series Identity & Reconciler Inversion
+**Current focus:** Phase 34 — The Observation Projector & Trigger
 
 ## Current Position
 
-Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
-Plan: 4 of 11
-Status: Ready to execute
-Last activity: 2026-09-09 — Phase 33 execution started
+Phase: 34 — The Observation Projector & Trigger
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-10 — Phase 33 complete, transitioned to Phase 34
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -131,6 +131,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 24 | 1 | - | - |
 | 30 | 4 | - | - |
 | 31 | 6 | - | - |
+| 33 | 11 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
@@ -268,9 +269,13 @@ v2.3 roadmap-structure decisions (2026-09-01):
 
 None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 phases, 33 plans, 24/24 requirements). One non-blocking follow-up carried into the next milestone: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
-One v2.3 planning-time note remains, not blocking roadmap approval:
+Carried forward from Phase 33 (completed 2026-09-10) into the phases that own them — none blocks Phase 34 planning:
 
-- **Phase 33's aggregation rule wants validation against real data** — whether any existing multi-record run would be misclassified by any-success-wins-once-all-terminal. Research flagged this too; it is a phase-planning research item, not a roadmap blocker.
+- **[Phase 34]** `CalendarEventMeta.observation_group` has no declared ordering on its reverse manager; if Phase 34's projector adds a reader over that relation it must set an ordering or add a shuffled-insertion test (UAT decision 2026-09-09, test 3, option A — absence-by-grep evidence accepted for now).
+- **[Phase 34]** PROJ-04's shared-title-stem clause is still open — Phase 33 shipped only the carrier fields.
+- **[Phase 35]** Leftover `RUN:{pk}:{date}` duplicates on a night after the reconciler's detach (WR-09: the `CalendarEvent` row survives by design) are Phase 35 SC 5's responsibility.
+- **[Phase 37 or later]** `campaign_decoration()`'s `#run-{pk}` anchor only lands on the campaign table's first page (>25 runs — 33-06 WR-08); pinned as a tested limitation rather than fixed, because computing the page would add a per-event query.
+- The stale v2.3 note about "Phase 33's aggregation rule" is gone: OUTCOME-01..04 were dropped with v2.3, and v2.4's Phase 33 had no aggregation rule.
 
 Phase 31's scheduling-track host-facts gap (previously listed here) is resolved: the spike got real answers from the operator (cron + `flock -n`, confirmed present) — see SCHED-07 in PROJECT.md Key Decisions.
 
@@ -321,10 +326,11 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-09-10T06:29:26.153Z
-Stopped at: Completed 33-10-PLAN.md -- human confirmation outranks the automated reconciler detach (CR-04 closed), ownership decided before night outcome (WR-13), operator surfaces report detach_declined truthfully
+Stopped at: Phase 33 complete, ready to plan Phase 34
 Resume file: None
 
 ## Operator Next Steps
 
-- v2.4 roadmap created: 5 phases (33-37), 29/29 requirements mapped. Start Phase 33 "Series Identity & Reconciler Inversion" with `/gsd-discuss-phase 33`
-- Phase 33 is deliberately first: it inverts the reconciler to annotate-only before the base layer ships, which is the one ordering landmine the spikes named (spike 002)
+- Phase 33 complete (2026-09-10). Start Phase 34 "The Observation Projector & Trigger" with `/gsd-discuss-phase 34` — no CONTEXT.md exists yet for it.
+- Phase 34 is now safe to build: the reconciler annotates only (ANNOT-01), the `observation_record`/`observation_group` carrier fields it writes to exist (PROJ-04), and campaign decoration survives base re-projection (ANNOT-02). Its paired-docs scope is large (new sweep notebook, migrating `sync_lco_observation_calendar_demo.ipynb`, the runbook's LCO sync section) — plan it in from the start.
+- `.planning/REQUIREMENTS.md`: `phase.complete` flagged 5 REQ-IDs present in the body but missing from the Traceability table (UPSTREAM-01, ESO-10, ESO-11, SUBMIT-06, SUBMIT-07 — all deferred/out-of-milestone items); add them manually when next editing that file.
