@@ -194,7 +194,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 **Second gap closure — Wave 2** *(blocked on its Wave 1 completion)*
 
-- [ ] 33-11-PLAN.md — G-33-2: the calendar pop-up opens again — the month partial's three modal handlers move from jQuery to the Bootstrap 5 API, with a browser-driven click test and a served-partial regression guard (gap wave 2)
+- [x] 33-11-PLAN.md — G-33-2: the calendar pop-up opens again — the month partial's three modal handlers move from jQuery to the Bootstrap 5 API, with a browser-driven click test and a served-partial regression guard (gap wave 2)
 
 **Second gap closure — Wave 3** *(blocked on its Wave 2 completion)*
 

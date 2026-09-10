@@ -37,7 +37,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Campaign Annotation (reconciler inversion)
 
 - [ ] **ANNOT-01**: `CalendarEventMeta.run` means "attributed to", not "owned by"; `reconcile_run()` no longer adopts, re-keys, or detaches an event attributed to a run — it only annotates — so the base layer and the campaign layer can run side by side without one stealing the other's events
-- [ ] **ANNOT-02**: Campaign decoration of an observation-backed event (campaign prefix/label, link to its run) is rendered from the `CalendarEventMeta.run` link at display time, never written into the event's own fields, so base re-projection cannot erase it
+- [x] **ANNOT-02**: Campaign decoration of an observation-backed event (campaign prefix/label, link to its run) is rendered from the `CalendarEventMeta.run` link at display time, never written into the event's own fields, so base re-projection cannot erase it
 - [ ] **ANNOT-03**: `sync_lco_observation_calendar` is retired in favour of the projector + sweep (one writer per source; same key namespace, same events) with its runbook section, demo notebook, and tests migrated rather than duplicated; `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
 
 ### Unattended Operation (carried from v2.3)
@@ -116,7 +116,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALLOC-04 | Phase 35 | Pending |
 | ALLOC-05 | Phase 35 | Pending |
 | ANNOT-01 | Phase 33 | Gaps Found |
-| ANNOT-02 | Phase 33 | Gaps Found |
+| ANNOT-02 | Phase 33 | Complete |
 | ANNOT-03 | Phase 34 | Pending |
 | SCHED-08 | Phase 36 | Pending |
 | SCHED-09 | Phase 36 | Pending |

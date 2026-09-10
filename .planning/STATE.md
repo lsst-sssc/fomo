@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 33
 current_phase_name: Series Identity & Reconciler Inversion
 status: executing
-stopped_at: "Completed 33-09-PLAN.md -- notebooks scratch-DB isolation, contact fields dropped, demo residue cleaned (fixture receipt: 65 attributed rows for 33-11)"
-last_updated: "2026-09-10T04:19:40.349Z"
+stopped_at: Completed 33-11-PLAN.md -- calendar pop-up migrated to Bootstrap 5 modal API, closing UAT gap G-33-2
+last_updated: "2026-09-10T05:11:00.638Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 33 execution started
-state_head: 1f1b89dfa9d8f7513ecb5916d3a2defc64327938
+state_head: 80605f66a112f3c77a81a9f8d15d02c91e1b2194
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 ## Current Position
 
 Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
-Plan: 2 of 11
+Plan: 3 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 33 execution started
 
@@ -178,6 +178,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33 P07 | 26min | 3 tasks | 4 files |
 | Phase 33 P08 | 40min | 4 tasks | 7 files |
 | Phase 33 P09 | 38min | 3 tasks | 3 files |
+| Phase 33-series-identity-reconciler-inversion P11 | ~30 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -224,6 +225,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33]: Adopted the local-noon anchored _observing_night(), superseding 26-DECISION.md D-10's plain site-local .date() derivation (checkpoint resolved by user: noon-anchor). — Matches the anchor sun_event() itself uses; closes CR-02's duplicate-night/uncovered-night defect.
 - [Phase 33]: Made the D-01/ANNOT-01 skip in _reconcile_classical_nights() unconditional on attribution alone, with a counted/logged detach of any superseded RUN:-keyed event. — Closes CR-03: reconcile-then-attribute and attribute-then-reconcile orderings now converge on the same result, per 29-REVIEW.md CR-01's detach-never-delete rule.
 - [Phase 33]: 33-09: FOMO_DATABASE_PATH env-var branch in settings.py lets demo notebooks run against a scratch DB copy; event pk 335 deleted (not re-attached) since its demo campaign is removed; task2's whole-file grep gate is over-scoped vs. its own must-haves -- satisfied narrowly at the public-table cell, documented as a deviation.
+- [Phase 33]: 33-11: calendar modal handlers migrated inline to bootstrap.Modal.getOrCreateInstance(...).show() (not upstream's showModal() indirection) since the partial is itself htmx-swapped
+- [Phase 33]: 33-11: campaign_decoration() guarded with isinstance(event, CalendarEvent) to fix a pre-existing AttributeError on the create-event form path (Rule 1 deviation)
 
 ### Pending Todos
 
@@ -314,8 +317,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T04:19:40.256Z
-Stopped at: Completed 33-09-PLAN.md -- notebooks scratch-DB isolation, contact fields dropped, demo residue cleaned (fixture receipt: 65 attributed rows for 33-11)
+Last session: 2026-09-10T05:11:00.535Z
+Stopped at: Completed 33-11-PLAN.md -- calendar pop-up migrated to Bootstrap 5 modal API, closing UAT gap G-33-2
 Resume file: None
 
 ## Operator Next Steps
