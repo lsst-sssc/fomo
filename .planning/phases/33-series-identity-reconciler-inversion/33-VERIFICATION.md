@@ -1,11 +1,12 @@
 ---
 phase: 33-series-identity-reconciler-inversion
 verified: 2026-09-10T07:05:00Z
-status: human_needed
+status: passed
 score: 108/109 must-haves verified
 behavior_unverified: 0
 overrides_applied: 1
 overrides:
+
   - must_have: "No code added by this phase depends on the iteration order of the `observation_group` reverse manager: `CalendarEventMeta` gains no `Meta.ordering`, and no reader added here iterates `group.calendar_event_metas` expecting a stable order (PROJ-04 ordering edge)."
     reason: >-
       `verification: backstop` / `insufficient_spec` item from the 2026-09-08 verification,
@@ -30,6 +31,7 @@ re_verification:
   gaps_remaining: []
   regressions: []
 flagged_prohibitions:
+
   - statement: "No notebook cell may print or store a run's `contact_person`, `contact_email` or `source` into committed output (33-09 P1, inherited from 33-05 P1 / 33-08 P5)."
     verdict: "contact half CLOSED; `source` half technically violated, pre-existing and benign (NON-AUTHORITATIVE LLM-judge verdict)"
     observed: >-
@@ -42,6 +44,7 @@ flagged_prohibitions:
       be narrowed or the prints removed.
     flag: "unverified-prohibition — human review recommended"
 deferred:
+
   - truth: "The superseded night no longer shows two calendar entries (WR-09 — the detach removes the attribution, the `CalendarEvent` row survives by design and still renders, now with no campaign chip and no campaign name in its title)"
     addressed_in: "Phase 35"
     evidence: "Phase 35 success criterion 5: 'After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old load_telescope_runs events or the reconciler's RUN:{pk}:{date} events'. Restated in the 33-10 UAT decision: 'Leftover RUN:{pk}:{date} duplicates on a night remain Phase 35 SC 5's responsibility.'"
@@ -49,6 +52,7 @@ deferred:
     addressed_in: "Phase 34"
     evidence: "REQUIREMENTS.md line 139: 'PROJ-04 is the only requirement whose clauses land in two phases — Phase 33 [carrier fields], Phase 34 [shared title stem]'. Phase 33's half (the `observation_record`/`observation_group` foreign keys) is verified below."
 human_verification:
+
   - test: "Open http://<dev-server>/calendar/?year=2026&month=7 (July 2026 — 15 campaign-attributed entries, all belonging to run pk=1; verified present in `src/fomo_db.sqlite3` by direct query, so NO fixture seeding is needed). Click one of the ⚑ entries, then click 'View campaign ↗' in the 'Attributed campaign run' block."
     expected: "The pop-up opens (this half is now machine-proven by the Playwright tests, so it should just work), and the campaign table page then loads SCROLLED to that run's own row with the row visibly highlighted by the `tr:target` rule."
     why_human: "Browser anchor-scroll plus `:target` highlight rendering is real-browser behaviour no server-side or headless-assertion test observes. This is 33-11 Task 2's deferred `<human-check>` and UAT G-33-2's third `missing:` item. NOTE: 33-09's fixture receipt says July 2025 – July 2026; the surviving attributed months are 2025-07 (26), 2025-08 (21), 2025-11 (2), 2026-01 (1), 2026-07 (15) — none in the current month, so navigate deliberately."
