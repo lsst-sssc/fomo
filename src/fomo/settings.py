@@ -123,10 +123,15 @@ WSGI_APPLICATION = 'fomo.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.1/ref/settings/#databases
 
+# FOMO_DATABASE_PATH lets the pre-executed demo notebooks under
+# docs/notebooks/pre_executed/ run against a throwaway copy of the developer database
+# instead of writing through to it (UAT G-33-4). An unset (or empty-string) variable
+# leaves every command, test run and dev server pointed at fomo_db.sqlite3 exactly as
+# before. Production overrides still belong in local_settings.py.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'fomo_db.sqlite3'),
+        'NAME': os.getenv('FOMO_DATABASE_PATH') or os.path.join(BASE_DIR, 'fomo_db.sqlite3'),
     }
 }
 
