@@ -7,10 +7,45 @@ views do not pull in the ephemeris machinery (REBOUND/ASSIST/sorcha and the
 
 from collections import defaultdict
 
+from django.db.models import Case, CharField, Value, When
 from django.views.generic import ListView, TemplateView
 from tom_jpl.models import ScoutDetail, ScoutDetailHistory
+from tom_targets.models import Target
+from tom_targets.views import TargetExportView, TargetListView
 
+from solsys_code.filters import ScoutTargetFilterSet
 from solsys_code.rubin_too import RUBIN_TOO_FILTERS, evaluate_filters, passes_filters
+from solsys_code.tables import ScoutTargetTable
+
+
+class ScoutTargetListView(TargetListView):
+    """The stock TOM target list with a 'Scout' quick filter and an 'Origin' column.
+
+    Origin is 'Scout' for targets with a ``ScoutDetail`` (ingested via the Scout data service),
+    'MPC' for other non-sidereal targets (``fetch_jplsbdb_objects`` or manual entry of an MPC
+    object), and blank for sidereal targets, whose provenance is not tracked.
+    """
+
+    filterset_class = ScoutTargetFilterSet
+    table_class = ScoutTargetTable
+
+    def get_queryset(self, *args, **kwargs):
+        """Annotate ``origin`` so the table column renders and sorts without per-row queries."""
+        qs = super().get_queryset(*args, **kwargs)
+        return qs.annotate(
+            origin=Case(
+                When(scout_detail__isnull=False, then=Value('Scout')),
+                When(type=Target.NON_SIDEREAL, then=Value('MPC')),
+                default=Value(''),
+                output_field=CharField(),
+            )
+        )
+
+
+class ScoutTargetExportView(TargetExportView):
+    """CSV export that honours the same 'Scout' filter as ``ScoutTargetListView``."""
+
+    filterset_class = ScoutTargetFilterSet
 
 
 class RubinTooScoutListView(ListView):

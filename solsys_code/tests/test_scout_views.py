@@ -308,3 +308,68 @@ class RubinTooScoutLifecycleTest(TestCase):
         self.assertNotContains(response, 'ZTF10BL')
         self.assertEqual(response.context['num_passing'], 0)
         self.assertEqual(response.context['num_total'], 0)
+
+
+class ScoutTargetListFilterTest(TestCase):
+    """The main target list gains a 'Scout' quick filter (``ScoutTargetFilterSet``)."""
+
+    def setUp(self):
+        self.url = '/targets/'
+        active = Target.objects.create(name='ACTIVE1', type=Target.NON_SIDEREAL, abs_mag=25.0)
+        ScoutDetail.objects.create(target=active, active=True, **PASSING_DETAIL)
+        retired = Target.objects.create(name='RETIRED1', type=Target.NON_SIDEREAL, abs_mag=25.0)
+        ScoutDetail.objects.create(target=retired, active=False, **PASSING_DETAIL)
+        Target.objects.create(name='PLAIN1', type=Target.NON_SIDEREAL, abs_mag=20.0)
+        Target.objects.create(name='STAR1', type=Target.SIDEREAL, ra=10.0, dec=-20.0)
+
+    def _names(self, **params):
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return {t.name for t in response.context['object_list']}
+
+    def test_no_filter_lists_everything(self):
+        self.assertEqual(self._names(), {'ACTIVE1', 'RETIRED1', 'PLAIN1', 'STAR1'})
+
+    def test_scout_choices(self):
+        self.assertEqual(self._names(scout='active'), {'ACTIVE1'})
+        self.assertEqual(self._names(scout='retired'), {'RETIRED1'})
+        self.assertEqual(self._names(scout='any'), {'ACTIVE1', 'RETIRED1'})
+        self.assertEqual(self._names(scout='none'), {'PLAIN1', 'STAR1'})
+
+    def test_combines_with_general_search(self):
+        self.assertEqual(self._names(scout='any', query='RET'), {'RETIRED1'})
+
+    def test_filter_widget_rendered_outside_advanced_section(self):
+        response = self.client.get(self.url)
+        content = response.content.decode()
+        self.assertIn('name="scout"', content)
+        self.assertIn('All targets', content)
+        # The selector must sit in the always-visible row, before the collapsible block.
+        self.assertLess(content.index('name="scout"'), content.index('id="advancedFilters"'))
+
+    def test_export_honours_scout_filter(self):
+        response = self.client.get('/targets/export/', {'scout': 'active'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv')
+        csv = b''.join(response.streaming_content).decode()
+        self.assertIn('ACTIVE1', csv)
+        self.assertNotIn('RETIRED1', csv)
+        self.assertNotIn('PLAIN1', csv)
+
+    def test_origin_column(self):
+        response = self.client.get(self.url)
+        origins = {t.name: t.origin for t in response.context['object_list']}
+        self.assertEqual(origins, {'ACTIVE1': 'Scout', 'RETIRED1': 'Scout', 'PLAIN1': 'MPC', 'STAR1': ''})
+        content = response.content.decode()
+        # Sortable header cells carry hx-get="?sort=<column>"; column order: Name, Origin, Type.
+        self.assertLess(content.index('?sort=name"'), content.index('?sort=origin"'))
+        self.assertLess(content.index('?sort=origin"'), content.index('?sort=type"'))
+
+    def _sorted_names(self, sort):
+        table = self.client.get(self.url, {'sort': sort}).context['table']
+        return [row.record.name for row in table.page.object_list]
+
+    def test_origin_column_sortable(self):
+        # '' (sidereal) < 'MPC' < 'Scout'
+        self.assertEqual(self._sorted_names('origin')[:2], ['STAR1', 'PLAIN1'])
+        self.assertEqual(self._sorted_names('-origin')[-2:], ['PLAIN1', 'STAR1'])
