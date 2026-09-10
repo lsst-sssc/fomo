@@ -462,6 +462,14 @@ def campaign_decoration(event: CalendarEvent) -> dict | None:
         signal that partial branches on (it is set only inside ``if run.campaign_id is
         not None`` above, so ``table_url is None`` is equivalent to "no campaign").
     """
+    if not isinstance(event, CalendarEvent):
+        # Rule 1 fix (33-11): the create-event form context has no `event` key at all --
+        # Django's template engine resolves the missing variable to the empty-string
+        # invalid-variable placeholder rather than raising, so this tag can be invoked
+        # with a non-CalendarEvent value. The docstring promises "never raises"; guard it
+        # here rather than requiring every template call site to wrap this tag in
+        # `{% if event %}`.
+        return None
     try:
         meta = event.telescope_label_meta
     except ObjectDoesNotExist:
