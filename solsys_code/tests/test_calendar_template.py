@@ -809,6 +809,64 @@ class MonthCellCampaignMarkerTest(TestCase):
         self.assertIn(f'title="{self.campaign.name}"', content)
 
 
+class CalendarModalOpenerRenderTest(TestCase):
+    """Phase 33 Plan 11 (UAT G-33-2): the served month partial must open `#cal-modal`
+    through the Bootstrap 5 API and must never contain a jQuery-style selector call.
+
+    The tomtoolkit 3.x base page (`tom_common/base.html`) loads the Bootstrap 5.3.3
+    bundle, htmx and Alpine and no jQuery, so a jQuery call in this partial is dead code
+    that throws a `ReferenceError` at click time instead of opening the calendar pop-up
+    -- the exact defect this plan's Task 1 fixed. This class pins the served-output form
+    of that fix so a regression is caught even if no browser test happens to click the
+    element that regressed.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Modal Opener Guard Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 9, 4),
+            window_end=date(2026, 9, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.timed_event = CalendarEvent.objects.create(
+            title='ModalGuardEvent',
+            start_time=datetime(2026, 9, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.timed_event, run=cls.approved_run)
+
+    def _get_calendar(self):
+        return self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 9})
+
+    def test_calendar_partial_contains_no_jquery_selector_call(self):
+        """Before the fix, this exact two-character sequence ('$(') appeared 71 times in
+        the rendered page -- one per day-cell click target plus the '+ New Event' button
+        and the inner event-container div -- so this assertion is sensitive rather than
+        vacuous."""
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn(
+            '$(',
+            content,
+            'UAT G-33-2: the served month partial must never call a jQuery-style '
+            "selector ('$(') -- the tomtoolkit 3.x base page loads Bootstrap 5, htmx "
+            'and Alpine and no jQuery, so a jQuery call here is dead code that throws '
+            'at runtime instead of opening the calendar pop-up.',
+        )
+
+    def test_calendar_partial_opens_modal_via_bootstrap5_api(self):
+        """Positive counterpart to the guard above -- asserted explicitly so deleting the
+        handlers altogether (rather than fixing them) cannot satisfy the no-jQuery test."""
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('bootstrap.Modal.getOrCreateInstance', content)
+
+
 class DecorationSurvivalAndGuardsTest(TestCase):
     """Phase 33 Plan 02 Task 3: proves the month-cell + modal decoration is display-time
     only (survives a from-scratch rewrite of the event's own fields), and exercises the
