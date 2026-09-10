@@ -432,6 +432,35 @@ _ACTION_TO_RUN_STATUS = {
 }
 
 
+def _message_reconcile_side_effects(request, result) -> None:
+    """WR-12 (33-REVIEW.md): the single wording for what a ``reconcile_run()`` call actually
+    did, shared by all three call sites inside ``CampaignRunDecisionView`` -- approve,
+    ``_resolve_site()`` and ``_set_run_status()`` -- which together cover the four staff
+    actions (approve, resolve site, mark cancelled, mark weather failure). Defining this
+    once is the point: three call sites each growing their own wording is exactly how a
+    staff-facing message drifts out of sync with what the reconciler actually reports.
+
+    Emits a warning naming ``result.detached`` when it is non-zero (entries were released
+    back into the attribution queue) and an info message naming ``result.detach_declined``
+    when it is non-zero (entries were left attributed because a person had already
+    confirmed them -- 33-10 Task 1, UAT option B, 2026-09-09). Neither message names a
+    contact field, an email, a ``source`` value or another run's identity -- only counts and
+    this run's own calendar state.
+    """
+    if result.detached:
+        messages.warning(
+            request,
+            f'{result.detached} calendar entr{"y" if result.detached == 1 else "ies"} '
+            'released back into the attribution queue.',
+        )
+    if result.detach_declined:
+        messages.info(
+            request,
+            f'{result.detach_declined} superseded entr{"y" if result.detach_declined == 1 else "ies"} '
+            'left attributed -- someone had already confirmed them.',
+        )
+
+
 class CampaignRunDecisionView(StaffRequiredMixin, View):
     """POST-only atomic approve/reject decision endpoint (SUBMIT-03) + calendar projection,
     plus the resolve_site action (D-08) that resolves an approved run's still-unmatched site
@@ -512,25 +541,29 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     run.site, run.site_needs_review = site, needs_review and not run.telescope_class
                     run.save(update_fields=['site', 'site_needs_review'])
 
-                # Projection now runs through the shared reconciler (D-01/D-03/RECON-08); the
-                # approve branch ignores its ReconcileResult. reconcile_run() still raises
-                # ValueError when sun_event() fails (e.g. a Tier-2-resolved site with a blank
-                # timezone) so resolve_site() can treat it as a real failure. approve() has no
-                # retry surface to protect (unlike resolve_site()'s "Sites Needing Review"
-                # row), so it swallows specifically this expected-failure-mode ValueError here
-                # to preserve its original behavior: the approval still succeeds without a
+                # Projection now runs through the shared reconciler (D-01/D-03/RECON-08).
+                # WR-12: the approve branch now captures the ReconcileResult so it can warn
+                # about a release/decline via the shared side-effect messenger below -- it
+                # previously discarded it entirely. reconcile_run() still raises ValueError
+                # when sun_event() fails (e.g. a Tier-2-resolved site with a blank timezone)
+                # so resolve_site() can treat it as a real failure. approve() has no retry
+                # surface to protect (unlike resolve_site()'s "Sites Needing Review" row), so
+                # it swallows specifically this expected-failure-mode ValueError here to
+                # preserve its original behavior: the approval still succeeds without a
                 # calendar entry (D-04). Anything else reconcile_run() raises (e.g.
                 # insert_or_create_calendar_event() itself failing) is a genuine unexpected
                 # failure and still falls through to the broader except Exception below,
                 # which reverts the approval.
                 try:
-                    reconcile_run(run)
+                    result = reconcile_run(run)
                 except ValueError:
                     logger.debug(
                         'Calendar projection skipped for CampaignRun %s on approve '
                         '(sun_event ValueError, e.g. blank site timezone).',
                         pk,
                     )
+                else:
+                    _message_reconcile_side_effects(request, result)
             except Exception:
                 # CR-01: the conditional .update() above is its own auto-committed statement,
                 # so the APPROVED transition has already landed. If site resolution (a network
@@ -691,12 +724,21 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         # Only after the reconcile call returned without raising: clear the flag.
         run.site_needs_review = False
         run.save(update_fields=['site_needs_review'])
-        # result.skipped_reason is None is the documented successor to the old bool return
-        # from the now-retired projection helper (D-04).
-        if result.skipped_reason is None:
+        _message_reconcile_side_effects(request, result)
+        # WR-12 (33-REVIEW.md): keyed on what actually happened, not on
+        # `skipped_reason is None` alone -- a run whose every night was already covered by
+        # an attributed entry elsewhere (D-01/ANNOT-01) has `skipped_reason is None` too, and
+        # must not claim 'run added to the calendar' when nothing was added.
+        if result.skipped_reason is not None:
+            messages.success(request, 'Site resolved.')
+        elif result.created or result.updated:
             messages.success(request, 'Site resolved — run added to the calendar.')
         else:
-            messages.success(request, 'Site resolved.')
+            messages.success(
+                request,
+                f'Site resolved — {result.skipped_nights} night(s) are already covered by entries '
+                'attributed to this run, so no new calendar entries were created.',
+            )
         return redirect('campaigns:approval_queue')
 
     def _set_run_status(self, request, pk, action):
@@ -756,7 +798,7 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         # description line itself (event_title()/event_description()), so no title-helper
         # call or prefix lookup is needed here.
         try:
-            reconcile_run(run)
+            result = reconcile_run(run)
         except Exception:
             logger.exception('Calendar sync failed for CampaignRun %s during _set_run_status.', pk)
             messages.warning(
@@ -766,6 +808,7 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             )
             return redirect('campaigns:approval_queue')
 
+        _message_reconcile_side_effects(request, result)
         messages.success(request, 'Run status updated.')
         return redirect('campaigns:approval_queue')
 

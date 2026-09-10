@@ -47,7 +47,7 @@ from solsys_code.campaign_utils import (
     is_placeholder_observatory,
     resolve_site,
 )
-from solsys_code.models import CampaignRun
+from solsys_code.models import CalendarEventMeta, CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
 from solsys_code.telescope_runs import sun_event
@@ -1086,6 +1086,72 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('Site resolved — run added to the calendar.', messages_list)
+
+    def test_resolve_with_every_night_already_covered_reports_no_new_entries(self):
+        """WR-12 (33-REVIEW.md): a run whose every night is already covered by an entry
+        attributed to it elsewhere must not claim 'run added to the calendar' -- nothing
+        was added, and the success message says so instead of implying a fresh entry."""
+        run = self._make_needs_review_run(site_raw='F65')
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/700700/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site', 'site_selection': 'F65'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.site_id, self.ground_site.pk)
+        self.assertFalse(run.site_needs_review)
+        self.assertEqual(owned_events(run).count(), 0)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertNotIn('Site resolved — run added to the calendar.', messages_list)
+        self.assertTrue(any('already covered' in m for m in messages_list))
+
+    def test_resolve_that_detaches_something_shows_the_warning(self):
+        """WR-12 (33-REVIEW.md): when resolving a run's site causes the reconciler to
+        detach a superseded entry, `_message_reconcile_side_effects()` surfaces it as a
+        warning on the same response as the resolve success message."""
+        run = self._make_needs_review_run(site=self.ground_site, site_raw='F65')
+        run_keyed_event = CalendarEvent.objects.create(
+            title='Stale RUN:-keyed event (simulating an earlier reconcile)',
+            url=f'RUN:{run.pk}:{run.window_start.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=run_keyed_event, run=run)
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/701701/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        response = self.client.post(
+            reverse('campaigns:decide', kwargs={'pk': run.pk}),
+            {'action': 'resolve_site'},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertFalse(run.site_needs_review)
+        run_keyed_meta = CalendarEventMeta.objects.get(event=run_keyed_event)
+        self.assertIsNone(run_keyed_meta.run_id)
+        messages_list = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('released back into the attribution queue' in m for m in messages_list))
 
     def test_resolve_never_re_resolves_already_set_site_but_retries_projection(self):
         """D-06/finding 8c: a run with site already set (the projection-failed retry state)

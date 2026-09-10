@@ -361,14 +361,20 @@ class TestSkipAndDetachCounters(ReconcileCampaignRunsTestBase):
 
         error_output = err.getvalue()
         self.assertIn(f'Run pk={run.pk}', error_output)
-        self.assertIn('detached', error_output)
-        self.assertIn('confirmation', error_output)
+        self.assertIn('released back into the attribution queue', error_output)
         summary = _parse_summary(out.getvalue())
         self.assertEqual(summary['detached'], 1)
 
-    def test_dry_run_reports_skipped_nights_and_would_detach_na_and_writes_nothing(self):
+    def test_dry_run_previews_the_would_detach_count_and_writes_nothing(self):
+        """WR-11 (33-REVIEW.md): `--dry-run` previews the one irreversible step -- the
+        detach -- instead of reporting a placeholder; the previewed `would_detach` number
+        matches what a real sweep would detach on the same predicate, and the dry run still
+        writes nothing at all."""
         night = date(2026, 8, 1)
         run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        call_command('reconcile_campaign_runs', stdout=StringIO())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
+
         facility_event = CalendarEvent.objects.create(
             title='LCO record event',
             url='https://observe.lco.global/api/requestgroups/888888/',
@@ -388,9 +394,53 @@ class TestSkipAndDetachCounters(ReconcileCampaignRunsTestBase):
         output = out.getvalue()
         summary = _parse_summary(output)
         self.assertEqual(summary['skipped_nights'], 1)
-        self.assertIn('would_detach: n/a (dry-run)', output)
+        self.assertEqual(summary['would_detach'], 1)
+        self.assertEqual(summary['detach_declined'], 0)
         self.assertEqual(CalendarEvent.objects.count(), event_count_before)
         self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_real_sweep_reports_declined_for_a_human_confirmed_superseded_row(self):
+        """33-10 Task 1 (UAT option B, 2026-09-09): a superseded RUN:-keyed row a human has
+        already confirmed is left attributed, not detached -- the sweep reports it via the
+        declined per-run line on stderr and the summary's `detach_declined` counter."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        call_command('reconcile_campaign_runs', stdout=StringIO())
+        run_keyed_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}:{night.isoformat()}')
+
+        staffer = User.objects.create(username='declined-counter-staffer')
+        facility_event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url='https://observe.lco.global/api/requestgroups/666666/',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=facility_event, run=run)
+
+        # First sweep detaches the RUN:-keyed event; a staff member then re-confirms it
+        # back to the SAME run before the next sweep runs.
+        call_command('reconcile_campaign_runs', stdout=StringIO())
+        run_keyed_meta = CalendarEventMeta.objects.get(event=run_keyed_event)
+        run_keyed_meta.run = run
+        run_keyed_meta.confirmed_by = staffer
+        run_keyed_meta.confirmed_at = datetime(2026, 8, 2, 9, 0, tzinfo=dt_timezone.utc)
+        run_keyed_meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
+
+        out = StringIO()
+        err = StringIO()
+        call_command('reconcile_campaign_runs', stdout=out, stderr=err)
+
+        error_output = err.getvalue()
+        self.assertIn(f'Run pk={run.pk}', error_output)
+        self.assertIn('left attributed', error_output)
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['detached'], 0)
+        self.assertEqual(summary['detach_declined'], 1)
+        run_keyed_meta.refresh_from_db()
+        self.assertEqual(run_keyed_meta.run_id, run.pk)
+        self.assertEqual(run_keyed_meta.confirmed_by_id, staffer.pk)
 
     def test_sweep_with_nothing_skipped_or_detached_reports_zero_and_no_per_run_lines(self):
         self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 2))

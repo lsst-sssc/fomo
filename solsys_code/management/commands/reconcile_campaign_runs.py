@@ -50,6 +50,7 @@ class Command(BaseCommand):
         skipped_count = 0
         skipped_nights = 0
         detached = 0
+        detach_declined = 0
         failed_count = 0
         run_count = 0
 
@@ -74,6 +75,7 @@ class Command(BaseCommand):
             blocked += result.blocked
             skipped_nights += result.skipped_nights
             detached += result.detached
+            detach_declined += result.detach_declined
             if result.blocked:
                 self.stderr.write(f'Run pk={run.pk}: {result.blocked} event(s) blocked -- owned by someone else')
             if result.skipped_nights:
@@ -81,9 +83,20 @@ class Command(BaseCommand):
                 # comes from another writer attributed to this run -- not a failure.
                 self.stdout.write(f'Run pk={run.pk}: {result.skipped_nights} night(s) skipped -- covered elsewhere')
             if result.detached:
+                # WR-10: name both causes this counter counts -- a night superseded by
+                # another attributed entry, or events left over from a key family this run
+                # no longer belongs to. After 33-10 Task 1 a released row never carried a
+                # human confirmation, so this no longer claims a stamp was cleared.
                 self.stderr.write(
-                    f'Run pk={run.pk}: {result.detached} event(s) detached -- superseded by a later '
-                    'attribution; confirmation stamp(s) cleared'
+                    f'Run pk={run.pk}: {result.detached} event(s) released back into the attribution queue -- '
+                    'superseded by another attributed entry, or left over from a key family this run no longer '
+                    'belongs to'
+                )
+            if result.detach_declined:
+                self.stderr.write(
+                    f'Run pk={run.pk}: {result.detach_declined} superseded entr'
+                    f"{'y' if result.detach_declined == 1 else 'ies'} left attributed -- a person confirmed "
+                    'them, and an automated sweep never clears a human confirmation'
                 )
 
         if dry_run:
@@ -96,7 +109,8 @@ class Command(BaseCommand):
                 f'failed: {failed_count}, '
                 f'blocked: {blocked}, '
                 f'skipped_nights: {skipped_nights}, '
-                f'would_detach: n/a (dry-run)'
+                f'would_detach: {detached}, '
+                f'detach_declined: {detach_declined}'
             )
         else:
             self.stdout.write(
@@ -108,6 +122,7 @@ class Command(BaseCommand):
                 f'failed: {failed_count}, '
                 f'blocked: {blocked}, '
                 f'skipped_nights: {skipped_nights}, '
-                f'detached: {detached}'
+                f'detached: {detached}, '
+                f'detach_declined: {detach_declined}'
             )
         return
