@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     'tom_fink',
     'tom_registration',
     'tom_eso',
+    'tom_jpl',
 ]
 
 SITE_ID = 1
@@ -324,7 +325,11 @@ BROKERS = {
 
 # Per-service configuration for tom_dataservices DataServices (catalog services such as
 # MPC Explorer, Simbad, TNS, ... are auto-registered in tomtoolkit 3.0)
-DATA_SERVICES = {}
+DATA_SERVICES = {
+    'Scout': {
+        'base_url': 'https://ssd-api.jpl.nasa.gov/scout.api',
+    },
+}
 
 # Define extra target fields here. Types can be any of "number", "string", "boolean" or "datetime"
 # See https://tomtoolkit.github.io/docs/target_fields for documentation on this feature
