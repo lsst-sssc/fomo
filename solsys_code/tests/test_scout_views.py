@@ -4,10 +4,10 @@ These are DB-backed and exercise :class:`solsys_code.scout_views.RubinTooScoutLi
 against real ``tom_jpl.models.ScoutDetail`` rows, confirming the view lists only
 candidates that pass all Section 2.1 filters.
 
-Note: requires a ``tom_jpl`` that includes the vmag/rate/ra/dec/t_ephem fields
-(the editable source under ../tom_jpl). Run e.g.::
+Note: requires ``tom_jpl>=0.3.0`` (vmag/rate/ra/dec/t_ephem fields and
+``ScoutDetailHistory``). Run e.g.::
 
-    PYTHONPATH=/home/tlister/git/tom_jpl ./manage.py test solsys_code.tests.test_scout_views
+    python manage.py test solsys_code.tests.test_scout_views
 """
 
 from unittest import mock
@@ -294,9 +294,9 @@ class RubinTooScoutLifecycleTest(TestCase):
         self.assertContains(response, 'ZTF10BL')
         self.assertEqual(response.context['num_passing'], 1)
 
-        # 3. Retired: Scout stops listing it. This mirrors the outcome of `ingest_scout`'s
-        # sweep (`ScoutDetail.objects.filter(active=True).exclude(target_id__in=seen_ids)
-        # .update(active=False)`) without re-running the whole management command.
+        # 3. Retired: Scout stops listing it. This mirrors the outcome of `updatescout`'s
+        # reconcile phase (`ScoutDetail.objects.filter(pk=...).update(active=False)` for
+        # candidates absent from the roster) without re-running the whole management command.
         # History rows must survive the sweep untouched.
         ScoutDetail.objects.filter(pk=passing.pk).update(active=False)
 
