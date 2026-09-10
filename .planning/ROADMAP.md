@@ -164,7 +164,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   3. A user looking at a calendar event attributed to a campaign run sees the campaign decoration (label, link back to the run), and that decoration is still there after the event's own title and description are rewritten from scratch
   4. Clearing `CalendarEventMeta.run` removes only the decoration; the event itself is untouched, and no event is deleted by the unlink
 
-**Plans**: 11 plans (8 executed; 3 added 2026-09-09 as gap-closure wave 3 from 33-VERIFICATION.md Gaps 1-2 and 33-UAT.md G-33-2/G-33-4)
+**Plans**: 9/11 plans executed (8 executed; 3 added 2026-09-09 as gap-closure wave 3 from 33-VERIFICATION.md Gaps 1-2 and 33-UAT.md G-33-2/G-33-4)
 **Wave 1**
 
 - [x] 33-01-PLAN.md — Reconciler inversion + attributed-event decoration (tracer): skip the attributed night, retire the adopt/re-key path, render the campaign from the link in the event modal, drop the campaign name from reconciler titles (wave 1)
@@ -190,7 +190,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 **Second gap closure (2026-09-09) — Wave 1** *(from 33-VERIFICATION.md Gaps 1-2 — the CR-04 confirm/erase loop and WR-13 — plus 33-UAT.md G-33-2/G-33-4; wave numbering restarts at 1 in the plan frontmatter, as the first gap-closure run did. Waves renumbered in plan revision 2: 33-11 took `depends_on: [33-09]` because 33-09 writes `src/fomo/settings.py` that every 33-11 test gate imports, and because 33-09's residue cleanup removes the campaign-attributed entries 33-11's browser check clicks — three single-plan waves, 33-09 → 33-11 → 33-10)*
 
-- [ ] 33-09-PLAN.md — G-33-4: both demo notebooks execute against a scratch copy of the developer database, the contact fields leave the lifecycle notebook's output, and the existing demo residue is cleaned out of `src/fomo_db.sqlite3` — with the surviving campaign-attributed row count recorded as the fixture receipt 33-11's browser check reads (gap wave 1)
+- [x] 33-09-PLAN.md — G-33-4: both demo notebooks execute against a scratch copy of the developer database, the contact fields leave the lifecycle notebook's output, and the existing demo residue is cleaned out of `src/fomo_db.sqlite3` — with the surviving campaign-attributed row count recorded as the fixture receipt 33-11's browser check reads (gap wave 1)
 
 **Second gap closure — Wave 2** *(blocked on its Wave 1 completion)*
 
@@ -309,7 +309,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 | 30. v2.2 Tech-Debt Cleanup | v2.2 | 4/4 | Complete | 2026-09-01 |
 | 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 6/6 | Complete (milestone superseded) | 2026-09-02 |
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
-| 33. Series Identity & Reconciler Inversion | v2.4 | 8/8 | In Progress|  |
+| 33. Series Identity & Reconciler Inversion | v2.4 | 9/11 | In Progress|  |
 | 34. The Observation Projector & Trigger | v2.4 | 0/TBD | Not started | - |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 0/TBD | Not started | - |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |

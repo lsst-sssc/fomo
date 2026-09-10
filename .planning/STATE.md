@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 33
-current_phase_name: series-identity-reconciler-inversion
+current_phase_name: Series Identity & Reconciler Inversion
 status: executing
-stopped_at: Completed 33-08-PLAN.md -- CR-02/CR-03 closed, counters surfaced, paired docs re-executed
-last_updated: "2026-09-09T23:58:15.363Z"
-last_activity: 2026-09-05
+stopped_at: "Completed 33-09-PLAN.md -- notebooks scratch-DB isolation, contact fields dropped, demo residue cleaned (fixture receipt: 65 attributed rows for 33-11)"
+last_updated: "2026-09-10T04:19:40.349Z"
+last_activity: 2026-09-09
 last_activity_desc: Phase 33 execution started
-state_head: 9eada898f7aa3a940862ce8965c0b172e749b649
+state_head: 1f1b89dfa9d8f7513ecb5916d3a2defc64327938
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-03 — milestone v2.4 started; v2.3 s
 
 ## Current Position
 
-Phase: 33 (series-identity-reconciler-inversion) — READY TO EXECUTE
-Plan: 4 of 8
+Phase: 33 (Series Identity & Reconciler Inversion) — EXECUTING
+Plan: 2 of 11
 Status: Ready to execute
-Last activity: 2026-09-05 — Phase 33 execution started
+Last activity: 2026-09-09 — Phase 33 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -177,6 +177,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33 P06 | 32min | 3 tasks | 7 files |
 | Phase 33 P07 | 26min | 3 tasks | 4 files |
 | Phase 33 P08 | 40min | 4 tasks | 7 files |
+| Phase 33 P09 | 38min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -222,6 +223,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33]: Phase 33: 33-07: CalendarEventMetaInline's docstring corrected to describe Django's actual rendering -- fk_name='run' produces a hidden InlineForeignKeyField for parent linkage, never an editable widget (WR-06 code-side half).
 - [Phase 33]: Adopted the local-noon anchored _observing_night(), superseding 26-DECISION.md D-10's plain site-local .date() derivation (checkpoint resolved by user: noon-anchor). — Matches the anchor sun_event() itself uses; closes CR-02's duplicate-night/uncovered-night defect.
 - [Phase 33]: Made the D-01/ANNOT-01 skip in _reconcile_classical_nights() unconditional on attribution alone, with a counted/logged detach of any superseded RUN:-keyed event. — Closes CR-03: reconcile-then-attribute and attribute-then-reconcile orderings now converge on the same result, per 29-REVIEW.md CR-01's detach-never-delete rule.
+- [Phase 33]: 33-09: FOMO_DATABASE_PATH env-var branch in settings.py lets demo notebooks run against a scratch DB copy; event pk 335 deleted (not re-attached) since its demo campaign is removed; task2's whole-file grep gate is over-scoped vs. its own must-haves -- satisfied narrowly at the public-table cell, documented as a deviation.
 
 ### Pending Todos
 
@@ -312,8 +314,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-09T01:08:46.554Z
-Stopped at: Completed 33-08-PLAN.md -- CR-02/CR-03 closed, counters surfaced, paired docs re-executed
+Last session: 2026-09-10T04:19:40.256Z
+Stopped at: Completed 33-09-PLAN.md -- notebooks scratch-DB isolation, contact fields dropped, demo residue cleaned (fixture receipt: 65 attributed rows for 33-11)
 Resume file: None
 
 ## Operator Next Steps
