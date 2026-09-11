@@ -314,6 +314,14 @@
           <small class="text-secondary">{{ entry.label }}</small>
         </span>
       {% endfor %}
+      {# PROJ-03/D-02 (Phase 34 Plan 03): fixed observation-projector marker legend -- #}
+      {# reads status_border_css()'s own vocabulary off the page, no per-month data. #}
+      {% observation_status_legend as status_legend %}
+      {% for entry in status_legend %}
+        <span class="cal-legend-telescope mr-3">
+          <small class="text-secondary">{{ entry.marker }} {{ entry.label }}</small>
+        </span>
+      {% endfor %}
     </div>
     <select name="utc_offset"
             hx-get="{% url 'calendar:calendar' %}"

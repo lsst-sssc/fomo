@@ -25,7 +25,12 @@ from tom_calendar.models import CalendarEvent
 from tom_targets.models import TargetList
 
 from solsys_code.models import NO_CAMPAIGN_LABEL, CalendarEventMeta, CampaignRun
-from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color, telescope_stripe_color
+from solsys_code.templatetags.calendar_display_extras import (
+    observation_status_legend,
+    proposal_color,
+    telescope_color,
+    telescope_stripe_color,
+)
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
 TOOLTIP_SUBSTRING = 'estimate'
@@ -1090,3 +1095,18 @@ class DecorationSurvivalAndGuardsTest(TestCase):
         self.assertNotIn(raw_name, content)
         self.assertIn(f'title="{escaped_name}"', content)
         self.assertIn(f'aria-label="Campaign: {escaped_name}"', content)
+
+
+class CalendarStatusLegendRenderTest(TestCase):
+    """PROJ-03/D-02 (Phase 34 Plan 03): the observation-status marker legend renders on
+    the calendar page itself -- reached through the Django test client, never by
+    importing solsys_code.views directly (that module transitively loads SPICE kernels)."""
+
+    def test_calendar_page_renders_every_legend_marker_and_label(self):
+        response = self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 9})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        for entry in observation_status_legend():
+            with self.subTest(marker=entry['marker']):
+                self.assertIn(entry['marker'], content)
+                self.assertIn(entry['label'], content)

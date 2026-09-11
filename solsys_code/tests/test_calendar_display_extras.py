@@ -19,6 +19,7 @@ from solsys_code.templatetags.calendar_display_extras import (
     _contrast_ratio,
     _relative_luminance,
     neutral_slot_color,
+    observation_status_legend,
     proposal_color,
     status_border_css,
     telescope_color,
@@ -405,3 +406,71 @@ class TestTelescopeStripeContrast(TestCase):
         max_l_for_neutral_darker_side = (l_neutral + 0.05) / 3 - 0.05
         l_pure_blue = _relative_luminance('#0000ff')
         self.assertGreater(l_pure_blue, max_l_for_neutral_darker_side)
+
+
+class TestProjectorMarkerRings(TestCase):
+    """PROJ-03/D-02 (Phase 34 Plan 03): status_border_css() extended to recognize the
+    observation projector's own terse bracket-letter marker vocabulary, without touching
+    any existing bracket-word assertion."""
+
+    def test_q_returns_queued_box_shadow(self):
+        self.assertEqual(status_border_css('[Q] 2m0 3I/ATLAS'), QUEUED_BOX_SHADOW)
+
+    def test_x_returns_terminal_box_shadow(self):
+        self.assertEqual(status_border_css('[X] 2m0 3I/ATLAS'), TERMINAL_BOX_SHADOW)
+
+    def test_c_returns_terminal_box_shadow(self):
+        self.assertEqual(status_border_css('[C] 2m0 3I/ATLAS'), TERMINAL_BOX_SHADOW)
+
+    def test_f_returns_terminal_box_shadow(self):
+        self.assertEqual(status_border_css('[F] 2m0 3I/ATLAS'), TERMINAL_BOX_SHADOW)
+
+    def test_question_mark_returns_terminal_box_shadow(self):
+        # D-13: an inconsistent record reads as needing attention, not as normal.
+        self.assertEqual(status_border_css('[?] 2m0 3I/ATLAS'), TERMINAL_BOX_SHADOW)
+
+    def test_s_returns_empty_string(self):
+        # The placed/observed bucket keeps no ring -- same reasoning as [UNVERIFIED].
+        self.assertEqual(status_border_css('[S] 2m0 3I/ATLAS'), '')
+
+    def test_o_returns_empty_string(self):
+        self.assertEqual(status_border_css('[O] FTS 3I/ATLAS'), '')
+
+    def test_no_dashed_in_any_projector_marker_result(self):
+        for title in ('[Q] a', '[X] a', '[C] a', '[F] a', '[?] a', '[S] a', '[O] a'):
+            with self.subTest(title=title):
+                self.assertNotIn('dashed', status_border_css(title))
+
+    def test_all_pre_existing_bracket_word_assertions_still_hold(self):
+        # Belt-and-suspenders re-assertion alongside the individual tests above (T-34-18):
+        # no existing ring is lost when the new tokens are added.
+        self.assertEqual(status_border_css('[QUEUED] x'), QUEUED_BOX_SHADOW)
+        self.assertEqual(status_border_css('[EXPIRED] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[CANCELLED] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[FAILED] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[WEATHERED] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[UNVERIFIED] x'), '')
+        self.assertEqual(status_border_css('bare title'), '')
+
+
+class TestObservationStatusLegend(TestCase):
+    """PROJ-03/D-02 (Phase 34 Plan 03): observation_status_legend() exposes the fixed
+    marker vocabulary to calendar.html."""
+
+    def test_returns_seven_entries_covering_every_marker(self):
+        legend = observation_status_legend()
+        self.assertEqual(len(legend), 7)
+        markers = [entry['marker'] for entry in legend]
+        self.assertEqual(markers, ['[Q]', '[S]', '[O]', '[X]', '[C]', '[F]', '[?]'])
+
+    def test_every_entry_has_a_non_empty_label(self):
+        for entry in observation_status_legend():
+            with self.subTest(marker=entry['marker']):
+                self.assertTrue(entry['label'])
+
+    def test_never_raises_and_takes_no_arguments_and_reads_no_database(self):
+        # Two calls in a row with no setup and no queryset touch -- proves it's a fixed
+        # vocabulary, not data-driven.
+        first = observation_status_legend()
+        second = observation_status_legend()
+        self.assertEqual(first, second)

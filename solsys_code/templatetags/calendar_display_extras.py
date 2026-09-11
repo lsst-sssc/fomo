@@ -12,6 +12,11 @@ Provides simple_tags consumed by calendar.html (Plan 02):
 - neutral_slot_color: assignment tag exposing NEUTRAL_SLOT_COLOR to templates (quick-260724-osc)
 - campaign_decoration: read-only campaign attribution decoration for event_form.html,
   rendered from CalendarEventMeta.run at request time (ANNOT-02, Phase 33 D-10/D-11/D-13/D-14)
+- observation_status_legend: fixed, ordered observation-projector marker legend for
+  calendar.html (PROJ-03, D-02, Phase 34 Plan 03)
+- observation_series_decoration: read-only "night n of N" series decoration for
+  event_form.html, rendered from CalendarEventMeta.observation_group at request time
+  (PROJ-04/PROJ-05, D-04, Phase 34 Plan 03)
 
 All values returned by proposal_color, telescope_color, and status_border_css are drawn
 from fixed internal constants — the raw proposal/telescope/title string is used only as
@@ -106,15 +111,38 @@ NEUTRAL_SLOT_COLOR = '#5a6268'
 # D-06: human-readable label for classical-schedule (empty-proposal) legend entry.
 CLASSICAL_SCHEDULE_LABEL = 'Classical schedule'
 
-# Legacy verbose title-prefix vocabulary (the v1.3-era LCO/SOAR sync command's own prefixes,
-# retired 34-02/D-18 but still emitted by load_telescope_runs.py and campaign_views.py),
-# plus '[WEATHERED]' (D-03, campaign_views._RUN_STATUS_CALENDAR_PREFIX, Phase 23 Plan 02) --
-# both must stay byte-identical to their producers. Terminal states: observations that
-# reached an unrecoverable failure state. [QUEUED] is handled separately (its own branch
-# below). The observation projector's own terse bracket markers ([X]/[C]/[F]/[?] etc,
-# observation_projector.py) are a DIFFERENT vocabulary this function does not yet recognize
-# -- reconciling the two is Phase 37's STATUS-01/02, not this phase's concern.
-_TERMINAL_PREFIXES = ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[WEATHERED]')
+# Two title-prefix vocabularies live side by side here. The bracket-WORD prefixes are the
+# legacy verbose vocabulary (the v1.3-era LCO/SOAR sync command's own prefixes, retired
+# 34-02/D-18 but still emitted by load_telescope_runs.py and campaign_views.py), plus
+# '[WEATHERED]' (D-03, campaign_views._RUN_STATUS_CALENDAR_PREFIX, Phase 23 Plan 02) -- both
+# must stay byte-identical to their producers. The bracket-LETTER prefixes are the
+# observation projector's own terse marker vocabulary (observation_projector.py, 34-01
+# PROJ-03/D-02): '[X] ' (window expired), '[C] ' (cancelled), '[F] ' (failed) and '[?] '
+# (inconsistent record -- projected with a half-set schedule, D-13; reads as terminal because
+# an inconsistent record needs an operator's eye, not because anything actually failed).
+# These four carry a trailing space deliberately, since this tuple is consumed by
+# `title.startswith(p)` and a bare '[C]' would also match a hypothetical future
+# '[COMPLETED]'-style bracket-word prefix. Terminal states: observations that reached an
+# unrecoverable failure state (or, for '[?] ', a state that needs one). [QUEUED] is handled
+# separately (its own branch below). Reconciling the two vocabularies into one is Phase 37's
+# STATUS-01/02, not this phase's concern.
+_TERMINAL_PREFIXES = ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[WEATHERED]', '[X] ', '[C] ', '[F] ', '[?] ')
+
+# Ordered legend vocabulary for observation_status_legend() (PROJ-03/D-02): every marker
+# the observation projector (observation_projector.py, 34-01) can write, plus its
+# human-readable label. Fixed and hand-maintained rather than derived from
+# _TERMINAL_PREFIXES/status_border_css() -- deriving it would only let ring-vs-label drift
+# in the other direction (a marker with a ring but no legend entry, say). Phase 37 owns the
+# final wording of this vocabulary (STATUS-01/02); this is deliberately provisional.
+_OBSERVATION_STATUS_LEGEND = (
+    {'marker': '[Q]', 'label': 'Queued'},
+    {'marker': '[S]', 'label': 'Scheduled'},
+    {'marker': '[O]', 'label': 'Observed'},
+    {'marker': '[X]', 'label': 'Window expired'},
+    {'marker': '[C]', 'label': 'Cancelled'},
+    {'marker': '[F]', 'label': 'Failed'},
+    {'marker': '[?]', 'label': 'Inconsistent record'},
+)
 
 
 @register.simple_tag
@@ -146,13 +174,17 @@ def proposal_color(proposal: str) -> str:
 def status_border_css(title: str) -> str:
     """Return a CSS box-shadow fragment encoding the observation status (DISPLAY-06).
 
-    Maps the legacy verbose title-prefix vocabulary (see ``_TERMINAL_PREFIXES`` above) to a
-    box-shadow ring (D-08 resolved=box-shadow).  The placed bucket ([UNVERIFIED]
-    or no prefix) intentionally returns '' because Phase 8's D-09-reserved
-    border treatment already owns the verified/fallback visual distinction —
-    re-encoding it here would cause the two signals to merge into one style
-    attribute branch instead of composing independently (09-RESEARCH Pitfall 3
-    prevention).
+    Maps both title-prefix vocabularies (see ``_TERMINAL_PREFIXES`` above) to a box-shadow
+    ring (D-08 resolved=box-shadow): the legacy verbose bracket-word prefixes from the
+    retired sync command and campaign_views, and the observation projector's terse
+    bracket-letter marker vocabulary (34-01 PROJ-03/D-02). The placed bucket ([UNVERIFIED],
+    the projector's own '[S] '/'[O] ' markers, or no prefix at all) intentionally returns ''
+    because Phase 8's D-09-reserved border treatment already owns the verified/fallback
+    visual distinction — re-encoding it here would cause the two signals to merge into one
+    style attribute branch instead of composing independently (09-RESEARCH Pitfall 3
+    prevention). '[?] ' (the projector's inconsistent-record marker, D-13) reads as terminal
+    here even though nothing actually failed — an inconsistent record needs an operator's
+    eye, not a placed-looking chip.
 
     Args:
         title: CalendarEvent.title — may start with a known status prefix.
@@ -163,7 +195,7 @@ def status_border_css(title: str) -> str:
         events.  The D-09-reserved border style is never emitted by this tag.
     """
     title = title or ''
-    if title.startswith('[QUEUED] '):
+    if title.startswith('[QUEUED] ') or title.startswith('[Q] '):
         return 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
     if any(title.startswith(p) for p in _TERMINAL_PREFIXES):
         # quick-260724-vb0: this ring is painted outside the chip's border box, so on
@@ -432,6 +464,26 @@ def visible_classical_telescopes(weeks) -> list[dict]:
         )
 
     return result
+
+
+@register.simple_tag
+def observation_status_legend() -> list[dict]:
+    """Return the fixed, ordered observation-status marker legend (PROJ-03, D-02).
+
+    Exposes ``_OBSERVATION_STATUS_LEGEND`` to calendar.html so a calendar visitor can read
+    what every observation-projector marker (``[Q]``/``[S]``/``[O]``/``[X]``/``[C]``/``[F]``/
+    ``[?]``) means directly off the page, without needing this module's source. Deliberately
+    a fixed vocabulary rather than data-driven — making it read from the database would only
+    let it drift out of sync with ``status_border_css()``'s own prefix matching. Phase 37
+    owns the final wording of this vocabulary (STATUS-01/02); this is provisional.
+
+    Takes no arguments, reads nothing from the database, and never raises.
+
+    Returns:
+        list[dict]: one ``{'marker': ..., 'label': ...}`` dict per marker, in the fixed
+        order ``[Q]``, ``[S]``, ``[O]``, ``[X]``, ``[C]``, ``[F]``, ``[?]``.
+    """
+    return [dict(entry) for entry in _OBSERVATION_STATUS_LEGEND]
 
 
 @register.simple_tag
