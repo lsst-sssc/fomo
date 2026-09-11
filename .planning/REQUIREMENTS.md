@@ -12,7 +12,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Observation Projector (base layer)
 
 - [ ] **PROJ-01**: Every LCO/SOAR `ObservationRecord` has exactly one `CalendarEvent`, keyed by `facility.get_observation_url()` (the namespace the existing LCO sync already uses), created or updated in place — never a second event for the same record
-- [ ] **PROJ-02**: An event's span follows the record's stage: the request window while queued, the placed block once `scheduled_start`/`scheduled_end` are set, the observed block once COMPLETED — the existing `record_time_window` rule
+- [x] **PROJ-02**: An event's span follows the record's stage: the request window while queued, the placed block once `scheduled_start`/`scheduled_end` are set, the observed block once COMPLETED — the existing `record_time_window` rule
 - [ ] **PROJ-03**: A terminal-negative record (`WINDOW_EXPIRED` / `CANCELED` / `FAILURE_LIMIT_REACHED`) keeps a visibly marked event on its window night — never silently dropped
 - [x] **PROJ-04**: Series identity for a record in an `ObservationGroup` is carried by real foreign keys on `CalendarEventMeta` (`observation_record`, `observation_group`) — a shared title stem and a link back to the group; spike 002's title-suffix stopgap is not the carrier
   - *Scope split (recorded 2026-09-03 during Phase 33 planning):* Phase 33 delivers the carrier — the two foreign keys, their migration and their read-only admin exposure. The **shared title stem** clause is delivered by the Phase 34 projector, which is the only writer of these fields and of an event's title (Phase 33 is schema and semantics only, per 33-CONTEXT.md D-08, and D-12 removes text from titles rather than adding it). Phase 34 must satisfy the title-stem clause alongside PROJ-06's compact-title requirement.
@@ -22,8 +22,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Trigger
 
-- [ ] **TRIG-01**: A FOMO-owned Django `post_save` receiver on `ObservationRecord`, registered in `apps.ready()`, re-projects the record's event on every save — including a schedule-only placement save (which TOM's `observation_change_state` hook misses) and the `updatestatus` path
-- [ ] **TRIG-02**: The receiver is single-record, idempotent, and cheap enough to run inside the caller's transaction on every save; a projector error is logged and never aborts the record save
+- [x] **TRIG-01**: A FOMO-owned Django `post_save` receiver on `ObservationRecord`, registered in `apps.ready()`, re-projects the record's event on every save — including a schedule-only placement save (which TOM's `observation_change_state` hook misses) and the `updatestatus` path
+- [x] **TRIG-02**: The receiver is single-record, idempotent, and cheap enough to run inside the caller's transaction on every save; a projector error is logged and never aborts the record save
 - [ ] **TRIG-03**: A sweep management command re-projects records as the backstop for `queryset.update()`/`bulk_create()` paths and for backfill, with `--dry-run`, per-record failure isolation, and a paired pre-executed demo notebook
 
 ### Allocation Layer & Handoff
@@ -101,14 +101,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PROJ-01 | Phase 34 | Pending |
-| PROJ-02 | Phase 34 | Pending |
+| PROJ-02 | Phase 34 | Complete |
 | PROJ-03 | Phase 34 | Pending |
 | PROJ-04 | Phase 33 (carrier fields), Phase 34 (shared title stem) | Complete |
 | PROJ-05 | Phase 34 | Pending |
 | PROJ-06 | Phase 34 | Pending |
 | SCHED-06 | Phase 34 | Pending |
-| TRIG-01 | Phase 34 | Pending |
-| TRIG-02 | Phase 34 | Pending |
+| TRIG-01 | Phase 34 | Complete |
+| TRIG-02 | Phase 34 | Complete |
 | TRIG-03 | Phase 34 | Pending |
 | ALLOC-01 | Phase 35 | Pending |
 | ALLOC-02 | Phase 35 | Pending |

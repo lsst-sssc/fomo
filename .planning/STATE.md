@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 34
 current_phase_name: The Observation Projector & Trigger
 status: executing
-stopped_at: Phase 34 context gathered
-last_updated: "2026-09-11T01:13:23.560Z"
+stopped_at: Completed 34-01-PLAN.md
+last_updated: "2026-09-11T02:46:36.555Z"
 last_activity: 2026-09-10
-last_activity_desc: Phase 33 complete, transitioned to Phase 34
-state_head: 54ca01ea6a19a8dbb43bebea6cb0c28edf217b7c
+last_activity_desc: Phase 34 execution started
+state_head: 89a05340c71c99b5cd6a98dbe582c613b311aad7
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 20
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 
 ## Current Position
 
-Phase: 34 (The Observation Projector & Trigger) — READY TO EXECUTE
-Plan: Not started
+Phase: 34 (The Observation Projector & Trigger) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-09-10 — Phase 33 complete, transitioned to Phase 34
+Last activity: 2026-09-10 — Phase 34 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -181,6 +181,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33 P09 | 38min | 3 tasks | 3 files |
 | Phase 33-series-identity-reconciler-inversion P11 | ~30 min | 3 tasks | 5 files |
 | Phase 33-series-identity-reconciler-inversion P10 | 70min | 3 tasks | 9 files |
+| Phase 34 P01 | 54min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -231,6 +232,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 33]: 33-11: campaign_decoration() guarded with isinstance(event, CalendarEvent) to fix a pre-existing AttributeError on the create-event form path (Rule 1 deviation)
 - [Phase 33]: Plan 33-10: human-confirmation guard (_stale_attributions()) added only to campaign_reconciler.py, never to campaign_utils.unlink_event_from_run()/UNLINK_CLEARED_FIELDS -- Phase 28's human-initiated callers keep clearing a confirmed row; the automated sweep now defers to a prior human decision and reports detach_declined.
 - [Phase 33]: Plan 33-10: _reconcile_classical_nights() reordered so ownership (_may_write()) is decided before a night's skip/attribution outcome (WR-13) -- a night both attributed to this run and contested by a foreign RUN:-keyed attribution now reports blocked, not skipped, and never detaches the foreign attribution.
+- [Phase 34]: Phase 34 Plan 01: facility_for() is the sole path to a facility instance (never a shared LCOFacility()/SOARFacility() instance); the 'inconsistent' stage is projectable per D-13 (spans the request window directly, gets the [?] marker) rather than raising.
+- [Phase 34]: Phase 34 Plan 01: wiring the post_save receiver globally broke 6 pre-existing tests (test_sync_lco_observation_calendar.py x4, test_campaign_attribution.py x1, test_campaign_attribution_views.py x1) whose fixtures assumed ObservationRecord.save() had no calendar side effect; fixed by disconnecting the projector's receiver around just the affected fixture-creation calls, leaving campaign_attribution.py and the retired sync command untouched (both owned by plan 34-02).
 
 ### Pending Todos
 
@@ -325,9 +328,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T23:50:53.497Z
-Stopped at: Phase 34 context gathered
-Resume file: .planning/phases/34-the-observation-projector-trigger/34-CONTEXT.md
+Last session: 2026-09-11T02:46:28.415Z
+Stopped at: Completed 34-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
