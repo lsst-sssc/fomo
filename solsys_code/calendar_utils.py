@@ -16,6 +16,7 @@ from urllib.parse import urljoin
 
 import requests
 from django import forms
+from django.utils.dateparse import parse_datetime
 from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
@@ -456,16 +457,67 @@ def coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
     return instrument_type
 
 
+def coerce_schedule_datetime(value: datetime | str | None) -> datetime | None:
+    """Coerce a schedule field value to an aware UTC datetime, whatever shape it arrives in.
+
+    G-34-2: ``BaseObservationFacility.update_observation_status()`` (tom_observations
+    ``facility.py:563``) assigns ``OCSFacility.get_observation_status()``'s raw portal
+    strings straight onto ``record.scheduled_start``/``scheduled_end`` and calls ``save()``.
+    Django persists the string fine, but the ``post_save`` receiver fires on that same
+    in-memory instance, so ``record_time_window()`` used to hand a ``str`` back and
+    ``event_fields_for()`` crashed calling ``.strftime()`` on it. The sweep, by contrast,
+    re-fetches the record from the database and sees a real ``datetime`` -- both paths
+    must produce the same window, or the receiver and the sweep would write different
+    spans to the same event forever. ``settings.TIME_ZONE`` is ``'UTC'`` with
+    ``USE_TZ=True``, so this coercion and Django's own persistence of the same string agree
+    on the instant, which is what stops that divergence.
+
+    Args:
+        value: a schedule field's raw value -- a ``datetime`` (DB-fetched row), a portal
+            ISO-8601 ``str`` (in-memory instance after ``update_observation_status()``),
+            or ``None``.
+
+    Returns:
+        datetime | None: ``None`` if `value` is ``None``; otherwise a timezone-aware UTC
+            datetime. A naive value (whether passed in directly or produced by parsing a
+            naive string) gets UTC attached; an already-aware datetime is returned as-is.
+
+    Raises:
+        ValueError: if `value` is a ``str`` that ``django.utils.dateparse.parse_datetime``
+            cannot parse, or if `value` is neither ``str``, ``datetime`` nor ``None``. This
+            function never returns ``None`` for an unusable value: ``stage_for()`` has
+            already classified a non-``None`` schedule field as a placed block (D-10), so
+            silently degrading it to ``None`` here would draw a queued-looking event over
+            the wrong window. Raising instead keeps the record a D-13 ``unprojectable`` one
+            -- visible in the log and the sweep counters, with the record's own save never
+            aborted and its existing event left untouched.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parsed = parse_datetime(value)
+        if parsed is None:
+            raise ValueError(f'Unparseable schedule datetime string: {value!r}')
+        value = parsed
+    elif not isinstance(value, datetime):
+        raise ValueError(f'Unusable schedule datetime value: {value!r}')
+    if value.tzinfo is None:
+        return value.replace(tzinfo=dt_timezone.utc)
+    return value
+
+
 def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     """Derive the active start/end time window for an ObservationRecord (SYNC-02/SYNC-03).
 
-    Promoted from the retired v1.3-era LCO/SOAR sync command's own ``_time_window()`` (Plan
-    28-02 Task 2) so the attribution matcher (``campaign_attribution.py``) and every
-    calendar-writing consumer share one definition of "this record's active window" instead of
-    independently-maintained copies. Body and raising contract are byte-identical to the
-    original -- a pure move, no behaviour change (CLAUDE.md's paired-notebook trigger is
-    deliberately NOT fired for this
-    reason; see 28-02-SUMMARY.md).
+    Promoted verbatim from the retired v1.3-era LCO/SOAR sync command's own
+    ``_time_window()`` (Plan 28-02 Task 2) so the attribution matcher
+    (``campaign_attribution.py``) and every calendar-writing consumer share one definition
+    of "this record's active window" instead of independently-maintained copies. G-34-2 has
+    since added the schedule-value coercion below: the promotion itself was a pure move with
+    no behaviour change, but the both-populated branch now routes through
+    ``coerce_schedule_datetime()`` so a post-save instance holding portal ISO strings
+    (``update_observation_status()``'s in-memory path) projects identically to a
+    DB-fetched record holding real datetimes (see 28-02-SUMMARY.md for the original move).
 
     Args:
         record: the ObservationRecord being synced or matched.
@@ -476,8 +528,10 @@ def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     Raises:
         KeyError: if scheduled_start is None and parameters lacks 'start'/'end'.
         ValueError: if parameters['start']/['end'] are not valid ISO datetime strings,
-            or if scheduled_start/scheduled_end are inconsistently populated (one set,
-            the other None) -- a state CalendarEvent's non-nullable times cannot accept.
+            if scheduled_start/scheduled_end are inconsistently populated (one set, the
+            other None) -- a state CalendarEvent's non-nullable times cannot accept -- or
+            if a populated schedule_start/scheduled_end value cannot be coerced to a
+            datetime by ``coerce_schedule_datetime()`` (G-34-2).
     """
     if record.scheduled_start is None and record.scheduled_end is None:
         # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
@@ -485,8 +539,8 @@ def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
         start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
         end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
     elif record.scheduled_start is not None and record.scheduled_end is not None:
-        start_time = record.scheduled_start
-        end_time = record.scheduled_end
+        start_time = coerce_schedule_datetime(record.scheduled_start)
+        end_time = coerce_schedule_datetime(record.scheduled_end)
     else:
         raise ValueError(
             f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
