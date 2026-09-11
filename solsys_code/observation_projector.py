@@ -407,6 +407,16 @@ def project_queryset(
     record's own already-stored state: both modes read the same ``before`` and apply the same
     comparison helper.
 
+    This preview-based rule has exactly one override, for the real (non-dry-run) write: if
+    ``project_record()`` reports ``'unprojectable'`` -- the write itself failed, e.g. a
+    duplicate-url ``CalendarEvent`` making ``get_or_create()`` raise
+    ``MultipleObjectsReturned`` -- that failure is counted and reported instead of the
+    preview's prediction, and a warning is logged. Counting the preview's action here
+    regardless of what the write actually did would report ``created``/``updated`` for a
+    record whose event was never touched, and silently drop the sweep's own per-record
+    failure isolation (the command's ``failed`` tally and stderr line both key off a row's
+    ``action`` being ``'unprojectable'``).
+
     WR-02: this agreement has one documented exception. ``pre_fields_hook`` -- the one-time
     observed-site lookup -- is never called when ``dry_run`` is True, so the observed-telescope
     token (D-07) is never resolved in a dry run. A record whose only pending change is the
@@ -478,13 +488,38 @@ def project_queryset(
                 continue
 
             action = preview_calendar_event_action(before, fields)
+            if dry_run:
+                facility_counters[action] += 1
+                rows.append(
+                    {
+                        'observation_id': record.observation_id,
+                        'status': record.status,
+                        'stage': stage,
+                        'action': action,
+                    }
+                )
+                continue
+
+            # A no-op write when pre_fields_hook's own save already triggered the
+            # post_save receiver's own project_record() call for this record; the
+            # guarantee that this call provides is for a record whose receiver path
+            # was skipped (raw=True saves, receiver disconnected around a fixture, etc).
+            real_action, real_stage = project_record(record)
+            if real_action == 'unprojectable':
+                # The write itself failed -- count and report what actually happened,
+                # not what the preview predicted. See the docstring's counting rule.
+                logger.warning('sweep write failed for observation_id=%r: %s', record.observation_id, real_stage)
+                facility_counters['unprojectable'] += 1
+                rows.append(
+                    {
+                        'observation_id': record.observation_id,
+                        'status': record.status,
+                        'stage': real_stage,
+                        'action': 'unprojectable',
+                    }
+                )
+                continue
             facility_counters[action] += 1
-            if not dry_run:
-                # A no-op write when pre_fields_hook's own save already triggered the
-                # post_save receiver's own project_record() call for this record; the
-                # guarantee that this call provides is for a record whose receiver path
-                # was skipped (raw=True saves, receiver disconnected around a fixture, etc).
-                project_record(record)
             rows.append(
                 {'observation_id': record.observation_id, 'status': record.status, 'stage': stage, 'action': action}
             )

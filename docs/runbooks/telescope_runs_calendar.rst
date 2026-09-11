@@ -159,10 +159,15 @@ The final summary line reports these counters per facility::
 
 ``created``/``updated``/``unchanged`` are the events the sweep drew, refreshed,
 or left alone; ``unprojectable`` counts a record the sweep could not project
-at all (for example, an unparsable request window); ``site_lookups`` counts
-a successful one-time observed-telescope lookup; ``site_lookup_failed``
-counts a lookup that has not yet succeeded, retried automatically on the
-next sweep.
+at all -- either because its own fields could not be turned into event
+values at all (for example, an unparsable request window), or because the
+write itself failed once attempted (for example, a pre-existing duplicate
+calendar-event URL). Either way the record's event is left exactly as it
+was before the sweep touched it, and the top-level ``failed`` count (and a
+matching stderr line naming the ``observation_id``) tracks 1:1 with every
+row counted ``unprojectable``; ``site_lookups`` counts a successful
+one-time observed-telescope lookup; ``site_lookup_failed`` counts a lookup
+that has not yet succeeded, retried automatically on the next sweep.
 
 A ``--dry-run`` pass agrees with a real sweep's counts for every field derived
 from a record's own already-stored state, with one exception: a dry run never
@@ -1116,14 +1121,17 @@ summary count.
       Done. lines processed: 20, created: 95, updated: 0, unchanged: 0, skipped: 1
 
 * ``project_observation_calendar`` counts, rather than skips, a record it
-  cannot project (for example, an unparsable request window) under
-  ``unprojectable`` -- the record simply carries no calendar event until
-  the underlying data problem is fixed and the sweep re-run. A record
-  whose one-time observed-telescope lookup has not (yet) succeeded is a
-  different, non-failure case: it keeps its coarse aperture-class label
-  (never a fallback marker -- there is no ``[UNVERIFIED]`` in this
-  vocabulary) and is counted under ``site_lookup_failed``, retried
-  automatically on the next sweep.
+  cannot project under ``unprojectable`` -- whether its own fields could
+  not be turned into event values at all (for example, an unparsable
+  request window), or the write itself failed once attempted (for example,
+  a pre-existing duplicate calendar-event URL). Either way the record's
+  event is left exactly as it stood before this sweep -- no new event, and
+  a pre-existing one untouched -- until the underlying data problem is
+  fixed and the sweep re-run. A record whose one-time observed-telescope
+  lookup has not (yet) succeeded is a different, non-failure case: it keeps
+  its coarse aperture-class label (never a fallback marker -- there is no
+  ``[UNVERIFIED]`` in this vocabulary) and is counted under
+  ``site_lookup_failed``, retried automatically on the next sweep.
 
 * ``reconcile_campaign_runs`` catches any exception a single run's
   reconciliation raises (for example, the Observatory-timezone gap above) at
