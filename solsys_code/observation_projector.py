@@ -250,13 +250,19 @@ def event_fields_for(record: ObservationRecord, facility: Any) -> tuple[dict[str
             stage string.
 
     Raises:
+        ValueError: if ``record.observation_id`` is blank or whitespace-only (CR-01) --
+            ``event_url()`` keys the event on ``facility.get_observation_url(observation_id)``,
+            and every LCO/SOAR facility maps a blank id to the same bare listing URL, so an
+            unusable id must be rejected before it can collide with another blank-id record's
+            event. Also raised if ``parameters['start']``/``['end']`` cannot be parsed as
+            datetimes, or (for a stage other than 'inconsistent') if the record's schedule
+            fields are otherwise unusable per ``record_time_window()``'s own raising contract.
         InstrumentExtractionError: if ``extract_instrument()`` finds no usable config.
         KeyError: if the record has no usable request window (missing
             ``parameters['start']``/``['end']``).
-        ValueError: if ``parameters['start']``/``['end']`` cannot be parsed as datetimes, or
-            (for a stage other than 'inconsistent') if the record's schedule fields are
-            otherwise unusable per ``record_time_window()``'s own raising contract.
     """
+    if not (record.observation_id or '').strip():
+        raise ValueError(f'record pk={record.pk} has no observation_id; cannot key an event')
     instrument = extract_instrument(record.parameters)
     if instrument is None:
         raise InstrumentExtractionError(

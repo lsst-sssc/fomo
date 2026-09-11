@@ -364,6 +364,31 @@ class TestProjectRecordWrites(_ObservationProjectorTestBase):
         action, _reason = op.project_record(record)
         self.assertEqual(action, 'unprojectable')
 
+    def test_blank_observation_id_is_unprojectable_and_never_collides(self) -> None:
+        """CR-01: a blank observation_id must never key an event -- every LCO facility maps
+        '' to the same bare listing URL, so two such records would otherwise silently
+        collapse onto one event and steal each other's companion link."""
+        record_a = self._make_record('', status='PENDING')
+        record_b = self._make_record('', status='COMPLETED')
+        facility = op.facility_for(record_a)
+        blank_url = op.event_url(record_a, facility)
+        CalendarEvent.objects.filter(url=blank_url).delete()
+
+        action_a, reason_a = op.project_record(record_a)
+        action_b, reason_b = op.project_record(record_b)
+
+        self.assertEqual(action_a, 'unprojectable')
+        self.assertEqual(reason_a, 'ValueError')
+        self.assertEqual(action_b, 'unprojectable')
+        self.assertEqual(reason_b, 'ValueError')
+        self.assertFalse(CalendarEvent.objects.filter(url=blank_url).exists())
+
+    def test_whitespace_only_observation_id_is_unprojectable(self) -> None:
+        record = self._make_record('   ', status='PENDING')
+        action, reason = op.project_record(record)
+        self.assertEqual(action, 'unprojectable')
+        self.assertEqual(reason, 'ValueError')
+
     def test_projecting_unchanged_record_twice_reports_unchanged_with_no_modified_churn(self) -> None:
         record = self._make_record('writes-no-churn', status='PENDING')
         op.project_record(record)
