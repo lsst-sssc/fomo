@@ -21,7 +21,6 @@ from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 
 from solsys_code.calendar_utils import (
-    OBSERVED_TELESCOPE_SITE_CODES,
     SITE_TELESCOPE_MAP,
     aperture_class_from_telescope_code,
     derive_telescope_class,
@@ -256,31 +255,26 @@ def date_overlap_score(
 def _extract_lco_site_code(telescope_code: str | None) -> str | None:
     """Leading 3-letter LCO site-code token from a resolved telescope label (e.g. 'COJ-2m0').
 
-    D-07 (34-02 Task 3): first checks OBSERVED_TELESCOPE_SITE_CODES for an exact
-    (case-insensitive) match on one of the three renamed observed-telescope labels
-    ('FTN'/'FTS'/'SOAR') -- those no longer carry a 3-letter site-code prefix a plain
-    string-split can recover. ``telescope_match_score()`` resolves the obscode for these
-    same three labels itself, directly, via the LABEL-keyed ``OBSERVED_TELESCOPE_OBSCODES``
-    table, before this function is even called -- a site-keyed lookup through this
-    function's site code would be wrong for a multi-telescope site like 'ogg' (see that
-    table's own comment). This function's own site-code-shaped return value for those three
-    labels remains correct and is still what any other caller needing the classical
-    3-letter site code (e.g. the demo notebook) should use.
+    Only recognises the SITECODE-CLASS form (a 3-letter site code, '-', then an aperture
+    class, e.g. 'COJ-1m0'). The three renamed observed-telescope labels ('FTN'/'FTS'/'SOAR')
+    carry no such prefix, so this function returns None for them -- ``telescope_match_score()``
+    resolves those three labels itself, directly and before this function is ever called for
+    them, via the LABEL-keyed ``OBSERVED_TELESCOPE_OBSCODES`` table (a site-keyed lookup
+    through this function would be wrong for a multi-telescope site like 'ogg'; see that
+    table's own comment). A caller genuinely needing one of those three labels' classical
+    3-letter site code should read it directly off
+    ``calendar_utils.OBSERVED_TELESCOPE_SITE_CODES`` instead of calling this function.
 
     Args:
         telescope_code: the orphan's telescope string (e.g. ``CalendarEvent.telescope``).
 
     Returns:
-        str | None: the mapped site code for one of the three observed-telescope labels, or
-            the lowercased leading site-code token if it's a recognised LCO site (a key of
-            ``SITE_TELESCOPE_MAP``), else None. Never raises.
+        str | None: the lowercased leading site-code token if it's a recognised LCO site (a
+            key of ``SITE_TELESCOPE_MAP``), else None. Never raises.
     """
     if not telescope_code:
         return None
     stripped = telescope_code.strip()
-    observed_site = OBSERVED_TELESCOPE_SITE_CODES.get(stripped.upper())
-    if observed_site is not None:
-        return observed_site
     candidate = stripped.split('-', 1)[0].lower()
     return candidate if candidate in _LCO_SITE_CODES else None
 

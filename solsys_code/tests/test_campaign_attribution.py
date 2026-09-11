@@ -135,8 +135,11 @@ class TestScoringAndBanding(TestCase):
         prefix -- still scores a site-level match against a run at the matching obscode,
         rather than silently degrading to aperture-only. 'FTS' already worked through the
         classical-site-alias branch (telescope_runs.SITES); 'FTN' and 'SOAR' did not, which
-        is exactly the asymmetric regression this bridge (campaign_attribution's own
-        OBSERVED_TELESCOPE_SITE_CODES consultation in _extract_lco_site_code) closes."""
+        is exactly the asymmetric regression the fix closes. The mechanism under test is
+        telescope_match_score()'s own LABEL-keyed OBSERVED_TELESCOPE_OBSCODES lookup (its
+        resolution-order step 1, checked before _extract_lco_site_code() is ever called for
+        these three labels) -- not _extract_lco_site_code() itself, which returns None for
+        all three and plays no part in this outcome."""
         ogg_site = Observatory.objects.create(obscode='F65', name='Haleakala', short_name='FTN')
         sor_site = Observatory.objects.create(obscode='I33', name='SOAR Cerro Pachon', short_name='SOAR')
 

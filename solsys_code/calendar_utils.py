@@ -71,8 +71,12 @@ SITE_TELESCOPE_MAP = {
 # D-07/D-09 (34-02 Task 3): the inverse of the three SITE_TELESCOPE_MAP entries above that no
 # longer take the SITECODE-CLASS form -- 'FTN'/'FTS'/'SOAR' carry no 3-letter site-code
 # prefix a plain string-split can recover, so a reader needing to bridge back from one of
-# these three labels to its LCO 3-letter site code (e.g. campaign_attribution.py's
-# telescope-match signal) needs this table instead. Single source of truth for that bridge.
+# these three labels to its LCO 3-letter site code needs this table instead. Single source
+# of truth for that bridge. campaign_attribution.py's own telescope-match signal resolves
+# these three labels straight to an obscode via its LABEL-keyed OBSERVED_TELESCOPE_OBSCODES
+# table instead, so it no longer consults this one -- this table's remaining consumers are
+# its own tests below and any caller that genuinely needs the classical site code, not an
+# obscode.
 OBSERVED_TELESCOPE_SITE_CODES: dict[str, str] = {
     'FTN': 'ogg',
     'FTS': 'coj',
