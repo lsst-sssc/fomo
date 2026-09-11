@@ -20,8 +20,8 @@ status: all_fixed
   the `critical_warning` pass fixed the first 11; this `--all` pass added the six
   Info findings)
 - Fixed: 17
-- Skipped: 0 (one sub-part of CR-01 was intentionally left for a follow-up decision --
-  see that entry below, and "Notes and Follow-ups")
+- Skipped: 0 (CR-01's facility-URL-namespace sub-part is closed by analysis, not code --
+  see that entry below)
 
 **Verification environment:** every fix below was edited, linted, and test-run inside
 an isolated git worktree this run created, then fast-forwarded onto
@@ -51,24 +51,29 @@ one `CalendarEvent`, stealing each other's `CalendarEventMeta.observation_record
 (consistent with the fix suggestion's code snippet). Two regression tests added: two
 blank-`observation_id` records never collide, and a whitespace-only id is also rejected.
 
-**Partial by design -- the facility-URL-namespace half of this finding is deferred, not
-fixed:** the review also flagged that LCO and SOAR share the identical `portal_url`
-(`settings.py:230/238`), so an LCO record and a SOAR record with the *same*
-`observation_id` still collide on the same event URL after this fix. Closing that half
-requires either (a) namespacing `event_url()`'s output (e.g. an `LCO:`/`SOAR:` prefix or
-keying on the companion row's `observation_record` instead of the raw url), which would
-change the stored `CalendarEvent.url` value every existing consumer (the calendar UI's
-portal links, the reconciler's `RUN:`/blank-url namespace checks, `load_telescope_runs`'
-own `url=''` lookup added in WR-07) currently assumes is the literal LCO/SOAR portal URL,
-or (b) a `UniqueConstraint` on `CalendarEvent.url` for non-blank urls via a new FOMO
-migration on a model this app does not own (`tom_calendar.CalendarEvent` is an installed
-third-party model). Both are schema/URL-contract decisions the operator should make
-explicitly rather than have guessed under an automated fix -- per this run's own
-constraint on migration/schema decisions. **Recommended approach:** decide between (a)
-and (b) in a short discussion, then scope it as its own phase/plan -- (b) is likely lower
-risk since it changes no existing behavior for well-formed distinct urls and simply
-converts today's silent collision into a loud `IntegrityError` project_record() already
-knows how to catch (per CR-02's fix, below) and report as `unprojectable`.
+**Resolved by analysis:** the review also flagged that LCO and SOAR share the identical
+`portal_url` (`settings.py:230/238`), raising the same event URL for a same-id LCO/SOAR
+pair as a possible collision. Analysis on 2026-09-11 closes this as intended behaviour,
+not a defect, for five reasons.
+
+1. `SOARFacility` subclasses `LCOFacility` and `SOARSettings` subclasses `LCOSettings`
+   (`tom_observations/facilities/soar.py`), so SOAR observations are scheduled through the
+   same LCO Observation Portal and their `observation_id` values live in one shared
+   request-ID space.
+2. An LCO record and a SOAR record carrying the same `observation_id` are therefore the
+   same portal request, so `https://observe.lco.global/requests/<id>` is that request's
+   correct single identity -- namespacing `event_url()` per facility would wrongly split
+   one real request into two calendar events.
+3. Every FOMO writer -- the projector, the reconciler and `load_telescope_runs` -- finds
+   the event by `url` and creates it only if missing, so the only remaining way to get two
+   rows with the same non-blank url is a person editing `url` by hand in tom_calendar's
+   event form, which CR-02's fix (above) already catches and reports as `unprojectable`.
+4. The evidence, observed 2026-09-11 on the developer database: 241 calendar events, 0
+   duplicate non-blank urls, 10 blank urls.
+5. The decision, made by the user: no schema change. A partial unique index on
+   `tom_calendar_calendarevent(url)` limited to non-blank urls stays available as a
+   possible later hardening, but it was considered and explicitly not chosen -- so
+   nothing here is outstanding work.
 
 ### CR-02: A single duplicate-url CalendarEvent permanently breaks a record's projection, and `project_record()` does not catch it despite promising "Never raises"
 
@@ -310,10 +315,9 @@ to the developer database, neither of which this automated session can safely tr
 
 ## Notes and Follow-ups
 
-- **CR-01 facility-URL-namespace collision** (LCO and SOAR sharing `portal_url`) is
-  intentionally not closed by this run -- see the CR-01 entry above for the two candidate
-  approaches and the recommendation. This is the only deferred sub-item across all 17
-  in-scope findings; everything else in each finding's own **Fix** section was applied.
+- **CR-01 facility-URL-namespace question** (LCO and SOAR sharing `portal_url`) is closed --
+  see the CR-01 entry above's **Resolved by analysis** paragraph for the shared-request-ID
+  rationale and the user's no-schema-change decision.
 - **IN-01 through IN-06** were out of scope for the first (`critical_warning`) pass and
   are now closed by this `--all` pass, above. None of the earlier WR-*/CR-* fixes had
   happened to resolve any of them as a side effect. IN-06 (the SCHED-06 baseline JSON
