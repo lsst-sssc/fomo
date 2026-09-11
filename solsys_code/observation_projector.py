@@ -365,16 +365,17 @@ def project_record(record: ObservationRecord) -> tuple[str, str]:
     return action, stage
 
 
-# TRIG-03/D-17: the six sweep counters project_queryset() accumulates per facility. Kept
-# private to this module -- the command module (project_observation_calendar.py) keeps its
-# own copy of the same six-tuple for seeding a facility that is in scope but contributed no
-# records, since project_queryset() only ever returns keys for facilities it actually saw.
-_SWEEP_COUNTER_KEYS = ('created', 'updated', 'unchanged', 'unprojectable', 'site_lookups', 'site_lookup_failed')
+# TRIG-03/D-17: the six sweep counters project_queryset() accumulates per facility. Public
+# (IN-04) so the command module (project_observation_calendar.py) can import this exact tuple
+# for seeding a facility that is in scope but contributed no records, since project_queryset()
+# only ever returns keys for facilities it actually saw -- a single source of truth instead of
+# two hand-maintained copies.
+SWEEP_COUNTER_KEYS = ('created', 'updated', 'unchanged', 'unprojectable', 'site_lookups', 'site_lookup_failed')
 
 
 def _new_sweep_counters() -> dict[str, int]:
     """Return a fresh zeroed counter dict for one facility (a NEW dict every call)."""
-    return dict.fromkeys(_SWEEP_COUNTER_KEYS, 0)
+    return dict.fromkeys(SWEEP_COUNTER_KEYS, 0)
 
 
 def project_queryset(

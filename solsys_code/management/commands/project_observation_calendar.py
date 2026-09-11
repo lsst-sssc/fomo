@@ -19,13 +19,13 @@ from django.core.management.base import BaseCommand, CommandParser
 from tom_observations.models import ObservationRecord
 
 from solsys_code.calendar_utils import OBSERVED_SITE_PARAMETER_KEYS, derive_telescope, resolve_placement_block
-from solsys_code.observation_projector import PROJECTED_FACILITIES, project_queryset, stage_for
+from solsys_code.observation_projector import PROJECTED_FACILITIES, SWEEP_COUNTER_KEYS, project_queryset, stage_for
 
-# TRIG-03/D-17: single source of truth for this command's own per-facility counter keys,
-# used to seed a facility that is in scope but contributed no records -- project_queryset()
-# only ever returns keys for facilities it actually saw records from. Mirrors, but is
-# intentionally a separate copy from, observation_projector._SWEEP_COUNTER_KEYS.
-_COUNTER_KEYS = ('created', 'updated', 'unchanged', 'unprojectable', 'site_lookups', 'site_lookup_failed')
+# TRIG-03/D-17/IN-04: this command's own per-facility counter keys, used to seed a facility
+# that is in scope but contributed no records -- project_queryset() only ever returns keys for
+# facilities it actually saw records from. Imported from observation_projector rather than
+# hand-copied, so the six counters have one source of truth.
+_COUNTER_KEYS = SWEEP_COUNTER_KEYS
 
 # D-08: the one-time observed-site lookup only ever fires once a record has reached one of
 # these two successful-terminal stages -- a queued or placed record triggers no portal call,
