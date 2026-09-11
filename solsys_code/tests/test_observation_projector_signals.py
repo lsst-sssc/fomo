@@ -84,21 +84,31 @@ class TestUpdateObservationStatusPath(ObservationProjectorSignalsTestCase):
     """S4 (spike 001b): the real ``updatestatus`` path -- no command run, receiver only."""
 
     def test_updatestatus_narrows_the_event_with_no_command_run(self) -> None:
+        """G-34-2: OCSFacility.get_observation_status() returns the portal's raw ISO-8601
+        strings (trailing 'Z'), not datetime objects -- this is the real contract a
+        BaseObservationFacility.update_observation_status() save exercises, and the one
+        the pre-G-34-2 version of this test (datetime-valued fake) never caught."""
         block_start = datetime(2026, 9, 16, 2, 0, tzinfo=dt_timezone.utc)
         block_end = block_start + timedelta(minutes=19)
 
         original_get_status = LCOFacility.get_observation_status
 
         def fake_get_observation_status(self, observation_id):
-            return {'state': 'PENDING', 'scheduled_start': block_start, 'scheduled_end': block_end}
+            return {
+                'state': 'PENDING',
+                'scheduled_start': block_start.isoformat().replace('+00:00', 'Z'),
+                'scheduled_end': block_end.isoformat().replace('+00:00', 'Z'),
+            }
 
         LCOFacility.get_observation_status = fake_get_observation_status
         try:
-            LCOFacility().update_observation_status(self.record.observation_id)
+            with self.assertNoLogs('solsys_code.observation_projector', level='WARNING'):
+                LCOFacility().update_observation_status(self.record.observation_id)
         finally:
             LCOFacility.get_observation_status = original_get_status
 
         url = LCOFacility().get_observation_url(self.record.observation_id)
+        self.assertEqual(CalendarEvent.objects.filter(url=url).count(), 1)
         event = CalendarEvent.objects.get(url=url)
         self.assertEqual(event.start_time, block_start)
         self.assertEqual(event.end_time, block_end)
