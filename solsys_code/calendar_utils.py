@@ -480,7 +480,8 @@ def coerce_schedule_datetime(value: datetime | str | None) -> datetime | None:
     Returns:
         datetime | None: ``None`` if `value` is ``None``; otherwise a timezone-aware UTC
             datetime. A naive value (whether passed in directly or produced by parsing a
-            naive string) gets UTC attached; an already-aware datetime is returned as-is.
+            naive string) gets UTC attached; an already-aware, non-UTC-offset datetime is
+            converted to the equivalent UTC instant.
 
     Raises:
         ValueError: if `value` is a ``str`` that ``django.utils.dateparse.parse_datetime``
@@ -503,7 +504,7 @@ def coerce_schedule_datetime(value: datetime | str | None) -> datetime | None:
         raise ValueError(f'Unusable schedule datetime value: {value!r}')
     if value.tzinfo is None:
         return value.replace(tzinfo=dt_timezone.utc)
-    return value
+    return value.astimezone(dt_timezone.utc)
 
 
 def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:

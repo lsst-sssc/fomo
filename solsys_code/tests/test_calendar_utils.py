@@ -456,12 +456,17 @@ class TestCoerceScheduleDatetime(SimpleTestCase):
         result = coerce_schedule_datetime('2026-09-18T07:14:00')
         self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
 
-    def test_aware_datetime_is_returned_with_value_and_tzinfo_unchanged(self):
-        """An already-aware datetime passes through untouched."""
+    def test_aware_non_utc_datetime_is_converted_to_utc_with_the_same_instant(self):
+        """CR-01: an already-aware, non-UTC-offset datetime is converted to UTC -- the
+        instant is preserved even though the wall-clock fields and tzinfo change. This used
+        to pass through untouched, which rendered the wrong wall clock under the
+        'Window (UTC):' label downstream (see test_observation_projector.py's regression
+        test for that consumer)."""
         aware = datetime(2026, 9, 18, 3, 14, 0, tzinfo=dt_timezone(timedelta(hours=-4)))
         result = coerce_schedule_datetime(aware)
         self.assertEqual(result, aware)
-        self.assertEqual(result.tzinfo, aware.tzinfo)
+        self.assertIs(result.tzinfo, dt_timezone.utc)
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
 
     def test_naive_datetime_gets_utc_attached_with_the_same_wall_clock_fields(self):
         """A naive datetime comes back with UTC attached and identical wall-clock fields."""

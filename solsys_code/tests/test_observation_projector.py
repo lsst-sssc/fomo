@@ -9,7 +9,7 @@ FOMO is exclusively a Solar System TOM, so a sidereal fixture would misrepresent
 code handles (CLAUDE.md convention).
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.test import TestCase
@@ -672,6 +672,22 @@ class TestFieldPopulation(_ObservationProjectorTestBase):
         self.assertIn('PENDING', desc)
         self.assertIn('2026-09-01', desc)
         self.assertIn('2026-09-02', desc)
+
+    def test_non_utc_offset_schedule_renders_utc_wall_clock_in_description(self) -> None:
+        """CR-01 regression: a placed block held as a non-UTC-offset aware datetime must
+        render its UTC wall-clock time under the literal 'Window (UTC):' label, not its
+        local-offset fields -- otherwise the receiver (in-memory, offset-aware) and the
+        sweep (DB-fetched, UTC-normalised) would write different description text for the
+        same instant."""
+        block_start = datetime(2026, 9, 18, 3, 14, 0, tzinfo=dt_timezone(timedelta(hours=-4)))
+        block_end = datetime(2026, 9, 18, 3, 30, 50, tzinfo=dt_timezone(timedelta(hours=-4)))
+        record = self._make_record(
+            'fields-non-utc-offset', status='PENDING', scheduled_start=block_start, scheduled_end=block_end
+        )
+        facility = op.facility_for(record)
+        fields, stage = op.event_fields_for(record, facility)
+        self.assertEqual(stage, 'placed')
+        self.assertIn('Window (UTC): 2026-09-18T07:14:00 to 2026-09-18T07:30:50', fields['description'])
 
     def test_single_target_list_membership_sets_target_list(self) -> None:
         target_list = TargetList.objects.create(name='Solo Campaign')
