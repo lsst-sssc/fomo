@@ -11,7 +11,7 @@ used by all of them.
 import re
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin
 
 import requests
@@ -548,8 +548,11 @@ def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
         start_time = coerce_schedule_datetime(record.parameters['start'])
         end_time = coerce_schedule_datetime(record.parameters['end'])
     elif record.scheduled_start is not None and record.scheduled_end is not None:
-        start_time = coerce_schedule_datetime(record.scheduled_start)
-        end_time = coerce_schedule_datetime(record.scheduled_end)
+        # WR-05: both fields are non-None here, so the coercion cannot return None --
+        # narrow the type so this function's own tuple[datetime, datetime] annotation
+        # stays honest about None never being reachable.
+        start_time = cast(datetime, coerce_schedule_datetime(record.scheduled_start))
+        end_time = cast(datetime, coerce_schedule_datetime(record.scheduled_end))
     else:
         raise ValueError(
             f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
