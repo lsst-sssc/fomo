@@ -578,6 +578,35 @@ class TestObservationSeriesDecoration(TestCase):
                 dispatch_uid='solsys_code.observation_projector.m2m_changed',
             )
 
+    def _make_malformed_window_record(self, observation_id: str) -> ObservationRecord:
+        """WR-04: parameters['start']/['end'] are JSON numbers, not ISO strings --
+        datetime.fromisoformat() raises TypeError (not ValueError) for this shape."""
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            return ObservationRecord.objects.create(
+                target=self.target,
+                facility='LCO',
+                observation_id=observation_id,
+                status='PENDING',
+                parameters={
+                    'proposal': 'TESTPROP',
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': 12345,
+                    'end': 12346,
+                },
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
     def _make_event(self, title: str = 'series test event') -> CalendarEvent:
         return CalendarEvent.objects.create(
             title=title,
@@ -655,6 +684,26 @@ class TestObservationSeriesDecoration(TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result['size'], 2)
         self.assertEqual(result['index'], 1)  # windowed sibling sorts first, unwindowed last
+
+    def test_malformed_window_sibling_sorts_last_without_raising(self):
+        """WR-04: a sibling whose parameters['start']/['end'] are JSON numbers (fromisoformat()
+        raises TypeError, not ValueError) must sort last, not 500 the modal."""
+        r_windowed = self._make_record(
+            'malformed-window-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r_malformed = self._make_malformed_window_record('malformed-window-2')
+        group = ObservationGroup.objects.create(name='Malformed-window group')
+        self._add_to_group(group, r_windowed, r_malformed)
+
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, observation_record=r_windowed, observation_group=group)
+
+        result = observation_series_decoration(event)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['size'], 2)
+        self.assertEqual(result['index'], 1)  # windowed sibling sorts first, malformed one last
 
     def test_returns_none_for_no_companion_row(self):
         event = self._make_event()

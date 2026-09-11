@@ -578,7 +578,14 @@ def _window_start_or_max(record) -> datetime:
     """
     try:
         start, _ = record_time_window(record)
-    except (KeyError, ValueError):
+    except Exception:  # noqa: BLE001 -- a request-time decoration must never 500 the modal
+        # WR-04: record_time_window() calls datetime.fromisoformat(record.parameters['start']),
+        # which raises TypeError (not ValueError) when the stored value is a JSON number,
+        # boolean or null rather than a string -- narrower than (KeyError, ValueError) missed
+        # that case and let it escape this helper (and observation_series_decoration()'s own
+        # "Never raises" promise) inside list.sort(), taking down the whole modal response.
+        # The observation projector's own event_fields_for() already catches this case via a
+        # bare `except Exception`; this mirrors that discipline.
         return datetime.max.replace(tzinfo=dt_timezone.utc)
     return start
 
