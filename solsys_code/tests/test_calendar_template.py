@@ -1243,6 +1243,44 @@ class EventModalSeriesDecorationTest(TestCase):
         self.assertIn('Attributed campaign run', content)
         self.assertIn('FTN/MuSCAT3', content)
 
+    def test_grouped_event_hides_group_name_when_attributed_run_is_pending_review(self):
+        """WR-03: observation_series_decoration() must apply the same is_publicly_visible
+        gate campaign_decoration() already applies -- a pending-review run's attribution
+        must not leak the observation-group's own name (an internal portal RequestGroup
+        id) to an anonymous visitor of the unauthenticated event-update view."""
+        r1 = self._make_record(
+            'modal-pending-review-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-pending-review-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Pending Review Group Name')
+        self._add_to_group(group, r1, r2)
+        pending_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTS/MuSCAT3',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        event = CalendarEvent.objects.create(
+            title='Pending review series event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group, run=pending_run)
+
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Pending Review Group Name', content)
+        self.assertNotIn('Night 1 of 2', content)
+
     def test_month_view_query_count_does_not_grow_with_second_grouped_event(self):
         """Count-comparison form (1 grouped event vs. 2), never a hard-coded number, per
         the sibling campaign-attribution query-count test's own convention."""

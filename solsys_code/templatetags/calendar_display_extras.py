@@ -534,6 +534,12 @@ def campaign_decoration(event: CalendarEvent) -> dict | None:
     except ObjectDoesNotExist:
         return None
     run = meta.run
+    # WR-03: observation_series_decoration() below applies this same is_publicly_visible
+    # gate to meta.run -- kept side by side so the two tags' visibility rules stay legible
+    # together. The two guards differ only in what "no run" means: here it means "no
+    # campaign to attribute" (return None either way, gated on run existing at all);
+    # observation_series_decoration()'s series identity is independent of attribution, so
+    # it only suppresses when a run IS attached and that run is not public.
     if run is None or not run.is_publicly_visible:
         return None
 
@@ -595,8 +601,15 @@ def observation_series_decoration(event: CalendarEvent) -> dict | None:
 
     Never raises. Returns ``None`` for an event with no companion row, for a companion row
     with no ``observation_group`` or no ``observation_record`` link, for a group with fewer
-    than two members (a series of one is not a series), and for a value that is not a
-    CalendarEvent at all.
+    than two members (a series of one is not a series), for a value that is not a
+    CalendarEvent at all, and (WR-03) for a companion row whose ``run`` is set but not
+    publicly visible -- the same ``CampaignRun.is_publicly_visible`` gate
+    ``campaign_decoration()`` above applies, kept side by side with it so the two tags'
+    visibility rules stay legible together. Without this gate, an anonymous visitor to the
+    unauthenticated event-update view could read a pending-review run's observation-group
+    name (an internal portal RequestGroup identifier, per
+    ``backfill_lco_observations._group_name()``) even though the sibling campaign-attribution
+    block stays hidden for the same event.
 
     Args:
         event: the CalendarEvent to decorate.
@@ -618,6 +631,11 @@ def observation_series_decoration(event: CalendarEvent) -> dict | None:
     except ObjectDoesNotExist:
         return None
     if meta.observation_group_id is None or meta.observation_record_id is None:
+        return None
+    # WR-03: mirrors campaign_decoration()'s own is_publicly_visible gate immediately above --
+    # a pending-review run's attribution must not leak the observation-group's own identity
+    # (an internal portal RequestGroup id) onto the public, unauthenticated calendar either.
+    if meta.run is not None and not meta.run.is_publicly_visible:
         return None
 
     members = list(meta.observation_group.observation_records.select_related('target'))
