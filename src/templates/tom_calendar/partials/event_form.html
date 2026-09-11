@@ -137,6 +137,27 @@
    campaign_decoration() itself guards this, so no {% with %} wrapper is needed here
    to pre-resolve it.
 {% endcomment %}
+{% comment %}
+   PROJ-04/PROJ-05 (Phase 34 Plan 03, D-04): series identity is read from the companion
+   row's observation_group link at request time via observation_series_decoration() --
+   nothing is written into the event's own title or description -- so a re-projection of
+   this event cannot erase it. This block is a sibling of the campaign-decoration block
+   above, not nested inside it: a record can be in a group with no campaign, or attributed
+   to a campaign with no group, and both cases must render independently.
+{% endcomment %}
+{% observation_series_decoration event as series %}
+{% if series %}
+    <div class="row">
+      <div class="col">
+        <label>Observation series</label>
+        <div>
+          <a href="{{ series.group_list_url }}" target="_blank">{{ series.group_name }} ↗</a>
+          &mdash; Night {{ series.index }} of {{ series.size }}
+          &mdash; <a href="{{ series.record_url }}" target="_blank">View record ↗</a>
+        </div>
+      </div>
+    </div>
+{% endif %}
 {% campaign_decoration event as deco %}
 {% if deco %}
     <div class="row">

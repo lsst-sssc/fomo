@@ -5,10 +5,20 @@ public tags: proposal_color (DISPLAY-04, D-04/D-05), status_border_css (DISPLAY-
 D-08/D-09), and visible_proposals (DISPLAY-07, D-02/D-04/D-06).
 """
 
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from types import SimpleNamespace
 
+from django.db.models.signals import m2m_changed, post_save
 from django.test import TestCase
+from django.urls import reverse
+from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationGroup, ObservationRecord
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code import observation_projector as op
+from solsys_code.models import CalendarEventMeta
+from solsys_code.observation_projector import receiver_on_group_membership_changed, receiver_on_record_save
 from solsys_code.templatetags.calendar_display_extras import (
     CLASSICAL_SCHEDULE_LABEL,
     NEUTRAL_SLOT_COLOR,
@@ -19,6 +29,7 @@ from solsys_code.templatetags.calendar_display_extras import (
     _contrast_ratio,
     _relative_luminance,
     neutral_slot_color,
+    observation_series_decoration,
     observation_status_legend,
     proposal_color,
     status_border_css,
@@ -474,3 +485,245 @@ class TestObservationStatusLegend(TestCase):
         first = observation_status_legend()
         second = observation_status_legend()
         self.assertEqual(first, second)
+
+
+class TestObservationSeriesDecoration(TestCase):
+    """PROJ-04/PROJ-05 (Phase 34 Plan 03, D-04): observation_series_decoration() reads
+    series identity from CalendarEventMeta.observation_group/.observation_record at
+    request time, mirroring campaign_decoration()'s guards.
+
+    Builds ObservationRecord fixtures with NonSiderealTargetFactory and
+    ObservationRecord.objects.create(), and CalendarEventMeta companion rows directly --
+    this class tests the tag, not the projector (see TestRenderThenReprojectByteIdentical
+    below for the one test that DOES exercise the real projector end-to-end). The
+    observation projector's post_save receiver is globally wired (34-01), so it is
+    disconnected around every ObservationRecord.objects.create() call here (34-01
+    precedent, test_campaign_attribution.py) -- otherwise it would auto-create a second,
+    unwanted CalendarEvent+CalendarEventMeta for the same record and collide with this
+    class's own directly-built companion rows on the OneToOneField.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.target = NonSiderealTargetFactory.create()
+
+    def _make_record(self, observation_id: str, start: datetime, end: datetime) -> ObservationRecord:
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            return ObservationRecord.objects.create(
+                target=self.target,
+                facility='LCO',
+                observation_id=observation_id,
+                status='COMPLETED',
+                parameters={
+                    'proposal': 'TESTPROP',
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': start.isoformat(),
+                    'end': end.isoformat(),
+                },
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
+    def _make_unwindowed_record(self, observation_id: str) -> ObservationRecord:
+        """A record record_time_window() cannot derive a window for (no scheduled_start/
+        end, no parameters['start']/['end']) -- the "cannot derive window" sibling."""
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            return ObservationRecord.objects.create(
+                target=self.target,
+                facility='LCO',
+                observation_id=observation_id,
+                status='PENDING',
+                parameters={'proposal': 'TESTPROP', 'instrument_type': '2M0-SCICAM-MUSCAT'},
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
+    def _add_to_group(self, group: ObservationGroup, *records: ObservationRecord) -> None:
+        """group.observation_records.add() fires the projector's m2m_changed receiver
+        (D-15, closes the add-after-save gap), which would auto-create a CalendarEvent+
+        CalendarEventMeta per added record -- disconnected around every .add() call here
+        for the same reason _make_record() disconnects post_save."""
+        m2m_changed.disconnect(
+            receiver_on_group_membership_changed,
+            sender=ObservationGroup.observation_records.through,
+            dispatch_uid='solsys_code.observation_projector.m2m_changed',
+        )
+        try:
+            group.observation_records.add(*records)
+        finally:
+            m2m_changed.connect(
+                receiver_on_group_membership_changed,
+                sender=ObservationGroup.observation_records.through,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.m2m_changed',
+            )
+
+    def _make_event(self, title: str = 'series test event') -> CalendarEvent:
+        return CalendarEvent.objects.create(
+            title=title,
+            start_time=datetime(2026, 9, 1, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 1, 21, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def test_three_member_group_returns_name_index_size_and_links(self):
+        r1 = self._make_record(
+            'series-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'series-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r3 = self._make_record(
+            'series-3',
+            datetime(2026, 9, 3, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='3I/ATLAS nightly cadence')
+        self._add_to_group(group, r1, r2, r3)
+
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, observation_record=r2, observation_group=group)
+
+        result = observation_series_decoration(event)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['group_name'], '3I/ATLAS nightly cadence')
+        self.assertEqual(result['group_pk'], group.pk)
+        self.assertEqual(result['size'], 3)
+        self.assertEqual(result['index'], 2)
+        self.assertEqual(result['group_list_url'], reverse('tom_observations:group-list'))
+        self.assertEqual(result['record_url'], reverse('tom_observations:detail', args=[r2.pk]))
+
+    def test_members_numbered_by_window_start_independent_of_pk_order(self):
+        # Created in reverse chronological order, so pk order is the OPPOSITE of window
+        # order -- proves the sort key is window_start, not pk or creation order.
+        r_latest = self._make_record(
+            'reverse-1',
+            datetime(2026, 9, 3, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r_earliest = self._make_record(
+            'reverse-2',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Reverse-order group')
+        self._add_to_group(group, r_latest, r_earliest)
+
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, observation_record=r_earliest, observation_group=group)
+
+        result = observation_series_decoration(event)
+        self.assertEqual(result['index'], 1)  # earliest window, despite the later pk
+
+    def test_unwindowed_sibling_sorts_last_without_raising(self):
+        r_windowed = self._make_record(
+            'unwindowed-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r_unwindowed = self._make_unwindowed_record('unwindowed-2')
+        group = ObservationGroup.objects.create(name='Half-projectable group')
+        self._add_to_group(group, r_windowed, r_unwindowed)
+
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, observation_record=r_windowed, observation_group=group)
+
+        result = observation_series_decoration(event)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['size'], 2)
+        self.assertEqual(result['index'], 1)  # windowed sibling sorts first, unwindowed last
+
+    def test_returns_none_for_no_companion_row(self):
+        event = self._make_event()
+        self.assertIsNone(observation_series_decoration(event))
+
+    def test_returns_none_for_companion_row_with_no_group(self):
+        r1 = self._make_record(
+            'nogroup-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=None)
+        self.assertIsNone(observation_series_decoration(event))
+
+    def test_returns_none_for_single_member_group(self):
+        r1 = self._make_record(
+            'solo-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Solo group')
+        self._add_to_group(group, r1)
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group)
+        self.assertIsNone(observation_series_decoration(event))
+
+    def test_returns_none_for_non_calendar_event_value(self):
+        self.assertIsNone(observation_series_decoration(None))
+        self.assertIsNone(observation_series_decoration('not an event'))
+
+    def test_render_then_reproject_leaves_title_and_description_byte_identical(self):
+        # Exercises the real projector end-to-end (no receiver disconnect here) -- the
+        # exact scenario spike 003 found broken when campaign text was written into event
+        # fields: rendering this tag must never itself write, and re-projecting the
+        # record afterwards must not erase what the tag already read from the link.
+        r1 = ObservationRecord.objects.create(
+            target=self.target,
+            facility='LCO',
+            observation_id='byte-1',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 9, 1, 1, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 1, 1, 19, tzinfo=dt_timezone.utc),
+            parameters={'proposal': 'TESTPROP', 'instrument_type': '2M0-SCICAM-MUSCAT'},
+        )
+        r2 = ObservationRecord.objects.create(
+            target=self.target,
+            facility='LCO',
+            observation_id='byte-2',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 9, 2, 1, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 2, 1, 19, tzinfo=dt_timezone.utc),
+            parameters={'proposal': 'TESTPROP', 'instrument_type': '2M0-SCICAM-MUSCAT'},
+        )
+        group = ObservationGroup.objects.create(name='Byte-identical group')
+        group.observation_records.add(r1, r2)
+
+        meta = r1.calendar_event_meta
+        meta.observation_group = group
+        meta.save(update_fields=['observation_group'])
+        event = meta.event
+
+        before_title = event.title
+        before_description = event.description
+
+        result = observation_series_decoration(event)
+        self.assertIsNotNone(result)
+
+        op.project_record(r1)
+        event.refresh_from_db()
+        self.assertEqual(event.title, before_title)
+        self.assertEqual(event.description, before_description)

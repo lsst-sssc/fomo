@@ -26,12 +26,15 @@ T-osc-01/T-osc-02 mitigations).
 
 import hashlib
 from collections import defaultdict
+from datetime import datetime
+from datetime import timezone as dt_timezone
 
 from django import template
 from django.core.exceptions import ObjectDoesNotExist
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
+from solsys_code.calendar_utils import record_time_window
 from solsys_code.models import NO_CAMPAIGN_LABEL
 
 register = template.Library()
@@ -550,4 +553,94 @@ def campaign_decoration(event: CalendarEvent) -> dict | None:
         'window_start': run.window_start,
         'window_end': run.window_end,
         'run_status_display': run.get_run_status_display(),
+    }
+
+
+def _window_start_or_max(record) -> datetime:
+    """Return record_time_window(record)[0], or a UTC-attached datetime.max on failure.
+
+    Shared sort key for observation_series_decoration(): a sibling whose window cannot be
+    derived (half-set schedule mid-projection, malformed parameters) sorts last rather than
+    raising and taking the whole modal down with it -- the spike's own rule, reimplemented
+    here rather than imported across modules (RESEARCH.md, no cross-module private import).
+
+    Args:
+        record: the ObservationRecord being sorted.
+
+    Returns:
+        datetime: a timezone-aware UTC datetime, always comparable to every other member's.
+    """
+    try:
+        start, _ = record_time_window(record)
+    except (KeyError, ValueError):
+        return datetime.max.replace(tzinfo=dt_timezone.utc)
+    return start
+
+
+@register.simple_tag
+def observation_series_decoration(event: CalendarEvent) -> dict | None:
+    """Read-only "night n of N" series decoration for a CalendarEvent (PROJ-04/PROJ-05, D-04).
+
+    Renders which night of how many an observation-projector-owned event's own record is,
+    within its ObservationGroup, from ``CalendarEventMeta.observation_group`` /
+    ``.observation_record`` at request time -- never from text written into the event's own
+    title or description -- so a base-layer re-projection of this event cannot erase the
+    decoration. Mirrors ``campaign_decoration()`` immediately above: same isinstance guard,
+    same ``ObjectDoesNotExist`` guard, same reverse()-in-Python rule, same fixed-key return
+    dict, same "never expose PII or provenance" discipline.
+
+    Reads only -- performs no database write of any kind (no save, no bulk update, no
+    row creation, no find-or-create call); never imports ``solsys_code.views`` or
+    ``solsys_code.ephem_utils``.
+
+    Never raises. Returns ``None`` for an event with no companion row, for a companion row
+    with no ``observation_group`` or no ``observation_record`` link, for a group with fewer
+    than two members (a series of one is not a series), and for a value that is not a
+    CalendarEvent at all.
+
+    Args:
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: exactly the keys ``group_name``, ``group_pk``, ``index`` (1-based
+        position of this event's own record within the group, ordered by window start then
+        pk), ``size``, ``group_list_url`` and ``record_url``, or ``None``. Exposes no
+        campaign, contact, submitter or provenance field -- this tag renders observation-group
+        identity only.
+    """
+    if not isinstance(event, CalendarEvent):
+        # Same reasoning as campaign_decoration(): the create-event form context has no
+        # `event` key, and Django resolves the missing variable to the invalid-variable
+        # placeholder rather than raising, so this tag can be called with a non-event value.
+        return None
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    if meta.observation_group_id is None or meta.observation_record_id is None:
+        return None
+
+    members = list(meta.observation_group.observation_records.select_related('target'))
+    if len(members) < 2:
+        return None
+
+    members.sort(key=lambda member: (_window_start_or_max(member), member.pk))
+    index = None
+    for position, member in enumerate(members, start=1):
+        if member.pk == meta.observation_record_id:
+            index = position
+            break
+    if index is None:
+        # This event's own record fell out of the group between the meta read above and
+        # this loop (e.g. concurrent membership change) -- never raise on a request-time
+        # decoration; render nothing rather than a broken "n of N".
+        return None
+
+    return {
+        'group_name': meta.observation_group.name,
+        'group_pk': meta.observation_group_id,
+        'index': index,
+        'size': len(members),
+        'group_list_url': reverse('tom_observations:group-list'),
+        'record_url': reverse('tom_observations:detail', args=[meta.observation_record_id]),
     }

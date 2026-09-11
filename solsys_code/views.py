@@ -111,13 +111,25 @@ def fomo_render_calendar(request, month=None):
     # the run's campaign, because the month cell's campaign marker
     # (campaign_decoration()) dereferences run.campaign.name per event -- without the
     # select_related here that dereference would N+1 once per attributed event.
+    # Phase 34 Plan 03 (PROJ-05 performance edge): also select observation_record__target
+    # and observation_group, because the modal's series tag
+    # (observation_series_decoration()) dereferences the companion row's own record and
+    # group per event -- without this the month view pays a query per attributed event.
+    # The group's *members* are still fetched per modal (event.telescope_label_meta
+    # .observation_group.observation_records...), which is correct: the modal renders one
+    # event at a time.
     events = (
         CalendarEvent.objects.filter(
             start_time__date__lte=weeks[-1][-1],
             end_time__date__gte=weeks[0][0],
         )
         .prefetch_related(
-            Prefetch('telescope_label_meta', queryset=CalendarEventMeta.objects.select_related('run__campaign'))
+            Prefetch(
+                'telescope_label_meta',
+                queryset=CalendarEventMeta.objects.select_related(
+                    'run__campaign', 'observation_record__target', 'observation_group'
+                ),
+            )
         )
         .annotate(active_todo_count=Count('todos', filter=Q(todos__is_completed=False)))
     )
