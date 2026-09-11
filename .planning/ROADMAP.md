@@ -217,7 +217,13 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. Over real nights, a user watches a `KEY2026B-004` record's event narrow queued → scheduled → observed with nobody running anything (closing spike 004's PARTIAL verdict), and every event title is short enough to read in a month cell
   5. `sync_lco_observation_calendar` no longer exists — the same events come from the projector and sweep in the same key namespace, with its runbook section, demo notebook and tests migrated rather than duplicated, and `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 34-01-PLAN.md — The observation projector and its `post_save` / `m2m_changed` / `pre_delete` trigger, wired in `apps.ready()`
+- [ ] 34-02-PLAN.md — The `project_observation_calendar` sweep, the one-time observed-telescope lookup, and the retirement of `sync_lco_observation_calendar`
+- [ ] 34-03-PLAN.md — Status rings, the marker legend, and the display-time "night n of N" series decoration
+- [ ] 34-04-PLAN.md — Paired docs: the sweep's pre-executed demo notebook with the takeover diff and SCHED-06 baseline, the runbook's projector section, and the Gemini no-read-back caveat
 
 ### Phase 35: Allocation Layer & Classical Cutover
 
