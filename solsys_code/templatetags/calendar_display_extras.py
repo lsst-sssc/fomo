@@ -645,7 +645,10 @@ def observation_series_decoration(event: CalendarEvent) -> dict | None:
     if meta.run is not None and not meta.run.is_publicly_visible:
         return None
 
-    members = list(meta.observation_group.observation_records.select_related('target'))
+    # IN-05: no select_related() here -- only member.pk and record_time_window(member) (which
+    # reads meta.parameters, not the target) are dereferenced below, so a target join would add
+    # a LEFT JOIN per member for data this tag never reads.
+    members = list(meta.observation_group.observation_records.all())
     if len(members) < 2:
         return None
 

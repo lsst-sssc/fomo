@@ -90,6 +90,13 @@ def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dic
 
     record.parameters[site_key] = site
     record.parameters[telescope_key] = telescope
+    # IN-05: observed_enclosure has no reader anywhere in this codebase as of Phase 34 -- no
+    # later phase in .planning/ROADMAP.md (35 Allocation Layer, 36 Unattended Operation, 37
+    # Status Vocabulary) names it as something it will consume. Stored anyway, alongside site
+    # and telescope, because it is part of the same portal placement block
+    # (resolve_placement_block()) and OBSERVED_SITE_PARAMETER_KEYS already reserves the key --
+    # dropping the write now would silently lose data a future consumer might still want,
+    # while keeping it costs nothing (same block, same save).
     record.parameters[enclosure_key] = enclosure
     record.save(update_fields=['parameters'])
     return {'site_lookups': 1}, None
