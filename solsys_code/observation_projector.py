@@ -66,6 +66,15 @@ def facility_for(record: ObservationRecord) -> Any:
     return _facilities[name]
 
 
+def reset_facility_cache() -> None:
+    """Clear the cached facility instances (test-only helper).
+
+    Used between test cases so a facility class patched in one test (e.g. a monkeypatched
+    ``get_observation_status``) cannot leak a stale cached instance into the next.
+    """
+    _facilities.clear()
+
+
 # D-02: a hand-typed snapshot of the four failure states get_failed_observing_states()
 # returns today. An unrecognised failure state still falls back to '[F]' rather than being
 # silently unmarked -- if the facility ever adds a fifth failure state, update this table.
