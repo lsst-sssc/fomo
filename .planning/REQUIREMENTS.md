@@ -11,7 +11,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Observation Projector (base layer)
 
-- [ ] **PROJ-01**: Every LCO/SOAR `ObservationRecord` has exactly one `CalendarEvent`, keyed by `facility.get_observation_url()` (the namespace the existing LCO sync already uses), created or updated in place — never a second event for the same record
+- [x] **PROJ-01**: Every LCO/SOAR `ObservationRecord` has exactly one `CalendarEvent`, keyed by `facility.get_observation_url()` (the namespace the existing LCO sync already uses), created or updated in place — never a second event for the same record
 - [x] **PROJ-02**: An event's span follows the record's stage: the request window while queued, the placed block once `scheduled_start`/`scheduled_end` are set, the observed block once COMPLETED — the existing `record_time_window` rule
 - [ ] **PROJ-03**: A terminal-negative record (`WINDOW_EXPIRED` / `CANCELED` / `FAILURE_LIMIT_REACHED`) keeps a visibly marked event on its window night — never silently dropped
 - [x] **PROJ-04**: Series identity for a record in an `ObservationGroup` is carried by real foreign keys on `CalendarEventMeta` (`observation_record`, `observation_group`) — a shared title stem and a link back to the group; spike 002's title-suffix stopgap is not the carrier
@@ -100,7 +100,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROJ-01 | Phase 34 | Pending |
+| PROJ-01 | Phase 34 | Complete |
 | PROJ-02 | Phase 34 | Complete |
 | PROJ-03 | Phase 34 | Pending |
 | PROJ-04 | Phase 33 (carrier fields), Phase 34 (shared title stem) | Complete |
