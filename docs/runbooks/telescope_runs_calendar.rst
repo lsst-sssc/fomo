@@ -44,31 +44,120 @@ immediately rather than half-way through the file.
    ``--campaign`` (below): here, omitting it means "no campaign"; on
    ``import_campaign_csv`` the flag is **required**.
 
-How do I sync LCO/SOAR queue observations?
----------------------------------------------
+How do LCO/SOAR queue observations get onto the calendar?
+-------------------------------------------------------------
 
-``sync_lco_observation_calendar`` syncs LCO and SOAR queue
-``ObservationRecord`` rows onto the calendar as one ``CalendarEvent`` per
-record, keyed on the LCO portal URL. A record still awaiting placement by
-the LCO scheduler becomes a ``[QUEUED]`` scheduling-window banner, unless its
-status is already a successful terminal state (for example ``COMPLETED``) --
-such a record is never bannered as still queued, even if no placement block
-was ever resolved for it. Once the scheduler places it, re-running the
-command updates the same event in place to the real placed block times.
+**They get there by themselves.** Saving an ``ObservationRecord`` -- whether
+FOMO submitted it, TOM's ``updatestatus`` refreshed it from the LCO portal,
+or ``backfill_lco_observation_records`` created it -- draws or updates that
+record's own ``CalendarEvent``, keyed on its portal URL, with no operator
+command. This is the observation projector (``solsys_code/observation_projector.py``):
+a Django ``post_save`` signal receiver connected for every LCO and SOAR
+``ObservationRecord``, live since Phase 34.
 
-The required ``--proposal`` flag accepts:
+The event narrows as the record's own fields change:
 
-* a single proposal code, e.g. ``--proposal LCO2026A-001``;
-* a comma-separated list of codes, e.g. ``--proposal A,B,C`` (matches only
-  those exact codes -- no substring leakage, so ``--proposal A`` never also
-  matches a proposal literally named ``AB``);
-* the case-insensitive token ``ALL``, which syncs every LCO and SOAR record
-  regardless of proposal.
+* the submitted request window while the record is still queued;
+* the real placed block once the LCO scheduler places it;
+* the observed block once it is actually observed;
+* a marked event on the original window if the record expires, is
+  cancelled, or fails.
+
+The event's title carries a compact marker naming that stage, e.g.
+``[Q] 2m0 3I/ATLAS``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Marker
+     - Meaning
+   * - ``[Q]``
+     - Queued -- awaiting placement by the LCO scheduler.
+   * - ``[S]``
+     - Scheduled -- placed by the scheduler, not yet observed.
+   * - ``[O]``
+     - Observed -- a successful terminal status.
+   * - ``[X]``
+     - Window expired before the observation was attempted.
+   * - ``[C]``
+     - Cancelled.
+   * - ``[F]``
+     - Failed (failure limit reached, or never attempted).
+   * - ``[?]``
+     - Inconsistent record -- only one of ``scheduled_start``/
+       ``scheduled_end`` is set; projected anyway so the data problem is
+       visible on the calendar rather than only in a log.
+
+This letter vocabulary is provisional -- Phase 37 (status vocabulary) owns
+its final wording, so the exact markers may still change.
+
+You do not need to come back to this runbook to decode a marker on the
+calendar page itself: the calendar carries its own status **legend** row,
+listing every marker above beside its meaning (Queued, Scheduled, Observed,
+Window expired, Cancelled, Failed, Inconsistent record), so an operator
+reading a month cell can decode it at a glance. The ring drawn around a
+month cell follows the same vocabulary: a Queued or an Inconsistent record
+entry is ringed, a Scheduled or Observed entry is not.
+
+Observation series
+^^^^^^^^^^^^^^^^^^^^^
+
+For a record belonging to an observation group of two or more, clicking its
+calendar entry's pop-up shows an **Observation series** block: the group's
+name, which night of how many this entry is, and links back to the group
+and to the record's own detail page. Exactly like the "Attributed campaign
+run" block described below, this numbering is read from the entry's
+companion row (``CalendarEventMeta.observation_group``) every time the page
+is drawn -- it is never written into the entry's own title or description,
+so re-projecting an entry cannot erase it, and adding or removing a night
+never rewrites a sibling's stored title. Nights are numbered by window
+start, so a cadence reads in observing order rather than in the order the
+entries happen to have been created. An entry with no group, or belonging
+to a group of one, simply shows no block.
+
+**One-time title change.** The first sweep of ``project_observation_calendar``
+after Phase 34 updates, once, the titles and companion-row links of the
+legacy LCO/SOAR calendar entries an earlier sync had already created,
+because they still carry that older stopgap wording. This is expected, not
+a fault. What survives it: entries keyed on a campaign run, on a Gemini
+submission, or on nothing at all are left exactly as they were -- the
+projector only ever touches its own facility-URL-keyed events. Every field
+the sweep rewrites is re-derived from the observation record itself, so a
+later title-wording change plus one more sweep simply re-derives those
+titles again.
+
+When would I run the sweep?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``post_save`` receiver above covers ``ObservationRecord.save()``, but it
+cannot see a write path that bypasses ``save()`` entirely --
+``QuerySet.update()``, ``bulk_create()``, and anything editing rows outside
+Django. ``project_observation_calendar`` is the backstop sweep for exactly
+those paths, plus the one-time observed-telescope lookup for a newly
+observed record (a single live portal call per record, ever). It needs no
+arguments -- omitting every flag sweeps every LCO/SOAR record:
 
 .. code-block:: console
 
-   >> python3 manage.py sync_lco_observation_calendar --proposal LCO2026A-001
-   >> python3 manage.py sync_lco_observation_calendar --proposal ALL
+   >> python3 manage.py project_observation_calendar
+   >> python3 manage.py project_observation_calendar --dry-run
+
+Optional flags: ``--proposal <code|A,B,C>`` restricts the sweep to one or
+more exact proposal codes (comma-separated, no substring matching);
+``--facility <LCO|SOAR>`` restricts it to one facility; ``--dry-run``
+reports what would change without writing anything.
+
+The final summary line reports these counters per facility::
+
+   Done. failed: 0 | LCO: created: 3, updated: 156, unchanged: 0, unprojectable: 0, site_lookups: 59, site_lookup_failed: 1 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
+
+``created``/``updated``/``unchanged`` are the events the sweep drew, refreshed,
+or left alone; ``unprojectable`` counts a record the sweep could not project
+at all (for example, an unparsable request window); ``site_lookups`` counts
+a successful one-time observed-telescope lookup; ``site_lookup_failed``
+counts a lookup that has not yet succeeded, retried automatically on the
+next sweep.
 
 How do I backfill ObservationRecords for LCO observations submitted outside FOMO?
 ------------------------------------------------------------------------------------
@@ -80,9 +169,15 @@ request. A request that already has an ``ObservationRecord`` is skipped, so
 the command is safe to re-run.
 
 It exists to create the ObservationRecords for observations submitted
-directly at the LCO portal rather than through FOMO -- those records are what
-``sync_lco_observation_calendar`` above then projects onto the calendar, so
-run this command first, then the sync.
+directly at the LCO portal rather than through FOMO -- each created
+record's own ``save()`` draws its own calendar event automatically (see
+"How do LCO/SOAR queue observations get onto the calendar?" above), no
+separate sync step needed. It is still worth running
+``project_observation_calendar`` afterwards, though: this command links a
+multi-request RequestGroup into its own ``ObservationGroup`` *after* each
+member record's own save, and the calendar's "Observation series"
+decoration and any newly-observed record's telescope label both depend on
+that later step (a sweep), not the initial save.
 
 The required ``--proposal <code>`` (exact match) and ``--name-prefix
 <string>`` flags select which RequestGroups to backfill.
@@ -243,15 +338,27 @@ calendar, unconditionally.
 
    >> python3 manage.py sync_gemini_observation_calendar
 
-Unlike the LCO/SOAR sync above, this command has **no proposal or filter
-flag at all** -- it always processes every Gemini ``ObservationRecord`` in
-the database. If you're used to the ``--proposal`` flag from the LCO
-section, do not expect an equivalent here; there is nothing to pass. Each
-record's observing window comes from its explicit
+Unlike LCO/SOAR above, this command has **no proposal or filter flag at
+all** -- it always processes every Gemini ``ObservationRecord`` in the
+database. If you're used to the ``--proposal`` flag from the LCO section,
+do not expect an equivalent here; there is nothing to pass. Each record's
+observing window comes from its explicit
 ``windowDate``/``windowTime``/``windowDuration`` parameters when present,
 or is otherwise derived from its Target-of-Opportunity type (a Rapid ToO
 gets a 24-hour window from submission; a Standard ToO gets a 24-hour to
 7-day window).
+
+**Gemini has no observation-status or observation-URL read-back.** The
+Gemini facility class provides no way to ask the portal what actually
+happened to a submitted observation, unlike LCO/SOAR (see above). A Gemini
+calendar event is therefore a submission-echo only: it shows what was
+requested, and it never narrows to a placed or observed block the way an
+LCO or SOAR event does, however many times this command is re-run. The
+automatic observation projector deliberately ignores Gemini records for
+exactly this reason -- there is nothing for it to read back and narrow.
+This command is, and stays, the only way a Gemini observation reaches the
+calendar. This is an operating limitation to keep in mind when reading a
+Gemini entry, not a defect in this command.
 
 How do I reach the approval queue?
 ---------------------------------------
@@ -890,9 +997,11 @@ Three things to know about that inline:
   verification history, survive untouched; nothing is deleted.
 * Two further fields on that same inline, **Observation record** and
   **Observation group**, are read-only: they record which real observation
-  an entry was drawn from, are filled in by code only, and are empty for
-  every entry today. The phase that fills them in is named in the roadmap
-  (Phase 34, the observation projector).
+  an entry was drawn from. As of Phase 34, every LCO/SOAR observation
+  projector-owned entry carries these automatically -- see "How do LCO/SOAR
+  queue observations get onto the calendar?" above -- so they are filled
+  in by code only; they stay blank on any entry the projector does not
+  own (a reconciler entry, a Gemini entry, a hand entry).
 
 An entry with no companion record at all, or with the attribution link
 left blank, still means "not attributed to any campaign run" -- never
@@ -927,9 +1036,9 @@ Command cheat-sheet
    * - ``load_telescope_runs``
      - ``<filepath>`` (positional), ``--campaign <name>`` (optional)
      - Ingest a classical-schedule text file into per-night CalendarEvents.
-   * - ``sync_lco_observation_calendar``
-     - ``--proposal <code|A,B,C|ALL>`` (required)
-     - Sync LCO/SOAR queue ObservationRecords to CalendarEvents.
+   * - ``project_observation_calendar``
+     - ``--proposal <A,B>``, ``--facility <LCO|SOAR>``, ``--dry-run`` (all optional)
+     - Backstop sweep: re-project LCO/SOAR ObservationRecords onto the calendar.
    * - ``backfill_lco_observation_records``
      - ``--proposal <code>``, ``--name-prefix <str>`` (both required); ``--campaign <name>``,
        ``--username <user>``, ``--create-missing-targets``, ``--dry-run`` (optional)
@@ -960,10 +1069,11 @@ Observatory missing timezone
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Any command that needs to compute sunset/sunrise or the -15 deg dark
-window for a site (``sync_lco_observation_calendar``,
-``reconcile_campaign_runs``, and any future projection over that
-Observatory) will fail with an error like this, observed running a real
-backfill against the dev database:
+window for a site (``load_telescope_runs``, ``reconcile_campaign_runs``,
+and any future projection over that Observatory) will fail with an error
+like this, observed running a real backfill against the dev database.
+``project_observation_calendar`` computes no sun event at all, so it
+cannot produce this error:
 
 .. code-block:: console
 
@@ -993,12 +1103,15 @@ summary count.
       Line 12: Observatory 'XYZ' (obscode=???) has no timezone set (line text: 'XYZ Instrument 1-5 July')
       Done. lines processed: 20, created: 95, updated: 0, unchanged: 0, skipped: 1
 
-* ``sync_lco_observation_calendar`` falls back to a coarse, clearly-labelled
-  ``[UNVERIFIED]`` telescope name (instead of skipping the record) when its
-  per-record live telescope-label API call times out or returns an
-  unmapped site/telescope code. This is tracked as its own
-  ``telescope_api_failed`` counter, separate from ``skipped``, and the
-  record still gets a ``CalendarEvent``.
+* ``project_observation_calendar`` counts, rather than skips, a record it
+  cannot project (for example, an unparsable request window) under
+  ``unprojectable`` -- the record simply carries no calendar event until
+  the underlying data problem is fixed and the sweep re-run. A record
+  whose one-time observed-telescope lookup has not (yet) succeeded is a
+  different, non-failure case: it keeps its coarse aperture-class label
+  (never a fallback marker -- there is no ``[UNVERIFIED]`` in this
+  vocabulary) and is counted under ``site_lookup_failed``, retried
+  automatically on the next sweep.
 
 * ``reconcile_campaign_runs`` catches any exception a single run's
   reconciliation raises (for example, the Observatory-timezone gap above) at

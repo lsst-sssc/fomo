@@ -57,3 +57,17 @@ TBD. Options to weigh once Phase 7 is done and stable:
   for a single-consumer module has its own cost.
 - Re-check SNEX2 for a possibly-shared implementation pattern (rate-limited out
   during the Phase 7 investigation).
+
+## Closed as overtaken (2026-09-11, Phase 34 plan 34-04)
+
+This todo's target file, `solsys_code/management/commands/sync_lco_observation_calendar.py`,
+was deleted outright in Phase 34 plan 34-02 (D-18) -- the observation projector and its
+`project_observation_calendar` sweep replace it. There is nothing left to extract *from*.
+
+The mapping/extraction logic this todo wanted moved out of the management command already
+lives in a shared module: `SITE_TELESCOPE_MAP`, `derive_telescope`, `extract_instrument`,
+`resolve_placement_block`, `aperture_class_from_telescope_code` and friends are all in
+`solsys_code/calendar_utils.py` (a genuinely shared module today, imported by both
+`observation_projector.py` and `project_observation_calendar.py`), not the deleted file.
+The extraction this todo proposed effectively happened -- as a byproduct of the projector's
+own build, not as a dedicated refactor -- so there is no remaining action.

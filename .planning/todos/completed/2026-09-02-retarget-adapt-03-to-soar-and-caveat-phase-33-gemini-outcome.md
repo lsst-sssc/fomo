@@ -89,3 +89,19 @@ and the correction section appended to
 ## v2.4 routing note (2026-09-03)
 
 v2.3's ADAPT-03 and Phase 33 no longer exist (milestone superseded by v2.4). The intent — SOAR as a second source of robotic `ObservationRecord`s flowing through the same path as LCO ones, distinct from the submission-echo Gemini path — is carried by v2.4's PROJ-01 ("every LCO/SOAR `ObservationRecord`"), SCHED-08 and DISCOVER-01, and the Gemini no-read-back caveat by ANNOT-03. All land in Phase 34 (The Observation Projector & Trigger). The `SOAR_QUEUE` source value already shipped in plan 32-01 Task 1 (`f03553a`).
+
+## Closed (2026-09-11, Phase 34 plan 34-04)
+
+All three items landed in Phase 34:
+
+- **One (`SOAR_QUEUE` source value):** shipped earlier, in plan 32-01 Task 1 (`f03553a`),
+  per the v2.4 routing note above.
+- **Two (SOAR as the second robotic facility):** `observation_projector.py`'s
+  `PROJECTED_FACILITIES = ('LCO', 'SOAR')` (plan 34-01) makes SOAR a first-class member of
+  the same projection path as LCO -- no separate SOAR command, exactly as this todo's
+  "Problem" section observed was already true of the retired sync command.
+- **Three (the Gemini outcome-propagation caveat):** `observation_projector.py` deliberately
+  ignores Gemini records (D-16, plan 34-01), and the runbook's Gemini section and the
+  `sync_gemini_observation_calendar_demo.ipynb` notebook (plan 34-04 Task 2) both now state
+  plainly that Gemini has no observation-status or observation-URL read-back, so a Gemini
+  calendar event is submission-echo only and never narrows.
