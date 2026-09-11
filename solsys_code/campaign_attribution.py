@@ -302,12 +302,20 @@ def telescope_match_score(
     1. The orphan's telescope string carries a recognised LCO site code (e.g. ``'COJ-2m0'``)
        and that code has a verified entry in ``LCO_SITE_CODE_TO_OBSCODE`` and ``run.site`` is
        set: ``TELESCOPE_MATCH_SITE`` on an obscode match, ``TELESCOPE_MATCH_NONE`` on a
-       mismatch.
+       mismatch. Since D-07 (34-02 Task 3), ``_extract_lco_site_code()`` also resolves an
+       *observed* telescope token via ``OBSERVED_TELESCOPE_SITE_CODES`` at this same step, so a
+       projector-owned token such as ``'FTS'``/``'FTN'`` now reaches step 1 and can never fall
+       through to step 2 below.
     2. Otherwise, the orphan's telescope string is itself a classical-run-file nickname (a key
-       of ``telescope_runs.SITES``, e.g. ``'FTS'`` -- what a classically-scheduled
+       of ``telescope_runs.SITES``, e.g. ``'NTT'`` -- what a classically-scheduled
        ``CalendarEvent``'s ``telescope`` field literally carries, per
        ``load_telescope_runs.py``) and ``run.site`` is set: same two outcomes, comparing the
-       classical-vocabulary-derived obscode against ``run.site.obscode``.
+       classical-vocabulary-derived obscode against ``run.site.obscode``. Only telescope tokens
+       with no observed-site entry (``'Magellan-Clay'``, ``'Magellan-Baade'``, ``'NTT'``) can
+       still reach this step; the evidence string a classical-alias match produces also reads
+       "orphan telescope '...' is a classical site alias for ..." rather than the step-1
+       wording ("orphan LCO site code '...' resolves to obscode ...") -- same score, different
+       operator-facing text.
     3. Otherwise compare aperture classes: the orphan's telescope code (falling back to its
        instrument code, which carries a leading aperture token in the real LCO data --
        ``'2M0-SCICAM-MUSCAT'``) against ``run.telescope_class`` or
