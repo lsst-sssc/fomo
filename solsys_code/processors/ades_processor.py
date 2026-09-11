@@ -63,7 +63,9 @@ class ADESProcessor(DataProcessor):
         """
         astrometry = []
         data_file = default_storage.open(data_product.data.name, 'r')
-        data = astropy.io.ascii.read(data_file.read())
+        # NEOCP/Scout observation files can carry all-numeric station codes (e.g. '703'), which
+        # would otherwise be parsed as integers, dropping the leading zero of codes like '046'.
+        data = astropy.io.ascii.read(data_file.read(), converters={'stn': str})
         if len(data) < 1:
             raise InvalidFileFormatException('Empty table or invalid file type')
 
@@ -116,6 +118,10 @@ class ADESProcessor(DataProcessor):
         """
         Processes the ADES astrometry and photometry data from a pandas DataFrame into a list of dicts.
 
+        The `stn` column should be read as a string by the caller (e.g. `dtype={'stn': str}`);
+        an all-numeric station code that pandas has already parsed as an integer has lost any
+        leading zero by the time it gets here.
+
         :param df: ADES pandas.DataFrame which will be processed into a list of dicts for the measurements
         :type df: pandas.DataFrame
         :return: python list containing the astrometric data from the DataFrame
@@ -132,7 +138,7 @@ class ADESProcessor(DataProcessor):
                 value = {
                     'timestamp': time.to_datetime(timezone=utc),
                     'filter': str(row.band),
-                    'telescope': row.stn,
+                    'telescope': str(row.stn),
                 }
                 value['ra'] = float(row.ra)
                 value['ra_error'] = None

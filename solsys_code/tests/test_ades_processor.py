@@ -154,6 +154,33 @@ class TestADESProcessor(TestCase):
         self.assertAlmostEqual(0.535, astrometry[-1]['ra_error'])
         self.assertEqual('arcsec', astrometry[-1]['ra_error_units'])
 
+    def test_read_all_numeric_station_codes(self):
+        """Station codes must survive as strings, including any leading zero.
+
+        NEOCP candidate observation files (e.g. the Observation File linked from a JPL Scout
+        object page) are often short and from a single site, so the `stn` column can be entirely
+        numeric and would otherwise be parsed as an integer column. The PSV below is synthetic,
+        constructed to exercise exactly that case.
+        """
+        psv = (
+            b'# version=2022\n'
+            b'permID |trkSub |mode|stn |obsTime                 |ra          |dec         |'
+            b'rmsRA  |rmsDec |mag  |rmsMag|band\n'
+            b'       |C46HTM1| CCD|703 |2026-09-10T05:27:02.700Z|138.03662   | 12.40388   |'
+            b'0.450  |0.450  |19.2 |0.150 |   G\n'
+            b'       |C46HTM1| CCD|046 |2026-09-10T05:30:22.000Z|138.03701   | 12.40383   |'
+            b'0.470  |0.470  |19.3 |0.160 |   G\n'
+        )
+        self.data_product.data.save('neocp.psv', SimpleUploadedFile('neocp.psv', psv))
+
+        # this is the call under test
+        astrometry = ADESProcessor()._process_astrometry_from_plaintext(self.data_product)
+
+        self.assertEqual(2, len(astrometry))
+        self.assertEqual(['703', '046'], [datum['telescope'] for datum in astrometry])
+        for datum in astrometry:
+            self.assertIsInstance(datum['telescope'], str)
+
     def test_run_data_processor_creates_astrometry_reduced_datums(self):
         """End-to-end test that a DataProduct of type 'astrometry' is routed to ADESProcessor and
         that the emitted keys land on AstrometryReducedDatum's own fields rather than in `value`.
