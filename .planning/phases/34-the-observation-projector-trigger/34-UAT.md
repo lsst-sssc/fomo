@@ -1,9 +1,9 @@
 ---
-status: partial
+status: diagnosed
 phase: 34-the-observation-projector-trigger
 source: [34-VERIFICATION.md]
 started: 2026-09-11T04:44:59Z
-updated: 2026-09-11T20:22:16Z
+updated: 2026-09-11T20:23:06Z
 ---
 
 ## Current Test
@@ -142,4 +142,4 @@ blocked: 1
     - "Coerce scheduled_start/scheduled_end to aware datetimes on the projector path (e.g. in record_time_window() or event_fields_for(): accept str via datetime.fromisoformat, treat 'Z' / naive as UTC), so a post_save instance holding portal strings projects the same as a DB-fetched one"
     - "Make the updatestatus signals test feed ISO strings exactly as OCSFacility.get_observation_status returns them, so the test exercises the real contract"
     - "Paired docs per CLAUDE.md: project_observation_calendar_demo.ipynb re-executed after the fix; the 33 stale events should then be repaired by the next `updatestatus` run alone (each run re-saves every record), which is itself the SCHED-06 evidence Test 4 needs -- do NOT run the real sweep to repair them"
-  debug_session: ""
+  debug_session: ".planning/debug/34-updatestatus-receiver-attributeerror.md"
