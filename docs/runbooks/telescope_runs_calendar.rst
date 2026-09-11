@@ -87,7 +87,11 @@ The event's title carries a compact marker naming that stage, e.g.
    * - ``[?]``
      - Inconsistent record -- only one of ``scheduled_start``/
        ``scheduled_end`` is set; projected anyway so the data problem is
-       visible on the calendar rather than only in a log.
+       visible on the calendar rather than only in a log. A failure marker
+       always wins over ``[?]`` (``title_for()``), so a record that is both
+       inconsistent *and* window-expired/cancelled/failed shows ``[X]``/
+       ``[C]``/``[F]`` instead -- the data problem is then visible only in
+       a log, not on the calendar, for that combination.
 
 This letter vocabulary is provisional -- Phase 37 (status vocabulary) owns
 its final wording, so the exact markers may still change.
