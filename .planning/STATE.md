@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 34
 current_phase_name: The Observation Projector & Trigger
 status: executing
-stopped_at: Completed 34-06-PLAN.md
-last_updated: "2026-09-11T23:21:09.362Z"
+stopped_at: Completed 34-07-PLAN.md
+last_updated: "2026-09-11T23:52:44.677Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 34 execution started
-state_head: 8d48c1666dce0fcc7f5ef5ea64e80b87ba398794
+state_head: 4501677a3f7aa8da2271e1367cb15c97d66a49c5
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
   percent: 20
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 
 ## Current Position
 
-Phase: 34 (The Observation Projector & Trigger) — READY TO EXECUTE
-Plan: 3 of 6
+Phase: 34 (The Observation Projector & Trigger) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 34 execution started
 
@@ -187,6 +187,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 34 P04 | 40min | 2 tasks | 11 files |
 | Phase 34 P05 | 24min | 2 tasks | 3 files |
 | Phase 34-the-observation-projector-trigger P06 | ~10min | 2 tasks | 1 files |
+| Phase 34 P07 | ~50min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -248,6 +249,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 34]: [Phase 34-05] Task 2 pins the coercion contract with tests only -- no calendar_utils.py change, since Task 1's GREEN commit already implemented coerce_schedule_datetime() correctly
 - [Phase 34]: 34-06: SCRATCH_DB_OVERRIDE pattern lets project_observation_calendar_demo.ipynb run against either the real developer database or a FOMO_DATABASE_PATH-routed scratch copy, guarding both the resolved-database assert and the SCHED-06 baseline JSON write on the same flag.
 - [Phase 34]: 34-06: G-34-2 closed with live proof -- a real updatestatus run against a scratch copy of the developer database logged zero unprojectable lines, and the following dry-run sweep reported updated: 0, unprojectable: 0 for LCO; the 33 stale LCO events on the real developer database were left untouched for the operator's own SCHED-06 re-check (34-UAT.md Test 4).
+- [Phase 34]: [Phase 34] 34-07: gsd_run check tdd-red-evidence could not classify Task 3's RED phase (TAP parser is Node-test-specific, does not recognize Django's unittest output); workflow.tdd_mode is false for this project, so RED was verified manually from the real named-assertion failure instead of the tool-mediated gate.
+- [Phase 34]: [Phase 34] 34-07: one nbconvert re-execution retry was required after a real network flake (a retried site lookup succeeded on the second sweep, producing updated: 1) tripped the pre-existing convergence assert; re-cloned fresh from src/fomo_db.sqlite3 and re-executed once more per the plan's own re-run rule, converging cleanly.
 
 ### Pending Todos
 
@@ -343,8 +346,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T21:33:06.405Z
-Stopped at: Completed 34-06-PLAN.md
+Last session: 2026-09-11T23:52:35.365Z
+Stopped at: Completed 34-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
