@@ -98,7 +98,8 @@ listing every marker above beside its meaning (Queued, Scheduled, Observed,
 Window expired, Cancelled, Failed, Inconsistent record), so an operator
 reading a month cell can decode it at a glance. The ring drawn around a
 month cell follows the same vocabulary: a Queued or an Inconsistent record
-entry is ringed, a Scheduled or Observed entry is not.
+entry is ringed, a Scheduled or Observed entry is not, and an expired,
+cancelled or failed entry carries the terminal ring.
 
 Observation series
 ^^^^^^^^^^^^^^^^^^^^^
