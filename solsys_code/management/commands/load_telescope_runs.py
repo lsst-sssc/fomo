@@ -22,9 +22,10 @@ from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, ParsedRun, get_si
 _START_TIME_MATCH_TOLERANCE = timedelta(minutes=5)
 
 # Classical-schedule status -> title prefix (D-02). Only 'cancelled' has a visible
-# prefix today, mirroring sync_lco_observation_calendar's _FAILURE_PREFIX_BY_STATUS
-# idiom; '[CANCELLED]' is already a member of calendar_display_extras._TERMINAL_PREFIXES
-# so the terminal box-shadow ring is inherited with no templatetag change.
+# prefix today, mirroring the hand-typed status-to-prefix dict idiom used elsewhere in this
+# codebase (e.g. observation_projector._FAILURE_MARKER_BY_STATUS); '[CANCELLED]' is already
+# a member of calendar_display_extras._TERMINAL_PREFIXES so the terminal box-shadow ring is
+# inherited with no templatetag change.
 _CLASSICAL_STATUS_PREFIX = {'cancelled': '[CANCELLED]'}
 
 

@@ -1,9 +1,11 @@
 """Shared LCO/SOAR telescope-mapping helpers and CalendarEvent create-or-update helper.
 
-Provides the instrument-extraction chain and telescope-mapping constants extracted from
-sync_lco_observation_calendar so all three management commands (sync_lco,
-sync_gemini, load_telescope_runs) can share a single implementation, plus the
-no-churn CalendarEvent create-or-update function used by all three consumers.
+Provides the instrument-extraction chain and telescope-mapping constants originally
+extracted from the retired v1.3-era LCO/SOAR sync command (superseded by the observation
+projector and its sweep, D-18) so the remaining calendar-writing consumers -- the observation
+projector, its sweep command, sync_gemini_observation_calendar, and load_telescope_runs --
+can share a single implementation, plus the no-churn CalendarEvent create-or-update function
+used by all of them.
 """
 
 import re
@@ -423,11 +425,12 @@ def coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
 def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     """Derive the active start/end time window for an ObservationRecord (SYNC-02/SYNC-03).
 
-    Promoted from ``sync_lco_observation_calendar._time_window()`` (Plan 28-02 Task 2) so the
-    attribution matcher (``campaign_attribution.py``) and the LCO/SOAR sync command share one
-    definition of "this record's active window" instead of two independently-maintained
-    copies. Body and raising contract are byte-identical to the original -- a pure move, no
-    behaviour change (CLAUDE.md's paired-notebook trigger is deliberately NOT fired for this
+    Promoted from the retired v1.3-era LCO/SOAR sync command's own ``_time_window()`` (Plan
+    28-02 Task 2) so the attribution matcher (``campaign_attribution.py``) and every
+    calendar-writing consumer share one definition of "this record's active window" instead of
+    independently-maintained copies. Body and raising contract are byte-identical to the
+    original -- a pure move, no behaviour change (CLAUDE.md's paired-notebook trigger is
+    deliberately NOT fired for this
     reason; see 28-02-SUMMARY.md).
 
     Args:
@@ -487,8 +490,8 @@ def insert_or_create_calendar_event(
 ) -> tuple[CalendarEvent, str]:
     """Create or update a CalendarEvent, or leave it unchanged if no fields differ.
 
-    Implements the no-churn create-or-update contract shared by all three management
-    commands (sync_lco_observation_calendar, sync_gemini_observation_calendar,
+    Implements the no-churn create-or-update contract shared by every calendar-writing
+    consumer (the observation projector and its sweep, sync_gemini_observation_calendar,
     load_telescope_runs): create a new CalendarEvent if none exists for the given
     lookup key, update it in place if any fields changed, or leave it untouched if
     nothing changed (SYNC-04 idempotency).

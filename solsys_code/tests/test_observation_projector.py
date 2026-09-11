@@ -1,8 +1,8 @@
 """Every stage, every marker, no churn -- the observation projector's full behaviour
 (D-01..D-13, PROJ-01/PROJ-02/PROJ-03/PROJ-05/PROJ-06). Migrates the behaviours the retired
-``sync_lco_observation_calendar`` command's 38-test module covered (no-churn assertions,
-per-facility dispatch, failure-marker priority, successful-terminal-state-never-bannered) as
-projector-native tests, not a structural copy.
+LCO/SOAR sync command's 38-test module covered (no-churn assertions, per-facility dispatch,
+failure-marker priority, successful-terminal-state-never-bannered) as projector-native tests,
+not a structural copy.
 
 Uses ``tom_targets.tests.factories.NonSiderealTargetFactory`` for every target fixture --
 FOMO is exclusively a Solar System TOM, so a sidereal fixture would misrepresent what this
@@ -15,6 +15,7 @@ from datetime import timezone as dt_timezone
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationGroup, ObservationRecord
+from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import observation_projector as op
@@ -556,3 +557,54 @@ class TestNamespaceIsolation(_ObservationProjectorTestBase):
                 event.instrument,
             )
             self.assertEqual(snapshot[event.pk], after)
+
+
+class TestFieldPopulation(_ObservationProjectorTestBase):
+    """Migrated from the retired LCO/SOAR sync command's test module (34-02 Task 2):
+    proposal field, description content, and target_list single/zero/multi-membership."""
+
+    def test_proposal_field_equals_the_records_own_proposal(self) -> None:
+        record = self._make_record('fields-proposal', proposal='FIELDPROP')
+        facility = op.facility_for(record)
+        fields, _stage = op.event_fields_for(record, facility)
+        self.assertEqual(fields['proposal'], 'FIELDPROP')
+
+    def test_description_contains_proposal_status_and_window(self) -> None:
+        record = self._make_record(
+            'fields-description',
+            status='PENDING',
+            proposal='DESCPROP',
+            start='2026-09-01T00:00:00',
+            end='2026-09-02T00:00:00',
+        )
+        facility = op.facility_for(record)
+        fields, _stage = op.event_fields_for(record, facility)
+        desc = fields['description']
+        self.assertIn('DESCPROP', desc)
+        self.assertIn('PENDING', desc)
+        self.assertIn('2026-09-01', desc)
+        self.assertIn('2026-09-02', desc)
+
+    def test_single_target_list_membership_sets_target_list(self) -> None:
+        target_list = TargetList.objects.create(name='Solo Campaign')
+        target_list.targets.add(self.target)
+        record = self._make_record('fields-tl-single')
+        facility = op.facility_for(record)
+        fields, _stage = op.event_fields_for(record, facility)
+        self.assertEqual(fields['target_list'], target_list)
+
+    def test_zero_target_list_membership_sets_none_no_crash(self) -> None:
+        record = self._make_record('fields-tl-zero')
+        facility = op.facility_for(record)
+        fields, _stage = op.event_fields_for(record, facility)
+        self.assertIsNone(fields['target_list'])
+
+    def test_multi_target_list_membership_picks_alphabetically_first(self) -> None:
+        first_list = TargetList.objects.create(name='Alpha Campaign')
+        second_list = TargetList.objects.create(name='Beta Campaign')
+        first_list.targets.add(self.target)
+        second_list.targets.add(self.target)
+        record = self._make_record('fields-tl-multi')
+        facility = op.facility_for(record)
+        fields, _stage = op.event_fields_for(record, facility)
+        self.assertEqual(fields['target_list'], first_list)

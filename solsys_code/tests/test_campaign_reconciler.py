@@ -980,7 +980,7 @@ class TestAttributedEventsSurviveReconcile(CampaignReconcilerTestBase):
         event = CalendarEvent.objects.create(
             title='LCO record event',
             url='https://observe.lco.global/api/requestgroups/999999/',
-            description='Synced by sync_lco_observation_calendar',
+            description='Synced by the retired LCO/SOAR sync command',
             telescope='FTN',
             instrument='MuSCAT3',
             start_time=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
@@ -1184,7 +1184,7 @@ class TestRecordEventNonInterference(CampaignReconcilerTestBase):
             parameters={'proposal': 'TEST'},
         )
         expected_start, expected_end = record_time_window(record)
-        # Keyed the way sync_lco_observation_calendar keys a record-derived event: an LCO
+        # Keyed the way the observation projector keys a record-derived event: an LCO
         # portal request url, NOT a RUN:-namespaced one.
         record_event = CalendarEvent.objects.create(
             title='LCO record event',
@@ -1314,7 +1314,7 @@ class TestContainerRecordEventNonInterference(CampaignReconcilerTestBase):
             parameters={'proposal': 'TEST'},
         )
         expected_start, expected_end = record_time_window(record)
-        # Keyed the way sync_lco_observation_calendar keys a record-derived event: an LCO
+        # Keyed the way the observation projector keys a record-derived event: an LCO
         # portal request url, NOT a RUN:-namespaced one.
         record_event = CalendarEvent.objects.create(
             title='LCO record event (container branch)',

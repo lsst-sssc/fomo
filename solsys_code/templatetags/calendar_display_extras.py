@@ -106,10 +106,14 @@ NEUTRAL_SLOT_COLOR = '#5a6268'
 # D-06: human-readable label for classical-schedule (empty-proposal) legend entry.
 CLASSICAL_SCHEDULE_LABEL = 'Classical schedule'
 
-# Title-prefix vocabulary emitted by sync_lco_observation_calendar.py (confirmed live), plus
-# '[WEATHERED]' (D-03, campaign_views._RUN_STATUS_CALENDAR_PREFIX, Phase 23 Plan 02) --
-# both must stay byte-identical. Terminal states: observations that reached an
-# unrecoverable failure state. [QUEUED] is handled separately (its own branch below).
+# Legacy verbose title-prefix vocabulary (the v1.3-era LCO/SOAR sync command's own prefixes,
+# retired 34-02/D-18 but still emitted by load_telescope_runs.py and campaign_views.py),
+# plus '[WEATHERED]' (D-03, campaign_views._RUN_STATUS_CALENDAR_PREFIX, Phase 23 Plan 02) --
+# both must stay byte-identical to their producers. Terminal states: observations that
+# reached an unrecoverable failure state. [QUEUED] is handled separately (its own branch
+# below). The observation projector's own terse bracket markers ([X]/[C]/[F]/[?] etc,
+# observation_projector.py) are a DIFFERENT vocabulary this function does not yet recognize
+# -- reconciling the two is Phase 37's STATUS-01/02, not this phase's concern.
 _TERMINAL_PREFIXES = ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[WEATHERED]')
 
 
@@ -142,7 +146,7 @@ def proposal_color(proposal: str) -> str:
 def status_border_css(title: str) -> str:
     """Return a CSS box-shadow fragment encoding the observation status (DISPLAY-06).
 
-    Maps the title-prefix vocabulary from sync_lco_observation_calendar.py to a
+    Maps the legacy verbose title-prefix vocabulary (see ``_TERMINAL_PREFIXES`` above) to a
     box-shadow ring (D-08 resolved=box-shadow).  The placed bucket ([UNVERIFIED]
     or no prefix) intentionally returns '' because Phase 8's D-09-reserved
     border treatment already owns the verified/fallback visual distinction —

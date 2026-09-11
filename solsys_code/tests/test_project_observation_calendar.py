@@ -166,6 +166,31 @@ class TestProposalAndFacilityFiltering(_ProjectObservationCalendarTestBase):
         with self.assertRaises(CommandError):
             call_command('project_observation_calendar', '--facility', 'GEM', stdout=StringIO(), stderr=StringIO())
 
+    def test_comma_list_matches_any_no_substring_leakage(self) -> None:
+        """Migrated from the retired sync command's SELECT-02 test (34-02 Task 2)."""
+        self._make_record('comma-a', proposal='A')
+        self._make_record('comma-b', proposal='B')
+        self._make_record('comma-c', proposal='C')
+        self._make_record('comma-decoy', proposal='AB')
+
+        call_command('project_observation_calendar', '--proposal', 'A,B,C', stdout=StringIO(), stderr=StringIO())
+
+        self.assertEqual(CalendarEvent.objects.count(), 3)
+        decoy_facility = op.facility_for(ObservationRecord.objects.get(observation_id='comma-decoy'))
+        self.assertFalse(CalendarEvent.objects.filter(url=decoy_facility.get_observation_url('comma-decoy')).exists())
+
+    def test_zero_matching_proposal_reports_created_zero_no_error(self) -> None:
+        """Migrated from the retired sync command's zero-match test (34-02 Task 2)."""
+        self._make_record('zero-match', proposal='SOMEOTHERCODE')
+
+        out = StringIO()
+        call_command('project_observation_calendar', '--proposal', 'NOMATCHCODE', stdout=out, stderr=StringIO())
+
+        self.assertEqual(CalendarEvent.objects.count(), 0)
+        summary = _parse_summary(out.getvalue())
+        for facility_counters in summary.values():
+            self.assertEqual(facility_counters['created'], 0)
+
 
 class TestDryRun(_ProjectObservationCalendarTestBase):
     def test_dry_run_writes_nothing_and_matches_the_subsequent_real_run(self) -> None:

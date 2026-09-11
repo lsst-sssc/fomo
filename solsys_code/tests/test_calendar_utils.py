@@ -17,6 +17,7 @@ from solsys_code.calendar_utils import (
     aperture_class_from_telescope_code,
     derive_telescope,
     derive_telescope_class,
+    extract_instrument,
     insert_or_create_calendar_event,
     preview_calendar_event_action,
     record_time_window,
@@ -25,9 +26,9 @@ from solsys_code.calendar_utils import (
 )
 from solsys_code.models import CampaignRun
 
-# IN-02: imported (not duplicated) from the shared fixture module, not from
-# test_sync_lco_observation_calendar -- importing one test module from another meant any
-# import-time failure over there also failed this module, for a helper unrelated to the
+# IN-02: imported (not duplicated) from the shared fixture module, not from the retired
+# LCO/SOAR sync command's own test module -- importing one test module from another meant
+# any import-time failure over there also failed this module, for a helper unrelated to the
 # sync command.
 from solsys_code.tests.helpers import observations_block_response
 
@@ -309,9 +310,9 @@ class TestDeriveTelescopeClass(TestCase):
 
 
 class TestTelescopeLabelResolutionHelpers(TestCase):
-    """Relocated from test_sync_lco_observation_calendar.py (todo 2026-07-02, second half):
-    these tests exercise calendar_utils helpers directly via mocks and never invoke the
-    sync_lco_observation_calendar management command, so they belong here."""
+    """Relocated from the retired LCO/SOAR sync command's own test module (todo 2026-07-02,
+    second half): these tests exercise calendar_utils helpers directly via mocks and never
+    invoke a management command, so they belong here."""
 
     def test_telescope_01_verified_dict_covers_all_sites(self):
         """TELESCOPE-01: verified dict covers all 7 real sites with SITECODE-CLASS labels."""
@@ -366,8 +367,9 @@ class TestTelescopeLabelResolutionHelpers(TestCase):
 
 
 class TestResolvePlacementBlockFailureModes(TestCase):
-    """Relocated from test_sync_lco_observation_calendar.py (todo 2026-07-02, second half):
-    resolve_placement_block()'s own failure-mode contract, exercised directly via mocks."""
+    """Relocated from the retired LCO/SOAR sync command's own test module (todo 2026-07-02,
+    second half): resolve_placement_block()'s own failure-mode contract, exercised directly
+    via mocks."""
 
     def test_sync_08_single_attempt_no_retry(self):
         """SYNC-08: a timeout results in exactly one make_request call, no retry loop."""
@@ -410,10 +412,11 @@ class TestResolvePlacementBlockFailureModes(TestCase):
 
 
 class TestRecordTimeWindow(TestCase):
-    """record_time_window() -- promoted from sync_lco_observation_calendar._time_window()
-    (Plan 28-02 Task 2) so the matcher (campaign_attribution.py) and the sync command share
-    one definition. Covers both branches; the parameters-fallback branch is the common case
-    for real LCO orphan records (NULL scheduled_start), not an edge case (RESEARCH.md)."""
+    """record_time_window() -- promoted from the retired LCO/SOAR sync command's own
+    _time_window() (Plan 28-02 Task 2) so the matcher (campaign_attribution.py) and every
+    calendar-writing consumer share one definition. Covers both branches; the
+    parameters-fallback branch is the common case for real LCO orphan records (NULL
+    scheduled_start), not an edge case (RESEARCH.md)."""
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -528,3 +531,62 @@ class TestPreviewCalendarEventAction(TestCase):
         reloaded = CalendarEvent.objects.get(pk=event.pk)
         self.assertEqual(reloaded.modified, modified_before)
         self.assertEqual(CalendarEvent.objects.count(), count_before)
+
+
+class TestExtractInstrument(TestCase):
+    """Migrated from the retired LCO/SOAR sync command's own test module (34-02 Task 2,
+    EXTRACT-02/D-01..D-06): extract_instrument() is exercised directly against the real
+    c_1..c_5 multi-configuration parameter shape, with no command/facility fixtures needed."""
+
+    def test_soar_multi_config_picks_spectrum_not_calibration(self):
+        """EXTRACT-02: a SOAR SPECTRUM+ARC+LAMP_FLAT record extracts the SPECTRUM config's
+        instrument_type, never the ARC/LAMP_FLAT calibration configs."""
+        parameters = {
+            'instrument_type': 'NOT-THE-SOURCE',
+            'c_1_configuration_type': 'SPECTRUM',
+            'c_1_instrument_type': 'SOAR_GHTS_REDCAM',
+            'c_2_configuration_type': 'ARC',
+            'c_2_instrument_type': 'SOAR_GHTS_REDCAM_ARC',
+            'c_3_configuration_type': 'LAMP_FLAT',
+            'c_3_instrument_type': 'SOAR_GHTS_REDCAM_LAMPFLAT',
+        }
+        result = extract_instrument(parameters)
+        self.assertEqual(result, 'SOAR_GHTS_REDCAM')
+        self.assertNotEqual(result, 'SOAR_GHTS_REDCAM_ARC')
+        self.assertNotEqual(result, 'SOAR_GHTS_REDCAM_LAMPFLAT')
+
+    def test_muscat_per_channel_exposure_extracts_instrument(self):
+        """EXTRACT-02/D-04: an LCO MUSCAT record with only per-channel exposure keys (no flat
+        c_N_exposure_time) extracts its instrument_type without raising/empty; fewer than 4
+        populated channels still extracts correctly (D-04 leniency)."""
+        full_channels = {
+            'instrument_type': 'NOT-THE-SOURCE',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_instrument_type': '2M0-SCICAM-MUSCAT',
+            'c_1_ic_1_exposure_time_g': 30.0,
+            'c_1_ic_1_exposure_time_r': 30.0,
+            'c_1_ic_1_exposure_time_i': 30.0,
+            'c_1_ic_1_exposure_time_z': 30.0,
+        }
+        self.assertEqual(extract_instrument(full_channels), '2M0-SCICAM-MUSCAT')
+
+        one_channel = {
+            'instrument_type': 'NOT-THE-SOURCE',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_instrument_type': '2M0-SCICAM-MUSCAT',
+            'c_1_ic_1_exposure_time_g': 30.0,
+        }
+        self.assertEqual(extract_instrument(one_channel), '2M0-SCICAM-MUSCAT')
+
+    def test_no_recognized_config_and_no_flat_key_returns_none(self):
+        """D-06: a fully-malformed record (no recognized configuration_type, no exposure
+        signal anywhere, no flat instrument_type) returns None -- the caller
+        (observation_projector.event_fields_for) is what raises InstrumentExtractionError
+        and routes it to the 'unprojectable' bucket, already proven by the sweep's generic
+        failure-isolation tests (test_project_observation_calendar.py)."""
+        parameters = {
+            'c_1_configuration_type': 'ARC',
+            'c_1_instrument_type': 'SOMETHING',
+            'instrument_type': None,
+        }
+        self.assertIsNone(extract_instrument(parameters))
