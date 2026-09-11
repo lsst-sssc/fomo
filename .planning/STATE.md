@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 Phase: 34 (The Observation Projector & Trigger) — EXECUTING
 Plan: 4 of 4
 Status: Phase complete — ready for verification
-Last activity: 2026-09-10 — Phase 34 execution started
+Last activity: 2026-09-11 - Completed quick task 260911-9rd: Close Phase 34 review finding CR-01 by analysis: record the LCO/SOAR shared request-ID rationale in 34-REVIEW-FIX.md and add an event_url() regression test
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -298,6 +298,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260903-ik7 | Fix backfill_lco_observations --dry-run summary: wire would-create/update/unchanged, target and group counters, add embedded-block vs fallback-lookup counters | 2026-09-03 | ec11123 | complete | [260903-ik7-fix-backfill-lco-observations-dry-run-su](./quick/260903-ik7-fix-backfill-lco-observations-dry-run-su/) |
 | 260903-jid | Fix backfill_lco_observations doubled summary line: drop explicit stdout write, keep return so Django prints it once | 2026-09-03 | 699908a | complete | [260903-jid-fix-backfill-lco-observations-doubled-su](./quick/260903-jid-fix-backfill-lco-observations-doubled-su/) |
 | 260903-kpy | Collect every Target touched by a backfill_lco_observations sweep into a <proposal>_targets TargetList (create-or-reuse, idempotent, dry-run aware, --target-list override) | 2026-09-03 | 1082550 | complete | [260903-kpy-collect-every-target-touched-by-a-backfi](./quick/260903-kpy-collect-every-target-touched-by-a-backfi/) |
+| 260911-9rd | Close Phase 34 review finding CR-01 by analysis: record the LCO/SOAR shared request-ID rationale in 34-REVIEW-FIX.md and add an event_url() regression test | 2026-09-11 | 0a87174 | complete | [260911-9rd-close-phase-34-review-finding-cr-01-by-a](./quick/260911-9rd-close-phase-34-review-finding-cr-01-by-a/) |
 
 ## Deferred Items
 
