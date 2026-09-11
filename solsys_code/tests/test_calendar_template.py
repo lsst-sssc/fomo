@@ -1281,53 +1281,45 @@ class EventModalSeriesDecorationTest(TestCase):
         self.assertNotIn('Pending Review Group Name', content)
         self.assertNotIn('Night 1 of 2', content)
 
-    def test_month_view_query_count_does_not_grow_with_second_grouped_event(self):
-        """Count-comparison form (1 grouped event vs. 2), never a hard-coded number, per
-        the sibling campaign-attribution query-count test's own convention."""
-        r1 = self._make_record(
-            'query-guard-1',
-            datetime(2026, 10, 1, 20, 0, tzinfo=dt_timezone.utc),
-            datetime(2026, 10, 1, 21, 0, tzinfo=dt_timezone.utc),
+    def _make_modal_group_event(self, group_name: str, month: int, size: int) -> CalendarEvent:
+        """Build a `size`-member ObservationGroup and a CalendarEvent linked to its first
+        member, all in `month` (2026) so distinct calls never collide on window times."""
+        records = [
+            self._make_record(
+                f'{group_name}-{i}',
+                datetime(2026, month, 1 + i, 20, 0, tzinfo=dt_timezone.utc),
+                datetime(2026, month, 1 + i, 21, 0, tzinfo=dt_timezone.utc),
+            )
+            for i in range(size)
+        ]
+        group = ObservationGroup.objects.create(name=group_name)
+        self._add_to_group(group, *records)
+        event = CalendarEvent.objects.create(
+            title=f'{group_name} event',
+            start_time=datetime(2026, month, 1, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, month, 1, 21, 0, tzinfo=dt_timezone.utc),
         )
-        r2 = self._make_record(
-            'query-guard-2',
-            datetime(2026, 10, 2, 20, 0, tzinfo=dt_timezone.utc),
-            datetime(2026, 10, 2, 21, 0, tzinfo=dt_timezone.utc),
-        )
-        group1 = ObservationGroup.objects.create(name='Query Guard Group 1')
-        self._add_to_group(group1, r1, r2)
-        event1 = CalendarEvent.objects.create(
-            title='Query guard event 1',
-            start_time=datetime(2026, 10, 1, 20, 0, tzinfo=dt_timezone.utc),
-            end_time=datetime(2026, 10, 1, 21, 0, tzinfo=dt_timezone.utc),
-        )
-        CalendarEventMeta.objects.create(event=event1, observation_record=r1, observation_group=group1)
+        CalendarEventMeta.objects.create(event=event, observation_record=records[0], observation_group=group)
+        return event
 
-        with CaptureQueriesContext(connection) as single_ctx:
-            self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 10})
-        single_count = len(single_ctx)
+    def test_modal_query_count_does_not_grow_with_group_size(self):
+        """WR-05: observation_series_decoration() is reachable only from the event-update
+        modal (tom_calendar.views.update_event fetches its one CalendarEvent by pk with no
+        select_related of its own) -- calendar:calendar never renders it, so the previous
+        version of this test measured the month view and passed unconditionally regardless
+        of the tag's real per-modal fan-out. Compares a 2-member group against a 10-member
+        group, count-comparison form (never a hard-coded number), per the sibling
+        campaign-attribution query-count test's own convention."""
+        small_event = self._make_modal_group_event('Query Guard Small Group', month=10, size=2)
 
-        r3 = self._make_record(
-            'query-guard-3',
-            datetime(2026, 10, 3, 20, 0, tzinfo=dt_timezone.utc),
-            datetime(2026, 10, 3, 21, 0, tzinfo=dt_timezone.utc),
-        )
-        r4 = self._make_record(
-            'query-guard-4',
-            datetime(2026, 10, 4, 20, 0, tzinfo=dt_timezone.utc),
-            datetime(2026, 10, 4, 21, 0, tzinfo=dt_timezone.utc),
-        )
-        group2 = ObservationGroup.objects.create(name='Query Guard Group 2')
-        self._add_to_group(group2, r3, r4)
-        event2 = CalendarEvent.objects.create(
-            title='Query guard event 2',
-            start_time=datetime(2026, 10, 3, 20, 0, tzinfo=dt_timezone.utc),
-            end_time=datetime(2026, 10, 3, 21, 0, tzinfo=dt_timezone.utc),
-        )
-        CalendarEventMeta.objects.create(event=event2, observation_record=r3, observation_group=group2)
+        with CaptureQueriesContext(connection) as small_ctx:
+            self.client.get(self._modal_url(small_event))
+        small_count = len(small_ctx)
 
-        with CaptureQueriesContext(connection) as multi_ctx:
-            self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 10})
-        multi_count = len(multi_ctx)
+        large_event = self._make_modal_group_event('Query Guard Large Group', month=11, size=10)
 
-        self.assertEqual(multi_count, single_count)
+        with CaptureQueriesContext(connection) as large_ctx:
+            self.client.get(self._modal_url(large_event))
+        large_count = len(large_ctx)
+
+        self.assertEqual(large_count, small_count)
