@@ -42,14 +42,14 @@ class TestReadPSV(SimpleTestCase):
                 '',
             ],
             [
-                '217P',
                 '',
+                'C/2025 K1',
                 '',
                 'CCD',
                 'Z24',
                 '2025-11-11T05:43:44.6Z',
                 '138.038423',
-                '+12.403937',
+                '-12.403937',
                 '0.119',
                 '0.072',
                 'Gaia3',
@@ -64,7 +64,7 @@ class TestReadPSV(SimpleTestCase):
                 '170',
                 '0.13',
                 '474',
-                '',
+                'K',
                 '',
             ],
         ]
@@ -146,7 +146,7 @@ class TestZeroApertureExtrapolation(SimpleTestCase):
             (138.037354, 12.403898),
             (138.037738, 12.404076),
             (138.038080, 12.403972),
-            (138.038430, 12.403934),
+            (138.038430, -12.403934),
         ]
         for expected_ra_dec, values in zip(expected_zaa_ra_dec, derived_zaa.values()):
             self.assertAlmostEqual(expected_ra_dec[0], values['zero_ap_ra'], places=6)
@@ -163,20 +163,19 @@ class TestWritePSV(SimpleTestCase):
             '2025-11-11T05:33:42.3Z': {'zero_ap_ra': 138.037354, 'zero_ap_dec': 12.403898},
             '2025-11-11T05:37:02.8Z': {'zero_ap_ra': 138.037738, 'zero_ap_dec': 12.404076},
             '2025-11-11T05:40:24.0Z': {'zero_ap_ra': 138.038080, 'zero_ap_dec': 12.403972},
-            '2025-11-11T05:43:44.6Z': {'zero_ap_ra': 138.038430, 'zero_ap_dec': 12.403934},
+            '2025-11-11T05:43:44.6Z': {'zero_ap_ra': 138.038430, 'zero_ap_dec': -12.403934},
         }
 
         self.maxDiff = None
         return super().setUp()
 
     def test_write_psv(self):
-        tmp = tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv', delete=True)
-        output_psv_file = Path(tmp.name)
-        write_psv(self.ades_data, self.expected_zaa_ra_dec, output_psv_file)
-
-        # Read back the written file and compare
-        with open(output_psv_file, 'r') as f:
-            written_lines = f.readlines()
+        with tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv') as tmp:
+            output_psv_file = Path(tmp.name)
+            write_psv(self.ades_data, self.expected_zaa_ra_dec, output_psv_file)
+            # Read back the written file and compare
+            with open(output_psv_file, 'r') as f:
+                written_lines = f.readlines()
         check_217p = False
         for line in written_lines:
             if line.startswith('permID'):
@@ -209,5 +208,3 @@ class TestWritePSV(SimpleTestCase):
                     ),
                 )
                 break
-        # Clean up
-        tmp.close()
