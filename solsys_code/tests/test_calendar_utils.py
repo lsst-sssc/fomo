@@ -485,6 +485,12 @@ class TestCoerceScheduleDatetime(SimpleTestCase):
         with self.assertRaisesRegex(ValueError, re.escape(repr('not-a-timestamp'))):
             coerce_schedule_datetime('not-a-timestamp')
 
+    def test_bare_iso_date_string_raises_value_error(self):
+        """WR-03: a bare ISO date string (no time component) is rejected rather than
+        silently accepted as midnight -- a schedule field is a block boundary, not a day."""
+        with self.assertRaisesRegex(ValueError, 'Schedule value is a date, not a datetime'):
+            coerce_schedule_datetime('2026-09-18')
+
 
 class TestRecordTimeWindow(TestCase):
     """record_time_window() -- promoted from the retired LCO/SOAR sync command's own

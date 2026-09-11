@@ -485,13 +485,16 @@ def coerce_schedule_datetime(value: datetime | str | None) -> datetime | None:
 
     Raises:
         ValueError: if `value` is a ``str`` that ``django.utils.dateparse.parse_datetime``
-            cannot parse, or if `value` is neither ``str``, ``datetime`` nor ``None``. This
-            function never returns ``None`` for an unusable value: ``stage_for()`` has
-            already classified a non-``None`` schedule field as a placed block (D-10), so
-            silently degrading it to ``None`` here would draw a queued-looking event over
-            the wrong window. Raising instead keeps the record a D-13 ``unprojectable`` one
-            -- visible in the log and the sweep counters, with the record's own save never
-            aborted and its existing event left untouched.
+            cannot parse, if `value` is a bare ISO date string with no time component
+            (WR-03 -- a schedule field is a block boundary, not a day, and
+            ``parse_datetime()`` would otherwise silently accept one as midnight), or if
+            `value` is neither ``str``, ``datetime`` nor ``None``. This function never
+            returns ``None`` for an unusable value: ``stage_for()`` has already classified
+            a non-``None`` schedule field as a placed block (D-10), so silently degrading
+            it to ``None`` here would draw a queued-looking event over the wrong window.
+            Raising instead keeps the record a D-13 ``unprojectable`` one -- visible in the
+            log and the sweep counters, with the record's own save never aborted and its
+            existing event left untouched.
     """
     if value is None:
         return None
@@ -499,6 +502,8 @@ def coerce_schedule_datetime(value: datetime | str | None) -> datetime | None:
         parsed = parse_datetime(value)
         if parsed is None:
             raise ValueError(f'Unparseable schedule datetime string: {value!r}')
+        if len(value) <= 10:  # WR-03: bare ISO date ('YYYY-MM-DD') -- not a block boundary
+            raise ValueError(f'Schedule value is a date, not a datetime: {value!r}')
         value = parsed
     elif not isinstance(value, datetime):
         raise ValueError(f'Unusable schedule datetime value: {value!r}')
