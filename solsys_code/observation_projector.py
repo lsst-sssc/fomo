@@ -392,9 +392,19 @@ def project_queryset(
     ``calendar_utils.preview_calendar_event_action(before, fields)`` -- never from
     ``project_record()``'s own return value, which can report 'unchanged' even when this
     iteration's own write already changed the event (e.g. Task 3's observed-site save firing
-    the ``post_save`` receiver mid-iteration). This is what keeps a dry-run count structurally
-    unable to disagree with what a real run would do: both modes read the same ``before`` and
-    apply the same comparison helper.
+    the ``post_save`` receiver mid-iteration). This is what keeps a dry-run count in agreement
+    with what a real run would do for every field ``event_fields_for()`` derives from the
+    record's own already-stored state: both modes read the same ``before`` and apply the same
+    comparison helper.
+
+    WR-02: this agreement has one documented exception. ``pre_fields_hook`` -- the one-time
+    observed-site lookup -- is never called when ``dry_run`` is True, so the observed-telescope
+    token (D-07) is never resolved in a dry run. A record whose only pending change is the
+    coarse-to-observed token (e.g. ``'2m0'`` -> ``'FTN'``) is therefore reported ``unchanged``
+    by ``--dry-run`` and ``updated`` by the real run that follows it, and ``site_lookups``
+    itself is always 0 in a dry run. A dry-run count is otherwise structurally unable to
+    disagree with what a real run would do -- this is the one field it cannot predict without
+    making the network call it exists to avoid.
 
     ``pre_fields_hook``, when given, is called once per record with ``(record, facility)``
     AFTER ``before`` is captured and BEFORE ``fields``/``stage`` are built -- the extension

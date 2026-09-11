@@ -159,6 +159,13 @@ a successful one-time observed-telescope lookup; ``site_lookup_failed``
 counts a lookup that has not yet succeeded, retried automatically on the
 next sweep.
 
+A ``--dry-run`` pass agrees with a real sweep's counts for every field derived
+from a record's own already-stored state, with one exception: a dry run never
+performs the one-time observed-site lookup, so its ``site_lookups`` is always
+0, and a record whose only pending change is the coarse-to-observed telescope
+token (e.g. ``2m0`` to ``FTN``) is reported ``unchanged`` by ``--dry-run`` but
+``updated`` by the real sweep that follows it.
+
 How do I backfill ObservationRecords for LCO observations submitted outside FOMO?
 ------------------------------------------------------------------------------------
 

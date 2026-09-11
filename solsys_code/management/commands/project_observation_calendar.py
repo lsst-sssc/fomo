@@ -6,7 +6,11 @@ Closes the gap the ``post_save`` receiver alone cannot: ``QuerySet.update()``,
 ``bulk_create()`` and ``backfill_lco_observations`` all bypass ``Model.save()``, so the
 receiver never sees them. This command shares the receiver's own comparison rule
 (``calendar_utils.preview_calendar_event_action()``) via ``project_queryset()``, so a
-``--dry-run`` count can never disagree with what a real sweep would do.
+``--dry-run`` count agrees with what a real sweep would do for every field derived from a
+record's own already-stored state -- with one documented exception (WR-02): a dry run never
+performs the one-time observed-site lookup, so ``site_lookups`` is always 0 and a record whose
+only pending change is the coarse-to-observed telescope token is reported ``unchanged`` by
+``--dry-run`` but ``updated`` by the real sweep that follows it.
 """
 
 from typing import Any
