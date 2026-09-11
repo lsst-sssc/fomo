@@ -244,6 +244,17 @@
                    hx-get="{% url 'calendar:update-event' event.id %}"
               >
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
+                {% comment %}
+                WR-06 (Phase 34 review): no code path writes is_verified=False any more --
+                the old LCO/SOAR sync command that did was retired for the observation
+                projector (D-06, 34-DISCUSSION-LOG.md), which writes True unconditionally,
+                and the reconciler never touches this field. This branch is unreachable from
+                any current writer; it is kept only because several tests (and any
+                historical/admin-set row from before this phase) still construct a
+                CalendarEventMeta with is_verified=False directly. Not deleted in this phase
+                -- see 34-REVIEW-FIX.md WR-06 for the decision to file real removal into a
+                later phase rather than widen this fix's scope.
+                {% endcomment %}
                 {% if event.telescope_label_meta.is_verified == False %}
                 <div class="cal-event-all-day{% if bg_color == neutral_color %} cal-event-classical{% endif %}" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);{% if bg_color == neutral_color %} --tel-color: {{ tel_color }};{% endif %}"
                      title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
@@ -262,6 +273,7 @@
               {% proposal_color event.proposal as bg_color %}
               {% status_border_css event.title as status_border %}
               {% campaign_decoration event as campaign_deco %}
+              {# WR-06: same unreachable-from-any-current-writer note as the all-day branch above #}
               {% if event.telescope_label_meta.is_verified == False %}
               <div class="cal-event cal-event-timed"
                    data-proposal="{{ bg_color }}"

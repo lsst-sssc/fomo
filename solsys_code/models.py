@@ -19,6 +19,16 @@ class CalendarEventMeta(models.Model):
     `CalendarEventRunLink` precisely so a third field added in a future version needs no
     second rename.
 
+    WR-06 (Phase 34 review): as of Phase 34, no writer in this codebase sets
+    ``is_verified=False`` any more -- the v1.3-era LCO/SOAR sync command that could is
+    retired (D-06/D-18); the observation projector (Phase 34) writes ``is_verified=True``
+    unconditionally, and the campaign reconciler never touches this field at all. A
+    ``False`` value can therefore only be a historical row from before this phase, or one
+    set directly (the admin form, a test fixture) rather than by any current projection
+    path -- it is not currently reachable by re-running any sweep or receiver. The two
+    ``calendar.html`` template branches keyed on ``is_verified == False`` are consequently
+    unreachable from current production writes; see the code comment at each branch.
+
     A row whose ``run`` is unset means "not attributed to any campaign run" -- never "do not
     touch". Phase 33 (PROJ-04, D-05/D-06/D-07) adds two further links: ``observation_record``
     and ``observation_group`` carry which ``ObservationRecord`` and ``ObservationGroup`` the
@@ -33,6 +43,9 @@ class CalendarEventMeta(models.Model):
         related_name='telescope_label_meta',
         verbose_name='Calendar event',
     )
+    # WR-06: verbose_name text is left as-is (changing it would need a migration -- out of
+    # scope for this fix); see the class docstring above for what this field currently
+    # means in practice: no current writer sets it False.
     is_verified = models.BooleanField(
         default=True, verbose_name='Whether the telescope label was live-verified against the LCO API'
     )
