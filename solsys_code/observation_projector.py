@@ -616,6 +616,19 @@ def receiver_on_group_membership_changed(
     *after* each record's own save, so a record's group link would otherwise never reach its
     event until the next sweep.
 
+    ``project_record()`` protects against a database error escaping into the caller's own
+    transaction itself (its own ``transaction.atomic()`` savepoint, documented on that
+    function); the ``try`` around each call below is the same second, outer layer of
+    defence ``receiver_on_record_save()`` carries, in case a future change to
+    ``project_record()`` ever lets something non-database escape it. When
+    ``project_record()`` instead reports its own failure through its return value (the
+    ``'unprojectable'`` action -- its normal, never-raises way of reporting a write
+    failure), that is logged here with its own message naming the membership change as the
+    trigger, on top of ``project_record()``'s own generic warning -- unlike
+    ``receiver_on_record_save()``, which only logs this outcome at debug level, since a
+    failed re-projection triggered by someone else's membership edit is the one context
+    here where an operator reading warning-level logs has something concrete to act on.
+
     Args:
         sender: the through model for ``ObservationGroup.observation_records``.
         instance: the ``ObservationGroup`` (forward direction, ``reverse=False``) or the
@@ -657,13 +670,35 @@ def receiver_on_group_membership_changed(
     for record in ObservationRecord.objects.filter(pk__in=record_pks):
         if record.facility not in PROJECTED_FACILITIES:
             continue
+        # project_record() already protects itself (its own transaction.atomic() savepoint,
+        # documented on that function); this try is the same second, outer layer of defence
+        # receiver_on_record_save() carries, in case a future change to project_record() ever
+        # lets something non-database escape it -- not live error handling on its own.
         try:
-            project_record(record)
+            # Named record_action, not action, so it can never be mistaken for (or shadow)
+            # this function's own `action` parameter -- Django's m2m signal action string
+            # ('post_add'/'post_remove'/'post_clear') -- which is a completely different
+            # value already consumed above.
+            record_action, stage = project_record(record)
         except Exception as exc:  # noqa: BLE001 -- never break the caller's membership change
             logger.warning(
                 'receiver_on_group_membership_changed failed for observation_id=%r: %s',
                 record.observation_id,
                 type(exc).__name__,
+            )
+            continue
+        if record_action == 'unprojectable':
+            # project_record() never raises for this outcome -- it reports failure through
+            # its return value instead (see that function's own docstring), so this is the
+            # normal path for a write failure here, not the except above. Logged with its
+            # own message (rather than relying on project_record()'s own generic warning)
+            # so the log makes clear the failure surfaced during a group membership change,
+            # the one context in which re-projection is triggered by something other than
+            # the record's own save.
+            logger.warning(
+                'group membership change left observation_id=%r unprojectable: %s',
+                record.observation_id,
+                stage,
             )
 
 

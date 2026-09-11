@@ -152,6 +152,39 @@ class TestGroupMembershipReceiver(ObservationProjectorSignalsTestCase):
         meta = CalendarEventMeta.objects.get(observation_record=self.record)
         self.assertEqual(meta.observation_group_id, group.pk)
 
+    def test_group_add_with_write_failure_logs_a_membership_specific_warning(self) -> None:
+        """A record whose event write fails during a membership change (here: a
+        pre-existing duplicate-url CalendarEvent making get_or_create() raise
+        MultipleObjectsReturned inside project_record()) must not raise, must leave the
+        membership change itself intact, and must log a warning naming the membership
+        change as the trigger -- on top of project_record()'s own generic warning, not
+        instead of it."""
+        from solsys_code import observation_projector as op
+
+        facility = op.facility_for(self.record)
+        url = facility.get_observation_url(self.record.observation_id)
+        # self.record already has its own projector-owned event (created by the fixture's
+        # own ObservationRecord.objects.create() post_save call); adding a second row at
+        # the same url reproduces the duplicate-url condition get_or_create() cannot
+        # tolerate.
+        CalendarEvent.objects.create(
+            url=url,
+            title='pre-existing duplicate',
+            start_time=self.window_start,
+            end_time=self.window_end,
+        )
+
+        group = ObservationGroup.objects.create(name='signals-group-write-failure')
+        with self.assertLogs('solsys_code.observation_projector', level='WARNING') as logs:
+            group.observation_records.add(self.record)  # must not raise
+
+        self.assertIn(self.record, group.observation_records.all())
+        joined = '\n'.join(logs.output)
+        self.assertIn(f'unprojectable observation_id={self.record.observation_id!r}', joined)
+        self.assertIn(
+            f'group membership change left observation_id={self.record.observation_id!r} unprojectable', joined
+        )
+
     def test_gemini_record_added_to_group_writes_no_calendar_event(self) -> None:
         gem_record = ObservationRecord.objects.create(
             target=self.target,
