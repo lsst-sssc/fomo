@@ -575,10 +575,17 @@ class TestRecordTimeWindow(TestCase):
         """G-34-2: the post-save-instance case, not a database row --
         update_observation_status() assigns the portal's raw ISO strings onto
         scheduled_start/scheduled_end and calls save(), so record_time_window() must
-        coerce the in-memory string the same way a DB-fetched datetime would."""
+        coerce the in-memory string the same way a DB-fetched datetime would.
+
+        WR-10: constructed without ``.objects.create()`` so no INSERT happens and no
+        post_save signal fires -- this test's name and docstring claim "not a database
+        row", and until now it used a real ``.create()`` call that also fired the
+        projector's post_save receiver (silently swallowed since the fixture's parameters
+        carry no instrument signal). Building the instance directly is what actually pins
+        the in-memory contract."""
         start = datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc)
         end = datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc)
-        record = ObservationRecord.objects.create(
+        record = ObservationRecord(
             target=self.target,
             user=self.user,
             facility='LCO',
