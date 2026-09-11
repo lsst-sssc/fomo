@@ -459,6 +459,25 @@ class TestProjectRecordWrites(_ObservationProjectorTestBase):
         self.assertTrue(CalendarEvent.objects.filter(url=lco_url).exists())
         self.assertTrue(CalendarEvent.objects.filter(url=soar_url).exists())
 
+    def test_lco_and_soar_records_sharing_an_observation_id_get_one_shared_url(self) -> None:
+        """SOAR is scheduled through the same LCO Observation Portal, so one
+        observation_id is one portal request and one event url is its correct single
+        identity -- per-facility namespacing would wrongly split one real request into
+        two calendar events."""
+        shared_id = 'writes-lco-soar-shared-id'
+        lco_record = self._make_record(shared_id, facility='LCO')
+        soar_record = self._make_record(shared_id, facility='SOAR', instrument_type='SOAR_GHTS_REDCAM')
+        op.project_record(lco_record)
+        op.project_record(soar_record)
+
+        lco_facility = op.facility_for(lco_record)
+        soar_facility = op.facility_for(soar_record)
+
+        lco_url = op.event_url(lco_record, lco_facility)
+        soar_url = op.event_url(soar_record, soar_facility)
+        self.assertEqual(lco_url, soar_url)
+        self.assertEqual(CalendarEvent.objects.filter(url=lco_url).count(), 1)
+
 
 class TestMetaLinks(_ObservationProjectorTestBase):
     """write_event_meta(): the observation_record/observation_group link contract."""
