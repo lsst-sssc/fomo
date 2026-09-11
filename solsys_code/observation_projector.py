@@ -368,7 +368,7 @@ def project_record(record: ObservationRecord) -> tuple[str, str]:
             event, action = insert_or_create_calendar_event({'url': event_url(record, facility)}, fields)
             write_event_meta(event, record)
     except Exception as exc:  # noqa: BLE001 -- a projector must never break the triggering save
-        logger.warning('unprojectable observation_id=%r: %s', record.observation_id, type(exc).__name__)
+        logger.warning('unprojectable observation_id=%r: %s: %s', record.observation_id, type(exc).__name__, exc)
         return 'unprojectable', type(exc).__name__
     return action, stage
 
@@ -485,7 +485,9 @@ def project_queryset(
             try:
                 fields, stage = event_fields_for(record, facility)
             except Exception as exc:  # noqa: BLE001 -- a bad row must never end the sweep
-                logger.warning('unprojectable observation_id=%r: %s', record.observation_id, type(exc).__name__)
+                logger.warning(
+                    'unprojectable observation_id=%r: %s: %s', record.observation_id, type(exc).__name__, exc
+                )
                 facility_counters['unprojectable'] += 1
                 rows.append(
                     {
