@@ -151,7 +151,11 @@ arguments -- omitting every flag sweeps every LCO/SOAR record:
 Optional flags: ``--proposal <code|A,B,C>`` restricts the sweep to one or
 more exact proposal codes (comma-separated, no substring matching);
 ``--facility <LCO|SOAR>`` restricts it to one facility; ``--dry-run``
-reports what would change without writing anything.
+reports what would change without writing anything. ``--proposal`` fails
+closed: a value that parses to no usable code at all (e.g. ``--proposal ','``
+or a string of nothing but commas/spaces) raises an error rather than
+silently widening the sweep to every record in scope -- the opposite of what
+naming ``--proposal`` is asking for.
 
 The final summary line reports these counters per facility::
 

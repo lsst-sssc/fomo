@@ -182,6 +182,19 @@ class TestProposalAndFacilityFiltering(_ProjectObservationCalendarTestBase):
         decoy_facility = op.facility_for(ObservationRecord.objects.get(observation_id='comma-decoy'))
         self.assertFalse(CalendarEvent.objects.filter(url=decoy_facility.get_observation_url('comma-decoy')).exists())
 
+    def test_proposal_with_only_empty_segments_raises_instead_of_sweeping_everything(self) -> None:
+        """WR-04: --proposal ',,' parses to no usable code -- this must fail closed
+        (CommandError) rather than silently widening to the full unfiltered corpus, which
+        is the opposite of what an operator naming --proposal at all is asking for."""
+        self._make_record('proposal-guard-a', proposal='A')
+        self._make_record('proposal-guard-b', proposal='B')
+
+        with self.assertRaises(CommandError):
+            call_command('project_observation_calendar', '--proposal', ',,', stdout=StringIO(), stderr=StringIO())
+
+        # Fails before writing anything -- the guard raises before the queryset is swept.
+        self.assertEqual(CalendarEvent.objects.count(), 0)
+
     def test_zero_matching_proposal_reports_created_zero_no_error(self) -> None:
         """Migrated from the retired sync command's zero-match test (34-02 Task 2)."""
         self._make_record('zero-match', proposal='SOMEOTHERCODE')

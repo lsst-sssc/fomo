@@ -15,7 +15,7 @@ only pending change is the coarse-to-observed telescope token is reported ``unch
 
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 from tom_observations.models import ObservationRecord
 
 from solsys_code.calendar_utils import OBSERVED_SITE_PARAMETER_KEYS, derive_telescope, resolve_placement_block
@@ -174,10 +174,16 @@ class Command(BaseCommand):
         facilities_in_scope = [facility_filter] if facility_filter else list(PROJECTED_FACILITIES)
 
         records = ObservationRecord.objects.filter(facility__in=facilities_in_scope)
-        if proposal_raw:
+        if proposal_raw is not None:
             codes = _parse_proposal_arg(proposal_raw)
-            if codes:
-                records = records.filter(parameters__proposal__in=codes)
+            if not codes:
+                # Fail closed: every segment of --proposal parsed to nothing usable (e.g.
+                # ',' or ' '), so silently widening to every record in scope would sweep
+                # the opposite of what the operator asked for -- and, unlike --facility's
+                # argparse choices=, there would be no error and no scope note anywhere in
+                # the summary line to reveal it happened.
+                raise CommandError(f'--proposal {proposal_raw!r} names no usable proposal code.')
+            records = records.filter(parameters__proposal__in=codes)
 
         def hook(record: ObservationRecord, facility: Any) -> dict[str, int] | None:
             increment, message = resolve_observed_site(record, facility)
