@@ -222,7 +222,7 @@ before == after) is the regression test that guards it forever.
 **Primary recommendation:** Port spike 002's `projector.py` classifier and event-building logic
 nearly verbatim into a new `solsys_code/observation_projector.py`, wire the three receivers in
 `SolsysCodeConfig.ready()` per spike 001b's proven contract, build the sweep as a management
-command mirroring `reconcile_campaign_runs.py`'s `--dry-run`/summary shape, and retire
+command mirroring `reconcile_campaign_runs.py`'s `--dry-run`/summary conventions, and retire
 `sync_lco_observation_calendar` in the same phase since the takeover of its 156 legacy events is
 a plain `insert_or_create_calendar_event()` update once the projector exists.
 
@@ -379,7 +379,7 @@ never propagate and abort the caller's save (TRIG-02).
 **Example:**
 ```python
 # Source: sources/002-observation-projector/projector.py:158-172 (spike, VALIDATED against
-# 146 real records) — port this shape into solsys_code/observation_projector.py
+# 146 real records) — port this logic into solsys_code/observation_projector.py
 def project_record(record: ObservationRecord) -> tuple[str, str]:
     facility = facility_for(record)
     try:
@@ -457,7 +457,7 @@ record's own facility URL (namespace safety).
 **Example (mirrors the existing `CampaignRun` pre_delete receiver):**
 ```python
 # Source: solsys_code/models.py:423-455 [VERIFIED] — same pre_delete-before-SET_NULL pattern,
-# different model. Reuse this shape, not this code, for ObservationRecord.
+# different model. Reuse this pattern, not this code, for ObservationRecord.
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -482,7 +482,7 @@ over stage markers.
 **When to use:** Building `title_for()`.
 **Example (spike 002's ladder, adapted to D-01..D-04's single-marker vocabulary):**
 ```python
-# Source: sources/002-observation-projector/projector.py:107-118 (spike shape) +
+# Source: sources/002-observation-projector/projector.py:107-118 (spike source) +
 # solsys_code/management/commands/sync_lco_observation_calendar.py:52-65 (_failure_prefix,
 # reused verbatim per D-18)
 _STAGE_MARKER = {'queued': '[Q]', 'placed': '[S]', 'observed': '[O]', 'completed-no-block': '[O]'}
@@ -523,7 +523,7 @@ def title_for(record, stage, token, target_name) -> str:
 | `--dry-run` preview without writing | A parallel "would-be" code path | `calendar_utils.preview_calendar_event_action()` [VERIFIED: solsys_code/calendar_utils.py:575-595] | Uses the identical comparison `_update_or_unchanged()` uses, so dry-run counts can never disagree with a real run |
 | Observed-site telescope label resolution | A new LCO API client | `calendar_utils.resolve_placement_block()` + `derive_telescope()` + `SITE_TELESCOPE_MAP` [VERIFIED: solsys_code/calendar_utils.py:255-304,232-252,42-57] | Already timeout-bounded (10s), never-raising, and selects the same COMPLETED-first-else-PENDING block TOM's own status poll uses |
 | Per-facility failed/terminal state check | Hardcoding `status == 'COMPLETED'` | `facility.get_failed_observing_states()` / `get_terminal_observing_states()` [VERIFIED: `/home/tlister/venv/.../tom_observations/facilities/ocs.py:1435-1439`, delegates to `facility_settings`; concrete values `['WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED']` confirmed at `facility_settings.py:118-122` for the shared OCS settings base] | Per-facility differences are real (STATUS-02, Phase 37); hardcoding one facility's states silently mis-classifies another |
-| Sweep summary/`--dry-run` command shape | A new CLI argument-parsing pattern | `reconcile_campaign_runs.py`'s existing `--dry-run` + summary-line conventions | Sibling sweep command in the same codebase; consistent operator experience across the two sweeps |
+| Sweep summary/`--dry-run` command layout | A new CLI argument-parsing pattern | `reconcile_campaign_runs.py`'s existing `--dry-run` + summary-line conventions | Sibling sweep command in the same codebase; consistent operator experience across the two sweeps |
 
 **Key insight:** Nearly the entire correctness burden of this phase was already discharged by
 the four validated spikes and by helpers `calendar_utils.py` already ships. The genuinely new
@@ -536,7 +536,7 @@ successfully-returned-but-unmapped pair must share one fallback bucket).
 ## Runtime State Inventory
 
 > Included because ANNOT-03/D-19 takes over 156 live `CalendarEvent` rows in place — a
-> takeover, not a schema migration, but the same "what runtime state still has the old shape"
+> takeover, not a schema migration, but the same "what runtime state still carries the old form"
 > question applies.
 
 | Category | Items Found | Action Required |
@@ -678,7 +678,7 @@ def facility_for(record: ObservationRecord):
     return _facilities[name]
 ```
 
-### Sweep summary-line shape (mirrors the retired command's D-08 per-facility breakdown)
+### Sweep summary-line format (mirrors the retired command's D-08 per-facility breakdown)
 ```python
 # Adapted from solsys_code/management/commands/sync_lco_observation_calendar.py:351-364
 # [VERIFIED] -- keep the same per-facility phrasing per D-17, add the two new counters
@@ -715,38 +715,60 @@ summary = ' | '.join(
 
 **If this table is empty:** N/A — see above.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact module/file layout for the projector and its three receivers**
+All three questions below were settled during planning; each recommendation was adopted
+verbatim by the Phase 34 plans, and the plan text that implements it is named in the
+resolution line.
+
+1. **Exact module/file layout for the projector and its three receivers** — **RESOLVED:
+   receivers are co-located in `observation_projector.py`.**
    - What we know: CONTEXT.md leaves this to Claude's discretion; a plausible split is
      `observation_projector.py` (pure logic) + `signals.py` (receiver wiring) + `apps.py`
      (connection), mirroring the existing `campaign_reconciler.py`/`campaign_utils.py` split.
-   - What's unclear: Whether the plan-checker or reviewers prefer receivers co-located with the
+   - What was unclear: Whether the plan-checker or reviewers prefer receivers co-located with the
      logic they call (fewer files, easier to trace) vs. separated (clearer signal-wiring
      surface for future readers).
    - Recommendation: Co-locate receivers in `observation_projector.py` for Phase 34 (mirrors
      spike 002's `projector.py` which included `_receiver`/`connect`/`disconnect` in one file);
      split out only if the file grows unwieldy.
+   - **RESOLVED — adopted.** Plan 34-01 Tasks 1 and 3 put `receiver_on_record_save()`,
+     `receiver_on_group_membership_changed()` and `receiver_on_record_delete()` in
+     `solsys_code/observation_projector.py` beside the logic they call; no `signals.py` is
+     created. `SolsysCodeConfig.ready()` holds the three `dispatch_uid`-keyed connections and
+     nothing else, so the signal-wiring surface is still readable in one place.
 
-2. **Which `ObservationGroup` wins when a record belongs to more than one**
+2. **Which `ObservationGroup` wins when a record belongs to more than one** — **RESOLVED:
+   lowest pk, with an explicit multi-group test.**
    - What we know: The dev DB has no record in more than one group today (34-CONTEXT.md
      code_context); spike 002's `series_for()` picks `ObservationGroup.objects.filter(...).order_by('pk').first()`.
-   - What's unclear: Whether "lowest pk" is the right long-term tie-break or just a placeholder
+   - What was unclear: Whether "lowest pk" is the right long-term tie-break or just a placeholder
      that happens to never be exercised.
    - Recommendation: Keep "lowest pk" (matches spike 002's proven behaviour) and add an explicit
      test for the multi-group case even though no real record exercises it yet, per D-DE (test
      the untested edge before it becomes a real bug).
+   - **RESOLVED — adopted.** Plan 34-01 Task 1 specifies
+     `series_group_for(record)` as `ObservationGroup.objects.filter(observation_records=record).order_by('pk').first()`,
+     and Task 2's behaviour list carries the explicit case "a record in two groups links the
+     lowest-pk group" as a committed test even though no real record exercises it yet.
 
-3. **Whether the receiver needs a silencing mechanism for bulk test fixtures beyond `raw=True`**
+3. **Whether the receiver needs a silencing mechanism for bulk test fixtures beyond `raw=True`** —
+   **RESOLVED: no silencing mechanism beyond `raw=True`.**
    - What we know: `raw=True` already covers `loaddata`; CONTEXT.md leaves a settings-flag/
      context-manager option to Claude's discretion.
-   - What's unclear: Whether the new projector/sweep test suite will create enough
+   - What was unclear: Whether the new projector/sweep test suite will create enough
      `ObservationRecord` fixtures via factories (not `loaddata`) that the receiver's per-save
      work meaningfully slows the test suite or creates test-isolation issues (e.g., events
      leaking between test cases via a receiver writing to the DB during `setUp`).
    - Recommendation: Start without a silencing mechanism (the receiver is cheap and DB-writes in
      tests are normal Django practice); revisit only if test runtime or isolation becomes a
      measured problem during Wave 1 execution.
+   - **RESOLVED — adopted.** Plan 34-01 Task 1 gives `receiver_on_record_save()` exactly two
+     early returns — `raw` true, and a facility outside `PROJECTED_FACILITIES` — and no settings
+     flag or context manager is planned anywhere in the phase. Plan 34-01 Task 3 carries the
+     `raw=True` fixture-load test that proves the one mechanism works. If test runtime or
+     isolation does become a measured problem during Wave 1, that is a new finding for the
+     executor to raise, not a decision reopened here.
 
 ## Environment Availability
 
