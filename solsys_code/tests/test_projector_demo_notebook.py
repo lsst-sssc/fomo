@@ -79,7 +79,7 @@ class TestProjectorDemoNotebookEvidence(SimpleTestCase):
         """Cell 7022f987's output states which database this run used, one way or the other."""
         routing_text = self.cell_text[_CELL_ROUTING]
         self.assertTrue(
-            'the developer database itself' in routing_text and 'routed to a scratch copy' in routing_text,
+            'the developer database itself' in routing_text or 'routed to a scratch copy' in routing_text,
             f'Cell {_CELL_ROUTING} output names neither the developer database nor a scratch copy: '
             f'{routing_text!r}',
         )
@@ -102,7 +102,7 @@ class TestProjectorDemoNotebookEvidence(SimpleTestCase):
         )
         self.assertRegex(
             diff_text,
-            r'^\s+before: ',
+            re.compile(r'^\s+before: ', re.M),
             f'Cell {_CELL_TAKEOVER_DIFF} lists no before -> after title pair.',
         )
 
