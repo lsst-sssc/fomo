@@ -23,6 +23,7 @@ dependencies = [
     "tom-registration>=2.0.1",
     "tom_eso>=0.3.1",
     "tom_jpl>=0.3.0",
+    "matplotlib",  # Used by solsys_code/utils.py; otherwise only present transitively
     "numpy>1.24",
     "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
     "iau-ades>=0.1",

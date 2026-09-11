@@ -496,7 +496,7 @@ def write_psv(ades_data, zaa_ra_dec, output_psv_file, reference_ap=1.8, psvencod
                 continue
             obsTime = None
             obsline = []
-            for col, value in zip(ades_data['keywords'], observation):
+            for col, value in zip(ades_data['keywords'], observation, strict=False):
                 if col in headerDict:
                     headerItem = headerDict[col]
                     if col == 'obsTime':

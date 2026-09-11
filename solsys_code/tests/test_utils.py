@@ -148,7 +148,7 @@ class TestZeroApertureExtrapolation(SimpleTestCase):
             (138.038080, 12.403972),
             (138.038430, -12.403934),
         ]
-        for expected_ra_dec, values in zip(expected_zaa_ra_dec, derived_zaa.values()):
+        for expected_ra_dec, values in zip(expected_zaa_ra_dec, derived_zaa.values(), strict=False):
             self.assertAlmostEqual(expected_ra_dec[0], values['zero_ap_ra'], places=6)
             self.assertAlmostEqual(expected_ra_dec[1], values['zero_ap_dec'], places=6)
 

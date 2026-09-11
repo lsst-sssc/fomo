@@ -262,7 +262,7 @@ DATA_PRODUCT_TYPES = {
 DATA_PROCESSORS = {
     'photometry': 'tom_dataproducts.processors.photometry_processor.PhotometryProcessor',
     'spectroscopy': 'tom_dataproducts.processors.spectroscopy_processor.SpectroscopyProcessor',
-    'astrometry': 'tom_dataproducts.processors.astrometry_processor.ADESProcessor',
+    'astrometry': 'solsys_code.processors.ades_processor.ADESProcessor',
 }
 
 TOM_FACILITY_CLASSES = [
