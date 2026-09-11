@@ -33,6 +33,12 @@ note: |
   still matches its record (sweep dry run: unchanged). The AttributeError is a separate,
   deterministic receiver failure on the real `updatestatus` path -- see gap G-34-2.
 
+- **2026-09-11:** G-34-2 closed (34-05 receiver fix, 34-06 live proof, 34-07 paired-docs
+  closure) -- a real, portal-backed `updatestatus` run against a scratch copy of the
+  developer database (`tmp/34-06-updatestatus.txt`) logged zero `unprojectable` lines. See
+  `34-VERIFICATION.md`'s re-verification (2026-09-11T23:05:00Z) and the `closed_by`/
+  `closed_verified` keys added to the G-34-2 gap entry below.
+
 ### 3. A sweep interrupted partway leaves correct events and the re-run converges with no repair
 expected: Interrupt `python manage.py project_observation_calendar` partway (Ctrl-C mid-run)
 against the developer database, then re-run it to completion. Every record processed before the
@@ -127,6 +133,8 @@ blocked: 1
 - gap_id: G-34-2
   truth: "Every real `updatestatus` save projects the record's event through the post_save receiver, so the surviving CalendarEvent matches the record's final persisted scheduled_start / scheduled_end / status"
   status: failed
+  closed_by: ["34-05", "34-06", "34-07"]
+  closed_verified: "34-VERIFICATION.md re-verification (2026-09-11T23:05:00Z): 'the post_save receiver no longer raises AttributeError on the real updatestatus path. calendar_utils.coerce_schedule_datetime() converts the portal's ISO strings to aware UTC datetimes; record_time_window() routes BOTH branches through it. Proven live: tmp/34-06-updatestatus.txt (a real portal-backed updatestatus run against a scratch copy) contains ZERO unprojectable lines, and the dry-run sweep that follows it (tmp/34-06-dry-run.txt) reports LCO: created: 0, updated: 0, unchanged: 159 -- the receiver, not the sweep, did all the work.'"
   reason: "User reported: two overlapping `updatestatus` runs logged `unprojectable observation_id=... : AttributeError` for nearly every LCO record; a sweep dry run afterwards shows 33 LCO events stale (`updated: 33, unchanged: 126`) because the receiver never wrote them"
   severity: blocker
   test: 2
