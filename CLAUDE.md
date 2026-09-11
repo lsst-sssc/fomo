@@ -124,8 +124,9 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   `docs/index.rst:24`). Notebook pairing reference (kept for lookup, not as the rule's scope):
   `solsys_code/telescope_runs.py` -> `telescope_runs_demo.ipynb`;
   `solsys_code/management/commands/load_telescope_runs.py` -> `load_telescope_runs_demo.ipynb`;
-  `solsys_code/management/commands/sync_lco_observation_calendar.py` ->
-  `sync_lco_observation_calendar_demo.ipynb`;
+  `solsys_code/observation_projector.py` and
+  `solsys_code/management/commands/project_observation_calendar.py` ->
+  `project_observation_calendar_demo.ipynb`;
   `solsys_code/management/commands/sync_gemini_observation_calendar.py` ->
   `sync_gemini_observation_calendar_demo.ipynb`;
   `solsys_code/management/commands/backfill_lco_observations.py -> backfill_lco_observations_demo.ipynb`;
