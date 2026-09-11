@@ -1,20 +1,20 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 34
 current_phase_name: The Observation Projector & Trigger
-status: verifying
-stopped_at: Completed 34-04-PLAN.md
-last_updated: "2026-09-11T04:57:59.810Z"
-last_activity: 2026-09-10
+status: executing
+stopped_at: Completed 34-05-PLAN.md
+last_updated: "2026-09-11T21:21:20.946Z"
+last_activity: 2026-09-11
 last_activity_desc: Phase 34 execution started
-state_head: f0f09d4506a14495cf6b1a22461ffc85aff8e161
+state_head: e41c48ca8d2998d87e8ee4f476c9c2b8a04d0fe1
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 17
+  completed_plans: 16
   percent: 20
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 ## Current Position
 
 Phase: 34 (The Observation Projector & Trigger) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-09-11 - Completed quick task 260911-9rd: Close Phase 34 review finding CR-01 by analysis: record the LCO/SOAR shared request-ID rationale in 34-REVIEW-FIX.md and add an event_url() regression test
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-09-11 — Phase 34 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -185,6 +185,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 34 P02 | 52min | 3 tasks | 12 files |
 | Phase 34 P03 | 38min | 2 tasks | 6 files |
 | Phase 34 P04 | 40min | 2 tasks | 11 files |
+| Phase 34 P05 | 24min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -242,6 +243,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 34]: Phase 34 Plan 03: observation_status_legend() is a fixed, hand-maintained marker vocabulary rather than derived from _TERMINAL_PREFIXES/status_border_css() -- deriving it risks ring-vs-label drift; Phase 37 owns the final wording.
 - [Phase 34]: Phase 34 Plan 03: observation_series_decoration()'s docstring was rewritten to describe its no-write guarantee in prose after its first draft (mirroring campaign_decoration()'s literal .save()/.update()/.create()/get_or_create() phrasing) tripped the plan's own verify grep, which counts those substrings from the function's def line to end of file and cannot distinguish docstring text from code.
 - [Phase 34]: Phase 34 Plan 04: project_observation_calendar_demo.ipynb runs against the real developer database (not a scratch copy) since SCHED-06's baseline must be captured over the same database a later re-execution re-checks; the receiver-demo section stays side-effect-free via a transaction.atomic() rollback. — Unlike this repo's other pre_executed/ notebooks, a scratch copy discarded at the end of the run would leave nothing for a post-observing-nights re-check to diff against.
+- [Phase 34]: [Phase 34-05] coerce_schedule_datetime() raises ValueError for an unusable schedule value rather than returning None — stage_for() already classified a non-None schedule field as a placed block (D-10); degrading it to None would draw a queued-looking event over the wrong window, so raising keeps the record a D-13 unprojectable one instead, with the save never aborted.
+- [Phase 34]: [Phase 34-05] Task 2 pins the coercion contract with tests only -- no calendar_utils.py change, since Task 1's GREEN commit already implemented coerce_schedule_datetime() correctly
 
 ### Pending Todos
 
@@ -337,8 +340,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T04:57:59.527Z
-Stopped at: Completed 34-04-PLAN.md
+Last session: 2026-09-11T21:20:52.120Z
+Stopped at: Completed 34-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
