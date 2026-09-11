@@ -535,6 +535,27 @@ class TestRecordTimeWindow(TestCase):
         self.assertEqual(result_start, datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(result_end, datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc))
 
+    def test_both_scheduled_none_falls_back_to_z_suffixed_parameters_start_end(self):
+        """CR-02: real records ingested via backfill_lco_observations store the portal's
+        'Z'-suffixed window string verbatim in parameters['start']/['end'] -- not only the
+        naive '.isoformat()' form the sibling test above covers.
+        `datetime.fromisoformat()` rejects a trailing 'Z' before Python 3.11, so this branch
+        must route through the same `coerce_schedule_datetime()` parser the
+        scheduled_start/scheduled_end branch uses."""
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            observation_id='444445',
+            status='PENDING',
+            parameters={'start': '2026-07-20T00:00:00Z', 'end': '2026-07-20T23:59:59Z'},
+        )
+
+        result_start, result_end = record_time_window(record)
+
+        self.assertEqual(result_start, datetime(2026, 7, 20, 0, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result_end, datetime(2026, 7, 20, 23, 59, 59, tzinfo=dt_timezone.utc))
+
     def test_in_memory_instance_with_portal_iso_strings_returns_aware_utc_pair(self):
         """G-34-2: the post-save-instance case, not a database row --
         update_observation_status() assigns the portal's raw ISO strings onto

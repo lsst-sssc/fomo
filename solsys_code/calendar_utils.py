@@ -535,10 +535,13 @@ def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
             datetime by ``coerce_schedule_datetime()`` (G-34-2).
     """
     if record.scheduled_start is None and record.scheduled_end is None:
-        # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
-        # explicitly since LCO request-submission times are conventionally UTC.
-        start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
-        end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
+        # CR-02: parameters['start']/['end'] are usually naive ISO strings, but the
+        # portal-sourced ingest path (backfill_lco_observations) stores 'Z'-suffixed ones,
+        # which datetime.fromisoformat() rejects before Python 3.11 -- route through the
+        # same coercion the scheduled_start/scheduled_end branch below uses: a naive value
+        # is read as UTC, an offset-bearing one is converted rather than overwritten.
+        start_time = coerce_schedule_datetime(record.parameters['start'])
+        end_time = coerce_schedule_datetime(record.parameters['end'])
     elif record.scheduled_start is not None and record.scheduled_end is not None:
         start_time = coerce_schedule_datetime(record.scheduled_start)
         end_time = coerce_schedule_datetime(record.scheduled_end)

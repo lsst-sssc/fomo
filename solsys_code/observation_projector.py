@@ -23,8 +23,6 @@ Three ownership rules hold across every function in this module:
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
-from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -36,6 +34,7 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from solsys_code.calendar_utils import (
     InstrumentExtractionError,
     coarse_telescope_label,
+    coerce_schedule_datetime,
     derive_telescope,
     extract_instrument,
     insert_or_create_calendar_event,
@@ -278,8 +277,8 @@ def event_fields_for(record: ObservationRecord, facility: Any) -> tuple[dict[str
         # directly rather than through record_time_window(), which raises for a half-set
         # schedule. A missing/unparsable key here raises through to project_record's catch,
         # correctly marking the record unprojectable.
-        start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
-        end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
+        start_time = coerce_schedule_datetime(record.parameters['start'])
+        end_time = coerce_schedule_datetime(record.parameters['end'])
     else:
         start_time, end_time = record_time_window(record)
     proposal = record.parameters.get('proposal', '')
