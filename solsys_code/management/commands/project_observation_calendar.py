@@ -7,10 +7,12 @@ Closes the gap the ``post_save`` receiver alone cannot: ``QuerySet.update()``,
 receiver never sees them. This command shares the receiver's own comparison rule
 (``calendar_utils.preview_calendar_event_action()``) via ``project_queryset()``, so a
 ``--dry-run`` count agrees with what a real sweep would do for every field derived from a
-record's own already-stored state -- with one documented exception (WR-02): a dry run never
-performs the one-time observed-site lookup, so ``site_lookups`` is always 0 and a record whose
-only pending change is the coarse-to-observed telescope token is reported ``unchanged`` by
-``--dry-run`` but ``updated`` by the real sweep that follows it.
+record's own already-stored state, with two exceptions: a dry run never performs the
+one-time observed-site lookup (so ``site_lookups`` is always 0 and a record whose only
+pending change is the coarse-to-observed telescope token is reported ``unchanged`` by
+``--dry-run`` but ``updated`` by the real sweep that follows it), and a dry run can only
+predict a write failure it can detect without writing (today, a duplicate calendar-event
+url), so its ``unprojectable`` count is a lower bound on the real sweep's.
 """
 
 from typing import Any
