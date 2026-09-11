@@ -181,11 +181,19 @@ one-time observed-telescope lookup; ``site_lookup_failed`` counts a lookup
 that has not yet succeeded, retried automatically on the next sweep.
 
 A ``--dry-run`` pass agrees with a real sweep's counts for every field derived
-from a record's own already-stored state, with one exception: a dry run never
-performs the one-time observed-site lookup, so its ``site_lookups`` is always
-0, and a record whose only pending change is the coarse-to-observed telescope
-token (e.g. ``2m0`` to ``FTN``) is reported ``unchanged`` by ``--dry-run`` but
-``updated`` by the real sweep that follows it.
+from a record's own already-stored state, with two exceptions. First: a dry
+run never performs the one-time observed-site lookup, so its ``site_lookups``
+is always 0, and a record whose only pending change is the coarse-to-observed
+telescope token (e.g. ``2m0`` to ``FTN``) is reported ``unchanged`` by
+``--dry-run`` but ``updated`` by the real sweep that follows it. Second:
+``--dry-run`` can only predict a write failure it can detect *without*
+writing -- today, a pre-existing duplicate calendar-event URL, which it
+counts as ``unprojectable`` just like a real sweep would. A write failure
+that only manifests at write time (for example, a database-level error from
+an over-length field) has no way to be seen in advance, so
+``--dry-run``'s ``unprojectable`` count is a lower bound on what the real
+sweep that follows it will report -- it may find more failures than the dry
+run predicted, but never fewer.
 
 How do I backfill ObservationRecords for LCO observations submitted outside FOMO?
 ------------------------------------------------------------------------------------

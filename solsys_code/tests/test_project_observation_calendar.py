@@ -304,6 +304,46 @@ class TestFailureIsolation(_ProjectObservationCalendarTestBase):
         self.assertEqual(summary['LCO']['unprojectable'], 1)
         self.assertIn('sweep-dup-url', err.getvalue())
 
+    def test_dry_run_agrees_with_the_real_run_on_a_duplicate_url_failure(self) -> None:
+        """A duplicate-url CalendarEvent pair is a write failure --dry-run CAN see without
+        writing: the real run's get_or_create() is certain to raise
+        MultipleObjectsReturned. A --dry-run pass over this fixture must report
+        unprojectable: 1 / failed: 1, the same outcome the real run that follows it
+        reports -- not the preview's 'updated' guess, which is what a dry run without this
+        detection would (wrongly) predict."""
+        record = self._make_record('dry-dup-url')
+        facility = op.facility_for(record)
+        url = facility.get_observation_url('dry-dup-url')
+        for i in range(2):
+            CalendarEvent.objects.create(
+                url=url,
+                title=f'dup {i}',
+                start_time=datetime(2020, 1, 1, tzinfo=dt_timezone.utc),
+                end_time=datetime(2020, 1, 2, tzinfo=dt_timezone.utc),
+            )
+
+        dry_result = op.project_queryset(ObservationRecord.objects.filter(pk=record.pk), dry_run=True)
+
+        self.assertEqual(dry_result['counters']['LCO']['unprojectable'], 1)
+        self.assertEqual(dry_result['counters']['LCO']['updated'], 0)
+        self.assertEqual(len(dry_result['rows']), 1)
+        self.assertEqual(dry_result['rows'][0]['action'], 'unprojectable')
+        titles_after_dry_run = set(CalendarEvent.objects.filter(url=url).values_list('title', flat=True))
+        self.assertEqual(titles_after_dry_run, {'dup 0', 'dup 1'})  # dry run wrote nothing
+
+        out = StringIO()
+        err = StringIO()
+        call_command('project_observation_calendar', '--dry-run', stdout=out, stderr=err)
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['LCO']['failed'], 1)
+        self.assertEqual(summary['LCO']['unprojectable'], 1)
+        self.assertIn('dry-dup-url', err.getvalue())
+
+        # The real run over the same fixture must agree with what --dry-run just reported.
+        real_result = op.project_queryset(ObservationRecord.objects.filter(pk=record.pk))
+        self.assertEqual(real_result['counters']['LCO']['unprojectable'], 1)
+        self.assertEqual(real_result['rows'][0]['action'], dry_result['rows'][0]['action'])
+
 
 class TestNamespaceIsolation(_ProjectObservationCalendarTestBase):
     def test_run_gem_and_blank_url_events_are_untouched_by_a_sweep(self) -> None:

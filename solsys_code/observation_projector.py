@@ -407,24 +407,35 @@ def project_queryset(
     record's own already-stored state: both modes read the same ``before`` and apply the same
     comparison helper.
 
-    This preview-based rule has exactly one override, for the real (non-dry-run) write: if
-    ``project_record()`` reports ``'unprojectable'`` -- the write itself failed, e.g. a
-    duplicate-url ``CalendarEvent`` making ``get_or_create()`` raise
-    ``MultipleObjectsReturned`` -- that failure is counted and reported instead of the
-    preview's prediction, and a warning is logged. Counting the preview's action here
-    regardless of what the write actually did would report ``created``/``updated`` for a
-    record whose event was never touched, and silently drop the sweep's own per-record
-    failure isolation (the command's ``failed`` tally and stderr line both key off a row's
-    ``action`` being ``'unprojectable'``).
+    This preview-based rule has one override in each mode, both for the same underlying
+    failure -- a duplicate-url ``CalendarEvent`` that makes ``get_or_create()`` raise
+    ``MultipleObjectsReturned``:
 
-    WR-02: this agreement has one documented exception. ``pre_fields_hook`` -- the one-time
-    observed-site lookup -- is never called when ``dry_run`` is True, so the observed-telescope
-    token (D-07) is never resolved in a dry run. A record whose only pending change is the
-    coarse-to-observed token (e.g. ``'2m0'`` -> ``'FTN'``) is therefore reported ``unchanged``
-    by ``--dry-run`` and ``updated`` by the real run that follows it, and ``site_lookups``
-    itself is always 0 in a dry run. A dry-run count is otherwise structurally unable to
-    disagree with what a real run would do -- this is the one field it cannot predict without
-    making the network call it exists to avoid.
+    - Real run: ``project_record()`` reports ``'unprojectable'`` (the write itself failed),
+      and that failure is counted and reported instead of the preview's prediction, with a
+      warning logged.
+    - Dry run: the same condition is visible without writing (more than one existing
+      ``CalendarEvent`` already shares the url), so it is detected and counted
+      ``'unprojectable'`` directly, ahead of the preview's prediction.
+
+    Counting the preview's action here regardless of what the write actually did (or would
+    do) would report ``created``/``updated`` for a record whose event was never touched, and
+    silently drop the sweep's own per-record failure isolation (the command's ``failed``
+    tally and stderr line both key off a row's ``action`` being ``'unprojectable'``).
+
+    This agreement is not total, though: a dry run cannot predict a write failure that only
+    manifests at write time and has no cheap pre-write signal (for example, a database-level
+    ``DataError`` from an over-length column). ``--dry-run``'s ``unprojectable`` count is
+    therefore a lower bound on what the real run will report as ``unprojectable`` -- it
+    catches every failure this function knows how to detect without writing, not every
+    failure that exists.
+
+    This agreement has one more documented exception, orthogonal to the above.
+    ``pre_fields_hook`` -- the one-time observed-site lookup -- is never called when
+    ``dry_run`` is True, so the observed-telescope token (D-07) is never resolved in a dry
+    run. A record whose only pending change is the coarse-to-observed token (e.g. ``'2m0'``
+    -> ``'FTN'``) is therefore reported ``unchanged`` by ``--dry-run`` and ``updated`` by the
+    real run that follows it, and ``site_lookups`` itself is always 0 in a dry run.
 
     ``pre_fields_hook``, when given, is called once per record with ``(record, facility)``
     AFTER ``before`` is captured and BEFORE ``fields``/``stage`` are built -- the extension
@@ -489,6 +500,22 @@ def project_queryset(
 
             action = preview_calendar_event_action(before, fields)
             if dry_run:
+                # The one write failure a dry run CAN see without writing: if more than one
+                # existing CalendarEvent already shares this url, the real run's
+                # get_or_create() is guaranteed to raise MultipleObjectsReturned. Detecting
+                # this here keeps the preview from reporting a successful action for a
+                # record the real sweep is certain to refuse.
+                if CalendarEvent.objects.filter(url=url).count() > 1:
+                    facility_counters['unprojectable'] += 1
+                    rows.append(
+                        {
+                            'observation_id': record.observation_id,
+                            'status': record.status,
+                            'stage': 'MultipleObjectsReturned',
+                            'action': 'unprojectable',
+                        }
+                    )
+                    continue
                 facility_counters[action] += 1
                 rows.append(
                     {
