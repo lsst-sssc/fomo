@@ -4,7 +4,7 @@ import tempfile
 import pandas as pd
 from django.test import SimpleTestCase
 
-from fomo.compare_utils import compare_ades_with_csv
+from solsys_code.compare_utils import compare_ades_with_csv
 
 
 class CompareUtilsTests(SimpleTestCase):
