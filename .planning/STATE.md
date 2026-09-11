@@ -4,17 +4,17 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 34
 current_phase_name: The Observation Projector & Trigger
-status: executing
-stopped_at: Completed 34-03-PLAN.md
-last_updated: "2026-09-11T04:15:35.912Z"
+status: verifying
+stopped_at: Completed 34-04-PLAN.md
+last_updated: "2026-09-11T04:57:59.810Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 34 execution started
-state_head: 6d759c9630be258cd41b673b00360d10250f786d
+state_head: f0f09d4506a14495cf6b1a22461ffc85aff8e161
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 15
-  completed_plans: 14
+  completed_plans: 15
   percent: 20
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 
 Phase: 34 (The Observation Projector & Trigger) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-10 — Phase 34 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -184,6 +184,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 34 P01 | 54min | 3 tasks | 7 files |
 | Phase 34 P02 | 52min | 3 tasks | 12 files |
 | Phase 34 P03 | 38min | 2 tasks | 6 files |
+| Phase 34 P04 | 40min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -240,6 +241,7 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 34]: 34-02: sync_lco_observation_calendar retired outright (D-18) after a 38-row behaviour classification (16 covered, 10 migrated, 12 retired with reason) proved no behaviour was silently dropped. — ANNOT-03 requires one writer per source in the same key namespace; a classification table with a named destination or reason for every retired test is the audit trail that makes the deletion safe rather than a silent drop.
 - [Phase 34]: Phase 34 Plan 03: observation_status_legend() is a fixed, hand-maintained marker vocabulary rather than derived from _TERMINAL_PREFIXES/status_border_css() -- deriving it risks ring-vs-label drift; Phase 37 owns the final wording.
 - [Phase 34]: Phase 34 Plan 03: observation_series_decoration()'s docstring was rewritten to describe its no-write guarantee in prose after its first draft (mirroring campaign_decoration()'s literal .save()/.update()/.create()/get_or_create() phrasing) tripped the plan's own verify grep, which counts those substrings from the function's def line to end of file and cannot distinguish docstring text from code.
+- [Phase 34]: Phase 34 Plan 04: project_observation_calendar_demo.ipynb runs against the real developer database (not a scratch copy) since SCHED-06's baseline must be captured over the same database a later re-execution re-checks; the receiver-demo section stays side-effect-free via a transaction.atomic() rollback. — Unlike this repo's other pre_executed/ notebooks, a scratch copy discarded at the end of the run would leave nothing for a post-observing-nights re-check to diff against.
 
 ### Pending Todos
 
@@ -334,8 +336,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T04:15:35.692Z
-Stopped at: Completed 34-03-PLAN.md
+Last session: 2026-09-11T04:57:59.527Z
+Stopped at: Completed 34-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

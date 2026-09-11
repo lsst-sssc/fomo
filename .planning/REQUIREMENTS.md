@@ -18,13 +18,13 @@ Requirements for this milestone. Each maps to roadmap phases.
   - *Scope split (recorded 2026-09-03 during Phase 33 planning):* Phase 33 delivers the carrier — the two foreign keys, their migration and their read-only admin exposure. The **shared title stem** clause is delivered by the Phase 34 projector, which is the only writer of these fields and of an event's title (Phase 33 is schema and semantics only, per 33-CONTEXT.md D-08, and D-12 removes text from titles rather than adding it). Phase 34 must satisfy the title-stem clause alongside PROJ-06's compact-title requirement.
 - [x] **PROJ-05**: Re-projecting an unchanged record writes nothing (no-churn); the projector never creates, modifies, or deletes an event it does not own, and never writes the reconciler's `RUN:`/allocation namespace
 - [x] **PROJ-06**: Event titles have a compact form that fits a month cell on the calendar
-- [ ] **SCHED-06** (carried from v2.1/v2.3, re-scoped): A user can watch a record's event narrow queued → scheduled → observed on the calendar with no operator command, proven against the real `KEY2026B-004` records over live nights (closes spike 004's PARTIAL verdict)
+- [x] **SCHED-06** (carried from v2.1/v2.3, re-scoped): A user can watch a record's event narrow queued → scheduled → observed on the calendar with no operator command, proven against the real `KEY2026B-004` records over live nights (closes spike 004's PARTIAL verdict)
 
 ### Trigger
 
 - [x] **TRIG-01**: A FOMO-owned Django `post_save` receiver on `ObservationRecord`, registered in `apps.ready()`, re-projects the record's event on every save — including a schedule-only placement save (which TOM's `observation_change_state` hook misses) and the `updatestatus` path
 - [x] **TRIG-02**: The receiver is single-record, idempotent, and cheap enough to run inside the caller's transaction on every save; a projector error is logged and never aborts the record save
-- [ ] **TRIG-03**: A sweep management command re-projects records as the backstop for `queryset.update()`/`bulk_create()` paths and for backfill, with `--dry-run`, per-record failure isolation, and a paired pre-executed demo notebook
+- [x] **TRIG-03**: A sweep management command re-projects records as the backstop for `queryset.update()`/`bulk_create()` paths and for backfill, with `--dry-run`, per-record failure isolation, and a paired pre-executed demo notebook
 
 ### Allocation Layer & Handoff
 
@@ -38,7 +38,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **ANNOT-01**: `CalendarEventMeta.run` means "attributed to", not "owned by"; `reconcile_run()` no longer adopts, re-keys, or detaches an event attributed to a run — it only annotates — so the base layer and the campaign layer can run side by side without one stealing the other's events
 - [x] **ANNOT-02**: Campaign decoration of an observation-backed event (campaign prefix/label, link to its run) is rendered from the `CalendarEventMeta.run` link at display time, never written into the event's own fields, so base re-projection cannot erase it
-- [ ] **ANNOT-03**: `sync_lco_observation_calendar` is retired in favour of the projector + sweep (one writer per source; same key namespace, same events) with its runbook section, demo notebook, and tests migrated rather than duplicated; `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
+- [x] **ANNOT-03**: `sync_lco_observation_calendar` is retired in favour of the projector + sweep (one writer per source; same key namespace, same events) with its runbook section, demo notebook, and tests migrated rather than duplicated; `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
 
 ### Unattended Operation (carried from v2.3)
 
@@ -106,10 +106,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROJ-04 | Phase 33 (carrier fields), Phase 34 (shared title stem) | Complete |
 | PROJ-05 | Phase 34 | Complete |
 | PROJ-06 | Phase 34 | Complete |
-| SCHED-06 | Phase 34 | Pending |
+| SCHED-06 | Phase 34 | Complete |
 | TRIG-01 | Phase 34 | Complete |
 | TRIG-02 | Phase 34 | Complete |
-| TRIG-03 | Phase 34 | Pending |
+| TRIG-03 | Phase 34 | Complete |
 | ALLOC-01 | Phase 35 | Pending |
 | ALLOC-02 | Phase 35 | Pending |
 | ALLOC-03 | Phase 35 | Pending |
@@ -117,7 +117,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALLOC-05 | Phase 35 | Pending |
 | ANNOT-01 | Phase 33 | Complete |
 | ANNOT-02 | Phase 33 | Complete |
-| ANNOT-03 | Phase 34 | Pending |
+| ANNOT-03 | Phase 34 | Complete |
 | SCHED-08 | Phase 36 | Pending |
 | SCHED-09 | Phase 36 | Pending |
 | SCHED-10 | Phase 36 | Pending |
