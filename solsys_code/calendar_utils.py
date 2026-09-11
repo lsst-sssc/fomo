@@ -41,13 +41,23 @@ from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 # entries above. Closes the SITE_TELESCOPE_MAP completeness gap found in Phase 7 UAT
 # Test 1 (07-UAT.md Gaps section), where a real placed record (observation_id=4213127)
 # resolved to ('coj', '1m0') but fell back to [UNVERIFIED] for lack of this entry.
+#
+# D-07 (34-02 Task 3): the three 2m0/4m0 entries below carry the telescope's own operating
+# name ('FTN'/'FTS'/'SOAR') rather than the SITECODE-CLASS form, because that is what an
+# observer actually calls it -- each of these three sites hosts exactly one 2m0/4m0
+# telescope, so there is no ambiguity to resolve with a coordinate. The rest of the network
+# hosts two apertures per site (1m0 and 0m4), so the SITE-aperture form stays for those --
+# without it, e.g. 'lsc' 1m0 and 0m4 would collide on one label. This is the observation
+# projector's one-time observed-telescope token (plan 34-02 Task 3), read back from
+# ObservationRecord.parameters once a record reaches a successful terminal state --
+# see OBSERVED_TELESCOPE_SITE_CODES below for the inverse (label -> site code) bridge.
 SITE_TELESCOPE_MAP = {
-    ('coj', '2m0'): 'COJ-2m0',
+    ('coj', '2m0'): 'FTS',
     ('coj', '1m0'): 'COJ-1m0',
     ('coj', '0m4'): 'COJ-0m4',
-    ('ogg', '2m0'): 'OGG-2m0',
+    ('ogg', '2m0'): 'FTN',
     ('ogg', '0m4'): 'OGG-0m4',
-    ('sor', '4m0'): 'SOR-4m0',
+    ('sor', '4m0'): 'SOAR',
     ('elp', '1m0'): 'ELP-1m0',
     ('elp', '0m4'): 'ELP-0m4',
     ('lsc', '1m0'): 'LSC-1m0',
@@ -57,6 +67,26 @@ SITE_TELESCOPE_MAP = {
     ('tfn', '1m0'): 'TFN-1m0',
     ('tfn', '0m4'): 'TFN-0m4',
 }
+
+# D-07/D-09 (34-02 Task 3): the inverse of the three SITE_TELESCOPE_MAP entries above that no
+# longer take the SITECODE-CLASS form -- 'FTN'/'FTS'/'SOAR' carry no 3-letter site-code
+# prefix a plain string-split can recover, so a reader needing to bridge back from one of
+# these three labels to its LCO 3-letter site code (e.g. campaign_attribution.py's
+# telescope-match signal) needs this table instead. Single source of truth for that bridge.
+OBSERVED_TELESCOPE_SITE_CODES: dict[str, str] = {
+    'FTN': 'ogg',
+    'FTS': 'coj',
+    'SOAR': 'sor',
+}
+
+# D-09: the ObservationRecord.parameters keys the observation projector's one-time
+# observed-site lookup (plan 34-02 Task 3) writes once a record reaches a successful
+# terminal state. Generic and un-prefixed, mirroring the portal block's own field names
+# ('site'/'telescope'/'enclosure') so the data is useful to a non-FOMO TOM reading this
+# record's parameters -- and deliberately distinct from the LCO submission form's own
+# 'site' constraint field, which already lives in this same parameters dict under a
+# different meaning (34-RESEARCH.md Pitfall 4/Assumption A3).
+OBSERVED_SITE_PARAMETER_KEYS = ('observed_site', 'observed_telescope', 'observed_enclosure')
 
 # SYNC-08/D-10: explicit timeout, single attempt, no retry/backoff loop. This is the
 # first explicit HTTP timeout introduced anywhere in solsys_code/ -- there is no

@@ -608,3 +608,90 @@ class TestFieldPopulation(_ObservationProjectorTestBase):
         facility = op.facility_for(record)
         fields, _stage = op.event_fields_for(record, facility)
         self.assertEqual(fields['target_list'], first_list)
+
+
+class TestObservedToken(_ObservationProjectorTestBase):
+    """observed_token()/telescope_token(): the D-07 observed-telescope title token, read back
+    from ``parameters`` -- never a live lookup (that lives in plan 34-02 Task 3's command-side
+    ``resolve_observed_site()``)."""
+
+    def test_observed_token_reads_stored_site_and_telescope(self) -> None:
+        record = self._make_record('observed-token-basic', status='COMPLETED')
+        record.parameters['observed_site'] = 'coj'
+        record.parameters['observed_telescope'] = '2m0a'
+        self.assertEqual(op.observed_token(record), 'FTS')
+
+    def test_observed_token_is_none_when_nothing_stored(self) -> None:
+        record = self._make_record('observed-token-absent', status='COMPLETED')
+        self.assertIsNone(op.observed_token(record))
+
+    def test_observed_token_is_none_for_an_unmapped_pair(self) -> None:
+        record = self._make_record('observed-token-unmapped', status='COMPLETED')
+        record.parameters['observed_site'] = 'zzz'
+        record.parameters['observed_telescope'] = '1m0a'
+        self.assertIsNone(op.observed_token(record))
+
+    def test_observed_stage_with_stored_site_titles_the_observed_token(self) -> None:
+        record = self._make_record(
+            'observed-token-title',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 9, 6, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 6, 10, 19, tzinfo=dt_timezone.utc),
+        )
+        record.parameters['observed_site'] = 'coj'
+        record.parameters['observed_telescope'] = '2m0a'
+        facility = op.facility_for(record)
+        fields, stage = op.event_fields_for(record, facility)
+        self.assertEqual(stage, 'observed')
+        self.assertEqual(fields['telescope'], 'FTS')
+        self.assertTrue(fields['title'].startswith('[O] FTS '))
+        self.assertIn(self.target.name, fields['title'])
+
+    def test_completed_no_block_with_stored_site_titles_the_observed_token(self) -> None:
+        record = self._make_record('observed-token-no-block', status='COMPLETED')
+        record.parameters['observed_site'] = 'sor'
+        record.parameters['observed_telescope'] = '4m0a'
+        facility = op.facility_for(record)
+        fields, stage = op.event_fields_for(record, facility)
+        self.assertEqual(stage, 'completed-no-block')
+        self.assertEqual(fields['telescope'], 'SOAR')
+        self.assertTrue(fields['title'].startswith('[O] SOAR '))
+
+    def test_observed_stage_with_no_stored_site_keeps_coarse_token(self) -> None:
+        """A successful-terminal record whose lookup has not (yet) succeeded keeps the coarse
+        aperture token under its [O] marker (D-07) -- never a stage regression."""
+        record = self._make_record(
+            'observed-token-fallback',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 9, 6, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 6, 10, 19, tzinfo=dt_timezone.utc),
+        )
+        facility = op.facility_for(record)
+        fields, stage = op.event_fields_for(record, facility)
+        self.assertEqual(stage, 'observed')
+        self.assertEqual(fields['telescope'], '2m0')
+        self.assertTrue(fields['title'].startswith('[O] 2m0 '))
+
+    def test_queued_and_placed_stages_never_read_the_observed_token(self) -> None:
+        """Even if 'observed_site'/'observed_telescope' were somehow present, only the
+        'observed'/'completed-no-block' stages ever consult them (D-07)."""
+        queued = self._make_record('observed-token-queued', status='PENDING')
+        queued.parameters['observed_site'] = 'coj'
+        queued.parameters['observed_telescope'] = '2m0a'
+        facility = op.facility_for(queued)
+        fields, stage = op.event_fields_for(queued, facility)
+        self.assertEqual(stage, 'queued')
+        self.assertEqual(fields['telescope'], '2m0')
+
+        placed = self._make_record(
+            'observed-token-placed',
+            status='PENDING',
+            scheduled_start=datetime(2026, 9, 6, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 6, 10, 19, tzinfo=dt_timezone.utc),
+        )
+        placed.parameters['observed_site'] = 'coj'
+        placed.parameters['observed_telescope'] = '2m0a'
+        facility = op.facility_for(placed)
+        fields, stage = op.event_fields_for(placed, facility)
+        self.assertEqual(stage, 'placed')
+        self.assertEqual(fields['telescope'], '2m0')

@@ -12,15 +12,18 @@ from datetime import timezone as dt_timezone
 from io import StringIO
 from unittest.mock import patch
 
+import requests
 from django.core.management import CommandError, call_command
 from django.db.models.signals import post_save
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
+from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import observation_projector as op
-from solsys_code.management.commands.project_observation_calendar import _parse_proposal_arg
+from solsys_code.management.commands.project_observation_calendar import _parse_proposal_arg, resolve_observed_site
+from solsys_code.tests.helpers import observations_block_response
 
 
 def _parse_summary(output: str) -> dict[str, dict[str, int]]:
@@ -332,3 +335,165 @@ class TestProjectQuerysetOrdering(_ProjectObservationCalendarTestBase):
             [row['observation_id'] for row in result['rows']],
             ['order-c', 'order-a', 'order-b'],
         )
+
+
+class TestObservedSiteLookup(_ProjectObservationCalendarTestBase):
+    """resolve_observed_site()/the sweep's pre_fields_hook wiring -- the D-07/D-08 one-time
+    observed-site lookup. No test performs a real HTTP call."""
+
+    def _make_observed_record(
+        self, observation_id: str, facility: str = 'LCO', instrument_type: str = '2M0-SCICAM-MUSCAT'
+    ) -> ObservationRecord:
+        """Create a COMPLETED, with-block record via a NORMAL save (receiver connected).
+
+        Unlike ``_make_record()``, this deliberately does NOT disconnect the post_save
+        receiver: the sweep's own site-lookup tests need the base event to already exist
+        (with the coarse token, from this creation save) before the sweep runs, so that the
+        sweep's own action is 'updated' -- the title/telescope actually changing -- rather
+        than 'created', which would be the case for a record whose FIRST-ever event write is
+        the sweep itself (per D-08's "that same first sweep counts the record updated").
+        """
+        return ObservationRecord.objects.create(
+            target=self.target,
+            facility=facility,
+            observation_id=observation_id,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 9, 6, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 6, 10, 19, tzinfo=dt_timezone.utc),
+            parameters={
+                'proposal': 'TESTPROP',
+                'instrument_type': instrument_type,
+                'start': '2026-09-01T00:00:00',
+                'end': '2026-09-02T00:00:00',
+            },
+        )
+
+    def test_first_sweep_resolves_site_once_and_counts_updated_and_site_lookups(self) -> None:
+        record = self._make_observed_record('site-first')
+
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+        ) as mocked:
+            out = StringIO()
+            call_command('project_observation_calendar', stdout=out, stderr=StringIO())
+            self.assertEqual(mocked.call_count, 1)
+
+        record.refresh_from_db()
+        self.assertEqual(record.parameters['observed_site'], 'coj')
+        self.assertEqual(record.parameters['observed_telescope'], '2m0a')
+        self.assertEqual(record.parameters['observed_enclosure'], 'doma')
+
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['LCO']['site_lookups'], 1)
+        self.assertEqual(summary['LCO']['updated'], 1)
+        self.assertEqual(summary['LCO']['created'], 0)
+
+        facility = op.facility_for(record)
+        event = CalendarEvent.objects.get(url=facility.get_observation_url('site-first'))
+        self.assertEqual(event.telescope, 'FTS')
+        self.assertTrue(event.title.startswith('[O] FTS '))
+
+    def test_second_sweep_issues_no_portal_call_and_reports_unchanged(self) -> None:
+        self._make_observed_record('site-second')
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            return_value=observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+        ):
+            call_command('project_observation_calendar', stdout=StringIO(), stderr=StringIO())
+
+        with patch('solsys_code.calendar_utils.make_request') as mocked:
+            out = StringIO()
+            call_command('project_observation_calendar', stdout=out, stderr=StringIO())
+            mocked.assert_not_called()
+
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['LCO']['site_lookups'], 0)
+        self.assertEqual(summary['LCO']['unchanged'], 1)
+        self.assertEqual(summary['LCO']['updated'], 0)
+
+    def test_none_block_and_unmapped_pair_both_count_site_lookup_failed_and_are_retried(self) -> None:
+        none_block_record = self._make_observed_record('site-none-block')
+        unmapped_record = self._make_observed_record('site-unmapped')
+
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            side_effect=[
+                requests.exceptions.Timeout,
+                observations_block_response(site='zzz', telescope='9x9x', state='COMPLETED'),
+            ],
+        ):
+            out = StringIO()
+            call_command('project_observation_calendar', stdout=out, stderr=StringIO())
+
+        none_block_record.refresh_from_db()
+        unmapped_record.refresh_from_db()
+        self.assertNotIn('observed_site', none_block_record.parameters)
+        self.assertNotIn('observed_site', unmapped_record.parameters)
+
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['LCO']['site_lookup_failed'], 2)
+        self.assertEqual(summary['LCO']['site_lookups'], 0)
+
+        for record in (none_block_record, unmapped_record):
+            facility = op.facility_for(record)
+            event = CalendarEvent.objects.get(url=facility.get_observation_url(record.observation_id))
+            self.assertEqual(event.telescope, '2m0')
+
+        # Retried on the next sweep -- both succeed this time.
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            side_effect=[
+                observations_block_response(site='coj', telescope='2m0a', state='COMPLETED'),
+                observations_block_response(site='ogg', telescope='2m0a', state='COMPLETED'),
+            ],
+        ):
+            second_out = StringIO()
+            call_command('project_observation_calendar', stdout=second_out, stderr=StringIO())
+        second_summary = _parse_summary(second_out.getvalue())
+        self.assertEqual(second_summary['LCO']['site_lookups'], 2)
+        self.assertEqual(second_summary['LCO']['site_lookup_failed'], 0)
+
+    def test_pending_record_never_triggers_a_lookup(self) -> None:
+        self._make_record('site-pending', status='PENDING')
+        with patch('solsys_code.calendar_utils.make_request') as mocked:
+            call_command('project_observation_calendar', stdout=StringIO(), stderr=StringIO())
+            call_command('project_observation_calendar', stdout=StringIO(), stderr=StringIO())
+            mocked.assert_not_called()
+
+    def test_dry_run_performs_no_lookup_and_writes_nothing_to_parameters(self) -> None:
+        record = self._make_observed_record('site-dry-run')
+        with patch('solsys_code.calendar_utils.make_request') as mocked:
+            call_command('project_observation_calendar', '--dry-run', stdout=StringIO(), stderr=StringIO())
+            mocked.assert_not_called()
+        record.refresh_from_db()
+        self.assertNotIn('observed_site', record.parameters)
+
+    def test_failure_message_is_fixed_and_never_leaks_exception_content(self) -> None:
+        self._make_observed_record('site-leak')
+        leak_marker = 'LEAK_MARKER_apikey_body'
+        with patch(
+            'solsys_code.calendar_utils.make_request',
+            side_effect=ImproperCredentialsException(f'OCS: {leak_marker}'),
+        ):
+            err = StringIO()
+            call_command('project_observation_calendar', stdout=StringIO(), stderr=err)
+        error_output = err.getvalue()
+        self.assertNotIn(leak_marker, error_output)
+        self.assertIn('site-leak', error_output)
+
+    def test_resolve_observed_site_returns_none_none_for_non_terminal_stage(self) -> None:
+        record = self._make_record('site-direct-queued', status='PENDING')
+        facility = op.facility_for(record)
+        increment, message = resolve_observed_site(record, facility)
+        self.assertIsNone(increment)
+        self.assertIsNone(message)
+
+    def test_resolve_observed_site_returns_none_none_when_already_resolved(self) -> None:
+        record = self._make_observed_record('site-direct-resolved')
+        record.parameters['observed_site'] = 'coj'
+        record.save(update_fields=['parameters'])
+        facility = op.facility_for(record)
+        increment, message = resolve_observed_site(record, facility)
+        self.assertIsNone(increment)
+        self.assertIsNone(message)

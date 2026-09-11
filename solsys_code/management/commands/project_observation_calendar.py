@@ -14,7 +14,8 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 from tom_observations.models import ObservationRecord
 
-from solsys_code.observation_projector import PROJECTED_FACILITIES, project_queryset
+from solsys_code.calendar_utils import OBSERVED_SITE_PARAMETER_KEYS, derive_telescope, resolve_placement_block
+from solsys_code.observation_projector import PROJECTED_FACILITIES, project_queryset, stage_for
 
 # TRIG-03/D-17: single source of truth for this command's own per-facility counter keys,
 # used to seed a facility that is in scope but contributed no records -- project_queryset()
@@ -22,10 +23,72 @@ from solsys_code.observation_projector import PROJECTED_FACILITIES, project_quer
 # intentionally a separate copy from, observation_projector._SWEEP_COUNTER_KEYS.
 _COUNTER_KEYS = ('created', 'updated', 'unchanged', 'unprojectable', 'site_lookups', 'site_lookup_failed')
 
+# D-08: the one-time observed-site lookup only ever fires once a record has reached one of
+# these two successful-terminal stages -- a queued or placed record triggers no portal call,
+# however many sweeps run.
+_SUCCESSFUL_TERMINAL_STAGES = ('observed', 'completed-no-block')
+
 
 def _new_counters() -> dict[str, int]:
     """Return a fresh zeroed counter dict for one facility (a NEW dict every call)."""
     return dict.fromkeys(_COUNTER_KEYS, 0)
+
+
+def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dict[str, int] | None, str | None]:
+    """The D-07/D-08 one-time observed-site lookup for a successful-terminal record.
+
+    Lives on the command side, never in the projector (34-RESEARCH.md Pitfall 4/Assumption
+    A3) -- the projector never makes a network call. Calls the portal-block resolver at most
+    once per record, ever: a record whose ``parameters`` already carries ``observed_site``
+    (from a previous sweep) is never looked up again, and a queued/placed record is never
+    looked up at all.
+
+    A ``None`` block (the resolver's own never-raise failure return) and a returned-but
+    -unmapped ``(site, telescope)`` pair are treated as ONE bucket (D-08): both leave the
+    coarse aperture token in place, store nothing, and are retried on the next sweep -- two
+    counters or two log messages for what is operationally one situation is exactly the
+    pitfall this rule exists to prevent.
+
+    There is no ``except`` clause in this function: ``resolve_placement_block()`` already
+    converts every failure (network error, auth error, malformed body) to ``None``
+    internally, so there is no caught exception object anywhere in this path that a message
+    could accidentally embed (SYNC-09/D-13).
+
+    Args:
+        record: the ObservationRecord to resolve. Mutated and saved in place on a successful
+            lookup (``record.parameters`` gains the three ``OBSERVED_SITE_PARAMETER_KEYS``,
+            written with ``update_fields=['parameters']``).
+        facility: the record's facility instance (``observation_projector.facility_for()``).
+
+    Returns:
+        tuple[dict[str, int] | None, str | None]: ``(None, None)`` when no lookup applies
+            (not a successful-terminal stage, or already resolved). ``({'site_lookups': 1},
+            None)`` on a successful lookup that wrote ``parameters``. ``({'site_lookup_failed':
+            1}, message)`` when the lookup returned no usable block or an unmapped pair --
+            ``message`` is a fixed, generic stderr line naming only the observation_id, never
+            a caught exception's value.
+    """
+    site_key, telescope_key, enclosure_key = OBSERVED_SITE_PARAMETER_KEYS
+    stage = stage_for(record, facility)
+    if stage not in _SUCCESSFUL_TERMINAL_STAGES:
+        return None, None
+    if record.parameters.get(site_key):
+        return None, None
+
+    block = resolve_placement_block(record.observation_id, facility)
+    site = block.get('site') if block is not None else None
+    telescope = block.get('telescope') if block is not None else None
+    enclosure = block.get('enclosure') if block is not None else None
+
+    if derive_telescope(site, telescope) is None:
+        message = f'observation_id={record.observation_id!r}: observed-site lookup unavailable -- using fallback label.'
+        return {'site_lookup_failed': 1}, message
+
+    record.parameters[site_key] = site
+    record.parameters[telescope_key] = telescope
+    record.parameters[enclosure_key] = enclosure
+    record.save(update_fields=['parameters'])
+    return {'site_lookups': 1}, None
 
 
 def _parse_proposal_arg(raw: str) -> list[str]:
@@ -105,7 +168,16 @@ class Command(BaseCommand):
             if codes:
                 records = records.filter(parameters__proposal__in=codes)
 
-        result = project_queryset(records, dry_run=dry_run)
+        def hook(record: ObservationRecord, facility: Any) -> dict[str, int] | None:
+            increment, message = resolve_observed_site(record, facility)
+            if message:
+                self.stderr.write(message)
+            return increment
+
+        # D-17: --dry-run performs no site lookup either -- project_queryset() itself also
+        # guards this (never calls the hook when dry_run=True), but omitting the hook
+        # entirely here means a dry run can never even construct the closure over self.stderr.
+        result = project_queryset(records, dry_run=dry_run, pre_fields_hook=None if dry_run else hook)
 
         counters = {facility: _new_counters() for facility in facilities_in_scope}
         for facility, facility_counters in result['counters'].items():

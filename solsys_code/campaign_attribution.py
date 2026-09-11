@@ -21,6 +21,7 @@ from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 
 from solsys_code.calendar_utils import (
+    OBSERVED_TELESCOPE_SITE_CODES,
     SITE_TELESCOPE_MAP,
     aperture_class_from_telescope_code,
     derive_telescope_class,
@@ -52,18 +53,33 @@ from solsys_code.telescope_runs import SITES as CLASSICAL_TELESCOPE_SITES
 # site): Observatory(obscode='E10', short_name='Siding Spring-Faulkes Telescope South') is
 # the real, already-resolved site for the 'coj' (Siding Spring) LCO site code.
 #
-# The other six LCO/SOAR site codes ('ogg', 'sor', 'elp', 'lsc', 'cpt', 'tfn') were
-# deliberately NOT added at this task: this worktree's local dev database is empty (a fresh
-# checkout -- no Observatory rows exist to verify against), and the public MPC bulk
-# Obscodes API returns MULTIPLE obscodes per LCO site (e.g. Cerro Tololo/'lsc' alone has
-# W85/W86/W87/W89/I02/807 -- one per physical dome/instrument, not one per site), so there is
-# no way to pick "the" canonical obscode for a whole LCO site from that bulk list alone --
-# it must be read off whichever specific Observatory row this codebase's CampaignRun.site
-# actually resolves to for that site, which requires the live application database. Leaving
-# these six unseeded is this table's own extension rule working as designed, not an
-# oversight -- see 28-02-SUMMARY.md for the verification record.
+# 34-02 Task 3 adds 'ogg' and 'sor', required for the D-07 telescope-label rename
+# (SITE_TELESCOPE_MAP's ('ogg','2m0') and ('sor','4m0') entries are now 'FTN'/'SOAR', which
+# no longer carry a recoverable 3-letter site-code prefix -- see OBSERVED_TELESCOPE_SITE_CODES
+# in calendar_utils.py) to keep scoring a site-level match instead of silently degrading to
+# aperture-only. This worktree's local dev database has no Observatory rows to verify
+# against directly (see the four-code note below), so these two are instead verified against
+# this codebase's own already-committed, independently-sourced Observatory fixtures: 'F65'
+# for 'ogg' (Faulkes Telescope North, Haleakala) appears across
+# test_import_campaign_csv.py/test_canonical_record_migration.py/test_campaign_approval.py/
+# test_reconcile_campaign_runs.py; 'I33' for 'sor' (SOAR, Cerro Pachon) appears in
+# test_campaign_gap.py -- both with matching real-world coordinates, not inferred from the
+# site name alone.
+#
+# The other four LCO/SOAR site codes ('elp', 'lsc', 'cpt', 'tfn') stay deliberately NOT
+# added: this worktree's local dev database is empty (a fresh checkout -- no Observatory rows
+# exist to verify against), and the public MPC bulk Obscodes API returns MULTIPLE obscodes
+# per LCO site (e.g. Cerro Tololo/'lsc' alone has W85/W86/W87/W89/I02/807 -- one per physical
+# dome/instrument, not one per site), so there is no way to pick "the" canonical obscode for
+# a whole LCO site from that bulk list alone -- it must be read off whichever specific
+# Observatory row this codebase's CampaignRun.site actually resolves to for that site, which
+# requires the live application database. Leaving these four unseeded is this table's own
+# extension rule working as designed, not an oversight -- see 28-02-SUMMARY.md for the
+# original verification record.
 LCO_SITE_CODE_TO_OBSCODE: dict[str, str] = {
     'coj': 'E10',
+    'ogg': 'F65',
+    'sor': 'I33',
 }
 
 # --- Weights, band cut-points, evidence-tier constants (Claude's Discretion, 28-CONTEXT.md) -
@@ -229,16 +245,30 @@ def date_overlap_score(
 def _extract_lco_site_code(telescope_code: str | None) -> str | None:
     """Leading 3-letter LCO site-code token from a resolved telescope label (e.g. 'COJ-2m0').
 
+    D-07 (34-02 Task 3): first checks OBSERVED_TELESCOPE_SITE_CODES for an exact
+    (case-insensitive) match on one of the three renamed observed-telescope labels
+    ('FTN'/'FTS'/'SOAR') -- those no longer carry a 3-letter site-code prefix a plain
+    string-split can recover. 'FTS' happens to also resolve via the classical-site-alias
+    branch in ``telescope_match_score`` (``telescope_runs.SITES``), but 'FTN' and 'SOAR' do
+    not, which is exactly why this bridge is checked here first rather than left to fall
+    through: without it, an orphan event whose telescope is 'FTN' or 'SOAR' would silently
+    drop from a site-level match to an aperture-only one.
+
     Args:
         telescope_code: the orphan's telescope string (e.g. ``CalendarEvent.telescope``).
 
     Returns:
-        str | None: the lowercased site code if it's a recognised LCO site (a key of
+        str | None: the mapped site code for one of the three observed-telescope labels, or
+            the lowercased leading site-code token if it's a recognised LCO site (a key of
             ``SITE_TELESCOPE_MAP``), else None. Never raises.
     """
     if not telescope_code:
         return None
-    candidate = telescope_code.split('-', 1)[0].strip().lower()
+    stripped = telescope_code.strip()
+    observed_site = OBSERVED_TELESCOPE_SITE_CODES.get(stripped.upper())
+    if observed_site is not None:
+        return observed_site
+    candidate = stripped.split('-', 1)[0].lower()
     return candidate if candidate in _LCO_SITE_CODES else None
 
 

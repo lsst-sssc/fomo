@@ -129,6 +129,51 @@ class TestScoringAndBanding(TestCase):
         self.assertEqual(score, TELESCOPE_MATCH_NONE)
         self.assertIn('E10', evidence)
 
+    def test_telescope_match_d07_renamed_observed_labels_still_resolve_site_level(self):
+        """D-07 (34-02 Task 3): an orphan event whose telescope is 'FTN', 'FTS' or 'SOAR' --
+        the renamed observed-telescope labels, which no longer carry a 3-letter site-code
+        prefix -- still scores a site-level match against a run at the matching obscode,
+        rather than silently degrading to aperture-only. 'FTS' already worked through the
+        classical-site-alias branch (telescope_runs.SITES); 'FTN' and 'SOAR' did not, which
+        is exactly the asymmetric regression this bridge (campaign_attribution's own
+        OBSERVED_TELESCOPE_SITE_CODES consultation in _extract_lco_site_code) closes."""
+        ogg_site = Observatory.objects.create(obscode='F65', name='Haleakala', short_name='FTN')
+        sor_site = Observatory.objects.create(obscode='I33', name='SOAR Cerro Pachon', short_name='SOAR')
+
+        ftn_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='D-07 FTN run',
+            window_start=None,
+            window_end=None,
+            site=ogg_site,
+        )
+        fts_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='D-07 FTS run',
+            window_start=None,
+            window_end=None,
+            site=self.observatory,
+        )
+        soar_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='D-07 SOAR run',
+            window_start=None,
+            window_end=None,
+            site=sor_site,
+        )
+
+        ftn_score, ftn_evidence = telescope_match_score(ftn_run, 'FTN', '2M0-SCICAM-MUSCAT')
+        self.assertEqual(ftn_score, TELESCOPE_MATCH_SITE)
+        self.assertIn('F65', ftn_evidence)
+
+        fts_score, fts_evidence = telescope_match_score(fts_run, 'FTS', '2M0-SCICAM-MUSCAT')
+        self.assertEqual(fts_score, TELESCOPE_MATCH_SITE)
+        self.assertIn('E10', fts_evidence)
+
+        soar_score, soar_evidence = telescope_match_score(soar_run, 'SOAR', 'SOAR_GHTS_REDCAM')
+        self.assertEqual(soar_score, TELESCOPE_MATCH_SITE)
+        self.assertIn('I33', soar_evidence)
+
     def test_telescope_match_aperture_only_tier_match(self):
         run = CampaignRun.objects.create(
             campaign=self.campaign,

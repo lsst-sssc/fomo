@@ -35,6 +35,7 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from solsys_code.calendar_utils import (
     InstrumentExtractionError,
     coarse_telescope_label,
+    derive_telescope,
     extract_instrument,
     insert_or_create_calendar_event,
     preview_calendar_event_action,
@@ -132,21 +133,60 @@ def stage_for(record: ObservationRecord, facility: Any) -> str:
     return 'placed' if has_block else 'queued'
 
 
-def telescope_token(record: ObservationRecord, stage: str, instrument: str) -> str:
-    """Return the telescope token used in both the title and CalendarEvent.telescope.
+def observed_token(record: ObservationRecord) -> str | None:
+    """Return the D-07 observed-telescope token stored on this record, or None.
 
-    Always the coarse aperture class today. This is the point plan 34-02 extends with the
-    observed-telescope token (D-07) once a record reaches a successful terminal state.
+    Reads the site/telescope the sweep's one-time lookup stored on
+    ``record.parameters`` (plan 34-02 Task 3's ``resolve_observed_site()``) and maps them
+    through ``calendar_utils.derive_telescope()`` -- the same function ``telescope_token()``
+    would otherwise use for any other stage. Makes no network call: this is a pure read of
+    already-stored data, never a live lookup.
 
     Args:
         record: the ObservationRecord being projected.
-        stage: the record's classified stage (``stage_for(record, facility)``); unused for
-            now, kept in the signature as the extension point plan 34-02 branches on.
+
+    Returns:
+        str | None: the observed-telescope label (e.g. 'FTN', or a SITE-aperture label for a
+            1m0/0m4 site) if both keys are stored and map to a known site, else None --
+            ``derive_telescope()`` is already None-safe on both a missing key and an
+            unmapped pair.
+    """
+    site = record.parameters.get('observed_site')
+    telescope = record.parameters.get('observed_telescope')
+    return derive_telescope(site, telescope)
+
+
+# D-07: only these two stages ever read the stored observed-telescope token -- a record
+# still queued or placed has nothing to read yet (the lookup only ever fires at a
+# successful-terminal stage, plan 34-02 Task 3), so it always falls through to the coarse
+# label below.
+_OBSERVED_TOKEN_STAGES = ('observed', 'completed-no-block')
+
+
+def telescope_token(record: ObservationRecord, stage: str, instrument: str) -> str:
+    """Return the telescope token used in both the title and CalendarEvent.telescope.
+
+    For an 'observed'/'completed-no-block' record whose observed site has already been
+    resolved (D-07), returns that observed-telescope token instead of the coarse aperture
+    class -- e.g. 'FTN' rather than '2m0'. Every other stage, and a successful-terminal
+    record whose lookup has not (yet) succeeded, keeps the coarse aperture-class label as
+    its standing fallback -- the same label used throughout the record's lifecycle up to
+    that point, so the token never regresses to something coarser once observed.
+
+    Args:
+        record: the ObservationRecord being projected.
+        stage: the record's classified stage (``stage_for(record, facility)``).
         instrument: the record's extracted instrument string (``extract_instrument()``).
 
     Returns:
-        str: the coarse aperture-class label (``calendar_utils.coarse_telescope_label()``).
+        str: the observed-telescope label when available for 'observed'/'completed-no-block'
+            (D-07), else the coarse aperture-class label
+            (``calendar_utils.coarse_telescope_label()``).
     """
+    if stage in _OBSERVED_TOKEN_STAGES:
+        token = observed_token(record)
+        if token is not None:
+            return token
     return coarse_telescope_label(instrument, record.facility)
 
 

@@ -13,6 +13,7 @@ from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.calendar_utils import (
+    OBSERVED_TELESCOPE_SITE_CODES,
     SITE_TELESCOPE_MAP,
     aperture_class_from_telescope_code,
     derive_telescope,
@@ -315,17 +316,27 @@ class TestTelescopeLabelResolutionHelpers(TestCase):
     invoke a management command, so they belong here."""
 
     def test_telescope_01_verified_dict_covers_all_sites(self):
-        """TELESCOPE-01: verified dict covers all 7 real sites with SITECODE-CLASS labels."""
+        """TELESCOPE-01: verified dict covers all 7 real sites; D-07 (34-02 Task 3) renamed
+        the three 2m0/4m0 entries to the telescope's own operating name instead of the
+        SITECODE-CLASS form."""
         expected_sites = {'ogg', 'elp', 'lsc', 'cpt', 'coj', 'tfn', 'sor'}
         actual_sites = {site for site, _aperture_class in SITE_TELESCOPE_MAP}
         self.assertEqual(actual_sites, expected_sites)
 
+        observed_telescope_labels = frozenset(OBSERVED_TELESCOPE_SITE_CODES)
         label_pattern = re.compile(r'^[A-Z]{3}-(0m4|1m0|2m0|4m0)$')
         for label in SITE_TELESCOPE_MAP.values():
-            self.assertRegex(label, label_pattern)
+            self.assertTrue(
+                label_pattern.match(label) or label in observed_telescope_labels,
+                f'{label!r} matches neither the SITECODE-CLASS pattern nor an observed-telescope label',
+            )
 
-        for migrated_label in ('COJ-2m0', 'OGG-2m0', 'SOR-4m0'):
-            self.assertIn(migrated_label, SITE_TELESCOPE_MAP.values())
+        for renamed_label in ('FTN', 'FTS', 'SOAR'):
+            self.assertIn(renamed_label, SITE_TELESCOPE_MAP.values())
+
+        self.assertEqual(set(OBSERVED_TELESCOPE_SITE_CODES), {'FTN', 'FTS', 'SOAR'})
+        for label, site in OBSERVED_TELESCOPE_SITE_CODES.items():
+            self.assertIn(site, actual_sites, f'{label!r} maps to {site!r}, not a key present in the map')
 
     def test_telescope_01_aperture_class_from_telescope_code(self):
         """TELESCOPE-01: aperture_class_from_telescope_code parses/rejects telescope codes."""
@@ -346,6 +357,14 @@ class TestTelescopeLabelResolutionHelpers(TestCase):
         self.assertEqual(derive_telescope('coj', '1m0a'), 'COJ-1m0')
         self.assertEqual(derive_telescope('coj', '0m4a'), 'COJ-0m4')
         self.assertEqual(derive_telescope('ogg', '0m4b'), 'OGG-0m4')
+
+    def test_telescope_01_d07_renamed_observed_telescope_labels(self):
+        """D-07 (34-02 Task 3): the three 2m0/4m0 entries resolve to the telescope's own
+        operating name, not the SITECODE-CLASS form; the rest of the network is unaffected."""
+        self.assertEqual(derive_telescope('ogg', '2m0a'), 'FTN')
+        self.assertEqual(derive_telescope('coj', '2m0a'), 'FTS')
+        self.assertEqual(derive_telescope('sor', '4m0a'), 'SOAR')
+        self.assertEqual(derive_telescope('lsc', '1m0a'), 'LSC-1m0')
 
     def test_telescope_02_placed_record_resolves_via_api(self):
         """TELESCOPE-02: a successful mocked API response resolves to the verified label."""
