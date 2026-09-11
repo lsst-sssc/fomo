@@ -114,6 +114,59 @@ class TestUpdateObservationStatusPath(ObservationProjectorSignalsTestCase):
         self.assertEqual(event.end_time, block_end)
         self.assertTrue(event.title.startswith('[S] '))
 
+    def test_updatestatus_with_datetime_valued_facility_still_narrows_the_event(self) -> None:
+        """Task 1 rewrote this class's only test to feed portal ISO strings; this keeps the
+        datetime-valued case covered too -- both value types a facility might present stay
+        exercised."""
+        block_start = datetime(2026, 9, 16, 3, 0, tzinfo=dt_timezone.utc)
+        block_end = block_start + timedelta(minutes=19)
+
+        original_get_status = LCOFacility.get_observation_status
+
+        def fake_get_observation_status(self, observation_id):
+            return {'state': 'PENDING', 'scheduled_start': block_start, 'scheduled_end': block_end}
+
+        LCOFacility.get_observation_status = fake_get_observation_status
+        try:
+            with self.assertNoLogs('solsys_code.observation_projector', level='WARNING'):
+                LCOFacility().update_observation_status(self.record.observation_id)
+        finally:
+            LCOFacility.get_observation_status = original_get_status
+
+        url = LCOFacility().get_observation_url(self.record.observation_id)
+        event = CalendarEvent.objects.get(url=url)
+        self.assertEqual(event.start_time, block_start)
+        self.assertEqual(event.end_time, block_end)
+        self.assertTrue(event.title.startswith('[S] '))
+
+    def test_updatestatus_event_span_matches_the_reloaded_record_no_churn(self) -> None:
+        """The no-churn guarantee: the window the receiver wrote from the in-memory portal
+        strings is the same window the sweep would later compute from the stored row, so
+        the receiver and the sweep cannot fight over the same event."""
+        block_start = datetime(2026, 9, 16, 4, 0, tzinfo=dt_timezone.utc)
+        block_end = block_start + timedelta(minutes=19)
+
+        original_get_status = LCOFacility.get_observation_status
+
+        def fake_get_observation_status(self, observation_id):
+            return {
+                'state': 'PENDING',
+                'scheduled_start': block_start.isoformat().replace('+00:00', 'Z'),
+                'scheduled_end': block_end.isoformat().replace('+00:00', 'Z'),
+            }
+
+        LCOFacility.get_observation_status = fake_get_observation_status
+        try:
+            LCOFacility().update_observation_status(self.record.observation_id)
+        finally:
+            LCOFacility.get_observation_status = original_get_status
+
+        self.record.refresh_from_db()
+        url = LCOFacility().get_observation_url(self.record.observation_id)
+        event = CalendarEvent.objects.get(url=url)
+        self.assertEqual(event.start_time, self.record.scheduled_start)
+        self.assertEqual(event.end_time, self.record.scheduled_end)
+
 
 class TestGroupMembershipReceiver(ObservationProjectorSignalsTestCase):
     """D-15/Pattern 3: the m2m_changed receiver closes the add-after-save gap."""

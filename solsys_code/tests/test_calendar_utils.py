@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from django import forms
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.models import ObservationRecord
@@ -16,6 +16,7 @@ from solsys_code.calendar_utils import (
     OBSERVED_TELESCOPE_SITE_CODES,
     SITE_TELESCOPE_MAP,
     aperture_class_from_telescope_code,
+    coerce_schedule_datetime,
     derive_telescope,
     derive_telescope_class,
     extract_instrument,
@@ -430,6 +431,56 @@ class TestResolvePlacementBlockFailureModes(TestCase):
         self.assertIsNone(block)
 
 
+class TestCoerceScheduleDatetime(SimpleTestCase):
+    """coerce_schedule_datetime() (G-34-2) -- no database rows needed; every case is a pure
+    function of its input value."""
+
+    def test_trailing_z_form_returns_the_aware_utc_instant(self):
+        """The portal's own form: a trailing 'Z' with no explicit offset."""
+        result = coerce_schedule_datetime('2026-09-18T07:14:00Z')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_plus_zero_offset_form_returns_the_same_instant(self):
+        """The equivalent '+00:00' offset form parses to the same instant as trailing-Z."""
+        result = coerce_schedule_datetime('2026-09-18T07:14:00+00:00')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_non_utc_offset_form_equals_the_same_instant(self):
+        """A non-UTC ('-04:00') offset form still resolves to the same absolute instant."""
+        result = coerce_schedule_datetime('2026-09-18T03:14:00-04:00')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_naive_iso_string_is_read_as_utc(self):
+        """A naive ISO string with no offset is read as UTC -- the convention this module
+        already documents for parameters['start']/['end']."""
+        result = coerce_schedule_datetime('2026-09-18T07:14:00')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_aware_datetime_is_returned_with_value_and_tzinfo_unchanged(self):
+        """An already-aware datetime passes through untouched."""
+        aware = datetime(2026, 9, 18, 3, 14, 0, tzinfo=dt_timezone(timedelta(hours=-4)))
+        result = coerce_schedule_datetime(aware)
+        self.assertEqual(result, aware)
+        self.assertEqual(result.tzinfo, aware.tzinfo)
+
+    def test_naive_datetime_gets_utc_attached_with_the_same_wall_clock_fields(self):
+        """A naive datetime comes back with UTC attached and identical wall-clock fields."""
+        naive = datetime(2026, 9, 18, 7, 14, 0)
+        result = coerce_schedule_datetime(naive)
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result.tzinfo, dt_timezone.utc)
+
+    def test_none_returns_none(self):
+        """None in, None out."""
+        self.assertIsNone(coerce_schedule_datetime(None))
+
+    def test_unparseable_string_raises_value_error(self):
+        """A string that is not a timestamp at all raises ValueError naming the rejected
+        value, so the message stays diagnostic."""
+        with self.assertRaisesRegex(ValueError, re.escape(repr('not-a-timestamp'))):
+            coerce_schedule_datetime('not-a-timestamp')
+
+
 class TestRecordTimeWindow(TestCase):
     """record_time_window() -- promoted from the retired LCO/SOAR sync command's own
     _time_window() (Plan 28-02 Task 2) so the matcher (campaign_attribution.py) and every
@@ -478,6 +529,29 @@ class TestRecordTimeWindow(TestCase):
 
         self.assertEqual(result_start, datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(result_end, datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc))
+
+    def test_in_memory_instance_with_portal_iso_strings_returns_aware_utc_pair(self):
+        """G-34-2: the post-save-instance case, not a database row --
+        update_observation_status() assigns the portal's raw ISO strings onto
+        scheduled_start/scheduled_end and calls save(), so record_time_window() must
+        coerce the in-memory string the same way a DB-fetched datetime would."""
+        start = datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc)
+        end = datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            observation_id='555555',
+            status='COMPLETED',
+            parameters={'proposal': 'TEST'},
+            scheduled_start=start.isoformat().replace('+00:00', 'Z'),
+            scheduled_end=end.isoformat().replace('+00:00', 'Z'),
+        )
+
+        result_start, result_end = record_time_window(record)
+
+        self.assertEqual(result_start, start)
+        self.assertEqual(result_end, end)
 
 
 class TestUpdateCalendarEventKeyAndFields(TestCase):
