@@ -1,8 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "This phase should not target 'LCO and Gemini sync commands' but rather 'LCO and SOAR' - we have no visibility into any of the Gemini queues through the existing GEMFacility class"
 created: 2026-09-02T20:00:00Z
-updated: 2026-09-02T20:42:00Z
+updated: 2026-09-11T06:00:00Z
+resolved: 2026-09-11T06:00:00Z
 ---
 
 ## Current Focus
@@ -15,7 +16,7 @@ hypothesis: CONFIRMED (multi-cause). The user's report is factually correct.
   portal + LCO API key) and is ALREADY handled inside `sync_lco_observation_calendar`.
 test: complete — source read of GEMFacility/SOARFacility/both sync commands, plus dev-DB counts
 expecting: n/a (root cause confirmed)
-next_action: return diagnosis to caller; plan-phase --gaps handles the fix
+next_action: none — resolved by the v2.4 milestone re-scope (see Resolution)
 
 bug_class: Bohrbug (deterministic, fully reproducible by reading source — a scope/domain-accuracy
   defect in planning artifacts, not a runtime fault)
@@ -222,6 +223,22 @@ root_cause: >
   facilities FOMO can see into — is wrong. SOAR is the real third facility, and it is already
   half-built inside the LCO adapter.
 
-fix: (not applied — diagnose-only mode; plan-phase --gaps will handle)
-verification: (n/a)
-files_changed: []
+fix: >
+  Resolved by re-scoping rather than by a code fix in this session. The v2.3 roadmap this
+  diagnosis was raised against (Phases 31-35, ADAPT-*/OUTCOME-*) was superseded and archived at
+  `.planning/milestones/v2.3-ROADMAP.md`; v2.4 "Observation-First Calendar" was written with the
+  correct facility pair from the start — its core value is "LCO/SOAR observation records", and
+  Phase 34 shipped the LCO/SOAR observation projector (`solsys_code/observation_projector.py`,
+  `project_observation_calendar`) and retired `sync_lco_observation_calendar` in its favour, with
+  Gemini kept as a separate, untouched calendar namespace (34-04 demo notebook proves the
+  takeover leaves `GEM:` events alone). The vocabulary gap (cause 2) was closed independently in
+  Phase 32: `CampaignRun.Source.SOAR_QUEUE` now exists (`solsys_code/models.py:187`, D-01 in
+  32-CONTEXT.md) alongside `GEMINI_QUEUE`. The provenance-loss lesson (cause 3) is recorded in
+  the debug knowledge base so the "GEMFacility is submit-only" limitation is findable without
+  digging into archived v1.5 docs.
+verification: >
+  `grep -n SOAR_QUEUE solsys_code/models.py` shows the value declared and documented; the v2.4
+  ROADMAP/STATE name LCO/SOAR throughout and Gemini only as a namespace the projector must not
+  touch; Phase 34's 4/4 plans are summarized with verification at human_needed (UAT in progress),
+  none of whose pending items concern Gemini.
+files_changed: []  # no code changed by this session; closure is by milestone re-scope (v2.4) + Phase 32 SOAR_QUEUE
