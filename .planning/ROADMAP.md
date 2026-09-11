@@ -217,7 +217,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. Over real nights, a user watches a `KEY2026B-004` record's event narrow queued → scheduled → observed with nobody running anything (closing spike 004's PARTIAL verdict), and every event title is short enough to read in a month cell
   5. `sync_lco_observation_calendar` no longer exists — the same events come from the projector and sweep in the same key namespace, with its runbook section, demo notebook and tests migrated rather than duplicated, and `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
 
-**Plans**: 5/6 plans executed (4/4 executed; 2 gap-closure plans added for UAT gap G-34-2)
+**Plans**: 6/7 plans executed (4/4 executed; 2 gap-closure plans added for UAT gap G-34-2; 1 added 2026-09-11 from 34-VERIFICATION.md's remaining gap G-34-3 — the re-executed notebook's takeover evidence went empty)
 
 Plans:
 **Wave 1**
@@ -240,6 +240,10 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 34-06-PLAN.md — Paired docs and live proof: the demo notebook updated and re-executed against a scratch copy, plus a portal-backed `updatestatus` run proving the receiver projects every save with the developer database and the SCHED-06 baseline untouched
+
+**Wave 6** *(gap closure — 34-VERIFICATION.md gap G-34-3, blocked on Wave 5 completion)*
+
+- [ ] 34-07-PLAN.md — Re-execute the demo notebook against a fresh un-swept clone so the takeover demonstrates something again, make the takeover and convergence cells assert their own evidence, reconcile the prose with the numbers, and guard the committed notebook with a test
 
 ### Phase 35: Allocation Layer & Classical Cutover
 
