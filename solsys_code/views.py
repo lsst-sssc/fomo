@@ -638,6 +638,7 @@ class JPLSBId:
 
     # XXX better in settings or a conf?
     base_url = 'https://ssd-api.jpl.nasa.gov/sb_ident.api'
+    timeout = 600  # seconds; two-pass (N-body) queries have been seen to take ~3 minutes
 
     @u.quantity_input
     def __init__(
@@ -651,9 +652,11 @@ class JPLSBId:
             raise ValueError("MPC site code '500' (geocenter) is not valid for this service")
         self.fov_ra_hwidth = fov_ra_hwidth.to(u.deg)
         self.fov_dec_hwidth = fov_dec_hwidth.to(u.deg)
-        self.two_pass = False  # whether to request the 2nd numerical integration pass rather than two-body model
+        # Defaults match what the JPL web tool (https://ssd.jpl.nasa.gov/tools/sb_ident.html) sends
+        self.two_pass = True  # request the 2nd numerical integration pass rather than the two-body model
+        self.suppress_first_pass = True  # omit the (large) two-body candidate list when two_pass is True
         self.filter_fov = True  # whether to filter to the FOV
-        self.mag_required = True  # skip objects without magnitude parameters
+        self.mag_required = False  # skip objects without magnitude parameters
         self.elems_required = False  # whether to request orbital elements
 
     def _build_base_query(self):
@@ -663,6 +666,8 @@ class JPLSBId:
 
         url = f'{self.base_url}?mpc-code={self.mpc_code}&mag-required={str(self.mag_required).lower()}'
         url += f'&two-pass={str(self.two_pass).lower()}'
+        if self.two_pass and self.suppress_first_pass:
+            url += '&suppress-first-pass=true'
         return url
 
     @u.quantity_input
@@ -672,7 +677,6 @@ class JPLSBId:
         """
 
         url = self._build_base_query()
-        # XXX may need '_' not 'T', docs inconsistent
         time_fmt = '%Y-%m-%dT%H:%M:%S'
         url += f'&obs-time={obs_time.utc.strftime(time_fmt)}'
         # Add RA string
@@ -697,7 +701,6 @@ class JPLSBId:
         """
 
         url = self._build_base_query()
-        # XXX may need '_' not 'T', docs inconsistent
         time_fmt = '%Y-%m-%dT%H:%M:%S'
         url += f'&obs-time={obs_time.utc.strftime(time_fmt)}'
         # Add RA string
@@ -722,17 +725,20 @@ class JPLSBId:
 
     def make_query(self, url):
         """
-        Executes query in <url>. If the response status is good, the results are returned as JSON
-        dict structure and the ['signature']['version'] is checked for the known current version (1.1)
-        In the case of error, None is returned.
+        Executes query in <url> and returns the results as a JSON dict structure after checking
+        ['signature']['version'] is the known current version (1.1).
+        Raises requests.HTTPError (with the API's own error message where available) for a bad
+        response; two-pass queries can take a few minutes so a generous timeout is used.
         """
-        results = None
-        resp = requests.get(url)
-        # print("status code=", resp.status_code, resp.ok is True)
-        if resp.ok is True:
-            # print("Response OK")
-            results = resp.json()
-            assert results['signature']['version'] == '1.1'
+        resp = requests.get(url, timeout=self.timeout)
+        if not resp.ok:
+            try:
+                message = resp.json().get('message', resp.reason)
+            except ValueError:
+                message = resp.reason
+            raise requests.HTTPError(f'JPL SBID query failed ({resp.status_code}): {message}', response=resp)
+        results = resp.json()
+        assert results['signature']['version'] == '1.1'
 
         return results
 
@@ -840,11 +846,9 @@ class JPLSBId:
         """
         Query for small bodies around <center> (a SkyCoord in the ICRS frame) at <obs_time> (a Time instance)
         Returns either a parsed QTable of the small bodies (if [raw_response] is False) or the raw JSON
-        response from the JPL service (if [raw_resonse] is True). In the event of an error from the API
-        endpoint, the query url is returned.
+        response from the JPL service (if [raw_resonse] is True). An error from the API endpoint
+        raises requests.HTTPError.
         """
-
-        results = None
 
         if not isinstance(obs_time, Time):
             obs_time = Time(obs_time, scale='utc')
@@ -857,15 +861,12 @@ class JPLSBId:
             print(f'Querying around ({center.ra.deg:.3f}, {center.dec.deg:+.2f}) at {obs_time.utc} UTC')
         url = self._build_center_query(obs_time, center)
 
-        if url:
-            if verbose:
-                print(url)
-            results = self.make_query(url)
-            if results is not None:
-                if verbose:
-                    print(f"Found {results['n_first_pass']} small bodies in FOV")
-                if raw_response is False:
-                    results = self.parse_results(results)
-            else:
-                results = url
+        if verbose:
+            print(url)
+        results = self.make_query(url)
+        if verbose:
+            n_found = results.get('n_second_pass', results.get('n_first_pass'))
+            print(f'Found {n_found} small bodies in FOV')
+        if raw_response is False:
+            results = self.parse_results(results)
         return results

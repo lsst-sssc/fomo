@@ -848,12 +848,18 @@ class TestJPLSBId(SimpleTestCase):
     def setUp(self) -> None:
         self.test_rubin = JPLSBId(mpc_code='X05', fov_ra_hwidth=1.75 * u.deg, fov_dec_hwidth=1.75 * u.deg)
         self.test_ps1 = JPLSBId(mpc_code='F51', fov_ra_hwidth=0.5 * u.deg, fov_dec_hwidth=0.5 * u.deg)
+        # The first-pass JSON fixtures were captured with these (non-default) settings
+        for sbid in (self.test_rubin, self.test_ps1):
+            sbid.two_pass = False
+            sbid.mag_required = True
         self.root_url = 'https://ssd-api.jpl.nasa.gov/sb_ident.api'
         self.base_url = self.root_url + '?mpc-code=X05&mag-required=true&two-pass=false'
         test_json_fp = files('solsys_code.tests.data').joinpath('test_query_jplsbid.json')
         self.test_json = json.loads(test_json_fp.read_text())
         test_json_fp = files('solsys_code.tests.data').joinpath('test_query_jplsbid_PS1.json')
         self.test_json_ps1 = json.loads(test_json_fp.read_text())
+        test_json_fp = files('solsys_code.tests.data').joinpath('test_query_jplsbid_2pass.json')
+        self.test_json_2pass = json.loads(test_json_fp.read_text())
 
         self.maxDiff = None
         self.time_fmt = '%Y-%m-%d %H:%M:%S'
@@ -865,6 +871,18 @@ class TestJPLSBId(SimpleTestCase):
         self.assertEqual(self.test_rubin.mpc_code, foo.mpc_code)
         self.assertEqual(self.test_rubin.fov_ra_hwidth, foo.fov_ra_hwidth)
         self.assertEqual(self.test_rubin.fov_dec_hwidth, foo.fov_dec_hwidth)
+        # Defaults should match what the JPL web tool sends
+        self.assertTrue(foo.two_pass)
+        self.assertTrue(foo.suppress_first_pass)
+        self.assertFalse(foo.mag_required)
+        self.assertTrue(foo.filter_fov)
+
+    def test_build_base_query_web_defaults(self):
+        expected_url = self.root_url + '?mpc-code=X05&mag-required=false&two-pass=true&suppress-first-pass=true'
+
+        url = JPLSBId()._build_base_query()
+
+        self.assertEqual(expected_url, url)
 
     def test_build_base_query_defaults(self):
         expected_url = self.root_url + '?mpc-code=X05&mag-required=true&two-pass=false'
@@ -882,10 +900,20 @@ class TestJPLSBId(SimpleTestCase):
 
         self.assertEqual(expected_url, url)
 
-    def test_build_base_query_defaults_2pass_false(self):
+    def test_build_base_query_defaults_2pass_true(self):
+        expected_url = self.root_url + '?mpc-code=X05&mag-required=true&two-pass=true&suppress-first-pass=true'
+
+        self.test_rubin.two_pass = True
+
+        url = self.test_rubin._build_base_query()
+
+        self.assertEqual(expected_url, url)
+
+    def test_build_base_query_defaults_2pass_true_no_suppress(self):
         expected_url = self.root_url + '?mpc-code=X05&mag-required=true&two-pass=true'
 
         self.test_rubin.two_pass = True
+        self.test_rubin.suppress_first_pass = False
 
         url = self.test_rubin._build_base_query()
 
@@ -973,20 +1001,53 @@ class TestJPLSBId(SimpleTestCase):
 
     @patch('requests.get')
     def test_make_query_failure_bad(self, mock_get):
-        """test query of non-existant object"""
+        """test query with an invalid site code raises with the API's message"""
         mock_response = Mock()
+        mock_response.ok = False
         mock_response.status_code = 400
-        http_error = requests.exceptions.HTTPError()
-        mock_response.raise_for_status.side_effect = http_error
-        mock_response.json.return_value = (
-            b'{"message":"invalid obs-code (should be MPC 3-character string: e.g., '
-            + b'\'G96\', \'704\', etc.)","moreInfo":"https://ssd-api.jpl.nasa.gov/doc/sb_ident.html","code":"400"}\n'
-        )
+        mock_response.reason = 'Bad Request'
+        mock_response.json.return_value = {
+            'message': "invalid obs-code (should be MPC 3-character string: e.g., 'G96', '704', etc.)",
+            'moreInfo': 'https://ssd-api.jpl.nasa.gov/doc/sb_ident.html',
+            'code': '400',
+        }
         mock_get.return_value = mock_response
         url = self.base_url + '?mpc-code=FOO'
 
-        result = self.test_rubin.make_query(url)
-        self.assertEqual(result, None)
+        with self.assertRaises(requests.HTTPError) as cm:
+            self.test_rubin.make_query(url)
+        self.assertIn('400', str(cm.exception))
+        self.assertIn('invalid obs-code', str(cm.exception))
+
+    @patch('requests.get')
+    def test_make_query_failure_non_json(self, mock_get):
+        """test a non-JSON error response (e.g. a gateway error page) still raises cleanly"""
+        mock_response = Mock()
+        mock_response.ok = False
+        mock_response.status_code = 503
+        mock_response.reason = 'Service Unavailable'
+        mock_response.json.side_effect = ValueError('No JSON')
+        mock_get.return_value = mock_response
+
+        with self.assertRaises(requests.HTTPError) as cm:
+            self.test_rubin.make_query(self.base_url)
+        self.assertIn('503', str(cm.exception))
+        self.assertIn('Service Unavailable', str(cm.exception))
+
+    @patch('requests.get')
+    def test_query_center_failure_raises(self, mock_get):
+        """query_center should propagate the error rather than returning the URL"""
+        mock_response = Mock()
+        mock_response.ok = False
+        mock_response.status_code = 500
+        mock_response.reason = 'Internal Server Error'
+        mock_response.json.side_effect = ValueError('No JSON')
+        mock_get.return_value = mock_response
+        obs_time = Time('2024-11-11T09:00:00', scale='utc')
+        center = SkyCoord('03h32m31s -28d06m00s', frame='icrs')
+
+        with self.assertRaises(requests.HTTPError):
+            self.test_rubin.query_center(obs_time, center, verbose=False)
 
     @patch('requests.get')
     def test_make_query_results_PS1(self, mock_get):
@@ -1179,3 +1240,52 @@ class TestJPLSBId(SimpleTestCase):
         assert_quantity_allclose(expected_ra_rates, table['RA rate'])
         assert_quantity_allclose(expected_positions.ra, table['Astrometric position'].ra)
         assert_quantity_allclose(expected_positions.dec, table['Astrometric position'].dec)
+
+    @patch('requests.get')
+    def test_query_center_two_pass(self, mock_get):
+        """Default (web tool equivalent) query: second pass only, no first-pass data or position errors"""
+        expected_columns = [
+            'Object name',
+            'Astrometric position',
+            'Dist. from center RA',
+            'Dist. from center Dec',
+            'Dist. from center Norm',
+            'V magnitude',
+            'RA rate',
+            'Dec rate',
+        ]
+        mock_response = Mock()
+        mock_response.json.return_value = self.test_json_2pass
+        mock_response.status_code = 200
+        mock_response.ok = True
+        mock_get.return_value = mock_response
+        # Matches the parameters the fixture was captured with
+        obs_time = Time('2024-11-11T09:00:00', scale='utc')
+        center = SkyCoord('03h32m31s -28d06m00s', frame='icrs')
+        rubin = JPLSBId()
+        rubin.mag_required = True
+
+        results = rubin.query_center(obs_time, center, raw_response=True, verbose=False)
+
+        mock_get.assert_called_once_with(
+            self.root_url + '?mpc-code=X05&mag-required=true&two-pass=true&suppress-first-pass=true'
+            '&obs-time=2024-11-11T09:00:00&fov-ra-center=03-32-31&fov-dec-center=M28-06-00'
+            '&fov-ra-hwidth=1.75&fov-dec-hwidth=1.75',
+            timeout=JPLSBId.timeout,
+        )
+        self.assertNotIn('n_first_pass', results)
+        self.assertNotIn('data_first_pass', results)
+        self.assertEqual(19, results['n_second_pass'])
+
+        table = rubin.parse_results(results)
+
+        self.assertTrue(isinstance(table, QTable))
+        self.assertEqual(expected_columns, table.colnames)
+        self.assertEqual(19, len(table))
+        self.assertEqual('387512', table['Object name'][0])
+        self.assertEqual('2014 WO607', table['Object name'][4])
+        self.assertEqual('C/2012 X1', table['Object name'][-1])
+        self.assertEqual(u.arcsec / u.hour, table['RA rate'].unit)
+        self.assertEqual(19.4, table['V magnitude'][0])
+        # Total ('T') / nuclear ('N') magnitude suffixes on comets are stripped
+        self.assertEqual(24.8, table['V magnitude'][-1])
