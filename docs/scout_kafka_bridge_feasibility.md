@@ -1,9 +1,11 @@
 # Feasibility study: a JPL Scout → Kafka bridge for Rubin ToO alerting
 
-*Status: prototype running (first drafted 2026-07-17, updated 2026-09-02). Milestones
+*Status: prototype running (first drafted 2026-07-17, updated 2026-09-10). Milestones
 M1–M3 are complete and the bridge has been publishing to the Hopskotch topic
-`Scout.scout-test` on a 10-minute cycle since 2026-08-31; see §12. Remaining work and
-the outstanding coordination gates are in §11–§12.*
+`Scout.scout-test` on a 10-minute cycle since 2026-08-31; see §12. The `tom_jpl` work
+this design depends on was merged (PR #23, 2026-09-09) and released as `tom-jpl` 0.3.0
+on PyPI on 2026-09-10, so the bridge no longer needs a git dependency. Remaining work
+and the outstanding coordination gates are in §11–§12.*
 
 ## Summary
 
@@ -334,7 +336,10 @@ standard pattern:
 
 ## 12. Prototype milestones (~5–6 engineering weeks; external coordination dominates)
 
-*Status as of 2026-09-02: M1–M3 complete, M0 partly resolved, M4 next.*
+*Status as of 2026-09-10: M1–M3 complete, M0 partly resolved, M4 next. `tom-jpl` 0.3.0
+is on PyPI (requires `tomtoolkit>=3.0.1`), closing the "unreleased dependency" caveat
+under which M1–M3 were built: the bridge's git pin on the PR branch can be replaced by
+`tom-jpl>=0.3.0` before M4 containerises it.*
 
 - **M0 — partly done.** SCiMMA side resolved 2026-08-24: we are Owner of the `Scout`
   hopauth group, so topic creation and write credentials turned out to be self-serve and
