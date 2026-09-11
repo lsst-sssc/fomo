@@ -618,6 +618,26 @@ class TestFieldPopulation(_ObservationProjectorTestBase):
         fields, _stage = op.event_fields_for(record, facility)
         self.assertEqual(fields['proposal'], 'FIELDPROP')
 
+    def test_proposal_and_instrument_are_truncated_to_200_chars(self) -> None:
+        """WR-01: proposal/instrument are externally sourced and write straight into
+        CharField(max_length=200) columns -- unlike title, they were not truncated before,
+        which SQLite silently accepts but PostgreSQL (CLAUDE.md's production target)
+        rejects with DataError."""
+        long_proposal = 'P' * 250
+        long_instrument = 'I' * 250
+        record = self._make_record(
+            'fields-overlong',
+            proposal=long_proposal,
+            instrument_type=long_instrument,
+        )
+        facility = op.facility_for(record)
+        fields, _stage = op.event_fields_for(record, facility)
+        self.assertEqual(len(fields['proposal']), 200)
+        self.assertEqual(fields['proposal'], long_proposal[:200])
+        self.assertEqual(len(fields['instrument']), 200)
+        self.assertEqual(fields['instrument'], long_instrument[:200])
+        self.assertLessEqual(len(fields['telescope']), 200)
+
     def test_description_contains_proposal_status_and_window(self) -> None:
         record = self._make_record(
             'fields-description',

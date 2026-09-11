@@ -28,6 +28,7 @@ from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 from tom_calendar.models import CalendarEvent
 from tom_observations.facility import get_service_class
 from tom_observations.models import ObservationGroup, ObservationRecord
@@ -294,9 +295,16 @@ def event_fields_for(record: ObservationRecord, facility: Any) -> tuple[dict[str
         'description': description,
         'start_time': start_time,
         'end_time': end_time,
-        'telescope': token,
-        'instrument': instrument,
-        'proposal': proposal,
+        # WR-01: telescope/instrument/proposal are externally sourced (the last two come
+        # straight from record.parameters) and write into CharField(max_length=200)
+        # columns; title is already truncated above (title_for()'s own [:200]). SQLite
+        # accepts an over-length value silently, but PostgreSQL (CLAUDE.md's documented
+        # production target) raises DataError, which would otherwise escape as an
+        # unhandled database error inside the caller's transaction (see WR-01's
+        # transaction.atomic() fix at the post_save receiver).
+        'telescope': token[:200],
+        'instrument': instrument[:200],
+        'proposal': proposal[:200],
         'target_list': target_list,
     }
     return fields, stage
@@ -480,10 +488,15 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     """post_save receiver (TRIG-01): projects a record's event with no operator command.
 
     Returns immediately for a fixture load (``raw=True``) and for any facility other than
-    LCO/SOAR (D-16, Gemini records stay with the submission-echo command). The call to
-    ``project_record()`` is wrapped in its own try/except so even an unexpected ORM error
-    cannot abort the caller's save (TRIG-02); logged at debug level, not warning, since this
-    fires on every ObservationRecord save in production.
+    LCO/SOAR (D-16, Gemini records stay with the submission-echo command). ``project_record()``
+    runs inside its own ``transaction.atomic()`` savepoint (WR-01): TRIG-02 says this receiver
+    runs inline in the caller's own transaction, and per Django's documented rule, catching a
+    *database* error inside an ``atomic`` block without a savepoint leaves that whole
+    transaction unusable for every later query. A savepoint lets a database error here roll
+    back only the projector's own work, so the broad ``except`` below still protects the
+    caller's save rather than converting a clear error into a confusing
+    ``TransactionManagementError`` later. Logged at debug level, not warning, since this fires
+    on every ObservationRecord save in production.
 
     Args:
         sender: the model class Django's signal framework passes (ObservationRecord).
@@ -497,7 +510,8 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     if instance.facility not in PROJECTED_FACILITIES:
         return
     try:
-        action, stage = project_record(instance)
+        with transaction.atomic():
+            action, stage = project_record(instance)
     except Exception as exc:  # noqa: BLE001 -- TRIG-02: never abort the caller's save
         logger.warning(
             'receiver_on_record_save failed for observation_id=%r: %s', instance.observation_id, type(exc).__name__
