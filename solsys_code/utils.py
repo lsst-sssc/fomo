@@ -502,9 +502,9 @@ def write_psv(ades_data, zaa_ra_dec, output_psv_file, reference_ap=1.8, psvencod
                     if col == 'obsTime':
                         obsTime = value
                     elif col == 'ra':
-                        value = f"{zaa_ra_dec[obsTime]['zero_ap_ra']:010.6f}"
+                        value = f'{zaa_ra_dec[obsTime]["zero_ap_ra"]:010.6f}'
                     elif col == 'dec':
-                        value = f"{zaa_ra_dec[obsTime]['zero_ap_dec']:+09.6f}"
+                        value = f'{zaa_ra_dec[obsTime]["zero_ap_dec"]:+09.6f}'
                     elif col == 'notes':
                         value = 'e' + value  # mark as extrapolated
                     # print(value, type(value), headerItem[1], type(headerItem[1]), headerItem[2], \
