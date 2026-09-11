@@ -43,6 +43,13 @@ from solsys_code.templatetags.calendar_display_extras import (
 QUEUED_BOX_SHADOW = 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
 TERMINAL_BOX_SHADOW = 'box-shadow: 0 0 0 3px rgba(160, 0, 0, 0.55);'
 
+# observation_series_decoration() is a takes_context=True tag: calling it directly (as this
+# module does, rather than through a template) requires supplying a context dict of our own.
+# These two stand in for what django.contrib.auth.context_processors.auth would put there for
+# a logged-in vs anonymous request.
+AUTHENTICATED_CONTEXT = {'user': SimpleNamespace(is_authenticated=True)}
+ANONYMOUS_CONTEXT = {'user': SimpleNamespace(is_authenticated=False)}
+
 
 class ProposalColorTest(TestCase):
     def test_same_input_same_output(self):
@@ -636,7 +643,7 @@ class TestObservationSeriesDecoration(TestCase):
         event = self._make_event()
         CalendarEventMeta.objects.create(event=event, observation_record=r2, observation_group=group)
 
-        result = observation_series_decoration(event)
+        result = observation_series_decoration(AUTHENTICATED_CONTEXT, event)
         self.assertIsNotNone(result)
         self.assertEqual(result['group_name'], '3I/ATLAS nightly cadence')
         self.assertEqual(result['group_pk'], group.pk)
@@ -644,6 +651,33 @@ class TestObservationSeriesDecoration(TestCase):
         self.assertEqual(result['index'], 2)
         self.assertEqual(result['group_list_url'], reverse('tom_observations:group-list'))
         self.assertEqual(result['record_url'], reverse('tom_observations:detail', args=[r2.pk]))
+
+    def test_unattributed_group_hides_name_from_anonymous_viewer_but_shows_it_authenticated(self):
+        """A companion row with no `run` at all (the common, projector-only case, never
+        routed through campaign attribution) must not publish the group name to an
+        anonymous viewer -- the same protection campaign_decoration() already gives an
+        attributed-but-not-yet-public run, extended to the far more common un-attributed
+        case."""
+        r1 = self._make_record(
+            'unattributed-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'unattributed-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Unattributed portal RequestGroup name')
+        self._add_to_group(group, r1, r2)
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group, run=None)
+
+        self.assertIsNone(observation_series_decoration(ANONYMOUS_CONTEXT, event))
+
+        result = observation_series_decoration(AUTHENTICATED_CONTEXT, event)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['group_name'], 'Unattributed portal RequestGroup name')
 
     def test_members_numbered_by_window_start_independent_of_pk_order(self):
         # Created in reverse chronological order, so pk order is the OPPOSITE of window
@@ -664,7 +698,7 @@ class TestObservationSeriesDecoration(TestCase):
         event = self._make_event()
         CalendarEventMeta.objects.create(event=event, observation_record=r_earliest, observation_group=group)
 
-        result = observation_series_decoration(event)
+        result = observation_series_decoration(AUTHENTICATED_CONTEXT, event)
         self.assertEqual(result['index'], 1)  # earliest window, despite the later pk
 
     def test_unwindowed_sibling_sorts_last_without_raising(self):
@@ -680,7 +714,7 @@ class TestObservationSeriesDecoration(TestCase):
         event = self._make_event()
         CalendarEventMeta.objects.create(event=event, observation_record=r_windowed, observation_group=group)
 
-        result = observation_series_decoration(event)
+        result = observation_series_decoration(AUTHENTICATED_CONTEXT, event)
         self.assertIsNotNone(result)
         self.assertEqual(result['size'], 2)
         self.assertEqual(result['index'], 1)  # windowed sibling sorts first, unwindowed last
@@ -700,14 +734,14 @@ class TestObservationSeriesDecoration(TestCase):
         event = self._make_event()
         CalendarEventMeta.objects.create(event=event, observation_record=r_windowed, observation_group=group)
 
-        result = observation_series_decoration(event)
+        result = observation_series_decoration(AUTHENTICATED_CONTEXT, event)
         self.assertIsNotNone(result)
         self.assertEqual(result['size'], 2)
         self.assertEqual(result['index'], 1)  # windowed sibling sorts first, malformed one last
 
     def test_returns_none_for_no_companion_row(self):
         event = self._make_event()
-        self.assertIsNone(observation_series_decoration(event))
+        self.assertIsNone(observation_series_decoration(AUTHENTICATED_CONTEXT, event))
 
     def test_returns_none_for_companion_row_with_no_group(self):
         r1 = self._make_record(
@@ -717,7 +751,7 @@ class TestObservationSeriesDecoration(TestCase):
         )
         event = self._make_event()
         CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=None)
-        self.assertIsNone(observation_series_decoration(event))
+        self.assertIsNone(observation_series_decoration(AUTHENTICATED_CONTEXT, event))
 
     def test_returns_none_for_single_member_group(self):
         r1 = self._make_record(
@@ -729,11 +763,11 @@ class TestObservationSeriesDecoration(TestCase):
         self._add_to_group(group, r1)
         event = self._make_event()
         CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group)
-        self.assertIsNone(observation_series_decoration(event))
+        self.assertIsNone(observation_series_decoration(AUTHENTICATED_CONTEXT, event))
 
     def test_returns_none_for_non_calendar_event_value(self):
-        self.assertIsNone(observation_series_decoration(None))
-        self.assertIsNone(observation_series_decoration('not an event'))
+        self.assertIsNone(observation_series_decoration(AUTHENTICATED_CONTEXT, None))
+        self.assertIsNone(observation_series_decoration(AUTHENTICATED_CONTEXT, 'not an event'))
 
     def test_render_then_reproject_leaves_title_and_description_byte_identical(self):
         # Exercises the real projector end-to-end (no receiver disconnect here) -- the
@@ -769,7 +803,7 @@ class TestObservationSeriesDecoration(TestCase):
         before_title = event.title
         before_description = event.description
 
-        result = observation_series_decoration(event)
+        result = observation_series_decoration(AUTHENTICATED_CONTEXT, event)
         self.assertIsNotNone(result)
 
         op.project_record(r1)

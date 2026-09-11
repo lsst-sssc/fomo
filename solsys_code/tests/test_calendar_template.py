@@ -1138,6 +1138,10 @@ class EventModalSeriesDecorationTest(TestCase):
             window_end=date(2026, 9, 3),
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
         )
+        # An authenticated (not necessarily staff) viewer -- observation_series_decoration()'s
+        # anonymous-viewer gate for an un-attributed (run=None) event only checks
+        # is_authenticated, not is_staff, so a plain user is the right fixture here.
+        cls.authenticated_user = User.objects.create_user(username='seriesmodalviewer', password='pw')
 
     def _make_record(self, observation_id: str, start: datetime, end: datetime) -> ObservationRecord:
         post_save.disconnect(
@@ -1185,7 +1189,11 @@ class EventModalSeriesDecorationTest(TestCase):
     def _modal_url(self, event: CalendarEvent):
         return reverse('calendar:update-event', args=[event.id])
 
-    def test_grouped_event_modal_shows_group_name_and_night_n_of_n(self):
+    def test_grouped_event_modal_hides_group_name_from_anonymous_viewer(self):
+        """An un-attributed (run=None) grouped event -- the common case, since most
+        projector-owned events never go through campaign attribution -- must not publish
+        the observation-group's own name (an internal portal RequestGroup identifier) to
+        an anonymous visitor of the unauthenticated event-update view."""
         r1 = self._make_record(
             'modal-series-1',
             datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
@@ -1209,7 +1217,35 @@ class EventModalSeriesDecorationTest(TestCase):
         response = self.client.get(self._modal_url(event))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn('Series Modal Group', content)
+        self.assertNotIn('Series Modal Group', content)
+        self.assertNotIn('Night 1 of 2', content)
+
+    def test_grouped_event_modal_shows_group_name_and_night_n_of_n_to_authenticated_viewer(self):
+        r1 = self._make_record(
+            'modal-series-auth-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-series-auth-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Series Modal Group (authenticated)')
+        self._add_to_group(group, r1, r2)
+
+        event = CalendarEvent.objects.create(
+            title='Series modal event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group)
+
+        self.client.force_login(self.authenticated_user)
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Series Modal Group (authenticated)', content)
         self.assertIn('Night 1 of 2', content)
 
     def test_grouped_and_attributed_event_shows_both_decorations(self):
@@ -1309,7 +1345,11 @@ class EventModalSeriesDecorationTest(TestCase):
         version of this test measured the month view and passed unconditionally regardless
         of the tag's real per-modal fan-out. Compares a 2-member group against a 10-member
         group, count-comparison form (never a hard-coded number), per the sibling
-        campaign-attribution query-count test's own convention."""
+        campaign-attribution query-count test's own convention. Logs in first: these fixture
+        events carry no `run` (see _make_modal_group_event), and an anonymous viewer would
+        now be gated out before the per-member query fan-out this test exists to measure
+        ever runs -- which would make the comparison trivially equal for the wrong reason."""
+        self.client.force_login(self.authenticated_user)
         small_event = self._make_modal_group_event('Query Guard Small Group', month=10, size=2)
 
         with CaptureQueriesContext(connection) as small_ctx:

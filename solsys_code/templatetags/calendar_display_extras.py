@@ -534,12 +534,12 @@ def campaign_decoration(event: CalendarEvent) -> dict | None:
     except ObjectDoesNotExist:
         return None
     run = meta.run
-    # WR-03: observation_series_decoration() below applies this same is_publicly_visible
-    # gate to meta.run -- kept side by side so the two tags' visibility rules stay legible
-    # together. The two guards differ only in what "no run" means: here it means "no
-    # campaign to attribute" (return None either way, gated on run existing at all);
-    # observation_series_decoration()'s series identity is independent of attribution, so
-    # it only suppresses when a run IS attached and that run is not public.
+    # observation_series_decoration() below applies this same is_publicly_visible gate to
+    # meta.run -- kept side by side so the two tags' visibility rules stay legible together.
+    # The two guards differ in what "no run" means: here it means "no campaign to
+    # attribute" (return None either way, gated on run existing at all); series identity is
+    # independent of attribution, so that tag additionally gates its own un-attributed case
+    # on the viewer's authentication rather than treating "no run" as always visible.
     if run is None or not run.is_publicly_visible:
         return None
 
@@ -590,8 +590,29 @@ def _window_start_or_max(record) -> datetime:
     return start
 
 
-@register.simple_tag
-def observation_series_decoration(event: CalendarEvent) -> dict | None:
+def _viewer_is_authenticated(context) -> bool:
+    """True only when the rendering request carries an authenticated user.
+
+    Reads ``context['user']`` -- populated by
+    ``django.contrib.auth.context_processors.auth`` (wired in
+    ``TEMPLATES[0]['OPTIONS']['context_processors']``) whenever the view renders with a
+    request. Fails closed: a missing ``'user'`` key, a ``None`` value, or any object with
+    no ``is_authenticated`` attribute is treated as an anonymous viewer, so a template
+    rendered outside the normal request/context-processor path never accidentally shows a
+    name that should be gated.
+
+    Args:
+        context: the template rendering context passed to a ``takes_context=True`` tag.
+
+    Returns:
+        bool: True only when ``context['user'].is_authenticated`` is truthy.
+    """
+    user = context.get('user')
+    return bool(user is not None and getattr(user, 'is_authenticated', False))
+
+
+@register.simple_tag(takes_context=True)
+def observation_series_decoration(context, event: CalendarEvent) -> dict | None:
     """Read-only "night n of N" series decoration for a CalendarEvent (PROJ-04/PROJ-05, D-04).
 
     Renders which night of how many an observation-projector-owned event's own record is,
@@ -609,16 +630,23 @@ def observation_series_decoration(event: CalendarEvent) -> dict | None:
     Never raises. Returns ``None`` for an event with no companion row, for a companion row
     with no ``observation_group`` or no ``observation_record`` link, for a group with fewer
     than two members (a series of one is not a series), for a value that is not a
-    CalendarEvent at all, and (WR-03) for a companion row whose ``run`` is set but not
-    publicly visible -- the same ``CampaignRun.is_publicly_visible`` gate
-    ``campaign_decoration()`` above applies, kept side by side with it so the two tags'
-    visibility rules stay legible together. Without this gate, an anonymous visitor to the
-    unauthenticated event-update view could read a pending-review run's observation-group
-    name (an internal portal RequestGroup identifier, per
-    ``backfill_lco_observations._group_name()``) even though the sibling campaign-attribution
-    block stays hidden for the same event.
+    CalendarEvent at all, for a companion row whose ``run`` is set but not publicly visible
+    -- the same ``CampaignRun.is_publicly_visible`` gate ``campaign_decoration()`` above
+    applies, kept side by side with it so the two tags' visibility rules stay legible
+    together -- and for a companion row with no ``run`` at all (the common case: most
+    projector-owned events are never attributed to a campaign) when the rendering request's
+    viewer is not authenticated. Gating only the attributed sub-case would leave the group
+    name -- an internal portal RequestGroup identifier, per
+    ``backfill_lco_observations._group_name()`` -- visible to every anonymous visitor of the
+    unauthenticated event-update view for the majority of grouped events. This is why the
+    tag takes ``context``: the viewer check reads ``context['user']`` (see
+    ``_viewer_is_authenticated()``), so the visibility rule stays inside this function --
+    the single place it lives, matching ``campaign_decoration()``'s own gate -- rather than
+    a second, template-side check a future edit could drift out of sync with it.
 
     Args:
+        context: the template rendering context (``takes_context=True``); read only for the
+            anonymous-viewer gate above.
         event: the CalendarEvent to decorate.
 
     Returns:
@@ -639,10 +667,15 @@ def observation_series_decoration(event: CalendarEvent) -> dict | None:
         return None
     if meta.observation_group_id is None or meta.observation_record_id is None:
         return None
-    # WR-03: mirrors campaign_decoration()'s own is_publicly_visible gate immediately above --
-    # a pending-review run's attribution must not leak the observation-group's own identity
+    # Mirrors campaign_decoration()'s own is_publicly_visible gate immediately above -- a
+    # pending-review run's attribution must not leak the observation-group's own identity
     # (an internal portal RequestGroup id) onto the public, unauthenticated calendar either.
     if meta.run is not None and not meta.run.is_publicly_visible:
+        return None
+    # The un-attributed case (no run at all) is not covered by the gate above -- it needs
+    # its own check against the viewer, since there is no CampaignRun to read visibility
+    # from. See the docstring's "common case" paragraph.
+    if meta.run is None and not _viewer_is_authenticated(context):
         return None
 
     # IN-05: no select_related() here -- only member.pk and record_time_window(member) (which
