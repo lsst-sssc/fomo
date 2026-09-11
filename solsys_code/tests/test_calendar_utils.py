@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
@@ -484,6 +484,15 @@ class TestCoerceScheduleDatetime(SimpleTestCase):
         value, so the message stays diagnostic."""
         with self.assertRaisesRegex(ValueError, re.escape(repr('not-a-timestamp'))):
             coerce_schedule_datetime('not-a-timestamp')
+
+    def test_non_string_non_datetime_value_raises_value_error(self):
+        """WR-04: the elif not isinstance(value, datetime) raise branch -- previously
+        uncovered -- for both a bare int (epoch-seconds-shaped) and a `date` (no time
+        component)."""
+        with self.assertRaisesRegex(ValueError, 'Unusable schedule datetime value'):
+            coerce_schedule_datetime(1758000000)
+        with self.assertRaisesRegex(ValueError, 'Unusable schedule datetime value'):
+            coerce_schedule_datetime(date(2026, 9, 18))
 
     def test_bare_iso_date_string_raises_value_error(self):
         """WR-03: a bare ISO date string (no time component) is rejected rather than

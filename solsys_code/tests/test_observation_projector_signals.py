@@ -167,6 +167,37 @@ class TestUpdateObservationStatusPath(ObservationProjectorSignalsTestCase):
         self.assertEqual(event.start_time, self.record.scheduled_start)
         self.assertEqual(event.end_time, self.record.scheduled_end)
 
+    def test_updatestatus_with_unparseable_schedule_value_leaves_the_event_untouched(self) -> None:
+        """WR-04: a schedule value the projector's own coercion rejects -- a bare ISO date
+        with no time component, which Django's DateTimeField itself accepts (as midnight)
+        and so reaches the post_save receiver as a genuine in-memory string -- must not
+        raise out of save() and must leave the pre-existing (queued) event untouched. A
+        calendar-layer projection failure must never cost the operator their record save
+        (TRIG-02), and the record is logged as unprojectable rather than silently drawing
+        the wrong window."""
+        original_get_status = LCOFacility.get_observation_status
+
+        def fake_get_observation_status(self, observation_id):
+            return {
+                'state': 'PENDING',
+                'scheduled_start': '2026-09-16',
+                'scheduled_end': '2026-09-16T05:19:00Z',
+            }
+
+        LCOFacility.get_observation_status = fake_get_observation_status
+        try:
+            with self.assertLogs('solsys_code.observation_projector', level='WARNING') as logs:
+                LCOFacility().update_observation_status(self.record.observation_id)  # must not raise
+        finally:
+            LCOFacility.get_observation_status = original_get_status
+
+        self.assertTrue(any('unprojectable' in message for message in logs.output))
+        url = LCOFacility().get_observation_url(self.record.observation_id)
+        event = CalendarEvent.objects.get(url=url)
+        self.assertEqual(event.start_time, self.window_start)
+        self.assertEqual(event.end_time, self.window_end)
+        self.assertTrue(event.title.startswith('[Q] '))
+
 
 class TestGroupMembershipReceiver(ObservationProjectorSignalsTestCase):
     """D-15/Pattern 3: the m2m_changed receiver closes the add-after-save gap."""
