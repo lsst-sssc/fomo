@@ -206,7 +206,22 @@ class Command(BaseCommand):
                     )
 
                     event, action = insert_or_create_calendar_event(
-                        {'telescope': parsed.telescope, 'instrument': parsed.instrument, 'start_time': start_time},
+                        # WR-07: the D-07 telescope rename put 'FTS'/'FTN'/'SOAR' in both
+                        # this command's own vocabulary AND the observation projector's
+                        # (SITE_TELESCOPE_MAP, calendar_utils.py) -- before that rename this
+                        # command could never match a projector-owned event by accident, since
+                        # the projector never wrote those values. `url=''` restricts this
+                        # find-or-create lookup to a blank-url (i.e. classically-scheduled)
+                        # event only, the same namespace discipline the reconciler and the
+                        # projector both apply, so an instrument-string collision can never
+                        # adopt and rewrite a projector-owned event's title/description/
+                        # target_list (which the next record save would then rewrite back).
+                        {
+                            'telescope': parsed.telescope,
+                            'instrument': parsed.instrument,
+                            'start_time': start_time,
+                            'url': '',
+                        },
                         {
                             'end_time': end_time,
                             'title': title,

@@ -291,6 +291,48 @@ class TestLoadTelescopeRuns(TestCase):
         with self.assertRaises(CalendarEventMeta.DoesNotExist):
             _ = event.telescope_label_meta
 
+    def test_classical_schedule_never_adopts_a_projector_owned_event(self):
+        """WR-07: load_telescope_runs' find-or-create lookup only matches a blank-url event
+        (`url=''`) -- it can never adopt/rewrite a projector-owned CalendarEvent whose
+        telescope/instrument happen to collide with the classical vocabulary (the D-07
+        rename put 'FTS'/'FTN'/'SOAR' in both writers' vocabularies)."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            # A real run first, purely to learn the deterministic (telescope, instrument,
+            # start_time) triple this schedule line computes for its first night --
+            # sun-event math is deterministic within one process (see
+            # test_reingest_with_drifted_sun_event_does_not_duplicate's own docstring).
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            first_night = CalendarEvent.objects.order_by('start_time').first()
+            telescope, instrument, start_time = (
+                first_night.telescope,
+                first_night.instrument,
+                first_night.start_time,
+            )
+            CalendarEvent.objects.all().delete()
+
+            # Simulate a projector-owned event that already occupies that exact
+            # (telescope, instrument, start_time) triple, carrying a non-blank url.
+            owned = CalendarEvent.objects.create(
+                title='[O] NTT owned-by-projector',
+                telescope=telescope,
+                instrument=instrument,
+                start_time=start_time,
+                end_time=start_time,
+                url='https://observe.lco.global/requests/999999/',
+            )
+
+            stdout = io.StringIO()
+            call_command('load_telescope_runs', path, stdout=stdout, stderr=io.StringIO())
+
+            owned.refresh_from_db()
+            self.assertEqual(owned.title, '[O] NTT owned-by-projector')  # untouched, not adopted
+            matching = CalendarEvent.objects.filter(telescope=telescope, instrument=instrument, start_time=start_time)
+            self.assertEqual(matching.count(), 2)  # the owned event, plus a new blank-url classical one
+            blank_url_match = matching.get(url='')
+            self.assertNotEqual(blank_url_match.pk, owned.pk)
+            self.assertIn('created: 4', stdout.getvalue())
+
     def test_unparseable_line_logged_and_skipped(self):
         """D-02: an ambiguous 'Magellan ...' line is logged to stderr with line number; valid lines still process."""
         path, tmpdir_ctx = self._write_schedule_file(
