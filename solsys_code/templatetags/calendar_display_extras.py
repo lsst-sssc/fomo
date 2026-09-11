@@ -630,16 +630,18 @@ def observation_series_decoration(context, event: CalendarEvent) -> dict | None:
     Never raises. Returns ``None`` for an event with no companion row, for a companion row
     with no ``observation_group`` or no ``observation_record`` link, for a group with fewer
     than two members (a series of one is not a series), for a value that is not a
-    CalendarEvent at all, for a companion row whose ``run`` is set but not publicly visible
-    -- the same ``CampaignRun.is_publicly_visible`` gate ``campaign_decoration()`` above
-    applies, kept side by side with it so the two tags' visibility rules stay legible
-    together -- and for a companion row with no ``run`` at all (the common case: most
-    projector-owned events are never attributed to a campaign) when the rendering request's
-    viewer is not authenticated. Gating only the attributed sub-case would leave the group
-    name -- an internal portal RequestGroup identifier, per
-    ``backfill_lco_observations._group_name()`` -- visible to every anonymous visitor of the
-    unauthenticated event-update view for the majority of grouped events. This is why the
-    tag takes ``context``: the viewer check reads ``context['user']`` (see
+    CalendarEvent at all, and -- unconditionally, regardless of whether the row is
+    attributed to a run at all -- when the rendering request's viewer is not authenticated.
+    The value this tag renders (``group_name``) is always an internal portal RequestGroup
+    identifier, per ``backfill_lco_observations._group_name()``, so the viewer check is a
+    single rule with no exception for an attributed-and-approved run: an approved run makes
+    the *campaign* attribution public (``campaign_decoration()``'s own gate, immediately
+    above), it does not make the portal's own RequestGroup name public. On top of the
+    viewer check, an attributed companion row is additionally gated on
+    ``meta.run.is_publicly_visible`` -- the same ``CampaignRun.is_publicly_visible`` gate
+    ``campaign_decoration()`` applies -- so a pending-review run still hides the group name
+    even from an authenticated viewer who is not staff enough to see it another way. This is
+    why the tag takes ``context``: the viewer check reads ``context['user']`` (see
     ``_viewer_is_authenticated()``), so the visibility rule stays inside this function --
     the single place it lives, matching ``campaign_decoration()``'s own gate -- rather than
     a second, template-side check a future edit could drift out of sync with it.
@@ -667,15 +669,18 @@ def observation_series_decoration(context, event: CalendarEvent) -> dict | None:
         return None
     if meta.observation_group_id is None or meta.observation_record_id is None:
         return None
+    # The group name is always an internal portal RequestGroup identifier (see the
+    # docstring), so the viewer check applies unconditionally -- it is not an alternative to
+    # the run-visibility gate below, and an approved/public run must not bypass it. Checking
+    # the viewer first (rather than only in the no-run branch) is what closes the leak: an
+    # attributed-but-approved event was previously falling through both branches and
+    # rendering to anonymous visitors.
+    if not _viewer_is_authenticated(context):
+        return None
     # Mirrors campaign_decoration()'s own is_publicly_visible gate immediately above -- a
     # pending-review run's attribution must not leak the observation-group's own identity
     # (an internal portal RequestGroup id) onto the public, unauthenticated calendar either.
     if meta.run is not None and not meta.run.is_publicly_visible:
-        return None
-    # The un-attributed case (no run at all) is not covered by the gate above -- it needs
-    # its own check against the viewer, since there is no CampaignRun to read visibility
-    # from. See the docstring's "common case" paragraph.
-    if meta.run is None and not _viewer_is_authenticated(context):
         return None
 
     # IN-05: no select_related() here -- only member.pk and record_time_window(member) (which

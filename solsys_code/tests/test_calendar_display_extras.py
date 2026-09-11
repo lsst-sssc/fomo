@@ -5,7 +5,7 @@ public tags: proposal_color (DISPLAY-04, D-04/D-05), status_border_css (DISPLAY-
 D-08/D-09), and visible_proposals (DISPLAY-07, D-02/D-04/D-06).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from types import SimpleNamespace
 
@@ -14,10 +14,11 @@ from django.test import TestCase
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationGroup, ObservationRecord
+from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import observation_projector as op
-from solsys_code.models import CalendarEventMeta
+from solsys_code.models import CalendarEventMeta, CampaignRun
 from solsys_code.observation_projector import receiver_on_group_membership_changed, receiver_on_record_save
 from solsys_code.templatetags.calendar_display_extras import (
     CLASSICAL_SCHEDULE_LABEL,
@@ -513,6 +514,21 @@ class TestObservationSeriesDecoration(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:
         cls.target = NonSiderealTargetFactory.create()
+        cls.campaign = TargetList.objects.create(name='Series Decoration Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT3',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
 
     def _make_record(self, observation_id: str, start: datetime, end: datetime) -> ObservationRecord:
         post_save.disconnect(
@@ -678,6 +694,48 @@ class TestObservationSeriesDecoration(TestCase):
         result = observation_series_decoration(AUTHENTICATED_CONTEXT, event)
         self.assertIsNotNone(result)
         self.assertEqual(result['group_name'], 'Unattributed portal RequestGroup name')
+
+    def test_viewer_gate_applies_regardless_of_run_and_run_visibility_is_a_second_gate(self):
+        """The viewer check is a single, unconditional rule -- it does not matter whether
+        `run` is None, approved, or pending review, an anonymous viewer never sees the
+        group name. `run.is_publicly_visible` is an ADDITIONAL constraint layered on top
+        for an authenticated viewer, not an alternative to the viewer check. Six cases:
+        (run None / approved / pending) x (anonymous / authenticated)."""
+
+        def make_group_event(group_name: str, run: CampaignRun | None) -> CalendarEvent:
+            r1 = self._make_record(
+                f'{group_name}-1',
+                datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+                datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+            )
+            r2 = self._make_record(
+                f'{group_name}-2',
+                datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+                datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+            )
+            group = ObservationGroup.objects.create(name=group_name)
+            self._add_to_group(group, r1, r2)
+            event = self._make_event(title=f'{group_name} event')
+            CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group, run=run)
+            return event
+
+        no_run_event = make_group_event('Gate matrix: no run', None)
+        approved_event = make_group_event('Gate matrix: approved run', self.approved_run)
+        pending_event = make_group_event('Gate matrix: pending run', self.pending_run)
+
+        # Anonymous: hidden in all three cases -- the viewer check alone is enough to
+        # reject an anonymous request before run visibility is even considered.
+        self.assertIsNone(observation_series_decoration(ANONYMOUS_CONTEXT, no_run_event))
+        self.assertIsNone(observation_series_decoration(ANONYMOUS_CONTEXT, approved_event))
+        self.assertIsNone(observation_series_decoration(ANONYMOUS_CONTEXT, pending_event))
+
+        # Authenticated: no run and an approved run both show the group name; a
+        # pending-review run's own is_publicly_visible gate still hides it even from an
+        # authenticated viewer -- that gate protects the run's own attribution, not the
+        # viewer identity.
+        self.assertIsNotNone(observation_series_decoration(AUTHENTICATED_CONTEXT, no_run_event))
+        self.assertIsNotNone(observation_series_decoration(AUTHENTICATED_CONTEXT, approved_event))
+        self.assertIsNone(observation_series_decoration(AUTHENTICATED_CONTEXT, pending_event))
 
     def test_members_numbered_by_window_start_independent_of_pk_order(self):
         # Created in reverse chronological order, so pk order is the OPPOSITE of window

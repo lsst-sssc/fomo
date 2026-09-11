@@ -119,14 +119,16 @@ so re-projecting an entry cannot erase it, and adding or removing a night
 never rewrites a sibling's stored title. Nights are numbered by window
 start, so a cadence reads in observing order rather than in the order the
 entries happen to have been created. An entry with no group, or belonging
-to a group of one, simply shows no block. An anonymous (not logged in)
-visitor never sees this block for an entry that has not been attributed to
-a campaign run -- the common case, since most projector-owned entries never
-go through campaign attribution -- because the group's own name is drawn
-from an internal LCO Observation Portal ``RequestGroup`` identifier that
-must not be published to the public calendar; logging in shows it, exactly
-as an attributed-but-not-yet-public run's "Attributed campaign run" block
-also stays hidden from an anonymous visitor until it clears review.
+to a group of one, simply shows no block. **This block requires logging in,
+full stop:** an anonymous (not logged in) visitor never sees it, whether or
+not the entry has been attributed to a campaign run, and regardless of that
+run's own review status -- because the group's own name is drawn from an
+internal LCO Observation Portal ``RequestGroup`` identifier that must not be
+published to the public calendar under any circumstance. Logging in shows
+the block for an entry with no run and for an entry attributed to an
+**approved** run; an entry attributed to a run still pending review stays
+hidden even from a logged-in visitor, exactly as that run's own "Attributed
+campaign run" block does, until the run clears review.
 
 **One-time title change.** The first sweep of ``project_observation_calendar``
 after Phase 34 updates, once, the titles and companion-row links of the

@@ -1249,6 +1249,12 @@ class EventModalSeriesDecorationTest(TestCase):
         self.assertIn('Night 1 of 2', content)
 
     def test_grouped_and_attributed_event_shows_both_decorations(self):
+        """The series block is gated on the viewer being authenticated, full stop --
+        including for an attributed, approved run. Only the campaign block is visible to
+        an anonymous viewer (its own gate is CampaignRun.is_publicly_visible, unrelated to
+        the series block's viewer check). See
+        test_grouped_and_attributed_event_hides_group_name_from_anonymous_viewer for the
+        anonymous-viewer counterpart this same fixture must satisfy."""
         r1 = self._make_record(
             'modal-both-1',
             datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
@@ -1271,11 +1277,50 @@ class EventModalSeriesDecorationTest(TestCase):
             event=event, observation_record=r1, observation_group=group, run=self.campaign_run
         )
 
+        self.client.force_login(self.authenticated_user)
         response = self.client.get(self._modal_url(event))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn('Both Decorations Group', content)
         self.assertIn('Night 1 of 2', content)
+        self.assertIn('Attributed campaign run', content)
+        self.assertIn('FTN/MuSCAT3', content)
+
+    def test_grouped_and_attributed_event_hides_group_name_from_anonymous_viewer(self):
+        """An attributed AND approved run does not bypass the series block's viewer check
+        -- the group name is an internal portal RequestGroup identifier regardless of
+        campaign attribution, so an anonymous visitor must not see it even though the
+        campaign block itself (a different value, gated by a different rule) is public for
+        an approved run."""
+        r1 = self._make_record(
+            'modal-both-anon-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-both-anon-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Both Decorations Group Anon')
+        self._add_to_group(group, r1, r2)
+
+        event = CalendarEvent.objects.create(
+            title='Series and campaign event (anonymous)',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=event, observation_record=r1, observation_group=group, run=self.campaign_run
+        )
+
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Both Decorations Group Anon', content)
+        self.assertNotIn('Night 1 of 2', content)
+        # The campaign block's own visibility rule is unrelated and unaffected: an
+        # approved run's campaign attribution is still public to an anonymous viewer.
         self.assertIn('Attributed campaign run', content)
         self.assertIn('FTN/MuSCAT3', content)
 
