@@ -1,243 +1,217 @@
 ---
 phase: 34-the-observation-projector-trigger
-fixed_at: 2026-09-11T16:10:00Z
+fixed_at: 2026-09-11T22:20:47Z
 review_path: .planning/phases/34-the-observation-projector-trigger/34-REVIEW.md
-iteration: 3
-findings_in_scope: 3
-fixed: 3
-skipped: 0
-status: all_fixed
+iteration: 1
+findings_in_scope: 14
+fixed: 12
+skipped: 2
+status: partial
 ---
 
 # Phase 34: Code Review Fix Report
 
-**Fixed at:** 2026-09-11T16:10:00Z
+**Fixed at:** 2026-09-11T22:20:47Z
 **Source review:** .planning/phases/34-the-observation-projector-trigger/34-REVIEW.md
-**Iteration:** 3 (final -- no re-review follows this pass)
-
-**Prior pass.** This is the third automated fix pass over Phase 34's code review. The
-first pass (iteration 1) closed 5 findings from `34-REVIEW.md` iteration 2's re-review
-(CR-01, WR-01, WR-02, WR-03, WR-04), committed as `c68ec3e`/`a8b6263`/`65fa5c7`/`9913f58`.
-The second pass (iteration 2) closed 4 findings from iteration 3's re-review, reusing the
-same IDs under different content (CR-01, WR-01, WR-02, WR-03), committed as
-`3dfa45c`/`00c3c0b`/`a432094`/`427d99c`. Both passes' full reports are preserved in git
-history; this document replaces the iteration-2 report on disk with a fresh report for the
-current (fourth review / third fix) pass only, carrying forward both prior recaps below for
-traceability.
-
-**Iteration 1 recap (for traceability).** Commits `c68ec3e`, `a8b6263`, `65fa5c7`, `9913f58`
-closed: WR-02+WR-03 (the savepoint moved into `project_record()`, restructured so the
-`except` sits outside the `with transaction.atomic():` block, `c68ec3e`); CR-01 (the real
-write branch of `project_queryset()` reads `project_record()`'s own return value instead of
-the preview's guess, `a8b6263`); WR-04 (`--proposal` fails closed on an all-empty-segment
-value instead of silently sweeping everything, `65fa5c7`); WR-01 (the series-decoration tag
-gates its un-attributed case on the viewer being authenticated, `9913f58`).
-
-**Iteration 2 recap (for traceability).** The iteration-3 review found the iteration-1 pass
-left the `--dry-run` half of the CR-01 fix disagreeing with the real run (a regression the
-fix itself introduced), the WR-01 fix's gate still leaking the group name for an
-attributed-and-approved event, plus two new findings (WR-02: the `'ogg'` obscode bridge;
-WR-03: the m2m receiver's unreachable, undocumented `try`). Commits `3dfa45c` (CR-01: dry
-run now detects the one write failure it can see without writing -- a duplicate calendar-
-event url -- and counts it `unprojectable`, matching the real run; docstring and runbook
-narrowed to an honest lower-bound claim), `00c3c0b` (WR-01: the anonymous-viewer gate made
-unconditional and first, so it can no longer be bypassed by an approved-and-attributed
-run), `a432094` (WR-02: removed `'ogg'`/`'sor'` from the site-keyed `LCO_SITE_CODE_TO_OBSCODE`
-table, which was wrong for `'ogg'`'s two telescopes, and added a new LABEL-keyed
-`OBSERVED_TELESCOPE_OBSCODES` table instead), `427d99c` (WR-03: the m2m receiver's `try`
-given the same "second, outer layer of defence" documentation as its `post_save` sibling,
-and made to read and log `project_record()`'s own return value).
-
-**This pass (iteration 3) covers only the current `34-REVIEW.md`'s three findings** (WR-01,
-WR-02, WR-03 -- 0 critical this round; note these IDs are reused from the review's own
-per-pass numbering and do not correspond 1:1 to the iteration-1 or iteration-2 findings of
-the same name). It does not re-litigate or duplicate the recaps above.
+**Iteration:** 1
 
 **Summary:**
-- Findings in scope: 3 (WR-01, WR-02, WR-03 -- the `critical_warning` fix scope; IN-01
-  through IN-09 were left untouched per scope, as instructed)
-- Fixed: 3
-- Skipped: 0
+- Findings in scope (Critical + Warning, per `fix_scope`): 14 (3 critical, 11 warning; REVIEW.md
+  reports 0 info findings)
+- Fixed: 12
+- Skipped: 2 (WR-02, WR-11 -- both explicitly marked out of scope for this run by the
+  orchestrator's project constraints, not fix failures)
 
-**Verification environment.** Every fix below was edited, linted, and test-run inside an
-isolated git worktree this run created
-(`.claude/worktrees/rf-34-1285076-1789141533`, branch `gsd-reviewfix/34-1285076`), on top of
-`issue37-telescope-runs-calendar`; the worktree's cleanup (fast-forward, `git worktree
-remove`, temp-branch delete, sentinel removal) runs after this report is written, per this
-agent's own transactional cleanup protocol. `pre-commit run ruff --files` and
-`pre-commit run ruff-format --files` are clean on every Python file this pass touched
-(`solsys_code/management/commands/project_observation_calendar.py`,
-`solsys_code/campaign_attribution.py`, `solsys_code/calendar_utils.py`,
-`solsys_code/tests/test_campaign_attribution.py`). `python manage.py test` over the four
-modules this task specified (`solsys_code.tests.test_campaign_attribution`,
-`test_campaign_attribution_views`, `test_project_observation_calendar`,
-`test_observation_projector`) runs **176 tests green in 7.1 s**, with the narrower
-`test_campaign_attribution` + `test_calendar_utils` pair also re-run standalone (84 tests
-green) immediately after the WR-02 commit. The `src/fomo/_version.py` build artifact needed
-for `manage.py` to import at all (gitignored, `setuptools_scm`-generated) was copied from
-the main checkout into the worktree purely so tests could run -- not a source change, not
-committed.
+All fixes were applied inside an isolated git worktree
+(`.claude/worktrees/rf-34-1710532-1789163316`, branch `gsd-reviewfix/34-1710532`) and fast-forward
+merged onto `issue37-telescope-runs-calendar` on cleanup, per `workflow.use_worktrees=true`.
 
 ## Fixed Issues
 
-### WR-03: `project_observation_calendar.py`'s module docstring still claimed "one documented exception" to dry-run/real-run agreement
+### CR-01: `coerce_schedule_datetime()` never converts an aware non-UTC value to UTC
 
-**Files modified:** `solsys_code/management/commands/project_observation_calendar.py`
-**Commit:** `ff80c87`
-**Applied fix:** the iteration-2 CR-01 fix (`3dfa45c`) rewrote the "one documented exception"
-sentence in `project_queryset()`'s own docstring (`observation_projector.py:410-433`) and in
-the runbook (`telescope_runs_calendar.rst:183-198`) to "two exceptions", but missed this
-command module's own copy of the identical sentence -- the file an operator reading
-`--help`-adjacent source lands on first. Reworded the module docstring to state both
-exceptions explicitly: the one-time observed-site lookup a dry run never performs, and the
-fact that a dry run's `unprojectable` count is only a lower bound on the real sweep's
-(it can only detect a write failure it can see without writing). Also dropped the bare
-`(WR-02)` review-ID citation the sentence carried, which resolved only against `.planning/`
-and is not shipped (IN-04's own concern, addressed here incidentally since this docstring
-was already being touched).
+**Files modified:** `solsys_code/calendar_utils.py`, `solsys_code/tests/test_calendar_utils.py`,
+`solsys_code/tests/test_observation_projector.py`
+**Commit:** `1d6ef6c`
+**Applied fix:** Changed the aware-datetime branch to `return value.astimezone(dt_timezone.utc)`
+instead of returning the value unconverted. Updated the `Returns:` docstring to drop the
+"already-aware datetime is returned as-is" claim. Renamed
+`test_aware_datetime_is_returned_with_value_and_tzinfo_unchanged` to
+`test_aware_non_utc_datetime_is_converted_to_utc_with_the_same_instant` and updated its
+assertions to check the converted UTC tzinfo. Added a regression test in
+`test_observation_projector.py` (`test_non_utc_offset_schedule_renders_utc_wall_clock_in_description`)
+asserting `event_fields_for()`'s description renders the UTC wall clock for a `-04:00` input.
 
-### WR-02: the WR-02 fix (iteration 2) made `_extract_lco_site_code()`'s observed-label branch unreachable for every in-repo caller, and left the D-07 regression test's docstring crediting it as the mechanism under test
+### CR-02: `record_time_window()`'s parameters branch rejects `Z`-suffixed values on Python 3.10
 
-**Files modified:** `solsys_code/campaign_attribution.py`, `solsys_code/calendar_utils.py`,
-`solsys_code/tests/test_campaign_attribution.py`
-**Commit:** `36c7eae`
-**Applied fix:** traced the three observed labels (`'FTN'`, `'FTS'`, `'SOAR'`) through
-`_extract_lco_site_code()`'s `OBSERVED_TELESCOPE_SITE_CODES.get()` consultation and
-confirmed the review's finding: `telescope_match_score()` only ever calls
-`_extract_lco_site_code()` once its own step-1 condition
-(`observed_obscode is not None and run.site_id is not None`) has already failed, which
-happens for an observed label only when `run.site_id is None` -- and `run.site_id is not
-None` is also required by the very next check (`:373` pre-fix) that would have used this
-consultation's result. So the consultation's return value could never survive to change an
-outcome, for any of the three labels, in any state. Removed the consultation from
-`_extract_lco_site_code()`, leaving the function's genuine remaining job (the
-SITECODE-CLASS site-code split, still needed for e.g. `'COJ-1m0'`/`'COJ-2m0'`), and removed
-the now-unused `OBSERVED_TELESCOPE_SITE_CODES` import from `campaign_attribution.py`.
-Confirmed via `find_referencing_symbols`-equivalent grep that `OBSERVED_TELESCOPE_SITE_CODES`
-itself (defined in `calendar_utils.py`) is still genuinely exercised elsewhere -- its own
-regression test in `test_calendar_utils.py` (`TestTelescopeLabelResolutionHelpers`) verifies
-the table's own content independent of `campaign_attribution.py` -- so left the table in
-place, but corrected its comment in `calendar_utils.py`, which claimed
-`campaign_attribution.py`'s telescope-match signal still needed it (it no longer does).
-Updated `_extract_lco_site_code()`'s own docstring to describe its narrower remaining
-behaviour and point a caller genuinely needing one of the three labels' classical site code
-at `calendar_utils.OBSERVED_TELESCOPE_SITE_CODES` directly instead. Fixed
-`test_telescope_match_d07_renamed_observed_labels_still_resolve_site_level`'s docstring,
-which credited the removed consultation as "exactly the asymmetric regression this bridge
-... closes" -- it now names the actual mechanism, `telescope_match_score()`'s own
-LABEL-keyed `OBSERVED_TELESCOPE_OBSCODES` step, and states plainly that
-`_extract_lco_site_code()` plays no part in the outcome (it returns `None` for all three
-labels now). No test assertions changed -- the existing test continues to pass because it
-was already exercising `OBSERVED_TELESCOPE_OBSCODES`, as the review found.
+**Files modified:** `solsys_code/calendar_utils.py`, `solsys_code/observation_projector.py`,
+`solsys_code/tests/test_calendar_utils.py`
+**Commit:** `d996b21`
+**Applied fix:** Replaced `datetime.fromisoformat(...).replace(tzinfo=utc)` with
+`coerce_schedule_datetime(...)` in both `record_time_window()`'s parameters-fallback branch and
+`observation_projector.py`'s duplicate `'inconsistent'`-stage branch (removing the now-unused
+`datetime`/`dt_timezone` imports there and adding `coerce_schedule_datetime` to the import list).
+Added `test_both_scheduled_none_falls_back_to_z_suffixed_parameters_start_end` with a
+`'2026-07-20T00:00:00Z'`-shaped `parameters['start']`/`['end']`.
 
-**Notebook impact (checked per this pass's instructions, not silently ignored).**
-`docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb`'s D-07 cell (cell 22) imports
-`_extract_lco_site_code` directly and asserts its return equals
-`OBSERVED_TELESCOPE_SITE_CODES`'s site code for each of `'FTN'`/`'FTS'`/`'SOAR'`. That
-assert would now fail (`AssertionError`, not a silent difference) on its first iteration if
-the cell is ever re-executed, since the function now returns `None` for all three labels
-instead of their site codes -- this is a real, new consequence of this commit, and was not
-worked around by keeping the dead branch alive or promoting it to a public alias (both
-options this pass's own instructions offered): the dead-code removal was judged the more
-honest fix, since a "thin documented alias" would just re-introduce the same
-no-live-consumer smell WR-02 exists to close. This breakage is folded into WR-01's own
-notebook caveat below (see WR-01) and into the outstanding full-notebook-re-execution
-follow-up both findings now point at -- not fixed by re-executing or hand-editing the
-notebook's code cell, per this task's explicit constraint against doing either.
+### CR-03: notebook SCHED-06 cell published scratch-copy state under the baseline heading
 
-### WR-01: `campaign_lifecycle_demo.ipynb` cell 22's committed output is now unproducible from its own source -- the prior caveat undercounted the drift and this pass's own WR-02 fix made it worse
+**Files modified:** `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`
+**Commit:** `46d8390` (combined with WR-06/WR-07/WR-08/WR-09 -- see note below)
+**Applied fix:** On a scratch-routed run, the SCHED-06 cell now substitutes the committed
+baseline file's own `records` for `baseline_records` before the following per-record table
+renders, instead of showing the scratch copy's already-swept rows under the "SCHED-06 baseline"
+heading. Re-executed the notebook against the scratch DB copy from plan 34-06
+(`tmp/fomo_g34_2_copy.sqlite3`, `FOMO_DATABASE_PATH`-routed, cwd
+`docs/notebooks/pre_executed/`, run in the isolated worktree -- see Verification below). The
+cell's output now reports `record_count=74`, stage tally `{'placed': 18, 'queued': 56}`, matching
+`project_observation_calendar_demo.sched06-baseline.json` exactly (same `captured_at`). The
+committed baseline JSON file's checksum is unchanged before and after
+(`c85e176eb048178bfdabcd159f03c80f`); the developer database (`src/fomo_db.sqlite3`) was never
+opened or written by this fix (mtime/size verified unchanged:
+`1789157248 1232896`).
 
-**Files modified:** `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb` (markdown
-cell 21 only -- prose, not re-executed)
-**Commit:** `c7f78ee`
-**Applied fix:** the caveat paragraph `a432094` (iteration 2) added to cell 21 named two
-stale print lines and asserted the `telescope_match_score()` call below the loop was
-"unaffected" by the drift it described -- but that call's own evidence string was itself one
-of the stale lines (a reviewer-caught omission), and this pass's own WR-02 commit above
-changes the picture further: the loop's site-code prints for `'FTN'`/`'SOAR'` are now *also*
-wrong (previously they still showed `'ogg'`/`'sor'`; now `_extract_lco_site_code()` returns
-`None` for all three labels), and the loop's own `assert resolved_site_code ==
-expected_site_code` now raises `AssertionError` on its very first iteration if re-executed
--- so the cell would not just print different values, it would crash before reaching
-`FTS`/`SOAR` or the `telescope_match_score()` call at all. Rewrote the caveat to: name all
-four stale/would-not-print lines instead of two; explain precisely why the loop now raises
-instead of merely differing; quote what `telescope_match_score()`'s evidence string actually
-produces for `'FTN'` today (`orphan observed telescope 'FTN' resolves to obscode F65,
-matching the run's site obscode F65`) against what the committed, stale output shows
-(`orphan LCO site code 'ogg' resolves to obscode F65, ...`); and state explicitly that the
-resolved obscode (`F65`) and match result (`TELESCOPE_MATCH_SITE`) are unchanged -- only the
-wording of how they were derived differs. Also lightly amended the cell's intro paragraph
-(two lines), which flatly asserted `_extract_lco_site_code()` "now checks
-`calendar_utils.OBSERVED_TELESCOPE_SITE_CODES` first, closing that gap" -- no longer true
-after this same pass's WR-02 commit -- to say it "originally closed that gap" and point at
-the caveat for what has since changed, rather than leave a now-false claim standing
-unqualified next to a caveat that only addressed a different paragraph.
+### WR-01: the diagnostic `ValueError` message is never logged, only the exception class name
 
-Per this pass's explicit instructions, the notebook was **not** re-executed and its code
-cell/output were **not** hand-edited -- only the markdown prose in cell 21 changed. The
-caveat's outstanding follow-up, stated with the exact command:
+**Files modified:** `solsys_code/observation_projector.py`
+**Commit:** `1f6786b`
+**Applied fix:** Both `project_record()`'s and `project_queryset()`'s `except`-and-log sites now
+log `'%s: %s', type(exc).__name__, exc` instead of just the class name, so
+`coerce_schedule_datetime()`'s diagnostic message (naming the rejected value) reaches the log.
 
-```
-jupyter nbconvert --to notebook --execute --inplace \
-  docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb
-```
+### WR-03: a bare ISO date string is silently accepted as midnight
 
-should be paired with rewriting the D-07 loop itself before that re-execution, since running
-it as currently written will raise `AssertionError` rather than produce a clean new output
--- the caveat names the rewrite (demonstrate the bridge through
-`OBSERVED_TELESCOPE_OBSCODES` directly, dropping the `_extract_lco_site_code` import, which
-also closes IN-05's private-helper-import anti-pattern) as part of the same follow-up. JSON
-validity was verified with `python -c "import json;json.load(open(...))"` after every edit
-to this file; the diff is scoped to the one markdown cell (16 insertions, 3 deletions) with
-no other cell touched.
+**Files modified:** `solsys_code/calendar_utils.py`, `solsys_code/tests/test_calendar_utils.py`
+**Commit:** `38aeb0d`
+**Applied fix:** `coerce_schedule_datetime()` now rejects any string of 10 characters or fewer
+(the bare `YYYY-MM-DD` form) with `ValueError: Schedule value is a date, not a datetime: ...`,
+matching the function's existing "never silently degrade" contract. Documented in the `Raises:`
+block; added `test_bare_iso_date_string_raises_value_error`.
 
-## Remaining (out of scope this pass, unchanged from `34-REVIEW.md`)
+### WR-04: the non-`str`/non-`datetime` raise branch and end-to-end `unprojectable` contract were untested
 
-These are Info-severity findings from the current review. `fix_scope` for this pass was
-`critical_warning`, so none of these were touched. Listed here for visibility only:
+**Files modified:** `solsys_code/tests/test_calendar_utils.py`,
+`solsys_code/tests/test_observation_projector_signals.py`
+**Commit:** `bac6161`
+**Applied fix:** Added `test_non_string_non_datetime_value_raises_value_error` (covers the
+`elif not isinstance(value, datetime)` branch with an int and a `date`). Added
+`test_updatestatus_with_unparseable_schedule_value_leaves_the_event_untouched` to
+`TestUpdateObservationStatusPath`, using a bare ISO date (`'2026-09-16'`) as the fake facility's
+`scheduled_start` -- chosen deliberately because Django's own `DateTimeField.to_python()` accepts
+a bare date (as midnight) and so the value reaches the `post_save` receiver as a genuine
+in-memory string, unlike a truly garbage string which Django's own field validation rejects
+before the receiver ever runs. Asserts the save does not raise, the pre-existing `[Q]` event span
+is untouched, and `'unprojectable'` is logged.
 
-- **IN-01** -- `write_event_meta()` silently reverts any admin-set `is_verified=False` on
-  every projection; not documented, not made read-only on the admin inline.
-- **IN-02** -- the LCO/SOAR shared-URL test pins the url but not which record ends up owning
-  the companion `CalendarEventMeta` row (last-writer-wins, untested/undocumented as such).
-- **IN-03** -- `event_form.html:109`'s comment still references the retired
-  `sync_lco_observation_calendar` command.
-- **IN-04** -- review-finding IDs (`WR-*`, `CR-*`, etc.) are embedded throughout shipped
-  source, templates and tests; they resolve only against `.planning/`, which is not shipped.
-  (Note: this pass's own WR-03 fix happened to remove one such citation as a side effect of
-  the docstring rewrite it was already making; the rest are unchanged.)
-- **IN-05** -- the demo notebook imports a private cross-module helper
-  (`_extract_lco_site_code`) the codebase's own docs call out as an anti-pattern. This pass's
-  WR-01/WR-02 fixes make this import doubly stale (it now returns `None` for all three
-  labels the cell iterates over) but did not remove it, per the constraint against
-  hand-editing the notebook's code cell -- the same rewrite recommended in WR-01's caveat
-  closes this finding too, as the outstanding follow-up.
-- **IN-06** -- `CalendarEvent.url` is the one externally-sourced 200-character column the
-  truncation-warning comment does not mention as deliberately unbounded.
-- **IN-07** -- `[F]` is the shared legend label for both `FAILURE_LIMIT_REACHED` and
-  `NOT_ATTEMPTED`, reading as "Failed" for both on the public calendar.
-- **IN-08** -- the dry-run `unprojectable` path (added by the iteration-2 CR-01 fix) is the
-  only one of four `unprojectable`-counting sites in `project_queryset()` that logs nothing.
-- **IN-09** -- the runbook's ring-color description groups an Inconsistent record entry with
-  the Queued ring; the code actually gives it the terminal ring (the tag's own docstring
-  already states this correctly; only the runbook prose is wrong).
+### WR-05: `record_time_window()`'s return annotation disagrees with the helper it calls
 
-## Notes and Follow-ups
+**Files modified:** `solsys_code/calendar_utils.py`
+**Commit:** `e5b6a13`
+**Applied fix:** `cast(datetime, coerce_schedule_datetime(...))` on both calls in the
+both-populated (`scheduled_start`/`scheduled_end`) branch, narrowing the type now that the
+guarding `elif` has already proven neither value is `None`.
 
-- **Commit grouping.** Each of the three findings landed as its own dedicated commit
-  (`ff80c87` WR-03, `36c7eae` WR-02, `c7f78ee` WR-01), applied in that order (smallest/
-  most-isolated first) so that WR-01's notebook caveat could accurately describe the
-  post-WR-02 state of the code rather than needing a fourth "fix the caveat again" commit.
-- **This is the final iteration.** Per this pass's own instructions, no further automated
-  re-review follows. The Info findings above and WR-01's own outstanding
-  rewrite-then-re-execute follow-up are the complete list of what remains open on Phase 34
-  after this pass.
-- All three commits (`ff80c87`, `36c7eae`, `c7f78ee`) were individually verified against
-  the task's specified test modules; the final combined run (all four modules together)
-  reports 176 tests green in 7.1 s.
+### WR-06: notebook's dead `existing_baseline` read and two now-false comments
+
+**Files modified:** `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`
+**Commit:** `46d8390` (combined with CR-03/WR-07/WR-08/WR-09)
+**Applied fix:** `existing_baseline['records']` is now consumed (via CR-03's fix) instead of
+discarded. Removed the false "both branches build ... identically" comment and replaced it with
+an accurate one. Corrected the "What happens next" markdown cell's parenthetical from "(which
+this run has just overwritten)" to "(which an un-routed run overwrites; a scratch-routed run
+leaves it alone -- see below)".
+
+### WR-07: the scratch branch opens the baseline JSON with no existence guard
+
+**Files modified:** `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`
+**Commit:** `46d8390` (combined with CR-03/WR-06/WR-08/WR-09)
+**Applied fix:** Added an explicit `RuntimeError` naming the missing committed artifact before
+opening `SCHED06_BASELINE_PATH` in the scratch branch, matching every other precondition in this
+notebook.
+
+### WR-08: the scratch-copy guard can be satisfied by a relative path that still opens the dev DB
+
+**Files modified:** `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`
+**Commit:** `46d8390` (combined with CR-03/WR-06/WR-07/WR-09)
+**Applied fix:** Replaced the tautological `assert` (`resolved_db_name == SCRATCH_DB_OVERRIDE`,
+always true when the env var is set) with a resolved-path comparison
+(`Path(resolved_db_name).resolve() == dev_db_path.resolve()`) and a `raise RuntimeError` (not
+`assert`, which `python -O` strips) if they match.
+
+### WR-09: `SCRATCH_DB_OVERRIDE` is a cross-cell global consumed eleven cells later
+
+**Files modified:** `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`
+**Commit:** `46d8390` (combined with CR-03/WR-06/WR-07/WR-08)
+**Applied fix:** The SCHED-06 cell now re-reads `os.environ.get('FOMO_DATABASE_PATH') or None`
+itself rather than relying on the Django-setup cell's earlier binding, so the guard is
+self-contained against a fresh-kernel re-run of just that cell.
+
+### WR-10: the "in-memory instance" test used a real database INSERT
+
+**Files modified:** `solsys_code/tests/test_calendar_utils.py`
+**Commit:** `d21b293`
+**Applied fix:** `test_in_memory_instance_with_portal_iso_strings_returns_aware_utc_pair` now
+constructs the `ObservationRecord` directly (`ObservationRecord(...)`, no `.objects.create()`),
+so no INSERT and no `post_save` signal fire -- pinning the actual in-memory contract the test's
+name and docstring claim, rather than relying on Django happening not to refresh field values
+after `save()`.
+
+## Skipped Issues
+
+### WR-02: `coerce_schedule_datetime()` duplicates `_parse_datetime_value()`
+
+**File:** `solsys_code/calendar_utils.py:460-506` vs
+`solsys_code/management/commands/backfill_lco_observations.py:81-107`
+**Reason:** Explicitly out of scope per the orchestrator's project constraints for this run:
+consolidating with `_parse_datetime_value()` would pull `backfill_lco_observations.py`'s paired
+notebook (`backfill_lco_observations_demo.ipynb`) into scope under CLAUDE.md's paired-docs rule,
+and plan 34-05 already explicitly decided against that consolidation. Not attempted.
+
+### WR-11: signal tests hand-roll monkeypatching instead of `patch.object`, and triplicate a fixture
+
+**File:** `solsys_code/tests/test_observation_projector_signals.py:94-108, 124-134, 149-162`
+**Reason:** Explicitly marked optional per the orchestrator's project constraints for this run.
+Not attempted; the new WR-04 test added to this same class intentionally followed the existing
+hand-rolled pattern for local consistency rather than introducing a third pattern into a file
+this finding already flags for consolidation.
+
+## Verification
+
+- **Where the gates ran:** entirely inside the isolated worktree
+  (`/home/tlister/git/fomo_devel/.claude/worktrees/rf-34-1710532-1789163316`, branch
+  `gsd-reviewfix/34-1710532`), not the main checkout. The worktree carries no `node_modules`
+  concern (pure-Python project); Django/pytest dependencies came from the shared venv
+  (`/home/tlister/venv/devel_fomo311_venv`), which is valid for both trees since it is installed
+  editable against the *package name*, not a specific working-tree path, and every test/lint
+  invocation below `cd`'d into the worktree first. Numbers below are reproducible by checking out
+  `gsd-reviewfix/34-1710532` (or, after cleanup, the fast-forwarded tip of
+  `issue37-telescope-runs-calendar`) and re-running the same commands from the repo root -- they
+  are not an artifact of worktree-only state.
+- Targeted tests (`solsys_code.tests.test_calendar_utils
+  solsys_code.tests.test_observation_projector_signals solsys_code.tests.test_observation_projector
+  solsys_code.tests.test_project_observation_calendar`): **151 tests, OK** (run after every
+  individual fix's own targeted subset also passed before each commit).
+- `pre-commit run ruff --all-files`: **Passed**.
+- `pre-commit run ruff-format --all-files`: **Passed** (auto-reformatted the notebook's cell
+  source once during the CR-03/WR-06/WR-07/WR-08/WR-09 commit; re-staged and re-committed with
+  the reformatted content).
+- Full-suite gate (`test_command` from `.planning/config.json`, run verbatim): first invocation
+  (all `solsys_code` test modules except `test_views.py`) ran **1127 tests in 135.5s, OK**, exit
+  code 0; second invocation
+  (`solsys_code.tests.test_views.TestSplitNumberUnitRegex solsys_code.tests.test_views.TestJPLSBDBQuery`)
+  ran **40 tests, OK**, exit code 0.
+- Notebook re-execution: `jupyter nbconvert --to notebook --execute --inplace` run from
+  `docs/notebooks/pre_executed/` inside the worktree with
+  `FOMO_DATABASE_PATH=<worktree>/tmp/fomo_g34_2_copy.sqlite3` (the scratch copy from plan 34-06,
+  copied into the worktree since untracked files do not follow `git worktree add`). Exit code 0.
+  The committed baseline JSON (`project_observation_calendar_demo.sched06-baseline.json`) and the
+  developer database (`src/fomo_db.sqlite3`) were both verified byte-for-byte/mtime-unchanged in
+  the main checkout before and after (see CR-03 above) -- neither was ever touched by this fix or
+  its verification.
+- `LCO_API_KEY` / token-bearing URLs: none printed or pasted at any point.
 
 ---
 
-_Fixed: 2026-09-11T16:10:00Z_
+_Fixed: 2026-09-11T22:20:47Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 3_
+_Iteration: 1_
