@@ -7,11 +7,13 @@ and the real ``updatestatus`` path (spike 001b scenario S4).
 
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
+from unittest.mock import patch
 
+from django.db import transaction
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.facilities.lco import LCOFacility
-from tom_observations.models import ObservationRecord
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.models import CalendarEventMeta
@@ -101,3 +103,188 @@ class TestUpdateObservationStatusPath(ObservationProjectorSignalsTestCase):
         self.assertEqual(event.start_time, block_start)
         self.assertEqual(event.end_time, block_end)
         self.assertTrue(event.title.startswith('[S] '))
+
+
+class TestGroupMembershipReceiver(ObservationProjectorSignalsTestCase):
+    """D-15/Pattern 3: the m2m_changed receiver closes the add-after-save gap."""
+
+    def test_group_add_after_save_sets_observation_group(self) -> None:
+        group = ObservationGroup.objects.create(name='signals-group-add')
+        group.observation_records.add(self.record)
+
+        meta = CalendarEventMeta.objects.get(observation_record=self.record)
+        self.assertEqual(meta.observation_group_id, group.pk)
+
+    def test_group_remove_clears_observation_group(self) -> None:
+        group = ObservationGroup.objects.create(name='signals-group-remove')
+        group.observation_records.add(self.record)
+        group.observation_records.remove(self.record)
+
+        meta = CalendarEventMeta.objects.get(observation_record=self.record)
+        self.assertIsNone(meta.observation_group_id)
+
+    def test_group_clear_reprojects_every_former_member(self) -> None:
+        other_record = ObservationRecord.objects.create(
+            target=self.target,
+            facility='LCO',
+            observation_id='projector-signals-002',
+            status='PENDING',
+            parameters={
+                'proposal': 'KEY2026B-004',
+                'start': self.window_start.isoformat(),
+                'end': self.window_end.isoformat(),
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+            },
+        )
+        group = ObservationGroup.objects.create(name='signals-group-clear')
+        group.observation_records.add(self.record, other_record)
+        group.observation_records.clear()
+
+        meta = CalendarEventMeta.objects.get(observation_record=self.record)
+        other_meta = CalendarEventMeta.objects.get(observation_record=other_record)
+        self.assertIsNone(meta.observation_group_id)
+        self.assertIsNone(other_meta.observation_group_id)
+
+    def test_reverse_direction_add_sets_the_link_too(self) -> None:
+        group = ObservationGroup.objects.create(name='signals-group-reverse-add')
+        self.record.observationgroup_set.add(group)
+
+        meta = CalendarEventMeta.objects.get(observation_record=self.record)
+        self.assertEqual(meta.observation_group_id, group.pk)
+
+    def test_gemini_record_added_to_group_writes_no_calendar_event(self) -> None:
+        gem_record = ObservationRecord.objects.create(
+            target=self.target,
+            facility='GEM',
+            observation_id='signals-gemini-group-member',
+            status='PENDING',
+            parameters={},
+        )
+        group = ObservationGroup.objects.create(name='signals-group-gemini')
+        group.observation_records.add(gem_record)
+
+        self.assertFalse(CalendarEventMeta.objects.filter(observation_record=gem_record).exists())
+
+
+class TestRecordDeleteReceiver(ObservationProjectorSignalsTestCase):
+    """D-14/Pattern 4: pre_delete removes only the record's own projector-owned event."""
+
+    def test_delete_deletes_owned_event_and_companion_row(self) -> None:
+        url = LCOFacility().get_observation_url(self.record.observation_id)
+        event_pk = CalendarEvent.objects.get(url=url).pk
+
+        self.record.delete()
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event_id=event_pk).exists())
+
+    def test_delete_leaves_a_run_prefixed_companion_event_alive(self) -> None:
+        url = LCOFacility().get_observation_url(self.record.observation_id)
+        own_meta = CalendarEventMeta.objects.get(event__url=url)
+        own_meta.observation_record = None
+        own_meta.save()
+
+        run_event = CalendarEvent.objects.create(
+            url='RUN:42:2026-09-15',
+            title='[CANCELLED] reconciler-owned',
+            description='',
+            start_time=datetime(2026, 9, 15, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 16, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=run_event, observation_record=self.record)
+
+        self.record.delete()
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=run_event.pk).exists())
+
+    def test_delete_with_no_companion_row_raises_nothing(self) -> None:
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            facility='LCO',
+            observation_id='signals-delete-no-companion',
+            status='PENDING',
+            parameters={'proposal': 'NOWINDOW'},  # no start/end -> unprojectable, no companion row
+        )
+        self.assertFalse(CalendarEventMeta.objects.filter(observation_record=record).exists())
+
+        record.delete()  # must not raise
+
+        self.assertFalse(ObservationRecord.objects.filter(observation_id='signals-delete-no-companion').exists())
+
+
+class TestReceiverSafetyContract(ObservationProjectorSignalsTestCase):
+    """TRIG-02: no receiver may ever abort the operation that triggered it."""
+
+    def test_raising_projector_does_not_block_a_save(self) -> None:
+        with patch('solsys_code.observation_projector.project_record', side_effect=RuntimeError('boom')):
+            self.record.status = 'COMPLETED'
+            self.record.save()  # must not raise
+        self.assertEqual(ObservationRecord.objects.get(pk=self.record.pk).status, 'COMPLETED')
+
+    def test_raising_projector_does_not_block_a_group_membership_change(self) -> None:
+        group = ObservationGroup.objects.create(name='signals-safety-group')
+        with patch('solsys_code.observation_projector.project_record', side_effect=RuntimeError('boom')):
+            group.observation_records.add(self.record)  # must not raise
+        self.assertIn(self.record, group.observation_records.all())
+
+    def test_raising_projector_does_not_block_a_delete(self) -> None:
+        with patch('solsys_code.observation_projector.facility_for', side_effect=RuntimeError('boom')):
+            self.record.delete()  # must not raise
+        self.assertFalse(ObservationRecord.objects.filter(pk=self.record.pk).exists())
+
+    def test_raw_save_writes_no_calendar_event(self) -> None:
+        from solsys_code.observation_projector import receiver_on_record_save
+
+        unsaved = ObservationRecord(
+            target=self.target,
+            facility='LCO',
+            observation_id='signals-raw-save',
+            status='PENDING',
+            parameters={
+                'proposal': 'KEY2026B-004',
+                'start': self.window_start.isoformat(),
+                'end': self.window_end.isoformat(),
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+            },
+        )
+        receiver_on_record_save(sender=ObservationRecord, instance=unsaved, created=True, raw=True)
+
+        url = LCOFacility().get_observation_url('signals-raw-save')
+        self.assertFalse(CalendarEvent.objects.filter(url=url).exists())
+
+    def test_queryset_update_bypasses_the_receiver_and_writes_no_new_event(self) -> None:
+        url = LCOFacility().get_observation_url(self.record.observation_id)
+        event = CalendarEvent.objects.get(url=url)
+        title_before = event.title
+
+        ObservationRecord.objects.filter(pk=self.record.pk).update(status='COMPLETED')
+
+        event.refresh_from_db()
+        self.assertEqual(event.title, title_before)
+
+    def test_record_saved_inside_a_rolled_back_transaction_leaves_no_event(self) -> None:
+        url = LCOFacility().get_observation_url('signals-rollback-record')
+        with transaction.atomic():
+            ObservationRecord.objects.create(
+                target=self.target,
+                facility='LCO',
+                observation_id='signals-rollback-record',
+                status='PENDING',
+                parameters={
+                    'proposal': 'KEY2026B-004',
+                    'start': self.window_start.isoformat(),
+                    'end': self.window_end.isoformat(),
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                },
+            )
+            self.assertTrue(CalendarEvent.objects.filter(url=url).exists())
+            transaction.set_rollback(True)
+
+        self.assertFalse(ObservationRecord.objects.filter(observation_id='signals-rollback-record').exists())
+        self.assertFalse(CalendarEvent.objects.filter(url=url).exists())
+
+    def test_make_request_is_never_called_during_a_record_save(self) -> None:
+        with patch('solsys_code.calendar_utils.make_request') as mock_make_request:
+            self.record.status = 'COMPLETED'
+            self.record.save()
+        mock_make_request.assert_not_called()

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.db.models.signals import post_save
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
@@ -16,6 +17,7 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.models import CalendarEventMeta
+from solsys_code.observation_projector import receiver_on_record_save
 
 # IN-02: shared with test_calendar_utils via solsys_code/tests/helpers.py rather than being
 # imported across test modules.
@@ -73,17 +75,39 @@ class TestSyncLcoObservationCalendar(TestCase):
         facility: str = 'LCO',
         **parameter_overrides,
     ) -> ObservationRecord:
-        """Create an ObservationRecord fixture sharing the class-level target/user."""
-        return ObservationRecord.objects.create(
-            target=self.target,
-            user=self.user,
-            facility=facility,
-            observation_id=observation_id,
-            status=status,
-            scheduled_start=scheduled_start,
-            scheduled_end=scheduled_end,
-            parameters=_parameters(**parameter_overrides),
+        """Create an ObservationRecord fixture sharing the class-level target/user.
+
+        34-01: the observation projector's ``post_save`` receiver now fires for every
+        ObservationRecord save. This module exercises the retired
+        ``sync_lco_observation_calendar`` command in isolation, and plan 34-02 (D-18)
+        deletes this module and its whole test file outright once the projector/sweep fully
+        replace it. Until then, disconnect the projector's receiver around fixture creation
+        so these pre-existing tests keep measuring only the command they were written for,
+        not a second, unrelated writer racing it to the same url-keyed CalendarEvent.
+        """
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
         )
+        try:
+            return ObservationRecord.objects.create(
+                target=self.target,
+                user=self.user,
+                facility=facility,
+                observation_id=observation_id,
+                status=status,
+                scheduled_start=scheduled_start,
+                scheduled_end=scheduled_end,
+                parameters=_parameters(**parameter_overrides),
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
 
     def test_select_01_only_matching_proposal_creates_events(self):
         """SELECT-01: only the matching-proposal record creates a CalendarEvent."""

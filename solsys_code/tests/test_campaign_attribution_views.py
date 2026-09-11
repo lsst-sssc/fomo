@@ -15,6 +15,7 @@ from datetime import timezone as dt_timezone
 
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
+from django.db.models.signals import post_save
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils.html import escape
@@ -34,6 +35,7 @@ from solsys_code.models import (
     CampaignRunObservation,
     ObservationRecordDismissal,
 )
+from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
@@ -924,7 +926,26 @@ class TestQueueDrainsToEmpty(AttributionViewTestBase):
 
     def test_confirming_and_dismissing_every_candidate_drains_the_queue(self):
         event = self._make_event()
-        record = self._make_record()
+        # 34-01: the observation projector's post_save receiver now fires for every
+        # ObservationRecord save, and would auto-create its own orphan CalendarEvent for
+        # this fixture record -- one this test never asked for and that
+        # orphans_needing_attribution_count() would still see as unattributed after the
+        # record-level confirm below. Disconnect the receiver around this one call; this
+        # test predates the projector and exercises the attribution queue in isolation.
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            record = self._make_record()
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
         self._make_unattributable_event()
 
         self.client.post(

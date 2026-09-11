@@ -10,6 +10,7 @@ from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
@@ -49,6 +50,7 @@ from solsys_code.models import (
     CampaignRunObservation,
     ObservationRecordDismissal,
 )
+from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
@@ -741,18 +743,37 @@ class TestSoleHighCandidateUnderBandFilter(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.event, is_verified=False, run=None)
 
-        cls.record = ObservationRecord.objects.create(
-            target=cls.target,
-            user=cls.record_owner,
-            facility='LCO',
-            observation_id='WR02-1',
-            status='PENDING',
-            parameters={
-                'instrument_type': '2M0-SCICAM-MUSCAT',
-                'start': datetime(2026, 7, 7, 22, 0).isoformat(),
-                'end': datetime(2026, 7, 8, 6, 0).isoformat(),
-            },
+        # 34-01: the observation projector's post_save receiver now fires for every
+        # ObservationRecord save, and would auto-create a second orphan CalendarEvent for
+        # this fixture record (same window/instrument as cls.event above), silently doubling
+        # event_attribution_backlog()'s group count for tests that never asked for a second
+        # event. Disconnect it around this one fixture-creation call -- this class predates
+        # the projector and tests attribution scoring in isolation, not the projector itself.
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
         )
+        try:
+            cls.record = ObservationRecord.objects.create(
+                target=cls.target,
+                user=cls.record_owner,
+                facility='LCO',
+                observation_id='WR02-1',
+                status='PENDING',
+                parameters={
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': datetime(2026, 7, 7, 22, 0).isoformat(),
+                    'end': datetime(2026, 7, 8, 6, 0).isoformat(),
+                },
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
 
     def test_precondition_the_fixture_really_produces_one_high_and_one_medium_candidate(self):
         candidates = candidates_for_event(self.event)

@@ -26,6 +26,7 @@ from datetime import datetime
 from datetime import timezone as dt_timezone
 from typing import Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from tom_observations.facility import get_service_class
 from tom_observations.models import ObservationGroup, ObservationRecord
 
@@ -333,3 +334,99 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
         action,
         stage,
     )
+
+
+# D-15/Pattern 3: captures a forward-direction ObservationGroup.observation_records.clear()'s
+# former members on 'pre_clear' (before they're gone), keyed by (sender, group pk), so
+# 'post_clear' -- which always arrives with pk_set=None -- can still re-project them.
+_cleared_group_members: dict[tuple[Any, int], list[int]] = {}
+
+
+def receiver_on_group_membership_changed(
+    sender: Any, instance: Any, action: str, reverse: bool, pk_set: set[int] | None, **kwargs: Any
+) -> None:
+    """m2m_changed receiver (D-15): re-projects only the records named in the signal.
+
+    Closes the gap a plain ``post_save`` receiver never sees: ``backfill_lco_observations``
+    (and any other caller) adds group membership via ``group.observation_records.add(...)``
+    *after* each record's own save, so a record's group link would otherwise never reach its
+    event until the next sweep.
+
+    Args:
+        sender: the through model for ``ObservationGroup.observation_records``.
+        instance: the ``ObservationGroup`` (forward direction, ``reverse=False``) or the
+            ``ObservationRecord`` (reverse direction, ``reverse=True``) whose membership
+            changed.
+        action: one of Django's m2m_changed actions; only 'pre_clear'/'post_add'/
+            'post_remove'/'post_clear' are handled, everything else returns immediately.
+        reverse: True when the change was made from the ``ObservationRecord`` side (e.g.
+            ``record.observationgroup_set.add(group)``).
+        pk_set: the set of pks added/removed (forward direction), or the set of group pks
+            (reverse direction); None for a 'pre_clear'/'post_clear' pair.
+        **kwargs: the remaining signal kwargs (``using``, ``model``), unused.
+    """
+    if action not in ('pre_clear', 'post_add', 'post_remove', 'post_clear'):
+        return
+    if action == 'pre_clear':
+        if not reverse:
+            # Forward-direction .clear(): capture the about-to-be-cleared members now, while
+            # they are still present, so post_clear (pk_set=None) can still re-project them.
+            _cleared_group_members[(sender, instance.pk)] = list(
+                instance.observation_records.values_list('pk', flat=True)
+            )
+        return
+    if reverse:
+        # instance is the ObservationRecord itself -- re-project it alone, regardless of
+        # which action fired (post_add/post_remove/post_clear all mean "this record's own
+        # group membership changed").
+        record_pks: list[int] = [instance.pk]
+    elif action == 'post_clear':
+        record_pks = _cleared_group_members.pop((sender, instance.pk), [])
+    else:
+        record_pks = list(pk_set or [])
+
+    for record in ObservationRecord.objects.filter(pk__in=record_pks):
+        if record.facility not in PROJECTED_FACILITIES:
+            continue
+        try:
+            project_record(record)
+        except Exception as exc:  # noqa: BLE001 -- never break the caller's membership change
+            logger.warning(
+                'receiver_on_group_membership_changed failed for observation_id=%r: %s',
+                record.observation_id,
+                type(exc).__name__,
+            )
+
+
+def receiver_on_record_delete(sender: Any, instance: ObservationRecord, **kwargs: Any) -> None:
+    """pre_delete receiver (D-14): deletes the record's own projector-owned event.
+
+    ``pre_delete``, not ``post_delete``, because ``CalendarEventMeta.observation_record``'s
+    ``on_delete=SET_NULL`` clears the reverse one-to-one link before ``post_delete`` fires --
+    by then the companion row could no longer be found through the record at all. Deletes
+    ``meta.event`` only when its ``url`` is this record's own facility observation URL, so an
+    event a staff member has since re-attributed elsewhere (or any event outside this
+    module's namespace) is never destroyed. Deleting the event cascades to its
+    ``CalendarEventMeta`` companion row via that row's own ``on_delete=CASCADE``.
+
+    The whole body is wrapped in one try/except so a projector problem here can never block
+    an operator deleting an observation record (TRIG-02).
+
+    Args:
+        sender: the model class Django's signal framework passes (ObservationRecord).
+        instance: the ObservationRecord about to be deleted.
+        **kwargs: the remaining signal kwargs (``using``), unused.
+    """
+    if instance.facility not in PROJECTED_FACILITIES:
+        return
+    try:
+        meta = instance.calendar_event_meta
+        facility = facility_for(instance)
+        if meta.event.url == event_url(instance, facility):
+            meta.event.delete()
+    except ObjectDoesNotExist:
+        return
+    except Exception as exc:  # noqa: BLE001 -- TRIG-02: never block an operator's delete
+        logger.warning(
+            'receiver_on_record_delete failed for observation_id=%r: %s', instance.observation_id, type(exc).__name__
+        )
