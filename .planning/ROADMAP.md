@@ -239,7 +239,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 34-06-PLAN.md — Paired docs and live proof: the demo notebook updated and re-executed against a scratch copy, plus a portal-backed `updatestatus` run proving the receiver projects every save with the developer database and the SCHED-06 baseline untouched
+- [x] 34-06-PLAN.md — Paired docs and live proof: the demo notebook updated and re-executed against a scratch copy, plus a portal-backed `updatestatus` run proving the receiver projects every save with the developer database and the SCHED-06 baseline untouched
 
 ### Phase 35: Allocation Layer & Classical Cutover
 

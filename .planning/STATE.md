@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 34
 current_phase_name: The Observation Projector & Trigger
 status: executing
-stopped_at: Completed 34-05-PLAN.md
-last_updated: "2026-09-11T21:21:20.946Z"
+stopped_at: Completed 34-06-PLAN.md
+last_updated: "2026-09-11T21:33:30.909Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 34 execution started
-state_head: e41c48ca8d2998d87e8ee4f476c9c2b8a04d0fe1
+state_head: 73b465d24283fd156add7c68da903dea0e5856eb
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 ## Current Position
 
 Phase: 34 (The Observation Projector & Trigger) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 34 execution started
 
@@ -186,6 +186,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 34 P03 | 38min | 2 tasks | 6 files |
 | Phase 34 P04 | 40min | 2 tasks | 11 files |
 | Phase 34 P05 | 24min | 2 tasks | 3 files |
+| Phase 34-the-observation-projector-trigger P06 | ~10min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -245,6 +246,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 34]: Phase 34 Plan 04: project_observation_calendar_demo.ipynb runs against the real developer database (not a scratch copy) since SCHED-06's baseline must be captured over the same database a later re-execution re-checks; the receiver-demo section stays side-effect-free via a transaction.atomic() rollback. — Unlike this repo's other pre_executed/ notebooks, a scratch copy discarded at the end of the run would leave nothing for a post-observing-nights re-check to diff against.
 - [Phase 34]: [Phase 34-05] coerce_schedule_datetime() raises ValueError for an unusable schedule value rather than returning None — stage_for() already classified a non-None schedule field as a placed block (D-10); degrading it to None would draw a queued-looking event over the wrong window, so raising keeps the record a D-13 unprojectable one instead, with the save never aborted.
 - [Phase 34]: [Phase 34-05] Task 2 pins the coercion contract with tests only -- no calendar_utils.py change, since Task 1's GREEN commit already implemented coerce_schedule_datetime() correctly
+- [Phase 34]: 34-06: SCRATCH_DB_OVERRIDE pattern lets project_observation_calendar_demo.ipynb run against either the real developer database or a FOMO_DATABASE_PATH-routed scratch copy, guarding both the resolved-database assert and the SCHED-06 baseline JSON write on the same flag.
+- [Phase 34]: 34-06: G-34-2 closed with live proof -- a real updatestatus run against a scratch copy of the developer database logged zero unprojectable lines, and the following dry-run sweep reported updated: 0, unprojectable: 0 for LCO; the 33 stale LCO events on the real developer database were left untouched for the operator's own SCHED-06 re-check (34-UAT.md Test 4).
 
 ### Pending Todos
 
@@ -340,8 +343,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T21:20:52.120Z
-Stopped at: Completed 34-05-PLAN.md
+Last session: 2026-09-11T21:33:06.405Z
+Stopped at: Completed 34-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
