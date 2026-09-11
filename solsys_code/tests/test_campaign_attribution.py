@@ -194,6 +194,28 @@ class TestScoringAndBanding(TestCase):
         score, _evidence = telescope_match_score(run, '2m0', '2M0-SCICAM-MUSCAT')
         self.assertEqual(score, TELESCOPE_MATCH_NONE)
 
+    def test_telescope_match_ogg_0m4_orphan_degrades_to_aperture_only_not_none(self):
+        """'ogg' hosts two telescopes (FTN 2m0 and the OGG-0m4), so it cannot be a key in
+        the site-keyed LCO_SITE_CODE_TO_OBSCODE table -- only the label-keyed
+        OBSERVED_TELESCOPE_OBSCODES table may bridge one of its telescopes to an obscode,
+        and only for FTN, the one label that names a single telescope. An 'OGG-0m4' orphan
+        (a different telescope, no obscode of its own resolvable in this table) must fall
+        through to the aperture-only signal against a run whose site is Haleakala but whose
+        obscode differs from FTN's -- never score TELESCOPE_MATCH_NONE, which would read as
+        a positive disconfirmation the evidence does not support."""
+        ogg_0m4_site = Observatory.objects.create(obscode='XX1', name='Haleakala 0.4m', short_name='OGG-0m4')
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='OGG 0.4m network',
+            window_start=None,
+            window_end=None,
+            site=ogg_0m4_site,
+        )
+        score, evidence = telescope_match_score(run, 'OGG-0m4', '0M4-SCICAM-SBIG')
+        self.assertEqual(score, TELESCOPE_MATCH_APERTURE_ONLY)
+        self.assertNotEqual(score, TELESCOPE_MATCH_NONE)
+        self.assertNotIn('F65', evidence)  # never claims a resolved obscode for this label
+
     def test_telescope_match_indeterminate_tier(self):
         """The real CampaignRun pk=1 shape: a site-resolved run (blank telescope_class per
         the D-06 rule) whose telescope_instrument carries no aperture token. Must NOT score
