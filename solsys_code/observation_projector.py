@@ -330,6 +330,14 @@ def write_event_meta(event: Any, record: ObservationRecord) -> None:
 def project_record(record: ObservationRecord) -> tuple[str, str]:
     """Create/update/leave-unchanged the record's event. Never raises (TRIG-02).
 
+    CR-02: every write this function makes -- resolving the facility, building the field
+    dict, the create-or-update itself, and the companion-row write -- lives inside one
+    ``try``, so a ``CalendarEvent.objects.get_or_create()`` collision
+    (``MultipleObjectsReturned`` from a duplicate-url row, reachable through the
+    unauthenticated event form) or an ``ImportError`` from ``get_service_class()`` is
+    caught here rather than escaping to whichever caller happens to wrap this call --
+    matching the "Never raises" contract this docstring already promised.
+
     Args:
         record: the ObservationRecord being projected.
 
@@ -338,14 +346,14 @@ def project_record(record: ObservationRecord) -> tuple[str, str]:
             ``insert_or_create_calendar_event()``'s 'created'/'updated'/'unchanged', or
             'unprojectable' (stage then carries the caught exception's class name).
     """
-    facility = facility_for(record)
     try:
+        facility = facility_for(record)
         fields, stage = event_fields_for(record, facility)
+        event, action = insert_or_create_calendar_event({'url': event_url(record, facility)}, fields)
+        write_event_meta(event, record)
     except Exception as exc:  # noqa: BLE001 -- a projector must never break the triggering save
         logger.warning('unprojectable observation_id=%r: %s', record.observation_id, type(exc).__name__)
         return 'unprojectable', type(exc).__name__
-    event, action = insert_or_create_calendar_event({'url': event_url(record, facility)}, fields)
-    write_event_meta(event, record)
     return action, stage
 
 

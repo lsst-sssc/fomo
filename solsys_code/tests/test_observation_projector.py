@@ -357,6 +357,30 @@ class TestProjectRecordWrites(_ObservationProjectorTestBase):
         self.assertEqual(action, 'unprojectable')
         self.assertEqual(before, after)
 
+    def test_duplicate_url_events_report_unprojectable_instead_of_raising(self) -> None:
+        """CR-02: a pre-existing duplicate-url pair (reachable through the unauthenticated
+        event form) makes CalendarEvent.objects.get_or_create(url=...) raise
+        MultipleObjectsReturned. project_record() must catch that -- every write it makes
+        now lives inside one try -- and report 'unprojectable' rather than letting the
+        docstring's "Never raises" promise go unenforced."""
+        record = self._make_record('writes-duplicate-url', status='PENDING')
+        facility = op.facility_for(record)
+        url = op.event_url(record, facility)
+        CalendarEvent.objects.filter(url=url).delete()
+        for i in range(2):
+            CalendarEvent.objects.create(
+                url=url,
+                title=f'duplicate {i}',
+                start_time=datetime(2020, 1, 1, tzinfo=dt_timezone.utc),
+                end_time=datetime(2020, 1, 2, tzinfo=dt_timezone.utc),
+            )
+
+        action, reason = op.project_record(record)
+
+        self.assertEqual(action, 'unprojectable')
+        self.assertEqual(reason, 'MultipleObjectsReturned')
+        self.assertEqual(CalendarEvent.objects.filter(url=url).count(), 2)
+
     def test_unparsable_dates_is_unprojectable(self) -> None:
         record = self._make_record(
             'writes-unparsable-dates', status='PENDING', start='not-a-date', end='also-not-a-date'
