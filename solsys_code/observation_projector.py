@@ -338,13 +338,21 @@ def write_event_meta(event: Any, record: ObservationRecord) -> None:
 def project_record(record: ObservationRecord) -> tuple[str, str]:
     """Create/update/leave-unchanged the record's event. Never raises (TRIG-02).
 
-    CR-02: every write this function makes -- resolving the facility, building the field
-    dict, the create-or-update itself, and the companion-row write -- lives inside one
-    ``try``, so a ``CalendarEvent.objects.get_or_create()`` collision
-    (``MultipleObjectsReturned`` from a duplicate-url row, reachable through the
-    unauthenticated event form) or an ``ImportError`` from ``get_service_class()`` is
-    caught here rather than escaping to whichever caller happens to wrap this call --
-    matching the "Never raises" contract this docstring already promised.
+    Every write this function makes -- resolving the facility, building the field dict,
+    the create-or-update itself, and the companion-row write -- runs inside its own
+    ``transaction.atomic()`` savepoint, and the ``except`` below sits OUTSIDE that ``with``
+    block rather than inside it. That ordering is what makes the savepoint real: a
+    database error (e.g. ``CalendarEvent.objects.get_or_create()`` raising
+    ``MultipleObjectsReturned`` from a duplicate-url row, reachable through the
+    unauthenticated event form) has to propagate all the way out of the ``with`` block
+    before this function's own ``try`` catches it, so ``Atomic.__exit__`` sees the
+    exception still in flight and rolls back to the savepoint rather than committing it.
+    Catching the same exception *inside* the ``with`` (as an earlier version of this
+    function did) would leave the block's own ``__exit__`` with nothing to see -- a clean
+    exit that commits the savepoint instead of rolling it back. Every caller (the
+    ``post_save`` receiver, the ``m2m_changed`` receiver, and the sweep) gets this recovery
+    for free just by calling this function, so none of them needs its own
+    ``transaction.atomic()`` wrapper.
 
     Args:
         record: the ObservationRecord being projected.
@@ -355,10 +363,11 @@ def project_record(record: ObservationRecord) -> tuple[str, str]:
             'unprojectable' (stage then carries the caught exception's class name).
     """
     try:
-        facility = facility_for(record)
-        fields, stage = event_fields_for(record, facility)
-        event, action = insert_or_create_calendar_event({'url': event_url(record, facility)}, fields)
-        write_event_meta(event, record)
+        with transaction.atomic():
+            facility = facility_for(record)
+            fields, stage = event_fields_for(record, facility)
+            event, action = insert_or_create_calendar_event({'url': event_url(record, facility)}, fields)
+            write_event_meta(event, record)
     except Exception as exc:  # noqa: BLE001 -- a projector must never break the triggering save
         logger.warning('unprojectable observation_id=%r: %s', record.observation_id, type(exc).__name__)
         return 'unprojectable', type(exc).__name__
@@ -499,15 +508,14 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     """post_save receiver (TRIG-01): projects a record's event with no operator command.
 
     Returns immediately for a fixture load (``raw=True``) and for any facility other than
-    LCO/SOAR (D-16, Gemini records stay with the submission-echo command). ``project_record()``
-    runs inside its own ``transaction.atomic()`` savepoint (WR-01): TRIG-02 says this receiver
-    runs inline in the caller's own transaction, and per Django's documented rule, catching a
-    *database* error inside an ``atomic`` block without a savepoint leaves that whole
-    transaction unusable for every later query. A savepoint lets a database error here roll
-    back only the projector's own work, so the broad ``except`` below still protects the
-    caller's save rather than converting a clear error into a confusing
-    ``TransactionManagementError`` later. Logged at debug level, not warning, since this fires
-    on every ObservationRecord save in production.
+    LCO/SOAR (D-16, Gemini records stay with the submission-echo command). TRIG-02 says this
+    receiver runs inline in the caller's own transaction, so a database error from
+    ``project_record()`` must never leave that transaction unusable for every later query.
+    ``project_record()`` protects against exactly that itself (its own ``transaction.atomic()``
+    savepoint, documented on that function) -- this receiver's ``try`` below is a second,
+    outer layer of defence in case a future change to ``project_record()`` ever lets something
+    non-database (e.g. a signal-handler bug) escape it. Logged at debug level, not warning,
+    since this fires on every ObservationRecord save in production.
 
     Args:
         sender: the model class Django's signal framework passes (ObservationRecord).
@@ -521,8 +529,7 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     if instance.facility not in PROJECTED_FACILITIES:
         return
     try:
-        with transaction.atomic():
-            action, stage = project_record(instance)
+        action, stage = project_record(instance)
     except Exception as exc:  # noqa: BLE001 -- TRIG-02: never abort the caller's save
         logger.warning(
             'receiver_on_record_save failed for observation_id=%r: %s', instance.observation_id, type(exc).__name__
