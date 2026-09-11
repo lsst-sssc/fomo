@@ -22,11 +22,13 @@ Three ownership rules hold across every function in this module:
 """
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
+from tom_calendar.models import CalendarEvent
 from tom_observations.facility import get_service_class
 from tom_observations.models import ObservationGroup, ObservationRecord
 
@@ -35,6 +37,7 @@ from solsys_code.calendar_utils import (
     coarse_telescope_label,
     extract_instrument,
     insert_or_create_calendar_event,
+    preview_calendar_event_action,
     record_time_window,
 )
 from solsys_code.models import CalendarEventMeta
@@ -298,6 +301,125 @@ def project_record(record: ObservationRecord) -> tuple[str, str]:
     event, action = insert_or_create_calendar_event({'url': event_url(record, facility)}, fields)
     write_event_meta(event, record)
     return action, stage
+
+
+# TRIG-03/D-17: the six sweep counters project_queryset() accumulates per facility. Kept
+# private to this module -- the command module (project_observation_calendar.py) keeps its
+# own copy of the same six-tuple for seeding a facility that is in scope but contributed no
+# records, since project_queryset() only ever returns keys for facilities it actually saw.
+_SWEEP_COUNTER_KEYS = ('created', 'updated', 'unchanged', 'unprojectable', 'site_lookups', 'site_lookup_failed')
+
+
+def _new_sweep_counters() -> dict[str, int]:
+    """Return a fresh zeroed counter dict for one facility (a NEW dict every call)."""
+    return dict.fromkeys(_SWEEP_COUNTER_KEYS, 0)
+
+
+def project_queryset(
+    records: Any,
+    *,
+    dry_run: bool = False,
+    pre_fields_hook: Callable[[ObservationRecord, Any], dict[str, int] | None] | None = None,
+) -> dict[str, Any]:
+    """Sweep every record in ``records`` through the projector -- the TRIG-03 backstop for
+    ``QuerySet.update()``/``bulk_create()`` paths the ``post_save`` receiver never sees.
+
+    One counting rule for both run modes (real and ``dry_run``): per record, read the
+    pre-sweep event snapshot (``before``) BEFORE anything in this iteration writes, build the
+    intended field values, and take the counted action from
+    ``calendar_utils.preview_calendar_event_action(before, fields)`` -- never from
+    ``project_record()``'s own return value, which can report 'unchanged' even when this
+    iteration's own write already changed the event (e.g. Task 3's observed-site save firing
+    the ``post_save`` receiver mid-iteration). This is what keeps a dry-run count structurally
+    unable to disagree with what a real run would do: both modes read the same ``before`` and
+    apply the same comparison helper.
+
+    ``pre_fields_hook``, when given, is called once per record with ``(record, facility)``
+    AFTER ``before`` is captured and BEFORE ``fields``/``stage`` are built -- the extension
+    point plan 34-02 Task 3 uses for the one-time observed-site lookup, whose stored token
+    must already be on the record by the time ``event_fields_for()`` runs, while ``before``
+    still holds the event as it stood before this sweep touched it. The hook may return a
+    counter-increment dict (e.g. ``{'site_lookups': 1}``) to add to this record's facility
+    counters, or None to add nothing. Never called when ``dry_run`` is True or the hook is
+    None -- the caller decides whether a hook applies at all.
+
+    This function itself never raises: each record's whole processing (the hook call,
+    ``event_fields_for()``, and the real write) is wrapped so one bad row can never end the
+    sweep, matching ``project_record()``'s own never-raise contract.
+
+    Args:
+        records: an ``ObservationRecord`` queryset to sweep (unfiltered ordering -- this
+            function imposes its own ``order_by('pk')``).
+        dry_run: if True, no ``CalendarEvent``/``CalendarEventMeta``/``ObservationRecord`` row
+            is written and ``pre_fields_hook`` is never called, regardless of whether the
+            caller passed one.
+        pre_fields_hook: optional per-record hook called between capturing ``before`` and
+            building ``fields`` (see above).
+
+    Returns:
+        dict[str, Any]: ``{'counters': {facility_name: {counter_key: int, ...}, ...},
+            'rows': [{'observation_id': str, 'status': str, 'stage': str, 'action': str}, ...]}``.
+            ``rows`` is in the same primary-key order the sweep iterated.
+    """
+    counters: dict[str, dict[str, int]] = {}
+    rows: list[dict[str, Any]] = []
+    for record in records.select_related('target').order_by('pk'):
+        facility_name = record.facility
+        facility_counters = counters.setdefault(facility_name, _new_sweep_counters())
+        try:
+            facility = facility_for(record)
+            url = event_url(record, facility)
+            # Deliberately stale on purpose: this is the pre-sweep instance, held in memory
+            # so a receiver's write later in this same iteration cannot silently refresh it
+            # out from under the comparison -- see the docstring above.
+            before = CalendarEvent.objects.filter(url=url).first()
+
+            if not dry_run and pre_fields_hook is not None:
+                increment = pre_fields_hook(record, facility)
+                if increment:
+                    for key, value in increment.items():
+                        facility_counters[key] += value
+
+            try:
+                fields, stage = event_fields_for(record, facility)
+            except Exception as exc:  # noqa: BLE001 -- a bad row must never end the sweep
+                logger.warning('unprojectable observation_id=%r: %s', record.observation_id, type(exc).__name__)
+                facility_counters['unprojectable'] += 1
+                rows.append(
+                    {
+                        'observation_id': record.observation_id,
+                        'status': record.status,
+                        'stage': type(exc).__name__,
+                        'action': 'unprojectable',
+                    }
+                )
+                continue
+
+            action = preview_calendar_event_action(before, fields)
+            facility_counters[action] += 1
+            if not dry_run:
+                # A no-op write when pre_fields_hook's own save already triggered the
+                # post_save receiver's own project_record() call for this record; the
+                # guarantee that this call provides is for a record whose receiver path
+                # was skipped (raw=True saves, receiver disconnected around a fixture, etc).
+                project_record(record)
+            rows.append(
+                {'observation_id': record.observation_id, 'status': record.status, 'stage': stage, 'action': action}
+            )
+        except Exception as exc:  # noqa: BLE001 -- one bad row must never end the whole sweep
+            logger.warning(
+                'project_queryset failed for observation_id=%r: %s', record.observation_id, type(exc).__name__
+            )
+            facility_counters['unprojectable'] += 1
+            rows.append(
+                {
+                    'observation_id': record.observation_id,
+                    'status': record.status,
+                    'stage': type(exc).__name__,
+                    'action': 'unprojectable',
+                }
+            )
+    return {'counters': counters, 'rows': rows}
 
 
 def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: bool, raw: bool, **kwargs: Any) -> None:
