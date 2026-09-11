@@ -217,7 +217,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. Over real nights, a user watches a `KEY2026B-004` record's event narrow queued → scheduled → observed with nobody running anything (closing spike 004's PARTIAL verdict), and every event title is short enough to read in a month cell
   5. `sync_lco_observation_calendar` no longer exists — the same events come from the projector and sweep in the same key namespace, with its runbook section, demo notebook and tests migrated rather than duplicated, and `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -227,7 +227,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 34-02-PLAN.md — The `project_observation_calendar` sweep, the one-time observed-telescope lookup, and the retirement of `sync_lco_observation_calendar`
-- [ ] 34-03-PLAN.md — Status rings, the marker legend, and the display-time "night n of N" series decoration
+- [x] 34-03-PLAN.md — Status rings, the marker legend, and the display-time "night n of N" series decoration
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -324,7 +324,7 @@ Plans:
 | 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 6/6 | Complete (milestone superseded) | 2026-09-02 |
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
-| 34. The Observation Projector & Trigger | v2.4 | 2/4 | In Progress|  |
+| 34. The Observation Projector & Trigger | v2.4 | 3/4 | In Progress|  |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 0/TBD | Not started | - |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |

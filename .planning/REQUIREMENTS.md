@@ -13,11 +13,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **PROJ-01**: Every LCO/SOAR `ObservationRecord` has exactly one `CalendarEvent`, keyed by `facility.get_observation_url()` (the namespace the existing LCO sync already uses), created or updated in place — never a second event for the same record
 - [x] **PROJ-02**: An event's span follows the record's stage: the request window while queued, the placed block once `scheduled_start`/`scheduled_end` are set, the observed block once COMPLETED — the existing `record_time_window` rule
-- [ ] **PROJ-03**: A terminal-negative record (`WINDOW_EXPIRED` / `CANCELED` / `FAILURE_LIMIT_REACHED`) keeps a visibly marked event on its window night — never silently dropped
+- [x] **PROJ-03**: A terminal-negative record (`WINDOW_EXPIRED` / `CANCELED` / `FAILURE_LIMIT_REACHED`) keeps a visibly marked event on its window night — never silently dropped
 - [x] **PROJ-04**: Series identity for a record in an `ObservationGroup` is carried by real foreign keys on `CalendarEventMeta` (`observation_record`, `observation_group`) — a shared title stem and a link back to the group; spike 002's title-suffix stopgap is not the carrier
   - *Scope split (recorded 2026-09-03 during Phase 33 planning):* Phase 33 delivers the carrier — the two foreign keys, their migration and their read-only admin exposure. The **shared title stem** clause is delivered by the Phase 34 projector, which is the only writer of these fields and of an event's title (Phase 33 is schema and semantics only, per 33-CONTEXT.md D-08, and D-12 removes text from titles rather than adding it). Phase 34 must satisfy the title-stem clause alongside PROJ-06's compact-title requirement.
-- [ ] **PROJ-05**: Re-projecting an unchanged record writes nothing (no-churn); the projector never creates, modifies, or deletes an event it does not own, and never writes the reconciler's `RUN:`/allocation namespace
-- [ ] **PROJ-06**: Event titles have a compact form that fits a month cell on the calendar
+- [x] **PROJ-05**: Re-projecting an unchanged record writes nothing (no-churn); the projector never creates, modifies, or deletes an event it does not own, and never writes the reconciler's `RUN:`/allocation namespace
+- [x] **PROJ-06**: Event titles have a compact form that fits a month cell on the calendar
 - [ ] **SCHED-06** (carried from v2.1/v2.3, re-scoped): A user can watch a record's event narrow queued → scheduled → observed on the calendar with no operator command, proven against the real `KEY2026B-004` records over live nights (closes spike 004's PARTIAL verdict)
 
 ### Trigger
@@ -102,10 +102,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | PROJ-01 | Phase 34 | Complete |
 | PROJ-02 | Phase 34 | Complete |
-| PROJ-03 | Phase 34 | Pending |
+| PROJ-03 | Phase 34 | Complete |
 | PROJ-04 | Phase 33 (carrier fields), Phase 34 (shared title stem) | Complete |
-| PROJ-05 | Phase 34 | Pending |
-| PROJ-06 | Phase 34 | Pending |
+| PROJ-05 | Phase 34 | Complete |
+| PROJ-06 | Phase 34 | Complete |
 | SCHED-06 | Phase 34 | Pending |
 | TRIG-01 | Phase 34 | Complete |
 | TRIG-02 | Phase 34 | Complete |

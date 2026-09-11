@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 34
 current_phase_name: The Observation Projector & Trigger
 status: executing
-stopped_at: Completed 34-02-PLAN.md
-last_updated: "2026-09-11T03:41:25.007Z"
+stopped_at: Completed 34-03-PLAN.md
+last_updated: "2026-09-11T04:15:35.912Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 34 execution started
-state_head: 5c87a0afd2b188ad74d15b3e60e6e9a4064adf2c
+state_head: 6d759c9630be258cd41b673b00360d10250f786d
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
 ## Current Position
 
 Phase: 34 (The Observation Projector & Trigger) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 34 execution started
 
@@ -183,6 +183,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 33-series-identity-reconciler-inversion P10 | 70min | 3 tasks | 9 files |
 | Phase 34 P01 | 54min | 3 tasks | 7 files |
 | Phase 34 P02 | 52min | 3 tasks | 12 files |
+| Phase 34 P03 | 38min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -237,6 +238,8 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 34]: Phase 34 Plan 01: wiring the post_save receiver globally broke 6 pre-existing tests (test_sync_lco_observation_calendar.py x4, test_campaign_attribution.py x1, test_campaign_attribution_views.py x1) whose fixtures assumed ObservationRecord.save() had no calendar side effect; fixed by disconnecting the projector's receiver around just the affected fixture-creation calls, leaving campaign_attribution.py and the retired sync command untouched (both owned by plan 34-02).
 - [Phase 34]: 34-02: project_queryset()'s pre_fields_hook extension point lets the sweep's one-time observed-site lookup run mid-record without a second loop or a network call inside the projector module. — Keeps TRIG-02's no-network-call guarantee on observation_projector.py intact while still letting the sweep perform a real portal call between capturing the pre-sweep snapshot and building the intended fields.
 - [Phase 34]: 34-02: sync_lco_observation_calendar retired outright (D-18) after a 38-row behaviour classification (16 covered, 10 migrated, 12 retired with reason) proved no behaviour was silently dropped. — ANNOT-03 requires one writer per source in the same key namespace; a classification table with a named destination or reason for every retired test is the audit trail that makes the deletion safe rather than a silent drop.
+- [Phase 34]: Phase 34 Plan 03: observation_status_legend() is a fixed, hand-maintained marker vocabulary rather than derived from _TERMINAL_PREFIXES/status_border_css() -- deriving it risks ring-vs-label drift; Phase 37 owns the final wording.
+- [Phase 34]: Phase 34 Plan 03: observation_series_decoration()'s docstring was rewritten to describe its no-write guarantee in prose after its first draft (mirroring campaign_decoration()'s literal .save()/.update()/.create()/get_or_create() phrasing) tripped the plan's own verify grep, which counts those substrings from the function's def line to end of file and cannot distinguish docstring text from code.
 
 ### Pending Todos
 
@@ -331,8 +334,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T03:41:13.043Z
-Stopped at: Completed 34-02-PLAN.md
+Last session: 2026-09-11T04:15:35.692Z
+Stopped at: Completed 34-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
