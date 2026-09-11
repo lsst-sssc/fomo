@@ -60,8 +60,7 @@ ESO sync; upstreaming the projector.
   phase *extends* `calendar_display_extras._TERMINAL_PREFIXES` / `status_border_css` and the
   legend to recognise the new tokens while keeping the reconciler's `[CANCELLED]`/`[WEATHERED]`
   and the classical `[EXPIRED]`-style prefixes matching, so no existing ring is lost.
-- **D-03: Every projector-written title carries exactly one marker; an observed record is
-  `[O]`, never a bare title.** "No marker" is reserved to mean "not an observation event"
+- **D-03: Every projector-written title carries exactly one marker; an observed record is `[O]`, never a bare title.** "No marker" is reserved to mean "not an observation event"
   across layers (allocation nights, `RUN:` containers and legacy classical events are all
   unmarked), so a clean title cannot be mistaken for "observed".
 - **D-04: Series identity is the shared stem, nothing more, in the title.** Grouped records
@@ -71,8 +70,7 @@ ESO sync; upstreaming the projector.
   tag in the style of Phase 33's `campaign_decoration()`. Nothing group-derived is written
   into `title` or `description`, so adding or removing a sibling never churns the whole
   group.
-- **D-05: Cross-layer telescope-token convention (recorded for Phases 35/37, implemented
-  here only for observation events).** LCO/SOAR robotic records use the aperture class /
+- **D-05: Cross-layer telescope-token convention (recorded for Phases 35/37, implemented here only for observation events).** LCO/SOAR robotic records use the aperture class /
   observed telescope (D-01, D-07); allocation and classical events use the site short name
   already in `telescope_runs.SITES` (`NTT`, `FTN`, `FTS`, `Magellan-Clay`, …); `GN`/`GS`-style
   names would join `SITES` if a facility with real read-back ever needs them. Phase 35's
@@ -88,24 +86,20 @@ ESO sync; upstreaming the projector.
   observation event any more: the projector normalises it to `True` on every meta row it
   writes (so the dashed border stops showing on the legacy `is_verified=False` rows after
   the takeover, D-19) and never sets it `False`.
-- **D-07: Once a record reaches a successful terminal state, the token becomes the
-  telescope it was observed on.** `FTN` for `('ogg','2m0')`, `FTS` for `('coj','2m0')`,
+- **D-07: Once a record reaches a successful terminal state, the token becomes the telescope it was observed on.** `FTN` for `('ogg','2m0')`, `FTS` for `('coj','2m0')`,
   `SOAR` for `('sor','4m0')`, and `SITE-aperture` (`LSC-1m0`, `OGG-0m4`, …) for the 1m0/0m4
   network — i.e. `SITE_TELESCOPE_MAP` with its 2m0/4m0 values renamed. `[O] LSC-1m0 3I/ATLAS`
   is 20 characters; the cell truncation of the target for 1m0/0m4 observed events is
   accepted. A COMPLETED record whose lookup has not succeeded yet keeps the coarse token
   under `[O]`.
-- **D-08: The sweep makes the lookup, once per newly-observed record; the receiver never
-  does.** For a record in a successful terminal state with no stored observed-site, the sweep
+- **D-08: The sweep makes the lookup, once per newly-observed record; the receiver never does.** For a record in a successful terminal state with no stored observed-site, the sweep
   calls the existing `calendar_utils.resolve_placement_block()` once (10 s timeout, never
   raises, same COMPLETED-first-else-PENDING block TOM's own poll selects), stores the result
   (D-09), then projects. A failed or unmapped lookup leaves the coarse token, is counted
   (`site_lookup_failed`), and is retried on the next sweep. Bounded work: one call per record,
   ever (~60 on the first sweep over the dev DB). Phase 36 runs the sweep right after
   `updatestatus`, so the label lands within one cron cycle.
-- **D-09: The observed site is stored on `ObservationRecord.parameters` under generic,
-  un-prefixed, self-describing keys that mirror the OCS observation block's own field
-  names** — e.g. `observed_site='ogg'`, `observed_telescope='2m0a'` (verbatim portal values;
+- **D-09: The observed site is stored on `ObservationRecord.parameters` under generic, un-prefixed, self-describing keys that mirror the OCS observation block's own field names** — e.g. `observed_site='ogg'`, `observed_telescope='2m0a'` (verbatim portal values;
   `observed_enclosure` optional). Not FOMO-prefixed (the user wants this usable by other TOMs;
   base TOM has no convention — `parameters` is "what was submitted", and the only observed
   telescope TOM records is `ReducedDatum.telescope`, per datum). Keys must not collide with

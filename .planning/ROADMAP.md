@@ -220,9 +220,17 @@ Superseded after five spikes showed that routing observation-precision narrowing
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 34-01-PLAN.md — The observation projector and its `post_save` / `m2m_changed` / `pre_delete` trigger, wired in `apps.ready()`
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 34-02-PLAN.md — The `project_observation_calendar` sweep, the one-time observed-telescope lookup, and the retirement of `sync_lco_observation_calendar`
 - [ ] 34-03-PLAN.md — Status rings, the marker legend, and the display-time "night n of N" series decoration
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 34-04-PLAN.md — Paired docs: the sweep's pre-executed demo notebook with the takeover diff and SCHED-06 baseline, the runbook's projector section, and the Gemini no-read-back caveat
 
 ### Phase 35: Allocation Layer & Classical Cutover
