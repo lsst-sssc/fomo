@@ -1,37 +1,41 @@
 ---
 phase: 34-the-observation-projector-trigger
-fixed_at: 2026-09-11T11:15:17Z
+fixed_at: 2026-09-11T12:13:33Z
 review_path: .planning/phases/34-the-observation-projector-trigger/34-REVIEW.md
 iteration: 1
-findings_in_scope: 11
-fixed: 11
+findings_in_scope: 17
+fixed: 17
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 34: Code Review Fix Report
 
-**Fixed at:** 2026-09-11T11:15:17Z
+**Fixed at:** 2026-09-11T12:13:33Z
 **Source review:** .planning/phases/34-the-observation-projector-trigger/34-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 11 (CR-01, CR-02, WR-01 through WR-09; IN-01..IN-06 stayed out of
-  scope, per `critical_warning` fix scope)
-- Fixed: 11
+- Findings in scope: 17 (CR-01, CR-02, WR-01 through WR-09, IN-01 through IN-06 --
+  the `critical_warning` pass fixed the first 11; this `--all` pass added the six
+  Info findings)
+- Fixed: 17
 - Skipped: 0 (one sub-part of CR-01 was intentionally left for a follow-up decision --
   see that entry below, and "Notes and Follow-ups")
 
 **Verification environment:** every fix below was edited, linted, and test-run inside
-the isolated git worktree this run created
-(`.claude/worktrees/rf-34-1025690-1789123413`, branch `gsd-reviewfix/34-1025690`),
-then fast-forwarded onto `issue37-telescope-runs-calendar` and the worktree removed as
-part of this run's cleanup. The worktree's `src/fomo/_version.py` (a gitignored,
-`setuptools_scm`-generated file `manage.py` needs at import time) does not exist in a
-fresh worktree checkout; it was copied over from the main checkout's copy (not
-committed, not part of any fix) purely so `python manage.py test` could run at all --
-this is a build artifact, not a source change. The numbers below are reproducible from
-the main checkout (`issue37-telescope-runs-calendar`) after this run's commits landed.
+an isolated git worktree this run created, then fast-forwarded onto
+`issue37-telescope-runs-calendar` and the worktree removed as part of this run's
+cleanup. The critical/warning pass (11 findings, first run) used
+`.claude/worktrees/rf-34-1025690-1789123413` (branch `gsd-reviewfix/34-1025690`); this
+`--all` pass (six Info findings, second run) used
+`.claude/worktrees/rf-34-1094896-1789128415` (branch `gsd-reviewfix/34-1094896`). Both
+worktrees' `src/fomo/_version.py` (a gitignored, `setuptools_scm`-generated file
+`manage.py` needs at import time) does not exist in a fresh worktree checkout; it was
+copied over from the main checkout's copy (not committed, not part of any fix) purely
+so `python manage.py test` could run at all -- this is a build artifact, not a source
+change. The numbers below are reproducible from the main checkout
+(`issue37-telescope-runs-calendar`) after all 17 commits landed (both passes).
 
 ## Fixed Issues
 
@@ -218,30 +222,119 @@ a maintainer re-executes this notebook for an unrelated reason, back up
 `project_observation_calendar_demo.sched06-baseline.json` first and restore it afterward
 per IN-06's own note (still open, out of this fix's scope).
 
+## Fixed Issues (Info, --all pass)
+
+### IN-01: `telescope_match_score()`'s documented resolution order is now stale
+
+**Files modified:** `solsys_code/campaign_attribution.py`
+**Commit:** `18c2bf0`
+**Applied fix:** the step-2 worked example (`'FTS'`) was stale -- D-07 (34-02 Task 3)
+made `_extract_lco_site_code()` resolve an *observed* telescope token via
+`OBSERVED_TELESCOPE_SITE_CODES` at step 1, so `'FTS'`/`'FTN'` can never reach step 2's
+classical-alias branch any more. Swapped the example to `'NTT'` (a `telescope_runs.SITES`
+key with no observed-site entry, so it genuinely still reaches step 2), added a note at
+step 1 explaining why `'FTS'` no longer falls through, and documented the evidence-string
+wording difference between the two steps ("LCO site code '...' resolves to obscode ..."
+at step 1 vs. "classical site alias for ..." at step 2 -- same score, different text).
+
+### IN-02: The runbook's ring description omits the failure markers
+
+**Files modified:** `docs/runbooks/telescope_runs_calendar.rst`
+**Commit:** `371fc1b`
+**Applied fix:** appended the finding's own suggested clause -- "...and an expired,
+cancelled or failed entry carries the terminal ring" -- to the status-legend paragraph,
+so the ring sentence now covers all three ringed cases `status_border_css()` actually
+implements (`[Q]`, `[?]`, and the `_TERMINAL_PREFIXES` set covering `[X]`/`[C]`/`[F]`),
+not just the first two.
+
+### IN-03: `[?]` is unreachable for a record that is both inconsistent and in a failure state
+
+**Files modified:** `docs/runbooks/telescope_runs_calendar.rst`
+**Commit:** `bfb9350`
+**Applied fix:** took the finding's lower-risk option (runbook caveat, not a precedence
+change) per this run's own instruction -- changing `title_for()`'s marker precedence
+would be a behavior change requiring the paired notebook to be re-executed, which this
+run does not do (real LCO API calls, direct developer-database writes). Added a sentence
+to the `[?]` row stating that a failure marker always wins over `[?]` and that a record
+that is both inconsistent and window-expired/cancelled/failed therefore does not get the
+"visible on the calendar" treatment the row otherwise promises.
+
+### IN-04: Two hand-maintained copies of the same six counter keys
+
+**Files modified:** `solsys_code/observation_projector.py`, `solsys_code/management/commands/project_observation_calendar.py`
+**Commit:** `91bd188`
+**Applied fix:** renamed `observation_projector._SWEEP_COUNTER_KEYS` to the public
+`SWEEP_COUNTER_KEYS` (dropped the leading underscore, per this run's instruction to keep
+the exported name public) and had the command import it instead of hand-copying the same
+six-tuple as `_COUNTER_KEYS`. `_COUNTER_KEYS` is kept as a local alias inside the command
+(`_COUNTER_KEYS = SWEEP_COUNTER_KEYS`) so every existing call site (`_new_counters()`)
+needed no further edit. Updated the explanatory comment on both sides of the import.
+Behavior-neutral: same six values, same order.
+
+### IN-05: `observed_enclosure` is written and never read; `select_related('target')` is fetched and never used
+
+**Files modified:** `solsys_code/templatetags/calendar_display_extras.py`, `solsys_code/management/commands/project_observation_calendar.py`
+**Commit:** `13aec1d`
+**Applied fix:** dropped the unused `select_related('target')` from
+`observation_series_decoration()`'s group-member query -- the tag only ever dereferences
+`member.pk` and `record_time_window(member)` (which reads `member.parameters`, never
+`member.target`), so the join added a LEFT JOIN per group member for data nothing reads.
+For the `observed_enclosure` write: checked `.planning/ROADMAP.md`'s Phase 35 (Allocation
+Layer & Classical Cutover), Phase 36 (Unattended Operation) and Phase 37 (Status
+Vocabulary, Public Tallies & Provenance-Blind Gaps) entries, plus the Phase 34 planning
+docs (`34-RESEARCH.md`, `34-CONTEXT.md`, `34-02-PLAN.md`) that introduced the field --
+**none of them names `observed_enclosure` as something a later phase plans to consume.**
+Per this run's instruction, the write was left in place rather than removed (removing on
+a guess risks silently discarding data a not-yet-planned future consumer might want), and
+a comment was added at the write site stating plainly that no phase currently plans to
+read it, and why it is kept anyway (same portal placement block as the two keys that
+already have a reader; the key is already reserved by `OBSERVED_SITE_PARAMETER_KEYS`).
+
+### IN-06: Re-executing the demo notebook overwrites the SCHED-06 baseline it tells you to diff against
+
+**Files modified:** `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`
+**Commit:** `0c71828`
+**Applied fix:** took the finding's second option -- amended cell 17's instruction text
+rather than changing cell 15's filename -- since renaming the baseline file's output
+would itself be a behavior change needing re-execution to verify. The new wording states
+plainly that cell 15's baseline write overwrites
+`project_observation_calendar_demo.sched06-baseline.json` in place on every run, and
+directs the reader to `git diff` on that file instead of the old "diffable by eye against
+the JSON file this run wrote" phrasing, which was true only before the file described
+already got replaced by the run producing it. **Source-only edit, not a re-execution**:
+verified with a targeted text replacement (`git diff` on the commit shows only the
+markdown `source` array changed, no output cell touched, valid notebook JSON confirmed by
+reloading with `json.load()`). The notebook was not re-executed for the same reason
+WR-09's fix was not: it makes real LCO Observation Portal API calls and writes directly
+to the developer database, neither of which this automated session can safely trigger.
+
 ## Notes and Follow-ups
 
 - **CR-01 facility-URL-namespace collision** (LCO and SOAR sharing `portal_url`) is
   intentionally not closed by this run -- see the CR-01 entry above for the two candidate
-  approaches and the recommendation. This is the only deferred sub-item across all 11
+  approaches and the recommendation. This is the only deferred sub-item across all 17
   in-scope findings; everything else in each finding's own **Fix** section was applied.
-- **IN-01 through IN-06** are out of scope for this run (`critical_warning` fix scope, no
-  `--all`). None of the WR-*/CR-* fixes above happened to resolve any of them as a side
-  effect -- worth noting IN-06 (the SCHED-06 baseline JSON getting overwritten on
-  re-execution) remains open and is directly relevant to WR-09's own deferred
-  re-execution, above.
-- All 526 tests across every module this phase's review touched
-  (`test_observation_projector`, `test_observation_projector_signals`,
-  `test_project_observation_calendar`, `test_calendar_display_extras`,
-  `test_calendar_template`, `test_campaign_attribution`,
-  `test_campaign_attribution_views`, `test_campaign_reconciler`, `test_calendar_utils`,
-  `test_load_telescope_runs`, `test_admin`, `test_calendar_event_meta_links`,
-  `test_canonical_record_migration`) pass after all 11 commits. `pre-commit run ruff`/
-  `ruff-format` are clean on every changed Python file (checked per-commit, not
-  repo-wide). `pre-commit run sphinx-build` (part of every commit's own hook run) built
-  cleanly after the runbook edit (WR-02) and the models.py docstring edit (WR-06).
+- **IN-01 through IN-06** were out of scope for the first (`critical_warning`) pass and
+  are now closed by this `--all` pass, above. None of the earlier WR-*/CR-* fixes had
+  happened to resolve any of them as a side effect. IN-06 (the SCHED-06 baseline JSON
+  getting overwritten on re-execution) is now fixed as prose, but the underlying
+  re-execution itself -- for both WR-09 and IN-06 -- remains a manual follow-up an
+  operator must perform once real observing nights have passed (see `34-UAT.md`).
+- IN-05's `observed_enclosure` write is left in place with no current planned reader
+  (see that entry above) -- if a future phase decides it will never be read, removing the
+  write and the `observed_enclosure` key from `OBSERVED_SITE_PARAMETER_KEYS` is a small,
+  separately-scoped follow-up at that point.
+- All 184 tests across the four modules this `--all` pass's own findings touch
+  (`test_observation_projector`, `test_project_observation_calendar`,
+  `test_calendar_display_extras`, `test_campaign_attribution`) pass after all six IN-*
+  commits, run together in one invocation. Combined with the first pass's 526-test run,
+  every module this phase's review touched has been exercised green after all 17 fixes.
+  `pre-commit run ruff`/`ruff-format` are clean on every changed Python file (checked
+  per-commit, not repo-wide). `pre-commit run sphinx-build` (part of every commit's own
+  hook run) built cleanly after each `.rst`/docstring edit (IN-01, IN-02, IN-03).
 
 ---
 
-_Fixed: 2026-09-11T11:15:17Z_
+_Fixed: 2026-09-11T12:13:33Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
