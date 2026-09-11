@@ -536,12 +536,6 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     )
 
 
-# D-15/Pattern 3: captures a forward-direction ObservationGroup.observation_records.clear()'s
-# former members on 'pre_clear' (before they're gone), keyed by (sender, group pk), so
-# 'post_clear' -- which always arrives with pk_set=None -- can still re-project them.
-_cleared_group_members: dict[tuple[Any, int], list[int]] = {}
-
-
 def receiver_on_group_membership_changed(
     sender: Any, instance: Any, action: str, reverse: bool, pk_set: set[int] | None, **kwargs: Any
 ) -> None:
@@ -557,23 +551,15 @@ def receiver_on_group_membership_changed(
         instance: the ``ObservationGroup`` (forward direction, ``reverse=False``) or the
             ``ObservationRecord`` (reverse direction, ``reverse=True``) whose membership
             changed.
-        action: one of Django's m2m_changed actions; only 'pre_clear'/'post_add'/
-            'post_remove'/'post_clear' are handled, everything else returns immediately.
+        action: one of Django's m2m_changed actions; only 'post_add'/'post_remove'/
+            'post_clear' are handled, everything else returns immediately.
         reverse: True when the change was made from the ``ObservationRecord`` side (e.g.
             ``record.observationgroup_set.add(group)``).
         pk_set: the set of pks added/removed (forward direction), or the set of group pks
-            (reverse direction); None for a 'pre_clear'/'post_clear' pair.
+            (reverse direction); None for a 'post_clear'.
         **kwargs: the remaining signal kwargs (``using``, ``model``), unused.
     """
-    if action not in ('pre_clear', 'post_add', 'post_remove', 'post_clear'):
-        return
-    if action == 'pre_clear':
-        if not reverse:
-            # Forward-direction .clear(): capture the about-to-be-cleared members now, while
-            # they are still present, so post_clear (pk_set=None) can still re-project them.
-            _cleared_group_members[(sender, instance.pk)] = list(
-                instance.observation_records.values_list('pk', flat=True)
-            )
+    if action not in ('post_add', 'post_remove', 'post_clear'):
         return
     if reverse:
         # instance is the ObservationRecord itself -- re-project it alone, regardless of
@@ -581,7 +567,20 @@ def receiver_on_group_membership_changed(
         # group membership changed").
         record_pks: list[int] = [instance.pk]
     elif action == 'post_clear':
-        record_pks = _cleared_group_members.pop((sender, instance.pk), [])
+        # WR-08: re-derive the cleared members from the companion rows' own (now-stale)
+        # observation_group FK, rather than capturing them on 'pre_clear' into a module
+        # global keyed by (sender, group pk). CalendarEventMeta.observation_group is
+        # written only by write_event_meta() at projection time, so any row still pointing
+        # at this just-cleared group is exactly a record whose membership changed and needs
+        # re-projecting. This reads current DB state instead of an in-memory snapshot, so
+        # there is nothing to leak if a failure occurs between two separate signals, and no
+        # shared mutable state for two concurrent .clear() calls on different groups (or
+        # the same group, from different threads) to stomp on.
+        record_pks = list(
+            CalendarEventMeta.objects.filter(observation_group_id=instance.pk)
+            .exclude(observation_record_id=None)
+            .values_list('observation_record_id', flat=True)
+        )
     else:
         record_pks = list(pk_set or [])
 
