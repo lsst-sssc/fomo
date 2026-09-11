@@ -1,10 +1,62 @@
 ---
 status: testing
 phase: 34-the-observation-projector-trigger
-source: [34-01-SUMMARY.md, 34-02-SUMMARY.md, 34-03-SUMMARY.md, 34-04-SUMMARY.md]
+source: [34-VERIFICATION.md]
 started: 2026-09-11T04:44:59Z
-updated: 2026-09-11T04:44:59Z
+updated: 2026-09-11T05:38:38Z
 ---
+
+## Current Test
+
+number: 1
+name: Calendar month view — marker legend, status rings, month-cell titles, series block
+expected: |
+  Open the calendar month view in a browser (`python manage.py runserver`, then the calendar
+  page) on a month containing KEY2026B-004 entries. The legend lists [Q] Queued, [S] Scheduled,
+  [O] Observed, [X] Window expired, [C] Cancelled, [F] Failed, [?] Inconsistent record. [Q] chips
+  carry the dark queued ring and [X]/[C]/[F]/[?] the red terminal ring, while [S]/[O] carry none.
+  Each month-cell title reads legibly within its truncation budget — the marker and telescope
+  token are both visible. Opening the modal for a record that belongs to an ObservationGroup
+  shows an "Observation series" block with the group name, "Night n of N", and working links,
+  rendered beside (not overwriting) the campaign block.
+awaiting: user response
+
+## Tests
+
+### 1. Calendar month view — marker legend, status rings, month-cell titles, series block
+expected: See Current Test above. Visual appearance, ring contrast against real chip colours and
+month-cell legibility are judgment calls; 296 automated tests confirm the markup is produced but
+cannot confirm it reads well.
+result: [pending]
+
+### 2. Two interleaved saves of the same LCO ObservationRecord leave the event matching the final persisted state
+expected: Drive two concurrent/interleaved saves of one LCO ObservationRecord (e.g. two
+`updatestatus` runs overlapping, or two request threads saving the same record). The surviving
+CalendarEvent's span and title match the record's final persisted `scheduled_start` /
+`scheduled_end` / `status` — no event describes a superseded intermediate state. (Declared
+`verification: backstop` in 34-01; no automated test exercises concurrency.)
+result: [pending]
+
+### 3. A sweep interrupted partway leaves correct events and the re-run converges with no repair
+expected: Interrupt `python manage.py project_observation_calendar` partway (Ctrl-C mid-run)
+against the developer database, then re-run it to completion. Every record processed before the
+interrupt still carries a correct event; the re-run reports `created: 0, updated: 0` for the
+already-processed records with no cleanup step. (Declared `verification: backstop` in 34-02.)
+result: [pending]
+
+### 4. SCHED-06 — a pending KEY2026B-004 record narrows over real nights with nobody running anything
+expected: From the baseline below, run ONLY `python manage.py updatestatus` over several real
+observing nights — never the sweep. Then re-execute
+`docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` end to end and diff its
+SCHED-06 section against `project_observation_calendar_demo.sched06-baseline.json`. Read the
+re-execution's OWN first sweep summary line before anything else: if it reports
+`created: 0, updated: 0` for the narrowed records, the `post_save` receiver — not the sweep —
+did the narrowing (the notebook runs two real sweeps before it re-captures the baseline, so the
+snapshot alone cannot prove which writer narrowed the events). At least one record has moved
+queued → placed (or placed → observed) with its event span/title following. Fill in the dated
+re-check row below and flip the verdict from PARTIAL. This is a verification-over-time item and
+is expected to stay pending until real observing nights have elapsed.
+result: [pending]
 
 ## SCHED-06: live narrowing over real observing nights
 
@@ -47,7 +99,7 @@ Fill in one row per re-check. A re-check re-executes
 (`jupyter nbconvert --to notebook --execute --inplace
 docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`) and diffs its
 SCHED-06 section against the baseline JSON above -- committing the re-executed notebook
-each time.
+each time. Record the re-execution's first sweep summary line in the Notes column.
 
 | Date | Nights watched (updatestatus only?) | Records narrowed queued->placed | Records narrowed placed->observed | Notes | Verdict |
 |------|--------------------------------------|----------------------------------|-------------------------------------|-------|---------|
@@ -58,7 +110,11 @@ least one record narrowing with nothing but `updatestatus` run in between.
 
 ## Summary
 
-total: 1
+total: 4
 passed: 0
 issues: 0
-pending: 1
+pending: 4
+skipped: 0
+blocked: 0
+
+## Gaps
