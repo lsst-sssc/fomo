@@ -217,7 +217,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. Over real nights, a user watches a `KEY2026B-004` record's event narrow queued → scheduled → observed with nobody running anything (closing spike 004's PARTIAL verdict), and every event title is short enough to read in a month cell
   5. `sync_lco_observation_calendar` no longer exists — the same events come from the projector and sweep in the same key namespace, with its runbook section, demo notebook and tests migrated rather than duplicated, and `sync_gemini_observation_calendar` stays as submission-echo with its no-facility-read-back caveat documented
 
-**Plans**: 4/4 plans executed
+**Plans**: 6 plans (4/4 executed; 2 gap-closure plans added for UAT gap G-34-2)
 
 Plans:
 **Wave 1**
@@ -232,6 +232,14 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 34-04-PLAN.md — Paired docs: the sweep's pre-executed demo notebook with the takeover diff and SCHED-06 baseline, the runbook's projector section, and the Gemini no-read-back caveat
+
+**Wave 4** *(gap closure — UAT gap G-34-2, blocker)*
+
+- [ ] 34-05-PLAN.md — Coerce the LCO portal's ISO schedule strings on the projector path so every real `updatestatus` save narrows its event instead of logging a swallowed `AttributeError`
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 34-06-PLAN.md — Paired docs and live proof: the demo notebook updated and re-executed against a scratch copy, plus a portal-backed `updatestatus` run proving the receiver projects every save with the developer database and the SCHED-06 baseline untouched
 
 ### Phase 35: Allocation Layer & Classical Cutover
 
