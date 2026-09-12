@@ -2,37 +2,37 @@
 gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
-current_phase: 34
-current_phase_name: The Observation Projector & Trigger
-status: executing
-stopped_at: Completed 34-07-PLAN.md
-last_updated: "2026-09-11T23:52:44.677Z"
-last_activity: 2026-09-11
-last_activity_desc: Phase 34 execution started
-state_head: 4501677a3f7aa8da2271e1367cb15c97d66a49c5
+current_phase: 35
+current_phase_name: Allocation Layer & Classical Cutover
+status: planning
+stopped_at: Phase 34 complete, ready to plan Phase 35
+last_updated: "2026-09-12T22:34:23.390Z"
+last_activity: 2026-09-12
+last_activity_desc: Phase 34 complete, transitioned to Phase 35
+state_head: 3757819b5b8ce4876436fbf3df2dad84615cdb11
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 18
   completed_plans: 18
-  percent: 20
+  percent: 40
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-10 — after Phase 33 complete)
+See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Phase 34 — The Observation Projector & Trigger
+**Current focus:** Phase 35 — Allocation Layer & Classical Cutover
 
 ## Current Position
 
-Phase: 34 (The Observation Projector & Trigger) — EXECUTING
-Plan: 2 of 7
-Status: Ready to execute
-Last activity: 2026-09-11 — Phase 34 execution started
+Phase: 35 — Allocation Layer & Classical Cutover
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-12 — Phase 34 complete, transitioned to Phase 35
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -132,6 +132,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 30 | 4 | - | - |
 | 31 | 6 | - | - |
 | 33 | 11 | - | - |
+| 34 | 7 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
@@ -252,6 +253,14 @@ v2.3 roadmap-structure decisions (2026-09-01):
 - [Phase 34]: [Phase 34] 34-07: gsd_run check tdd-red-evidence could not classify Task 3's RED phase (TAP parser is Node-test-specific, does not recognize Django's unittest output); workflow.tdd_mode is false for this project, so RED was verified manually from the real named-assertion failure instead of the tool-mediated gate.
 - [Phase 34]: [Phase 34] 34-07: one nbconvert re-execution retry was required after a real network flake (a retried site lookup succeeded on the second sweep, producing updated: 1) tripped the pre-existing convergence assert; re-cloned fresh from src/fomo_db.sqlite3 and re-executed once more per the plan's own re-run rule, converging cleanly.
 
+Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
+
+- [Phase 34]: every projector receiver swallows and logs (`type(exc).__name__` only); a half-set schedule projects as `[?]` rather than raising — TRIG-02 held on the real `updatestatus` path once G-34-2 (portal ISO strings on the in-memory record) was fixed by strict `coerce_schedule_datetime()`.
+- [Phase 34]: observed-site resolution is sweep-only, once per record; the receiver never calls the portal. A freshly COMPLETED record reads `[O] 1m0` until the next sweep.
+- [Phase 34]: series decoration is display-time, read-only, from `CalendarEventMeta` links, gated on authenticated viewer + run visibility.
+- [Phase 34]: notebook takeover + SCHED-06 baseline run against the real developer DB; re-executions scratch-routed with baseline-write and non-vacuous-takeover guards (G-34-3).
+- [Phase 34 UAT]: `updatestatus` skips terminal-state records, so the 14 events that went stale under the pre-fix receiver need one sweep (F-34-1) — G-34-1 withdrawn; SCHED-06 closed on 4378332/4378046 narrowing via the receiver alone.
+
 ### Pending Todos
 
 - `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename
@@ -289,13 +298,13 @@ v2.3 roadmap-structure decisions (2026-09-01):
 
 None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 phases, 33 plans, 24/24 requirements). One non-blocking follow-up carried into the next milestone: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
-Carried forward from Phase 33 (completed 2026-09-10) into the phases that own them — none blocks Phase 34 planning:
+Carried forward from Phase 34 (completed 2026-09-12) — none blocks Phase 35 planning:
 
-- **[Phase 34]** `CalendarEventMeta.observation_group` has no declared ordering on its reverse manager; if Phase 34's projector adds a reader over that relation it must set an ordering or add a shuffled-insertion test (UAT decision 2026-09-09, test 3, option A — absence-by-grep evidence accepted for now).
-- **[Phase 34]** PROJ-04's shared-title-stem clause is still open — Phase 33 shipped only the carrier fields.
+- **[Phase 35 or a quick task — operational]** `src/fomo_db.sqlite3` still holds 14 LCO events (KEY2026B-004 records 4378021-025, 4378038-040, 4378042-045, 4378323, 4378331) that went stale under the pre-34-05 receiver; `updatestatus` never re-saves terminal records (F-34-1), so they stay stale until the un-routed notebook re-execution or one `python manage.py project_observation_calendar` run. Do that re-execution un-routed (it rewrites the SCHED-06 baseline JSON by design) and commit it — the paired-docs step still owed from `34-UAT.md`.
+- **[Phase 37]** Two UAT-deferred behaviour ideas for the status/vocabulary work: failed or aborted records should keep their last scheduled / partly executed window (expired ones keep the original window, as today); `--dry-run` should show `site_lookups` as not attempted (e.g. `n/a (dry run)`) rather than `0`.
 - **[Phase 35]** Leftover `RUN:{pk}:{date}` duplicates on a night after the reconciler's detach (WR-09: the `CalendarEvent` row survives by design) are Phase 35 SC 5's responsibility.
 - **[Phase 37 or later]** `campaign_decoration()`'s `#run-{pk}` anchor only lands on the campaign table's first page (>25 runs — 33-06 WR-08); pinned as a tested limitation rather than fixed, because computing the page would add a per-event query.
-- The stale v2.3 note about "Phase 33's aggregation rule" is gone: OUTCOME-01..04 were dropped with v2.3, and v2.4's Phase 33 had no aggregation rule.
+- Resolved in Phase 34 (removed from this list): the `CalendarEventMeta.observation_group` reverse-manager ordering concern (34-03 orders members by window start then pk, with a shuffled-insertion test) and PROJ-04's shared-title-stem clause (34-03).
 
 Phase 31's scheduling-track host-facts gap (previously listed here) is resolved: the spike got real answers from the operator (cron + `flock -n`, confirmed present) — see SCHED-07 in PROJECT.md Key Decisions.
 
@@ -346,12 +355,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T23:52:35.365Z
-Stopped at: Completed 34-07-PLAN.md
+Last session: 2026-09-12T22:38:02.000Z
+Stopped at: Phase 34 complete, ready to plan Phase 35
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 33 complete (2026-09-10). Start Phase 34 "The Observation Projector & Trigger" with `/gsd-discuss-phase 34` — no CONTEXT.md exists yet for it.
-- Phase 34 is now safe to build: the reconciler annotates only (ANNOT-01), the `observation_record`/`observation_group` carrier fields it writes to exist (PROJ-04), and campaign decoration survives base re-projection (ANNOT-02). Its paired-docs scope is large (new sweep notebook, migrating `sync_lco_observation_calendar_demo.ipynb`, the runbook's LCO sync section) — plan it in from the start.
+- Phase 34 complete (2026-09-12). Start Phase 35 "Allocation Layer & Classical Cutover" with `/gsd-discuss-phase 35` — no CONTEXT.md exists yet for it. Its inputs are in place: observation events exist to hand over to (PROJ-01..06), the `post_save` receiver and sweep are live (TRIG-01..03), and Phase 31's SCHEMA-03 finding (facility-specific classical `source_identifier`) applies to ALLOC-04/05.
+- Before or alongside Phase 35: re-execute `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` **un-routed** (no `FOMO_DATABASE_PATH`) and commit it with the rewritten `sched06-baseline.json` — this is the SCHED-06 paired-docs step still owed from `34-UAT.md`, and its sweeps repair the 14 legacy stale events (F-34-1). Read its first sweep line per record: `updated: 16` (14 legacy + 2 site tokens) is expected there.
 - `.planning/REQUIREMENTS.md`: `phase.complete` flagged 5 REQ-IDs present in the body but missing from the Traceability table (UPSTREAM-01, ESO-10, ESO-11, SUBMIT-06, SUBMIT-07 — all deferred/out-of-milestone items); add them manually when next editing that file.

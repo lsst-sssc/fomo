@@ -131,7 +131,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 **Milestone Goal:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action — with allocations projecting their own intent nights until a real observation retires them, campaigns annotating rather than owning, and the whole pipeline running unattended on the real host.
 
 - [x] **Phase 33: Series Identity & Reconciler Inversion** - Give `CalendarEventMeta` the real link fields the base layer needs, and turn the campaign reconciler from an owner into an annotator, so the two layers can run side by side without stealing each other's events (completed 2026-09-10)
-- [ ] **Phase 34: The Observation Projector & Trigger** - Every LCO/SOAR observation record draws and keeps current its own calendar event on every save, with a sweep as the backstop, and the old LCO sync command is retired in its favour
+- [x] **Phase 34: The Observation Projector & Trigger** - Every LCO/SOAR observation record draws and keeps current its own calendar event on every save, with a sweep as the backstop, and the old LCO sync command is retired in its favour (completed 2026-09-12)
 - [ ] **Phase 35: Allocation Layer & Classical Cutover** - An allocation projects its own sunset→sunrise intent nights and hands each night over when a real observation links to it; `load_telescope_runs` writes allocations instead of calendar events
 - [ ] **Phase 36: Unattended Operation** - The sweep, the discovery backfill and the reconciler run on the real host on a schedule against an admin-editable watched-proposal list, with failures visible and no credential logged
 - [ ] **Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps** - One status vocabulary, an ongoing public tally of what each run and campaign actually got, unused awarded nights that look unused, and coverage gaps that count every observation
@@ -336,7 +336,7 @@ Plans:
 | 31. Foundation Spikes — Run Identity & Unattended Invocation | v2.3 | 6/6 | Complete (milestone superseded) | 2026-09-02 |
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
-| 34. The Observation Projector & Trigger | v2.4 | 7/7 | In Progress|  |
+| 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 0/TBD | Not started | - |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
