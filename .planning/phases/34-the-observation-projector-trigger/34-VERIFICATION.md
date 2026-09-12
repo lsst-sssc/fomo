@@ -1,9 +1,10 @@
 ---
 phase: 34-the-observation-projector-trigger
 verified: 2026-09-12T00:20:00Z
-status: human_needed
-score: 12/14 must-haves verified
+status: passed
+score: 14/14 must-haves verified
 covered_files:
+
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/34-the-observation-projector-trigger/34-01-PLAN.md"
   - ".planning/phases/34-the-observation-projector-trigger/34-01-SUMMARY.md"
@@ -44,7 +45,8 @@ covered_files:
   - "solsys_code/views.py"
   - "src/templates/tom_calendar/partials/calendar.html"
   - "src/templates/tom_calendar/partials/event_form.html"
-covered_digest: "v1:sha256:eab2e9f022cb0273e87bff5b12862bc897266d6e7f369c3434d72d384409308b"
+
+covered_digest: "v1:sha256:534a506170e25db4e01775140eaa25cd7dd1b1ae3083cbd6db1bd280a83cb660"
 behavior_unverified: 1
 overrides_applied: 0
 decision_coverage:
@@ -61,17 +63,20 @@ re_verification:
 gaps: []
 advisory: []
 behavior_unverified_items:
+
   - truth: "Over real nights a pending KEY2026B-004 record's event narrows queued -> placed -> observed with nobody running anything (SCHED-06, ROADMAP criterion 4)."
     test: "From now, run ONLY `python manage.py updatestatus` over several real observing nights -- never `python manage.py project_observation_calendar`. Then re-execute `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` end to end, UN-routed (no FOMO_DATABASE_PATH), and `git diff` its SCHED-06 section against `project_observation_calendar_demo.sched06-baseline.json` (74 pending records at baseline: 56 queued, 18 placed, captured 2026-09-11T04:44:59.526430+00:00)."
     expected: "At least one KEY2026B-004 record has moved queued -> placed (or placed -> observed) and its calendar event span/title narrowed to match, with no sweep run in between. Record the outcome in the dated re-check table in `34-UAT.md` and flip Test 4's verdict from blocked."
     why_human: "SCHED-06 is a verification-over-time requirement -- it depends on the real LCO scheduler placing and observing real requests on real nights. No test or grep can produce that evidence; only elapsed observing time can. Plan 34-04 deliberately established the baseline and left the re-check open; the ROADMAP scope note says the same."
     advisory: "Read the re-execution's OWN first sweep summary line first: if it reports `created: 0, updated: 0` for the narrowed records, the post_save receiver -- not the sweep -- did the narrowing. Note that the developer database currently holds 33 stale LCO events (the ones the broken pre-34-05 receiver failed to narrow; the 34-07 clone run re-titled exactly those 33). Their repair by the receiver alone on the next real `updatestatus` is itself part of the evidence. An un-routed re-execution overwrites the baseline JSON in place -- that is intended, and it is what `git diff` compares."
 insufficient_spec_items:
+
   - truth: "If two saves of the same record interleave, the calendar event left behind matches the record's final persisted field state (34-01 must_haves, verification: backstop)."
     test: "Drive two concurrent/interleaved saves of one LCO ObservationRecord (e.g. two `updatestatus` runs overlapping) against a COPY of the developer database (`FOMO_DATABASE_PATH=<absolute scratch path>`) and inspect the resulting CalendarEvent span and title against the record's final persisted fields."
     expected: "The surviving event matches the record's final persisted scheduled_start/scheduled_end/status -- no event left describing a superseded intermediate state, and no `unprojectable ... AttributeError` line in the logs."
     why_human: "Declared non-inferable (`verification: backstop`). No held-out or property-based test exercises interleaved saves; the suite is single-threaded. 34-UAT.md Test 2 did run this, but the run was contaminated by G-34-2 (AttributeError on nearly every record) and recorded as `issue`/blocker. G-34-2 is now closed, so a clean re-run is cheap -- but no post-fix interleaved-save evidence exists yet."
 human_verification:
+
   - test: "SCHED-06 / UAT Test 4 (already tracked in 34-UAT.md -- MERGE into the existing tracker, do not overwrite it). Run ONLY `python manage.py updatestatus` against `src/fomo_db.sqlite3` over several real observing nights, never the sweep. Then re-execute the demo notebook UN-routed and `git diff` the SCHED-06 baseline JSON. Read the re-execution's own FIRST sweep summary line before anything else."
     expected: "At least one KEY2026B-004 record narrowed queued -> placed (or placed -> observed) with its event following, and the first sweep reports `created: 0, updated: 0` for it -- proving the post_save receiver, not the sweep, did the narrowing. Fill in the dated row in 34-UAT.md's SCHED-06 re-check table and close SCHED-06."
     why_human: "Verification-over-time requirement; depends on real observing nights elapsing. This is Test 4 in 34-UAT.md -- merge this outcome into that tracker rather than creating a new UAT file."
@@ -79,6 +84,7 @@ human_verification:
     expected: "Each event matches its record's final persisted field state, and the logs contain no `unprojectable ... AttributeError` lines (the failure that made the original Test 2 run a blocker)."
     why_human: "Declared `verification: backstop` (non-inferable); no test exercises concurrency. The original operator run is unusable as evidence because G-34-2 contaminated it."
 deferred:
+
   - truth: "The two title-prefix vocabularies (the legacy verbose `[EXPIRED]`/`[CANCELLED]`/`[FAILED]`/`[WEATHERED]` prefixes still emitted by load_telescope_runs.py and campaign_views.py, and the projector's terse `[Q]`/`[S]`/`[O]`/`[X]`/`[C]`/`[F]`/`[?]` markers) are unified into one vocabulary."
     addressed_in: "Phase 37"
     evidence: "ROADMAP Phase 37 'Status vocabulary, public tallies and provenance blind gaps' (STATUS-01/02) owns the final vocabulary; Phase 34's ROADMAP scope note states 'Title prefixes ship provisionally here; Phase 37 owns the final vocabulary.' Both vocabularies paint the correct ring today (calendar_display_extras._TERMINAL_PREFIXES carries all of them)."
@@ -88,7 +94,7 @@ deferred:
 
 **Phase Goal:** Every LCO/SOAR observation record draws its own calendar event and keeps it current on every save with no operator command, and the old LCO sync command is retired in its favour — one writer for observation-backed nights.
 **Verified:** 2026-09-12T00:20:00Z (HEAD `025d741`, branch `issue37-telescope-runs-calendar`)
-**Status:** human_needed
+**Status:** passed
 **Re-verification:** Yes — after gap-closure plan 34-07 (`gap_closure: true`, `gap_ids: [G-34-3]`). Supersedes the 2026-09-11T23:05:00Z report (`gaps_found`, 11/14).
 
 ## Goal Achievement
@@ -252,6 +258,31 @@ Carried forward from the prior pass: `{ total: 21, honored: 21, not_honored: [] 
 **Test:** Drive two overlapping `updatestatus` runs against a **copy** of the developer database (`FOMO_DATABASE_PATH=<absolute scratch path>`) and inspect the surviving `CalendarEvent`s.
 **Expected:** Each event matches its record's final persisted field state, and the logs carry no `unprojectable … AttributeError` lines.
 **Why human:** Declared `verification: backstop` (non-inferable); no test exercises concurrency. The original Test 2 run is unusable as evidence because G-34-2 dominated it.
+
+#### Re-verification (2026-09-12T22:26:21Z) — both human items closed by UAT (`34-UAT.md`, commit 9792fb4)
+
+**Item 1, SCHED-06 live narrowing (truth 4, UAT Test 3): PASS.** After one real
+`python manage.py updatestatus` against `src/fomo_db.sqlite3` at 2026-09-12 22:10 UTC (no sweep has
+ever run against that database), two baseline `KEY2026B-004` records narrowed queued → observed with
+their events following, through the `post_save` receiver alone: `4378332` (11P) — baseline
+`[Q] 1m0 11P`, no schedule → `[O] 1m0 11P` 2026-09-12 01:06:46–01:26:04, `CalendarEvent.modified` ==
+`ObservationRecord.modified` == 22:10:48; `4378046` (10P) — baseline `[Q] 1m0 10P` → `[O] 1m0 10P`
+2026-09-12 02:08:39–02:22:01. A real sweep on a throwaway copy changed only their site token
+(`1m0` → `TFN-1m0` / `LSC-1m0`), which is sweep-only by design (34-02 D4). Evidence was gathered
+read-only from scratch copies; the un-routed notebook re-execution remains a paired-docs follow-up
+(recorded in `34-UAT.md` Deferred Follow-Ups).
+
+**Item 2, interleaved-save re-run (truth 13, UAT Test 1): PASS.** Two overlapping `updatestatus`
+runs against a scratch copy: 0 `AttributeError`, 0 `unprojectable`, 0 `OperationalError`, both
+`Update completed successfully`; every record either run saved projects correctly. The dry-run
+sweep afterwards reported `LCO: updated: 14`, initially logged as gap G-34-1 and withdrawn the same
+day: the 14 are terminal (COMPLETED) records whose `modified` is 2026-09-11 20:02–20:04 UTC —
+before the 34-05 fix — and `tom_observations.facility.update_all_observation_statuses()` excludes
+terminal states (`facility.py:573`), so no `updatestatus` run ever re-saves them. They are pre-fix
+legacy residue that only the sweep can repair (recorded as finding F-34-1 in `34-UAT.md`). This
+also corrects the premise in 34-06/34-07 and in this report's original item 1 that "the next
+`updatestatus` run repairs all 33 stale events": the 19 non-terminal ones did; the 14 terminal ones
+never will without one sweep.
 
 ### Gaps Summary
 
