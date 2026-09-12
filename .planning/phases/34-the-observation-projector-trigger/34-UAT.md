@@ -1,14 +1,24 @@
 ---
-status: diagnosed
+status: testing
 phase: 34-the-observation-projector-trigger
 source: [34-VERIFICATION.md]
 started: 2026-09-11T04:44:59Z
-updated: 2026-09-11T20:23:06Z
+updated: 2026-09-12T00:06:11Z
 ---
 
 ## Current Test
 
-[testing paused — 1 item outstanding: Test 4 blocked on the G-34-2 fix, then real observing nights]
+number: 2
+name: Two interleaved saves of the same LCO ObservationRecord leave the event matching the final persisted state (re-run after G-34-2 closure)
+expected: |
+  Drive two overlapping `python manage.py updatestatus` runs against a COPY of the developer
+  database (`FOMO_DATABASE_PATH=<absolute scratch path>`) and inspect the surviving
+  CalendarEvents: each event matches its record's final persisted scheduled_start /
+  scheduled_end / status, and the logs carry no `unprojectable ... AttributeError` lines.
+awaiting: user response
+
+[Test 4 (SCHED-06) is unblocked but verification-over-time — it stays pending until real
+observing nights have elapsed; see its entry and the re-check table below.]
 
 ## Tests
 
@@ -24,7 +34,9 @@ expected: Drive two concurrent/interleaved saves of one LCO ObservationRecord (e
 CalendarEvent's span and title match the record's final persisted `scheduled_start` /
 `scheduled_end` / `status` — no event describes a superseded intermediate state. (Declared
 `verification: backstop` in 34-01; no automated test exercises concurrency.)
-result: issue
+result: pending
+rerun_required: "2026-09-12 re-verification (34-VERIFICATION.md, 12/14): the original run below is unusable as evidence because G-34-2 dominated it. Re-run against a scratch copy (FOMO_DATABASE_PATH) now that the receiver fix has landed; expected outcome unchanged, plus zero `unprojectable ... AttributeError` lines."
+original_result: issue
 reported: "Lots of output from running those commands; in tmp/project_observation_calendar_dry_run.txt -- two overlapping `updatestatus` runs logged `unprojectable observation_id=... : AttributeError` for nearly every LCO record touched, plus one `unprojectable observation_id='4378041': OperationalError`"
 severity: blocker
 note: |
@@ -65,9 +77,9 @@ snapshot alone cannot prove which writer narrowed the events). At least one reco
 queued → placed (or placed → observed) with its event span/title following. Fill in the dated
 re-check row below and flip the verdict from PARTIAL. This is a verification-over-time item and
 is expected to stay pending until real observing nights have elapsed.
-result: blocked
-blocked_by: other
-reason: "blocked -- (1) G-34-2: the post_save receiver fails on every real `updatestatus` save, so no record can narrow without the sweep until that fix lands; (2) verification-over-time: no real observing nights have elapsed since the 2026-09-11T04:44Z baseline. Once fixed, the next `updatestatus` run alone should repair the 33 stale events via the receiver -- that is the re-check evidence."
+result: pending
+reason: "verification-over-time: G-34-2 (the receiver failing on real `updatestatus` saves) is closed as of 2026-09-11 (34-05/34-06/34-07), so nothing blocks narrowing any more -- only real observing nights need to elapse since the 2026-09-11T04:44Z baseline."
+standing_evidence: "The developer database still holds the 33 stale LCO events the broken pre-34-05 receiver left behind (the 34-07 scratch-clone run re-titled exactly those 33). The same 33 repairing themselves under `updatestatus` ALONE -- the re-execution's own first sweep line reading `created: 0, updated: 0` -- is the cleanest possible demonstration. Note an un-routed re-execution rewrites the baseline JSON in place by design (that is what `git diff` reads); never run `project_observation_calendar` against src/fomo_db.sqlite3 before then."
 
 ## SCHED-06: live narrowing over real observing nights
 
@@ -123,16 +135,25 @@ least one record narrowing with nothing but `updatestatus` run in between.
 
 total: 4
 passed: 2
-issues: 1
-pending: 0
+issues: 0
+pending: 2
 skipped: 0
-blocked: 1
+blocked: 0
 
 ## Gaps
 
+- gap_id: G-34-3
+  truth: "The committed project_observation_calendar_demo.ipynb shows a takeover that actually took something over (non-zero re-titled count, differing first/second sweep lines), and a repo-level test fails when that evidence goes empty"
+  status: closed
+  closed_by: ["34-07"]
+  closed_verified: "34-VERIFICATION.md re-verification (2026-09-12T00:20:00Z): cell 05528b38 reports 33 of 159 events re-titled with 8 listed before -> after pairs; cell 556d2a9f shows first sweep updated: 33 vs second updated: 0; solsys_code/tests/test_projector_demo_notebook.py mutation-tested against both an emptied copy and the actual regressed notebook from 46d8390 -- both fail on the intended assertion."
+  reason: "34-06's re-execution ran against a scratch copy already swept to convergence, so the committed takeover evidence read 0 re-titled (found by the 2026-09-11T23:05:00Z verification)"
+  severity: major
+  test: n/a
+
 - gap_id: G-34-2
   truth: "Every real `updatestatus` save projects the record's event through the post_save receiver, so the surviving CalendarEvent matches the record's final persisted scheduled_start / scheduled_end / status"
-  status: failed
+  status: closed
   closed_by: ["34-05", "34-06", "34-07"]
   closed_verified: "34-VERIFICATION.md re-verification (2026-09-11T23:05:00Z): 'the post_save receiver no longer raises AttributeError on the real updatestatus path. calendar_utils.coerce_schedule_datetime() converts the portal's ISO strings to aware UTC datetimes; record_time_window() routes BOTH branches through it. Proven live: tmp/34-06-updatestatus.txt (a real portal-backed updatestatus run against a scratch copy) contains ZERO unprojectable lines, and the dry-run sweep that follows it (tmp/34-06-dry-run.txt) reports LCO: created: 0, updated: 0, unchanged: 159 -- the receiver, not the sweep, did all the work.'"
   reason: "User reported: two overlapping `updatestatus` runs logged `unprojectable observation_id=... : AttributeError` for nearly every LCO record; a sweep dry run afterwards shows 33 LCO events stale (`updated: 33, unchanged: 126`) because the receiver never wrote them"
