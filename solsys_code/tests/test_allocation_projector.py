@@ -354,6 +354,64 @@ class TestObservationHandoff(AllocationProjectorTestBase):
         self.assertFalse(CalendarEvent.objects.filter(url=legacy_url).exists())
 
 
+class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-03: the retire path's own legacy `RUN:{pk}:{night}` delete gets the
+    same ownership and human-confirmation guards the takeover branch already applies to the
+    same class of row."""
+
+    def test_retiring_a_night_never_deletes_a_human_confirmed_legacy_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        staff_user = User.objects.create(username='retire-staffer')
+        CalendarEventMeta.objects.create(
+            event=legacy_event, run=run, confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        meta = CalendarEventMeta.objects.get(event=legacy_event)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 1)
+
+    def test_retiring_a_night_never_deletes_a_legacy_event_attributed_to_a_different_run(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=other_run)
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        meta = CalendarEventMeta.objects.get(event=legacy_event)
+        self.assertEqual(meta.run_id, other_run.pk)
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 1)
+
+
 class TestAttributionBridge(AllocationProjectorTestBase):
     """Task 2, D-08: attribution is a link on the record's OWN event, both directions."""
 

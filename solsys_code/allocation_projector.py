@@ -47,6 +47,7 @@ from solsys_code.calendar_utils import (
 from solsys_code.campaign_reconciler import RUN_STATUS_CALENDAR_PREFIX as _RUN_STATUS_CALENDAR_PREFIX
 from solsys_code.campaign_reconciler import (
     ReconcileResult,
+    _clearable_and_declined,
     _link_event_to_run,
     _may_write,
     event_description,
@@ -458,11 +459,44 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
 
         if night in retired:
             retired_urls.add(url)
-            legacy_urls_claimed.add(legacy_url)
+            # CR-03 (35-REVIEW.md): the legacy RUN:{pk}:{night} event this retirement would
+            # also delete gets the SAME two guards the takeover branch below already applies
+            # to the same class of row -- ownership first (_may_write()), then a
+            # human-confirmed attribution (reused via _clearable_and_declined(), the same
+            # UAT-2026-09-09 Option B rule every other delete/detach path in this module and
+            # campaign_reconciler.py honours). Neither guard was applied here before, so an
+            # automated re-projection could delete a companion row a staff member had just
+            # confirmed, or one re-attributed to a different run entirely.
+            legacy_event = CalendarEvent.objects.filter(url=legacy_url).first()
+            legacy_deletable = False
+            if legacy_event is not None:
+                if not _may_write(legacy_event, run):
+                    logger.warning(
+                        'Allocation retire blocked: legacy event pk=%s is not owned by run pk=%s.',
+                        legacy_event.pk,
+                        run.pk,
+                    )
+                    totals['blocked'] += 1
+                else:
+                    clearable_ids, confirmed_declined = _clearable_and_declined(
+                        run, CalendarEvent.objects.filter(pk=legacy_event.pk)
+                    )
+                    if clearable_ids:
+                        legacy_deletable = True
+                        legacy_urls_claimed.add(legacy_url)
+                    elif confirmed_declined:
+                        logger.warning(
+                            'Allocation retire declined: legacy event pk=%s is human-confirmed '
+                            'to run pk=%s -- an automated retirement never clears it.',
+                            legacy_event.pk,
+                            run.pk,
+                        )
+                        totals['blocked'] += 1
             if not dry_run:
                 if existing is not None:
                     existing.delete()
-                CalendarEvent.objects.filter(url=legacy_url).delete()
+                if legacy_deletable:
+                    legacy_event.delete()
             totals['retired'] += 1
             continue
 
