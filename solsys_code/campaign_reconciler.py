@@ -280,6 +280,41 @@ def _link_event_to_run(event: CalendarEvent, run: CampaignRun) -> None:
         meta.save(update_fields=['run'])
 
 
+def dispatches_per_night(run: CampaignRun) -> bool:
+    """True when this run's calendar form is the per-night ``ALLOC:`` family, as opposed to
+    the whole-window ``RUN:`` container (class-wide, satellite, or queue-sourced) --
+    extracted so ``reconcile_run()``'s dispatch decision has exactly one owner, reused by
+    ``allocation_projector.reproject_allocation_if_dispatched()`` (35-REVIEW.md CR-01) and
+    by this module's own convergence step (CR-02) so a signal-triggered re-project and a
+    sweep can never disagree about which branch a run belongs to.
+
+    Mirrors ``reconcile_run()``'s own dispatch chain exactly: a run with a
+    ``telescope_class``, a satellite site, or a queue ``source`` all take the whole-window
+    container instead. A ``None`` site is defensive only -- ``_skip_reason()`` already
+    refuses a run with no ``telescope_class`` and no resolved ``site`` before dispatch ever
+    runs, so this function is never called with that combination in production, but callers
+    outside that guard (a convergence read, a future trigger) must not crash on it.
+
+    Args:
+        run: the ``CampaignRun`` being dispatched.
+
+    Returns:
+        bool: True when ``run`` belongs to the per-night ``ALLOC:`` family.
+    """
+    if run.telescope_class:
+        return False
+    if run.site is None:
+        return False
+    if run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
+        return False
+    return run.source not in {
+        CampaignRun.Source.LCO_QUEUE,
+        CampaignRun.Source.SOAR_QUEUE,
+        CampaignRun.Source.GEMINI_QUEUE,
+        CampaignRun.Source.ESO_QUEUE,
+    }
+
+
 def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
     """The whole-window branch shared by class-wide and satellite runs
     (RECON-02 queue half, RECON-03) -- a run's ``source`` field never selects this branch.
@@ -605,39 +640,24 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     # empty for a container-dispatched run, which never takes over a legacy night.
     claimed_legacy_urls: frozenset[str] = frozenset()
 
-    if run.telescope_class:
-        # RECON-03: a class-wide allocation (2m0/1m0/0m4) or a SPACE-classed run shares
-        # this branch -- the whole-window math is identical either way (RESEARCH.md
-        # Assumption A2, resolved in favour of one branch, not two).
-        result = _reconcile_container(run, dry_run=dry_run)
-        active_urls = {run_container_url(run)}
-    elif run.site is not None and run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
-        # The ported satellite case: no fixed horizon, so no per-night sun_event() math.
-        result = _reconcile_container(run, dry_run=dry_run)
-        active_urls = {run_container_url(run)}
-    elif run.source in {
-        CampaignRun.Source.LCO_QUEUE,
-        CampaignRun.Source.SOAR_QUEUE,
-        CampaignRun.Source.GEMINI_QUEUE,
-        CampaignRun.Source.ESO_QUEUE,
-    }:
-        # D-09/D-10 (Phase 35): a queue-scheduled run keeps its single whole-window
-        # container regardless of its resolved ground site -- this dispatch reads the
-        # stored `source` field only and never infers provenance from a telescope name
-        # or a site.
-        result = _reconcile_container(run, dry_run=dry_run)
-        active_urls = {run_container_url(run)}
-    else:
-        # D-09 (Phase 35): every other approved, windowed run with a resolved ground
-        # site (WEB/CSV_IMPORT/CLASSICAL_FILE/LEGACY) is a per-night allocation, owned
-        # entirely by the peer allocation_projector module. Local import: that module
-        # imports this one at its own top level (to reuse split_telescope_instrument()
-        # and _may_write()/_link_event_to_run()), so a top-level import here would
-        # deadlock on whichever module Python loads first -- the same idiom
-        # `_detach_stale_family_events()` already uses for campaign_utils.
+    if dispatches_per_night(run):
+        # D-09 (Phase 35): every approved, windowed run with a resolved, non-satellite
+        # ground site and a non-queue source (WEB/CSV_IMPORT/CLASSICAL_FILE/LEGACY) is a
+        # per-night allocation, owned entirely by the peer allocation_projector module.
+        # Local import: that module imports this one at its own top level (to reuse
+        # split_telescope_instrument() and _may_write()/_link_event_to_run()), so a
+        # top-level import here would deadlock on whichever module Python loads first --
+        # the same idiom `_detach_stale_family_events()` already uses for campaign_utils.
         from solsys_code.allocation_projector import project_allocation
 
         result, active_urls, claimed_legacy_urls = project_allocation(run, dry_run=dry_run)
+    else:
+        # RECON-03/RECON-02 queue half/D-09-D-10: a class-wide allocation
+        # (2m0/1m0/0m4/SPACE), a satellite-sited run, or a queue-scheduled run all share
+        # this single whole-window branch -- `dispatches_per_night()` is the one place
+        # that decides which of the two forms a run belongs to (CR-01, 35-REVIEW.md).
+        result = _reconcile_container(run, dry_run=dry_run)
+        active_urls = {run_container_url(run)}
 
     # CR-01 convergence step: detach (never delete) any of this run's owned events left
     # over from a family it no longer belongs to, OR a classical night's event superseded

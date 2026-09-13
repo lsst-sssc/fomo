@@ -618,12 +618,12 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
         stage,
     )
 
-    from solsys_code.allocation_projector import project_allocation
+    from solsys_code.allocation_projector import reproject_allocation_if_dispatched
 
     try:
         for link in instance.campaign_run_links.select_related('run'):
             if link.run is not None:
-                project_allocation(link.run)
+                reproject_allocation_if_dispatched(link.run)
     except Exception as exc:  # noqa: BLE001 -- a linked-run re-project fault must never mask
         # the base projection above, or abort the caller's save (D-11).
         logger.warning(

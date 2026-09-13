@@ -541,6 +541,29 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
     return ReconcileResult(**totals), active_urls, legacy_urls_claimed
 
 
+def reproject_allocation_if_dispatched(run: CampaignRun) -> None:
+    """Trigger-side entry point (D-11) -- the only way a signal receiver may reach
+    ``project_allocation()`` (35-REVIEW.md CR-01).
+
+    ``project_allocation()``'s own precondition is that ``reconcile_run()``'s stage-0 guard
+    (``_skip_reason()``) and its four-way dispatch have already run -- a signal receiver
+    firing below an unrelated write (a ``CampaignRunObservation`` save/delete, or an
+    ``ObservationRecord`` save) never goes through ``reconcile_run()`` at all, so calling
+    ``project_allocation()`` straight from a receiver bypassed both the approval gate and
+    the container/per-night dispatch rule. This function is the single place both are
+    re-applied outside a sweep, so every trigger and the sweep itself agree on exactly one
+    dispatch decision.
+
+    Args:
+        run: the ``CampaignRun`` a receiver wants to re-project.
+    """
+    from solsys_code.campaign_reconciler import _skip_reason, dispatches_per_night
+
+    if _skip_reason(run) is not None or not dispatches_per_night(run):
+        return
+    project_allocation(run)
+
+
 def receiver_on_run_observation_save(sender: Any, instance: Any, created: bool, raw: bool, **kwargs: Any) -> None:
     """post_save receiver on ``CampaignRunObservation`` (D-11): re-projects the linked run so
     an allocation night retires the moment a staff member confirms an attribution -- no
@@ -577,7 +600,7 @@ def receiver_on_run_observation_save(sender: Any, instance: Any, created: bool, 
     if run is None:
         return
     try:
-        project_allocation(run)
+        reproject_allocation_if_dispatched(run)
     except Exception as exc:  # noqa: BLE001 -- never abort the caller's save
         logger.warning(
             'receiver_on_run_observation_save failed for link pk=%s run pk=%s: %s',
@@ -646,7 +669,7 @@ def receiver_on_run_observation_delete(sender: Any, instance: Any, **kwargs: Any
     if run is None:
         return
     try:
-        project_allocation(run)
+        reproject_allocation_if_dispatched(run)
     except Exception as exc:  # noqa: BLE001 -- never abort the caller's delete
         logger.warning(
             'receiver_on_run_observation_delete failed for link pk=%s run pk=%s: %s',
