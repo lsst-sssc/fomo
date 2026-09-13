@@ -395,6 +395,11 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         summary = _parse_summary(out.getvalue())
         self.assertEqual(summary['would_retire'], 0)
         self.assertEqual(summary['would_rekey'], 1)
+        # Regression (Task 1, Phase 35): a legacy night the projector's own takeover would
+        # rekey must NOT also be double-counted by the new date-bearing delete preview --
+        # caught by 35-06 Task 3's real-database proof run, where every legacy night due
+        # for an in-place takeover was also being previewed as `would_delete_legacy`.
+        self.assertEqual(summary['would_delete_legacy'], 0)
         # --dry-run never writes: the legacy event is still keyed under RUN:, not ALLOC:.
         self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
         self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())

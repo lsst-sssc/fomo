@@ -439,7 +439,9 @@ def _stale_attributions(run: CampaignRun, active_urls: set[str]) -> tuple[list[i
     return _clearable_and_declined(run, stale_bare)
 
 
-def _stale_dated_events(run: CampaignRun, active_urls: set[str]) -> tuple[list[int], int]:
+def _stale_dated_events(
+    run: CampaignRun, active_urls: set[str], claimed_legacy_urls: frozenset[str] = frozenset()
+) -> tuple[list[int], int]:
     """The date-bearing counterpart of :func:`_stale_attributions` (Task 1, Phase 35, D-16):
     leftover ``RUN:{pk}:{date}`` events from the retired per-night key family. Unlike the
     bare-container group, these are DELETED rather than detached -- see
@@ -454,16 +456,26 @@ def _stale_dated_events(run: CampaignRun, active_urls: set[str]) -> tuple[list[i
         run: the ``CampaignRun`` just reconciled.
         active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
             considers current for this run (one container url, or one url per night).
+        claimed_legacy_urls: legacy ``RUN:{pk}:{date}`` urls the allocation projector's own
+            per-night loop already decided the fate of THIS call (a takeover re-key or a
+            retirement delete) -- excluded here so a ``dry_run`` preview never
+            double-counts the SAME url under both ``rekeyed``/``retired`` and
+            ``legacy_deleted``. Empty for a container-dispatched run, which never takes
+            over a legacy night at all.
 
     Returns:
         tuple[list[int], int]: ``(deletable_event_ids, declined)`` -- see
         :func:`_clearable_and_declined`.
     """
     _stale_bare, stale_dated = _split_stale_owned_events(run, active_urls)
+    if claimed_legacy_urls:
+        stale_dated = stale_dated.exclude(url__in=claimed_legacy_urls)
     return _clearable_and_declined(run, stale_dated)
 
 
-def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tuple[int, int, int]:
+def _detach_stale_family_events(
+    run: CampaignRun, active_urls: set[str], claimed_legacy_urls: frozenset[str] = frozenset()
+) -> tuple[int, int, int]:
     """Convergence step (29-REVIEW.md CR-01, user-directed fix: DETACH, not delete or
     flag-only, for the bare-container group; Task 1/D-16, Phase 35, adds a DELETE branch for
     the date-bearing group).
@@ -518,6 +530,10 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tupl
         run: the ``CampaignRun`` just reconciled.
         active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
             considers current for this run (one container url, or one url per night).
+        claimed_legacy_urls: forwarded to :func:`_stale_dated_events` -- empty for a
+            container-dispatched run (the only branch this delete path is normally reached
+            for); real-mode is unaffected either way since a claimed legacy url has already
+            left the ``RUN:`` namespace in the database by the time this function runs.
 
     Returns:
         tuple[int, int, int]: ``(detached, declined, legacy_deleted)`` -- the number of
@@ -541,7 +557,7 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tupl
             run.pk,
         )
 
-    legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls)
+    legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls, claimed_legacy_urls)
     legacy_deleted = 0
     if legacy_deleted_ids:
         CalendarEvent.objects.filter(pk__in=legacy_deleted_ids).delete()
@@ -584,6 +600,11 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     if reason is not None:
         return ReconcileResult(skipped_reason=reason)
 
+    # `claimed_legacy_urls`: legacy RUN:{pk}:{date} urls the allocation projector's own
+    # per-night loop already decided the fate of THIS call (Task 1, Phase 35) -- always
+    # empty for a container-dispatched run, which never takes over a legacy night.
+    claimed_legacy_urls: frozenset[str] = frozenset()
+
     if run.telescope_class:
         # RECON-03: a class-wide allocation (2m0/1m0/0m4) or a SPACE-classed run shares
         # this branch -- the whole-window math is identical either way (RESEARCH.md
@@ -616,7 +637,7 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
         # `_detach_stale_family_events()` already uses for campaign_utils.
         from solsys_code.allocation_projector import project_allocation
 
-        result, active_urls = project_allocation(run, dry_run=dry_run)
+        result, active_urls, claimed_legacy_urls = project_allocation(run, dry_run=dry_run)
 
     # CR-01 convergence step: detach (never delete) any of this run's owned events left
     # over from a family it no longer belongs to, OR a classical night's event superseded
@@ -630,11 +651,11 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     # show.
     if dry_run:
         clearable_event_ids, declined = _stale_attributions(run, active_urls)
-        legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls)
+        legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls, claimed_legacy_urls)
         detached = len(clearable_event_ids)
         detach_declined = declined + legacy_declined
         legacy_deleted = len(legacy_deleted_ids)
     else:
-        detached, detach_declined, legacy_deleted = _detach_stale_family_events(run, active_urls)
+        detached, detach_declined, legacy_deleted = _detach_stale_family_events(run, active_urls, claimed_legacy_urls)
 
     return result._replace(detached=detached, detach_declined=detach_declined, legacy_deleted=legacy_deleted)

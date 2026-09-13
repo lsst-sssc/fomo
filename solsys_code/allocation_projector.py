@@ -374,7 +374,7 @@ def _sync_observation_attribution(run: CampaignRun, *, dry_run: bool) -> int:
     return blocked
 
 
-def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[ReconcileResult, set[str]]:
+def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[ReconcileResult, set[str], set[str]]:
     """Project (or refresh) every night in ``[run.window_start, run.window_end]`` inclusive
     into its own ``ALLOC:{run.pk}:{night}`` sunset->sunrise ``CalendarEvent``, retiring a
     night the moment a linked record's placed or observed block occupies it (D-05/D-07) and
@@ -416,9 +416,18 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         dry_run: when True, report what would change without writing anything.
 
     Returns:
-        tuple[ReconcileResult, set[str]]: the outcome, and the exact set of
+        tuple[ReconcileResult, set[str], set[str]]: the outcome; the exact set of
         ``CalendarEvent.url`` values this call considers current -- every non-retired night
-        visited, including a blocked night and every night visited in ``dry_run``.
+        visited, including a blocked night and every night visited in ``dry_run``; and
+        ``legacy_urls_claimed`` -- every ``RUN:{pk}:{date}`` legacy url this per-night loop
+        has already decided the fate of (a takeover re-key or a retirement delete), in
+        EITHER real or ``dry_run`` mode. The caller
+        (``campaign_reconciler.reconcile_run()``) excludes this set from its own
+        date-bearing convergence step (Task 1, Phase 35, D-16): in real mode the write
+        already happened by the time that step runs, so the url has already left the
+        ``RUN:`` namespace and the exclusion is a no-op; in ``dry_run`` mode nothing was
+        written, so without this exclusion the SAME legacy url would be double-counted --
+        once here as ``rekeyed``/``retired``, and again there as ``legacy_deleted``.
     """
     totals: dict[str, int] = {
         'created': 0,
@@ -433,6 +442,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
     retired = retired_nights(run, site_zone)
     active_urls: set[str] = set()
     retired_urls: set[str] = set()
+    legacy_urls_claimed: set[str] = set()
 
     for i in range(n_nights):
         night = run.window_start + timedelta(days=i)
@@ -448,6 +458,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
 
         if night in retired:
             retired_urls.add(url)
+            legacy_urls_claimed.add(legacy_url)
             if not dry_run:
                 if existing is not None:
                     existing.delete()
@@ -468,6 +479,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                 )
                 totals['blocked'] += 1
                 continue
+            legacy_urls_claimed.add(legacy_url)
             dark_line = preserved_dark_window_line(legacy_event)
             rekey_fields: dict[str, Any] = {
                 'title': allocation_night_title(run),
@@ -526,7 +538,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             stale_qs.delete()
         totals['retired'] += stale_count
 
-    return ReconcileResult(**totals), active_urls
+    return ReconcileResult(**totals), active_urls, legacy_urls_claimed
 
 
 def receiver_on_run_observation_save(sender: Any, instance: Any, created: bool, raw: bool, **kwargs: Any) -> None:

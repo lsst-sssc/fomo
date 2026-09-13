@@ -765,6 +765,53 @@ class TestLegacyPerNightFamilyDeletion(CampaignReconcilerTestBase):
         for pk in legacy_pks:
             self.assertTrue(CalendarEvent.objects.filter(pk=pk).exists())
 
+    def test_dry_run_never_double_counts_a_legacy_night_the_projector_would_take_over(self):
+        """Regression, found by 35-06 Task 3's real-database proof run: an allocation
+        (per-night) dispatched run's OWN leftover `RUN:{pk}:{night}` event, still within its
+        active window, is taken over (rekeyed) by `project_allocation()`'s own legacy-night
+        takeover -- it must be counted ONCE, under `rekeyed`, never a second time under
+        `legacy_deleted` just because a dry run never actually writes the url change."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 19, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+
+        preview = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(preview.rekeyed, 1)
+        self.assertEqual(preview.legacy_deleted, 0)
+
+        real = reconcile_run(run)
+        self.assertEqual(real.rekeyed, 1)
+        self.assertEqual(real.legacy_deleted, 0)
+
+    def test_dry_run_never_double_counts_a_retiring_nights_legacy_twin(self):
+        """The same regression, for the retire branch: a linked placed record retires a
+        night that also carries a leftover `RUN:{pk}:{night}` twin -- the projector's own
+        retire step already accounts for deleting that twin (real mode) or would (dry-run
+        preview), so it must not also surface under `legacy_deleted`."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 19, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+        scheduled_start = datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        preview = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(preview.retired, 1)
+        self.assertEqual(preview.legacy_deleted, 0)
+
 
 class TestAttributedEventsSurviveReconcile(CampaignReconcilerTestBase):
     """D-04 proof (ROADMAP criterion 2), migrated for Phase 35: an event attributed to a

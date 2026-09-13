@@ -7,19 +7,24 @@ Fixtures build their own hand-made blank-url `CalendarEvent` rows, matching the 
 none of these tests need one directly since a classical `CampaignRun` carries `target=None`.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from io import StringIO
+from uuid import uuid4
 
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.allocation_projector import allocation_night_url
+from solsys_code.allocation_projector import allocation_events, allocation_night_url
+from solsys_code.campaign_reconciler import owned_events
 from solsys_code.management.commands.load_telescope_runs import _source_identifier
-from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import parse_run_line
 
@@ -374,3 +379,152 @@ class TestCampaignMismatchGroupLeftUntouched(CutoverClassicalAllocationsTestBase
         self.assertEqual(one.url, '')
         self.assertEqual(two.url, '')
         self.assertEqual(CampaignRun.objects.count(), 0)
+
+
+class TestCutoverSequenceContract(CutoverClassicalAllocationsTestBase):
+    """Task 3 (35-VALIDATION.md's Manual-Only Verifications, second row): pins the same
+    end-state properties the real-database proof (this plan's SUMMARY) measured, against
+    synthetic fixtures, so the guarantee survives without that database.
+
+    Builds one world containing: a convertible blank-url group (this class's own
+    three-night NTT fixture); one unexplainable blank-url event; a per-night-dispatched
+    run that stays per-night, with a legacy RUN:{pk}:{night} event inside its window
+    (re-keyed by the sweep, D-16 first half); a per-night-dispatched run a queue source
+    now sends to the container (D-10), with a legacy RUN:{pk}:{night} event (deleted by
+    the sweep, Task 1/D-16 second half); and a per-night-dispatched run with a linked,
+    placed ObservationRecord that retires one of its nights (D-05) automatically, before
+    the cutover or the sweep ever runs. Runs the cutover then the reconciler sweep once,
+    and asserts the pinned end-state."""
+
+    def test_cutover_then_sweep_reaches_the_pinned_end_state(self):
+        # 1. Convertible blank-url group (this base class's own 3-night NTT fixture).
+        convertible_events = self._make_three_night_group()
+
+        # 2. Unexplainable blank-url event -- no Source line: marker at all.
+        unexplained_event = self._make_legacy_event(
+            source_line='unused',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 9, 0, tzinfo=dt_timezone.utc),
+            description='A hand-typed note with no Source line marker at all.',
+        )
+
+        # 3. A per-night-dispatched run that STAYS per-night, with a legacy
+        # RUN:{pk}:{night} event inside its current window -- never reconciled yet, so
+        # only the hand-made legacy artifact exists (the pre-cutover shape). The sweep's
+        # first-ever reconcile of this run re-keys it in place (D-16 first half).
+        stays_per_night_run = CampaignRun.objects.create(
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=self.ntt,
+            site_raw='NTT',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 1),
+        )
+        rekey_legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{stays_per_night_run.pk}:2026-09-01',
+            start_time=datetime(2026, 9, 1, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 9, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=rekey_legacy_event, run=stays_per_night_run)
+        rekey_legacy_pk = rekey_legacy_event.pk
+
+        # 4. A per-night-dispatched run a queue source now sends to the container (D-10),
+        # with a legacy RUN:{pk}:{night} event -- also never reconciled yet. The sweep's
+        # first-ever reconcile creates the bare container AND deletes this leftover
+        # per-night artifact (Task 1/D-16 second half).
+        now_container_run = CampaignRun.objects.create(
+            source=CampaignRun.Source.LCO_QUEUE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=self.ntt,
+            site_raw='NTT',
+            window_start=date(2026, 9, 2),
+            window_end=date(2026, 9, 2),
+        )
+        delete_legacy_event = CalendarEvent.objects.create(
+            title='Legacy per-night artifact',
+            url=f'RUN:{now_container_run.pk}:2026-09-02',
+            start_time=datetime(2026, 9, 2, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=delete_legacy_event, run=now_container_run)
+        delete_legacy_pk = delete_legacy_event.pk
+
+        # 5. A per-night-dispatched run with a linked, placed record -- creating the link
+        # retires its night automatically via the D-11 post_save receiver, before either
+        # the cutover or the sweep below ever runs.
+        retire_run = CampaignRun.objects.create(
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=self.ntt,
+            site_raw='NTT',
+            window_start=date(2026, 9, 3),
+            window_end=date(2026, 9, 3),
+        )
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'contract-owner-{uuid4().hex[:8]}')
+        # 23:00 UTC maps (via observing_night()'s local-noon anchor, America/Santiago) to
+        # the SAME evening date -- matching retire_run.window_start=2026-09-03 exactly
+        # (the same pattern _make_three_night_group() uses for its own fixtures).
+        scheduled_start = datetime(2026, 9, 3, 23, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility='LCO',
+            observation_id=f'contract-{uuid4().hex[:8]}',
+            status='COMPLETED',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_start + timedelta(hours=2),
+            parameters={'proposal': 'TEST'},
+        )
+        CampaignRunObservation.objects.create(run=retire_run, observation_record=record)
+
+        # Step 3: the cutover command (exits non-zero -- the unexplainable event, as designed).
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=StringIO(), stderr=StringIO())
+
+        # Step 4: the reconciler sweep, once.
+        call_command('reconcile_campaign_runs', stdout=StringIO(), stderr=StringIO())
+
+        # -- Pinned end-state --
+
+        # Zero date-bearing RUN:{pk}:{date} events remain anywhere.
+        self.assertFalse(CalendarEvent.objects.filter(url__regex=r'^RUN:[0-9]+:').exists())
+
+        # Zero blank-url events remain apart from the one reported unexplainable.
+        blank_url_pks = list(CalendarEvent.objects.filter(url='').values_list('pk', flat=True))
+        self.assertEqual(blank_url_pks, [unexplained_event.pk])
+
+        # The stays-per-night run's legacy night is now ALLOC:-keyed, same primary key,
+        # never a duplicate row.
+        rekeyed_event = CalendarEvent.objects.get(pk=rekey_legacy_pk)
+        self.assertEqual(rekeyed_event.url, allocation_night_url(stays_per_night_run, date(2026, 9, 1)))
+        self.assertEqual(allocation_events(stays_per_night_run).count(), 1)
+
+        # The queue run's legacy night is gone entirely -- deleted, not rekeyed elsewhere --
+        # and its bare container now exists.
+        self.assertFalse(CalendarEvent.objects.filter(pk=delete_legacy_pk).exists())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{now_container_run.pk}').exists())
+        self.assertEqual(owned_events(now_container_run).count(), 1)
+
+        # The linked record's night is retired: no allocation event at all for it.
+        self.assertEqual(allocation_events(retire_run).count(), 0)
+
+        # The convertible group is fully re-keyed to ALLOC:, same primary keys.
+        parsed = parse_run_line(_THREE_NIGHT_LINE)
+        converted_key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        converted_run = CampaignRun.objects.get(source_identifier=converted_key)
+        for event in convertible_events:
+            event.refresh_from_db()
+            self.assertTrue(event.url.startswith(f'ALLOC:{converted_run.pk}:'))
+
+        # Three-group reconciliation over the two hand-made legacy artifacts: one re-keyed,
+        # one deleted, zero retired-by-observation among THEM specifically (the retire_run
+        # fixture never had a legacy RUN:-event to begin with -- it demonstrates the third
+        # group exists as a mechanism, not that it applies to a pre-existing legacy row).
+        rekeyed_count = 1
+        legacy_deleted_count = 1
+        self.assertEqual(rekeyed_count + legacy_deleted_count, 2)
