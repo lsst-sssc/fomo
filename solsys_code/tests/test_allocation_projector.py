@@ -6,7 +6,7 @@ ALLOC-03 (the observation handoff) and the D-09/D-10 dispatch seam in
 `CampaignReconcilerTestBase` in `test_campaign_reconciler.py`.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import patch
 from uuid import uuid4
@@ -643,3 +643,105 @@ class TestEmptyAndDegenerateWindows(AllocationProjectorTestBase):
         result = reconcile_run(run)
 
         self.assertEqual(result.retired, 0)
+
+
+class TestSubNightWindow(AllocationProjectorTestBase):
+    """Plan 35-03 Task 2 (D-04/D-13): the projector honours a run's sub-night window
+    fields, and re-mints (never rewrites in place) a night whose span changed."""
+
+    def test_null_null_run_keeps_the_sunset_to_sunrise_span_byte_identical(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+
+    def test_set_end_and_null_start_computes_sunset_start_and_next_morning_end(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, night_end_utc=time(6, 26))
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        next_morning = night + timedelta(days=1)
+        self.assertEqual(
+            event.end_time,
+            datetime(next_morning.year, next_morning.month, next_morning.day, 6, 26, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def test_set_start_and_null_end_uses_its_own_evening_date_and_computes_sunrise_end(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, night_start_utc=time(23, 30))
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(
+            event.start_time,
+            datetime(night.year, night.month, night.day, 23, 30, 0, tzinfo=dt_timezone.utc),
+        )
+        _expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+
+    def test_changing_night_end_utc_remints_only_the_affected_runs_nights(self):
+        run_a = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        run_b = self._make_run(window_start=date(2026, 7, 20), window_end=date(2026, 7, 20))
+        reconcile_run(run_a)
+        reconcile_run(run_b)
+        pks_a_before = {e.url: e.pk for e in allocation_events(run_a)}
+        pks_b_before = {e.url: e.pk for e in allocation_events(run_b)}
+
+        run_a.night_end_utc = time(6, 26)
+        run_a.save(update_fields=['night_end_utc'])
+        result = reconcile_run(run_a)
+
+        self.assertEqual(result.created, 3)
+        self.assertEqual(result.retired, 3)
+        self.assertEqual(result.updated, 0)
+        pks_a_after = {e.url: e.pk for e in allocation_events(run_a)}
+        self.assertEqual(set(pks_a_after), set(pks_a_before))
+        for url, pk_before in pks_a_before.items():
+            self.assertNotEqual(pks_a_after[url], pk_before)
+
+        pks_b_after = {e.url: e.pk for e in allocation_events(run_b)}
+        self.assertEqual(pks_b_before, pks_b_after)
+
+    def test_reconcile_with_sub_night_fields_set_makes_no_further_sun_event_calls(self):
+        run = self._make_run(
+            window_start=date(2026, 7, 9),
+            window_end=date(2026, 7, 11),
+            night_start_utc=time(23, 30),
+            night_end_utc=time(6, 26),
+        )
+        reconcile_run(run)
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 3)
+
+    def test_second_reconcile_with_matching_sub_night_fields_writes_nothing(self):
+        run = self._make_run(
+            window_start=date(2026, 7, 9),
+            window_end=date(2026, 7, 11),
+            night_start_utc=time(23, 30),
+            night_end_utc=time(6, 26),
+        )
+        reconcile_run(run)
+        pks_before = {e.url: e.pk for e in allocation_events(run)}
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 0)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.unchanged, 3)
+        pks_after = {e.url: e.pk for e in allocation_events(run)}
+        self.assertEqual(pks_before, pks_after)
