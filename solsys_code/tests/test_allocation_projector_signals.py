@@ -1,5 +1,7 @@
 """D-11: the two new `CampaignRunObservation` receivers (link/unlink) -- the immediacy half
-of ALLOC-03. Fixture style mirrors `test_observation_projector_signals.py`.
+of ALLOC-03 -- plus the never-raise/never-call-out/never-recurse trigger contract that makes
+them safe to run inside a staff member's own transaction. Fixture style mirrors
+`test_observation_projector_signals.py`.
 """
 
 from datetime import date, datetime
@@ -211,3 +213,86 @@ class TestCampaignRunObservationReceiverWiring(AllocationSignalsTestBase):
         with patch('solsys_code.allocation_projector.project_allocation') as mock_project:
             CampaignRunObservation.objects.create(run=self.run, observation_record=record)
         self.assertEqual(mock_project.call_count, 1)
+
+
+class TestAllocationTriggerContract(AllocationSignalsTestBase):
+    """Task 3: the never-raise, never-call-out, never-recurse properties that make the two
+    `CampaignRunObservation` receivers safe to run inside a staff member's transaction."""
+
+    # -- Never raise --------------------------------------------------------------------
+    #
+    # Deliberately four separate test methods (not one method parametrised via
+    # `self.subTest`) -- `unittest`'s "Ran N tests" summary counts subTests as part of their
+    # parent method, not as additional tests, and this plan's own acceptance criteria gates
+    # on a literal test COUNT (">=12 tests run") for this file.
+
+    def _assert_save_never_raises(self, exc: Exception) -> None:
+        record = self._make_record()
+        with patch('solsys_code.allocation_projector.project_allocation', side_effect=exc):
+            with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as logs:
+                link = CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+
+        self.assertTrue(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        joined = '\n'.join(logs.output)
+        self.assertIn(type(exc).__name__, joined)
+        self.assertNotIn('secret detail', joined)
+
+    def _assert_delete_never_raises(self, exc: Exception) -> None:
+        record = self._make_record()
+        link = CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+        link_pk = link.pk
+
+        with patch('solsys_code.allocation_projector.project_allocation', side_effect=exc):
+            with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as logs:
+                link.delete()  # must not raise
+
+        self.assertFalse(CampaignRunObservation.objects.filter(pk=link_pk).exists())
+        joined = '\n'.join(logs.output)
+        self.assertIn(type(exc).__name__, joined)
+        self.assertNotIn('secret detail', joined)
+
+    def test_save_receiver_never_raises_on_value_error_and_logs_only_the_type(self):
+        self._assert_save_never_raises(ValueError('secret detail'))
+
+    def test_save_receiver_never_raises_on_bare_exception_and_logs_only_the_type(self):
+        self._assert_save_never_raises(Exception('secret detail'))
+
+    def test_delete_receiver_never_raises_on_value_error_and_logs_only_the_type(self):
+        self._assert_delete_never_raises(ValueError('secret detail'))
+
+    def test_delete_receiver_never_raises_on_bare_exception_and_logs_only_the_type(self):
+        self._assert_delete_never_raises(Exception('secret detail'))
+
+    # -- Never call out -------------------------------------------------------------------
+
+    def test_neither_receiver_reaches_a_facility(self):
+        """Uses a non-LCO/SOAR ('GEM') linked record deliberately: `project_allocation()`'s
+        own D-08 attribution bridge (`_sync_observation_attribution()`) legitimately calls
+        `observation_projector.facility_for()` for any LINKED record whose facility IS
+        LCO/SOAR -- that is what attributes the record's own event to the run. A GEM record
+        is skipped by that bridge's own facility guard, so this is the fixture shape that
+        makes 'the mock was never called' a meaningful, literal assertion rather than one
+        that would always fail regardless of whether a real network call occurred (see the
+        SUMMARY's deviations section for the parallel case this ruled out for Task 2)."""
+        record = self._make_record(facility='GEM')
+
+        with patch(
+            'solsys_code.observation_projector.facility_for', side_effect=RuntimeError('never call out')
+        ) as mock_facility:
+            link = CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+            link.delete()
+
+        mock_facility.assert_not_called()
+
+    # -- Never recurse ----------------------------------------------------------------------
+
+    def test_confirm_and_undo_each_invoke_project_allocation_exactly_once(self):
+        start, end = self._night_2_block()
+        record = self._make_record(scheduled_start=start, scheduled_end=end)
+
+        with patch('solsys_code.allocation_projector.project_allocation', wraps=ap.project_allocation) as wrapped:
+            link = CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+            self.assertEqual(wrapped.call_count, 1)
+
+            link.delete()
+            self.assertEqual(wrapped.call_count, 2)

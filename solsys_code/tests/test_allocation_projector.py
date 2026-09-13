@@ -275,9 +275,18 @@ class TestObservationHandoff(AllocationProjectorTestBase):
         reconcile_run(run)
 
         link.delete()
+        # 35-04 D-11: both the link's own creation (via `_link_record()`, above) and its
+        # deletion now re-project the run immediately, through the new post_save/post_delete
+        # receivers on CampaignRunObservation (wired in SolsysCodeConfig.ready()) -- so this
+        # test's two explicit `reconcile_run()` calls (the one right after `_link_record()`
+        # and this one after `link.delete()`) are both now redundant no-ops that converge on
+        # already-current state. All three nights (07-09/07-10/07-11) already match, so this
+        # call reports `unchanged` for all three, not `created` -- mirrors
+        # TestEndToEndAllocationNight's own established "second reconcile of unchanged
+        # state" contract.
         result = reconcile_run(run)
 
-        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 3)
         site_zone = ZoneInfo(self.chilean_site.timezone)
         retired_night = observing_night(scheduled_start, site_zone)
         self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{retired_night.isoformat()}').exists())

@@ -507,9 +507,15 @@ class TestReconcileThenAttributeOrdering(CampaignReconcilerTestBase):
         self.assertEqual(allocation_events(run).count(), 1)
 
         link.delete()
+        # 35-04 D-11: deleting the link already re-projects the run via the new post_delete
+        # receiver on CampaignRunObservation (wired in SolsysCodeConfig.ready()), so the
+        # night is restored (minted fresh) before this test's own explicit `reconcile_run()`
+        # below ever runs. That call therefore converges on already-current state and
+        # reports `unchanged` for both nights, not `created` -- mirrors the same fix applied
+        # to `test_allocation_projector.TestObservationHandoff`'s analogous test.
         third = reconcile_run(run)
 
-        self.assertEqual(third.created, 1)
+        self.assertEqual(third.unchanged, 2)
         self.assertTrue(CalendarEvent.objects.filter(url=retired_url).exists())
         self.assertEqual(allocation_events(run).count(), 2)
 
