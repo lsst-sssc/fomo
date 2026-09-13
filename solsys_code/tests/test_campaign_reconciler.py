@@ -1138,17 +1138,15 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
     in the run's window is DELETED (not detached) by the allocation projector's own internal
     convergence -- unlike the `RUN:` family, which the shared detach step still protects."""
 
-    def test_reclassifying_allocation_dispatch_to_class_wide_detaches_old_per_night_events(self):
+    def test_reclassifying_allocation_dispatch_to_class_wide_deletes_old_per_night_events(self):
         """A run reconciled once under the allocation (per-night) branch, then reclassified
         to the class-wide container branch (setting `telescope_class` on an
-        already-resolved-site run), leaves its old `ALLOC:`-keyed per-night events on the
-        calendar untouched by the RUN:-namespace convergence -- `owned_events()`/
-        `_detach_stale_family_events()` only ever look at the `RUN:` namespace, so they are
-        not the mechanism that would ever clean up a stale `ALLOC:` night. This asserts
-        exactly that boundary: the container reconcile leaves the prior allocation nights
-        exactly as they were, neither detached (they were never in the `RUN:` family to
-        begin with) nor deleted (the allocation projector is not invoked once dispatch moves
-        to the container branch)."""
+        already-resolved-site run), leaves the container's own reconcile to delete the old
+        `ALLOC:`-keyed per-night events (35-REVIEW.md CR-02): once dispatch moves to the
+        container branch, `project_allocation()` is never called again for this run, so its
+        own D-14 convergence can never reach them again -- `_stale_allocation_events()`
+        closes that gap from the `RUN:`-namespace convergence step instead, mirroring the
+        date-bearing `RUN:{pk}:{date}` family's own one-time-churn delete exactly."""
         window_start = date(2026, 8, 1)
         window_end = date(2026, 8, 2)
         run = self._make_run(window_start=window_start, window_end=window_end)
@@ -1168,13 +1166,46 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         container_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
         self.assertEqual(CalendarEventMeta.objects.get(event=container_event).run_id, run.pk)
 
-        # The old allocation nights still exist, still attributed -- outside the `RUN:`
-        # namespace `_detach_stale_family_events()` scopes to, so the container reconcile
-        # does not touch them at all.
+        # The old allocation nights are gone -- one-time churn, deleted (not detached) the
+        # same way a re-classified run's leftover RUN:{pk}:{date} nights are.
+        for url in alloc_urls:
+            self.assertFalse(CalendarEvent.objects.filter(url=url).exists())
+        self.assertEqual(second.legacy_deleted, 2)
+        self.assertEqual(second.detached, 0)
+
+    def test_second_reconcile_after_deleting_old_allocation_nights_reports_nothing_further(self):
+        """RECON-01 idempotency: once the old `ALLOC:` family has been deleted by the first
+        post-reclassification reconcile, a second reconcile of the same (still
+        container-dispatched) run finds nothing left to delete."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        reconcile_run(run)
+        run.telescope_class = CampaignRun.TelescopeClass.ONE_M0
+        run.save(update_fields=['telescope_class'])
+        reconcile_run(run)
+
+        third = reconcile_run(run)
+
+        self.assertEqual(third.legacy_deleted, 0)
+        self.assertEqual(third.detached, 0)
+
+    def test_dry_run_previews_the_stale_allocation_delete_and_writes_nothing(self):
+        """The dry-run branch of `reconcile_run()` must agree with the real sweep: it
+        previews the same `legacy_deleted` count without touching the database."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        reconcile_run(run)
+        alloc_urls = [f'ALLOC:{run.pk}:{window_start.isoformat()}', f'ALLOC:{run.pk}:{window_end.isoformat()}']
+        run.telescope_class = CampaignRun.TelescopeClass.ONE_M0
+        run.save(update_fields=['telescope_class'])
+
+        preview = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(preview.legacy_deleted, 2)
         for url in alloc_urls:
             self.assertTrue(CalendarEvent.objects.filter(url=url).exists())
-            self.assertEqual(CalendarEventMeta.objects.get(event__url=url).run_id, run.pk)
-        self.assertEqual(second.detached, 0)
 
     def test_stale_container_event_is_not_adopted_into_an_allocation_night(self):
         """Proves the legacy-takeover filter in `project_allocation()`'s per-night loop

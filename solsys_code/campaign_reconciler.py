@@ -508,6 +508,43 @@ def _stale_dated_events(
     return _clearable_and_declined(run, stale_dated)
 
 
+def _stale_allocation_events(run: CampaignRun) -> tuple[list[int], int]:
+    """Read-only split of this run's leftover ``ALLOC:`` nights when the run no longer
+    dispatches to the per-night branch AT ALL (35-REVIEW.md CR-02): a re-classification
+    into the whole-window container leaves the old per-night ``ALLOC:`` family behind with
+    no other code path left to reach it -- ``project_allocation()``'s own convergence step
+    (D-14) only runs for a per-night-dispatched run, so a run that moves OUT of that branch
+    never revisits its own old nights again without this.
+
+    Deliberately unscoped by ``active_urls``: a container-dispatched run's active set is
+    always exactly ``{run_container_url(run)}``, a ``RUN:`` url that can never collide with
+    an ``ALLOC:`` one, so every ``ALLOC:`` event this run still owns is stale by
+    construction the moment this function is even reached.
+
+    Same two guards as :func:`_stale_attributions`/:func:`_stale_dated_events`: an event
+    attributed to a DIFFERENT run is left alone entirely (neither deleted nor counted), and
+    a human-confirmed attribution is reported under ``declined``, never cleared (UAT
+    decision, 2026-09-09, Option B).
+
+    Args:
+        run: the ``CampaignRun`` just reconciled.
+
+    Returns:
+        tuple[list[int], int]: ``(deletable_event_ids, declined)`` -- empty/zero for a
+        per-night-dispatched run, whose own ``ALLOC:`` convergence stays entirely inside
+        :func:`~solsys_code.allocation_projector.project_allocation`.
+    """
+    if dispatches_per_night(run):
+        return [], 0
+    # Local import: allocation_projector imports this module at its own top level (to reuse
+    # split_telescope_instrument()/_may_write()/_link_event_to_run()), so a top-level import
+    # here would deadlock on whichever module Python loads first -- the same idiom this
+    # module already uses for campaign_utils.
+    from solsys_code.allocation_projector import writable_allocation_events
+
+    return _clearable_and_declined(run, writable_allocation_events(run))
+
+
 def _detach_stale_family_events(
     run: CampaignRun, active_urls: set[str], claimed_legacy_urls: frozenset[str] = frozenset()
 ) -> tuple[int, int, int]:
@@ -554,6 +591,20 @@ def _detach_stale_family_events(
     This is a real ``.delete()``, not a detach: the whole per-night form of this module's
     own namespace retires in this phase, and every one of its events is either re-keyed
     (elsewhere, by the projector) or removed (here) -- no third outcome.
+
+    **``ALLOC:`` family (new, CR-02, 35-REVIEW.md):** the mirror image of the date-bearing
+    group above, for a run that just went the OTHER way -- one that used to dispatch to the
+    per-night allocation branch and has now been re-classified into the whole-window
+    container. Its old ``ALLOC:{pk}:{night}`` nights are exactly as unreachable afterwards
+    as a container-to-per-night re-classification's old ``RUN:{pk}:{date}`` nights are:
+    ``project_allocation()`` is never called again for this run, so nothing else ever
+    revisits them. Also a real ``.delete()``, counted into the same ``legacy_deleted``
+    return value as the date-bearing group -- both are one-time churn from the SAME kind of
+    event (a stale per-night key family, in the same run's namespace, left behind by a
+    dispatch change), so the operator-facing runbook's existing ``legacy_deleted`` promise
+    ("deleting the run's leftover per-night events ... and replacing them with a single
+    whole-window entry") stays literally true for both origin families rather than needing
+    a second, parallel counter.
 
     **Two guards, both groups (unchanged in shape):** the attribution must not point at a
     DIFFERENT run (:func:`_clearable_and_declined`'s ``run_id=run.pk`` scoping -- the
@@ -605,7 +656,19 @@ def _detach_stale_family_events(
             run.pk,
         )
 
-    declined += legacy_declined
+    alloc_deleted_ids, alloc_declined = _stale_allocation_events(run)
+    if alloc_deleted_ids:
+        CalendarEvent.objects.filter(pk__in=alloc_deleted_ids).delete()
+        legacy_deleted += len(alloc_deleted_ids)
+        logger.warning(
+            'Reconcile deleted %s leftover allocation night(s) from run pk=%s: this run now '
+            'dispatches to the whole-window container, and its per-night ALLOC: family is '
+            'one-time churn.',
+            len(alloc_deleted_ids),
+            run.pk,
+        )
+
+    declined += legacy_declined + alloc_declined
     if declined:
         logger.warning(
             'Reconcile declined to detach/delete %s stale/superseded event(s) from run pk=%s: '
@@ -672,9 +735,10 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     if dry_run:
         clearable_event_ids, declined = _stale_attributions(run, active_urls)
         legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls, claimed_legacy_urls)
+        alloc_deleted_ids, alloc_declined = _stale_allocation_events(run)
         detached = len(clearable_event_ids)
-        detach_declined = declined + legacy_declined
-        legacy_deleted = len(legacy_deleted_ids)
+        detach_declined = declined + legacy_declined + alloc_declined
+        legacy_deleted = len(legacy_deleted_ids) + len(alloc_deleted_ids)
     else:
         detached, detach_declined, legacy_deleted = _detach_stale_family_events(run, active_urls, claimed_legacy_urls)
 
