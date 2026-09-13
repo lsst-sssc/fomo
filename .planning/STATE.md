@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-05-PLAN.md
-last_updated: "2026-09-13T06:48:23.504Z"
+stopped_at: Completed 35-06-PLAN.md
+last_updated: "2026-09-13T08:08:15.466Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 35 execution started
-state_head: 1dd8b53738827942bc1a75e40ee4d0c44ab1f060
+state_head: deb9142c50c62c20760df898516f1afa3563609a
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 25
-  completed_plans: 23
+  completed_plans: 24
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 35 execution started
 
@@ -194,6 +194,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P03 | 21min | 2 tasks | 5 files |
 | Phase 35 P04 | 77min | 3 tasks | 8 files |
 | Phase 35 P05 | 25min | 3 tasks | 7 files |
+| Phase 35 P06 | 95min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -278,6 +279,9 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: Proposal-token syntax is a bracketed [proposal] token, consumed first in parse_run_line(), before the status grammar.
 - [Phase 35]: source_identifier is derived from the run's own stored window_start/window_end, never the raw line day range, so a re-import recomputes a byte-identical key.
 - [Phase 35]: A cancelled classical run's event description now also carries the shared writer's 'Run status: Cancelled' line (documented divergence from pre-cutover output).
+- [Phase 35]: 35-06: legacy_deleted's delete branch is scoped by URL shape alone (bare vs. date-bearing), not by the run's current dispatch branch -- confirmed correct against real data, where several legacy_deleted rows belonged to still-allocation-dispatched runs, not just the 8 single-night runs D-10 sends to a container.
+- [Phase 35]: 35-06: project_allocation() now returns legacy_urls_claimed so campaign_reconciler's dry-run preview never double-counts a night the per-night loop already accounted for -- found only by the real-database four-step proof run (Task 3), not by any unit test in this plan.
+- [Phase 35]: 35-06: found, not fixed -- 8 of the developer database's 16 RUN:{pk} containers carried a stale pre-Phase-33 campaign-label title prefix, corrected by this plan's first post-D-12 reconcile sweep; a pre-existing staleness finding, not a Phase 35 defect.
 
 ### Pending Todos
 
@@ -373,8 +377,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T06:48:23.251Z
-Stopped at: Completed 35-05-PLAN.md
+Last session: 2026-09-13T08:08:15.178Z
+Stopped at: Completed 35-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
