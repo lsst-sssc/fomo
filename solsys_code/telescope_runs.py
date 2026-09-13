@@ -110,6 +110,13 @@ _PARTIAL_NIGHTS = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
+# Optional proposal token, e.g. '[0110.C-0234]' (D-01). Square brackets are unambiguous
+# against every other grammar in this file: the status grammar uses round brackets or a
+# bare word from KNOWN_STATUSES, month names are bare words, and the partial-night grammar
+# is '(BoN|HHMM)-(EoN|HHMM)' with no bracket at all -- so a bracketed token cannot be
+# mistaken for any of them, and no existing schedule line can contain one.
+_PROPOSAL_TOKEN = re.compile(r'\[([^\[\]]*)\]')
+
 
 def get_site(name: str) -> Observatory:
     """Resolves a telescope name to its Observatory record.
@@ -348,6 +355,10 @@ class ParsedRun:
             times >= 1200 are on d evening. None means full night from sunset.
         end_window: optional end-of-window token — 'EoN' (computed sunrise)
             or a 4-digit HHMM UTC string. None means full night to sunrise.
+        proposal: optional proposal identifier from a bracketed '[proposal]'
+            token (D-01), e.g. '0110.C-0234'. None when the line carries no
+            such token. This is what makes two proposals sharing a telescope,
+            an instrument and a set of nights distinguishable.
     """
 
     telescope: str
@@ -359,6 +370,7 @@ class ParsedRun:
     day2: int
     start_window: str | None = None
     end_window: str | None = None
+    proposal: str | None = None
 
 
 def _resolve_telescope(token: str) -> str:
@@ -384,6 +396,45 @@ def _resolve_telescope(token: str) -> str:
             'use a more specific telescope name (e.g. "Magellan-Clay" or "Magellan-Baade").'
         )
     raise ValueError(f'Unknown telescope {token!r}: does not match any SITES key {list(SITES)}')
+
+
+def _resolve_proposal(line: str) -> tuple[str | None, str]:
+    """Extracts and validates the optional bracketed [proposal] token from a run line (D-01).
+
+    Consumed FIRST, before any other token in the line, so its contents can never reach the
+    status matcher, the date-range matchers, the leftover-token check or the trailing-window
+    matcher -- the module's "raise, never guess" discipline extended to this grammar.
+
+    Args:
+        line: the full run line.
+
+    Returns:
+        tuple[str | None, str]: (proposal, remainder) where proposal is the stripped inner
+            text of the single bracketed token found (or None if the line carries none) and
+            remainder is the line with that token removed.
+
+    Raises:
+        ValueError: if two or more bracketed tokens are present; if the (single) token's
+            inner text is empty or whitespace-only; or if, after removing a balanced token,
+            an unbalanced '[' or ']' remains anywhere in the line.
+    """
+    matches = list(_PROPOSAL_TOKEN.finditer(line))
+    if len(matches) > 1:
+        raise ValueError(f'Multiple proposal tokens in {line!r}; at most one [proposal] token is allowed')
+    if matches:
+        match = matches[0]
+        proposal = match.group(1).strip()
+        if not proposal:
+            raise ValueError(f'Empty proposal token {match.group(0)!r} in {line!r}')
+        remainder = line[: match.start()] + line[match.end() :]
+    else:
+        proposal = None
+        remainder = line
+
+    if '[' in remainder or ']' in remainder:
+        raise ValueError(f'Unbalanced bracket in {line!r}')
+
+    return proposal, remainder
 
 
 def _resolve_status(line: str) -> tuple[str, str]:
@@ -435,25 +486,35 @@ def parse_run_line(line: str) -> ParsedRun:
     '0646-EoN'. HHMM < 1200 is treated as next-morning UTC; HHMM >= 1200 is
     same-evening UTC.
 
+    An optional bracketed ``[proposal]`` token, anywhere in the line, names the
+    proposal the run belongs to, e.g. 'NTT EFOSC2 allocation 9-13 July
+    [0110.C-0234]'. This is what makes two proposals sharing a telescope, an
+    instrument and a set of nights distinguishable -- the exact real-data
+    collision Phase 31's identity spike found. It is consumed before every
+    other token (D-01), so its contents can never be mistaken for a status, a
+    month name, or a partial-night window token.
+
     Args:
         line: a single run-line string.
 
     Returns:
         ParsedRun: the parsed telescope, instrument, status, year, month,
-            day1, day2, and optional start_window/end_window.
+            day1, day2, and optional start_window/end_window/proposal.
 
     Raises:
         ValueError: if line is empty, the telescope token does not resolve to
             exactly one SITES key (D-01), the status is unrecognized (D-06),
             no date range can be found, a genuine cross-month range is present
             (PR-REVIEW-F2: not yet supported -- rejected at parse time instead
-            of being parsed into a ParsedRun the loader always rejects), or the
-            trailing window token is present but malformed.
+            of being parsed into a ParsedRun the loader always rejects), the
+            trailing window token is present but malformed, or the bracketed
+            proposal token is empty, duplicated, or unbalanced.
     """
     stripped = line.strip()
     if not stripped:
         raise ValueError('parse_run_line() received an empty line')
 
+    proposal, stripped = _resolve_proposal(stripped)
     status, remainder = _resolve_status(stripped)
 
     # Date range: try month-after-range ('Jul 8-12') first, then check for a
@@ -529,4 +590,5 @@ def parse_run_line(line: str) -> ParsedRun:
         day2=day2,
         start_window=start_window,
         end_window=end_window,
+        proposal=proposal,
     )
