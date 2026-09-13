@@ -588,9 +588,17 @@ research-introduced assumption below should be flagged for a planner confirmatio
 verification against the actual codebase, which succeeded for every claim except the one
 above (a live-DB row-content detail not independently re-queried this session).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact field names/type for D-04's two new `CampaignRun` sub-night fields**
+Both questions below were settled during planning; each carries its resolution and the plan
+that decides it. Nothing in this section is still open.
+
+1. **Exact field names/type for D-04's two new `CampaignRun` sub-night fields** — **RESOLVED
+   (plan 35-03, Task 1):** two nullable `TimeField`s named `night_start_utc` and
+   `night_end_utc`, added by the additive migration
+   `solsys_code/migrations/0018_campaignrun_night_window_fields.py` with no data step. Null in
+   either field means "use the computed sun event for this night". This is the recommendation
+   below, adopted unchanged.
    - What we know: CONTEXT.md explicitly leaves this to the planner ("Claude's Discretion"),
      suggesting `night_start_utc`/`night_end_utc` as a `TimeField` pair, null = computed
      sunset/sunrise.
@@ -603,7 +611,16 @@ above (a live-DB row-content detail not independently re-queried this session).
      `hh, mm = int(window[:2]), int(window[2:])` parsing (construct a `time(hh, mm)`, store
      that) — the planner's discretion is un-blocked by this research either way.
 
-2. **Whether the cutover command needs a `--file` fallback for the 1 unexplainable event (pk 334, the dev DB's own `tmp` junk row)**
+2. **Whether the cutover command needs a `--file` fallback for the 1 unexplainable event (pk 334, the dev DB's own `tmp` junk row)** — **RESOLVED (plan 35-06 Task 2 §5 and §6, plan 35-06
+   Task 3 §3, plan 35-07 Task 3 §4):** the non-zero exit is operator-facing only, exactly as
+   recommended below. No plan gates a CI step, a pipeline step or another command's execution
+   on this command's exit code; no `--file` fallback is added. The two places the command is
+   actually driven both treat the non-zero exit as the expected D-18 outcome on a database that
+   still holds an unexplainable row: 35-06 Task 3 runs it from a shell against a scratch copy
+   and records the reported list as evidence rather than as a task failure, and 35-07 Task 3
+   drives it from a notebook cell through `call_command()` inside a `try` / `except
+   CommandError` that prints the message as cell output, so the notebook run completes and the
+   four end-state assertions that follow it still execute.
    - What we know: D-18 already specifies this event is left untouched and reported, exit
      code non-zero.
    - What's unclear: whether "exit non-zero" should block a CI/deploy pipeline step, or is
