@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-04-PLAN.md
-last_updated: "2026-09-13T06:20:18.306Z"
+stopped_at: Completed 35-05-PLAN.md
+last_updated: "2026-09-13T06:48:23.504Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 35 execution started
-state_head: bbd4267cd0f8a729a77a6f22f380ce73c24f7851
+state_head: 1dd8b53738827942bc1a75e40ee4d0c44ab1f060
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 25
-  completed_plans: 22
+  completed_plans: 23
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 35 execution started
 
@@ -193,6 +193,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P02 | 90min | 3 tasks | 5 files |
 | Phase 35 P03 | 21min | 2 tasks | 5 files |
 | Phase 35 P04 | 77min | 3 tasks | 8 files |
+| Phase 35 P05 | 25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -274,6 +275,9 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-03: _span_needs_remint() never re-mints on a null sub-night field (its expected boundary requires an uncheckable sun_event() call, which D-13 forbids for an existing night); a set field's expected boundary is computed directly with zero astropy cost.
 - [Phase 35]: 35-04: receiver_on_run_observation_delete() uses Django's post_delete origin kwarg (not a plain CampaignRun existence check) to detect a run delete cascade -- empirically verified this Django version fires a CASCADE child's post_delete before the parent row's own DELETE, so the plan's own 'run is already gone by then' assumption was wrong. — Prevents leaking freshly re-minted ALLOC: nights moments before the run itself is deleted.
 - [Phase 35]: 35-04: Task 2's linked-run re-project tests live in test_observation_projector_signals.py (new TestLinkedRunReproject class), matching the plan's own file assignment, not test_allocation_projector_signals.py where they were first drafted.
+- [Phase 35]: Proposal-token syntax is a bracketed [proposal] token, consumed first in parse_run_line(), before the status grammar.
+- [Phase 35]: source_identifier is derived from the run's own stored window_start/window_end, never the raw line day range, so a re-import recomputes a byte-identical key.
+- [Phase 35]: A cancelled classical run's event description now also carries the shared writer's 'Run status: Cancelled' line (documented divergence from pre-cutover output).
 
 ### Pending Todos
 
@@ -369,8 +373,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T06:20:18.073Z
-Stopped at: Completed 35-04-PLAN.md
+Last session: 2026-09-13T06:48:23.251Z
+Stopped at: Completed 35-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
