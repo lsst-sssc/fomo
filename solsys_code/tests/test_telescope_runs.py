@@ -391,3 +391,64 @@ class TestTelescopeRuns(TestCase):
         """D-07: an empty line raises ValueError."""
         with self.assertRaises(ValueError):
             parse_run_line('')
+
+    def test_parse_run_line_proposal_token(self):
+        """D-01: a bracketed [proposal] token parses to ParsedRun.proposal, with every other
+        field identical to the same line without the token."""
+        with_proposal = parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234]')
+        without_proposal = parse_run_line('NTT EFOSC2 allocation 9-13 July')
+        self.assertEqual(with_proposal.proposal, '0110.C-0234')
+        self.assertEqual(
+            with_proposal,
+            ParsedRun(
+                telescope=without_proposal.telescope,
+                instrument=without_proposal.instrument,
+                status=without_proposal.status,
+                year=without_proposal.year,
+                month=without_proposal.month,
+                day1=without_proposal.day1,
+                day2=without_proposal.day2,
+                start_window=without_proposal.start_window,
+                end_window=without_proposal.end_window,
+                proposal='0110.C-0234',
+            ),
+        )
+
+    def test_parse_run_line_no_proposal_token_defaults_to_none(self):
+        """D-01: a line with no bracketed token parses with proposal=None."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July')
+        self.assertIsNone(result.proposal)
+
+    def test_parse_run_line_proposal_token_with_partial_night_window(self):
+        """D-01: the bracketed proposal token does not consume or corrupt a trailing
+        partial-night window token."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234] BoN-0626')
+        self.assertEqual(result.proposal, '0110.C-0234')
+        self.assertEqual(result.start_window, 'BoN')
+        self.assertEqual(result.end_window, '0626')
+        self.assertEqual(result.status, 'allocation')
+
+    def test_parse_run_line_empty_proposal_token_raises(self):
+        """D-01: an empty or whitespace-only bracketed token raises ValueError naming it."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July []')
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July [   ]')
+
+    def test_parse_run_line_two_proposal_tokens_raises(self):
+        """D-01: two bracketed tokens on one line raise ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234] [0111.C-0001]')
+
+    def test_parse_run_line_proposal_token_disjoint_from_status_grammar(self):
+        """D-01: a bracketed token containing a status word is taken as a proposal, not a
+        status -- the two grammars are disjoint."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July [cancelled]')
+        self.assertEqual(result.status, 'allocation')
+        self.assertEqual(result.proposal, 'cancelled')
+
+    def test_parse_run_line_unbalanced_proposal_bracket_raises(self):
+        """D-01: an unbalanced bracket raises ValueError rather than silently parsing the
+        remainder as an instrument or a leftover status."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234')
