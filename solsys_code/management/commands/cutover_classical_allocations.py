@@ -303,6 +303,24 @@ class Command(BaseCommand):
                             try:
                                 with transaction.atomic():  # per-event savepoint
                                     night = observing_night(event.start_time, site_zone)
+                                    # WR-08 (35-REVIEW.md): the run's window comes from
+                                    # _iter_run_nights(parsed) (the schedule line's own day
+                                    # range), while the event's own night is an independent
+                                    # derivation from its stored start_time -- nothing
+                                    # asserts the two agree. A mismatch (an off-by-one ESO
+                                    # boundary, or a CR-06-shaped bug in a stored event) would
+                                    # re-key the event to an ALLOC:{pk}:{night} url OUTSIDE
+                                    # the run's own window, which project_allocation()'s
+                                    # convergence step then classifies as stale and DELETES
+                                    # on the very next sweep -- silently converting this
+                                    # command's own "never removes a CalendarEvent row, on
+                                    # any path" guarantee into "hands the next sweep a row to
+                                    # remove". Validate before re-keying.
+                                    if not (run.window_start <= night <= run.window_end):
+                                        raise ValueError(
+                                            f"derived night {night} falls outside the run's window "
+                                            f'{run.window_start}..{run.window_end}'
+                                        )
                                     url = allocation_night_url(run, night)
                                     dark_line = preserved_dark_window_line(event)
                                     rekey_fields = {

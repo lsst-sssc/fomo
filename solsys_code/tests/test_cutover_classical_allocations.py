@@ -584,3 +584,37 @@ class TestGroupTransactionBoundary(CutoverClassicalAllocationsTestBase):
         for event in events[1:]:
             event.refresh_from_db()
             self.assertTrue(event.url.startswith(f'ALLOC:{run.pk}:'))  # the other two still converted
+
+
+class TestWindowContainmentGuard(CutoverClassicalAllocationsTestBase):
+    """35-REVIEW.md WR-08: a re-keyed event's own independently-derived night must lie
+    inside the run's own window (from the schedule line's day range) -- nothing else
+    asserts the two agree, and a mismatch silently re-keyed a url outside the window that
+    the very next sweep's convergence step would then classify as stale and delete."""
+
+    def test_event_whose_derived_night_falls_outside_the_window_is_reported_not_rekeyed(self):
+        in_window_events = self._make_three_night_group()
+        year = date.today().year
+        outlier_start = datetime(year, 7, 20, 23, 0, tzinfo=dt_timezone.utc)
+        outlier_end = datetime(year, 7, 21, 9, 0, tzinfo=dt_timezone.utc)
+        outlier = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE,
+            start_time=outlier_start,
+            end_time=outlier_end,
+            target_list=self.campaign,
+        )
+
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=StringIO(), stderr=err)
+
+        self.assertIn("falls outside the run's window", err.getvalue())
+        outlier.refresh_from_db()
+        self.assertEqual(outlier.url, '')  # never re-keyed to a url outside the window
+
+        parsed = parse_run_line(_THREE_NIGHT_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        run = CampaignRun.objects.get(source_identifier=key)
+        for event in in_window_events:
+            event.refresh_from_db()
+            self.assertTrue(event.url.startswith(f'ALLOC:{run.pk}:'))  # the in-window nights still converted
