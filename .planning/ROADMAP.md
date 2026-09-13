@@ -260,7 +260,16 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans**: TBD
+**Plans:** 7 plans across 5 waves
+
+Plans:
+- [ ] 35-01-PLAN.md — Allocation projector, dispatch and the observation handoff (wave 1, tracer)
+- [ ] 35-02-PLAN.md — Migrate the existing suite off the retired per-night key family (wave 2)
+- [ ] 35-03-PLAN.md — Sub-night window fields on the allocation record, and the re-mint rule (wave 2)
+- [ ] 35-04-PLAN.md — Link, unlink and record-save triggers for an immediate handoff (wave 3)
+- [ ] 35-05-PLAN.md — `load_telescope_runs` writes allocations, with a collision-safe identity key (wave 3)
+- [ ] 35-06-PLAN.md — The one-time classical cutover command and the container-side legacy delete (wave 4)
+- [ ] 35-07-PLAN.md — Paired docs: runbook cutover section and both re-executed demo notebooks (wave 5)
 
 ### Phase 36: Unattended Operation
 
