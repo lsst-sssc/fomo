@@ -100,7 +100,7 @@ read-back.
   as "still planned". A record that expires while still queued never retired anything (D-05), so
   its allocation night simply remains. What an unused awarded night looks like is Phase 37's
   UNUSED-01.
-- **D-07: Retire = delete the `ALLOC:` event and its `CalendarEventMeta` row.** Allocation events
+- **D-07:** Retire = delete the `ALLOC:` event and its `CalendarEventMeta` row. Allocation events
   are derived state, re-creatable from the run plus `sun_event()`, and carry no human audit of
   their own (attribution audit lives on the observation event's meta). Unlink re-mints the
   night, as spike 003 measured (link → 1 retired, re-project → unchanged, unlink → 1 created).
@@ -114,8 +114,8 @@ read-back.
 
 ### Projector home, dispatch & trigger (ALLOC-01, ALLOC-02)
 
-- **D-09: New peer module `solsys_code/allocation_projector.py` owns the `ALLOC:` namespace;
-  `reconcile_run()` dispatches to it.** `reconcile_run()` keeps its stage-0 guard
+- **D-09:** New peer module `solsys_code/allocation_projector.py` owns the `ALLOC:` namespace;
+  `reconcile_run()` dispatches to it. `reconcile_run()` keeps its stage-0 guard
   (`_skip_reason()`), its container branch (`RUN:{pk}`) and its convergence step, and calls the
   allocation projector for the per-night case, so the three staff-action views,
   `write_and_reconcile_campaign_run()` and the `reconcile_campaign_runs` sweep keep one entry
@@ -154,7 +154,7 @@ read-back.
   sub-night fields, the projector deletes and re-creates that night. `sun_event()` (both
   `'sun'` and `'dark'`) runs only for a night being created or re-minted — this is the folded
   todo below, built into the new module rather than patched into the retired branch.
-- **D-14: Re-classification deletes leftover `ALLOC:` nights.** When a run changes family (a
+- **D-14:** Re-classification deletes leftover `ALLOC:` nights. When a run changes family (a
   `LEGACY` row relabeled to a queue source, a class set, a site resolved), the convergence step
   deletes any `ALLOC:{pk}:*` event not in this reconcile's active set — the same op as D-07's
   retire — while `RUN:` containers keep CR-01's detach-only rule. SC 5's "no orphan" holds
@@ -175,8 +175,8 @@ read-back.
   `reconcile_campaign_runs_demo.ipynb` diff proves the result: before/after per-night counts,
   zero `RUN:{pk}:{date}` left, zero blank-url classical left, `RUN:{pk}` containers and every
   URL-keyed observation event byte-identical.
-- **D-16: `RUN:{pk}:{date}` nights are re-keyed in place, or deleted when their run is now a
-  container.** For a per-night run the projector's takeover updates `url` →
+- **D-16:** `RUN:{pk}:{date}` nights are re-keyed in place, or deleted when their run is now a
+  container. For a per-night run the projector's takeover updates `url` →
   `ALLOC:{pk}:{night}` and the title to D-12's form, keeping the pk, `start_time`/`end_time` (no
   `sun_event()` recompute) and the self-attributed meta row; a night whose run has a
   placed/observed linked record is deleted in the same pass (D-05/D-07). For a run that D-10
@@ -185,8 +185,8 @@ read-back.
   retires, so every one of its events is either re-keyed or removed; CR-01's detach-only rule
   applies to `RUN:{pk}` containers only. One-time churn is accepted (33 D-12 / 34 D-19
   precedent).
-- **D-17: Legacy blank-url classical events become allocations by re-parsing their own
-  `Source line:`.** The cutover command groups blank-url events by the `Source line:` in their
+- **D-17:** Legacy blank-url classical events become allocations by re-parsing their own
+  `Source line:`. The cutover command groups blank-url events by the `Source line:` in their
   description, runs `parse_run_line()` + `get_site()`, creates the campaign-less run
   (`source=CLASSICAL_FILE`, `campaign` = the events' `target_list`, sub-night tokens preserved
   into D-04's fields, `source_identifier` per D-01), then re-keys each event to

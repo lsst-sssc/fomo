@@ -4,16 +4,16 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
-status: planning
+status: executing
 stopped_at: Phase 35 context gathered
-last_updated: "2026-09-13T00:05:55.686Z"
+last_updated: "2026-09-13T02:22:46.264Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 34 complete, transitioned to Phase 35
-state_head: 90cfe20a733e61e49876db5a069094104b223188
+state_head: 9285800a50b48d67c28ab4cd17e44865b29ec300
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 18
+  total_plans: 25
   completed_plans: 18
   percent: 40
 ---
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 — Allocation Layer & Classical Cutover
+Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-09-12 — Phase 34 complete, transitioned to Phase 35
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)

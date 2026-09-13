@@ -263,12 +263,26 @@ Plans:
 **Plans:** 7 plans across 5 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 35-01-PLAN.md — Allocation projector, dispatch and the observation handoff (wave 1, tracer)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 35-02-PLAN.md — Migrate the existing suite off the retired per-night key family (wave 2)
 - [ ] 35-03-PLAN.md — Sub-night window fields on the allocation record, and the re-mint rule (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 35-04-PLAN.md — Link, unlink and record-save triggers for an immediate handoff (wave 3)
 - [ ] 35-05-PLAN.md — `load_telescope_runs` writes allocations, with a collision-safe identity key (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 35-06-PLAN.md — The one-time classical cutover command and the container-side legacy delete (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 35-07-PLAN.md — Paired docs: runbook cutover section and both re-executed demo notebooks (wave 5)
 
 ### Phase 36: Unattended Operation
