@@ -527,3 +527,124 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         totals['retired'] += stale_count
 
     return ReconcileResult(**totals), active_urls
+
+
+def receiver_on_run_observation_save(sender: Any, instance: Any, created: bool, raw: bool, **kwargs: Any) -> None:
+    """post_save receiver on ``CampaignRunObservation`` (D-11): re-projects the linked run so
+    an allocation night retires the moment a staff member confirms an attribution -- no
+    operator command, no sweep.
+
+    Fires downstream of an action that is already access-controlled
+    (``AttributionDecisionView`` sits behind ``StaffRequiredMixin``); this is a receiver
+    below an access-controlled action, not a new entry point. Makes no network call of its
+    own, and reaches ``sun_event()`` only through ``project_allocation()``'s own
+    create-or-re-mint branch -- the common transition here (linking a placed record) is a
+    delete, not a mint.
+
+    Returns immediately for a fixture load (``raw=True``). Resolves the run defensively
+    (``CampaignRun.objects.filter(pk=instance.run_id).first()``) and returns when it is
+    None -- the row's own ``run`` foreign key is required and a save is never a CASCADE
+    consequence of the run's own deletion the way a delete can be, so in practice this only
+    guards a race with a concurrent run deletion. See
+    ``receiver_on_run_observation_delete()``'s own docstring for why its post-delete
+    equivalent needs a stronger, ``origin``-based guard instead of relying on this lookup
+    alone.
+
+    Args:
+        sender: the model class Django's signal framework passes (``CampaignRunObservation``).
+        instance: the ``CampaignRunObservation`` that was just saved.
+        created: True if this save created a new row (unused -- the run is re-projected
+            either way, since an edit to an existing link's schedule-relevant fields would
+            matter too).
+        raw: True if this save came from a fixture load (``loaddata``).
+        **kwargs: the remaining signal kwargs (``using``, ``update_fields``), unused.
+    """
+    if raw:
+        return
+    run = CampaignRun.objects.filter(pk=instance.run_id).first()
+    if run is None:
+        return
+    try:
+        project_allocation(run)
+    except Exception as exc:  # noqa: BLE001 -- never abort the caller's save
+        logger.warning(
+            'receiver_on_run_observation_save failed for link pk=%s run pk=%s: %s',
+            instance.pk,
+            instance.run_id,
+            type(exc).__name__,
+        )
+        return
+    logger.debug(
+        'post_save re-projected run pk=%s after CampaignRunObservation pk=%s save',
+        instance.run_id,
+        instance.pk,
+    )
+
+
+def receiver_on_run_observation_delete(sender: Any, instance: Any, **kwargs: Any) -> None:
+    """post_delete receiver on ``CampaignRunObservation`` (D-11): re-projects the linked run
+    so an allocation night returns the moment a staff member undoes an attribution -- no
+    operator command, no sweep.
+
+    No ``raw`` parameter -- ``post_delete`` never sends one.
+
+    A ``CampaignRun`` delete cascade (``run.delete()``) must project nothing, per its own
+    ``pre_delete`` receiver already having cleared every one of the run's writable ``ALLOC:``
+    events (``models.py``'s ``CampaignRun`` ``pre_delete`` receiver) before this signal ever
+    fires -- re-projecting here would just re-mint fresh nights moments before the run row
+    itself disappears. A plain ``CampaignRun.objects.filter(pk=instance.run_id).exists()``
+    check cannot detect this case: Django's ``Collector`` deletes a CASCADE child (this row)
+    and sends its ``post_delete`` *before* the parent row's own DELETE statement runs, in the
+    same transaction -- so the run still exists in the database at this exact moment
+    (verified against this project's Django version; the plan's own draft assumed the
+    opposite). What Django DOES give a cascade-fired signal that a standalone delete lacks is
+    ``kwargs['origin']`` -- the model instance ``.delete()`` was originally called on, the
+    same for every signal the resulting ``Collector`` run fires. When ``origin`` is a
+    ``CampaignRun`` (not this ``CampaignRunObservation`` itself), this delete is a cascade
+    side effect of the run's own deletion, and this receiver returns without projecting
+    anything. Only when ``origin`` is NOT a ``CampaignRun`` (a standalone
+    ``link.delete()``/``CampaignRunObservation.objects.filter(...).delete()`` call, where
+    ``origin`` is the link/queryset itself) does the run-existence lookup below apply, as a
+    second, defensive check.
+
+    This receiver deliberately does NOT clear the removed link's own event attribution
+    itself, and must not start doing so: ``project_allocation()`` already converges
+    attributions against the run's surviving links (35-01 Task 2 step 4b /
+    ``_sync_observation_attribution()``), so the one call this receiver makes both restores
+    the night and clears the stale ``CalendarEventMeta.run`` together, and the sweep gets
+    the same result without a signal. A second clearing writer here would be a second place
+    for the human-confirmation guard to be forgotten.
+
+    Fires downstream of an action that is already access-controlled
+    (``AttributionDecisionView`` sits behind ``StaffRequiredMixin``). Makes no network call
+    of its own, and reaches ``sun_event()`` only through ``project_allocation()``'s own
+    create-or-re-mint branch.
+
+    Args:
+        sender: the model class Django's signal framework passes (``CampaignRunObservation``).
+        instance: the ``CampaignRunObservation`` that was just deleted (already removed from
+            the database by the time this fires, but its in-memory ``pk``/``run_id`` are
+            still populated).
+        **kwargs: the remaining signal kwargs (``using``, ``origin``); ``origin`` is read,
+            ``using`` is unused.
+    """
+    if isinstance(kwargs.get('origin'), CampaignRun):
+        return
+    run = CampaignRun.objects.filter(pk=instance.run_id).first()
+    if run is None:
+        return
+    try:
+        project_allocation(run)
+    except Exception as exc:  # noqa: BLE001 -- never abort the caller's delete
+        logger.warning(
+            'receiver_on_run_observation_delete failed for link pk=%s run pk=%s: %s',
+            instance.pk,
+            instance.run_id,
+            type(exc).__name__,
+        )
+        return
+    logger.debug(
+        'post_delete re-projected run pk=%s after CampaignRunObservation pk=%s delete',
+        instance.run_id,
+        instance.pk,
+    )
