@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-02-PLAN.md
-last_updated: "2026-09-13T04:38:08.423Z"
+stopped_at: Completed 35-03-PLAN.md
+last_updated: "2026-09-13T05:01:18.949Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 35 execution started
-state_head: cfd63fe3dccb785c058dd95825f6c05675a5b116
+state_head: ebf363c3f6c208c47813741b56c9bd75420bc3d7
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 25
-  completed_plans: 20
+  completed_plans: 21
   percent: 20
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 35 execution started
 
@@ -191,6 +191,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 34 P07 | ~50min | 3 tasks | 3 files |
 | Phase 35 P01 | 53min | 3 tasks | 8 files |
 | Phase 35 P02 | 90min | 3 tasks | 5 files |
+| Phase 35 P03 | 21min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -267,6 +268,9 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-02: TestClassicalStage1's 5 tests with a confirmed test_allocation_projector.py counterpart are retired; the 2 without one (site-local key-date round-trip, mid-loop sun_event ValueError propagation) are kept, migrated to the ALLOC: key form.
 - [Phase 35]: [Phase 35]: 35-02: TestAttributedNightSkip and TestObservingNightBoundary retired outright -- _attributed_nights() is dead code after 35-01 (defined, never called); TestObservingNightBoundary's coverage is fully duplicated by test_allocation_projector.TestAllocationNightBoundary.
 - [Phase 35]: [Phase 35]: 35-02: found, not fixed (test-only plan scope) -- campaign_views._resolve_site()'s 'no new entries' message still names result.skipped_nights, which is now permanently 0 after the D-05 handoff superseded the skip-the-night rule; recommend a follow-up quick task.
+- [Phase 35]: [Phase 35]: 35-03: night_start_utc/night_end_utc are TimeFields, not integer minutes-after-midnight -- they round-trip cleanly from the classical loader's own (hour, minute) integer parse and are directly admin-editable.
+- [Phase 35]: [Phase 35]: 35-03: no admin.py change needed for the two new sub-night fields -- CampaignRunAdmin declares no explicit fields/fieldsets list, so both are editable by default.
+- [Phase 35]: [Phase 35]: 35-03: _span_needs_remint() never re-mints on a null sub-night field (its expected boundary requires an uncheckable sun_event() call, which D-13 forbids for an existing night); a set field's expected boundary is computed directly with zero astropy cost.
 
 ### Pending Todos
 
@@ -362,8 +366,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T04:37:56.226Z
-Stopped at: Completed 35-02-PLAN.md
+Last session: 2026-09-13T05:00:28.449Z
+Stopped at: Completed 35-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
