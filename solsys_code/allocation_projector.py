@@ -159,22 +159,57 @@ def preserved_dark_window_line(event: CalendarEvent) -> str | None:
     return None
 
 
-def _time_of_day_to_datetime(t, night) -> datetime:
+def _site_runs_behind_utc(run: CampaignRun, night) -> bool:
+    """Whether this run's site's local clock runs BEHIND UTC (west of Greenwich) around
+    ``night`` -- decides which UTC calendar date a stored sub-night time-of-day belongs to
+    (D-04, 35-REVIEW.md CR-06). A cheap ``zoneinfo`` offset lookup only, never an astropy
+    ``sun_event()`` call, so it stays safe to call from ``_span_needs_remint()``'s
+    astropy-free update path (D-13).
+
+    A hard-coded 12:00 UTC threshold (the pre-CR-06 rule) is correct only for a site whose
+    local clock runs behind UTC (La Silla/Cerro Pachon, Chile, UTC-3/-4): local evening maps
+    to a LATE UTC hour on the night's own date, and local morning maps to an EARLY UTC hour
+    on the FOLLOWING date, so the threshold correctly tells the two apart. For a site whose
+    local clock runs AHEAD of UTC (Siding Spring, Australia, UTC+10/+11), the entire local
+    night maps into a SINGLE UTC date -- the night's own -- so the fixed threshold produced
+    the exact inversion CR-06 reproduced: a stored morning-side time was pushed a full day
+    late.
+
+    Args:
+        run: the ``CampaignRun`` being projected -- its ``site.timezone`` decides the
+            answer.
+        night: the site-local observing night (evening date); a stable anchor for the
+            offset lookup only, not itself part of the returned answer's arithmetic.
+
+    Returns:
+        bool: True when the site's local clock runs behind UTC for this night.
+    """
+    site_zone = ZoneInfo(run.site.timezone)
+    anchor = datetime(night.year, night.month, night.day, 12, tzinfo=site_zone)
+    offset = anchor.utcoffset()
+    return offset is not None and offset.total_seconds() < 0
+
+
+def _time_of_day_to_datetime(t, night, west_of_utc: bool) -> datetime:
     """A stored sub-night `TimeField` value -> a UTC datetime for one observing night (D-04).
 
-    This is `load_telescope_runs._resolve_window_time()`'s own date-offset rule, reproduced
-    (not re-derived) so it is pinned identically here: an hour before 12:00 UTC belongs to
-    the NEXT morning for that observing night; 12:00 or later belongs to the night's own
-    evening date.
+    Reproduces `load_telescope_runs`'s pre-Phase-35 date-offset rule for a site whose local
+    clock runs behind UTC: an hour before 12:00 UTC belongs to the NEXT morning for that
+    observing night; 12:00 or later belongs to the night's own evening date. CR-06
+    (35-REVIEW.md): that rule inverts for a site whose local clock runs AHEAD of UTC, where
+    the entire local night maps into the night's own UTC date regardless of hour -- see
+    `_site_runs_behind_utc()`.
 
     Args:
         t: a ``datetime.time`` (a stored ``night_start_utc``/``night_end_utc`` value).
         night: the site-local observing night (evening date).
+        west_of_utc: `_site_runs_behind_utc(run, night)` -- whether an early UTC hour
+            belongs to the night's own evening date or the following morning.
 
     Returns:
         datetime: the UTC-aware datetime for that time-of-day on the correct date.
     """
-    base_date = night + timedelta(days=1) if t.hour < 12 else night
+    base_date = (night + timedelta(days=1) if t.hour < 12 else night) if west_of_utc else night
     return datetime(base_date.year, base_date.month, base_date.day, t.hour, t.minute, t.second, tzinfo=dt_timezone.utc)
 
 
@@ -197,15 +232,38 @@ def night_bounds(run: CampaignRun, night, sunset, sunrise) -> tuple[datetime, da
 
     Returns:
         tuple[datetime, datetime]: ``(start, end)``, both UTC-aware, seconds precision.
+
+    Raises:
+        ValueError: the resolved ``start`` is not strictly before ``end`` (CR-06,
+            35-REVIEW.md) -- refuses to hand the caller an inverted span to write, rather
+            than silently minting a ``CalendarEvent`` whose ``start_time`` is after its
+            ``end_time``.
     """
+    west_of_utc = _site_runs_behind_utc(run, night)
     if run.night_start_utc is None:
         start = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     else:
-        start = _time_of_day_to_datetime(run.night_start_utc, night)
+        start = _time_of_day_to_datetime(run.night_start_utc, night, west_of_utc)
     if run.night_end_utc is None:
         end = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     else:
-        end = _time_of_day_to_datetime(run.night_end_utc, night)
+        end = _time_of_day_to_datetime(run.night_end_utc, night, west_of_utc)
+    if start >= end:
+        logger.error(
+            'Allocation night_bounds inverted for run pk=%s night=%s: start=%s >= end=%s '
+            '(night_start_utc=%s, night_end_utc=%s).',
+            run.pk,
+            night,
+            start,
+            end,
+            run.night_start_utc,
+            run.night_end_utc,
+        )
+        raise ValueError(
+            f'Computed an inverted allocation-night span for run pk={run.pk} night={night}: '
+            f'start={start.isoformat()} >= end={end.isoformat()}. Check night_start_utc/'
+            'night_end_utc against the site timezone.'
+        )
     return start, end
 
 
@@ -229,9 +287,16 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool
     Returns:
         bool: True when the night must be deleted and re-created fresh.
     """
-    if run.night_start_utc is not None and existing.start_time != _time_of_day_to_datetime(run.night_start_utc, night):
+    if run.night_start_utc is None and run.night_end_utc is None:
+        return False
+    west_of_utc = _site_runs_behind_utc(run, night)
+    if run.night_start_utc is not None and existing.start_time != _time_of_day_to_datetime(
+        run.night_start_utc, night, west_of_utc
+    ):
         return True
-    if run.night_end_utc is not None and existing.end_time != _time_of_day_to_datetime(run.night_end_utc, night):
+    if run.night_end_utc is not None and existing.end_time != _time_of_day_to_datetime(
+        run.night_end_utc, night, west_of_utc
+    ):
         return True
     return False
 

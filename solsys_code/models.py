@@ -266,11 +266,15 @@ class CampaignRun(models.Model):
     # permanent value for a web submission, a CSV import and every queue-sourced run; only a
     # classical schedule line that named a partial night ever sets them.
     #
-    # A stored time whose hour is before 12:00 UTC belongs to the NEXT morning for that
-    # observing night; 12:00 or later belongs to the night's own evening date. This is the
-    # rule the classical loader (`load_telescope_runs._resolve_window_time()`) has applied
-    # since the feature shipped, moved behind the run so the allocation projector can apply
-    # it per night instead of the command re-deriving it.
+    # Which UTC calendar date a stored time-of-day belongs to depends on the site's own UTC
+    # offset direction (allocation_projector._site_runs_behind_utc(), CR-06, 35-REVIEW.md):
+    # for a site whose local clock runs BEHIND UTC (La Silla/Cerro Pachon, Chile), an hour
+    # before 12:00 UTC belongs to the NEXT morning for that observing night, 12:00 or later
+    # to the night's own evening date -- the rule the classical loader applied verbatim
+    # before this field existed. For a site whose local clock runs AHEAD of UTC (Siding
+    # Spring, Australia), the entire local night maps into a SINGLE UTC date -- the night's
+    # own -- so that 12:00 threshold does not apply at all. `night_bounds()` (the allocation
+    # projector) is the single place this per-site rule is now applied, per night.
     #
     # The pair is deliberately NOT covered by a null-together constraint: a line may name a
     # start time and leave the end at the computed sunrise, or the reverse, and both forms

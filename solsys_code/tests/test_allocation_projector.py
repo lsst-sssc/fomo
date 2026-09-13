@@ -861,3 +861,89 @@ class TestSubNightWindow(AllocationProjectorTestBase):
         self.assertEqual(result.unchanged, 3)
         pks_after = {e.url: e.pk for e in allocation_events(run)}
         self.assertEqual(pks_before, pks_after)
+
+
+class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-06: a stored sub-night time-of-day's UTC calendar date depends on
+    which way the site's local clock runs relative to UTC -- the fixed 12:00 UTC threshold
+    was only ever correct for a site west of Greenwich (Chile). Uses the Sydney (`FTS`,
+    UTC+10/+11) fixture; verified against the projector's own `sun_event()`-computed full
+    night."""
+
+    def test_sydney_early_utc_hour_start_stays_on_its_own_night_not_pushed_a_day_late(self):
+        """Reproduces the exact CR-06 probe: a `night_start_utc` before 12:00 UTC must land
+        on the night's OWN date for a site ahead of UTC, not the following day -- the
+        pre-fix rule inverted this into a span whose start was 14.5 hours after its end."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(9, 30),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.start_time, datetime(2026, 8, 1, 9, 30, 0, tzinfo=dt_timezone.utc))
+        _expected_sunset, expected_sunrise = sun_event(self.australian_site, night, kind='sun')
+        self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
+
+    def test_sydney_late_utc_hour_end_stays_on_its_own_night_not_pushed_early(self):
+        """The mirror case: an evening-side `night_end_utc` (hour >= 12) already happened to
+        land correctly under the pre-fix rule for a west-of-UTC site's 12:00 threshold, but
+        must ALSO stay on its own night's date for an east-of-UTC site -- proving the fix is
+        the site-direction rule, not merely "never push to the next day"."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_end_utc=time(19, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.end_time, datetime(2026, 8, 1, 19, 0, 0, tzinfo=dt_timezone.utc))
+        expected_sunset, _expected_sunrise = sun_event(self.australian_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
+
+    def test_chile_pre_fix_direction_is_unchanged(self):
+        """The west-of-UTC site's own rule (Chile) must be byte-identical to the pre-fix
+        behaviour -- CR-06's fix is additive (site-direction-aware), not a regression for
+        the hemisphere the original rule already handled correctly."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, night_end_utc=time(6, 26))
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        next_morning = night + timedelta(days=1)
+        self.assertEqual(
+            event.end_time,
+            datetime(next_morning.year, next_morning.month, next_morning.day, 6, 26, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def test_sydney_inverted_sub_night_fields_raise_instead_of_writing_an_inverted_event(self):
+        """A guard, not just a corrected rule: an operator input (or a future site whose
+        direction this rule still gets wrong) that would still produce start >= end must
+        never be silently written to the shared calendar."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(19, 0),
+            night_end_utc=time(8, 0),
+        )
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
