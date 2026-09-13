@@ -565,12 +565,30 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
 
     totals['blocked'] += _sync_observation_attribution(run, dry_run=dry_run)
 
+    # CR-04 (35-REVIEW.md): namespace identity (allocation_events()) alone is NOT
+    # ownership -- an event attributed to a DIFFERENT run, or human-confirmed to THIS run,
+    # must survive this convergence exactly like every other delete/detach path in this
+    # module and campaign_reconciler.py already requires. writable_allocation_events()
+    # narrows to what this run may actually write; _clearable_and_declined() then splits
+    # that into what an automated sweep may delete vs. what a human confirmation protects.
     stale_qs = allocation_events(run).exclude(url__in=active_urls | retired_urls)
-    stale_count = stale_qs.count()
-    if stale_count:
+    writable_stale = writable_allocation_events(run).exclude(url__in=active_urls | retired_urls)
+    foreign_stale_count = stale_qs.count() - writable_stale.count()
+    stale_ids, declined_stale = _clearable_and_declined(run, writable_stale)
+    if foreign_stale_count or declined_stale:
+        logger.warning(
+            'Allocation convergence left %s event(s) alone for run pk=%s: %s attributed to a '
+            'different run, %s human-confirmed to this run.',
+            foreign_stale_count + declined_stale,
+            run.pk,
+            foreign_stale_count,
+            declined_stale,
+        )
+    totals['blocked'] += foreign_stale_count + declined_stale
+    if stale_ids:
         if not dry_run:
-            stale_qs.delete()
-        totals['retired'] += stale_count
+            CalendarEvent.objects.filter(pk__in=stale_ids).delete()
+        totals['retired'] += len(stale_ids)
 
     return ReconcileResult(**totals), active_urls, legacy_urls_claimed
 

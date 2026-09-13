@@ -412,6 +412,55 @@ class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
         self.assertEqual(result.blocked, 1)
 
 
+class TestFinalConvergenceGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-04: the final `stale_qs` convergence step must use
+    `writable_allocation_events()`, not namespace identity alone -- an event attributed to a
+    different run, or human-confirmed to this run, must survive a window shrink."""
+
+    def test_window_shrink_never_deletes_a_night_confirmed_to_a_different_run(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        staff_user = User.objects.create(username='convergence-staffer')
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = other_run
+        meta.confirmed_by = staff_user
+        meta.confirmed_at = timezone.now()
+        meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, other_run.pk)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.blocked, 1)
+
+    def test_window_shrink_never_deletes_a_night_human_confirmed_to_this_run(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        staff_user = User.objects.create(username='self-confirm-staffer')
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.confirmed_by = staff_user
+        meta.confirmed_at = timezone.now()
+        meta.save(update_fields=['confirmed_by', 'confirmed_at'])
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+        meta.refresh_from_db()
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.blocked, 1)
+
+
 class TestAttributionBridge(AllocationProjectorTestBase):
     """Task 2, D-08: attribution is a link on the record's OWN event, both directions."""
 
