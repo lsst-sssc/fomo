@@ -366,7 +366,7 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
 
         output = out.getvalue()
         self.assertIn(f'Run pk={run.pk}', output)
-        self.assertIn('night(s) retired', output)
+        self.assertIn('allocation night(s) were removed', output)
         summary = _parse_summary(output)
         self.assertEqual(summary['retired'], 1)
         self.assertEqual(summary['rekeyed'], 0)
@@ -468,9 +468,9 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         real_summary = _parse_summary(real_out.getvalue())
         self.assertEqual(real_summary['legacy_deleted'], 1)
 
-    def test_dry_run_retired_message_says_would_be_retired_not_past_tense(self):
+    def test_dry_run_retired_message_says_would_be_removed_not_past_tense(self):
         """35-REVIEW.md WR-04: under --dry-run nothing has been written yet -- the per-run
-        message must not claim a night was already retired."""
+        message must not claim a night was already removed."""
         night = date(2026, 8, 1)
         run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.CLASSICAL_FILE)
         scheduled_start = datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc)
@@ -481,8 +481,26 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         call_command('reconcile_campaign_runs', '--dry-run', stdout=out)
 
         output = out.getvalue()
-        self.assertIn(f'Run pk={run.pk}: 1 night(s) would be retired', output)
-        self.assertNotIn('night(s) retired --', output)
+        self.assertIn(f'Run pk={run.pk}: 1 allocation night(s) would be removed', output)
+        self.assertNotIn('night(s) were removed', output)
+
+    def test_retired_message_does_not_claim_a_single_cause(self):
+        """35-REVIEW.md WR-05: `result.retired` is incremented from three unrelated causes
+        (observation handoff, sub-night re-mint, window-shrink convergence) -- the message
+        must not claim the observation-handoff cause specifically."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.CLASSICAL_FILE)
+        scheduled_start = datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=2)
+        self._link_placed_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+
+        out = StringIO()
+        call_command('reconcile_campaign_runs', stdout=out)
+
+        output = out.getvalue()
+        self.assertIn(f'Run pk={run.pk}: 1 allocation night(s) were removed', output)
+        self.assertIn('observation handoff, sub-night re-mint or window change', output)
+        self.assertNotIn('now covered by a real observation', output)
 
     def test_dry_run_rekeyed_message_says_would_be_re_keyed_not_past_tense(self):
         night = date(2026, 8, 1)

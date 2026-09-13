@@ -83,14 +83,17 @@ class Command(BaseCommand):
             rekeyed += result.rekeyed
             legacy_deleted += result.legacy_deleted
             if result.retired:
-                # D-05/D-07 (Phase 35): a linked record's placed or observed block now
-                # occupies the night, so its allocation event is gone -- not a failure.
-                # WR-04 (35-REVIEW.md): route the verb through dry_run -- under --dry-run
-                # nothing below has been written yet, and the summary line already says
-                # would_retire, not retired.
-                verb = 'would be retired' if dry_run else 'retired'
+                # WR-05 (35-REVIEW.md): `result.retired` is incremented from three unrelated
+                # causes inside `project_allocation()` -- the D-05/D-07 observation handoff,
+                # the D-13 sub-night re-mint (where the night is immediately re-created, NOT
+                # covered by an observation), and the D-14 window-shrink convergence -- so
+                # this message must not claim a single cause. WR-04 (35-REVIEW.md): route
+                # the verb through dry_run -- under --dry-run nothing below has been written
+                # yet, and the summary line already says would_retire, not retired.
+                verb = 'would be' if dry_run else 'were'
                 self.stdout.write(
-                    f'Run pk={run.pk}: {result.retired} night(s) {verb} -- now covered by a real observation'
+                    f'Run pk={run.pk}: {result.retired} allocation night(s) {verb} removed '
+                    '(observation handoff, sub-night re-mint or window change)'
                 )
             if result.rekeyed:
                 verb = 'would be re-keyed' if dry_run else 're-keyed'
