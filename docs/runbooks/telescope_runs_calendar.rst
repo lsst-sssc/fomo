@@ -17,20 +17,72 @@ How do I load a classical telescope schedule?
 -----------------------------------------------
 
 ``load_telescope_runs`` reads a plain-text schedule file -- one classical
-run per line, e.g. ``NTT EFOSC2 allocation 9-13 July`` -- and expands each
-run into one ``CalendarEvent`` per observing night, with sunset/sunrise and
-the -15 deg dark window computed for that night's site. Running it again on
-an unchanged file is a no-op; running it after the file changes creates or
-updates only the affected nights.
+run per line, e.g. ``NTT EFOSC2 allocation 9-13 July`` -- and creates or
+updates one ``CampaignRun`` per line (``source=CLASSICAL_FILE``). It no
+longer writes any ``CalendarEvent`` itself: the allocation projector draws
+the same per-night calendar from that run, with sunset/sunrise and the -15
+deg dark window computed for that night's site. Running it again on an
+unchanged file is a no-op; running it after the file changes creates or
+updates only the affected run and lets the projector re-derive the
+affected nights.
 
 .. code-block:: console
 
    >> python3 manage.py load_telescope_runs path/to/schedule.txt
 
-An optional ``--campaign <name>`` flag associates every ``CalendarEvent`` the
+**The calendar entries look exactly as they did before this change** -- same
+titles (``NTT EFOSC2``), same sunset-to-sunrise spans, same -15 deg dark
+window line in the description. The one visible difference: a cancelled
+line's event description now also carries the shared writer's
+``Run status: Cancelled`` line, because every allocation description is
+composed through the same helper every other campaign-run event uses.
+
+A schedule line is matched to its ``CampaignRun`` by a deterministic key
+built from the resolved telescope, instrument, the run's own stored
+observing-night window, and its two sub-night tokens -- so re-importing the
+same file recomputes the same key and updates the same row, never creating
+a duplicate.
+
+**The optional bracketed proposal token.** Two proposals can otherwise
+share a telescope, an instrument and a set of nights and be genuinely
+indistinguishable -- add a bracketed token naming the proposal to
+disambiguate them:
+
+.. code-block:: console
+
+   NTT EFOSC2 allocation 9-13 July [0110.C-0234]
+
+Two lines identical except for their proposal token produce two distinct
+``CampaignRun`` rows. Two lines that are otherwise identical and both omit
+the token collide: the second is reported on stderr naming both line
+numbers and is skipped, never silently merged into the first. **Fix:** add
+a proposal token to one of the two lines (or both, if they genuinely are
+two different proposals), then re-import.
+
+**The two summary lines a real run prints.** A run-level line reports the
+line-by-line tallies (``lines processed``, ``created``/``updated``/
+``unchanged``/``skipped``/``skipped_collision``), followed by a
+night-level line aggregating what the allocation projector did across
+every line's own run (``created``/``updated``/``unchanged``/``retired``/
+``rekeyed``/``blocked``/``skipped``)::
+
+   Done. lines processed: 20, created: 19, updated: 0, unchanged: 0, skipped: 1, skipped_collision: 0
+   Done. nights -- created: 95, updated: 0, unchanged: 0, retired: 0, rekeyed: 0, blocked: 0, skipped: 0
+
+``--dry-run`` previews both lines without writing anything. For a run that
+already exists, the night-level preview comes from the same reconciler
+preview every staff action uses; for a brand-new run, a first-time dry run
+predicts night counts from the window length rather than computing a real
+sun-event time:
+
+.. code-block:: console
+
+   >> python3 manage.py load_telescope_runs path/to/schedule.txt --dry-run
+
+An optional ``--campaign <name>`` flag associates every ``CampaignRun`` the
 file creates or updates with a named campaign (a ``tom_targets.TargetList``),
 matched by exact name. It is genuinely optional: if you omit it, no campaign
-association is set on any event -- the same behavior this command had before
+association is set on any run -- the same behavior this command had before
 the flag existed. The name is resolved once, up front, before any schedule
 line is processed, so an unknown or ambiguous campaign name fails
 immediately rather than half-way through the file.
@@ -590,6 +642,24 @@ and the queue sources can all still be corrected in the admin, which is
 what that editability was for -- a ``web`` label is never a guess, because
 only the submission form can produce it.
 
+**Correcting a run's source to a queue value changes its calendar entry
+from one-per-night to one whole-window entry.** A run's ``source`` decides
+which of the two calendar forms it gets, regardless of its site -- see
+"How do I get every campaign run onto the calendar?" above. Relabelling a
+per-night run's ``source`` to ``lco_queue``/``soar_queue``/
+``gemini_queue``/``eso_queue`` does not change anything on the calendar by
+itself: the next reconcile (a full sweep, or the run's own next
+staff-action reconcile) is what converges on it, deleting the run's
+leftover per-night events (counted under ``legacy_deleted``) and replacing
+them with a single whole-window entry.
+
+**A ``LEGACY`` row stays per-night until a human relabels it.** Nothing
+infers a run's provenance from its site or its telescope name -- a
+``LEGACY`` run with a resolved site keeps its per-night entries forever
+unless a staff member corrects its ``source`` through this same admin
+action, which is the only way a ``LEGACY`` row ever moves into the
+queue-sourced whole-window form.
+
 **What happens to an already-reconciled run's calendar events when you
 correct its** ``telescope_class`` **or** ``site`` **(its source does not
 change this):** ``reconcile_run()`` re-derives which calendar-event family
@@ -785,6 +855,86 @@ is ever fabricated on a network failure (the command always passes
 stays resolved, and a row still lacking a site code is skipped again with
 no field changes.
 
+How do I run the one-time classical cutover?
+---------------------------------------------------
+
+``cutover_classical_allocations`` is a one-time command that converts
+every legacy blank-url classical ``CalendarEvent`` -- written by
+``load_telescope_runs`` before its allocation rewrite -- into a
+``CampaignRun`` plus ``ALLOC:``-keyed events, so the calendar ends up with
+exactly one writer per night. It needs no schedule file: every fact it
+needs (telescope, instrument, status, date range, sub-night window,
+optional proposal) is recovered by re-parsing the ``Source line:`` each
+legacy event's own description already carries.
+
+This is a one-time migration step, run alongside
+``repair_stale_campaign_run_sites`` above (the other one-time, safe-to-repeat
+command in this codebase) as part of the cutover to the allocation
+projector. It runs in four steps, in order:
+
+.. code-block:: console
+
+   >> python3 manage.py migrate
+   # deploy the code
+   >> python3 manage.py cutover_classical_allocations --dry-run
+   >> python3 manage.py cutover_classical_allocations
+   >> python3 manage.py reconcile_campaign_runs --dry-run
+   >> python3 manage.py reconcile_campaign_runs
+
+1. ``migrate`` applies the sub-night window fields ``load_telescope_runs``
+   now stores on ``CampaignRun``.
+2. Deploy the rewritten code.
+3. ``cutover_classical_allocations`` converts every explainable legacy
+   blank-url classical event once, re-keying it to ``ALLOC:{run_pk}:{night}``
+   in place -- same primary key, same ``start_time``/``end_time``, no
+   ``sun_event()`` recompute.
+4. ``reconcile_campaign_runs`` -- the first sweep after the cutover takes
+   over every remaining ``RUN:{pk}:{date}`` night still reachable by its
+   own run's per-night dispatch (``rekeyed``), and deletes the rest as
+   one-time churn for a run that now dispatches to a whole-window
+   container (``legacy_deleted`` -- see "How do I get every campaign run
+   onto the calendar?" below).
+
+**Always run ``--dry-run`` first and read the unexplained list.** The
+command groups blank-url classical events by their own ``Source line:``,
+re-parses each group, and creates or updates the ``CampaignRun`` that
+group would have produced under a fresh import. What it converts: every
+group whose schedule line parses, whose telescope resolves to a known
+``Observatory`` with a timezone set, whose events agree on their campaign,
+and whose events are not already attributed to a different run. What it
+deliberately leaves alone: **an event or group it cannot explain is left
+completely untouched and reported** with its primary key, title and
+reason -- no parseable ``Source line:`` marker; a ``Source line:`` that
+does not parse or names an unknown telescope; a resolved site with no
+timezone; a group whose events disagree on their campaign; an event
+already attributed to a different run; or any other unexpected error.
+
+**A non-zero exit is expected, not a bug, whenever an unexplained event
+remains.** The command raises a self-contained error naming the count and
+the reason breakdown; resolve the listed events in the Django admin (fix
+the description's ``Source line:``, resolve the telescope, set the site's
+timezone, or clear the conflicting attribution, as the reported reason
+names), then re-run the command -- it is safe to repeat. **The command
+never deletes a ``CalendarEvent`` on any path**, including every failure
+path: what it cannot explain, it reports and leaves byte-identical.
+
+Worked example, from a real scratch-copy run against the developer
+database (plan 35-06): starting from 241 events (56 date-bearing
+``RUN:{pk}:{date}`` nights, 16 bare ``RUN:{pk}`` containers, 10 blank-url
+classical events, 159 facility-url observation events), the cutover
+converted 9 of the 10 blank-url events (3 groups, 3 new runs) and left 1
+unexplained (a pre-existing junk ``tmp`` row with no recoverable
+``Source line:``, the known example this command's own docstring names).
+The following ``reconcile_campaign_runs`` sweep then re-keyed 48 nights
+and deleted 8 leftover per-night events for runs a source correction had
+already sent to a container, leaving 233 events total: zero date-bearing
+``RUN:`` nights, 57 ``ALLOC:``-keyed events, 16 containers unchanged in
+count, 1 blank-url event (the same unexplained junk row), and all 159
+facility-url events byte-identical (url, title, description, start, end
+and ``modified`` all unchanged). These are the numbers from one real run,
+quoted as a worked example -- not a promise about what any other database
+will show.
+
 How do I get every campaign run onto the calendar?
 ---------------------------------------------------------
 
@@ -810,11 +960,33 @@ The final summary line reports these counters -- ``would_create``/
 ``would_update``/``would_leave_unchanged`` in ``--dry-run`` mode, or
 ``created``/``updated``/``unchanged`` for a real sweep, alongside ``runs``,
 ``skipped``, ``failed``, ``blocked``, ``skipped_nights``, either
-``would_detach`` (``--dry-run``) or ``detached`` (a real sweep), and
-``detach_declined``::
+``would_detach`` (``--dry-run``) or ``detached`` (a real sweep),
+``detach_declined``, and three allocation-handoff counters --
+``would_retire``/``retired``, ``would_rekey``/``rekeyed`` and
+``would_delete_legacy``/``legacy_deleted``::
 
-   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: 1, detach_declined: 0
-   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1, detach_declined: 0
+   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: 1, detach_declined: 0, would_retire: 0, would_rekey: 0, would_delete_legacy: 0
+   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1, detach_declined: 0, retired: 0, rekeyed: 0, legacy_deleted: 0
+
+``retired`` counts an allocation night handed over to a real observation:
+a run's linked ``ObservationRecord`` placed or observed its block on that
+night, so the projected sunset-to-sunrise event is no longer needed and is
+removed -- the observation's own calendar entry is that night's entry now.
+Unlinking the record restores the night on the next reconcile.
+
+``rekeyed`` counts a night carried across from the old, retired
+``RUN:{pk}:{date}`` key form into the current ``ALLOC:{pk}:{night}`` form,
+in place -- same primary key, same start/end time, just re-keyed. This is
+the ongoing per-run takeover every reconcile performs for a run that still
+dispatches per-night.
+
+``legacy_deleted`` counts a one-time removal: a run with a queue source
+(``lco_queue``/``soar_queue``/``gemini_queue``/``eso_queue``) now keeps a
+single whole-window entry regardless of its site -- see "Can I correct a
+run's source?" below -- so its leftover per-night ``RUN:{pk}:{date}``
+events from before that dispatch rule applied are deleted, never detached.
+This is one-time churn for a run that changes family; an already-container
+run reports 0 here on every later sweep.
 
 ``skipped_nights`` counts classical nights whose calendar entry already
 comes from another writer attributed to that run -- so
@@ -874,15 +1046,20 @@ entirely (getting a whole-window entry instead), but a queue-scheduled run
 with a resolved site follows the same per-night path as a classically-
 scheduled run there, so a blank ``timezone`` fails it the same way.
 
-What an operator sees on the calendar afterwards, in plain terms: any run
-with a resolved ground site -- queue-scheduled or classically-scheduled --
-shows one calendar entry per observing night, spanning that site's
-sunset-to-sunrise, sitting alongside the individual observation entries the
-LCO/Gemini sync commands already create for it. Only a class-wide
-allocation with no fixed site, and a satellite run, show a single entry
-spanning their whole window instead -- a run at a fixed site can only
-observe during that site's own dark time, so it gets a per-night entry
-there regardless of how it was scheduled.
+What an operator sees on the calendar afterwards, in plain terms: **a run's
+``source`` decides which of the two forms it gets, not its site.** A run
+whose source is a queue value (``lco_queue``/``soar_queue``/
+``gemini_queue``/``eso_queue``) always keeps a single whole-window entry,
+even when it has a fully resolved ground site -- a queue window is a
+request, not a set of owned nights, so it is never fanned out into
+per-night entries. A ``classical_file``, ``csv_import``, ``web`` or
+``legacy`` run with a resolved site and window shows one calendar entry
+per observing night instead, spanning that site's sunset-to-sunrise,
+sitting alongside the individual observation entries the LCO/Gemini sync
+commands already create for it. A class-wide allocation with no fixed
+site, and a satellite run, still show a single entry spanning their whole
+window, for the same reason a queue-sourced run does -- there is no single
+site's dark time to bound a per-night entry to.
 
 The run's free-text ``Telescope / Instrument`` value is split on the first
 ``/`` or ``+`` into the calendar entry's separate **Telescope** and
@@ -1072,8 +1249,8 @@ Command cheat-sheet
      - Key flags
      - One-line description
    * - ``load_telescope_runs``
-     - ``<filepath>`` (positional), ``--campaign <name>`` (optional)
-     - Ingest a classical-schedule text file into per-night CalendarEvents.
+     - ``<filepath>`` (positional), ``--campaign <name>``, ``--dry-run`` (both optional)
+     - Ingest a classical-schedule text file into one CampaignRun per line; the allocation projector draws the per-night CalendarEvents.
    * - ``project_observation_calendar``
      - ``--proposal <A,B>``, ``--facility <LCO|SOAR>``, ``--dry-run`` (all optional)
      - Backstop sweep: re-project LCO/SOAR ObservationRecords onto the calendar.
@@ -1093,6 +1270,9 @@ Command cheat-sheet
    * - ``reconcile_campaign_runs``
      - ``--dry-run`` (optional)
      - Idempotent sweep projecting/refreshing CalendarEvents for every CampaignRun.
+   * - ``cutover_classical_allocations``
+     - ``--dry-run`` (optional)
+     - One-time cutover: converts legacy blank-url classical CalendarEvents into CampaignRuns plus ALLOC:-keyed events.
 
 Troubleshooting
 ------------------
@@ -1159,6 +1339,50 @@ summary count.
   the batch-loop level only, reports it as ``Run pk=N: reconcile failed
   (...) -- skipping`` on stderr, and continues to the next run, never
   aborting the whole sweep.
+
+A reported classical-schedule identity-key collision
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``load_telescope_runs`` (and, on the legacy cutover path,
+``cutover_classical_allocations``) matches a schedule line to its
+``CampaignRun`` by a deterministic key built from the resolved telescope,
+instrument, the run's own stored observing-night window and its two
+sub-night tokens. Two lines in the same file that yield an identical key
+are a collision, reported on stderr naming both line numbers::
+
+   Line 14: source_identifier 'CLASSICAL:NTT:EFOSC2:2026-07-09:2026-07-12:BoN:EoN' already claimed by line 9 -- skipping (line text: 'NTT EFOSC2 confirmed 9-12 July')
+
+**Cause:** two proposals share the same telescope, instrument and set of
+observing nights, and neither line names a proposal token to
+disambiguate them -- this is exactly the real collision Phase 31's
+identity spike found in a real schedule sample.
+
+**Fix:** add a bracketed proposal token to one (or both) of the two lines
+-- e.g. ``NTT EFOSC2 confirmed 9-12 July [0110.C-0234]`` -- then re-import
+the file. The skipped line is never silently merged into the first; it is
+reported and dropped until the collision is resolved.
+
+A reported unexplainable event during the classical cutover
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``cutover_classical_allocations`` exits non-zero and prints a line per
+event it could not convert::
+
+   pk=334 ('tmp'): no parseable Source line: marker
+
+**Cause:** the event's description has no recoverable ``Source line:``
+marker at all, or the marker's text does not parse (an unknown telescope,
+a malformed schedule line), or the resolved site has no timezone set, or
+the group's own events disagree on their campaign, or the event is
+already attributed to a different ``CampaignRun``. See "How do I run the
+one-time classical cutover?" above for the full reason vocabulary.
+
+**Fix:** resolve the listed event in the Django admin -- correct the
+description's ``Source line:``, fix the telescope name, set the
+``Observatory``'s timezone, or clear the conflicting attribution, as the
+printed reason names -- then re-run the command. It is safe to re-run:
+already-converted events drop out of the candidate set, so only the
+still-unexplained rows are reported again.
 
 ``import_campaign_csv`` unresolved rows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

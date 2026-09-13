@@ -132,6 +132,8 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   `solsys_code/management/commands/backfill_lco_observations.py -> backfill_lco_observations_demo.ipynb`;
   `solsys_code/campaign_reconciler.py` and
   `solsys_code/management/commands/reconcile_campaign_runs.py` ->
+  `reconcile_campaign_runs_demo.ipynb`;
+  `solsys_code/management/commands/cutover_classical_allocations.py` ->
   `reconcile_campaign_runs_demo.ipynb`; the v2.2 campaign submission/approval/
   site-resolution/attribution surfaces (`solsys_code/campaign_views.py`,
   `campaign_forms.py`, `campaign_attribution.py`, `campaign_reconciler.py`) collectively
