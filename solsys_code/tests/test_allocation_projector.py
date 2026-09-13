@@ -8,6 +8,7 @@ ALLOC-03 (the observation handoff) and the D-09/D-10 dispatch seam in
 
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from unittest.mock import patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -460,3 +461,185 @@ class TestAllocationDeletionCascade(AllocationProjectorTestBase):
         run_a.delete()
 
         self.assertTrue(CalendarEvent.objects.filter(pk=event_a.pk).exists())
+
+
+class TestAllocationNightBoundary(AllocationProjectorTestBase):
+    """ALLOC-02: `retired_nights()`'s local-noon anchor decides which night a linked
+    record's placed block retires -- not a plain site-local `.date()`. Covers a Sydney
+    site (positive UTC offset, +10 in August, no DST) and a Chilean site (negative UTC
+    offset, -4 in August, no DST) side by side, mirroring
+    `test_campaign_reconciler.TestObservingNightBoundary`'s verified UTC arithmetic. Every
+    assertion names the exact surviving/retired `ALLOC:` url, never a count alone."""
+
+    def _assert_retired_and_surviving(self, run: CampaignRun, retired_night: date, surviving_nights: list[date]):
+        retired_url = f'ALLOC:{run.pk}:{retired_night.isoformat()}'
+        self.assertFalse(CalendarEvent.objects.filter(url=retired_url).exists())
+        for night in surviving_nights:
+            self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+    def test_sydney_utc_date_differs_from_the_observing_night_it_retires(self):
+        """2026-08-02T01:00Z + 10h = 2026-08-02 11:00 local -- before local noon, so the
+        2026-08-01 observing night, even though the naive UTC date is 2026-08-02."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 2, 1, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_sydney_exact_local_noon_belongs_to_the_date_that_just_started(self):
+        """2026-08-02T02:00:00Z + 10h = 2026-08-02 12:00:00 local exactly."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 2, 2, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 2), [date(2026, 8, 1), date(2026, 8, 3)])
+
+    def test_sydney_one_second_before_local_noon_belongs_to_the_previous_date(self):
+        """2026-08-02T01:59:59Z + 10h = 2026-08-02 11:59:59 local."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 2, 1, 59, 59, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_sydney_post_local_midnight_start_retires_the_previous_date(self):
+        """2026-08-01T16:00Z + 10h = 2026-08-02 02:00 local -- after local midnight, so
+        belongs to the observing night that started at sunset on Aug 1."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 1, 16, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_chile_utc_date_differs_from_the_observing_night_it_retires(self):
+        """2026-08-02T01:00Z - 4h = 2026-08-01 21:00 local -- before local midnight, so
+        the 2026-08-01 observing night, even though the naive UTC date is 2026-08-02."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 1, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_chile_exact_local_noon_belongs_to_the_date_that_just_started(self):
+        """2026-08-02T16:00:00Z - 4h = 2026-08-02 12:00:00 local exactly."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 16, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 2), [date(2026, 8, 1), date(2026, 8, 3)])
+
+    def test_chile_one_second_before_local_noon_belongs_to_the_previous_date(self):
+        """2026-08-02T15:59:59Z - 4h = 2026-08-02 11:59:59 local."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 15, 59, 59, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_chile_post_local_midnight_start_retires_the_previous_date(self):
+        """2026-08-02T04:30:00Z - 4h = 2026-08-02 00:30 local -- after local midnight, so
+        belongs to the observing night that started at sunset on Aug 1."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 4, 30, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+
+class TestNoSunEventRecompute(AllocationProjectorTestBase):
+    """Closes the folded todo (D-13):
+    `2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md` -- an
+    idempotent re-reconcile of an existing multi-night run must make zero `sun_event()`
+    calls, and a night whose event was deleted out from under the run must call it exactly
+    twice (sun + dark) on the next reconcile, so the "never called" assertion is a real
+    gate rather than vacuous."""
+
+    def test_second_reconcile_of_unchanged_run_never_calls_sun_event(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 13))
+        reconcile_run(run)
+        events_before = {e.pk: (e.start_time, e.end_time) for e in allocation_events(run)}
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 5)
+        events_after = {e.pk: (e.start_time, e.end_time) for e in allocation_events(run)}
+        self.assertEqual(events_before, events_after)
+
+    def test_a_deleted_night_calls_sun_event_exactly_twice_on_next_reconcile(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 13))
+        reconcile_run(run)
+        deleted_night = date(2026, 7, 11)
+        CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{deleted_night.isoformat()}').delete()
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            reconcile_run(run)
+
+        calls_for_deleted_night = [call for call in mock_sun_event.call_args_list if call.args[1] == deleted_night]
+        self.assertEqual(len(calls_for_deleted_night), 2)
+        kinds = sorted(call.kwargs['kind'] for call in calls_for_deleted_night)
+        self.assertEqual(kinds, ['dark', 'sun'])
+
+
+class TestEmptyAndDegenerateWindows(AllocationProjectorTestBase):
+    """Degenerate `CampaignRun` states the dispatch's stage-0 guard (`_skip_reason()`)
+    handles before ever reaching `project_allocation()`, plus the no-links edge inside it."""
+
+    def test_null_window_is_skipped_as_tbd(self):
+        run = self._make_run(window_start=None, window_end=None)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_reason, 'TBD window')
+        self.assertEqual(allocation_events(run).count(), 0)
+
+    def test_window_end_before_window_start_is_skipped(self):
+        run = self._make_run(window_start=date(2026, 7, 11), window_end=date(2026, 7, 9))
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_reason, 'window_end before window_start')
+
+    def test_no_observation_links_retires_nothing(self):
+        run = self._make_run()
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
