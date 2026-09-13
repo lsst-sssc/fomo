@@ -29,7 +29,7 @@ disagree about who may write an event is the defect this module exists downstrea
 """
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -156,6 +156,112 @@ def preserved_dark_window_line(event: CalendarEvent) -> str | None:
     if first_line.startswith(_DARK_WINDOW_PREFIX):
         return first_line
     return None
+
+
+def _time_of_day_to_datetime(t, night) -> datetime:
+    """A stored sub-night `TimeField` value -> a UTC datetime for one observing night (D-04).
+
+    This is `load_telescope_runs._resolve_window_time()`'s own date-offset rule, reproduced
+    (not re-derived) so it is pinned identically here: an hour before 12:00 UTC belongs to
+    the NEXT morning for that observing night; 12:00 or later belongs to the night's own
+    evening date.
+
+    Args:
+        t: a ``datetime.time`` (a stored ``night_start_utc``/``night_end_utc`` value).
+        night: the site-local observing night (evening date).
+
+    Returns:
+        datetime: the UTC-aware datetime for that time-of-day on the correct date.
+    """
+    base_date = night + timedelta(days=1) if t.hour < 12 else night
+    return datetime(base_date.year, base_date.month, base_date.day, t.hour, t.minute, t.second, tzinfo=dt_timezone.utc)
+
+
+def night_bounds(run: CampaignRun, night, sunset, sunrise) -> tuple[datetime, datetime]:
+    """Resolve one allocation night's UTC start/end from the run's sub-night window fields
+    (D-04), each end independently.
+
+    This is the same rule ``load_telescope_runs._resolve_window_time()`` applied per
+    schedule line, moved behind the run so the allocation projector applies it per night
+    instead of the command re-deriving it. The two ends are resolved independently, so a
+    line may name one boundary and leave the other computed from the sun event.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        night: the site-local observing night (evening date).
+        sunset: astropy Time of sunset for this night -- used when ``run.night_start_utc``
+            is null.
+        sunrise: astropy Time of sunrise for this night -- used when ``run.night_end_utc``
+            is null.
+
+    Returns:
+        tuple[datetime, datetime]: ``(start, end)``, both UTC-aware, seconds precision.
+    """
+    if run.night_start_utc is None:
+        start = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+    else:
+        start = _time_of_day_to_datetime(run.night_start_utc, night)
+    if run.night_end_utc is None:
+        end = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+    else:
+        end = _time_of_day_to_datetime(run.night_end_utc, night)
+    return start, end
+
+
+def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool:
+    """D-13's cheap, astropy-free re-mint check: whether ``existing``'s stored boundaries no
+    longer match what the run's CURRENT sub-night fields say they should be.
+
+    A null sub-night field means the expected boundary is the sun-event pair, which cannot
+    be known without calling ``sun_event()`` -- so a null field is deliberately never
+    checked; D-13 forbids rewriting an existing night's stored boundary for astropy drift,
+    and a null-null run therefore always reports "no re-mint needed" on this check. A SET
+    field's expected boundary is computable with no astropy call at all, so it is compared
+    directly against the stored boundary; a mismatch on either end marks the night for
+    re-mint.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        night: the site-local observing night (evening date).
+        existing: the already-identified allocation ``CalendarEvent``.
+
+    Returns:
+        bool: True when the night must be deleted and re-created fresh.
+    """
+    if run.night_start_utc is not None and existing.start_time != _time_of_day_to_datetime(run.night_start_utc, night):
+        return True
+    if run.night_end_utc is not None and existing.end_time != _time_of_day_to_datetime(run.night_end_utc, night):
+        return True
+    return False
+
+
+def _mint_fields(run: CampaignRun, night) -> dict[str, Any]:
+    """The full field set for a brand-new allocation night -- the only place `sun_event()`
+    (both `'sun'` and `'dark'`) is called for a per-night create (D-13).
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        night: the site-local observing night (evening date) being minted.
+
+    Returns:
+        dict[str, Any]: the ``insert_or_create_calendar_event()``-ready field set.
+    """
+    sunset, sunrise = sun_event(run.site, night, kind='sun')
+    dark_start, dark_end = sun_event(run.site, night, kind='dark')
+    dark_start_iso = dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+    dark_end_iso = dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+    dark_line = f'{_DARK_WINDOW_PREFIX}{dark_start_iso} to {dark_end_iso}'
+    telescope, instrument = split_telescope_instrument(run.telescope_instrument)
+    start, end = night_bounds(run, night, sunset, sunrise)
+    return {
+        'title': allocation_night_title(run),
+        'description': allocation_night_description(run, dark_line),
+        'target_list': run.campaign,
+        'telescope': telescope,
+        'instrument': instrument,
+        'start_time': start,
+        'end_time': end,
+    }
 
 
 def retired_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
@@ -376,22 +482,22 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             totals['rekeyed'] += 1
             continue
 
+        if existing is not None and _span_needs_remint(run, night, existing):
+            # D-13: a sub-night field change never rewrites start_time/end_time in place --
+            # the night is deleted and re-created fresh, counted as retired + created, never
+            # updated. Both halves are skipped under dry_run (no sun_event() call either),
+            # so a dry-run preview and a real run agree on the same pair of counters.
+            totals['retired'] += 1
+            totals['created'] += 1
+            if dry_run:
+                continue
+            existing.delete()
+            event, _action = insert_or_create_calendar_event({'url': url}, fields=_mint_fields(run, night))
+            _link_event_to_run(event, run)
+            continue
+
         if existing is None:
-            sunset, sunrise = sun_event(run.site, night, kind='sun')
-            dark_start, dark_end = sun_event(run.site, night, kind='dark')
-            dark_start_iso = dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
-            dark_end_iso = dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
-            dark_line = f'{_DARK_WINDOW_PREFIX}{dark_start_iso} to {dark_end_iso}'
-            telescope, instrument = split_telescope_instrument(run.telescope_instrument)
-            fields: dict[str, Any] = {
-                'title': allocation_night_title(run),
-                'description': allocation_night_description(run, dark_line),
-                'target_list': run.campaign,
-                'telescope': telescope,
-                'instrument': instrument,
-                'start_time': sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0),
-                'end_time': sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0),
-            }
+            fields: dict[str, Any] = _mint_fields(run, night)
         else:
             dark_line = preserved_dark_window_line(existing)
             fields = {
