@@ -5,11 +5,11 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: planning
-stopped_at: Phase 34 complete, ready to plan Phase 35
-last_updated: "2026-09-12T22:34:23.390Z"
+stopped_at: Phase 35 context gathered
+last_updated: "2026-09-13T00:05:55.686Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 34 complete, transitioned to Phase 35
-state_head: 3757819b5b8ce4876436fbf3df2dad84615cdb11
+state_head: 90cfe20a733e61e49876db5a069094104b223188
 progress:
   total_phases: 5
   completed_phases: 2
@@ -355,9 +355,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T22:38:02.000Z
-Stopped at: Phase 34 complete, ready to plan Phase 35
-Resume file: None
+Last session: 2026-09-13T00:05:55.405Z
+Stopped at: Phase 35 context gathered
+Resume file: .planning/phases/35-allocation-layer-classical-cutover/35-CONTEXT.md
 
 ## Operator Next Steps
 
