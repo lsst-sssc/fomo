@@ -185,6 +185,29 @@ class TestCampaignRunObservationDeleteReceiver(AllocationSignalsTestBase):
         self.assertFalse(CampaignRunObservation.objects.filter(run_id=run_pk).exists())
         self.assertFalse(CampaignRun.objects.filter(pk=run_pk).exists())
 
+    def test_admin_bulk_queryset_delete_cascades_the_link_without_raising_or_re_projecting(self):
+        """35-REVIEW.md CR-05: the admin's "Delete selected" bulk action goes through
+        `QuerySet.delete()`, not `Model.delete()` -- Django sets `origin` to the QUERYSET
+        for that path, not a `CampaignRun` instance, so a plain `isinstance(origin,
+        CampaignRun)` check misses it and lets the post_delete receiver re-project the run
+        (still present in the DB when CampaignRunObservation's own post_delete fires),
+        re-minting the very ALLOC: events and CalendarEventMeta rows the pre_delete cascade
+        just cleared, and leaving a dangling CalendarEventMeta.run_id once the CampaignRun
+        row itself is actually deleted."""
+        start, end = self._night_2_block()
+        record = self._make_record(scheduled_start=start, scheduled_end=end)
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+        run_pk = self.run.pk
+
+        with patch('solsys_code.allocation_projector.project_allocation') as mock_project:
+            CampaignRun.objects.filter(pk=run_pk).delete()  # the admin bulk-delete path; must not raise
+
+        mock_project.assert_not_called()
+        self.assertFalse(CampaignRunObservation.objects.filter(run_id=run_pk).exists())
+        self.assertFalse(CampaignRun.objects.filter(pk=run_pk).exists())
+        self.assertFalse(CalendarEvent.objects.filter(url__startswith=f'ALLOC:{run_pk}:').exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(run_id=run_pk).exists())
+
 
 class TestCampaignRunObservationReceiverWiring(AllocationSignalsTestBase):
     """Task 1, behavior test 6: connecting `ready()` twice must not double-project."""

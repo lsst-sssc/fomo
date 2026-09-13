@@ -694,6 +694,16 @@ def receiver_on_run_observation_delete(sender: Any, instance: Any, **kwargs: Any
     ``origin`` is the link/queryset itself) does the run-existence lookup below apply, as a
     second, defensive check.
 
+    CR-05 (35-REVIEW.md): Django sets ``origin`` to the object ``.delete()`` was called on
+    for an instance-level ``Model.delete()``, but to the QUERYSET for a ``QuerySet.delete()``
+    -- the Django admin's "Delete selected" bulk action goes through
+    ``ModelAdmin.delete_queryset()`` -> ``queryset.delete()``, so a plain
+    ``isinstance(origin, CampaignRun)`` check is False for that path even though it is every
+    bit as much a cascade side effect of a run deletion as the single-object path. Checking
+    the ORIGIN'S MODEL CLASS (``getattr(origin, 'model', type(origin))``) covers both forms:
+    a bare ``CampaignRun`` instance's own type, and a ``QuerySet[CampaignRun]``'s ``.model``
+    attribute.
+
     This receiver deliberately does NOT clear the removed link's own event attribution
     itself, and must not start doing so: ``project_allocation()`` already converges
     attributions against the run's surviving links (35-01 Task 2 step 4b /
@@ -715,7 +725,9 @@ def receiver_on_run_observation_delete(sender: Any, instance: Any, **kwargs: Any
         **kwargs: the remaining signal kwargs (``using``, ``origin``); ``origin`` is read,
             ``using`` is unused.
     """
-    if isinstance(kwargs.get('origin'), CampaignRun):
+    origin = kwargs.get('origin')
+    origin_model = getattr(origin, 'model', type(origin))
+    if origin_model is CampaignRun or isinstance(origin, CampaignRun):
         return
     run = CampaignRun.objects.filter(pk=instance.run_id).first()
     if run is None:
