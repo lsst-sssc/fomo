@@ -261,6 +261,26 @@ class CampaignRun(models.Model):
     )
     window_start = models.DateField(null=True, blank=True, verbose_name='Observing window start')
     window_end = models.DateField(null=True, blank=True, verbose_name='Observing window end')
+    # D-04 (35-CONTEXT.md): null means "use the computed sun event for this night" -- the
+    # sunset for night_start_utc, the sunrise for night_end_utc. Null is the correct,
+    # permanent value for a web submission, a CSV import and every queue-sourced run; only a
+    # classical schedule line that named a partial night ever sets them.
+    #
+    # A stored time whose hour is before 12:00 UTC belongs to the NEXT morning for that
+    # observing night; 12:00 or later belongs to the night's own evening date. This is the
+    # rule the classical loader (`load_telescope_runs._resolve_window_time()`) has applied
+    # since the feature shipped, moved behind the run so the allocation projector can apply
+    # it per night instead of the command re-deriving it.
+    #
+    # The pair is deliberately NOT covered by a null-together constraint: a line may name a
+    # start time and leave the end at the computed sunrise, or the reverse, and both forms
+    # are legitimate.
+    #
+    # A staff member may edit either field in the admin; the next reconcile re-mints exactly
+    # the nights whose span changed, so the calendar follows the correction without a manual
+    # repair.
+    night_start_utc = models.TimeField(null=True, blank=True, verbose_name='Observing night start (UTC time of day)')
+    night_end_utc = models.TimeField(null=True, blank=True, verbose_name='Observing night end (UTC time of day)')
     original_obs_date_raw = models.CharField(
         max_length=255, blank=True, default='', verbose_name='Original Obs. Date text (TBD rows only)'
     )
