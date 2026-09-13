@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from datetime import date as date_cls
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from math import sqrt
 from zoneinfo import ZoneInfo
 
@@ -297,6 +297,34 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
             'reaches the requested threshold (e.g. midnight sun or no astronomical darkness).'
         )
     return crossings[0], crossings[1]
+
+
+def observing_night(start_time: datetime, site_zone: ZoneInfo) -> date_cls:
+    """The site-local observing night a ``start_time`` belongs to, anchored at local noon.
+
+    This is the same anchor ``_local_noon_utc()`` uses: ``sun_event(site, date)`` computes
+    sunset for the EVENING of ``date``, so the observing night runs from local noon of
+    ``date`` through local noon of ``date + 1``. Converting ``start_time`` into
+    ``site_zone`` and subtracting twelve hours before taking ``.date()`` maps any local time
+    from noon through noon-plus-24-hours onto the date the night started on -- in particular,
+    a 02:00 local start belongs to the PREVIOUS date's night, not the date its own naive
+    site-local ``.date()`` would name.
+
+    This supersedes 26-DECISION.md D-10's plain site-local ``.date()`` derivation, which is
+    correct only for a start before local midnight (CR-02, 33-REVIEW.md): D-10's measured
+    comparison called event ``pk=54`` (``2026-07-08T14:08:19Z``, Sydney, 00:08 local on
+    2026-07-09) a 2026-07-09 night; under this anchor it is 2026-07-08 -- the night whose
+    sunset the run was actually scheduled against.
+
+    Args:
+        start_time: an event's ``start_time`` (timezone-aware).
+        site_zone: the run's site timezone.
+
+    Returns:
+        date: the site-local observing night ``start_time`` belongs to.
+    """
+    local = start_time.astimezone(site_zone)
+    return (local - timedelta(hours=12)).date()
 
 
 @dataclass(frozen=True)

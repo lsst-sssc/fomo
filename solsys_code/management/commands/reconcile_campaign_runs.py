@@ -51,6 +51,8 @@ class Command(BaseCommand):
         skipped_nights = 0
         detached = 0
         detach_declined = 0
+        retired = 0
+        rekeyed = 0
         failed_count = 0
         run_count = 0
 
@@ -76,6 +78,18 @@ class Command(BaseCommand):
             skipped_nights += result.skipped_nights
             detached += result.detached
             detach_declined += result.detach_declined
+            retired += result.retired
+            rekeyed += result.rekeyed
+            if result.retired:
+                # D-05/D-07 (Phase 35): a linked record's placed or observed block now
+                # occupies the night, so its allocation event is gone -- not a failure.
+                self.stdout.write(
+                    f'Run pk={run.pk}: {result.retired} night(s) retired -- now covered by a real observation'
+                )
+            if result.rekeyed:
+                self.stdout.write(
+                    f'Run pk={run.pk}: {result.rekeyed} legacy RUN:-keyed night(s) re-keyed into ALLOC: in place'
+                )
             if result.blocked:
                 self.stderr.write(f'Run pk={run.pk}: {result.blocked} event(s) blocked -- owned by someone else')
             if result.skipped_nights:
@@ -110,7 +124,9 @@ class Command(BaseCommand):
                 f'blocked: {blocked}, '
                 f'skipped_nights: {skipped_nights}, '
                 f'would_detach: {detached}, '
-                f'detach_declined: {detach_declined}'
+                f'detach_declined: {detach_declined}, '
+                f'would_retire: {retired}, '
+                f'would_rekey: {rekeyed}'
             )
         else:
             self.stdout.write(
@@ -123,6 +139,8 @@ class Command(BaseCommand):
                 f'blocked: {blocked}, '
                 f'skipped_nights: {skipped_nights}, '
                 f'detached: {detached}, '
-                f'detach_declined: {detach_declined}'
+                f'detach_declined: {detach_declined}, '
+                f'retired: {retired}, '
+                f'rekeyed: {rekeyed}'
             )
         return

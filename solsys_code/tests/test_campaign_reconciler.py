@@ -20,12 +20,12 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 from solsys_code.calendar_utils import record_time_window
 from solsys_code.campaign_attribution import orphan_calendar_events
 from solsys_code.campaign_reconciler import (
-    _split_telescope_instrument,
     event_description,
     event_title,
     owned_events,
     reconcile_run,
 )
+from solsys_code.campaign_reconciler import split_telescope_instrument as _split_telescope_instrument
 from solsys_code.campaign_utils import unlink_event_from_run
 from solsys_code.models import CalendarEventDismissal, CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
