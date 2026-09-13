@@ -399,10 +399,11 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}:{night.isoformat()}').exists())
         self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
 
-    def test_real_sweep_reports_detached_for_a_superseded_legacy_night(self):
-        """A container-dispatched (queue-sourced) run's leftover legacy `RUN:{pk}:{date}`
-        event -- outside its own `active_urls` (always `{RUN:{pk}}`) -- is released to the
-        attribution queue on the next sweep."""
+    def test_real_sweep_reports_legacy_deleted_for_a_superseded_container_run_night(self):
+        """Task 1 (D-16, Phase 35): a container-dispatched (queue-sourced) run's leftover
+        legacy `RUN:{pk}:{date}` event -- outside its own `active_urls` (always
+        `{RUN:{pk}}`) -- is DELETED (not detached) on the next sweep, since the whole
+        per-night `RUN:` family retires for a container-dispatched run."""
         night = date(2026, 8, 1)
         run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
         call_command('reconcile_campaign_runs', stdout=StringIO())
@@ -415,22 +416,24 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
             end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
         )
         CalendarEventMeta.objects.create(event=legacy_event, run=run)
+        legacy_pk = legacy_event.pk
 
         out = StringIO()
         err = StringIO()
         call_command('reconcile_campaign_runs', stdout=out, stderr=err)
 
-        error_output = err.getvalue()
-        self.assertIn(f'Run pk={run.pk}', error_output)
-        self.assertIn('released back into the attribution queue', error_output)
+        self.assertIn(f'Run pk={run.pk}', out.getvalue())
+        self.assertIn('leftover per-night event(s) deleted', out.getvalue())
         summary = _parse_summary(out.getvalue())
-        self.assertEqual(summary['detached'], 1)
+        self.assertEqual(summary['legacy_deleted'], 1)
+        self.assertEqual(summary['detached'], 0)
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_pk).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event_id=legacy_pk).exists())
 
-    def test_dry_run_previews_the_would_detach_count_and_writes_nothing(self):
-        """WR-11 (33-REVIEW.md): `--dry-run` previews the one irreversible step -- the
-        detach -- instead of reporting a placeholder; the previewed `would_detach` number
-        matches what a real sweep would detach on the same predicate, and the dry run still
-        writes nothing at all."""
+    def test_dry_run_previews_the_would_delete_legacy_count_and_writes_nothing(self):
+        """Test 6 (Task 1): the dry-run and real summary lines both name `legacy_deleted`
+        (the dry-run line as `would_delete_legacy`, the same underlying `ReconcileResult`
+        field), and a dry run deletes nothing."""
         night = date(2026, 8, 1)
         run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
         call_command('reconcile_campaign_runs', stdout=StringIO())
@@ -450,10 +453,15 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         call_command('reconcile_campaign_runs', '--dry-run', stdout=out)
 
         summary = _parse_summary(out.getvalue())
-        self.assertEqual(summary['would_detach'], 1)
+        self.assertEqual(summary['would_delete_legacy'], 1)
         self.assertEqual(summary['detach_declined'], 0)
         self.assertEqual(CalendarEvent.objects.count(), event_count_before)
         self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+        real_out = StringIO()
+        call_command('reconcile_campaign_runs', stdout=real_out)
+        real_summary = _parse_summary(real_out.getvalue())
+        self.assertEqual(real_summary['legacy_deleted'], 1)
 
     def test_real_sweep_reports_declined_for_a_human_confirmed_superseded_row(self):
         """33-10 Task 1 (UAT option B, 2026-09-09): a superseded RUN:-keyed row a human has
@@ -502,14 +510,16 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         self.assertEqual(summary['retired'], 0)
         self.assertEqual(summary['rekeyed'], 0)
         self.assertEqual(summary['detached'], 0)
+        self.assertEqual(summary['legacy_deleted'], 0)
         self.assertNotIn('night(s) retired', out.getvalue())
         self.assertNotIn('event(s) detached', err.getvalue())
+        self.assertNotIn('leftover per-night event(s) deleted', out.getvalue())
 
-    def test_retired_and_detached_are_both_reported_in_the_same_sweep(self):
+    def test_retired_and_legacy_deleted_are_both_reported_in_the_same_sweep(self):
         """The realistic mixed sweep this phase's summary line exists to surface: one
         allocation-dispatched run's night retires because a linked record was placed before
         its first reconcile, and a second, container-dispatched run's leftover legacy night
-        is detached -- one sweep, both counters non-zero."""
+        is deleted (Task 1) -- one sweep, both counters non-zero."""
         retire_night = date(2026, 8, 1)
         retire_run = self._make_run(
             telescope_instrument='Retire run',
@@ -522,22 +532,22 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
             retire_run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2)
         )
 
-        detach_night = date(2026, 8, 2)
-        detach_run = self._make_run(
-            telescope_instrument='Detach run',
-            window_start=detach_night,
-            window_end=detach_night,
+        legacy_night = date(2026, 8, 2)
+        legacy_run = self._make_run(
+            telescope_instrument='Legacy-delete run',
+            window_start=legacy_night,
+            window_end=legacy_night,
             source=CampaignRun.Source.LCO_QUEUE,
         )
         call_command('reconcile_campaign_runs', stdout=StringIO())
-        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{detach_run.pk}').exists())
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{legacy_run.pk}').exists())
         legacy_event = CalendarEvent.objects.create(
             title='Legacy per-night artifact',
-            url=f'RUN:{detach_run.pk}:{detach_night.isoformat()}',
+            url=f'RUN:{legacy_run.pk}:{legacy_night.isoformat()}',
             start_time=datetime(2026, 8, 2, 0, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 8, 2, 23, 59, tzinfo=dt_timezone.utc),
         )
-        CalendarEventMeta.objects.create(event=legacy_event, run=detach_run)
+        CalendarEventMeta.objects.create(event=legacy_event, run=legacy_run)
 
         out = StringIO()
         err = StringIO()
@@ -545,6 +555,6 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
 
         summary = _parse_summary(out.getvalue())
         self.assertGreaterEqual(summary['retired'], 1)
-        self.assertEqual(summary['detached'], 1)
+        self.assertEqual(summary['legacy_deleted'], 1)
         self.assertIn(f'Run pk={retire_run.pk}', out.getvalue())
-        self.assertIn(f'Run pk={detach_run.pk}', err.getvalue())
+        self.assertIn(f'Run pk={legacy_run.pk}', out.getvalue())

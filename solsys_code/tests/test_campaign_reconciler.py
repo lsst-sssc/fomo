@@ -480,10 +480,13 @@ class TestReconcileThenAttributeOrdering(CampaignReconcilerTestBase):
     `RUN:` container).
 
     The human-confirmation guard cases (`_stale_attributions()`/`_detach_stale_family_events()`)
-    move to a container-run fixture with a hand-made legacy `RUN:{pk}:{date}` companion
-    event, since that mechanism is unchanged by Phase 35 and still applies to the `RUN:`
-    namespace only -- a container-dispatched run's leftover per-night artifact is exactly
-    the shape `_detach_stale_family_events()` still protects."""
+    move to a fixture where a CLASS-WIDE container-dispatched run is re-classified to
+    allocation dispatch, leaving its bare `RUN:{pk}` container stale -- the shape
+    `_detach_stale_family_events()`'s bare-container branch still protects after Task 1
+    (Phase 35, D-16): a date-bearing leftover under a container-dispatched run is now
+    DELETED instead (see `TestLegacyPerNightFamilyDeletion`, below), so it can no longer
+    exercise a detach-then-reconfirm-then-reclaim scenario at all -- there is no companion
+    row left once the event is gone."""
 
     def test_second_reconcile_deletes_the_superseded_allocation_night_and_restore_on_third(self):
         run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 2))
@@ -538,66 +541,67 @@ class TestReconcileThenAttributeOrdering(CampaignReconcilerTestBase):
         clashing_event.refresh_from_db()
         self.assertEqual(CalendarEventMeta.objects.get(event=clashing_event).run_id, other_run.pk)
 
-    def _make_container_run_with_legacy_night(self, **overrides) -> tuple[CampaignRun, CalendarEvent]:
-        """A container-dispatched run (LCO_QUEUE, resolved site -- D-10) already reconciled
-        once (creating its `RUN:{pk}` container), plus a hand-made legacy `RUN:{pk}:{date}`
-        event attributed to it -- the exact shape `_detach_stale_family_events()` still
-        protects, since a container's own `active_urls` is always just `{run_container_url(run)}`.
-        """
+    def _make_reclassified_run_with_stale_container(self, **overrides) -> tuple[CampaignRun, CalendarEvent]:
+        """A class-wide container-dispatched run, already reconciled once (creating its
+        `RUN:{pk}` container, self-attributed), then re-classified to per-night allocation
+        dispatch by clearing `telescope_class` -- leaving the bare `RUN:{pk}` container
+        stale. This is the shape `_detach_stale_family_events()`'s bare-container branch
+        still protects after Task 1 (Phase 35): that form keeps detaching, never deleting."""
         night = date(2026, 8, 1)
-        kwargs = {'source': CampaignRun.Source.LCO_QUEUE, 'window_start': night, 'window_end': night}
+        kwargs = {
+            'telescope_class': CampaignRun.TelescopeClass.ONE_M0,
+            'window_start': night,
+            'window_end': night,
+        }
         kwargs.update(overrides)
         run = self._make_run(**kwargs)
         reconcile_run(run)
-        legacy_event = CalendarEvent.objects.create(
-            title='Legacy per-night artifact',
-            url=f'RUN:{run.pk}:{night.isoformat()}',
-            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
-            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
-        )
-        CalendarEventMeta.objects.create(event=legacy_event, run=run)
-        return run, legacy_event
+        container_event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        run.telescope_class = ''
+        run.save(update_fields=['telescope_class'])
+        return run, container_event
 
     def test_staff_reconfirmation_of_the_detached_legacy_night_survives_every_later_sweep(self):
-        """CR-04 (33-REVIEW.md) / ANNOT-01, moved to a container-run fixture (see class
-        docstring): a staff re-confirmation of a detached legacy `RUN:`-keyed event is never
-        erased again by an automated sweep, and the sweep reports the declined count instead
-        of silently repeating the erasure."""
-        run, legacy_event = self._make_container_run_with_legacy_night()
-        legacy_pk = legacy_event.pk
+        """CR-04 (33-REVIEW.md) / ANNOT-01, moved to a reclassified-container fixture (see
+        class docstring): a staff re-confirmation of a detached bare-container event is
+        never erased again by an automated sweep, and the sweep reports the declined count
+        instead of silently repeating the erasure."""
+        run, container_event = self._make_reclassified_run_with_stale_container()
+        container_pk = container_event.pk
 
         second = reconcile_run(run)
         self.assertEqual(second.detached, 1)
         self.assertEqual(second.detach_declined, 0)
-        legacy_meta = CalendarEventMeta.objects.get(event=legacy_event)
-        self.assertIsNone(legacy_meta.run_id)
+        self.assertEqual(second.legacy_deleted, 0)
+        container_meta = CalendarEventMeta.objects.get(event=container_event)
+        self.assertIsNone(container_meta.run_id)
 
         staffer = User.objects.create(username='attribution-staffer')
         confirmed_at = datetime(2026, 8, 2, 9, 0, tzinfo=dt_timezone.utc)
-        legacy_meta.run = run
-        legacy_meta.confirmed_by = staffer
-        legacy_meta.confirmed_at = confirmed_at
-        legacy_meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
+        container_meta.run = run
+        container_meta.confirmed_by = staffer
+        container_meta.confirmed_at = confirmed_at
+        container_meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
 
         third = reconcile_run(run)
 
         self.assertEqual(third.detached, 0)
         self.assertEqual(third.detach_declined, 1)
-        legacy_event.refresh_from_db()
-        self.assertEqual(legacy_event.pk, legacy_pk)
-        legacy_meta.refresh_from_db()
-        self.assertEqual(legacy_meta.run_id, run.pk)
-        self.assertEqual(legacy_meta.confirmed_by_id, staffer.pk)
-        self.assertEqual(legacy_meta.confirmed_at, confirmed_at)
+        container_event.refresh_from_db()
+        self.assertEqual(container_event.pk, container_pk)
+        container_meta.refresh_from_db()
+        self.assertEqual(container_meta.run_id, run.pk)
+        self.assertEqual(container_meta.confirmed_by_id, staffer.pk)
+        self.assertEqual(container_meta.confirmed_at, confirmed_at)
 
         fourth = reconcile_run(run)
 
         self.assertEqual(fourth.detached, 0)
         self.assertEqual(fourth.detach_declined, 1)
-        legacy_meta.refresh_from_db()
-        self.assertEqual(legacy_meta.run_id, run.pk)
-        self.assertEqual(legacy_meta.confirmed_by_id, staffer.pk)
-        self.assertEqual(legacy_meta.confirmed_at, confirmed_at)
+        container_meta.refresh_from_db()
+        self.assertEqual(container_meta.run_id, run.pk)
+        self.assertEqual(container_meta.confirmed_by_id, staffer.pk)
+        self.assertEqual(container_meta.confirmed_at, confirmed_at)
 
         self.assertEqual(CalendarEventDismissal.objects.count(), 0)
 
@@ -605,34 +609,161 @@ class TestReconcileThenAttributeOrdering(CampaignReconcilerTestBase):
         """The same scenario as above, but with `confirmed_by` left null on the re-attached
         row: an automated (not human-confirmed) re-link is still reclaimable by a later
         sweep -- only a HUMAN confirmation outranks the automated detach."""
-        run, legacy_event = self._make_container_run_with_legacy_night()
+        run, container_event = self._make_reclassified_run_with_stale_container()
 
-        reconcile_run(run)  # detaches the legacy event
-        legacy_meta = CalendarEventMeta.objects.get(event=legacy_event)
-        legacy_meta.run = run
-        legacy_meta.save(update_fields=['run'])
+        reconcile_run(run)  # detaches the stale container
+        container_meta = CalendarEventMeta.objects.get(event=container_event)
+        container_meta.run = run
+        container_meta.save(update_fields=['run'])
 
         result = reconcile_run(run)
 
         self.assertEqual(result.detached, 1)
         self.assertEqual(result.detach_declined, 0)
-        legacy_meta.refresh_from_db()
-        self.assertIsNone(legacy_meta.run_id)
+        container_meta.refresh_from_db()
+        self.assertIsNone(container_meta.run_id)
 
     def test_dry_run_previews_the_detach_count_and_writes_nothing(self):
         """WR-11: `--dry-run` previews the one irreversible step (the detach) instead of
         refusing to -- the previewed number comes from the same predicate the real sweep
         detaches on, and the dry run still writes nothing at all."""
-        run, legacy_event = self._make_container_run_with_legacy_night()
-        title_before = legacy_event.title
+        run, container_event = self._make_reclassified_run_with_stale_container()
+        title_before = container_event.title
 
         preview = reconcile_run(run, dry_run=True)
 
         self.assertEqual(preview.detached, 1)
         self.assertEqual(preview.detach_declined, 0)
-        legacy_event.refresh_from_db()
-        self.assertEqual(legacy_event.title, title_before)
-        self.assertEqual(CalendarEventMeta.objects.get(event=legacy_event).run_id, run.pk)
+        container_event.refresh_from_db()
+        self.assertEqual(container_event.title, title_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=container_event).run_id, run.pk)
+
+
+class TestLegacyPerNightFamilyDeletion(CampaignReconcilerTestBase):
+    """Task 1 (D-16, Phase 35): the second half of the retired ``RUN:{pk}:{date}`` per-night
+    family's cutover -- the half the allocation projector cannot reach, because a
+    container-dispatched run never enters the projector at all. A leftover date-bearing
+    event belonging to a run that now dispatches to the whole-window container is DELETED,
+    one-time, never detached -- the bare ``RUN:{pk}`` container keeps the existing
+    detach-never-delete rule (see the reclassified-container tests in
+    ``TestReconcileThenAttributeOrdering``, above, and
+    ``test_stale_container_event_is_not_adopted_into_an_allocation_night`` in
+    ``TestReclassificationConvergence``, below)."""
+
+    def _make_container_run_with_legacy_nights(
+        self, count: int = 1, **overrides
+    ) -> tuple[CampaignRun, list[CalendarEvent]]:
+        """A container-dispatched run (LCO_QUEUE, resolved site -- D-10) already reconciled
+        once (creating its `RUN:{pk}` container), plus `count` hand-made legacy
+        `RUN:{pk}:{date}` events attributed to it -- the pre-cutover artifact shape this
+        task's delete branch targets, since a container's own `active_urls` is always just
+        `{run_container_url(run)}`."""
+        night = date(2026, 8, 1)
+        kwargs = {'source': CampaignRun.Source.LCO_QUEUE, 'window_start': night, 'window_end': night}
+        kwargs.update(overrides)
+        run = self._make_run(**kwargs)
+        reconcile_run(run)
+        events = []
+        for i in range(count):
+            legacy_night = night + timedelta(days=i)
+            legacy_event = CalendarEvent.objects.create(
+                title='Legacy per-night artifact',
+                url=f'RUN:{run.pk}:{legacy_night.isoformat()}',
+                start_time=datetime.combine(legacy_night, datetime.min.time(), tzinfo=dt_timezone.utc),
+                end_time=datetime.combine(legacy_night, datetime.max.time(), tzinfo=dt_timezone.utc),
+            )
+            CalendarEventMeta.objects.create(event=legacy_event, run=run)
+            events.append(legacy_event)
+        return run, events
+
+    def test_three_leftover_nights_are_deleted_converging_to_one_bare_container(self):
+        """Test 1: three pre-existing `RUN:{pk}:{date}` events reconcile to exactly one bare
+        `RUN:{pk}` container event; the three date-bearing events are gone from the
+        database, and `legacy_deleted == 3`."""
+        run, legacy_events = self._make_container_run_with_legacy_nights(count=3)
+        legacy_pks = [event.pk for event in legacy_events]
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.legacy_deleted, 3)
+        self.assertEqual(result.detached, 0)
+        for pk in legacy_pks:
+            self.assertFalse(CalendarEvent.objects.filter(pk=pk).exists())
+            self.assertFalse(CalendarEventMeta.objects.filter(event_id=pk).exists())
+        remaining = CalendarEvent.objects.filter(url__startswith=f'RUN:{run.pk}')
+        self.assertEqual(remaining.count(), 1)
+        self.assertEqual(remaining.get().url, f'RUN:{run.pk}')
+
+    def test_foreign_attribution_is_neither_deleted_nor_detached(self):
+        """Test 3: a date-bearing event whose `CalendarEventMeta` attributes it to a
+        DIFFERENT run is left completely alone by this run's reconcile."""
+        run, (legacy_event,) = self._make_container_run_with_legacy_nights(count=1)
+        other_run = self._make_run(telescope_instrument='Other Telescope/Instrument')
+        legacy_meta = CalendarEventMeta.objects.get(event=legacy_event)
+        legacy_meta.run = other_run
+        legacy_meta.save(update_fields=['run'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.legacy_deleted, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        legacy_meta.refresh_from_db()
+        self.assertEqual(legacy_meta.run_id, other_run.pk)
+
+    def test_human_confirmed_leftover_night_is_not_deleted_and_counts_as_declined(self):
+        """Test 4: a companion row carrying `confirmed_by` is not deleted -- a human
+        confirmation still outranks the automated sweep; it is reported under the existing
+        `detach_declined` counter instead."""
+        night = date(2026, 8, 1)
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE, window_start=night, window_end=night)
+        reconcile_run(run)
+        legacy_event = CalendarEvent.objects.create(
+            title='Legacy per-night artifact',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        staffer = User.objects.create(username='legacy-delete-staffer')
+        CalendarEventMeta.objects.create(
+            event=legacy_event,
+            run=run,
+            confirmed_by=staffer,
+            confirmed_at=datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc),
+        )
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.legacy_deleted, 0)
+        self.assertEqual(result.detach_declined, 1)
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        legacy_meta = CalendarEventMeta.objects.get(event=legacy_event)
+        self.assertEqual(legacy_meta.run_id, run.pk)
+        self.assertEqual(legacy_meta.confirmed_by_id, staffer.pk)
+
+    def test_deletion_is_one_time_not_per_sweep_churn(self):
+        """Test 5: a second reconcile of the same run reports `legacy_deleted == 0` -- the
+        deletion is one-time, not per-sweep churn."""
+        run, _events = self._make_container_run_with_legacy_nights(count=2)
+
+        first = reconcile_run(run)
+        self.assertEqual(first.legacy_deleted, 2)
+
+        second = reconcile_run(run)
+        self.assertEqual(second.legacy_deleted, 0)
+
+    def test_dry_run_previews_legacy_deleted_and_writes_nothing(self):
+        """Module-level twin of Test 6 (the command-level naming lives in
+        test_reconcile_campaign_runs.py, per Task 1's own file split): a dry run over
+        `reconcile_run()` itself previews the count and deletes nothing."""
+        run, legacy_events = self._make_container_run_with_legacy_nights(count=2)
+        legacy_pks = [event.pk for event in legacy_events]
+
+        preview = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(preview.legacy_deleted, 2)
+        for pk in legacy_pks:
+            self.assertTrue(CalendarEvent.objects.filter(pk=pk).exists())
 
 
 class TestAttributedEventsSurviveReconcile(CampaignReconcilerTestBase):
@@ -1033,6 +1164,10 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         self.assertEqual(container_event.end_time, container_end)
         # ... and is now detached rather than left attributed to this run.
         self.assertIsNone(CalendarEventMeta.objects.get(event=container_event).run_id)
+        # Task 1 (Phase 35) Test 2: the bare RUN:{pk} container form is still DETACHED,
+        # never deleted -- the convergence rule for that key form is untouched.
+        self.assertEqual(result.detached, 1)
+        self.assertEqual(result.legacy_deleted, 0)
 
     def test_leftover_allocation_night_for_a_shrunk_window_is_deleted_not_detached(self):
         """New D-14 case (Task 1's own instruction): a window shrink drops a night from the
@@ -1078,8 +1213,12 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
         )
         CalendarEventMeta.objects.create(event=legacy_event, run=other_run)
 
-        reconcile_run(run)
+        result = reconcile_run(run)
 
+        # Task 1 (Phase 35) Test 3: a date-bearing event attributed to a DIFFERENT run is
+        # neither deleted nor detached -- the event and its foreign attribution survive.
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        self.assertEqual(result.legacy_deleted, 0)
         legacy_meta = CalendarEventMeta.objects.get(event=legacy_event)
         self.assertEqual(legacy_meta.run_id, other_run.pk)
 

@@ -53,6 +53,7 @@ class Command(BaseCommand):
         detach_declined = 0
         retired = 0
         rekeyed = 0
+        legacy_deleted = 0
         failed_count = 0
         run_count = 0
 
@@ -80,6 +81,7 @@ class Command(BaseCommand):
             detach_declined += result.detach_declined
             retired += result.retired
             rekeyed += result.rekeyed
+            legacy_deleted += result.legacy_deleted
             if result.retired:
                 # D-05/D-07 (Phase 35): a linked record's placed or observed block now
                 # occupies the night, so its allocation event is gone -- not a failure.
@@ -89,6 +91,12 @@ class Command(BaseCommand):
             if result.rekeyed:
                 self.stdout.write(
                     f'Run pk={run.pk}: {result.rekeyed} legacy RUN:-keyed night(s) re-keyed into ALLOC: in place'
+                )
+            if result.legacy_deleted:
+                self.stdout.write(
+                    f'Run pk={run.pk}: {result.legacy_deleted} leftover per-night event(s) deleted -- these were '
+                    'left over from the retired per-night key form, and this run now keeps a single '
+                    'whole-window entry'
                 )
             if result.blocked:
                 self.stderr.write(f'Run pk={run.pk}: {result.blocked} event(s) blocked -- owned by someone else')
@@ -126,7 +134,8 @@ class Command(BaseCommand):
                 f'would_detach: {detached}, '
                 f'detach_declined: {detach_declined}, '
                 f'would_retire: {retired}, '
-                f'would_rekey: {rekeyed}'
+                f'would_rekey: {rekeyed}, '
+                f'would_delete_legacy: {legacy_deleted}'
             )
         else:
             self.stdout.write(
@@ -141,6 +150,7 @@ class Command(BaseCommand):
                 f'detached: {detached}, '
                 f'detach_declined: {detach_declined}, '
                 f'retired: {retired}, '
-                f'rekeyed: {rekeyed}'
+                f'rekeyed: {rekeyed}, '
+                f'legacy_deleted: {legacy_deleted}'
             )
         return

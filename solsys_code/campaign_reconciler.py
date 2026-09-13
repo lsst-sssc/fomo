@@ -114,6 +114,16 @@ class ReconcileResult(NamedTuple):
     rekeyed: int = 0
     """Legacy ``RUN:{pk}:{night}`` events re-keyed in place into the ``ALLOC:`` namespace,
     keeping their primary key, start_time and end_time (D-16, Phase 35)."""
+    legacy_deleted: int = 0
+    """Date-bearing ``RUN:{pk}:{date}`` events left over from the retired per-night key
+    family, belonging to a run that now dispatches to the whole-window container, deleted
+    as one-time cutover churn (D-16, Phase 35 Task 1). Deliberately a DELETE, not a
+    DETACH: the whole per-night form of this module's own ``RUN:`` namespace retires in
+    this phase, so every one of its events is either re-keyed by the allocation projector
+    (a per-night-dispatched run's own takeover, counted under ``rekeyed``) or removed here
+    -- there is no third outcome that leaves the calendar coherent. The
+    detach-never-delete rule (CR-01) continues to govern the bare ``RUN:{pk}`` container
+    key, still counted under ``detached``/``detach_declined``."""
     skipped_reason: str | None = None
 
 
@@ -338,11 +348,61 @@ def _attributed_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
     return {observing_night(meta.event.start_time, site_zone) for meta in metas}
 
 
+def _split_stale_owned_events(run: CampaignRun, active_urls: set[str]) -> tuple[Any, Any]:
+    """Splits this run's stale owned events (``owned_events(run)`` minus ``active_urls``)
+    into the bare ``RUN:{pk}`` container form and the date-bearing ``RUN:{pk}:{date}``
+    per-night form (Task 1, Phase 35). ``owned_events()`` never returns a third shape, so
+    the two querysets this returns are mutually exclusive and exhaustive over the stale set.
+
+    Args:
+        run: the ``CampaignRun`` just reconciled.
+        active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
+            considers current for this run (one container url, or one url per night).
+
+    Returns:
+        tuple: ``(stale_bare, stale_dated)`` querysets.
+    """
+    container_url = run_container_url(run)
+    stale = owned_events(run).exclude(url__in=active_urls)
+    stale_bare = stale.filter(url=container_url)
+    stale_dated = stale.exclude(url=container_url)
+    return stale_bare, stale_dated
+
+
+def _clearable_and_declined(run: CampaignRun, candidates) -> tuple[list[int], int]:
+    """Shared confirmed_by split (33-UAT.md ``## Decisions``, 2026-09-09, Option B -- human
+    outranks machine) over an explicit candidate ``CalendarEvent`` queryset.
+
+    Scoped to companion rows whose ``run`` is EXACTLY this run (``run_id=run.pk``): an event
+    within ``candidates`` whose ``CalendarEventMeta.run`` points at a DIFFERENT run, or that
+    carries no companion row at all, is excluded from both halves -- neither released nor
+    counted as declined, since it was never this run's attribution to clear (T-29-19).
+
+    Performs reads only -- no ``.save()``, ``.update()``, ``.create()`` or ``.delete()`` runs
+    here, so a dry-run preview can call this directly without any write occurring (WR-11).
+
+    Args:
+        run: the ``CampaignRun`` just reconciled.
+        candidates: a ``CalendarEvent`` queryset of stale events to split.
+
+    Returns:
+        tuple[list[int], int]: ``(clearable_event_ids, declined)`` -- the primary keys of
+        events an automated sweep may release/delete (their companion row's ``confirmed_by``
+        is unset), and the count of companion rows left alone because ``confirmed_by`` is
+        set.
+    """
+    metas = CalendarEventMeta.objects.filter(run_id=run.pk, event__in=candidates)
+    clearable_event_ids = list(metas.filter(confirmed_by__isnull=True).values_list('event_id', flat=True))
+    declined = metas.filter(confirmed_by__isnull=False).count()
+    return clearable_event_ids, declined
+
+
 def _stale_attributions(run: CampaignRun, active_urls: set[str]) -> tuple[list[int], int]:
-    """Read-only split of this run's stale/superseded owned events into what an automated
-    sweep may release and what it must leave alone (33-UAT.md ``## Decisions``, 2026-09-09):
-    *"Option B -- human outranks machine. The reconciler sweep detaches only rows with no
-    confirmed_by; a human-confirmed attribution is never cleared by an automated sweep."*
+    """Read-only split of this run's stale/superseded BARE-CONTAINER owned event into what
+    an automated sweep may detach and what it must leave alone (33-UAT.md ``## Decisions``,
+    2026-09-09): *"Option B -- human outranks machine. The reconciler sweep detaches only
+    rows with no confirmed_by; a human-confirmed attribution is never cleared by an
+    automated sweep."*
 
     This closes the CR-04 confirm/erase loop: ``campaign_attribution.orphan_calendar_events()``
     re-offers a detached row to the very run that released it at HIGH band the moment a
@@ -363,10 +423,8 @@ def _stale_attributions(run: CampaignRun, active_urls: set[str]) -> tuple[list[i
     proposed in 33-REVIEW.md CR-04's fix block -- a dismissal is the trace of a human's own
     decision, and an automated sweep declining to act is not one.
 
-    Performs reads only (one queryset built off ``owned_events()``, one companion-row
-    filter, one ``.values_list()`` and one ``.count()``) -- no ``.save()``, ``.update()``,
-    ``.create()`` or ``.delete()`` runs here, so ``reconcile_run()``'s dry-run branch can
-    call this directly to preview the detach without any write occurring (WR-11).
+    Scoped to the bare-container shape only since Task 1 (Phase 35): the date-bearing
+    counterpart is :func:`_stale_dated_events`, which deletes rather than detaches.
 
     Args:
         run: the ``CampaignRun`` just reconciled.
@@ -374,30 +432,51 @@ def _stale_attributions(run: CampaignRun, active_urls: set[str]) -> tuple[list[i
             considers current for this run (one container url, or one url per night).
 
     Returns:
-        tuple[list[int], int]: ``(clearable_event_ids, declined)`` -- the primary keys of
-        events an automated sweep may release (their companion row's ``confirmed_by`` is
-        unset), and the count of companion rows left attributed because ``confirmed_by``
-        is set.
+        tuple[list[int], int]: ``(clearable_event_ids, declined)`` -- see
+        :func:`_clearable_and_declined`.
     """
-    stale = owned_events(run).exclude(url__in=active_urls)
-    metas = CalendarEventMeta.objects.filter(run_id=run.pk, event__in=stale)
-    clearable_event_ids = list(metas.filter(confirmed_by__isnull=True).values_list('event_id', flat=True))
-    declined = metas.filter(confirmed_by__isnull=False).count()
-    return clearable_event_ids, declined
+    stale_bare, _stale_dated = _split_stale_owned_events(run, active_urls)
+    return _clearable_and_declined(run, stale_bare)
 
 
-def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tuple[int, int]:
+def _stale_dated_events(run: CampaignRun, active_urls: set[str]) -> tuple[list[int], int]:
+    """The date-bearing counterpart of :func:`_stale_attributions` (Task 1, Phase 35, D-16):
+    leftover ``RUN:{pk}:{date}`` events from the retired per-night key family. Unlike the
+    bare-container group, these are DELETED rather than detached -- see
+    ``ReconcileResult.legacy_deleted``'s docstring for why. Same guards as
+    :func:`_stale_attributions`: an event attributed to a different run is left alone, and a
+    human-confirmed attribution is reported under ``declined``, never cleared.
+
+    Read-only -- callers (the real detach/delete step and the dry-run preview) both build
+    on this without any write occurring here.
+
+    Args:
+        run: the ``CampaignRun`` just reconciled.
+        active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
+            considers current for this run (one container url, or one url per night).
+
+    Returns:
+        tuple[list[int], int]: ``(deletable_event_ids, declined)`` -- see
+        :func:`_clearable_and_declined`.
+    """
+    _stale_bare, stale_dated = _split_stale_owned_events(run, active_urls)
+    return _clearable_and_declined(run, stale_dated)
+
+
+def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tuple[int, int, int]:
     """Convergence step (29-REVIEW.md CR-01, user-directed fix: DETACH, not delete or
-    flag-only).
+    flag-only, for the bare-container group; Task 1/D-16, Phase 35, adds a DELETE branch for
+    the date-bearing group).
 
-    ``reconcile_run()`` dispatches a run to exactly one of the two mutually-exclusive key
-    families (bare ``RUN:{pk}`` container vs. date-bearing ``RUN:{pk}:{date}`` per-night)
-    based on the run's *current* ``telescope_class``/``site`` state (never its ``source``
-    field, corrected by quick task ``260805-tad`` -- see 29-CONTEXT.md D-07's dated
-    forward-pointer). Nothing else detects a re-classification (an admin correction to one
-    of those fields on an already-reconciled run): without this, the OLD family's events
-    would either be silently orphaned forever -- no code path ever revisits them again --
-    or, worse, silently miscounted as belonging to a family they no longer match.
+    ``reconcile_run()`` dispatches a run to exactly one of two branches (whole-window
+    container vs. the peer allocation projector's per-night loop) based on the run's
+    *current* state (never its ``source`` field alone for the container-by-``telescope_class``
+    case, corrected by quick task ``260805-tad`` -- see 29-CONTEXT.md D-07's dated
+    forward-pointer; ``source`` alone DOES decide the D-10 queue case). Nothing else detects
+    a re-classification (an admin correction to a run's dispatch-deciding fields after it was
+    already reconciled): without this, the OLD family's events would either be silently
+    orphaned forever -- no code path ever revisits them again -- or, worse, silently
+    miscounted as belonging to a family they no longer match.
 
     A second case (CR-03, 33-REVIEW.md): a classical night that has become attributed
     through a non-``RUN:`` event drops out of ``active_urls`` (see the per-night dispatch
@@ -405,20 +484,35 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tupl
     into Phase 28's queue here too, rather than lingering as a second attributed entry for
     the same night.
 
-    Detaching -- rather than deleting the ``CalendarEvent`` rows outright, or merely
-    logging/flagging -- returns them to Phase 28's attribution queue where a staff member
-    can re-confirm them. Re-confirming a released entry is now safe and permanent (Task 1,
-    33-10): once ``confirmed_by`` is set on the re-linked row, no later automated sweep
-    detaches it again -- see ``_stale_attributions()``. Plan 33-04 (D-16) routes the actual
-    clear through the shared :func:`~solsys_code.campaign_utils.unlink_event_from_run`
-    helper -- the single writer of what clearing an attribution means -- rather than this
-    module's own ad-hoc update.
+    **Bare-container group (unchanged):** detaching -- rather than deleting the
+    ``CalendarEvent`` rows outright, or merely logging/flagging -- returns them to Phase 28's
+    attribution queue where a staff member can re-confirm them. Re-confirming a released
+    entry is now safe and permanent (Task 1, 33-10): once ``confirmed_by`` is set on the
+    re-linked row, no later automated sweep detaches it again -- see
+    :func:`_stale_attributions`. Plan 33-04 (D-16) routes the actual clear through the shared
+    :func:`~solsys_code.campaign_utils.unlink_event_from_run` helper -- the single writer of
+    what clearing an attribution means -- rather than this module's own ad-hoc update.
 
-    The extra ``run=run`` filter term (T-29-19) is not redundant, and the helper preserves
-    it: without it, a stale-family event that staff have since re-attributed to a DIFFERENT
-    run gets its confirmed attribution silently cleared by a reconcile of the run whose
-    namespace the url happens to carry. It also loses nothing -- rows with ``run`` already
-    unset are a no-op, and rows with no companion row were never in the queryset.
+    **Date-bearing group (new, Task 1, Phase 35):** this is the retired ``RUN:{pk}:{date}``
+    per-night key family's last remaining half -- the half the allocation projector cannot
+    reach, because a container-dispatched run never enters the projector at all (a
+    per-night-dispatched run's OWN leftover ``RUN:{pk}:{date}`` event is instead re-keyed in
+    place by the projector's legacy-night takeover, counted under ``rekeyed``, and never
+    reaches this convergence step at all). What DOES reach here -- surviving as a
+    ``RUN:{pk}:{date}``-shaped event in this run's namespace after dispatch -- is, by
+    construction, no longer a night the projector's takeover claimed: it belongs to a run
+    that now dispatches to the whole-window container (D-10's 8 single-night queue runs
+    being the primary case), so it is one-time churn deleted rather than detached, exactly
+    like the bare-container group's events would be if their whole family were retiring.
+    This is a real ``.delete()``, not a detach: the whole per-night form of this module's
+    own namespace retires in this phase, and every one of its events is either re-keyed
+    (elsewhere, by the projector) or removed (here) -- no third outcome.
+
+    **Two guards, both groups (unchanged in shape):** the attribution must not point at a
+    DIFFERENT run (:func:`_clearable_and_declined`'s ``run_id=run.pk`` scoping -- the
+    T-29-19 concern), and a companion row carrying ``confirmed_by`` is left completely alone
+    and counted under ``declined``/``detach_declined``, never cleared or deleted by an
+    automated sweep -- a human confirmation always outranks it.
 
     Args:
         run: the ``CampaignRun`` just reconciled.
@@ -426,9 +520,11 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tupl
             considers current for this run (one container url, or one url per night).
 
     Returns:
-        tuple[int, int]: ``(detached, declined)`` -- the number of companion rows actually
-        cleared (WR-03, 33-REVIEW.md), and the number left attributed because a human had
-        confirmed them (see :func:`_stale_attributions`).
+        tuple[int, int, int]: ``(detached, declined, legacy_deleted)`` -- the number of
+        bare-container companion rows actually cleared (WR-03, 33-REVIEW.md), the number of
+        rows across BOTH groups left attributed because a human had confirmed them (see
+        :func:`_stale_attributions`/:func:`_stale_dated_events`), and the number of
+        date-bearing ``CalendarEvent`` rows actually deleted.
     """
     # Local import to avoid a circular import at module load time: campaign_utils.py
     # imports reconcile_run/ReconcileResult from this module at its own top level, so a
@@ -444,14 +540,29 @@ def _detach_stale_family_events(run: CampaignRun, active_urls: set[str]) -> tupl
             detached,
             run.pk,
         )
+
+    legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls)
+    legacy_deleted = 0
+    if legacy_deleted_ids:
+        CalendarEvent.objects.filter(pk__in=legacy_deleted_ids).delete()
+        legacy_deleted = len(legacy_deleted_ids)
+        logger.warning(
+            'Reconcile deleted %s leftover per-night event(s) from run pk=%s: this run now '
+            'dispatches to the whole-window container, and its retired RUN:-namespaced '
+            'per-night family is one-time churn.',
+            legacy_deleted,
+            run.pk,
+        )
+
+    declined += legacy_declined
     if declined:
         logger.warning(
-            'Reconcile declined to detach %s stale/superseded event(s) from run pk=%s: '
+            'Reconcile declined to detach/delete %s stale/superseded event(s) from run pk=%s: '
             'a human confirmation outranks the automated sweep.',
             declined,
             run.pk,
         )
-    return detached, declined
+    return detached, declined, legacy_deleted
 
 
 def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult:
@@ -519,8 +630,11 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     # show.
     if dry_run:
         clearable_event_ids, declined = _stale_attributions(run, active_urls)
-        detached, detach_declined = len(clearable_event_ids), declined
+        legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls)
+        detached = len(clearable_event_ids)
+        detach_declined = declined + legacy_declined
+        legacy_deleted = len(legacy_deleted_ids)
     else:
-        detached, detach_declined = _detach_stale_family_events(run, active_urls)
+        detached, detach_declined, legacy_deleted = _detach_stale_family_events(run, active_urls)
 
-    return result._replace(detached=detached, detach_declined=detach_declined)
+    return result._replace(detached=detached, detach_declined=detach_declined, legacy_deleted=legacy_deleted)

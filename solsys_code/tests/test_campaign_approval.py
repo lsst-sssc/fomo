@@ -1162,17 +1162,20 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         self.assertNotIn('Site resolved — run added to the calendar.', messages_list)
         self.assertTrue(any('already covered' in m for m in messages_list))
 
-    def test_resolve_that_detaches_something_shows_the_warning(self):
-        """WR-12 (33-REVIEW.md), migrated for Phase 35: when resolving a run's site causes
-        the reconciler to detach a superseded entry, `_message_reconcile_side_effects()`
+    def test_resolve_that_deletes_a_leftover_legacy_night_shows_the_warning(self):
+        """WR-12 (33-REVIEW.md), migrated for Phase 35 Task 1 (D-16 second half): when
+        resolving a run's site causes the reconciler to delete a leftover per-night event
+        from the retired `RUN:{pk}:{date}` family, `_message_reconcile_side_effects()`
         surfaces it as a warning on the same response as the resolve success message.
 
         Source is `LCO_QUEUE` (D-10: container-dispatched regardless of the resolved site)
         so the pre-existing legacy `RUN:{pk}:{date}` event is genuinely stale relative to
-        the container branch's `active_urls` (always exactly `{RUN:{pk}}`) and gets
-        detached on the resolve's reconcile. A resolved-site, non-queue run would instead
-        take over (rekey) a legacy per-night event in place (D-16) rather than detach it --
-        a different scenario, not this one."""
+        the container branch's `active_urls` (always exactly `{RUN:{pk}}`). Before Task 1
+        this was detached (released to the attribution queue); Task 1 makes this a DELETE
+        instead, since the whole per-night `RUN:` family retires for a container-dispatched
+        run -- there is no attribution left to release once the row is gone. A resolved-site,
+        non-queue run would instead take over (rekey) a legacy per-night event in place
+        (D-16 first half) rather than delete it -- a different scenario, not this one."""
         run = self._make_needs_review_run(site=self.ground_site, site_raw='F65', source=CampaignRun.Source.LCO_QUEUE)
         run_keyed_event = CalendarEvent.objects.create(
             title='Stale RUN:-keyed event (simulating an earlier reconcile)',
@@ -1181,6 +1184,7 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
             end_time=datetime(2026, 8, 1, 23, 59, tzinfo=timezone.utc),
         )
         CalendarEventMeta.objects.create(event=run_keyed_event, run=run)
+        run_keyed_event_pk = run_keyed_event.pk
 
         response = self.client.post(
             reverse('campaigns:decide', kwargs={'pk': run.pk}),
@@ -1191,10 +1195,10 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         self.assertEqual(response.status_code, 200)
         run.refresh_from_db()
         self.assertFalse(run.site_needs_review)
-        run_keyed_meta = CalendarEventMeta.objects.get(event=run_keyed_event)
-        self.assertIsNone(run_keyed_meta.run_id)
+        self.assertFalse(CalendarEvent.objects.filter(pk=run_keyed_event_pk).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event_id=run_keyed_event_pk).exists())
         messages_list = [str(m) for m in response.context['messages']]
-        self.assertTrue(any('released back into the attribution queue' in m for m in messages_list))
+        self.assertTrue(any('leftover per-night calendar entry' in m and 'deleted' in m for m in messages_list))
 
     def test_resolve_never_re_resolves_already_set_site_but_retries_projection(self):
         """D-06/finding 8c: a run with site already set (the projection-failed retry state)

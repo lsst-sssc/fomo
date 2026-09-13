@@ -441,17 +441,28 @@ def _message_reconcile_side_effects(request, result) -> None:
     staff-facing message drifts out of sync with what the reconciler actually reports.
 
     Emits a warning naming ``result.detached`` when it is non-zero (entries were released
-    back into the attribution queue) and an info message naming ``result.detach_declined``
-    when it is non-zero (entries were left attributed because a person had already
-    confirmed them -- 33-10 Task 1, UAT option B, 2026-09-09). Neither message names a
-    contact field, an email, a ``source`` value or another run's identity -- only counts and
-    this run's own calendar state.
+    back into the attribution queue), a second warning naming ``result.legacy_deleted``
+    when it is non-zero (Task 1, Phase 35: leftover per-night events from the retired
+    ``RUN:{pk}:{date}`` family, belonging to a run that now dispatches to the whole-window
+    container, deleted as one-time churn -- never a detach, since there is no attribution
+    left to release once the row is gone), and an info message naming
+    ``result.detach_declined`` when it is non-zero (entries were left attributed because a
+    person had already confirmed them -- 33-10 Task 1, UAT option B, 2026-09-09). No message
+    names a contact field, an email, a ``source`` value or another run's identity -- only
+    counts and this run's own calendar state.
     """
     if result.detached:
         messages.warning(
             request,
             f'{result.detached} calendar entr{"y" if result.detached == 1 else "ies"} '
             'released back into the attribution queue.',
+        )
+    if result.legacy_deleted:
+        messages.warning(
+            request,
+            f'{result.legacy_deleted} leftover per-night calendar entr'
+            f'{"y" if result.legacy_deleted == 1 else "ies"} deleted -- this run now keeps a single '
+            'whole-window entry.',
         )
     if result.detach_declined:
         messages.info(
