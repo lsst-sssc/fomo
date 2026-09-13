@@ -4,17 +4,17 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
-status: executing
-stopped_at: Completed 35-06-PLAN.md
-last_updated: "2026-09-13T08:08:15.466Z"
+status: verifying
+stopped_at: Completed 35-07-PLAN.md
+last_updated: "2026-09-13T08:56:48.378Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 35 execution started
-state_head: deb9142c50c62c20760df898516f1afa3563609a
+state_head: 72edd1b561e1f695d4d5d27bd2ce221b4efddf18
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 25
-  completed_plans: 24
+  completed_plans: 25
   percent: 20
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-12 — Phase 35 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -195,6 +195,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P04 | 77min | 3 tasks | 8 files |
 | Phase 35 P05 | 25min | 3 tasks | 7 files |
 | Phase 35 P06 | 95min | 3 tasks | 10 files |
+| Phase 35 P07 | 195min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -282,6 +283,8 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-06: legacy_deleted's delete branch is scoped by URL shape alone (bare vs. date-bearing), not by the run's current dispatch branch -- confirmed correct against real data, where several legacy_deleted rows belonged to still-allocation-dispatched runs, not just the 8 single-night runs D-10 sends to a container.
 - [Phase 35]: 35-06: project_allocation() now returns legacy_urls_claimed so campaign_reconciler's dry-run preview never double-counts a night the per-night loop already accounted for -- found only by the real-database four-step proof run (Task 3), not by any unit test in this plan.
 - [Phase 35]: 35-06: found, not fixed -- 8 of the developer database's 16 RUN:{pk} containers carried a stale pre-Phase-33 campaign-label title prefix, corrected by this plan's first post-D-12 reconcile sweep; a pre-existing staleness finding, not a Phase 35 defect.
+- [Phase 35]: Phase 35 Plan 07: the reconciler demo's cutover section runs before the fixture/dispatch demo (opposite of the plan's literal action-item order) so its before-state capture reflects the pristine developer database, reproducing plan 35-06's exact real numbers (241/56/16/10/0/45 -> 233/0/16/1/57/48) rather than a diluted diff.
+- [Phase 35]: Phase 35 Plan 07: deleting a CampaignRunObservation link restores its allocation night automatically via D-11's post_delete receiver, with no explicit reconcile_run() call needed -- the reconciler demo's observation-handoff cell was corrected mid-execution to assert this no-op convergence rather than a fresh creation.
 
 ### Pending Todos
 
@@ -377,8 +380,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T08:08:15.178Z
-Stopped at: Completed 35-06-PLAN.md
+Last session: 2026-09-13T08:56:48.088Z
+Stopped at: Completed 35-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
