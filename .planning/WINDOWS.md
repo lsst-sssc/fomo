@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 2
 waived_count: 0
 fixed_count: 0
-total_count: 1
-last_updated: 2026-09-10T04:19:47.988Z
+total_count: 2
+last_updated: 2026-09-13T03:43:10.774Z
 ---
 
 # Broken Windows Ledger
@@ -16,6 +16,7 @@ last_updated: 2026-09-10T04:19:47.988Z
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | 33 | deviation | docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb |  | Plan 33-09 Task 2 acceptance criteria specified a whole-file grep for contact_person/contact_email = 0; satisfied narrowly at the public-table cell (the task's actual scope) since cells 9/10/22 legitimately use those field names for real form submission. | open |  | 2026-09-10T04:19:47.988Z |  |
+| 2 | 35 | deviation | solsys_code/tests/test_campaign_reconciler.py |  | Full label-list suite has 29 failures/18 errors after this plan's RUN:{pk}:{date} removal (test_campaign_reconciler.py, test_reconcile_campaign_runs.py, test_campaign_approval.py's run_night_url import + cascading test_campaign_site_search.py) -- expected pre-migration fallout, owned by plan 35-02 per 35-01's own plan text. | open |  | 2026-09-13T03:43:10.774Z |  |
 
 ````json
 [
@@ -29,6 +30,18 @@ last_updated: 2026-09-10T04:19:47.988Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-10T04:19:47.988Z",
+    "resolved_at": null
+  },
+  {
+    "id": 2,
+    "kind": "deviation",
+    "phase": "35",
+    "file": "solsys_code/tests/test_campaign_reconciler.py",
+    "line": null,
+    "description": "Full label-list suite has 29 failures/18 errors after this plan's RUN:{pk}:{date} removal (test_campaign_reconciler.py, test_reconcile_campaign_runs.py, test_campaign_approval.py's run_night_url import + cascading test_campaign_site_search.py) -- expected pre-migration fallout, owned by plan 35-02 per 35-01's own plan text.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-13T03:43:10.774Z",
     "resolved_at": null
   }
 ]
