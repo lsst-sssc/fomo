@@ -347,10 +347,12 @@ class TestFailureIsolation(_ProjectObservationCalendarTestBase):
 
 class TestNamespaceIsolation(_ProjectObservationCalendarTestBase):
     def test_run_gem_and_blank_url_events_are_untouched_by_a_sweep(self) -> None:
+        # ALLOC: (not RUN:) is the live per-night key form after 35-01/35-02 -- this test
+        # keeps guarding a key form a real writer (allocation_projector.py) produces.
         run_event = CalendarEvent.objects.create(
-            url='RUN:1:2026-09-01',
+            url='ALLOC:1:2026-09-01',
             title='[CANCELLED] classical run',
-            description='reconciler-owned',
+            description='allocation-owned',
             start_time=datetime(2026, 9, 1, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 9, 2, tzinfo=dt_timezone.utc),
             telescope='FTN',

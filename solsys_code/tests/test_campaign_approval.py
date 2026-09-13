@@ -21,6 +21,7 @@ CLAUDE.md's non-sidereal-only target-factory convention doesn't even arise here.
 from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import requests
 from django.contrib.auth.models import User
@@ -29,16 +30,17 @@ from django.template.loader import render_to_string
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import campaign_utils
+from solsys_code.allocation_projector import allocation_events, allocation_night_title, allocation_night_url
 from solsys_code.campaign_reconciler import (
     RUN_STATUS_CALENDAR_PREFIX,
     event_description,
-    event_title,
     owned_events,
     run_container_url,
-    run_night_url,
 )
 from solsys_code.campaign_tables import ApprovalQueueTable, CampaignRunTable
 from solsys_code.campaign_utils import (
@@ -47,7 +49,7 @@ from solsys_code.campaign_utils import (
     is_placeholder_observatory,
     resolve_site,
 )
-from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
 from solsys_code.telescope_runs import sun_event
@@ -158,6 +160,25 @@ class CampaignApprovalTestBase(TestCase):
         kwargs.update(overrides)
         return CampaignRun.objects.create(**kwargs)
 
+    def _link_placed_record(self, run: CampaignRun, *, scheduled_start, scheduled_end):
+        """Create a linked, placed ObservationRecord (NonSiderealTargetFactory target --
+        CLAUDE.md) whose block retires one of `run`'s allocation nights (D-05). Phase 35's
+        replacement for the old "attribute an unrelated event via CalendarEventMeta.run"
+        fixture shape, which has no effect on the allocation projector after 35-01."""
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create_user(username=f'obs-owner-{uuid4().hex[:8]}')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility='LCO',
+            observation_id=f'obs-{uuid4().hex[:8]}',
+            status='COMPLETED',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={'proposal': 'TEST'},
+        )
+        return CampaignRunObservation.objects.create(run=run, observation_record=record)
+
 
 class TestStaffGating(CampaignApprovalTestBase):
     """T-16-03: anonymous/non-staff access must redirect, never render pending content."""
@@ -226,14 +247,14 @@ class TestApproval(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
         # A single-night classical run's key is date-bearing (26-DECISION.md Criterion 3).
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
 
         # Second approve POST on the already-approved row must be a proven no-op.
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
 
     def test_second_approve_surfaces_already_decided_warning(self):
         run = self._make_pending_run()
@@ -274,10 +295,15 @@ class TestApproval(CampaignApprovalTestBase):
     def test_projection_failure_reverts_site_stays_set_second_approve_skips_resolve_site(self):
         """RESEARCH.md Pitfall 3 regression: a projection failure reverts approval_status to
         PENDING_REVIEW while leaving run.site set (D-06's clobber-fix guard); a second approve
-        POST must not re-call resolve_site() (the pre-fix bug re-ran the MPC fetch here)."""
+        POST must not re-call resolve_site() (the pre-fix bug re-ran the MPC fetch here).
+
+        Patch target moved to `allocation_projector.insert_or_create_calendar_event`: a
+        default-source, resolved-site run is allocation-dispatched (D-09), so that is the
+        module that actually calls it for this fixture -- `campaign_reconciler.py`'s own
+        import of the same helper is reached only by the container branch."""
         run = self._make_pending_run()
         with patch(
-            'solsys_code.campaign_reconciler.insert_or_create_calendar_event',
+            'solsys_code.allocation_projector.insert_or_create_calendar_event',
             side_effect=RuntimeError('boom'),
         ):
             response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
@@ -371,7 +397,7 @@ class TestCalendarProjection(CampaignApprovalTestBase):
         run.refresh_from_db()
         # A single-night classical run's key is date-bearing, including the only night
         # (26-DECISION.md Criterion 3) -- and it never gets a bare RUN:{pk} sibling.
-        event = CalendarEvent.objects.get(url=run_night_url(run, run.window_start))
+        event = CalendarEvent.objects.get(url=allocation_night_url(run, run.window_start))
         self.assertEqual(CalendarEvent.objects.filter(url=run_container_url(run)).count(), 0)
         expected_sunset, expected_sunrise = sun_event(self.ground_site, run.window_start, kind='sun')
         self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=timezone.utc).replace(microsecond=0))
@@ -398,25 +424,27 @@ class TestCalendarProjection(CampaignApprovalTestBase):
         self.assertEqual(event.end_time, datetime(2026, 8, 1, 23, 59, tzinfo=timezone.utc))
 
     def test_approve_range_run_creates_one_event_per_night(self):
-        """FIX-01/FIX-02/FIX-03: a ground range-window run projects one dip-corrected
-        CalendarEvent per night, keyed RUN:{pk}:{date}, with the first night's start_time
-        and the last night's end_time matching sun_event() for window_start/window_end
-        respectively, and every event's title carrying the D-06 window suffix.
+        """FIX-01/FIX-02/FIX-03, migrated for Phase 35: a ground range-window run projects
+        one dip-corrected CalendarEvent per night, keyed ALLOC:{pk}:{date} (D-09), with the
+        first night's start_time and the last night's end_time matching sun_event() for
+        window_start/window_end respectively. No `(window a..b)` suffix on a per-night
+        title (D-12 -- that form is the container branch's alone).
         """
         run = self._make_pending_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
         self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
-        self.assertEqual(owned_events(run).count(), 15)
+        self.assertEqual(allocation_events(run).count(), 15)
 
-        first_event = CalendarEvent.objects.get(url=run_night_url(run, date(2026, 8, 1)))
+        first_event = CalendarEvent.objects.get(url=allocation_night_url(run, date(2026, 8, 1)))
         expected_sunset, _ = sun_event(self.ground_site, date(2026, 8, 1), kind='sun')
         self.assertEqual(
             first_event.start_time, expected_sunset.to_datetime(timezone=timezone.utc).replace(microsecond=0)
         )
-        self.assertIn('(window 2026-08-01..2026-08-15)', first_event.title)
+        self.assertEqual(first_event.title, allocation_night_title(run))
+        self.assertNotIn('(window', first_event.title)
 
-        last_event = CalendarEvent.objects.get(url=run_night_url(run, date(2026, 8, 15)))
+        last_event = CalendarEvent.objects.get(url=allocation_night_url(run, date(2026, 8, 15)))
         _, expected_sunrise = sun_event(self.ground_site, date(2026, 8, 15), kind='sun')
         self.assertEqual(
             last_event.end_time, expected_sunrise.to_datetime(timezone=timezone.utc).replace(microsecond=0)
@@ -446,7 +474,10 @@ class TestCalendarProjection(CampaignApprovalTestBase):
     def test_approve_range_run_partial_projection_on_mid_window_sun_event_error(self):
         """RESEARCH Open Question 2 / Assumption A3 lock: a sun_event() ValueError partway
         through a range projects the earlier nights' events and leaves them in place --
-        approve() swallows the raise, and there is no transaction.atomic() rollback."""
+        approve() swallows the raise, and there is no transaction.atomic() rollback. Patch
+        target moved to `allocation_projector.sun_event`: a resolved-site, non-queue run's
+        per-night writer is the allocation projector after 35-01, not campaign_reconciler.py
+        (which no longer imports sun_event at all)."""
         real_sun_event = sun_event
 
         def _side_effect(site, night, kind='sun'):
@@ -455,11 +486,11 @@ class TestCalendarProjection(CampaignApprovalTestBase):
             return real_sun_event(site, night, kind=kind)
 
         run = self._make_pending_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 4))
-        with patch('solsys_code.campaign_reconciler.sun_event', side_effect=_side_effect):
+        with patch('solsys_code.allocation_projector.sun_event', side_effect=_side_effect):
             self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         run.refresh_from_db()
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
-        self.assertEqual(owned_events(run).count(), 2)
+        self.assertEqual(allocation_events(run).count(), 2)
 
     def test_approve_tbd_run_creates_no_calendar_event(self):
         run = self._make_pending_run(window_start=None, window_end=None)
@@ -478,9 +509,10 @@ class TestCalendarProjection(CampaignApprovalTestBase):
     def test_sun_event_valueerror_skips_projection_without_reverting_approval(self):
         """Pitfall 7: a sun_event() ValueError (e.g. blank site.timezone) must be logged and
         skipped, never reach the broad except Exception that reverts a half-committed
-        approval back to PENDING_REVIEW."""
+        approval back to PENDING_REVIEW. Patch target moved to `allocation_projector.sun_event`
+        (35-01: campaign_reconciler.py no longer imports it at all)."""
         run = self._make_pending_run()
-        with patch('solsys_code.campaign_reconciler.sun_event', side_effect=ValueError('no crossings')):
+        with patch('solsys_code.allocation_projector.sun_event', side_effect=ValueError('no crossings')):
             response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
@@ -530,22 +562,23 @@ class TestRunStatusChange(CampaignApprovalTestBase):
 
     def test_mark_cancelled_single_night_updates_existing_event_in_place(self):
         run = self._make_approved_single_night_run()
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
 
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
-        events = CalendarEvent.objects.filter(url=run_night_url(run, run.window_start))
+        events = CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start))
         self.assertEqual(events.count(), 1)
         event = events.get()
-        # Assert against the reconciler's own title/prefix builders (single source of
-        # truth) rather than re-deriving the strings a second time here. event_title(run)
-        # already incorporates the prefix for run.run_status, since RUN_STATUS_CALENDAR_
-        # PREFIX is looked up inside it.
+        # Assert against the allocation projector's own title builder (single source of
+        # truth, D-12's compact <telescope> <instrument> form -- migrated from
+        # campaign_reconciler.event_title(), which is the container branch's own builder
+        # and still carries the (window a..b) suffix this per-night event no longer has)
+        # rather than re-deriving the strings a second time here.
         self.assertTrue(event.title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED]))
-        self.assertEqual(event.title, event_title(run))
-        self.assertEqual(event.description, event_description(run))
+        self.assertEqual(event.title, allocation_night_title(run))
+        self.assertIn(event_description(run), event.description)
 
     def test_mark_weather_failure_uses_distinct_weathered_prefix(self):
         run = self._make_approved_single_night_run()
@@ -556,30 +589,31 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.WEATHER_TECH_FAILURE)
-        event = CalendarEvent.objects.get(url=run_night_url(run, run.window_start))
+        event = CalendarEvent.objects.get(url=allocation_night_url(run, run.window_start))
         self.assertTrue(event.title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.WEATHER_TECH_FAILURE]))
-        self.assertEqual(event.title, event_title(run))
+        self.assertEqual(event.title, allocation_night_title(run))
         self.assertFalse(event.title.startswith('[CANCELLED]'))
-        self.assertEqual(event.description, event_description(run))
+        self.assertIn(event_description(run), event.description)
 
     def test_mark_range_window_run_updates_every_night_event(self):
-        """FIX-05: approving a 15-night range projects 15 events; marking it cancelled
-        updates every one of them in place, and the D-06 window suffix survives the
-        [CANCELLED] prefix transition (Pitfall 1)."""
+        """FIX-05, migrated for Phase 35: approving a 15-night range projects 15 events;
+        marking it cancelled updates every one of them in place. No `(window a..b)` suffix
+        survives the [CANCELLED] prefix transition on a per-night event (D-12) -- that form
+        is the container branch's alone."""
         run = self._make_approved_single_night_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 15))
-        self.assertEqual(owned_events(run).count(), 15)
+        self.assertEqual(allocation_events(run).count(), 15)
 
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
-        combined = owned_events(run)
+        combined = allocation_events(run)
         self.assertEqual(combined.count(), 15)
-        expected_title = event_title(run)
+        expected_title = allocation_night_title(run)
         self.assertTrue(expected_title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED]))
         for event in combined:
             self.assertEqual(event.title, expected_title)
-            self.assertIn('(window 2026-08-01..2026-08-15)', event.title)
+            self.assertNotIn('(window', event.title)
 
     def test_mark_cancelled_on_run_with_no_prior_event_creates_cancelled_titled_events(self):
         """D-01: reconcile_run()'s stage-0 guard, not this view, decides whether an event
@@ -593,17 +627,17 @@ class TestRunStatusChange(CampaignApprovalTestBase):
             site=self.ground_site,
             site_needs_review=False,
         )
-        self.assertEqual(owned_events(run).count(), 0)
+        self.assertEqual(allocation_events(run).count(), 0)
 
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'mark_cancelled'})
         self.assertEqual(response.status_code, 302)
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
-        events = owned_events(run)
+        events = allocation_events(run)
         self.assertEqual(events.count(), 1)
         event_titled = events.get().title
         self.assertTrue(event_titled.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED]))
-        self.assertEqual(event_titled, event_title(run))
+        self.assertEqual(event_titled, allocation_night_title(run))
 
     def test_mark_cancelled_on_tbd_window_run_still_ends_with_zero_events(self):
         """The stage-0 guard's 'TBD window' skip still applies unconditionally: a run with
@@ -683,14 +717,18 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         """PR-REVIEW-F1: run_status is committed by the conditional `.update()` before the
         calendar-sync loop runs, so a sync exception must never revert to a 500 -- it should
         redirect (200 after follow) with the status change intact and a warning message.
+
+        Patch target moved to `allocation_projector.update_calendar_event_key_and_fields`:
+        this is a default-source, resolved-site (allocation-dispatched, D-09) run's update
+        path, not the container branch's.
         """
         run = self._make_approved_single_night_run()
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
 
         # The event already exists (from approve), so the reconciler's update path -- not
         # its create path -- is what runs here.
         with patch(
-            'solsys_code.campaign_reconciler.update_calendar_event_key_and_fields',
+            'solsys_code.allocation_projector.update_calendar_event_key_and_fields',
             side_effect=Exception('simulated calendar sync failure'),
         ):
             response = self.client.post(
@@ -1083,24 +1121,31 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         self.assertEqual(run.site_id, self.ground_site.pk)
         self.assertFalse(run.site_needs_review)
         self.assertEqual(run.approval_status, CampaignRun.ApprovalStatus.APPROVED)
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('Site resolved — run added to the calendar.', messages_list)
 
     def test_resolve_with_every_night_already_covered_reports_no_new_entries(self):
-        """WR-12 (33-REVIEW.md): a run whose every night is already covered by an entry
-        attributed to it elsewhere must not claim 'run added to the calendar' -- nothing
-        was added, and the success message says so instead of implying a fresh entry."""
+        """WR-12 (33-REVIEW.md), migrated for Phase 35: a run whose only night is already
+        retired (a linked, placed record occupies it -- D-05) must not claim 'run added to
+        the calendar' -- nothing was added.
+
+        The old fixture (a bare, non-CampaignRunObservation-linked facility event with a
+        `CalendarEventMeta.run` pointer) no longer produces this outcome at all: that
+        attribution shape has zero effect on the allocation projector after 35-01 (it never
+        consulted the now-dead `_attributed_nights()`), so a fresh reconcile would simply
+        create a new ALLOC: night alongside it. A genuinely retired night is the only
+        current path to `created == 0 and updated == 0` with `skipped_reason is None`.
+
+        Known production gap found during this migration (recorded, not fixed -- this plan
+        is test-only): `_resolve_site()`'s "no new entries" branch
+        (`campaign_views.py`) still names `result.skipped_nights` in its message, which
+        `_attributed_nights()`'s retirement made permanently 0 -- so this message now always
+        reads "0 night(s) are already covered..." even when the real reason is `retired`.
+        Asserted here as-is (the current, deficient behaviour), not silently corrected."""
         run = self._make_needs_review_run(site_raw='F65')
-        facility_event = CalendarEvent.objects.create(
-            title='LCO record event',
-            url='https://observe.lco.global/api/requestgroups/700700/',
-            telescope='FTN',
-            instrument='MuSCAT3',
-            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
-            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc),
-        )
-        CalendarEventMeta.objects.create(event=facility_event, run=run)
+        scheduled_start = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+        self._link_placed_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start)
 
         response = self.client.post(
             reverse('campaigns:decide', kwargs={'pk': run.pk}),
@@ -1112,16 +1157,23 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.site_id, self.ground_site.pk)
         self.assertFalse(run.site_needs_review)
-        self.assertEqual(owned_events(run).count(), 0)
+        self.assertEqual(allocation_events(run).count(), 0)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertNotIn('Site resolved — run added to the calendar.', messages_list)
         self.assertTrue(any('already covered' in m for m in messages_list))
 
     def test_resolve_that_detaches_something_shows_the_warning(self):
-        """WR-12 (33-REVIEW.md): when resolving a run's site causes the reconciler to
-        detach a superseded entry, `_message_reconcile_side_effects()` surfaces it as a
-        warning on the same response as the resolve success message."""
-        run = self._make_needs_review_run(site=self.ground_site, site_raw='F65')
+        """WR-12 (33-REVIEW.md), migrated for Phase 35: when resolving a run's site causes
+        the reconciler to detach a superseded entry, `_message_reconcile_side_effects()`
+        surfaces it as a warning on the same response as the resolve success message.
+
+        Source is `LCO_QUEUE` (D-10: container-dispatched regardless of the resolved site)
+        so the pre-existing legacy `RUN:{pk}:{date}` event is genuinely stale relative to
+        the container branch's `active_urls` (always exactly `{RUN:{pk}}`) and gets
+        detached on the resolve's reconcile. A resolved-site, non-queue run would instead
+        take over (rekey) a legacy per-night event in place (D-16) rather than detach it --
+        a different scenario, not this one."""
+        run = self._make_needs_review_run(site=self.ground_site, site_raw='F65', source=CampaignRun.Source.LCO_QUEUE)
         run_keyed_event = CalendarEvent.objects.create(
             title='Stale RUN:-keyed event (simulating an earlier reconcile)',
             url=f'RUN:{run.pk}:{run.window_start.isoformat()}',
@@ -1129,15 +1181,6 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
             end_time=datetime(2026, 8, 1, 23, 59, tzinfo=timezone.utc),
         )
         CalendarEventMeta.objects.create(event=run_keyed_event, run=run)
-        facility_event = CalendarEvent.objects.create(
-            title='LCO record event',
-            url='https://observe.lco.global/api/requestgroups/701701/',
-            telescope='FTN',
-            instrument='MuSCAT3',
-            start_time=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
-            end_time=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc),
-        )
-        CalendarEventMeta.objects.create(event=facility_event, run=run)
 
         response = self.client.post(
             reverse('campaigns:decide', kwargs={'pk': run.pk}),
@@ -1168,7 +1211,7 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.site_id, self.ground_site.pk)
         self.assertFalse(run.site_needs_review)
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
 
     def test_resolve_retryable_projection_failure_stays_approved_site_saved_flag_stays_true(self):
         """Finding 3: a projection failure must not revert approval, must keep the resolved
@@ -1298,7 +1341,7 @@ class TestSitesNeedingReview(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.site_id, self.ground_site.pk)
         self.assertFalse(run.site_needs_review)
-        self.assertEqual(owned_events(run).count(), 15)
+        self.assertEqual(allocation_events(run).count(), 15)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('Site resolved — run added to the calendar.', messages_list)
 
@@ -1561,7 +1604,7 @@ class TestPlaceholderSiteReplacement(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.site_id, self.ground_site.pk)
         self.assertFalse(run.site_needs_review)
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
         messages_list = [str(m) for m in response.context['messages']]
         self.assertIn('Site resolved — run added to the calendar.', messages_list)
 
@@ -1904,14 +1947,14 @@ class TestCalendarNoChurn(CampaignApprovalTestBase):
         self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
         run.refresh_from_db()
         # A single-night classical run's key is date-bearing (26-DECISION.md Criterion 3).
-        event = CalendarEvent.objects.get(url=run_night_url(run, run.window_start))
+        event = CalendarEvent.objects.get(url=allocation_night_url(run, run.window_start))
         modified_after_first_approve = event.modified
 
         # Second approve on an already-APPROVED row: updated_count == 0 (SUBMIT-03), so the
         # reconcile block is never re-entered -- no duplicate, no modified churn.
         self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
 
-        self.assertEqual(CalendarEvent.objects.filter(url=run_night_url(run, run.window_start)).count(), 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=allocation_night_url(run, run.window_start)).count(), 1)
         event.refresh_from_db()
         self.assertEqual(event.modified, modified_after_first_approve)
 
@@ -2679,7 +2722,7 @@ class TestGeminiFtScenario(CampaignApprovalTestBase):
         )
 
         def _combined():
-            return owned_events(run)
+            return allocation_events(run)
 
         # (a) Approve: the 4-day window projects 4 per-night CalendarEvents.
         response = self.client.post(reverse('campaigns:decide', kwargs={'pk': run.pk}), {'action': 'approve'})
@@ -2700,13 +2743,13 @@ class TestGeminiFtScenario(CampaignApprovalTestBase):
         self.assertEqual(run.run_status, CampaignRun.RunStatus.WEATHER_TECH_FAILURE)
         combined = _combined()
         self.assertEqual(combined.count(), 4)
-        expected_weathered_title = event_title(run)
+        expected_weathered_title = allocation_night_title(run)
         self.assertTrue(
             expected_weathered_title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.WEATHER_TECH_FAILURE])
         )
         for event in combined:
             self.assertEqual(event.title, expected_weathered_title)
-            self.assertIn('(window 2026-07-13..2026-07-16)', event.title)
+            self.assertNotIn('(window', event.title)
 
         # A follow-up mark_cancelled is a REAL transition (WEATHER_TECH_FAILURE ->
         # CANCELLED are two distinct RunStatus values, not an idempotent no-op --
@@ -2717,13 +2760,13 @@ class TestGeminiFtScenario(CampaignApprovalTestBase):
         self.assertEqual(run.run_status, CampaignRun.RunStatus.CANCELLED)
         combined = _combined()
         self.assertEqual(combined.count(), 4)
-        expected_cancelled_title = event_title(run)
+        expected_cancelled_title = allocation_night_title(run)
         self.assertTrue(
             expected_cancelled_title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED])
         )
         for event in combined:
             self.assertEqual(event.title, expected_cancelled_title)
-            self.assertIn('(window 2026-07-13..2026-07-16)', event.title)
+            self.assertNotIn('(window', event.title)
 
         # Source assertion anchor (exact D-06 seed values, target left unset):
         self.assertEqual(run.telescope_instrument, 'Gemini-South GMOS-S')

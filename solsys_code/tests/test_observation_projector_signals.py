@@ -306,14 +306,16 @@ class TestRecordDeleteReceiver(ObservationProjectorSignalsTestCase):
         self.assertFalse(CalendarEventMeta.objects.filter(event_id=event_pk).exists())
 
     def test_delete_leaves_a_run_prefixed_companion_event_alive(self) -> None:
+        # ALLOC: (not RUN:) is the live per-night key form after 35-01/35-02 -- this test
+        # keeps guarding a key form a real writer (allocation_projector.py) produces.
         url = LCOFacility().get_observation_url(self.record.observation_id)
         own_meta = CalendarEventMeta.objects.get(event__url=url)
         own_meta.observation_record = None
         own_meta.save()
 
         run_event = CalendarEvent.objects.create(
-            url='RUN:42:2026-09-15',
-            title='[CANCELLED] reconciler-owned',
+            url='ALLOC:42:2026-09-15',
+            title='[CANCELLED] allocation-owned',
             description='',
             start_time=datetime(2026, 9, 15, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 9, 16, tzinfo=dt_timezone.utc),
