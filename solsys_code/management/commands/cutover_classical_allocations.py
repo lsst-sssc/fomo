@@ -64,6 +64,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 from tom_calendar.models import CalendarEvent
 
 from solsys_code.allocation_projector import (
@@ -264,48 +265,63 @@ class Command(BaseCommand):
                 else:
                     writable_events.append(event)
 
+            # WR-06 (35-REVIEW.md): wrap this GROUP's writes (the run write plus every
+            # event's re-key) in one savepoint, so an interruption (Ctrl-C, a connection
+            # drop, an IntegrityError from a path not covered by the per-event `except`
+            # below) rolls this group back cleanly rather than leaving a run with only a
+            # subset of its nights re-keyed. A per-event failure is still caught and
+            # reported individually (D-18's own contract: "an event it cannot explain is
+            # left byte-identical and reported") via its OWN nested savepoint, so one bad
+            # event never rolls back the group's run write or any other event in it --
+            # only a failure NOT already handled per-event reaches the outer `except` below.
             try:
-                if dry_run:
-                    existing_run = CampaignRun.objects.filter(source_identifier=key).first()
-                    action = preview_campaign_run_action(existing_run, fields)
-                    run = existing_run
-                else:
-                    run, action = insert_or_create_campaign_run({'source_identifier': key}, fields)
-            except Exception as exc:  # noqa: BLE001 -- D-18's catch-all for a genuinely unexpected failure
+                with transaction.atomic():
+                    if dry_run:
+                        existing_run = CampaignRun.objects.filter(source_identifier=key).first()
+                        action = preview_campaign_run_action(existing_run, fields)
+                        run = existing_run
+                    else:
+                        run, action = insert_or_create_campaign_run({'source_identifier': key}, fields)
+
+                    if action == 'created':
+                        runs_created += 1
+                    elif action == 'updated':
+                        runs_updated += 1
+                    else:
+                        runs_unchanged += 1
+
+                    if dry_run:
+                        # Every candidate event is blank-url by construction (the query
+                        # above), so its url always changes once its own group resolves --
+                        # there is no "would be unchanged" outcome to preview at the event
+                        # level; a real run's events_rekeyed count is exactly this same
+                        # len(writable_events) total.
+                        events_rekeyed += len(writable_events)
+                    else:
+                        site_zone = ZoneInfo(site.timezone)
+                        for event in writable_events:
+                            try:
+                                with transaction.atomic():  # per-event savepoint
+                                    night = observing_night(event.start_time, site_zone)
+                                    url = allocation_night_url(run, night)
+                                    dark_line = preserved_dark_window_line(event)
+                                    rekey_fields = {
+                                        'title': allocation_night_title(run),
+                                        'description': allocation_night_description(run, dark_line),
+                                        'target_list': run.campaign,
+                                    }
+                                    rekeyed_event, _action = update_calendar_event_key_and_fields(
+                                        event, url, rekey_fields
+                                    )
+                                    adopt_event_into_run(rekeyed_event, run)
+                                events_rekeyed += 1
+                            except Exception as exc:  # noqa: BLE001 -- D-18's catch-all, per event
+                                _mark_unexplained([event], _OTHER, f'{type(exc).__name__}: {exc}')
+            except Exception as exc:  # noqa: BLE001 -- D-18's catch-all for a genuinely
+                # unexpected, group-level failure -- the savepoint above has already rolled
+                # back this group's run write and every event re-key.
                 _mark_unexplained(events, _OTHER, f'{type(exc).__name__}: {exc}')
                 continue
-
-            if action == 'created':
-                runs_created += 1
-            elif action == 'updated':
-                runs_updated += 1
-            else:
-                runs_unchanged += 1
-
-            if dry_run:
-                # Every candidate event is blank-url by construction (the query above), so
-                # its url always changes once its own group resolves -- there is no "would
-                # be unchanged" outcome to preview at the event level; a real run's
-                # events_rekeyed count is exactly this same len(writable_events) total.
-                events_rekeyed += len(writable_events)
-                continue
-
-            site_zone = ZoneInfo(site.timezone)
-            for event in writable_events:
-                try:
-                    night = observing_night(event.start_time, site_zone)
-                    url = allocation_night_url(run, night)
-                    dark_line = preserved_dark_window_line(event)
-                    rekey_fields = {
-                        'title': allocation_night_title(run),
-                        'description': allocation_night_description(run, dark_line),
-                        'target_list': run.campaign,
-                    }
-                    rekeyed_event, _action = update_calendar_event_key_and_fields(event, url, rekey_fields)
-                    adopt_event_into_run(rekeyed_event, run)
-                    events_rekeyed += 1
-                except Exception as exc:  # noqa: BLE001 -- D-18's catch-all, per event
-                    _mark_unexplained([event], _OTHER, f'{type(exc).__name__}: {exc}')
 
         for event, _category, reason in unexplained:
             self.stderr.write(f'pk={event.pk} ({event.title!r}): {reason}')

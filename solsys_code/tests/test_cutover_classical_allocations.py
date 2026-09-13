@@ -10,6 +10,7 @@ none of these tests need one directly since a classical `CampaignRun` carries `t
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from io import StringIO
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.auth.models import User
@@ -26,6 +27,7 @@ from solsys_code.campaign_reconciler import owned_events
 from solsys_code.management.commands.load_telescope_runs import _source_identifier
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import observing_night as real_observing_night
 from solsys_code.telescope_runs import parse_run_line
 
 _DARK_LINE = 'Dark window (-15 deg, UTC): 2026-07-09T00:00:00+00:00 to 2026-07-09T10:00:00+00:00'
@@ -528,3 +530,57 @@ class TestCutoverSequenceContract(CutoverClassicalAllocationsTestBase):
         rekeyed_count = 1
         legacy_deleted_count = 1
         self.assertEqual(rekeyed_count + legacy_deleted_count, 2)
+
+
+class TestGroupTransactionBoundary(CutoverClassicalAllocationsTestBase):
+    """35-REVIEW.md WR-06: each group's writes (the run write plus every event's re-key)
+    are wrapped in a savepoint, so a genuinely unexpected group-level failure rolls back
+    cleanly, while a per-event failure (D-18's own contract) still leaves the run and every
+    OTHER event in the group converted."""
+
+    def test_group_level_failure_rolls_back_the_run_and_leaves_every_event_untouched(self):
+        events = self._make_three_night_group()
+        pks = [event.pk for event in events]
+
+        with patch(
+            'solsys_code.management.commands.cutover_classical_allocations.insert_or_create_campaign_run',
+            side_effect=RuntimeError('simulated connection drop'),
+        ):
+            err = StringIO()
+            with self.assertRaises(CommandError):
+                call_command('cutover_classical_allocations', stdout=StringIO(), stderr=err)
+
+        self.assertIn('RuntimeError', err.getvalue())
+        parsed = parse_run_line(_THREE_NIGHT_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        self.assertFalse(CampaignRun.objects.filter(source_identifier=key).exists())
+        for pk in pks:
+            event = CalendarEvent.objects.get(pk=pk)
+            self.assertEqual(event.url, '')
+
+    def test_one_event_exception_does_not_roll_back_the_run_or_other_events(self):
+        events = self._make_three_night_group()
+
+        def _fail_first_only(start_time, site_zone):
+            if start_time == events[0].start_time:
+                raise ValueError('simulated per-event failure')
+            return real_observing_night(start_time, site_zone)
+
+        with patch(
+            'solsys_code.management.commands.cutover_classical_allocations.observing_night',
+            side_effect=_fail_first_only,
+        ):
+            err = StringIO()
+            with self.assertRaises(CommandError):
+                call_command('cutover_classical_allocations', stdout=StringIO(), stderr=err)
+
+        self.assertIn('ValueError', err.getvalue())
+        parsed = parse_run_line(_THREE_NIGHT_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        run = CampaignRun.objects.get(source_identifier=key)  # the group's run was still created
+
+        events[0].refresh_from_db()
+        self.assertEqual(events[0].url, '')  # the failing event is left byte-identical
+        for event in events[1:]:
+            event.refresh_from_db()
+            self.assertTrue(event.url.startswith(f'ALLOC:{run.pk}:'))  # the other two still converted
