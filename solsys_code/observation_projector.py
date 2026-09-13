@@ -570,27 +570,34 @@ def project_queryset(
 def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: bool, raw: bool, **kwargs: Any) -> None:
     """post_save receiver (TRIG-01): projects a record's event with no operator command.
 
-    Returns immediately for a fixture load (``raw=True``) and for any facility other than
-    LCO/SOAR (D-16, Gemini records stay with the submission-echo command). TRIG-02 says this
-    receiver runs inline in the caller's own transaction, so a database error from
-    ``project_record()`` must never leave that transaction unusable for every later query.
-    ``project_record()`` protects against exactly that itself (its own ``transaction.atomic()``
-    savepoint, documented on that function) -- this receiver's ``try`` below is a second,
-    outer layer of defence in case a future change to ``project_record()`` ever lets something
+    Returns immediately for a fixture load (``raw=True``). TRIG-02 says this receiver runs
+    inline in the caller's own transaction, so a database error from ``project_record()``
+    must never leave that transaction unusable for every later query. ``project_record()``
+    protects against exactly that itself (its own ``transaction.atomic()`` savepoint,
+    documented on that function) -- this receiver's ``try`` below is a second, outer layer
+    of defence in case a future change to ``project_record()`` ever lets something
     non-database (e.g. a signal-handler bug) escape it. Logged at debug level, not warning,
     since this fires on every ObservationRecord save in production.
 
-    D-11's second step, appended below the record's own projection: once ``project_record()``
-    has returned successfully, iterate the record's ``campaign_run_links`` and re-project
-    every linked ``CampaignRun`` (``allocation_projector.project_allocation()``) -- so a
-    record moving from queued to placed retires its allocation night on its own save, with no
-    sweep. This step issues no network call of its own (the allocation projector never
-    contacts a facility), and reaches ``sun_event()`` only when a night is actually being
-    minted or re-minted -- the uncommon case, since the common transition here retires a
-    night, which is a delete. It is wrapped in its OWN ``try``/``except``, deliberately
-    separate from the block above: a failure to re-project a linked allocation must never
-    mask or discard the base projection's already-successful result, and neither failure may
-    abort the caller's save.
+    D-11's linked-run re-project step (WR-01, 35-REVIEW.md: moved above the base
+    projection's own facility guard) runs FIRST and is facility-independent: iterate the
+    record's ``campaign_run_links`` and re-project every linked ``CampaignRun``
+    (``allocation_projector.reproject_allocation_if_dispatched()``) -- so a record moving
+    from queued to placed retires its allocation night on its own save, with no sweep, for
+    ANY facility a run can be linked to (not only LCO/SOAR, the base projection's own
+    ``PROJECTED_FACILITIES`` scope -- ``retired_nights()`` applies no facility filter at
+    all, so the trigger must not disagree with the projector about which records matter).
+    This step issues no network call of its own (the allocation projector never contacts a
+    facility), and reaches ``sun_event()`` only when a night is actually being minted or
+    re-minted -- the uncommon case, since the common transition here retires a night, which
+    is a delete. Each linked run gets its OWN ``try``/``except`` (WR-02, 35-REVIEW.md: one
+    bad run must never skip every later one), naming the run in the log -- deliberately
+    separate from the base-projection block below: a failure to re-project a linked
+    allocation must never mask or discard the base projection's own result, and neither
+    failure may abort the caller's save.
+
+    Returns immediately for any facility other than LCO/SOAR (D-16, Gemini records stay
+    with the submission-echo command) only AFTER the linked-run step above has already run.
 
     Args:
         sender: the model class Django's signal framework passes (ObservationRecord).
@@ -601,6 +608,23 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     """
     if raw:
         return
+
+    from solsys_code.allocation_projector import reproject_allocation_if_dispatched
+
+    for link in instance.campaign_run_links.select_related('run'):
+        if link.run is None:
+            continue
+        try:
+            reproject_allocation_if_dispatched(link.run)
+        except Exception as exc:  # noqa: BLE001 -- a linked-run re-project fault must never
+            # mask the base projection below, or abort the caller's save (D-11).
+            logger.warning(
+                'linked-run re-project failed for run pk=%s (observation_id=%r): %s',
+                link.run_id,
+                instance.observation_id,
+                type(exc).__name__,
+            )
+
     if instance.facility not in PROJECTED_FACILITIES:
         return
     try:
@@ -617,18 +641,6 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
         action,
         stage,
     )
-
-    from solsys_code.allocation_projector import reproject_allocation_if_dispatched
-
-    try:
-        for link in instance.campaign_run_links.select_related('run'):
-            if link.run is not None:
-                reproject_allocation_if_dispatched(link.run)
-    except Exception as exc:  # noqa: BLE001 -- a linked-run re-project fault must never mask
-        # the base projection above, or abort the caller's save (D-11).
-        logger.warning(
-            'linked-run re-project failed for observation_id=%r: %s', instance.observation_id, type(exc).__name__
-        )
 
 
 def receiver_on_group_membership_changed(

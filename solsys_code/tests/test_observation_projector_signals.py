@@ -7,6 +7,7 @@ and the real ``updatestatus`` path (spike 001b scenario S4).
 
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -463,7 +464,12 @@ class TestLinkedRunReproject(TestCase):
         self.site_zone = ZoneInfo(self.site.timezone)
 
     def _make_record(
-        self, *, scheduled_start: datetime | None = None, scheduled_end: datetime | None = None, status='PENDING'
+        self,
+        *,
+        scheduled_start: datetime | None = None,
+        scheduled_end: datetime | None = None,
+        status='PENDING',
+        facility: str = 'LCO',
     ) -> ObservationRecord:
         target = NonSiderealTargetFactory.create()
         owner = User.objects.create(username=f'reproject-owner-{uuid4().hex[:8]}')
@@ -472,7 +478,7 @@ class TestLinkedRunReproject(TestCase):
         return ObservationRecord.objects.create(
             target=target,
             user=owner,
-            facility='LCO',
+            facility=facility,
             observation_id=f'reproject-{uuid4().hex[:8]}',
             status=status,
             scheduled_start=scheduled_start,
@@ -565,3 +571,56 @@ class TestLinkedRunReproject(TestCase):
             record.save()  # must not raise
 
         mock_make_request.assert_not_called()
+
+    def test_gemini_record_save_still_reprojects_its_linked_run(self):
+        """35-REVIEW.md WR-01: the linked-run re-project step must fire for ANY facility a
+        run can be linked to, not only LCO/SOAR -- `retired_nights()` applies no facility
+        filter at all, so a GEM record placed into its window must retire its run's
+        allocation night on its own save, exactly like an LCO/SOAR record does."""
+        record = self._make_record(facility='GEM')
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+        self.assertEqual(allocation_events(self.run).count(), 3)
+
+        start, end = self._night_2_block()
+        record.scheduled_start = start
+        record.scheduled_end = end
+        record.save()
+
+        self.assertEqual(allocation_events(self.run).count(), 2)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{self.run.pk}:2026-08-02').exists())
+
+    def test_one_failing_linked_run_does_not_skip_a_later_one(self):
+        """35-REVIEW.md WR-02: a single `try` around the whole loop let one bad run abort
+        re-projection for every later one. Each link must get its own `try`/`except`, named
+        by run pk in the log, so a failure on the first linked run never silently skips the
+        second."""
+        record = self._make_record()
+        fake_link_a = SimpleNamespace(run_id=self.run.pk, run=self.run)
+        other_run = CampaignRun.objects.create(
+            campaign=None,
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=self.site,
+            site_raw='809',
+            window_start=date(2026, 8, 10),
+            window_end=date(2026, 8, 10),
+            observation_details='Second linked run',
+        )
+        fake_link_b = SimpleNamespace(run_id=other_run.pk, run=other_run)
+        fake_manager = SimpleNamespace(select_related=lambda *_a, **_kw: [fake_link_a, fake_link_b])
+
+        with (
+            patch.object(type(record), 'campaign_run_links', fake_manager, create=True),
+            patch(
+                'solsys_code.allocation_projector.reproject_allocation_if_dispatched',
+                side_effect=[RuntimeError('boom'), None],
+            ) as mock_reproject,
+            self.assertLogs('solsys_code.observation_projector', level='WARNING') as logs,
+        ):
+            record.save()
+
+        self.assertEqual(mock_reproject.call_count, 2)
+        joined = '\n'.join(logs.output)
+        self.assertIn(f'run pk={self.run.pk}', joined)
+        self.assertIn('RuntimeError', joined)
