@@ -5,10 +5,13 @@ the exact path TOM's own ``observation_change_state`` hook misses (spike 001b sc
 and the real ``updatestatus`` path (spike 001b scenario S4).
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import patch
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
+from django.contrib.auth.models import User
 from django.db import transaction
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
@@ -16,7 +19,12 @@ from tom_observations.facilities.lco import LCOFacility
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.models import CalendarEventMeta
+from solsys_code.allocation_projector import allocation_events
+from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
+from solsys_code.observation_projector import facility_for
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import observing_night
 
 
 class ObservationProjectorSignalsTestCase(TestCase):
@@ -416,4 +424,144 @@ class TestReceiverSafetyContract(ObservationProjectorSignalsTestCase):
         with patch('solsys_code.calendar_utils.make_request') as mock_make_request:
             self.record.status = 'COMPLETED'
             self.record.save()
+        mock_make_request.assert_not_called()
+
+
+class TestLinkedRunReproject(TestCase):
+    """35-04 Task 2, D-11's second half: the linked-run re-project step appended to
+    `receiver_on_record_save()`, after the record's own event has been projected. Uses its
+    own fixture (not `ObservationProjectorSignalsTestCase`) because it needs a
+    `CampaignRun`/`Observatory` pair the shared fixture above doesn't carry."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def setUp(self) -> None:
+        self.run = CampaignRun.objects.create(
+            campaign=None,
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=self.site,
+            site_raw='809',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+            observation_details='Reproject fixture',
+        )
+        reconcile_run(self.run)
+        self.assertEqual(allocation_events(self.run).count(), 3)
+        self.site_zone = ZoneInfo(self.site.timezone)
+
+    def _make_record(
+        self, *, scheduled_start: datetime | None = None, scheduled_end: datetime | None = None, status='PENDING'
+    ) -> ObservationRecord:
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'reproject-owner-{uuid4().hex[:8]}')
+        window_start = datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc)
+        window_end = datetime(2026, 8, 2, 6, 0, tzinfo=dt_timezone.utc)
+        return ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility='LCO',
+            observation_id=f'reproject-{uuid4().hex[:8]}',
+            status=status,
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={
+                'proposal': 'TEST',
+                'start': window_start.isoformat(),
+                'end': window_end.isoformat(),
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+            },
+        )
+
+    def _night_2_block(self) -> tuple[datetime, datetime]:
+        """A placed block whose site-local observing night is 2026-08-02 (the middle of the
+        fixture run's 3-night window)."""
+        start = datetime(2026, 8, 2, 20, 0, tzinfo=dt_timezone.utc)
+        end = start.replace(hour=21)
+        self.assertEqual(observing_night(start, self.site_zone), date(2026, 8, 2))
+        return start, end
+
+    def test_request_window_only_save_leaves_every_night_in_place(self):
+        record = self._make_record()
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+        self.assertEqual(allocation_events(self.run).count(), 3)
+
+        record.parameters = {
+            'proposal': 'TEST',
+            'start': '2026-08-02T00:00:00Z',
+            'end': '2026-08-02T06:00:00Z',
+            'instrument_type': '2M0-SCICAM-MUSCAT',
+        }
+        record.save()
+
+        self.assertEqual(allocation_events(self.run).count(), 3)
+
+    def test_placing_the_block_retires_night_2_on_the_records_own_save(self):
+        record = self._make_record()
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+        self.assertEqual(allocation_events(self.run).count(), 3)
+
+        start, end = self._night_2_block()
+        record.scheduled_start = start
+        record.scheduled_end = end
+        record.save()
+
+        self.assertEqual(allocation_events(self.run).count(), 2)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{self.run.pk}:2026-08-02').exists())
+
+    def test_record_with_no_campaign_run_links_never_calls_project_allocation(self):
+        record = self._make_record()
+
+        with patch('solsys_code.allocation_projector.project_allocation') as mock_project:
+            record.status = 'COMPLETED'
+            record.save()
+
+        mock_project.assert_not_called()
+
+    def test_linked_run_reproject_raising_does_not_abort_the_records_own_save_or_projection(self):
+        record = self._make_record()
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+
+        facility = facility_for(record)
+        own_url = facility.get_observation_url(record.observation_id)
+
+        with patch('solsys_code.allocation_projector.project_allocation', side_effect=ValueError('boom')):
+            record.status = 'COMPLETED'
+            record.save()  # must not raise
+
+        self.assertEqual(ObservationRecord.objects.get(pk=record.pk).status, 'COMPLETED')
+        self.assertTrue(CalendarEvent.objects.filter(url=own_url).exists())
+
+    def test_linked_run_reproject_makes_no_network_call(self):
+        """The re-project step's own no-network-call guarantee. Deliberately patches
+        `calendar_utils.make_request` -- the function that actually performs HTTP I/O --
+        rather than `observation_projector.facility_for()`: the latter is reached
+        legitimately (and harmlessly -- it only resolves/caches a facility class instance,
+        no I/O) by `project_allocation()`'s own D-08 attribution bridge for any linked
+        LCO/SOAR record, which this test's own linked record necessarily is (the reproject
+        step only runs for LCO/SOAR records at all). Patching `facility_for` here would
+        therefore always be "reached" regardless of whether any network call occurred,
+        making it the wrong probe for this specific guarantee -- see the SUMMARY's
+        deviations section."""
+        record = self._make_record()
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+
+        start, end = self._night_2_block()
+        with patch('solsys_code.calendar_utils.make_request') as mock_make_request:
+            record.scheduled_start = start
+            record.scheduled_end = end
+            record.save()  # must not raise
+
         mock_make_request.assert_not_called()

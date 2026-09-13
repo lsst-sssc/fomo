@@ -580,6 +580,18 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     non-database (e.g. a signal-handler bug) escape it. Logged at debug level, not warning,
     since this fires on every ObservationRecord save in production.
 
+    D-11's second step, appended below the record's own projection: once ``project_record()``
+    has returned successfully, iterate the record's ``campaign_run_links`` and re-project
+    every linked ``CampaignRun`` (``allocation_projector.project_allocation()``) -- so a
+    record moving from queued to placed retires its allocation night on its own save, with no
+    sweep. This step issues no network call of its own (the allocation projector never
+    contacts a facility), and reaches ``sun_event()`` only when a night is actually being
+    minted or re-minted -- the uncommon case, since the common transition here retires a
+    night, which is a delete. It is wrapped in its OWN ``try``/``except``, deliberately
+    separate from the block above: a failure to re-project a linked allocation must never
+    mask or discard the base projection's already-successful result, and neither failure may
+    abort the caller's save.
+
     Args:
         sender: the model class Django's signal framework passes (ObservationRecord).
         instance: the ObservationRecord that was just saved.
@@ -605,6 +617,18 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
         action,
         stage,
     )
+
+    from solsys_code.allocation_projector import project_allocation
+
+    try:
+        for link in instance.campaign_run_links.select_related('run'):
+            if link.run is not None:
+                project_allocation(link.run)
+    except Exception as exc:  # noqa: BLE001 -- a linked-run re-project fault must never mask
+        # the base projection above, or abort the caller's save (D-11).
+        logger.warning(
+            'linked-run re-project failed for observation_id=%r: %s', instance.observation_id, type(exc).__name__
+        )
 
 
 def receiver_on_group_membership_changed(
