@@ -460,12 +460,24 @@ def _delete_owned_calendar_events_on_campaign_run_delete(sender, instance, **kwa
     A's namespace ARE still deleted, which is what keeps WR-01's "no permanently-orphaned
     events" outcome intact.
 
+    Phase 35: also cascades ``allocation_projector.writable_allocation_events()`` -- the
+    ``ALLOC:`` namespace twin of ``writable_events()``. Without this second call, deleting
+    an allocation run (one with no fixed observing site inference, a resolved ground site
+    and a window) would leave its ``ALLOC:`` nights on the shared calendar forever, with no
+    live ``CampaignRun`` for ``reconcile_run()`` to reach them through -- the exact
+    permanently-orphaned-event outcome this receiver exists to prevent, now for a second
+    namespace. Deleting run A must still never destroy an allocation night whose companion
+    row attributes it to run B.
+
     Imported lazily (function-local, not module-level) to avoid a circular import:
-    ``campaign_reconciler`` imports ``CalendarEventMeta``/``CampaignRun`` from this module.
+    ``campaign_reconciler``/``allocation_projector`` import ``CalendarEventMeta``/
+    ``CampaignRun`` from this module.
     """
+    from solsys_code.allocation_projector import writable_allocation_events
     from solsys_code.campaign_reconciler import writable_events
 
     writable_events(instance).delete()
+    writable_allocation_events(instance).delete()
 
 
 class CampaignRunObservation(models.Model):

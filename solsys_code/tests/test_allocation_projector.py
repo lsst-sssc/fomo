@@ -6,18 +6,25 @@ ALLOC-03 (the observation handoff) and the D-09/D-10 dispatch seam in
 `CampaignReconcilerTestBase` in `test_campaign_reconciler.py`.
 """
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
+from django.contrib.auth.models import User
 from django.test import TestCase
+from django.utils import timezone
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code import observation_projector as op
 from solsys_code.allocation_projector import allocation_events
 from solsys_code.campaign_reconciler import event_description, owned_events, reconcile_run
-from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.telescope_runs import sun_event
+from solsys_code.telescope_runs import observing_night, sun_event
 
 
 class AllocationProjectorTestBase(TestCase):
@@ -69,6 +76,32 @@ class AllocationProjectorTestBase(TestCase):
         }
         kwargs.update(overrides)
         return CampaignRun.objects.create(**kwargs)
+
+    def _link_record(
+        self,
+        run: CampaignRun,
+        *,
+        scheduled_start: datetime | None = None,
+        scheduled_end: datetime | None = None,
+        facility: str = 'LCO',
+        status: str = 'COMPLETED',
+    ) -> tuple[ObservationRecord, CampaignRunObservation]:
+        """Create an ObservationRecord (NonSiderealTargetFactory target -- CLAUDE.md) and
+        link it to `run` via a CampaignRunObservation. Returns (record, link)."""
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'obs-owner-{uuid4().hex[:8]}')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility=facility,
+            observation_id=f'obs-{uuid4().hex[:8]}',
+            status=status,
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={'proposal': 'TEST'},
+        )
+        link = CampaignRunObservation.objects.create(run=run, observation_record=record)
+        return record, link
 
 
 class TestEndToEndAllocationNight(AllocationProjectorTestBase):
@@ -211,3 +244,219 @@ class TestNoOrphanEventsAfterAllocationDispatch(AllocationProjectorTestBase):
 
         self.assertEqual(owned_events(run).count(), 0)
         self.assertEqual(allocation_events(run).count(), 3)
+
+
+class TestObservationHandoff(AllocationProjectorTestBase):
+    """Task 2: a linked, placed/observed record retires its night; unlinking restores it
+    (D-05/D-06/D-07)."""
+
+    def test_linked_placed_record_retires_its_night(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        site_zone = ZoneInfo(self.chilean_site.timezone)
+        retired_night = observing_night(scheduled_start, site_zone)
+        retired_url = f'ALLOC:{run.pk}:{retired_night.isoformat()}'
+
+        result = reconcile_run(run)
+
+        self.assertEqual(allocation_events(run).count(), 2)
+        self.assertEqual(result.retired, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=retired_url).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event__url=retired_url).exists())
+
+    def test_unlinking_restores_the_retired_night_with_a_fresh_event(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        _record, link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        reconcile_run(run)
+
+        link.delete()
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 1)
+        site_zone = ZoneInfo(self.chilean_site.timezone)
+        retired_night = observing_night(scheduled_start, site_zone)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{retired_night.isoformat()}').exists())
+
+    def test_queued_only_record_retires_nothing(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        self._link_record(run, scheduled_start=None, scheduled_end=None, status='PENDING')
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(allocation_events(run).count(), 3)
+
+    def test_terminal_negative_record_keeps_its_night_retired(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end, status='WINDOW_EXPIRED')
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(allocation_events(run).count(), 2)
+
+    def test_reclassified_window_leaves_no_orphan_for_dropped_night(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        self.assertEqual(allocation_events(run).count(), 3)
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertEqual(allocation_events(run).count(), 2)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:2026-07-11').exists())
+        self.assertEqual(result.retired, 1)
+
+    def test_legacy_run_keyed_night_is_rekeyed_in_place(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_start = datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc)
+        legacy_end = datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc)
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=legacy_start,
+            end_time=legacy_end,
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+        legacy_pk = legacy_event.pk
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.rekeyed, 1)
+        alloc_url = f'ALLOC:{run.pk}:{night.isoformat()}'
+        event = CalendarEvent.objects.get(url=alloc_url)
+        self.assertEqual(event.pk, legacy_pk)
+        self.assertEqual(event.start_time, legacy_start)
+        self.assertEqual(event.end_time, legacy_end)
+        meta = CalendarEventMeta.objects.get(event=event)
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertFalse(CalendarEvent.objects.filter(url=legacy_url).exists())
+
+
+class TestAttributionBridge(AllocationProjectorTestBase):
+    """Task 2, D-08: attribution is a link on the record's OWN event, both directions."""
+
+    def _make_record_event(self, record: ObservationRecord, start: datetime, end: datetime) -> CalendarEvent:
+        """Build the record's own observation-projector-style event, including the
+        `CalendarEventMeta.observation_record` link `write_event_meta()` would set in
+        production -- required for the unlink half's `observation_record__isnull=False`
+        filter to see it."""
+        facility = op.facility_for(record)
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url=op.event_url(record, facility),
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=start,
+            end_time=end,
+        )
+        op.write_event_meta(event, record)
+        return event
+
+    def test_d08_round_trip_link_and_unlink_attribution(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        scheduled_start = datetime(2026, 7, 9, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        record, link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        record_event = self._make_record_event(record, scheduled_start, scheduled_end)
+        title_before, description_before = record_event.title, record_event.description
+        start_before, end_before = record_event.start_time, record_event.end_time
+
+        reconcile_run(run)
+
+        record_event.refresh_from_db()
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertEqual(record_event.title, title_before)
+        self.assertEqual(record_event.description, description_before)
+        self.assertEqual(record_event.start_time, start_before)
+        self.assertEqual(record_event.end_time, end_before)
+
+        link.delete()
+        reconcile_run(run)
+
+        record_event.refresh_from_db()
+        self.assertFalse(CalendarEventMeta.objects.filter(event=record_event, run_id=run.pk).exists())
+        self.assertEqual(record_event.title, title_before)
+        self.assertEqual(record_event.description, description_before)
+        self.assertEqual(record_event.start_time, start_before)
+        self.assertEqual(record_event.end_time, end_before)
+
+    def test_foreign_attribution_is_refused_and_counted(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        scheduled_start = datetime(2026, 7, 9, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        record, _link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        record_event = self._make_record_event(record, scheduled_start, scheduled_end)
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        meta.run = other_run
+        meta.save(update_fields=['run'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        record_event.refresh_from_db()
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        self.assertEqual(meta.run_id, other_run.pk)
+
+    def test_confirmed_attribution_survives_automated_unlink(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        scheduled_start = datetime(2026, 7, 9, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        record, link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        record_event = self._make_record_event(record, scheduled_start, scheduled_end)
+        staff_user = User.objects.create(username='staffer')
+        confirmed_at = timezone.now()
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        meta.run = run
+        meta.confirmed_by = staff_user
+        meta.confirmed_at = confirmed_at
+        meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
+
+        link.delete()
+        reconcile_run(run)
+
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(meta.confirmed_at, confirmed_at)
+
+
+class TestAllocationDeletionCascade(AllocationProjectorTestBase):
+    """Deleting a CampaignRun takes its own allocation nights with it, and never a night
+    attributed to a different run (mirrors campaign_reconciler's RUN: cascade twin)."""
+
+    def test_deleting_run_removes_its_alloc_nights(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 10))
+        reconcile_run(run)
+        self.assertEqual(allocation_events(run).count(), 2)
+
+        run.delete()
+
+        self.assertEqual(CalendarEvent.objects.filter(url__startswith='ALLOC:').count(), 0)
+
+    def test_deleting_run_a_leaves_run_bs_alloc_night_untouched(self):
+        run_a = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        run_b = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        reconcile_run(run_a)
+        reconcile_run(run_b)
+        event_a = CalendarEvent.objects.get(url=f'ALLOC:{run_a.pk}:2026-07-09')
+        meta = CalendarEventMeta.objects.get(event=event_a)
+        meta.run = run_b
+        meta.save(update_fields=['run'])
+
+        run_a.delete()
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event_a.pk).exists())

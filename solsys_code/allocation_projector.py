@@ -15,7 +15,8 @@ Attribution is a link on ``CalendarEventMeta``, never a write to a ``CalendarEve
 this module's own ``ALLOC:``-keyed nights are self-attributed to their run the same way the
 reconciler's ``RUN:``-keyed events are, and the observation-record attribution bridge (Task
 2) reads/writes attribution exclusively through ``campaign_utils.adopt_event_into_run()`` /
-``campaign_utils.unlink_event_from_run()`` -- never ``meta.run = ...`` directly.
+``campaign_utils.unlink_event_from_run()`` -- never a direct assignment to the companion
+row's ``run`` field.
 
 Import discipline (the reason two different import styles appear below): a pure, stateless
 helper this module calls with its own data is promoted to public in its home module and
@@ -31,12 +32,16 @@ import logging
 from datetime import timedelta
 from datetime import timezone as dt_timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from django.db.models import Q
 from tom_calendar.models import CalendarEvent
 
 from solsys_code.calendar_utils import (
+    coerce_schedule_datetime,
     insert_or_create_calendar_event,
     preview_calendar_event_action,
+    record_time_window,
     update_calendar_event_key_and_fields,
 )
 from solsys_code.campaign_reconciler import RUN_STATUS_CALENDAR_PREFIX as _RUN_STATUS_CALENDAR_PREFIX
@@ -45,10 +50,11 @@ from solsys_code.campaign_reconciler import (
     _link_event_to_run,
     _may_write,
     event_description,
+    run_container_url,
     split_telescope_instrument,
 )
-from solsys_code.models import CampaignRun
-from solsys_code.telescope_runs import sun_event
+from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.telescope_runs import observing_night, sun_event
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +84,23 @@ def allocation_events(run: CampaignRun):
     matches run pk=34's allocation nights.
     """
     return CalendarEvent.objects.filter(url__startswith=f'{ALLOC_URL_NAMESPACE}{run.pk}:')
+
+
+def writable_allocation_events(run: CampaignRun):
+    """The ``ALLOC:`` twin of ``campaign_reconciler.writable_events()`` -- namespace
+    identity alone is NOT ownership.
+
+    Mirrors that helper's attribution-scoped filter exactly: no companion row at all, a
+    companion row whose ``run`` is unset, or a companion row that already points at this
+    run. Used by the ``CampaignRun`` ``pre_delete`` cascade (``models.py``) alongside
+    ``writable_events()`` so deleting run A never destroys an allocation night whose
+    companion row attributes it to run B.
+    """
+    return allocation_events(run).filter(
+        Q(telescope_label_meta__isnull=True)
+        | Q(telescope_label_meta__run__isnull=True)
+        | Q(telescope_label_meta__run=run)
+    )
 
 
 def allocation_night_title(run: CampaignRun) -> str:
@@ -135,19 +158,146 @@ def preserved_dark_window_line(event: CalendarEvent) -> str | None:
     return None
 
 
+def retired_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
+    """The set of site-local observing nights a linked, placed-or-observed record retires
+    (D-05).
+
+    Iterates ``run.observation_links`` once. A record whose ``scheduled_start``/
+    ``scheduled_end`` are not BOTH set is intent that may still move -- a queue window is
+    not a set of owned nights -- so it retires nothing and the loop continues. No status
+    filtering at all: a terminal-negative record that still carries a block keeps its night
+    retired (D-06), because its own marked event already occupies that night.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        site_zone: the run's site timezone, built once by the caller.
+
+    Returns:
+        set: the site-local observing ``date``s a linked record's placed/observed block
+        retires.
+    """
+    nights: set = set()
+    for link in run.observation_links.select_related('observation_record'):
+        record = link.observation_record
+        try:
+            start = coerce_schedule_datetime(record.scheduled_start)
+            end = coerce_schedule_datetime(record.scheduled_end)
+        except ValueError as exc:
+            # G-34-2 portal-string case: the projector never raises on a record it cannot
+            # read -- the record simply retires nothing.
+            logger.warning(
+                'retired_nights: could not coerce schedule bounds for observation_record ' 'pk=%s: %s',
+                record.pk,
+                type(exc).__name__,
+            )
+            continue
+        if start is None or end is None:
+            continue
+        window_start, _window_end = record_time_window(record)
+        nights.add(observing_night(window_start, site_zone))
+    return nights
+
+
+def _sync_observation_attribution(run: CampaignRun, *, dry_run: bool) -> int:
+    """D-08's attribution bridge, both directions -- the only place this module writes an
+    observation-record-derived event's attribution, and it never writes any of that event's
+    ``title``/``description``/``start_time``/``end_time`` fields.
+
+    Link half: every surviving link whose record's facility the observation projector owns
+    gets its own event adopted into this run via ``campaign_utils.adopt_event_into_run()``,
+    which refuses (logged, counted under ``blocked``) when the event is already attributed
+    to a DIFFERENT run -- a staff confirmation elsewhere outranks this automated write.
+
+    Unlink half: resolved by convergence, not by diffing (D-08's other sentence -- nothing
+    else in the system clears an attribution whose link went away, and iterating surviving
+    links can by construction never see the link that vanished). Each filter clause is
+    load-bearing: ``run=run`` (plus ``unlink_event_from_run()``'s own filter) is "only when
+    attributed to THIS run"; ``confirmed_by__isnull=True`` is the human guard -- a
+    staff-confirmed attribution is left alone; ``observation_record__isnull=False`` keeps
+    this step inside the observation projector's own namespace, out of reach of this
+    module's self-attributed ``ALLOC:`` nights.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        dry_run: when True, do nothing and report zero blocked -- neither half is
+            reachable under ``dry_run``.
+
+    Returns:
+        int: the number of link-half adoptions refused because the event already belongs
+        to a different run.
+    """
+    if dry_run:
+        return 0
+
+    from solsys_code import campaign_utils, observation_projector
+
+    blocked = 0
+    for link in run.observation_links.select_related('observation_record'):
+        record = link.observation_record
+        if record.facility not in observation_projector.PROJECTED_FACILITIES:
+            continue
+        facility = observation_projector.facility_for(record)
+        event = CalendarEvent.objects.filter(url=observation_projector.event_url(record, facility)).first()
+        if event is None:
+            continue
+        if not campaign_utils.adopt_event_into_run(event, run):
+            logger.warning(
+                'Allocation attribution blocked: observation event pk=%s (record pk=%s) is '
+                'already attributed to a different run (run pk=%s could not adopt it).',
+                event.pk,
+                record.pk,
+                run.pk,
+            )
+            blocked += 1
+
+    linked_record_pks = set(run.observation_links.values_list('observation_record_id', flat=True))
+    stale_event_pks = list(
+        CalendarEventMeta.objects.filter(run=run, confirmed_by__isnull=True, observation_record__isnull=False)
+        .exclude(observation_record_id__in=linked_record_pks)
+        .values_list('event_id', flat=True)
+    )
+    if stale_event_pks:
+        cleared = campaign_utils.unlink_event_from_run(stale_event_pks, run)
+        if cleared:
+            logger.info(
+                'Allocation attribution: cleared %s stale observation-event attribution(s) for run pk=%s.',
+                cleared,
+                run.pk,
+            )
+
+    return blocked
+
+
 def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[ReconcileResult, set[str]]:
     """Project (or refresh) every night in ``[run.window_start, run.window_end]`` inclusive
-    into its own ``ALLOC:{run.pk}:{night}`` sunset->sunrise ``CalendarEvent``.
+    into its own ``ALLOC:{run.pk}:{night}`` sunset->sunrise ``CalendarEvent``, retiring a
+    night the moment a linked record's placed or observed block occupies it (D-05/D-07) and
+    taking over a legacy ``RUN:{pk}:{night}`` event in place rather than duplicating it
+    (D-16).
 
-    Per-night resolution order: ownership (``_may_write()``) is decided BEFORE any write --
-    a blocked night is counted and its url added to the active set (so a foreign
-    attribution is never detached out from under it), never written. ``sun_event()`` (both
-    ``'sun'`` and ``'dark'``) is called only when a night is being CREATED -- never on the
-    update path (D-13): an existing night's ``start_time``/``end_time`` are never rewritten.
+    Per-night resolution order: ownership (``_may_write()``) is decided BEFORE any other
+    outcome -- a blocked night is counted and its url added to the active set (so a foreign
+    attribution is never detached out from under it), never written. A retired night is
+    counted once regardless of whether an event existed to delete, its url is added to
+    neither the active set nor kept as a live night, and no legacy-takeover or mint logic
+    runs for it. A night with no existing ``ALLOC:`` event but a writable legacy
+    ``RUN:{pk}:{night}`` event is re-keyed in place (title/description/target_list only,
+    same primary key, no ``sun_event()`` call) rather than minted fresh. ``sun_event()``
+    (both ``'sun'`` and ``'dark'``) is called only when a brand-new night is being minted --
+    never on the update or re-key paths (D-13): an existing night's ``start_time``/
+    ``end_time`` are never rewritten.
 
     Field authority: on **create**, writes ``title``, ``description``, ``target_list``,
-    ``telescope``, ``instrument``, ``start_time``, ``end_time``. On **update**, writes only
-    ``title``, ``description`` (with the preserved dark-window line) and ``target_list``.
+    ``telescope``, ``instrument``, ``start_time``, ``end_time``. On **update** (including a
+    re-key), writes only ``title``, ``description`` (with the preserved dark-window line)
+    and ``target_list``.
+
+    After the per-night loop, the attribution bridge (``_sync_observation_attribution()``)
+    links every surviving observation record's own event to this run, and clears the
+    attribution of an event whose link is gone (D-08). Finally, convergence (D-14) deletes
+    any ``ALLOC:`` event left over from a night this reconcile no longer visits (e.g. a
+    re-classification that shrank the window) -- excluding nights already handled as
+    retired above, so a dry-run preview never double-counts the same retirement twice.
 
     ``sun_event()``'s ``ValueError`` (e.g. a blank ``Observatory.timezone``) is deliberately
     NOT caught here -- it keeps propagating out of ``reconcile_run()`` for the staff-action
@@ -161,16 +311,27 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
 
     Returns:
         tuple[ReconcileResult, set[str]]: the outcome, and the exact set of
-        ``CalendarEvent.url`` values this call considers current -- every night visited,
-        including a blocked night and every night visited in ``dry_run``.
+        ``CalendarEvent.url`` values this call considers current -- every non-retired night
+        visited, including a blocked night and every night visited in ``dry_run``.
     """
-    totals: dict[str, int] = {'created': 0, 'updated': 0, 'unchanged': 0, 'blocked': 0}
+    totals: dict[str, int] = {
+        'created': 0,
+        'updated': 0,
+        'unchanged': 0,
+        'blocked': 0,
+        'retired': 0,
+        'rekeyed': 0,
+    }
+    site_zone = ZoneInfo(run.site.timezone)
     n_nights = (run.window_end - run.window_start).days + 1
+    retired = retired_nights(run, site_zone)
     active_urls: set[str] = set()
+    retired_urls: set[str] = set()
 
     for i in range(n_nights):
         night = run.window_start + timedelta(days=i)
         url = allocation_night_url(run, night)
+        legacy_url = f'{run_container_url(run)}:{night.isoformat()}'
         existing = CalendarEvent.objects.filter(url=url).first()
 
         if not _may_write(existing, run):
@@ -179,7 +340,41 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             active_urls.add(url)
             continue
 
+        if night in retired:
+            retired_urls.add(url)
+            if not dry_run:
+                if existing is not None:
+                    existing.delete()
+                CalendarEvent.objects.filter(url=legacy_url).delete()
+            totals['retired'] += 1
+            continue
+
         active_urls.add(url)
+
+        legacy_event = CalendarEvent.objects.filter(url=legacy_url).first() if existing is None else None
+
+        if existing is None and legacy_event is not None:
+            if not _may_write(legacy_event, run):
+                logger.warning(
+                    'Allocation blocked: legacy event pk=%s is not owned by run pk=%s.',
+                    legacy_event.pk,
+                    run.pk,
+                )
+                totals['blocked'] += 1
+                continue
+            dark_line = preserved_dark_window_line(legacy_event)
+            rekey_fields: dict[str, Any] = {
+                'title': allocation_night_title(run),
+                'description': allocation_night_description(run, dark_line),
+                'target_list': run.campaign,
+            }
+            if dry_run:
+                totals['rekeyed'] += 1
+                continue
+            event, _action = update_calendar_event_key_and_fields(legacy_event, url, rekey_fields)
+            _link_event_to_run(event, run)
+            totals['rekeyed'] += 1
+            continue
 
         if existing is None:
             sunset, sunrise = sun_event(run.site, night, kind='sun')
@@ -215,5 +410,14 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             event, action = update_calendar_event_key_and_fields(existing, url, fields)
         _link_event_to_run(event, run)
         totals[action] += 1
+
+    totals['blocked'] += _sync_observation_attribution(run, dry_run=dry_run)
+
+    stale_qs = allocation_events(run).exclude(url__in=active_urls | retired_urls)
+    stale_count = stale_qs.count()
+    if stale_count:
+        if not dry_run:
+            stale_qs.delete()
+        totals['retired'] += stale_count
 
     return ReconcileResult(**totals), active_urls
