@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-01-PLAN.md
-last_updated: "2026-09-13T03:42:13.127Z"
+stopped_at: Completed 35-02-PLAN.md
+last_updated: "2026-09-13T04:38:08.423Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 35 execution started
-state_head: 4761ae6902a930b19416ede9a7c1cfc0b6ba5025
+state_head: cfd63fe3dccb785c058dd95825f6c05675a5b116
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 1
   total_plans: 25
-  completed_plans: 19
-  percent: 40
+  completed_plans: 20
+  percent: 20
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 35 execution started
 
@@ -190,6 +190,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 34-the-observation-projector-trigger P06 | ~10min | 2 tasks | 1 files |
 | Phase 34 P07 | ~50min | 3 tasks | 3 files |
 | Phase 35 P01 | 53min | 3 tasks | 8 files |
+| Phase 35 P02 | 90min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -263,6 +264,9 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 34 UAT]: `updatestatus` skips terminal-state records, so the 14 events that went stale under the pre-fix receiver need one sweep (F-34-1) — G-34-1 withdrawn; SCHED-06 closed on 4378332/4378046 narrowing via the receiver alone.
 - [Phase 35]: [Phase 35]: 35-01: retired_nights() counts every night in the retired set as +1 in ReconcileResult.retired even when nothing existed yet to delete -- the plan's own Task 2 Test 1 requires retired == 1 on a run's very first reconcile when its linked record was already placed before the run ever reconciled.
 - [Phase 35]: [Phase 35]: 35-01: project_allocation()'s D-14 convergence tracks a local-only retired_urls set (never returned) to stop a dry-run preview from double-counting a night the per-night loop already reported as retired -- real (non-dry) mode never needs this since the event is already deleted from the DB by the time convergence runs.
+- [Phase 35]: [Phase 35]: 35-02: TestClassicalStage1's 5 tests with a confirmed test_allocation_projector.py counterpart are retired; the 2 without one (site-local key-date round-trip, mid-loop sun_event ValueError propagation) are kept, migrated to the ALLOC: key form.
+- [Phase 35]: [Phase 35]: 35-02: TestAttributedNightSkip and TestObservingNightBoundary retired outright -- _attributed_nights() is dead code after 35-01 (defined, never called); TestObservingNightBoundary's coverage is fully duplicated by test_allocation_projector.TestAllocationNightBoundary.
+- [Phase 35]: [Phase 35]: 35-02: found, not fixed (test-only plan scope) -- campaign_views._resolve_site()'s 'no new entries' message still names result.skipped_nights, which is now permanently 0 after the D-05 handoff superseded the skip-the-night rule; recommend a follow-up quick task.
 
 ### Pending Todos
 
@@ -358,8 +362,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T03:42:12.875Z
-Stopped at: Completed 35-01-PLAN.md
+Last session: 2026-09-13T04:37:56.226Z
+Stopped at: Completed 35-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
