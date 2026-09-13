@@ -29,7 +29,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Allocation Layer & Handoff
 
 - [ ] **ALLOC-01**: An allocation with a resolved site and a classical/awarded window (a `CampaignRun` with or without a campaign: classical schedule line, approved submission, TBD/range run once resolved) projects one per-night sunset→sunrise event per window night at its site; a queue-scheduled, class-wide, or satellite run keeps its single whole-window container event (Phase 26 verdict — a queue window is not a set of owned nights), annotated, never narrowed
-- [ ] **ALLOC-02**: Allocation nights are keyed by the site-local observing night (the date `sun_event` takes), not the UTC date — verified for a Chilean and an Australian site
+- [x] **ALLOC-02**: Allocation nights are keyed by the site-local observing night (the date `sun_event` takes), not the UTC date — verified for a Chilean and an Australian site
 - [ ] **ALLOC-03**: An allocation night with a linked `ObservationRecord` (via `CampaignRunObservation`) has no allocation event; unlinking restores it; the observation's own event is untouched by either transition
 - [ ] **ALLOC-04**: `load_telescope_runs` creates or updates a campaign-less `CampaignRun` (`source=CLASSICAL`, with a collision-safe `source_identifier` per Phase 31's SCHEMA-03 finding) instead of writing calendar events directly, and the allocation projects the same per-night events the command wrote before, idempotently on re-run
 - [ ] **ALLOC-05**: The cutover from today's `load_telescope_runs`-written events and `RUN:{pk}:{date}` reconciler events to allocation events has an explicit, stated sequencing (migration or one-time command) that never leaves a duplicate or orphaned event on the calendar
@@ -111,7 +111,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TRIG-02 | Phase 34 | Complete |
 | TRIG-03 | Phase 34 | Complete |
 | ALLOC-01 | Phase 35 | Pending |
-| ALLOC-02 | Phase 35 | Pending |
+| ALLOC-02 | Phase 35 | Complete |
 | ALLOC-03 | Phase 35 | Pending |
 | ALLOC-04 | Phase 35 | Pending |
 | ALLOC-05 | Phase 35 | Pending |

@@ -260,12 +260,12 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 7 plans across 5 waves
+**Plans:** 1/7 plans executed across 5 waves
 
 Plans:
 **Wave 1**
 
-- [ ] 35-01-PLAN.md — Allocation projector, dispatch and the observation handoff (wave 1, tracer)
+- [x] 35-01-PLAN.md — Allocation projector, dispatch and the observation handoff (wave 1, tracer)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -360,7 +360,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 0/TBD | Not started | - |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 1/7 | In Progress|  |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 

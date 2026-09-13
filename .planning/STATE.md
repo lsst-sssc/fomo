@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Phase 35 context gathered
-last_updated: "2026-09-13T02:22:46.264Z"
+stopped_at: Completed 35-01-PLAN.md
+last_updated: "2026-09-13T03:42:13.127Z"
 last_activity: 2026-09-12
-last_activity_desc: Phase 34 complete, transitioned to Phase 35
-state_head: 9285800a50b48d67c28ab4cd17e44865b29ec300
+last_activity_desc: Phase 35 execution started
+state_head: 4761ae6902a930b19416ede9a7c1cfc0b6ba5025
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 25
-  completed_plans: 18
+  completed_plans: 19
   percent: 40
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
-Plan: Not started
+Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-09-12 — Phase 34 complete, transitioned to Phase 35
+Last activity: 2026-09-12 — Phase 35 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -189,6 +189,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 34 P05 | 24min | 2 tasks | 3 files |
 | Phase 34-the-observation-projector-trigger P06 | ~10min | 2 tasks | 1 files |
 | Phase 34 P07 | ~50min | 3 tasks | 3 files |
+| Phase 35 P01 | 53min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -260,6 +261,8 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 34]: series decoration is display-time, read-only, from `CalendarEventMeta` links, gated on authenticated viewer + run visibility.
 - [Phase 34]: notebook takeover + SCHED-06 baseline run against the real developer DB; re-executions scratch-routed with baseline-write and non-vacuous-takeover guards (G-34-3).
 - [Phase 34 UAT]: `updatestatus` skips terminal-state records, so the 14 events that went stale under the pre-fix receiver need one sweep (F-34-1) — G-34-1 withdrawn; SCHED-06 closed on 4378332/4378046 narrowing via the receiver alone.
+- [Phase 35]: [Phase 35]: 35-01: retired_nights() counts every night in the retired set as +1 in ReconcileResult.retired even when nothing existed yet to delete -- the plan's own Task 2 Test 1 requires retired == 1 on a run's very first reconcile when its linked record was already placed before the run ever reconciled.
+- [Phase 35]: [Phase 35]: 35-01: project_allocation()'s D-14 convergence tracks a local-only retired_urls set (never returned) to stop a dry-run preview from double-counting a night the per-night loop already reported as retired -- real (non-dry) mode never needs this since the event is already deleted from the DB by the time convergence runs.
 
 ### Pending Todos
 
@@ -355,9 +358,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T00:05:55.405Z
-Stopped at: Phase 35 context gathered
-Resume file: .planning/phases/35-allocation-layer-classical-cutover/35-CONTEXT.md
+Last session: 2026-09-13T03:42:12.875Z
+Stopped at: Completed 35-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
