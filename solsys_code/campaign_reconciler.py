@@ -484,6 +484,18 @@ def _stale_dated_events(
     :func:`_stale_attributions`: an event attributed to a different run is left alone, and a
     human-confirmed attribution is reported under ``declined``, never cleared.
 
+    WR-10 (35-REVIEW.md): a ``RUN:{pk}:{date}`` event with NO ``CalendarEventMeta``
+    companion row at all (a pre-Phase-29 event, or one created by the admin FK picker) is
+    outside ``_clearable_and_declined()``'s own scope -- it starts from
+    ``CalendarEventMeta.objects.filter(run_id=run.pk, ...)``, so a meta-less event is in
+    neither the clearable list nor the declined count, and no later code path ever reaches
+    it again. D-16's stated contract is that every ``RUN:{pk}:{date}`` event is *"either
+    re-keyed (elsewhere, by the projector) or removed (here) -- no third outcome"* -- a
+    meta-less legacy event is exactly that third outcome. Unioned in here (not left to the
+    bare-container group's own detach step, which correctly has no attribution to release
+    for a meta-less row) because there is genuinely no attribution to preserve: an event
+    with no companion row was never confirmed by anyone.
+
     Read-only -- callers (the real detach/delete step and the dry-run preview) both build
     on this without any write occurring here.
 
@@ -505,7 +517,9 @@ def _stale_dated_events(
     _stale_bare, stale_dated = _split_stale_owned_events(run, active_urls)
     if claimed_legacy_urls:
         stale_dated = stale_dated.exclude(url__in=claimed_legacy_urls)
-    return _clearable_and_declined(run, stale_dated)
+    clearable, declined = _clearable_and_declined(run, stale_dated)
+    orphan_ids = list(stale_dated.filter(telescope_label_meta__isnull=True).values_list('pk', flat=True))
+    return clearable + orphan_ids, declined
 
 
 def _stale_allocation_events(run: CampaignRun) -> tuple[list[int], int]:

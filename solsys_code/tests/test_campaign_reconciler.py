@@ -741,6 +741,31 @@ class TestLegacyPerNightFamilyDeletion(CampaignReconcilerTestBase):
         self.assertEqual(legacy_meta.run_id, run.pk)
         self.assertEqual(legacy_meta.confirmed_by_id, staffer.pk)
 
+    def test_orphan_legacy_event_with_no_companion_row_is_still_deleted(self):
+        """35-REVIEW.md WR-10: a `RUN:{pk}:{date}` event with NO `CalendarEventMeta`
+        companion row at all (a pre-Phase-29 event, or one the admin FK picker created) is
+        outside `_clearable_and_declined()`'s own scope -- it starts from a
+        `CalendarEventMeta` queryset, so a meta-less event is in neither the clearable list
+        nor the declined count. D-16's contract ("either re-keyed or removed -- no third
+        outcome") means it must still be deleted, since there is no attribution to
+        preserve."""
+        night = date(2026, 8, 1)
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE, window_start=night, window_end=night)
+        reconcile_run(run)
+        orphan_event = CalendarEvent.objects.create(
+            title='Legacy per-night artifact, no companion row',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        self.assertFalse(CalendarEventMeta.objects.filter(event=orphan_event).exists())
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.legacy_deleted, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertFalse(CalendarEvent.objects.filter(pk=orphan_event.pk).exists())
+
     def test_deletion_is_one_time_not_per_sweep_churn(self):
         """Test 5: a second reconcile of the same run reports `legacy_deleted == 0` -- the
         deletion is one-time, not per-sweep churn."""
