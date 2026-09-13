@@ -733,6 +733,21 @@ class TestNoSunEventRecompute(AllocationProjectorTestBase):
         kinds = sorted(call.kwargs['kind'] for call in calls_for_deleted_night)
         self.assertEqual(kinds, ['dark', 'sun'])
 
+    def test_dry_run_of_a_brand_new_run_never_calls_sun_event(self):
+        """35-REVIEW.md WR-03: `--dry-run` must not compute (and discard) `_mint_fields()`'s
+        two `sun_event()` calls per brand-new night -- `preview_calendar_event_action(None,
+        fields)` never reads `fields` at all, so the astropy work is pure waste, and can
+        raise `sun_event()`'s own `ValueError` on what is documented as a read-only
+        preview."""
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 13))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run, dry_run=True)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.created, 5)
+        self.assertEqual(allocation_events(run).count(), 0)
+
 
 class TestEmptyAndDegenerateWindows(AllocationProjectorTestBase):
     """Degenerate `CampaignRun` states the dispatch's stage-0 guard (`_skip_reason()`)

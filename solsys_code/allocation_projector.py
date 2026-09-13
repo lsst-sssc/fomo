@@ -608,6 +608,15 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             continue
 
         if existing is None:
+            # WR-03 (35-REVIEW.md): `preview_calendar_event_action(None, fields)` always
+            # returns 'created' without reading `fields` at all -- so under dry_run, calling
+            # `_mint_fields()` (two `sun_event()` calls) here would compute and discard the
+            # same astropy work for every brand-new night in the previewed window, and could
+            # raise `sun_event()`'s own `ValueError` (e.g. a blank `Observatory.timezone`)
+            # on what the module's own docstring documents as a read-only preview.
+            if dry_run:
+                totals['created'] += 1
+                continue
             fields: dict[str, Any] = _mint_fields(run, night)
         else:
             dark_line = preserved_dark_window_line(existing)
