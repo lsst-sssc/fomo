@@ -391,6 +391,34 @@ class TestLoadTelescopeRuns(TestCase):
             self.assertIn('2', err, 'Expected line number in stderr error message')
             self.assertIn('Magellan IMACS 13-19 July (proposed)', err)
 
+    def test_unknown_status_mapping_is_logged_and_skipped_not_uncaught(self):
+        """35-REVIEW.md WR-09: a status word missing from `_CLASSICAL_RUN_STATUS` must be
+        skipped and logged per-line (D-02's existing vocabulary), not escape as an uncaught
+        `KeyError` that aborts the whole import mid-run."""
+        path, tmpdir_ctx = self._write_schedule_file(
+            [
+                'NTT EFOSC2 allocation 9-13 July',
+                'Magellan-Baade IMACS 17-18 July (confirmed)',
+            ]
+        )
+        with tmpdir_ctx:
+            with mock.patch.dict(
+                'solsys_code.management.commands.load_telescope_runs._CLASSICAL_RUN_STATUS',
+                {'confirmed': CampaignRun.RunStatus.PLANNED},  # drop 'allocation'
+                clear=True,
+            ):
+                stderr_buf = io.StringIO()
+                call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=stderr_buf)
+
+            # The NTT line's status has no mapping now -- skipped, logged, nothing written.
+            self.assertFalse(CampaignRun.objects.filter(telescope_instrument='NTT/EFOSC2').exists())
+            err = stderr_buf.getvalue()
+            self.assertIn('1', err)
+            self.assertIn("'allocation'", err)
+            # The other, still-mapped line still processes -- one bad status never aborts
+            # the whole import.
+            self.assertTrue(CampaignRun.objects.filter(telescope_instrument='Magellan-Baade/IMACS').exists())
+
     def test_cross_month_line_logged_and_skipped(self):
         """PR-REVIEW-F2: a genuine cross-month run line is rejected at parse time (fail-fast)
         and logged to stderr with its line number, not crashed on; the valid line still

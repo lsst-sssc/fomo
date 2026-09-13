@@ -8,7 +8,7 @@ from solsys_code.campaign_reconciler import reconcile_run
 from solsys_code.campaign_utils import preview_campaign_run_action, write_and_reconcile_campaign_run
 from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, ParsedRun, get_site, parse_run_line
+from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, KNOWN_STATUSES, ParsedRun, get_site, parse_run_line
 
 # Classical-schedule parser status -> real-world CampaignRun.RunStatus (D-03). A schedule
 # file is operator-vetted, so every line this command writes is APPROVED regardless of its
@@ -22,6 +22,16 @@ _CLASSICAL_RUN_STATUS = {
     'proposed': CampaignRun.RunStatus.REQUESTED,
     'not confirmed': CampaignRun.RunStatus.REQUESTED,
 }
+
+# WR-09 (35-REVIEW.md): this module and cutover_classical_allocations.py both index
+# _CLASSICAL_RUN_STATUS[parsed.status] unconditionally, safe today only because this dict's
+# key set happens to match telescope_runs.KNOWN_STATUSES -- an invariant nothing enforced.
+# Adding one status word to KNOWN_STATUSES without a matching entry here would turn that
+# indexing into an uncaught KeyError that aborts the whole import/cutover mid-run, after
+# partial commits, with no reason report. Fail loudly at import time instead.
+assert (
+    set(_CLASSICAL_RUN_STATUS) == KNOWN_STATUSES
+), 'every telescope_runs.KNOWN_STATUSES member needs a CampaignRun.RunStatus mapping in _CLASSICAL_RUN_STATUS'
 
 
 def _window_token_to_time(token: str | None) -> time | None:
@@ -303,7 +313,10 @@ class Command(BaseCommand):
                     night_rekeyed += result.reconcile.rekeyed
                     night_blocked += result.reconcile.blocked
                     night_skipped += result.reconcile.skipped_nights
-            except (ValueError, Observatory.DoesNotExist) as exc:
+            except (ValueError, KeyError, Observatory.DoesNotExist) as exc:
+                # WR-09 (35-REVIEW.md): KeyError added -- the structural assertion above
+                # keeps this unreachable today, but defends against the assertion itself
+                # ever being skipped (e.g. `python -O`) or a future divergence it missed.
                 self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
                 run_skipped += 1
                 continue

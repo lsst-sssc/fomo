@@ -231,6 +231,18 @@ class Command(BaseCommand):
 
             campaign = events[0].target_list
 
+            # WR-09 (35-REVIEW.md): this lookup sits outside any other try/except in this
+            # loop. load_telescope_runs.py's own structural assertion (asserted at import
+            # time, so it also protects this call site since both modules share the same
+            # dict) keeps a KeyError here practically unreachable today, but a defensive
+            # catch here means a future divergence still gets reported per-group instead of
+            # aborting the whole cutover mid-run, after partial commits, with no reason.
+            try:
+                run_status = _CLASSICAL_RUN_STATUS[parsed.status]
+            except KeyError as exc:
+                _mark_unexplained(events, _OTHER, f'unknown classical status {exc}')
+                continue
+
             observation_details = f'Status: {parsed.status}\nSource line: {source_line}'
             if parsed.proposal is not None:
                 observation_details += f'\nProposal: {parsed.proposal}'
@@ -238,7 +250,7 @@ class Command(BaseCommand):
             fields = {
                 'source': CampaignRun.Source.CLASSICAL_FILE,
                 'approval_status': CampaignRun.ApprovalStatus.APPROVED,
-                'run_status': _CLASSICAL_RUN_STATUS[parsed.status],
+                'run_status': run_status,
                 'campaign': campaign,
                 'target': None,
                 'site': site,

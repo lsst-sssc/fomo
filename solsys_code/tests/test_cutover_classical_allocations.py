@@ -618,3 +618,25 @@ class TestWindowContainmentGuard(CutoverClassicalAllocationsTestBase):
         for event in in_window_events:
             event.refresh_from_db()
             self.assertTrue(event.url.startswith(f'ALLOC:{run.pk}:'))  # the in-window nights still converted
+
+
+class TestUnknownClassicalStatusGuard(CutoverClassicalAllocationsTestBase):
+    """35-REVIEW.md WR-09: a status word with no `_CLASSICAL_RUN_STATUS` mapping must be
+    reported per-group (D-18), not escape as an uncaught `KeyError` that aborts the whole
+    cutover mid-run."""
+
+    def test_missing_status_mapping_is_reported_per_group_not_uncaught(self):
+        events = self._make_three_night_group()
+        pks = [event.pk for event in events]
+
+        with patch.dict(
+            'solsys_code.management.commands.cutover_classical_allocations._CLASSICAL_RUN_STATUS', clear=True
+        ):
+            err = StringIO()
+            with self.assertRaises(CommandError):
+                call_command('cutover_classical_allocations', stdout=StringIO(), stderr=err)
+
+        self.assertIn('unknown classical status', err.getvalue())
+        for pk in pks:
+            event = CalendarEvent.objects.get(pk=pk)
+            self.assertEqual(event.url, '')  # left byte-identical, never partially converted
