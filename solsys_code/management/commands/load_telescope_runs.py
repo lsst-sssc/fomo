@@ -1,56 +1,81 @@
-from datetime import date, datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import date, time, timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from tom_targets.models import TargetList
 
-from solsys_code.calendar_utils import insert_or_create_calendar_event
+from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.campaign_utils import preview_campaign_run_action, write_and_reconcile_campaign_run
+from solsys_code.models import CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, ParsedRun, get_site, parse_run_line, sun_event
+from solsys_code.telescope_runs import ESO_NOON_TO_NOON_SITES, ParsedRun, get_site, parse_run_line
 
-# The event start_time is a computed sun-event time (telescope_runs.sun_event()), not a
-# stable external identifier. It drifts by a second or two between independent ingests of
-# the same (site, night) because astropy's IERS Earth-orientation data (UT1-UTC / polar
-# motion) is refreshed between runs (see debug/start-time-idempotency-key.md). Match an
-# existing CalendarEvent whose start_time is within this window of the freshly computed
-# value instead of requiring an exact datetime match, so re-ingesting an unchanged schedule
-# updates the existing night rather than silently creating a near-duplicate row. The window
-# is ~2 orders of magnitude larger than the largest drift observed (~2s) yet ~3 orders of
-# magnitude smaller than the ~24h spacing between any two legitimately distinct events for a
-# single telescope+instrument, so it can never merge two genuinely different nights.
-_START_TIME_MATCH_TOLERANCE = timedelta(minutes=5)
-
-# Classical-schedule status -> title prefix (D-02). Only 'cancelled' has a visible
-# prefix today, mirroring the hand-typed status-to-prefix dict idiom used elsewhere in this
-# codebase (e.g. observation_projector._FAILURE_MARKER_BY_STATUS); '[CANCELLED]' is already
-# a member of calendar_display_extras._TERMINAL_PREFIXES so the terminal box-shadow ring is
-# inherited with no templatetag change.
-_CLASSICAL_STATUS_PREFIX = {'cancelled': '[CANCELLED]'}
+# Classical-schedule parser status -> real-world CampaignRun.RunStatus (D-03). A schedule
+# file is operator-vetted, so every line this command writes is APPROVED regardless of its
+# status word -- the parser status carries real-world lifecycle state only, via run_status.
+# The event's visible title prefix and status ring follow from run_status through the
+# shared reconciler vocabulary (RUN_STATUS_CALENDAR_PREFIX), not from a command-local dict.
+_CLASSICAL_RUN_STATUS = {
+    'cancelled': CampaignRun.RunStatus.CANCELLED,
+    'confirmed': CampaignRun.RunStatus.PLANNED,
+    'allocation': CampaignRun.RunStatus.PLANNED,
+    'proposed': CampaignRun.RunStatus.REQUESTED,
+    'not confirmed': CampaignRun.RunStatus.REQUESTED,
+}
 
 
-def _resolve_window_time(window: str, sunset, sunrise, evening_date: date) -> datetime:
-    """Convert a window token to a UTC datetime for a single observing night.
+def _window_token_to_time(token: str | None) -> time | None:
+    """Converts a ParsedRun start/end window token to a stored sub-night UTC time-of-day.
 
     Args:
-        window: 'BoN' for computed sunset, 'EoN' for computed sunrise, or a
-            4-digit UTC HHMM string. HHMM < 1200 is treated as next-morning
-            UTC (evening_date + 1 day); HHMM >= 1200 is evening_date UTC.
-        sunset: astropy Time of sunset for this night.
-        sunrise: astropy Time of sunrise for this night.
-        evening_date: the calendar date of the observing evening.
+        token: None, or a case-insensitive 'BoN'/'EoN' spelling (both mean "use the
+            computed sun event for this night" -- D-04's null convention), or a 4-digit
+            HHMM UTC string.
 
     Returns:
-        datetime: UTC-aware datetime for this window boundary.
+        time | None: the UTC time of day the token names, or None for a missing token or
+            'BoN'/'EoN'.
     """
-    upper = window.upper()
-    if upper == 'BON':
-        return sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
-    if upper == 'EON':
-        return sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
-    hh, mm = int(window[:2]), int(window[2:])
-    base_date = evening_date + timedelta(days=1) if hh < 12 else evening_date
-    return datetime(base_date.year, base_date.month, base_date.day, hh, mm, 0, tzinfo=dt_timezone.utc)
+    if token is None:
+        return None
+    upper = token.upper()
+    if upper in ('BON', 'EON'):
+        return None
+    return time(int(token[:2]), int(token[2:]))
+
+
+def _source_identifier(parsed: ParsedRun, window_start: date, window_end: date) -> str:
+    """Builds the deterministic, collision-safe key a classical run is matched on (D-01).
+
+    The dates used are the run's OWN STORED window_start/window_end -- the observing
+    nights after the site's night-convention adjustment (_iter_run_nights()), not the raw
+    day range parsed from the line -- so re-importing the same line recomputes a
+    byte-identical key from the row it is about to match. The proposal token is what makes
+    two proposals sharing a telescope, an instrument and a set of nights distinguishable,
+    which is exactly the real collision Phase 31's identity spike measured and which the
+    telescope/instrument/start-time tolerance match alone could not resolve.
+
+    Args:
+        parsed: the ParsedRun for this line.
+        window_start: the run's first observing night (post night-convention adjustment).
+        window_end: the run's last observing night (post night-convention adjustment).
+
+    Returns:
+        str: e.g. 'CLASSICAL:NTT:EFOSC2:2026-07-09:2026-07-12:BoN:EoN', with a trailing
+            ':{proposal}' segment appended when the line named one.
+    """
+    parts = [
+        'CLASSICAL',
+        parsed.telescope,
+        parsed.instrument,
+        window_start.isoformat(),
+        window_end.isoformat(),
+        parsed.start_window or 'BoN',
+        parsed.end_window or 'EoN',
+    ]
+    if parsed.proposal is not None:
+        parts.append(parsed.proposal)
+    return ':'.join(parts)
 
 
 def _iter_run_nights(parsed: ParsedRun) -> list[date]:
@@ -95,16 +120,21 @@ def _iter_run_nights(parsed: ParsedRun) -> list[date]:
 
 
 class Command(BaseCommand):
-    """Load classical telescope run lines from a file and create or update CalendarEvents.
+    """Load classical telescope run lines from a file and create or update CampaignRuns.
 
-    An optional --campaign associates every CalendarEvent created or updated from the
-    file with the named campaign (a tom_targets.TargetList); when omitted, target_list
-    is left unset (None) on every event, matching prior behavior exactly.
+    Each schedule line becomes one campaign-less CampaignRun (source=CLASSICAL_FILE), keyed
+    on a deterministic, collision-safe source_identifier (D-01); the allocation projector
+    (reconcile_run() -> allocation_projector.project_allocation()) draws the per-night
+    calendar from the run, so this command writes no CalendarEvent of its own (D-02). An
+    optional --campaign associates every run created or updated from the file with the
+    named campaign (a tom_targets.TargetList); when omitted, campaign is left unset (None)
+    on every run, matching prior behavior exactly.
     """
 
     help = (
-        'Load classical telescope run lines from a file and create/update CalendarEvents. '
-        'Optionally associate every event with a campaign (tom_targets.TargetList) via --campaign.'
+        'Load classical telescope run lines from a file and create/update one CampaignRun '
+        'per line; the allocation projector draws the per-night calendar. Optionally '
+        'associate every run with a campaign (tom_targets.TargetList) via --campaign.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -118,8 +148,18 @@ class Command(BaseCommand):
             '--campaign',
             required=False,
             help=(
-                'Name of the campaign (tom_targets.TargetList) to associate every CalendarEvent '
+                'Name of the campaign (tom_targets.TargetList) to associate every CampaignRun '
                 'from this file with. If omitted, no campaign is set.'
+            ),
+        )
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            help=(
+                'Report what would be created or updated without writing anything. For a run '
+                'that already exists, the night-level preview comes from reconcile_run(dry_run=True). '
+                'For a line that would create a brand-new run, a first-time dry run predicts night '
+                'counts from the window length rather than from a sun-event computation.'
             ),
         )
         # No return statement — BaseCommand.add_arguments() returns None
@@ -151,25 +191,32 @@ class Command(BaseCommand):
         return matches.first()
 
     def handle(self, *args: Any, **options: Any) -> str | None:
-        """Load classical schedule lines and create or update CalendarEvents.
+        """Load classical schedule lines and create or update one CampaignRun per line.
 
-        For each observing night derived from a run line: create a new CalendarEvent
-        if one does not exist, or update the existing event if any fields have changed,
-        or leave it untouched if nothing has changed. If --campaign is given, it is
-        resolved once upfront (fail fast on a bad name before any line is processed)
-        and associated with every created/updated event via CalendarEvent.target_list;
-        if omitted, target_list is left unset (None) on every event.
+        For each schedule line: resolve the site, derive its observing nights and
+        deterministic source_identifier key (D-01), then create-or-update the CampaignRun
+        through write_and_reconcile_campaign_run() (or preview it under --dry-run) --
+        never write a CalendarEvent directly. A key already claimed by an earlier line in
+        this file is reported as a collision and skipped, never merged. If --campaign is
+        given, it is resolved once upfront (fail fast on a bad name before any line is
+        processed) and associated with every created/updated run; if omitted, campaign is
+        left unset (None) on every run.
 
         Returns:
             str | None: None on completion.
         """
         filepath = options['filepath']
+        dry_run = options['dry_run']
         campaign = self._resolve_campaign(options.get('campaign'))
-        created_count = 0
-        updated_count = 0
-        unchanged_count = 0
-        skipped_count = 0
+
         lines_processed = 0
+        run_created = run_updated = run_unchanged = run_skipped = 0
+        skipped_collision = 0
+
+        night_created = night_updated = night_unchanged = 0
+        night_retired = night_rekeyed = night_blocked = night_skipped = 0
+
+        seen_keys: dict[str, int] = {}
 
         try:
             with open(filepath, encoding='utf-8') as f:
@@ -185,67 +232,98 @@ class Command(BaseCommand):
                 parsed = parse_run_line(line)
                 site = get_site(parsed.telescope)
                 nights = _iter_run_nights(parsed)
-                for d in nights:
-                    sunset, sunrise = sun_event(site, d, 'sun')
-                    dark_start, dark_end = sun_event(site, d, 'dark')
-                    start_time = _resolve_window_time(parsed.start_window or 'BoN', sunset, sunrise, d)
-                    end_time = _resolve_window_time(parsed.end_window or 'EoN', sunset, sunrise, d)
-                    dark_start_dt = dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
-                    dark_end_dt = dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+                window_start, window_end = nights[0], nights[-1]
+                key = _source_identifier(parsed, window_start, window_end)
 
-                    prefix = _CLASSICAL_STATUS_PREFIX.get(parsed.status)
-                    title = (
-                        f'{prefix} {parsed.telescope} {parsed.instrument}'
-                        if prefix
-                        else f'{parsed.telescope} {parsed.instrument}'
+                if key in seen_keys:
+                    self.stderr.write(
+                        f'Line {line_num}: source_identifier {key!r} already claimed by line '
+                        f'{seen_keys[key]} -- skipping (line text: {line.strip()!r})'
                     )
-                    description = (
-                        f'Dark window (-15 deg, UTC): {dark_start_dt.isoformat()} to {dark_end_dt.isoformat()}\n'
-                        f'Status: {parsed.status}\n'
-                        f'Source line: {line.strip()}'
-                    )
+                    skipped_collision += 1
+                    continue
+                seen_keys[key] = line_num
 
-                    event, action = insert_or_create_calendar_event(
-                        # WR-07: the D-07 telescope rename put 'FTS'/'FTN'/'SOAR' in both
-                        # this command's own vocabulary AND the observation projector's
-                        # (SITE_TELESCOPE_MAP, calendar_utils.py) -- before that rename this
-                        # command could never match a projector-owned event by accident, since
-                        # the projector never wrote those values. `url=''` restricts this
-                        # find-or-create lookup to a blank-url (i.e. classically-scheduled)
-                        # event only, the same namespace discipline the reconciler and the
-                        # projector both apply, so an instrument-string collision can never
-                        # adopt and rewrite a projector-owned event's title/description/
-                        # target_list (which the next record save would then rewrite back).
-                        {
-                            'telescope': parsed.telescope,
-                            'instrument': parsed.instrument,
-                            'start_time': start_time,
-                            'url': '',
-                        },
-                        {
-                            'end_time': end_time,
-                            'title': title,
-                            'description': description,
-                            'target_list': campaign,
-                        },
-                        start_time_tolerance=_START_TIME_MATCH_TOLERANCE,
-                    )
+                observation_details = f'Status: {parsed.status}\nSource line: {line.strip()}'
+                if parsed.proposal is not None:
+                    observation_details += f'\nProposal: {parsed.proposal}'
+
+                fields = {
+                    'source': CampaignRun.Source.CLASSICAL_FILE,
+                    'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+                    'run_status': _CLASSICAL_RUN_STATUS[parsed.status],
+                    'campaign': campaign,
+                    'target': None,
+                    'site': site,
+                    'site_raw': parsed.telescope,
+                    'site_needs_review': False,
+                    'telescope_instrument': f'{parsed.telescope}/{parsed.instrument}',
+                    'window_start': window_start,
+                    'window_end': window_end,
+                    'night_start_utc': _window_token_to_time(parsed.start_window),
+                    'night_end_utc': _window_token_to_time(parsed.end_window),
+                    'observation_details': observation_details,
+                }
+
+                if dry_run:
+                    existing = CampaignRun.objects.filter(source_identifier=key).first()
+                    action = preview_campaign_run_action(existing, fields)
                     if action == 'created':
-                        created_count += 1
+                        run_created += 1
                     elif action == 'updated':
-                        updated_count += 1
+                        run_updated += 1
                     else:
-                        unchanged_count += 1
+                        run_unchanged += 1
+
+                    if existing is not None:
+                        reconcile_result = reconcile_run(existing, dry_run=True)
+                        night_created += reconcile_result.created
+                        night_updated += reconcile_result.updated
+                        night_unchanged += reconcile_result.unchanged
+                        night_retired += reconcile_result.retired
+                        night_rekeyed += reconcile_result.rekeyed
+                        night_blocked += reconcile_result.blocked
+                        night_skipped += reconcile_result.skipped_nights
+                    else:
+                        # No row exists yet: a first-time dry run predicts night counts from
+                        # the window length rather than from a sun-event computation.
+                        night_created += len(nights)
+                else:
+                    result = write_and_reconcile_campaign_run({'source_identifier': key}, fields)
+                    if result.action == 'created':
+                        run_created += 1
+                    elif result.action == 'updated':
+                        run_updated += 1
+                    else:
+                        run_unchanged += 1
+                    night_created += result.reconcile.created
+                    night_updated += result.reconcile.updated
+                    night_unchanged += result.reconcile.unchanged
+                    night_retired += result.reconcile.retired
+                    night_rekeyed += result.reconcile.rekeyed
+                    night_blocked += result.reconcile.blocked
+                    night_skipped += result.reconcile.skipped_nights
             except (ValueError, Observatory.DoesNotExist) as exc:
                 self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
-                skipped_count += 1
+                run_skipped += 1
                 continue
 
+        prefix = 'Done (dry run).' if dry_run else 'Done.'
         self.stdout.write(
-            f'Done. lines processed: {lines_processed}, '
-            f'created: {created_count}, '
-            f'updated: {updated_count}, '
-            f'unchanged: {unchanged_count}, '
-            f'skipped: {skipped_count}'
+            f'{prefix} lines processed: {lines_processed}, '
+            f'created: {run_created}, '
+            f'updated: {run_updated}, '
+            f'unchanged: {run_unchanged}, '
+            f'skipped: {run_skipped}, '
+            f'skipped_collision: {skipped_collision}'
+        )
+        self.stdout.write(
+            f'{prefix} nights -- created: {night_created}, '
+            f'updated: {night_updated}, '
+            f'unchanged: {night_unchanged}, '
+            f'retired: {night_retired}, '
+            f'rekeyed: {night_rekeyed}, '
+            f'blocked: {night_blocked}, '
+            f'skipped: {night_skipped}'
         )
         return

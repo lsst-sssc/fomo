@@ -857,6 +857,29 @@ def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]
     return run, 'unchanged'
 
 
+def preview_campaign_run_action(run: CampaignRun | None, fields: dict[str, Any]) -> str:
+    """Report what ``insert_or_create_campaign_run()`` would do, without writing or querying.
+
+    This is the run-level twin of ``calendar_utils.preview_calendar_event_action()`` (Phase
+    35 Task 2's ``--dry-run`` support). It exists so a dry run can never disagree with what
+    ``insert_or_create_campaign_run()`` would report: it uses the identical
+    ``getattr(run, f) != v`` comparison rule that function's own field-diff loop uses.
+
+    Args:
+        run: the already-matched CampaignRun, or None if no run exists yet for this key.
+        fields: field-value mapping that would be applied.
+
+    Returns:
+        str: 'created' when run is None; 'updated' when any field in fields differs from
+            the run's current value; 'unchanged' when none do. Writes nothing, issues no
+            query.
+    """
+    if run is None:
+        return 'created'
+    changed = [f for f, v in fields.items() if getattr(run, f) != v]
+    return 'updated' if changed else 'unchanged'
+
+
 # 33-REVIEW.md WR-02: the single declaration of what clearing an attribution means, so
 # `unlink_event_from_run()`'s bulk `.update()` and `CalendarEventMetaAdmin.save_model()`'s
 # in-memory clear (solsys_code/admin.py) both derive from the same field set instead of each
