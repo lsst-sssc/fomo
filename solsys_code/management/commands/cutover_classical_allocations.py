@@ -277,6 +277,18 @@ class Command(BaseCommand):
                 else:
                     writable_events.append(event)
 
+            # WR-07 (35-REVIEW.md): a group whose EVERY event was just rejected above has
+            # nothing writable left -- an unconditional run write here would still create
+            # (or update) an APPROVED, site-resolved, windowed CampaignRun that owns zero
+            # events, and the next reconcile_campaign_runs sweep projects that empty run
+            # into a full duplicate set of ALLOC:{pk}:{night} nights over the same nights
+            # the foreign run already owns. Every event has already been passed to
+            # _mark_unexplained() by the loop above, so `continue` here preserves each
+            # event's own reporting and the command's non-zero exit -- it only skips the
+            # write this group has nothing left to justify.
+            if not writable_events:
+                continue
+
             # WR-06 (35-REVIEW.md): wrap this GROUP's writes (the run write plus every
             # event's re-key) in one savepoint, so an interruption (Ctrl-C, a connection
             # drop, an IntegrityError from a path not covered by the per-event `except`

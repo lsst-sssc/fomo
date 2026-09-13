@@ -620,6 +620,68 @@ class TestWindowContainmentGuard(CutoverClassicalAllocationsTestBase):
             self.assertTrue(event.url.startswith(f'ALLOC:{run.pk}:'))  # the in-window nights still converted
 
 
+class TestAllForeignAttributedGroupWritesNothing(CutoverClassicalAllocationsTestBase):
+    """35-REVIEW.md WR-07: a `Source line:` group whose EVERY event is already attributed
+    to a different CampaignRun must not get a run created or updated for it at all -- an
+    unconditional write here would leave an APPROVED, site-resolved, windowed run owning
+    zero events, which the next `reconcile_campaign_runs` sweep would then project a full
+    duplicate set of `ALLOC:` nights for, over nights the foreign run already owns."""
+
+    def _make_all_foreign_fixture(self) -> tuple[CampaignRun, list[CalendarEvent]]:
+        other_run = CampaignRun.objects.create(
+            campaign=self.other_campaign,
+            telescope_instrument='Other/Instrument',
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        events = []
+        for night in _THREE_NIGHTS[:2]:
+            start_time = datetime(night.year, night.month, night.day, 23, 0, tzinfo=dt_timezone.utc)
+            end_time = datetime(night.year, night.month, night.day + 1, 9, 0, tzinfo=dt_timezone.utc)
+            event = self._make_legacy_event(
+                source_line=_THREE_NIGHT_LINE,
+                start_time=start_time,
+                end_time=end_time,
+                target_list=self.campaign,
+            )
+            CalendarEventMeta.objects.create(event=event, run=other_run)
+            events.append(event)
+        return other_run, events
+
+    def test_all_foreign_attributed_group_creates_no_run(self):
+        other_run, events = self._make_all_foreign_fixture()
+        run_count_before = CampaignRun.objects.count()
+
+        out = StringIO()
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out, stderr=err)
+
+        self.assertEqual(CampaignRun.objects.count(), run_count_before)
+        error_output = err.getvalue()
+        for event in events:
+            event.refresh_from_db()
+            self.assertEqual(event.url, '')
+            self.assertIn(f'pk={event.pk}', error_output)
+            meta = CalendarEventMeta.objects.get(event=event)
+            self.assertEqual(meta.run_id, other_run.pk)
+
+        stdout_value = out.getvalue()
+        self.assertIn('runs created: 0', stdout_value)
+        self.assertIn('groups: 1', stdout_value)
+        self.assertIn(f'unexplained (foreign_attribution): {len(events)}', stdout_value)
+
+    def test_all_foreign_attributed_group_dry_run_predicts_no_run(self):
+        self._make_all_foreign_fixture()
+        run_count_before = CampaignRun.objects.count()
+
+        out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', '--dry-run', stdout=out, stderr=StringIO())
+
+        self.assertIn('runs created: 0', out.getvalue())
+        self.assertEqual(CampaignRun.objects.count(), run_count_before)
+
+
 class TestUnknownClassicalStatusGuard(CutoverClassicalAllocationsTestBase):
     """35-REVIEW.md WR-09: a status word with no `_CLASSICAL_RUN_STATUS` mapping must be
     reported per-group (D-18), not escape as an uncaught `KeyError` that aborts the whole
