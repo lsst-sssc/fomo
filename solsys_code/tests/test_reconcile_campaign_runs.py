@@ -468,6 +468,61 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         real_summary = _parse_summary(real_out.getvalue())
         self.assertEqual(real_summary['legacy_deleted'], 1)
 
+    def test_dry_run_retired_message_says_would_be_retired_not_past_tense(self):
+        """35-REVIEW.md WR-04: under --dry-run nothing has been written yet -- the per-run
+        message must not claim a night was already retired."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.CLASSICAL_FILE)
+        scheduled_start = datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=2)
+        self._link_placed_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+
+        out = StringIO()
+        call_command('reconcile_campaign_runs', '--dry-run', stdout=out)
+
+        output = out.getvalue()
+        self.assertIn(f'Run pk={run.pk}: 1 night(s) would be retired', output)
+        self.assertNotIn('night(s) retired --', output)
+
+    def test_dry_run_rekeyed_message_says_would_be_re_keyed_not_past_tense(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.CLASSICAL_FILE)
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 19, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+
+        out = StringIO()
+        call_command('reconcile_campaign_runs', '--dry-run', stdout=out)
+
+        output = out.getvalue()
+        self.assertIn(f'Run pk={run.pk}: 1 legacy RUN:-keyed night(s) would be re-keyed into ALLOC:', output)
+        self.assertNotIn('night(s) re-keyed into ALLOC:', output)
+
+    def test_dry_run_legacy_deleted_message_says_would_be_deleted_not_past_tense(self):
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night, source=CampaignRun.Source.LCO_QUEUE)
+        call_command('reconcile_campaign_runs', stdout=StringIO())
+        legacy_event = CalendarEvent.objects.create(
+            title='Legacy per-night artifact',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+
+        out = StringIO()
+        call_command('reconcile_campaign_runs', '--dry-run', stdout=out)
+
+        output = out.getvalue()
+        self.assertIn(f'Run pk={run.pk}: 1 leftover per-night event(s) would be deleted', output)
+        self.assertNotIn('event(s) deleted --', output)
+
     def test_real_sweep_reports_declined_for_a_human_confirmed_superseded_row(self):
         """33-10 Task 1 (UAT option B, 2026-09-09): a superseded RUN:-keyed row a human has
         already confirmed is left attributed, not detached -- the sweep reports it via the

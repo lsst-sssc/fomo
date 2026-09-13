@@ -85,16 +85,22 @@ class Command(BaseCommand):
             if result.retired:
                 # D-05/D-07 (Phase 35): a linked record's placed or observed block now
                 # occupies the night, so its allocation event is gone -- not a failure.
+                # WR-04 (35-REVIEW.md): route the verb through dry_run -- under --dry-run
+                # nothing below has been written yet, and the summary line already says
+                # would_retire, not retired.
+                verb = 'would be retired' if dry_run else 'retired'
                 self.stdout.write(
-                    f'Run pk={run.pk}: {result.retired} night(s) retired -- now covered by a real observation'
+                    f'Run pk={run.pk}: {result.retired} night(s) {verb} -- now covered by a real observation'
                 )
             if result.rekeyed:
+                verb = 'would be re-keyed' if dry_run else 're-keyed'
                 self.stdout.write(
-                    f'Run pk={run.pk}: {result.rekeyed} legacy RUN:-keyed night(s) re-keyed into ALLOC: in place'
+                    f'Run pk={run.pk}: {result.rekeyed} legacy RUN:-keyed night(s) {verb} into ALLOC: in place'
                 )
             if result.legacy_deleted:
+                verb = 'would be deleted' if dry_run else 'deleted'
                 self.stdout.write(
-                    f'Run pk={run.pk}: {result.legacy_deleted} leftover per-night event(s) deleted -- these were '
+                    f'Run pk={run.pk}: {result.legacy_deleted} leftover per-night event(s) {verb} -- these were '
                     'left over from the retired per-night key form, and this run now keeps a single '
                     'whole-window entry'
                 )
