@@ -922,16 +922,32 @@ observing night is already claimed, either by another event in this same
 run (a duplicate row from a pre-cutover re-ingest, or two schedule lines
 differing only in fields the identity key ignores) or by a
 ``CalendarEvent`` row that already holds the derived
-``ALLOC:{run_pk}:{night}`` url (the import-ran-first case above); or any
-other unexpected error. For a ``key_collision``, the first event to claim
-a night is still converted -- only the extra claimants are reported. The
-operator action: find the duplicate row in the Django admin (the printed
-reason names the colliding pk when the url is already held elsewhere) and
-delete it or re-attribute it, then re-run the command. A group **all** of
-whose events are attributed elsewhere has no run created or updated for it
-at all, so a summary line reading ``runs created: 0`` next to a
-``foreign_attribution`` count is the designed outcome, not a silent
-failure.
+``ALLOC:{run_pk}:{night}`` url (the import-ran-first case above);
+**``window_mismatch``** -- the event's own independently-derived observing
+night falls outside the window its own schedule line implies (an
+off-by-one sub-night boundary, or a stored start time that disagrees with
+the line's date range); or any other unexpected error. For a
+``key_collision``, the first event to claim a night is still converted --
+only the extra claimants are reported. The operator action for a
+``key_collision``: find the duplicate row in the Django admin (the
+printed reason names the colliding pk when the url is already held
+elsewhere) and delete it or re-attribute it, then re-run the command. The
+operator action for a ``window_mismatch``: correct the event's stored
+start time in the Django admin, or correct the schedule line's date range
+and re-import, so the two agree -- the event is refused rather than
+converted because re-keying it would write an ``ALLOC:`` url outside the
+run's own window, which the next ``reconcile_campaign_runs`` sweep
+classifies as stale and deletes. A group **all** of whose events are
+attributed elsewhere has no run created or updated for it at all, so a
+summary line reading ``runs created: 0`` next to a ``foreign_attribution``
+count is the designed outcome, not a silent failure.
+
+``--dry-run`` applies every per-event check the real run applies -- window
+containment, in-run collision, and existing-``ALLOC:``-url collision --
+through the same shared helper the real run calls, so its counts, its
+reason breakdown and its exit status match what the real run then
+reports. That is what makes "always run ``--dry-run`` first" worth the
+operator's time.
 
 **A non-zero exit is expected, not a bug, whenever an unexplained event
 remains.** The command raises a self-contained error naming the count and
@@ -1403,18 +1419,22 @@ already attributed to a different ``CampaignRun``, or the reason is
 claimed, either by another event in this same run or by a
 ``CalendarEvent`` row that already holds the derived
 ``ALLOC:{run_pk}:{night}`` url (typically because a rewritten
-``load_telescope_runs`` import of the same schedule file already ran).
-See "How do I run the one-time classical cutover?" above for the full
-reason vocabulary.
+``load_telescope_runs`` import of the same schedule file already ran) --
+or the reason is ``window_mismatch`` -- the event's own
+independently-derived observing night falls outside the window its own
+schedule line implies. See "How do I run the one-time classical cutover?"
+above for the full reason vocabulary.
 
 **Fix:** resolve the listed event in the Django admin -- correct the
 description's ``Source line:``, fix the telescope name, set the
 ``Observatory``'s timezone, clear the conflicting attribution, or -- for a
 ``key_collision`` -- find and delete or re-attribute the duplicate row (the
 printed reason names the colliding pk when the url is already held
-elsewhere), as the printed reason names -- then re-run the command. It is
-safe to re-run: already-converted events drop out of the candidate set, so
-only the still-unexplained rows are reported again.
+elsewhere), or -- for a ``window_mismatch`` -- correct the event's stored
+start time or the schedule line's date range so the two agree, as the
+printed reason names -- then re-run the command. It is safe to re-run:
+already-converted events drop out of the candidate set, so only the
+still-unexplained rows are reported again.
 
 ``import_campaign_csv`` unresolved rows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
