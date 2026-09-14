@@ -35,7 +35,9 @@ not resolve to a known site; a resolved site with no ``timezone`` set; a group w
 member events disagree on their campaign (``target_list``); an event already attributed to
 a DIFFERENT run; and any other exception, recorded with its own type name. Every reason is
 printed with the event's primary key and title so an operator can find and correct the row
-in the admin.
+in the admin. When EVERY event in a group is attributed elsewhere, no ``CampaignRun`` is
+created or updated for that group at all (WR-07, 35-REVIEW.md) -- the command writes
+nothing for a group it can convert nothing in.
 
 Because nothing is ever removed, a non-zero exit here is purely operator-facing: it tells
 a human which rows to look at and re-run once they are fixed. Nothing in this repository

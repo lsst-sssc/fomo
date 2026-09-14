@@ -907,7 +907,11 @@ completely untouched and reported** with its primary key, title and
 reason -- no parseable ``Source line:`` marker; a ``Source line:`` that
 does not parse or names an unknown telescope; a resolved site with no
 timezone; a group whose events disagree on their campaign; an event
-already attributed to a different run; or any other unexpected error.
+already attributed to a different run; or any other unexpected error. A
+group **all** of whose events are attributed elsewhere has no run created
+or updated for it at all, so a summary line reading ``runs created: 0``
+next to a ``foreign_attribution`` count is the designed outcome, not a
+silent failure.
 
 **A non-zero exit is expected, not a bug, whenever an unexplained event
 remains.** The command raises a self-contained error naming the count and
