@@ -7,6 +7,7 @@ Fixtures build their own hand-made blank-url `CalendarEvent` rows, matching the 
 none of these tests need one directly since a classical `CampaignRun` carries `target=None`.
 """
 
+import re
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from io import StringIO
@@ -861,3 +862,140 @@ class TestKeyCollisionDetection(CutoverClassicalAllocationsTestBase):
         stdout_value = out.getvalue()
         self.assertIn('unexplained (key_collision): 1', stdout_value)
         self.assertIn('events re-keyed: 1', stdout_value)  # same count the real run then performs
+
+
+def _parse_cutover_summary(text: str) -> dict:
+    """Parses a cutover_classical_allocations stdout summary into a comparable structure
+    (counters plus a `{category: count}` reason breakdown), so the dry-run/real-run
+    parity assertion below compares structures rather than a hand-maintained list of
+    substrings."""
+    done_line_match = re.search(
+        r'candidates: (\d+), groups: (\d+), runs created: (\d+), updated: (\d+), unchanged: (\d+), '
+        r'events re-keyed: (\d+), unexplained: (\d+)',
+        text,
+    )
+    assert done_line_match is not None, f'summary line not found in: {text!r}'
+    (candidates, groups, runs_created, runs_updated, runs_unchanged, events_rekeyed, unexplained_total) = (
+        int(value) for value in done_line_match.groups()
+    )
+    reasons = {category: int(count) for category, count in re.findall(r'unexplained \((\w+)\): (\d+)', text)}
+    return {
+        'candidates': candidates,
+        'groups': groups,
+        'runs_created': runs_created,
+        'runs_updated': runs_updated,
+        'runs_unchanged': runs_unchanged,
+        'events_rekeyed': events_rekeyed,
+        'unexplained_total': unexplained_total,
+        'reasons': reasons,
+    }
+
+
+class TestDryRunAndRealRunAgree(CutoverClassicalAllocationsTestBase):
+    """35-REVIEW.md NF-02: the dry run and the immediately following real run agree on
+    every counter, every reason category and the exit status over a fixture that trips
+    all three per-event preconditions at once -- the property that would have caught the
+    WR-11 rebuild copying only two of the real path's three checks."""
+
+    def _make_all_three_preconditions_fixture(self) -> dict:
+        parsed = parse_run_line(_THREE_NIGHT_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        year = date.today().year
+        # Deliberately WIDER than the schedule line's own July 9..11 window: an
+        # implementation that read the window off this pre-existing run (rather than the
+        # freshly re-derived fields['window_start']/fields['window_end']) would wave the
+        # July 20 outlier through on the dry-run path while the real pass -- which writes
+        # the correct narrow window onto `run` before its own check runs -- rejected it.
+        # Do not "tidy" this window narrower; it is what makes the NF-02 regression
+        # visible to this test.
+        run = CampaignRun.objects.create(
+            source_identifier=key,
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            campaign=self.campaign,
+            site=self.ntt,
+            site_raw='NTT',
+            window_start=date(year, 7, 1),
+            window_end=date(year, 7, 31),
+        )
+
+        def _span(night: date) -> tuple[datetime, datetime]:
+            start_time = datetime(night.year, night.month, night.day, 23, 0, tzinfo=dt_timezone.utc)
+            end_time = datetime(night.year, night.month, night.day + 1, 9, 0, tzinfo=dt_timezone.utc)
+            return start_time, end_time
+
+        existing_url = allocation_night_url(run, _THREE_NIGHTS[1])
+        existing_start, existing_end = _span(_THREE_NIGHTS[1])
+        pre_existing_event = CalendarEvent.objects.create(
+            title='Pre-existing ALLOC event (import ran first)',
+            url=existing_url,
+            start_time=existing_start,
+            end_time=existing_end,
+        )
+
+        def _event_for(night: date) -> CalendarEvent:
+            start_time, end_time = _span(night)
+            return self._make_legacy_event(
+                source_line=_THREE_NIGHT_LINE, start_time=start_time, end_time=end_time, target_list=self.campaign
+            )
+
+        first_claimant = _event_for(_THREE_NIGHTS[0])
+        in_run_collision = _event_for(_THREE_NIGHTS[0])
+        existing_url_collision = _event_for(_THREE_NIGHTS[1])
+        third_night = _event_for(_THREE_NIGHTS[2])
+        outlier_start = datetime(year, 7, 20, 23, 0, tzinfo=dt_timezone.utc)
+        outlier_end = datetime(year, 7, 21, 9, 0, tzinfo=dt_timezone.utc)
+        window_mismatch = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE, start_time=outlier_start, end_time=outlier_end, target_list=self.campaign
+        )
+        return {
+            'run': run,
+            'pre_existing_event': pre_existing_event,
+            'first_claimant': first_claimant,
+            'in_run_collision': in_run_collision,
+            'existing_url_collision': existing_url_collision,
+            'third_night': third_night,
+            'window_mismatch': window_mismatch,
+        }
+
+    def test_dry_run_and_real_run_report_identical_counts_and_reasons(self):
+        self._make_all_three_preconditions_fixture()
+
+        dry_out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', '--dry-run', stdout=dry_out, stderr=StringIO())
+        dry_summary = _parse_cutover_summary(dry_out.getvalue())
+
+        real_out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=real_out, stderr=StringIO())
+        real_summary = _parse_cutover_summary(real_out.getvalue())
+
+        self.assertEqual(dry_summary, real_summary)
+        self.assertEqual(dry_summary['events_rekeyed'], 2)
+        self.assertEqual(dry_summary['unexplained_total'], 3)
+        self.assertEqual(dry_summary['reasons'], {'key_collision': 2, 'window_mismatch': 1})
+
+    def test_out_of_window_event_is_byte_identical_after_both_passes(self):
+        fixture = self._make_all_three_preconditions_fixture()
+        outlier = fixture['window_mismatch']
+        pre_existing_event = fixture['pre_existing_event']
+        existing_url = pre_existing_event.url
+
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', '--dry-run', stdout=StringIO(), stderr=StringIO())
+        outlier.refresh_from_db()
+        self.assertEqual(outlier.url, '')
+        self.assertFalse(CalendarEventMeta.objects.filter(event=outlier).exists())
+
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=StringIO(), stderr=StringIO())
+        outlier.refresh_from_db()
+        self.assertEqual(outlier.url, '')
+        self.assertFalse(CalendarEventMeta.objects.filter(event=outlier).exists())
+
+        pre_existing_event.refresh_from_db()
+        self.assertEqual(pre_existing_event.url, existing_url)  # untouched by either pass
+        alloc_urls = list(CalendarEvent.objects.filter(url__startswith='ALLOC:').values_list('url', flat=True))
+        self.assertEqual(len(alloc_urls), len(set(alloc_urls)))  # no repeated ALLOC: url anywhere
