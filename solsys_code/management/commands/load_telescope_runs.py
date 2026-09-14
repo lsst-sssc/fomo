@@ -2,6 +2,7 @@ from datetime import date, time, timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 from tom_targets.models import TargetList
 
 from solsys_code.campaign_reconciler import reconcile_run
@@ -254,6 +255,20 @@ class Command(BaseCommand):
                     continue
                 seen_keys[key] = line_num
 
+                # NF-08 (35-REVIEW.md): narrowed to the ONE lookup WR-09 added this catch
+                # for. The broad `except` below used to wrap this AND the ~80-line
+                # write-plus-reconcile call beneath it, so a KeyError raised deep inside
+                # the reconciler or the projector (a ZoneInfoNotFoundError from a malformed
+                # Observatory.timezone subclasses KeyError) was swallowed and reported as
+                # `Line N: 'some-key' (line text: ...)` -- a message naming neither the
+                # module nor the stage that actually failed.
+                try:
+                    run_status = _CLASSICAL_RUN_STATUS[parsed.status]
+                except KeyError as exc:
+                    self.stderr.write(f'Line {line_num}: unknown classical status {exc} (line text: {line.strip()!r})')
+                    run_skipped += 1
+                    continue
+
                 observation_details = f'Status: {parsed.status}\nSource line: {line.strip()}'
                 if parsed.proposal is not None:
                     observation_details += f'\nProposal: {parsed.proposal}'
@@ -261,7 +276,7 @@ class Command(BaseCommand):
                 fields = {
                     'source': CampaignRun.Source.CLASSICAL_FILE,
                     'approval_status': CampaignRun.ApprovalStatus.APPROVED,
-                    'run_status': _CLASSICAL_RUN_STATUS[parsed.status],
+                    'run_status': run_status,
                     'campaign': campaign,
                     'target': None,
                     'site': site,
@@ -299,7 +314,13 @@ class Command(BaseCommand):
                         # the window length rather than from a sun-event computation.
                         night_created += len(nights)
                 else:
-                    result = write_and_reconcile_campaign_run({'source_identifier': key}, fields)
+                    # NF-08 (35-REVIEW.md): write_and_reconcile_campaign_run() has no
+                    # transaction boundary of its own -- without this, a reconcile_run()
+                    # exception left the CampaignRun row it had just written committed
+                    # while the line was counted under run_skipped, so the summary reported
+                    # a line as skipped when a run row had in fact been created.
+                    with transaction.atomic():
+                        result = write_and_reconcile_campaign_run({'source_identifier': key}, fields)
                     if result.action == 'created':
                         run_created += 1
                     elif result.action == 'updated':
@@ -313,10 +334,7 @@ class Command(BaseCommand):
                     night_rekeyed += result.reconcile.rekeyed
                     night_blocked += result.reconcile.blocked
                     night_skipped += result.reconcile.skipped_nights
-            except (ValueError, KeyError, Observatory.DoesNotExist) as exc:
-                # WR-09 (35-REVIEW.md): KeyError added -- the structural assertion above
-                # keeps this unreachable today, but defends against the assertion itself
-                # ever being skipped (e.g. `python -O`) or a future divergence it missed.
+            except (ValueError, Observatory.DoesNotExist) as exc:
                 self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
                 run_skipped += 1
                 continue
