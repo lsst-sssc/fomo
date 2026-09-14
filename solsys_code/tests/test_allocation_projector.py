@@ -414,12 +414,18 @@ class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
         meta = CalendarEventMeta.objects.get(event=legacy_event)
         self.assertEqual(meta.confirmed_by_id, staff_user.pk)
         self.assertEqual(result.retired, 1)
-        self.assertEqual(result.blocked, 1)
-        # NF-09 (35-REVIEW.md): one event, one decision -- before the fix this same
+        # NF-16 (35-REVIEW.md): 'detach_declined', not 'blocked' -- the legacy event is in
+        # THIS run's own RUN: namespace and confirmed_by-stamped to THIS run, so nobody
+        # else owns it; reconcile_campaign_runs' 'blocked' message ("owned by someone
+        # else") was false twice over for this shape, while its 'detach_declined' message
+        # ("a person confirmed them...") is the true one.
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 1)
+        # NF-09 (35-REVIEW.md): one event, one decision -- before that fix this same
         # human-confirmed legacy event was ALSO counted under detach_declined downstream in
         # _stale_dated_events(), because the retire branch only claimed the legacy url on
         # the deletable path, leaving it visible to the date-bearing convergence step too.
-        self.assertEqual(result.detach_declined, 0)
+        # Still exactly one decision after NF-16 re-routed which counter it lands under.
 
     def test_retiring_a_night_never_deletes_a_legacy_event_attributed_to_a_different_run(self):
         night = date(2026, 7, 9)

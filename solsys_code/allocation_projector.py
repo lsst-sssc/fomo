@@ -523,11 +523,17 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         (NF-09, 35-REVIEW.md) a decision to leave the row alone -- blocked because a
         different run owns it, or declined because a human confirmed it), in EITHER real or
         ``dry_run`` mode. The caller (``campaign_reconciler.reconcile_run()``) excludes this
-        set from its own date-bearing convergence step (Task 1, Phase 35, D-16): in real mode
-        the write already happened by the time that step runs, so the url has already left
-        the ``RUN:`` namespace and the exclusion is a no-op; in ``dry_run`` mode nothing was
-        written, so without this exclusion the SAME legacy url would be double-counted --
-        once here as ``rekeyed``/``retired``/``blocked``, and again there as
+        set from its own date-bearing convergence step (Task 1, Phase 35, D-16). NF-17
+        (35-REVIEW.md): the exclusion is a no-op in real mode ONLY for a re-keyed or
+        deleted url -- the write already happened by the time that step runs, so the url
+        has already left the ``RUN:`` namespace -- but it is LOAD-BEARING in real mode for
+        a blocked or declined url (NF-09 widened this set to claim those too): a
+        blocked/declined event is, by definition, NOT written, so it is still sitting in
+        the ``RUN:`` namespace when that step runs, and dropping the exclusion would restore
+        NF-09's double count for exactly that shape. In ``dry_run`` mode nothing was
+        written at all, so without this exclusion the SAME legacy url would be
+        double-counted regardless of shape -- once here as
+        ``rekeyed``/``retired``/``blocked``, and again there as
         ``legacy_deleted``/``detach_declined`` for the very same single decision (NF-09's
         double-count regression: a blocked or declined legacy event used to be reported
         under ``blocked`` here AND ``detach_declined`` downstream for one event, one
@@ -540,6 +546,11 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         'blocked': 0,
         'retired': 0,
         'rekeyed': 0,
+        # NF-16 (35-REVIEW.md): seeded so the confirmed_declined branch below can route to
+        # it -- nobody else owns this legacy event (it is in THIS run's own namespace,
+        # confirmed_by-stamped to THIS run), so 'blocked' (whose reconcile_campaign_runs
+        # message reads "owned by someone else") was false twice over for this shape.
+        'detach_declined': 0,
     }
     site_zone = ZoneInfo(run.site.timezone)
     n_nights = (run.window_end - run.window_start).days + 1
@@ -603,7 +614,12 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                             legacy_event.pk,
                             run.pk,
                         )
-                        totals['blocked'] += 1
+                        # NF-16 (35-REVIEW.md): 'detach_declined', not 'blocked' -- the
+                        # event is in THIS run's own namespace and confirmed_by-stamped to
+                        # THIS run, so nobody else owns it; 'blocked's reconcile_campaign_runs
+                        # message ("owned by someone else") was false for this shape, while
+                        # 'detach_declined's message ("a person confirmed them...") is true.
+                        totals['detach_declined'] += 1
             if not dry_run:
                 if existing is not None:
                     existing.delete()

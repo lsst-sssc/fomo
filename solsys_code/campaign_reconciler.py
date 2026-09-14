@@ -746,8 +746,14 @@ def _detach_stale_family_events(
             considers current for this run (one container url, or one url per night).
         claimed_legacy_urls: forwarded to :func:`_stale_dated_events` -- empty for a
             container-dispatched run (the only branch this delete path is normally reached
-            for); real-mode is unaffected either way since a claimed legacy url has already
-            left the ``RUN:`` namespace in the database by the time this function runs.
+            for). NF-17 (35-REVIEW.md): NOT a no-op in real mode for every url the set can
+            hold, contrary to what this docstring used to claim -- true for a re-keyed or
+            deleted url (it has already left the ``RUN:`` namespace by the time this
+            function runs), but load-bearing for a blocked or declined one (NF-09,
+            35-REVIEW.md widened the set to claim those too, and a blocked/declined event
+            is, by definition, NOT written -- it is still sitting in the ``RUN:`` namespace
+            right now). Dropping this exclusion would restore NF-09's double count for
+            exactly that shape.
 
     Returns:
         tuple[int, int, int, int]: ``(detached, declined, legacy_deleted, foreign_blocked)``
@@ -882,9 +888,15 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     # the SAME total `project_allocation()`'s own convergence step already folds its
     # mirror-image ALLOC: shape into (allocation_projector.py's `foreign_stale_count` +
     # `declined_stale`) -- rather than leaving it uncounted anywhere on this branch.
+    #
+    # NF-16 (35-REVIEW.md): `detach_declined` is ADDED to `result.detach_declined`, never
+    # overwritten -- `project_allocation()` can now itself set `detach_declined` (the
+    # confirmed_declined legacy-retire branch), and overwriting it here would silently drop
+    # that count the moment ANY per-night-dispatched branch populates the field, which is
+    # exactly the latent bug this addition-not-overwrite form avoids.
     return result._replace(
         blocked=result.blocked + foreign_blocked,
         detached=detached,
-        detach_declined=detach_declined,
+        detach_declined=result.detach_declined + detach_declined,
         legacy_deleted=legacy_deleted,
     )
