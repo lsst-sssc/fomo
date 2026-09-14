@@ -415,6 +415,11 @@ class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
         self.assertEqual(meta.confirmed_by_id, staff_user.pk)
         self.assertEqual(result.retired, 1)
         self.assertEqual(result.blocked, 1)
+        # NF-09 (35-REVIEW.md): one event, one decision -- before the fix this same
+        # human-confirmed legacy event was ALSO counted under detach_declined downstream in
+        # _stale_dated_events(), because the retire branch only claimed the legacy url on
+        # the deletable path, leaving it visible to the date-bearing convergence step too.
+        self.assertEqual(result.detach_declined, 0)
 
     def test_retiring_a_night_never_deletes_a_legacy_event_attributed_to_a_different_run(self):
         night = date(2026, 7, 9)
@@ -440,6 +445,61 @@ class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
         self.assertEqual(meta.run_id, other_run.pk)
         self.assertEqual(result.retired, 1)
         self.assertEqual(result.blocked, 1)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_retiring_a_night_deletes_an_unattributed_legacy_event_shape_a(self):
+        """35-REVIEW.md NF-01 item 4: the CR-03 retire branch's own legacy `RUN:{pk}:{night}`
+        delete must also cover shape (a) -- no `CalendarEventMeta` companion row at all.
+        Before the fix, `_clearable_and_declined()` alone never saw this row (it starts from
+        a `CalendarEventMeta` queryset), so it was left untouched and uncounted forever."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        self.assertFalse(CalendarEventMeta.objects.filter(event=legacy_event).exists())
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
+
+    def test_retiring_a_night_deletes_an_unattributed_legacy_event_shape_b(self):
+        """35-REVIEW.md NF-01 item 4: the shape-(b) twin -- a companion row exists but its
+        `run` is unset."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=None)
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
 
 
 class TestFinalConvergenceGuard(AllocationProjectorTestBase):
@@ -504,6 +564,27 @@ class TestFinalConvergenceGuard(AllocationProjectorTestBase):
         meta = CalendarEventMeta.objects.get(event=event)
         meta.run = None
         meta.save(update_fields=['run'])
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.unchanged, 2)
+
+    def test_window_shrink_deletes_an_unattributed_night_shape_a(self):
+        """35-REVIEW.md NF-01/PROBE-A: the shape-(a) twin of the shape-(b) test above -- an
+        `ALLOC:` night with NO `CalendarEventMeta` companion row at all must also be deleted
+        by this convergence step and reported under exactly one counter (`retired`)."""
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        CalendarEventMeta.objects.filter(event=event).delete()
 
         run.window_end = date(2026, 7, 10)
         run.save(update_fields=['window_end'])

@@ -24,12 +24,14 @@ from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.allocation_projector import allocation_events
+from solsys_code.allocation_projector import allocation_events, writable_allocation_events
 from solsys_code.calendar_utils import record_time_window
+from solsys_code.campaign_reconciler import _may_write as _reconciler_may_write
 from solsys_code.campaign_reconciler import (
     event_title,
     owned_events,
     reconcile_run,
+    writable_events,
 )
 from solsys_code.campaign_reconciler import split_telescope_instrument as _split_telescope_instrument
 from solsys_code.models import CalendarEventDismissal, CalendarEventMeta, CampaignRun, CampaignRunObservation
@@ -408,6 +410,66 @@ class TestOwnershipScoping(CampaignReconcilerTestBase):
 
         self.assertNotIn(other_event, list(owned_events(run)))
 
+    def test_may_write_agrees_with_both_queryset_twins_for_every_shape(self):
+        """35-REVIEW.md NF-06: `_may_write()` (the row-level predicate) and its two
+        namespace-specific queryset twins -- `writable_events()` for `RUN:`,
+        `writable_allocation_events()` for `ALLOC:` -- must agree for every companion-row
+        shape, at both namespaces. Before the fix, `_may_write()`'s fallback only ever
+        matched the `RUN:` namespace, so it disagreed with `writable_allocation_events()`
+        for shapes (a) and (b) at the `ALLOC:` namespace: the queryset admitted them, the
+        predicate refused them. Concrete expected values are asserted alongside the
+        agreement so the test cannot pass by both sides being wrong together."""
+        night = date(2026, 8, 1)
+        run = self._make_run(window_start=night, window_end=night)
+        other_run = self._make_run(telescope_instrument='Other Telescope/Instrument')
+
+        def _make_event(namespace_run, shape, url):
+            event = CalendarEvent.objects.create(
+                title=f'{namespace_run.pk}-{shape}',
+                url=url,
+                start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+                end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+            )
+            if shape == 'a':
+                pass  # no CalendarEventMeta companion row at all
+            elif shape == 'b':
+                CalendarEventMeta.objects.create(event=event, run=None)
+            elif shape == 'c_other':
+                CalendarEventMeta.objects.create(event=event, run=other_run)
+            elif shape == 'c_this':
+                CalendarEventMeta.objects.create(event=event, run=run)
+            return event
+
+        cases = []
+        for shape, expected in (('a', True), ('b', True), ('c_other', False), ('c_this', True)):
+            alloc_url = f'ALLOC:{run.pk}:{night.isoformat()}-{shape}'
+            run_url = f'RUN:{run.pk}:{night.isoformat()}-{shape}'
+            cases.append((_make_event(run, shape, alloc_url), 'ALLOC', shape, expected))
+            cases.append((_make_event(run, shape, run_url), 'RUN', shape, expected))
+
+        writable_alloc_ids = set(writable_allocation_events(run).values_list('pk', flat=True))
+        writable_run_ids = set(writable_events(run).values_list('pk', flat=True))
+
+        for event, namespace, shape, expected in cases:
+            predicate_result = _reconciler_may_write(event, run)
+            queryset_ids = writable_alloc_ids if namespace == 'ALLOC' else writable_run_ids
+            queryset_result = event.pk in queryset_ids
+            self.assertEqual(
+                predicate_result,
+                expected,
+                f'_may_write() disagreed with the expected value for {namespace} shape {shape}',
+            )
+            self.assertEqual(
+                queryset_result,
+                expected,
+                f'the {namespace} queryset twin disagreed with the expected value for shape {shape}',
+            )
+            self.assertEqual(
+                predicate_result,
+                queryset_result,
+                f'_may_write() and the {namespace} queryset twin disagreed for shape {shape}',
+            )
+
 
 class TestContainerIdempotency(CampaignReconcilerTestBase):
     """RECON-01 (unit level) and RECON-06's dry-run. Kept unchanged -- unaffected by
@@ -711,6 +773,24 @@ class TestLegacyPerNightFamilyDeletion(CampaignReconcilerTestBase):
         legacy_meta.refresh_from_db()
         self.assertEqual(legacy_meta.run_id, other_run.pk)
 
+    def test_unattributed_leftover_night_shape_b_is_deleted(self):
+        """35-REVIEW.md NF-01 item 3, CR-02's call site: a `RUN:{pk}:{date}` event whose
+        companion row exists but whose `run` is unset (shape (b)) must be deleted the same
+        way as the meta-less shape-(a) case below, and reported under the same
+        `legacy_deleted` counter."""
+        run, (legacy_event,) = self._make_container_run_with_legacy_nights(count=1)
+        meta = CalendarEventMeta.objects.get(event=legacy_event)
+        meta.run = None
+        meta.save(update_fields=['run'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.legacy_deleted, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+
     def test_human_confirmed_leftover_night_is_not_deleted_and_counts_as_declined(self):
         """Test 4: a companion row carrying `confirmed_by` is not deleted -- a human
         confirmation still outranks the automated sweep; it is reported under the existing
@@ -764,6 +844,34 @@ class TestLegacyPerNightFamilyDeletion(CampaignReconcilerTestBase):
 
         self.assertEqual(result.legacy_deleted, 1)
         self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertFalse(CalendarEvent.objects.filter(pk=orphan_event.pk).exists())
+
+    def test_orphan_legacy_event_with_unset_run_companion_row_is_still_deleted(self):
+        """35-REVIEW.md NF-01 item 3: the shape-(b) twin of the test above -- a
+        `RUN:{pk}:{date}` event whose `CalendarEventMeta` companion row exists but whose
+        `run` is unset. Before the fix, this shape fell between
+        `_clearable_and_declined()`'s own scope (shape-(c)-this-run only) and the WR-10
+        no-companion-row union, so it was neither deleted nor counted -- D-16's forbidden
+        third outcome."""
+        night = date(2026, 8, 1)
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE, window_start=night, window_end=night)
+        reconcile_run(run)
+        orphan_event = CalendarEvent.objects.create(
+            title='Legacy per-night artifact, unset-run companion row',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            start_time=datetime(2026, 8, 1, 0, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 1, 23, 59, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=orphan_event, run=None)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.legacy_deleted, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detached, 0)
         self.assertFalse(CalendarEvent.objects.filter(pk=orphan_event.pk).exists())
 
     def test_deletion_is_one_time_not_per_sweep_churn(self):
@@ -1197,6 +1305,34 @@ class TestReclassificationConvergence(CampaignReconcilerTestBase):
             self.assertFalse(CalendarEvent.objects.filter(url=url).exists())
         self.assertEqual(second.legacy_deleted, 2)
         self.assertEqual(second.detached, 0)
+
+    def test_reclassifying_allocation_dispatch_to_class_wide_deletes_unattributed_nights_shape_b(self):
+        """35-REVIEW.md NF-01 item 1, CR-02's call site: the shape-(b) variant of the test
+        above -- the old `ALLOC:` nights' companion rows have their `run` cleared (present
+        but unset) BEFORE the reclassify-and-reconcile, rather than staying attributed to
+        this run. Before the fix, `_stale_allocation_events()` routed through
+        `_clearable_and_declined()` alone, which starts from
+        `CalendarEventMeta.objects.filter(run_id=run.pk, ...)` and therefore never saw these
+        rows at all -- unreachable forever."""
+        window_start = date(2026, 8, 1)
+        window_end = date(2026, 8, 2)
+        run = self._make_run(window_start=window_start, window_end=window_end)
+        reconcile_run(run)
+        alloc_urls = [f'ALLOC:{run.pk}:{window_start.isoformat()}', f'ALLOC:{run.pk}:{window_end.isoformat()}']
+        for url in alloc_urls:
+            meta = CalendarEventMeta.objects.get(event__url=url)
+            meta.run = None
+            meta.save(update_fields=['run'])
+
+        run.telescope_class = CampaignRun.TelescopeClass.ONE_M0
+        run.save(update_fields=['telescope_class'])
+        result = reconcile_run(run)
+
+        for url in alloc_urls:
+            self.assertFalse(CalendarEvent.objects.filter(url=url).exists())
+        self.assertEqual(result.legacy_deleted, len(alloc_urls))
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.blocked, 0)
 
     def test_second_reconcile_after_deleting_old_allocation_nights_reports_nothing_further(self):
         """RECON-01 idempotency: once the old `ALLOC:` family has been deleted by the first
