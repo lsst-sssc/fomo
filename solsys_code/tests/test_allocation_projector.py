@@ -70,6 +70,26 @@ class AllocationProjectorTestBase(TestCase):
             timezone='Africa/Johannesburg',
             observations_type=Observatory.OPTICAL_OBSTYPE,
         )
+        cls.hanle_site = Observatory.objects.create(
+            obscode='N50',
+            name='IAO, Hanle',
+            short_name='HANLE',
+            lat=32.7794,
+            lon=78.9642,
+            altitude=4500,
+            timezone='Asia/Kolkata',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.ftn_site = Observatory.objects.create(
+            obscode='F65',
+            name='Haleakala Observatory',
+            short_name='FTN',
+            lat=20.7069,
+            lon=-156.2570,
+            altitude=3055,
+            timezone='Pacific/Honolulu',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
 
     def _make_run(self, **overrides) -> CampaignRun:
         """Create a CampaignRun; kwargs override the default (campaign-less, approved,
@@ -994,3 +1014,103 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
             reconcile_run(run)
 
         self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+    def test_hanle_half_hour_offset_window_resolves_to_the_following_utc_date(self):
+        """35-REVIEW.md NF-03: `Asia/Kolkata` (+5:30) is band 2-east -- both ends land
+        outside their naive same-date position. Today both `00:00` and `02:00` land on
+        2026-07-09, a full day early, with no error raised at all -- the silent failure
+        mode this fix closes."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.hanle_site,
+            site_raw='N50',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(0, 0),
+            night_end_utc=time(2, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.start_time, datetime(2026, 7, 10, 0, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 2, 0, 0, tzinfo=dt_timezone.utc))
+
+    def test_ftn_both_ends_resolve_to_the_following_utc_date(self):
+        """35-REVIEW.md NF-03: `Pacific/Honolulu` (-10) is band 3 -- the site's whole
+        observing night lies inside the NEXT UTC date, so BOTH ends resolve onto
+        `night + 1`. This is the band the review's own suggested two-way predicate
+        (`_night_crosses_utc_midnight()`) would still get wrong: at this site both ends of
+        the night land on the same UTC date, so that predicate returns False and a loud
+        `ValueError` becomes silent day-early corruption instead."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.ftn_site,
+            site_raw='F65',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(13, 0),
+            night_end_utc=time(15, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.start_time, datetime(2026, 7, 10, 13, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 15, 0, 0, tzinfo=dt_timezone.utc))
+
+    def test_ftn_evening_side_end_with_computed_start_resolves_independently(self):
+        """FTN, band 3: proves the two ends are still resolved independently -- the
+        evening-side value that was right by luck under the old rule (an hour < 12 already
+        landed on `night + 1` under the pre-fix west-of-UTC threshold) is still right, and
+        the computed start is untouched by this change.
+
+        Deviation from the plan's literal `time(4, 30)`: FTN's real `sun_event()`-computed
+        sunset for 2026-07-09 is 05:17:27 UTC on 2026-07-10, which is AFTER 04:30 -- the
+        plan's ground-truth table verified only the `zoneinfo` date-resolution arithmetic for
+        that value, not that it falls after the site's true astronomical sunset, so pairing
+        it with a computed (null) start here would produce a genuinely inverted span
+        independent of this fix. `time(6, 30)` keeps every property the plan's value was
+        chosen for (an early UTC hour, resolved onto `night + 1` under both the old and the
+        new rule) while sitting safely after the real sunset."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.ftn_site,
+            site_raw='F65',
+            window_start=night,
+            window_end=night,
+            night_end_utc=time(6, 30),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 6, 30, 0, tzinfo=dt_timezone.utc))
+        expected_sunset, _expected_sunrise = sun_event(self.ftn_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
+
+    def test_ftn_re_mint_agreement_makes_no_further_sun_event_calls(self):
+        """FTN, band 3: proves `_span_needs_remint()` resolves the same dates the mint path
+        wrote, so a band-3 night does not re-mint on every sweep."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.ftn_site,
+            site_raw='F65',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(13, 0),
+            night_end_utc=time(15, 0),
+        )
+        reconcile_run(run)
+        event_pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 1)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.retired, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, event_pk_before)
