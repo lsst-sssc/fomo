@@ -439,13 +439,13 @@ class Command(BaseCommand):
             # only what is writable (_may_write()-first idiom); mirroring that order here
             # is what keeps an unexplainable event byte-identical rather than re-keyed and
             # then discovered unsafe.
-            writable_events = []
+            unattributed_events = []
             for event in events:
                 meta = CalendarEventMeta.objects.filter(event=event).first()
                 if meta is not None and meta.run_id is not None:
                     _mark_unexplained([event], _FOREIGN_ATTRIBUTION, _REASON_LABELS[_FOREIGN_ATTRIBUTION])
                 else:
-                    writable_events.append(event)
+                    unattributed_events.append(event)
 
             # WR-07 (35-REVIEW.md): a group whose EVERY event was just rejected above has
             # nothing writable left -- an unconditional run write here would still create
@@ -456,7 +456,7 @@ class Command(BaseCommand):
             # _mark_unexplained() by the loop above, so `continue` here preserves each
             # event's own reporting and the command's non-zero exit -- it only skips the
             # write this group has nothing left to justify.
-            if not writable_events:
+            if not unattributed_events:
                 continue
 
             # NF-05 (35-REVIEW.md): these four counters are LOCAL to this group and folded
@@ -516,7 +516,7 @@ class Command(BaseCommand):
                         # level. The window is read from `fields`, i.e. what the real pass
                         # would write, NOT off `existing_run`, whose window may be stale
                         # from an earlier import (NF-02, 35-REVIEW.md).
-                        for event in writable_events:
+                        for event in unattributed_events:
                             try:
                                 night = _check_event_night(
                                     event,
@@ -538,7 +538,7 @@ class Command(BaseCommand):
                             claimed_nights.add(night)
                             group_rekeyed += 1
                     else:
-                        for event in writable_events:
+                        for event in unattributed_events:
                             try:
                                 with transaction.atomic():  # per-event savepoint
                                     # NF-02 (35-REVIEW.md): all three preconditions --

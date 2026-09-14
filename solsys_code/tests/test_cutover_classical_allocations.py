@@ -524,13 +524,11 @@ class TestCutoverSequenceContract(CutoverClassicalAllocationsTestBase):
             event.refresh_from_db()
             self.assertTrue(event.url.startswith(f'ALLOC:{converted_run.pk}:'))
 
-        # Three-group reconciliation over the two hand-made legacy artifacts: one re-keyed,
-        # one deleted, zero retired-by-observation among THEM specifically (the retire_run
-        # fixture never had a legacy RUN:-event to begin with -- it demonstrates the third
-        # group exists as a mechanism, not that it applies to a pre-existing legacy row).
-        rekeyed_count = 1
-        legacy_deleted_count = 1
-        self.assertEqual(rekeyed_count + legacy_deleted_count, 2)
+        # NF-11 (35-REVIEW.md): the two hand-made legacy artifacts' outcomes -- one
+        # re-keyed (asserted above at line 507, rekeyed_event.url), one deleted (asserted
+        # above at line 512, delete_legacy_pk) -- are already pinned against the database
+        # by the preceding assertions; a third, standalone `1 + 1 == 2` assertion of two
+        # local literals exercised no production code and was removed.
 
 
 class TestGroupTransactionBoundary(CutoverClassicalAllocationsTestBase):
