@@ -216,8 +216,9 @@ def _check_event_night(
         site_zone: the site's timezone, for deriving the event's observing night.
         window_start: the run's (or previewed run's) window start date, inclusive.
         window_end: the run's (or previewed run's) window end date, inclusive.
-        claimed_nights: nights already claimed by an earlier event in this same group;
-            mutated by neither this function nor its callers.
+        claimed_nights: nights already claimed by an earlier event in this same group.
+            Read here; the CALLER adds the night after its own write (or preview) succeeds,
+            so a failed event leaves the night free for a later one.
 
     Returns:
         date: the event's resolved observing night, when all three preconditions hold.
