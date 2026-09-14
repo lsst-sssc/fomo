@@ -554,7 +554,7 @@ def _stale_attributions(run: CampaignRun, active_urls: set[str]) -> tuple[list[i
 
 def _stale_dated_events(
     run: CampaignRun, active_urls: set[str], claimed_legacy_urls: frozenset[str] = frozenset()
-) -> tuple[list[int], int]:
+) -> tuple[list[int], int, int]:
     """The date-bearing counterpart of :func:`_stale_attributions` (Task 1, Phase 35, D-16):
     leftover ``RUN:{pk}:{date}`` events from the retired per-night key family. Unlike the
     bare-container group, these are DELETED rather than detached -- see
@@ -575,8 +575,23 @@ def _stale_dated_events(
     that third outcome. :func:`_clearable_declined_and_unattributed` now covers both shapes in
     one pass, so no separate union is needed here.
 
-    Read-only -- callers (the real detach/delete step and the dry-run preview) both build
-    on this without any write occurring here.
+    NF-15 (35-REVIEW.md): ``_clearable_declined_and_unattributed()`` is a total partition
+    over shapes (a)/(b)/(c)-this-run, but ``stale_dated`` -- derived from ``owned_events()``,
+    i.e. namespace identity ALONE -- also contains shape (d): a ``RUN:{pk}:{date}`` event in
+    THIS run's own namespace whose companion row attributes it to a DIFFERENT run. Shape (d)
+    matches neither half of the partition (excluded from the clearable half by
+    ``run_id=run.pk`` scoping, and from the unattributed half by its companion row's ``run``
+    being set), so it used to land in NEITHER deletable NOR declined -- and NEITHER this
+    function nor its caller (:func:`_detach_stale_family_events`) counted it at all: a
+    silent, permanently-orphaned third outcome, in a key family this phase retires entirely,
+    that no code path will ever revisit again. This now computes and logs that shape as
+    ``foreign`` -- the same read-only, no-side-effect-except-logging contract
+    ``project_allocation()``'s own ``foreign_stale_count`` already uses for the mirror
+    ``ALLOC:`` case.
+
+    Read-only except for the one ``logger.warning()`` call below (matching
+    ``project_allocation()``'s own convergence step) -- callers (the real detach/delete step
+    and the dry-run preview) both build on this without any database write occurring here.
 
     Args:
         run: the ``CampaignRun`` just reconciled.
@@ -590,13 +605,30 @@ def _stale_dated_events(
             over a legacy night at all.
 
     Returns:
-        tuple[list[int], int]: ``(deletable_event_ids, declined)`` -- see
-        :func:`_clearable_declined_and_unattributed`.
+        tuple[list[int], int, int]: ``(deletable_event_ids, declined, foreign)`` --
+        ``deletable_event_ids``/``declined`` as :func:`_clearable_declined_and_unattributed`
+        returns them; ``foreign`` is the count of shape-(d) events (NF-15) -- left alone
+        entirely (a human attribution outranks a sweep, T-29-19), but reported rather than
+        silently dropped.
     """
     _stale_bare, stale_dated = _split_stale_owned_events(run, active_urls)
     if claimed_legacy_urls:
         stale_dated = stale_dated.exclude(url__in=claimed_legacy_urls)
-    return _clearable_declined_and_unattributed(run, stale_dated)
+    writable_dated = stale_dated.filter(
+        Q(telescope_label_meta__isnull=True)
+        | Q(telescope_label_meta__run__isnull=True)
+        | Q(telescope_label_meta__run=run)
+    )
+    foreign = stale_dated.count() - writable_dated.count()
+    if foreign:
+        logger.warning(
+            'Reconcile found %s leftover per-night event(s) for run pk=%s attributed to a '
+            'different run: left alone, not deleted.',
+            foreign,
+            run.pk,
+        )
+    deletable_event_ids, declined = _clearable_declined_and_unattributed(run, writable_dated)
+    return deletable_event_ids, declined, foreign
 
 
 def _stale_allocation_events(run: CampaignRun) -> tuple[list[int], int]:
@@ -718,11 +750,15 @@ def _detach_stale_family_events(
             left the ``RUN:`` namespace in the database by the time this function runs.
 
     Returns:
-        tuple[int, int, int]: ``(detached, declined, legacy_deleted)`` -- the number of
-        bare-container companion rows actually cleared (WR-03, 33-REVIEW.md), the number of
-        rows across BOTH groups left attributed because a human had confirmed them (see
-        :func:`_stale_attributions`/:func:`_stale_dated_events`), and the number of
-        date-bearing ``CalendarEvent`` rows actually deleted.
+        tuple[int, int, int, int]: ``(detached, declined, legacy_deleted, foreign_blocked)``
+        -- the number of bare-container companion rows actually cleared (WR-03,
+        33-REVIEW.md), the number of rows across BOTH groups left attributed because a
+        human had confirmed them (see
+        :func:`_stale_attributions`/:func:`_stale_dated_events`), the number of date-bearing
+        ``CalendarEvent`` rows actually deleted, and ``foreign_blocked`` -- the NF-15
+        (35-REVIEW.md) shape-(d) count :func:`_stale_dated_events` reports: date-bearing
+        events in this run's own namespace attributed to a DIFFERENT run, left alone and
+        folded into the caller's own ``blocked`` total rather than silently dropped.
     """
     # Local import to avoid a circular import at module load time: campaign_utils.py
     # imports reconcile_run/ReconcileResult from this module at its own top level, so a
@@ -739,7 +775,7 @@ def _detach_stale_family_events(
             run.pk,
         )
 
-    legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls, claimed_legacy_urls)
+    legacy_deleted_ids, legacy_declined, foreign_blocked = _stale_dated_events(run, active_urls, claimed_legacy_urls)
     legacy_deleted = 0
     if legacy_deleted_ids:
         CalendarEvent.objects.filter(pk__in=legacy_deleted_ids).delete()
@@ -772,7 +808,7 @@ def _detach_stale_family_events(
             declined,
             run.pk,
         )
-    return detached, declined, legacy_deleted
+    return detached, declined, legacy_deleted, foreign_blocked
 
 
 def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult:
@@ -830,12 +866,25 @@ def reconcile_run(run: CampaignRun, *, dry_run: bool = False) -> ReconcileResult
     # show.
     if dry_run:
         clearable_event_ids, declined = _stale_attributions(run, active_urls)
-        legacy_deleted_ids, legacy_declined = _stale_dated_events(run, active_urls, claimed_legacy_urls)
+        legacy_deleted_ids, legacy_declined, foreign_blocked = _stale_dated_events(
+            run, active_urls, claimed_legacy_urls
+        )
         alloc_deleted_ids, alloc_declined = _stale_allocation_events(run)
         detached = len(clearable_event_ids)
         detach_declined = declined + legacy_declined + alloc_declined
         legacy_deleted = len(legacy_deleted_ids) + len(alloc_deleted_ids)
     else:
-        detached, detach_declined, legacy_deleted = _detach_stale_family_events(run, active_urls, claimed_legacy_urls)
+        detached, detach_declined, legacy_deleted, foreign_blocked = _detach_stale_family_events(
+            run, active_urls, claimed_legacy_urls
+        )
 
-    return result._replace(detached=detached, detach_declined=detach_declined, legacy_deleted=legacy_deleted)
+    # NF-15 (35-REVIEW.md): fold the date-bearing shape-(d) foreign count into `blocked` --
+    # the SAME total `project_allocation()`'s own convergence step already folds its
+    # mirror-image ALLOC: shape into (allocation_projector.py's `foreign_stale_count` +
+    # `declined_stale`) -- rather than leaving it uncounted anywhere on this branch.
+    return result._replace(
+        blocked=result.blocked + foreign_blocked,
+        detached=detached,
+        detach_declined=detach_declined,
+        legacy_deleted=legacy_deleted,
+    )

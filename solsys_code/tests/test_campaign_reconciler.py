@@ -758,20 +758,39 @@ class TestLegacyPerNightFamilyDeletion(CampaignReconcilerTestBase):
 
     def test_foreign_attribution_is_neither_deleted_nor_detached(self):
         """Test 3: a date-bearing event whose `CalendarEventMeta` attributes it to a
-        DIFFERENT run is left completely alone by this run's reconcile."""
+        DIFFERENT run is left completely alone by this run's reconcile.
+
+        NF-15 (35-REVIEW.md): before the fix, this shape (a `RUN:{pk}:{date}` event in
+        THIS run's own namespace, attributed to a DIFFERENT run) matched neither half of
+        `_clearable_declined_and_unattributed()`'s partition -- not deleted, not declined,
+        and (unlike the mirror `ALLOC:` case `project_allocation()` already handles) not
+        even counted as `blocked` -- a silent, permanently-orphaned third outcome, in a key
+        family this phase retires entirely, with no log line at all. It must now be
+        reported: folded into `blocked`, with its own warning log line."""
         run, (legacy_event,) = self._make_container_run_with_legacy_nights(count=1)
         other_run = self._make_run(telescope_instrument='Other Telescope/Instrument')
         legacy_meta = CalendarEventMeta.objects.get(event=legacy_event)
         legacy_meta.run = other_run
         legacy_meta.save(update_fields=['run'])
 
-        result = reconcile_run(run)
+        with self.assertLogs('solsys_code.campaign_reconciler', level='WARNING') as log_ctx:
+            result = reconcile_run(run)
 
         self.assertEqual(result.legacy_deleted, 0)
         self.assertEqual(result.detached, 0)
+        self.assertEqual(result.blocked, 1)  # NF-15: reported, not silently dropped
         self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
         legacy_meta.refresh_from_db()
         self.assertEqual(legacy_meta.run_id, other_run.pk)
+        self.assertTrue(
+            any('attributed to a different run' in message for message in log_ctx.output),
+            f'expected a warning naming the foreign attribution, got: {log_ctx.output}',
+        )
+
+        # A second sweep reports the SAME blocked count, not a growing one -- the event is
+        # left alone forever, never double-counted across repeated sweeps.
+        second_result = reconcile_run(run)
+        self.assertEqual(second_result.blocked, 1)
 
     def test_unattributed_leftover_night_shape_b_is_deleted(self):
         """35-REVIEW.md NF-01 item 3, CR-02's call site: a `RUN:{pk}:{date}` event whose
