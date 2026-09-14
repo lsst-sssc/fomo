@@ -527,6 +527,43 @@ class TestLinkedRunReproject(TestCase):
         self.assertEqual(allocation_events(self.run).count(), 2)
         self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{self.run.pk}:2026-08-02').exists())
 
+    def test_placing_the_block_attributes_the_records_own_event_on_the_creating_save(self):
+        """NF-04 (35-REVIEW.md): the save that FIRST creates the record's own event must
+        also attribute that event to the linked run immediately -- not on some later save.
+        Reproduced by making the record unprojectable at creation (no instrument signal),
+        then supplying BOTH the instrument AND the placed block (retiring night 2) in ONE
+        save: that single save must create the facility-url event AND adopt it into
+        ``self.run``."""
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'reproject-owner-{uuid4().hex[:8]}')
+        window_start = datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc)
+        window_end = datetime(2026, 8, 2, 6, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility='LCO',
+            observation_id=f'reproject-{uuid4().hex[:8]}',
+            status='PENDING',
+            scheduled_start=None,
+            scheduled_end=None,
+            parameters={'proposal': 'TEST', 'start': window_start.isoformat(), 'end': window_end.isoformat()},
+        )
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+        facility = facility_for(record)
+        own_url = facility.get_observation_url(record.observation_id)
+        self.assertFalse(CalendarEvent.objects.filter(url=own_url).exists())  # unprojectable so far
+
+        start, end = self._night_2_block()
+        record.parameters = {**record.parameters, 'instrument_type': '2M0-SCICAM-MUSCAT'}
+        record.scheduled_start = start
+        record.scheduled_end = end
+        record.save()
+
+        event = CalendarEvent.objects.get(url=own_url)  # created on this very save
+        meta = CalendarEventMeta.objects.get(event=event)
+        self.assertEqual(meta.run_id, self.run.pk)  # attributed immediately, not on a later save
+        self.assertEqual(allocation_events(self.run).count(), 2)  # night 2 retired on the same save
+
     def test_record_with_no_campaign_run_links_never_calls_project_allocation(self):
         record = self._make_record()
 

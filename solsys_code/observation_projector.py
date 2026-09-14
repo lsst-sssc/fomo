@@ -579,9 +579,26 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     non-database (e.g. a signal-handler bug) escape it. Logged at debug level, not warning,
     since this fires on every ObservationRecord save in production.
 
-    D-11's linked-run re-project step (WR-01, 35-REVIEW.md: moved above the base
-    projection's own facility guard) runs FIRST and is facility-independent: iterate the
-    record's ``campaign_run_links`` and re-project every linked ``CampaignRun``
+    Base projection (facility-scoped: LCO/SOAR only, D-16 -- Gemini records stay with the
+    submission-echo command) runs FIRST, so the record's own facility-url-keyed event
+    exists (or is re-keyed) before the linked-run step below ever looks for it.
+
+    NF-04 (35-REVIEW.md): WR-01's original fix ran the linked-run step BEFORE base
+    projection so it stayed facility-independent even when the base guard would have
+    returned early -- but on the save that FIRST CREATES a record's own event,
+    ``project_allocation()``'s attribution bridge
+    (``_sync_observation_attribution()``) looks that event up by url and adopts it into
+    the run; running the bridge before the event exists made the lookup return ``None``
+    and silently skip the adoption, leaving the event that took over a retired night with
+    no campaign attribution until a LATER save or sweep repaired it. Running base
+    projection first closes that gap while preserving WR-01's actual point: the early
+    ``return`` below only ever short-circuits the D-11 step for a raw fixture load, never
+    for a facility the base projection itself does not (yet) handle -- because the D-11
+    step below only depends on ``instance.campaign_run_links``, never on ``action``/
+    ``stage``, its own facility-independence (WR-01) is unchanged by this reordering.
+
+    D-11's linked-run re-project step is facility-independent: iterate the record's
+    ``campaign_run_links`` and re-project every linked ``CampaignRun``
     (``allocation_projector.reproject_allocation_if_dispatched()``) -- so a record moving
     from queued to placed retires its allocation night on its own save, with no sweep, for
     ANY facility a run can be linked to (not only LCO/SOAR, the base projection's own
@@ -592,12 +609,9 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     re-minted -- the uncommon case, since the common transition here retires a night, which
     is a delete. Each linked run gets its OWN ``try``/``except`` (WR-02, 35-REVIEW.md: one
     bad run must never skip every later one), naming the run in the log -- deliberately
-    separate from the base-projection block below: a failure to re-project a linked
+    separate from the base-projection block above: a failure to re-project a linked
     allocation must never mask or discard the base projection's own result, and neither
     failure may abort the caller's save.
-
-    Returns immediately for any facility other than LCO/SOAR (D-16, Gemini records stay
-    with the submission-echo command) only AFTER the linked-run step above has already run.
 
     Args:
         sender: the model class Django's signal framework passes (ObservationRecord).
@@ -609,6 +623,17 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     if raw:
         return
 
+    action = stage = None
+    if instance.facility in PROJECTED_FACILITIES:
+        try:
+            action, stage = project_record(instance)
+        except Exception as exc:  # noqa: BLE001 -- TRIG-02: never abort the caller's save
+            logger.warning(
+                'receiver_on_record_save failed for observation_id=%r: %s',
+                instance.observation_id,
+                type(exc).__name__,
+            )
+
     from solsys_code.allocation_projector import reproject_allocation_if_dispatched
 
     for link in instance.campaign_run_links.select_related('run'):
@@ -617,7 +642,7 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
         try:
             reproject_allocation_if_dispatched(link.run)
         except Exception as exc:  # noqa: BLE001 -- a linked-run re-project fault must never
-            # mask the base projection below, or abort the caller's save (D-11).
+            # mask the base projection above, or abort the caller's save (D-11).
             logger.warning(
                 'linked-run re-project failed for run pk=%s (observation_id=%r): %s',
                 link.run_id,
@@ -625,22 +650,14 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
                 type(exc).__name__,
             )
 
-    if instance.facility not in PROJECTED_FACILITIES:
-        return
-    try:
-        action, stage = project_record(instance)
-    except Exception as exc:  # noqa: BLE001 -- TRIG-02: never abort the caller's save
-        logger.warning(
-            'receiver_on_record_save failed for observation_id=%r: %s', instance.observation_id, type(exc).__name__
+    if action is not None:
+        logger.debug(
+            'post_save projected observation_id=%r created=%s -> %s (%s)',
+            instance.observation_id,
+            created,
+            action,
+            stage,
         )
-        return
-    logger.debug(
-        'post_save projected observation_id=%r created=%s -> %s (%s)',
-        instance.observation_id,
-        created,
-        action,
-        stage,
-    )
 
 
 def receiver_on_group_membership_changed(
