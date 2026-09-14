@@ -620,6 +620,62 @@ class TestWindowContainmentGuard(CutoverClassicalAllocationsTestBase):
             self.assertTrue(event.url.startswith(f'ALLOC:{run.pk}:'))  # the in-window nights still converted
 
 
+class TestDryRunAppliesTheWindowCheck(CutoverClassicalAllocationsTestBase):
+    """35-REVIEW.md NF-02: the WR-08 window-containment check must also apply on the
+    --dry-run path, and both paths must classify the failure under the dedicated
+    window_mismatch reason rather than the generic unexpected-error bucket -- a dry run
+    that exits 0 over a fixture the immediately following real run rejects hides the one
+    thing a dry run exists to surface."""
+
+    def _make_outlier_fixture(self) -> tuple[list[CalendarEvent], CalendarEvent]:
+        in_window_events = self._make_three_night_group()
+        year = date.today().year
+        outlier_start = datetime(year, 7, 20, 23, 0, tzinfo=dt_timezone.utc)
+        outlier_end = datetime(year, 7, 21, 9, 0, tzinfo=dt_timezone.utc)
+        outlier = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE,
+            start_time=outlier_start,
+            end_time=outlier_end,
+            target_list=self.campaign,
+        )
+        return in_window_events, outlier
+
+    def test_dry_run_reports_window_mismatch_and_does_not_count_it_as_rekeyed(self):
+        _in_window_events, outlier = self._make_outlier_fixture()
+
+        out = StringIO()
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', '--dry-run', stdout=out, stderr=err)
+
+        stdout_value = out.getvalue()
+        self.assertIn('unexplained (window_mismatch): 1', stdout_value)
+        self.assertIn('events re-keyed: 3', stdout_value)  # the outlier is NOT counted as would-be re-keyed
+        self.assertIn("falls outside the run's window", err.getvalue())
+        self.assertEqual(CampaignRun.objects.count(), 0)
+        outlier.refresh_from_db()
+        self.assertEqual(outlier.url, '')
+        self.assertFalse(CalendarEventMeta.objects.filter(event=outlier).exists())
+
+    def test_real_run_also_reports_window_mismatch_not_the_generic_bucket(self):
+        """Pins the real path's reclassification away from the generic `other` bucket --
+        both passes must name the same category."""
+        _in_window_events, outlier = self._make_outlier_fixture()
+
+        out = StringIO()
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out, stderr=err)
+
+        stdout_value = out.getvalue()
+        self.assertIn('unexplained (window_mismatch): 1', stdout_value)
+        self.assertIn('events re-keyed: 3', stdout_value)
+        self.assertIn("falls outside the run's window", err.getvalue())
+        outlier.refresh_from_db()
+        self.assertEqual(outlier.url, '')
+        self.assertFalse(CalendarEventMeta.objects.filter(event=outlier).exists())
+
+
 class TestAllForeignAttributedGroupWritesNothing(CutoverClassicalAllocationsTestBase):
     """35-REVIEW.md WR-07: a `Source line:` group whose EVERY event is already attributed
     to a different CampaignRun must not get a run created or updated for it at all -- an

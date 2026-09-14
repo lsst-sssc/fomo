@@ -37,7 +37,10 @@ a DIFFERENT run; a second event claiming a night this run has already claimed, o
 whose ``ALLOC:`` url another ``CalendarEvent`` already holds -- which is what an import of
 the same schedule file running before the cutover leaves behind (WR-11, 35-REVIEW.md; only
 the first claimant of a night is re-keyed, the rest are reported untouched, because
-``CalendarEvent.url`` carries no unique constraint for the database to enforce it); and any
+``CalendarEvent.url`` carries no unique constraint for the database to enforce it); an
+event whose own independently-derived observing night falls outside the window its own
+schedule line implies, corrected by fixing the event's stored start time or the schedule
+line's date range so the two agree (``window_mismatch``, NF-02, 35-REVIEW.md); and any
 other exception, recorded with its own type name. Every reason is printed with the event's
 primary key and title so an operator can find and correct the row in the admin. When EVERY
 event in a group is attributed elsewhere, no ``CampaignRun`` is created or updated for that
@@ -62,7 +65,13 @@ safe-to-repeat command in this codebase.
 event. It still exits non-zero when it finds an event it cannot explain, because that is
 exactly the condition the operator must clear before the real run -- a dry run that
 silently exited 0 in the presence of an unexplainable row would hide the one thing the
-operator most needs to see before running for real.
+operator most needs to see before running for real. ``--dry-run`` applies every per-event
+precondition the real pass applies -- window containment, in-run collision, and
+existing-``ALLOC:``-url collision -- through the same shared helper the real pass calls
+(NF-02, 35-REVIEW.md), so the two passes agree on the re-key count, the unexplained count,
+every per-reason count and the exit status. That agreement is what makes the promise in
+the preceding sentence true rather than aspirational: a dry run can no longer exit 0 over
+a fixture the immediately following real run rejects.
 """
 
 import logging
@@ -115,6 +124,12 @@ _FOREIGN_ATTRIBUTION = 'foreign_attribution'
 # generic unexpected error, so it needs its own name in both the summary breakdown and the
 # CommandError message for an operator to recognise and act on.
 _KEY_COLLISION = 'key_collision'
+# NF-02 (35-REVIEW.md): a dedicated category, not folded into _OTHER, for the same reason
+# _KEY_COLLISION is not -- an out-of-window derived night is a known, named condition with
+# its own operator action (correct the event's stored start time, or the schedule line's
+# date range, so the two agree), not an unexpected error. The module's contract is that
+# every printed reason tells the operator what to DO.
+_WINDOW_MISMATCH = 'window_mismatch'
 _OTHER = 'other'
 
 _REASON_LABELS = {
@@ -124,8 +139,17 @@ _REASON_LABELS = {
     _CAMPAIGN_MISMATCH: "group's events disagree on their campaign",
     _FOREIGN_ATTRIBUTION: 'already attributed to a different CampaignRun',
     _KEY_COLLISION: 'derived ALLOC: night is already claimed by another event',
+    _WINDOW_MISMATCH: "derived observing night falls outside the run's own window",
     _OTHER: 'unexpected error',
 }
+
+
+class _WindowMismatchError(Exception):
+    """Raised by the shared precondition helper (`_check_event_night()`) when an event's
+    independently-derived observing night lies outside the window the group's schedule
+    line implies. Raised, not branched, for the same reason `_KeyCollisionError` is: a
+    dedicated `except _WindowMismatchError` clause ahead of the broad `except Exception`
+    below routes it to the named _WINDOW_MISMATCH reason instead of _OTHER."""
 
 
 class _KeyCollisionError(Exception):
@@ -153,6 +177,67 @@ def _extract_source_line(description: str) -> str | None:
         if raw_line.startswith(_SOURCE_LINE_MARKER):
             return raw_line[len(_SOURCE_LINE_MARKER) :]
     return None
+
+
+def _check_event_night(
+    event: CalendarEvent,
+    run: CampaignRun | None,
+    site_zone: ZoneInfo,
+    window_start: date,
+    window_end: date,
+    claimed_nights: set[date],
+) -> date:
+    """Applies, in order, the three per-event preconditions both the dry-run and the real
+    cutover branch must agree on, and returns the resolved observing night only when all
+    three hold.
+
+    NF-02 (35-REVIEW.md): this is the single place all three preconditions live, so the
+    dry-run and real branches cannot drift apart again -- a future fourth check added here
+    automatically applies to both callers.
+
+    ``window_start``/``window_end`` are parameters rather than read off ``run`` so both
+    branches provably evaluate the SAME window: the dry-run branch passes the previewed
+    values out of ``fields`` (what the real pass would write), and the real branch passes
+    the values it just wrote. This is also what lets the check still run on the dry-run
+    path when no ``CampaignRun`` exists yet (``run is None``) -- the window is available
+    from the preview even though the run row is not.
+
+    The existing-ALLOC-url probe (the third precondition) is the one check that is
+    legitimately skipped when ``run is None``: a run with no primary key can hold no
+    ``ALLOC:{run_pk}:{night}`` url in the table, so there is nothing to probe. That skip
+    preserves parity rather than breaking it -- when the real pass then creates the run,
+    its fresh primary key cannot collide with any pre-existing row either. When a
+    ``CampaignRun`` already exists for the group, the dry run sees the same primary key
+    the real pass will update, so the probe runs identically on both.
+
+    Args:
+        event: the candidate legacy blank-url event.
+        run: the group's CampaignRun, or None on the dry-run path before it exists.
+        site_zone: the site's timezone, for deriving the event's observing night.
+        window_start: the run's (or previewed run's) window start date, inclusive.
+        window_end: the run's (or previewed run's) window end date, inclusive.
+        claimed_nights: nights already claimed by an earlier event in this same group;
+            mutated by neither this function nor its callers.
+
+    Returns:
+        date: the event's resolved observing night, when all three preconditions hold.
+
+    Raises:
+        _WindowMismatchError: the derived night lies outside window_start..window_end.
+        _KeyCollisionError: the night is already in claimed_nights, or (when run is not
+            None) another CalendarEvent already holds the derived ALLOC: url.
+    """
+    night = observing_night(event.start_time, site_zone)
+    if not (window_start <= night <= window_end):
+        raise _WindowMismatchError(f"derived night {night} falls outside the run's window {window_start}..{window_end}")
+    if night in claimed_nights:
+        raise _KeyCollisionError(f'a second event already claims night {night}')
+    if run is not None:
+        candidate_url = allocation_night_url(run, night)
+        holder = CalendarEvent.objects.filter(url=candidate_url).exclude(pk=event.pk).first()
+        if holder is not None:
+            raise _KeyCollisionError(f'night {night} url is already held by CalendarEvent pk={holder.pk}')
+    return night
 
 
 class Command(BaseCommand):
@@ -350,29 +435,28 @@ class Command(BaseCommand):
                     claimed_nights: set[date] = set()
 
                     if dry_run:
-                        # Read-only preview: apply the identical two collision checks the
-                        # real path applies, but write nothing. Every candidate event is
-                        # blank-url by construction (the query above), so an event that
-                        # claims its night cleanly always would re-key once its group
-                        # resolves -- there is no "would be unchanged" outcome to preview
-                        # at the event level.
+                        # Read-only preview: apply the identical three preconditions the
+                        # real path applies (via the shared _check_event_night() helper),
+                        # but write nothing. Every candidate event is blank-url by
+                        # construction (the query above), so an event that claims its
+                        # night cleanly always would re-key once its group resolves --
+                        # there is no "would be unchanged" outcome to preview at the event
+                        # level. The window is read from `fields`, i.e. what the real pass
+                        # would write, NOT off `existing_run`, whose window may be stale
+                        # from an earlier import (NF-02, 35-REVIEW.md).
                         for event in writable_events:
                             try:
-                                night = observing_night(event.start_time, site_zone)
-                                if night in claimed_nights:
-                                    raise _KeyCollisionError(f'a second event already claims night {night}')
-                                # run is None whenever this group's CampaignRun does not
-                                # exist yet: a run with no primary key can hold no ALLOC:
-                                # url in the table, so there is nothing to probe.
-                                if run is not None:
-                                    candidate_url = allocation_night_url(run, night)
-                                    holder = (
-                                        CalendarEvent.objects.filter(url=candidate_url).exclude(pk=event.pk).first()
-                                    )
-                                    if holder is not None:
-                                        raise _KeyCollisionError(
-                                            f'night {night} url is already held by CalendarEvent pk={holder.pk}'
-                                        )
+                                night = _check_event_night(
+                                    event,
+                                    run,
+                                    site_zone,
+                                    fields['window_start'],
+                                    fields['window_end'],
+                                    claimed_nights,
+                                )
+                            except _WindowMismatchError as exc:
+                                _mark_unexplained([event], _WINDOW_MISMATCH, str(exc))
+                                continue
                             except _KeyCollisionError as exc:
                                 _mark_unexplained([event], _KEY_COLLISION, str(exc))
                                 continue
@@ -385,39 +469,19 @@ class Command(BaseCommand):
                         for event in writable_events:
                             try:
                                 with transaction.atomic():  # per-event savepoint
-                                    night = observing_night(event.start_time, site_zone)
-                                    # WR-08 (35-REVIEW.md): the run's window comes from
-                                    # _iter_run_nights(parsed) (the schedule line's own day
-                                    # range), while the event's own night is an independent
-                                    # derivation from its stored start_time -- nothing
-                                    # asserts the two agree. A mismatch (an off-by-one ESO
-                                    # boundary, or a CR-06-shaped bug in a stored event) would
-                                    # re-key the event to an ALLOC:{pk}:{night} url OUTSIDE
-                                    # the run's own window, which project_allocation()'s
-                                    # convergence step then classifies as stale and DELETES
-                                    # on the very next sweep -- silently converting this
-                                    # command's own "never removes a CalendarEvent row, on
-                                    # any path" guarantee into "hands the next sweep a row to
-                                    # remove". Validate before re-keying.
-                                    if not (run.window_start <= night <= run.window_end):
-                                        raise ValueError(
-                                            f"derived night {night} falls outside the run's window "
-                                            f'{run.window_start}..{run.window_end}'
-                                        )
-                                    # WR-11 (35-REVIEW.md): the check runs BEFORE
-                                    # update_calendar_event_key_and_fields()/
+                                    # NF-02 (35-REVIEW.md): all three preconditions --
+                                    # window containment, in-run collision, existing-url
+                                    # collision -- now live in _check_event_night(), the
+                                    # same helper the dry-run branch calls above, so the
+                                    # two branches cannot drift apart again. The check
+                                    # runs BEFORE update_calendar_event_key_and_fields()/
                                     # adopt_event_into_run() inside this same per-event
-                                    # savepoint -- that ordering is what keeps the losing
-                                    # event byte-identical, exactly as the WR-08 window
-                                    # check above.
-                                    if night in claimed_nights:
-                                        raise _KeyCollisionError(f'a second event already claims night {night}')
+                                    # savepoint -- that ordering is what keeps a rejected
+                                    # event byte-identical (D-18).
+                                    night = _check_event_night(
+                                        event, run, site_zone, run.window_start, run.window_end, claimed_nights
+                                    )
                                     url = allocation_night_url(run, night)
-                                    holder = CalendarEvent.objects.filter(url=url).exclude(pk=event.pk).first()
-                                    if holder is not None:
-                                        raise _KeyCollisionError(
-                                            f'night {night} url is already held by CalendarEvent pk={holder.pk}'
-                                        )
                                     dark_line = preserved_dark_window_line(event)
                                     rekey_fields = {
                                         'title': allocation_night_title(run),
@@ -434,6 +498,8 @@ class Command(BaseCommand):
                                 # free to claim that night.
                                 claimed_nights.add(night)
                                 events_rekeyed += 1
+                            except _WindowMismatchError as exc:
+                                _mark_unexplained([event], _WINDOW_MISMATCH, str(exc))
                             except _KeyCollisionError as exc:
                                 _mark_unexplained([event], _KEY_COLLISION, str(exc))
                             except Exception as exc:  # noqa: BLE001 -- D-18's catch-all, per event
