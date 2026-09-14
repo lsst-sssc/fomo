@@ -2,90 +2,98 @@
 phase: 35-allocation-layer-classical-cutover
 reviewed: 2026-09-13T00:00:00Z
 depth: deep
-files_reviewed: 27
+iteration: 2
+prior_review: 35-REVIEW.md (git show eb6a595)
+files_reviewed: 15
 files_reviewed_list:
-  - CLAUDE.md
   - docs/runbooks/telescope_runs_calendar.rst
   - solsys_code/allocation_projector.py
-  - solsys_code/apps.py
   - solsys_code/campaign_reconciler.py
-  - solsys_code/campaign_utils.py
-  - solsys_code/campaign_views.py
   - solsys_code/management/commands/cutover_classical_allocations.py
   - solsys_code/management/commands/load_telescope_runs.py
   - solsys_code/management/commands/reconcile_campaign_runs.py
-  - solsys_code/migrations/0018_campaignrun_night_window_fields.py
   - solsys_code/models.py
   - solsys_code/observation_projector.py
-  - solsys_code/telescope_runs.py
   - solsys_code/tests/test_allocation_projector.py
   - solsys_code/tests/test_allocation_projector_signals.py
-  - solsys_code/tests/test_campaign_approval.py
-  - solsys_code/tests/test_campaign_models.py
   - solsys_code/tests/test_campaign_reconciler.py
   - solsys_code/tests/test_cutover_classical_allocations.py
   - solsys_code/tests/test_load_telescope_runs.py
-  - solsys_code/tests/test_observation_projector.py
   - solsys_code/tests/test_observation_projector_signals.py
-  - solsys_code/tests/test_project_observation_calendar.py
   - solsys_code/tests/test_reconcile_campaign_runs.py
-  - solsys_code/tests/test_telescope_runs.py
-  - solsys_code/tests/test_write_and_reconcile.py
-findings:
-  critical: 6
-  warning: 11
-  info: 0
+prior_findings:
   total: 17
+  closed: 14
+  partially_closed: 3
+findings:
+  critical: 3
+  warning: 10
+  info: 0
+  total: 13
 status: issues_found
 ---
 
-# Phase 35: Code Review Report
+# Phase 35: Code Review Report (iteration 2 — re-review after fixes)
 
 **Reviewed:** 2026-09-13
 **Depth:** deep
-**Files Reviewed:** 27
+**Files Reviewed:** 15
 **Status:** issues_found
 
 ## Summary
 
-Phase 35 introduces a third calendar-event key family (`ALLOC:{run_pk}:{night}`) alongside the
-two `campaign_reconciler` already owned (`RUN:{pk}` container, retired `RUN:{pk}:{date}`
-per-night), plus three new write triggers that reach it directly from signal receivers. The
-module is carefully documented and `pre-commit run ruff` is clean on every changed file.
+This is a re-review of the 22 commits (14 fixer commits plus quick tasks `260913-ng8` and
+`260913-npq`) that closed the previous deep review's 17 findings.
 
-The defects cluster in one place: **the `ALLOC:` namespace has neither a dispatch guard on the
-way in nor a convergence step on the way out, and its two delete paths skipped the ownership
-and human-confirmation guards the peer `RUN:` paths apply.** Six of these are demonstrated
-below with executed probe tests run against a real Django test database (`python manage.py
-test`, probe module written and removed; no source file was modified by this review).
+**Prior-finding verification: 14 of 17 verified fully closed, 3 partially closed.**
 
-Concretely, the following are reproduced facts, not inferences:
+| Prior finding | Verdict |
+|---|---|
+| CR-01 dispatch/approval bypass | **Closed.** All three receivers now route through `reproject_allocation_if_dispatched()`; `grep` confirms no remaining direct `project_allocation()` call outside `reconcile_run()`. |
+| CR-02 re-classification orphans `ALLOC:` | **Closed** (`_stale_allocation_events()` wired into both the real and dry-run convergence). See NF-01 for a residual class it does not reach. |
+| CR-03 unguarded legacy delete on retire | **Closed** (ownership + `confirmed_by` guards applied). See NF-01/NF-09. |
+| CR-04 convergence deletes foreign/confirmed `ALLOC:` | **Closed** for the foreign/confirmed case — but the fix introduced the opposite defect, NF-01 (BLOCKER). |
+| CR-05 admin bulk `QuerySet.delete()` escapes guard | **Closed.** `origin_model = getattr(origin, 'model', type(origin))` covers both forms; regression test exercises `CampaignRun.objects.filter(pk=...).delete()`. |
+| CR-06 inverted span for a site east of UTC | **Partially closed.** Sydney is fixed; the rule as implemented is wrong for any site whose UTC offset is in `[0, +6]` — see NF-03 (BLOCKER), reproduced. |
+| WR-01 linked-run handoff skips non-LCO/SOAR | **Closed** — but the re-ordering introduced NF-04. |
+| WR-02 one `try` around the whole link loop | **Closed** (per-link `try`, run pk named in the log). |
+| WR-03 dry-run computes and discards `_mint_fields()` | **Closed** — side effect NF-10. |
+| WR-04 past-tense dry-run messages | **Closed** (all three verbs routed through `dry_run`). |
+| WR-05 "retired" conflates three causes | **Partially closed.** The command message was fixed; `docs/runbooks/telescope_runs_calendar.rst:995-999` still ships the exact single-cause claim WR-05 called factually untrue — see NF-07. |
+| WR-06 no transaction boundary in the cutover | **Closed** (per-group + per-event savepoints) — but the counters are not rolled back with them, NF-05. |
+| WR-07 empty `CampaignRun` for an all-foreign group | **Closed** (`if not writable_events: continue`, with the reporting and non-zero exit preserved — verified: every event is marked before the `continue`). |
+| WR-08 no window-containment check in the cutover | **Closed on the real path only.** The dry-run path does not apply it, which breaks the command's own documented dry-run contract — NF-02 (BLOCKER), reproduced. |
+| WR-09 uncaught `KeyError` from `_CLASSICAL_RUN_STATUS` | **Closed** (import-time assertion + per-group catch) — side effect NF-08. |
+| WR-10 meta-less legacy event never cleaned up | **Partially closed.** The `telescope_label_meta__isnull=True` half is covered; the `telescope_label_meta__run IS NULL` half of the same "writable but unattributed" class is not — NF-01. |
+| WR-11 `ALLOC:` key collision in the cutover | **Closed** (dedicated `key_collision` category, both checks on both paths, ordering keeps the loser byte-identical). |
 
-- A **container-dispatched** run (queue `source`, or `telescope_class` set) acquires a full set
-  of `ALLOC:` nights the moment an observation link or a record save fires, on top of its
-  `RUN:{pk}` container — and **no later `reconcile_run()` ever removes them** (CR-01, CR-02).
-- An **unapproved** (`pending_review`) web submission acquires `ALLOC:` calendar entries the
-  same way, bypassing `_skip_reason()`'s approval gate entirely (CR-01).
-- The retire path **deletes a `RUN:{pk}:{night}` event that a staff member confirmed**, and one
-  attributed to a *different* run, with no `_may_write()` and no `confirmed_by` check —
-  directly contrary to D-08 / UAT Option B (CR-03).
-- The final convergence step **deletes a stale `ALLOC:` event attributed and confirmed to a
-  different run**, because it filters on `allocation_events()` (namespace identity) rather than
-  the `writable_allocation_events()` helper written in the same module for exactly this (CR-04).
-- An **admin bulk delete** of `CampaignRun` rows (`queryset.delete()`) escapes the new
-  `origin`-based cascade guard, leaving orphaned `ALLOC:` events and a **dangling
-  `CalendarEventMeta.run_id` foreign key** — SQLite's end-of-test constraint check flagged it;
-  PostgreSQL would raise `IntegrityError` and fail the delete (CR-05).
-- The sub-night window rule inverts for **Australia/Sydney** (FTS): a `0930-1900` UTC window on
-  night 2026-08-01 produces `start_time=2026-08-02T09:30Z`, `end_time=2026-08-01T19:00Z` — a
-  calendar event whose start is 14.5 hours after its end (CR-06).
+**New findings: 13 (3 BLOCKER, 10 WARNING).** Eight of them were introduced by the fixes
+themselves; the rest are defects in the fixed code that the first review did not reach.
 
-Positives worth recording: the cutover command's `--dry-run` was verified to write nothing (no
-`CampaignRun` rows, no `url` changes, no `modified` bumps); the `raw=True` fixture guard, the
-never-raise wrapping and the `dispatch_uid` de-duplication in `apps.py` are all correct; the
-`_sync_observation_attribution()` unlink half correctly pre-filters on
-`confirmed_by__isnull=True`; and no code path infers a run's `source` from a telescope name,
-site or event text.
+Four of the findings below are backed by executed probe tests run against a real Django test
+database (`python manage.py test solsys_code.tests.<probe module>`, probe modules written and
+then deleted; no source file was modified by this review). Reproduced facts, not inferences:
+
+- A stale `ALLOC:` event with no companion row — or with a companion row whose `run` is unset
+  — now survives the convergence step **forever and uncounted** (`retired=0, blocked=0,
+  detached=0, legacy_deleted=0`). Before the CR-04 fix, `stale_qs.delete()` removed it (NF-01).
+- `cutover_classical_allocations --dry-run` reports `unexplained: 0, events re-keyed: 4` and
+  **exits zero**; the immediately following real run reports `unexplained: 1, events re-keyed: 3`
+  and exits non-zero (NF-02).
+- A `CampaignRun` at an `Africa/Johannesburg` (UTC+2) site with `night_end_utc=03:00` raises
+  `ValueError: Computed an inverted allocation-night span ...` on **every** reconcile — the run
+  can never be projected at all (NF-03).
+- After a group-level rollback, the cutover prints `runs created: 1` while
+  `CampaignRun.objects.count() == 0` (NF-05).
+- On the save that both retires an allocation night and creates the record's own observation
+  event, the observation event is left with `CalendarEventMeta.run = None` (NF-04).
+
+Positives worth recording: `pre-commit run ruff` is clean on every changed source file; the
+CR-01 guard is applied at all three call sites with no bypass left; the CR-05 origin check
+handles the `None`-origin case safely; the WR-11 collision checks are correctly ordered
+*before* any write inside the same savepoint, so the losing event really is left
+byte-identical; and the WR-07 `continue` provably cannot swallow a group without the
+non-zero exit (every event in the group has already been passed to `_mark_unexplained()`).
 
 ## Structural Findings (fallow)
 
@@ -95,674 +103,590 @@ No `<structural_findings>` block was supplied with this review request.
 
 ## Critical Issues
 
-### CR-01: Signal receivers call `project_allocation()` directly, bypassing `reconcile_run()`'s dispatch and approval gates
+### NF-01: CR-04's fix leaks stale `ALLOC:` events that are writable but unattributed — never deleted, never counted
 
-**File:** `solsys_code/allocation_projector.py:576-580`, `solsys_code/allocation_projector.py:645-649`, `solsys_code/observation_projector.py:621-625`
+**File:** `solsys_code/allocation_projector.py:648-665`, `solsys_code/campaign_reconciler.py:551-559`, `solsys_code/campaign_reconciler.py:517-522`, `solsys_code/allocation_projector.py:546-559`
 **Severity:** BLOCKER
 
-**Issue:** All three new triggers call `project_allocation(run)` directly. `project_allocation()`'s
-own docstring states its precondition — *"Must have a resolved `site`, an approved status and a
-non-null `window_start`/`window_end` (`reconcile_run()`'s stage-0 guard, `_skip_reason()`,
-already enforces this before dispatch)"* — but none of the three triggers go through
-`reconcile_run()`, so `_skip_reason()` and the four-way dispatch in
-`campaign_reconciler.reconcile_run():608-640` are both skipped.
+**Issue:** Three of this iteration's fixes all narrow a delete path through the same two-step
+pipeline: `writable_*_events(run)` → `_clearable_and_declined(run, ...)`. Those two steps do
+**not** compose the way the fixes assume.
 
-Two consequences, both reproduced:
+`writable_allocation_events()` (`allocation_projector.py:100-104`) deliberately admits three
+shapes: no companion row, a companion row whose `run` is unset, and a companion row pointing at
+this run. `_clearable_and_declined()` (`campaign_reconciler.py:429-432`) starts from
+`CalendarEventMeta.objects.filter(run_id=run.pk, event__in=candidates)` — so the first two
+shapes are in **neither** the clearable list **nor** the declined count. And they are not
+counted as foreign either, because `foreign_stale_count = stale_qs.count() -
+writable_stale.count()` is zero for them (they *are* in `writable_stale`).
 
-1. **Approval-gate bypass.** A `source=web`, `approval_status=pending_review` run with a resolved
-   site and window gets `ALLOC:` calendar entries as soon as a `CampaignRunObservation` row is
-   created (which `CampaignRunAdmin`'s inline can do). Probe output:
+Net effect: the event is not deleted, `retired` is not incremented, `blocked` is not
+incremented, `detach_declined` is not incremented, and no warning is logged. It is silently
+permanent. Before the CR-04 fix, `stale_qs.delete()` removed it — so this is a regression, not
+a pre-existing gap.
 
-   ```
-   SKIP REASON: not approved   alloc= 0        # reconcile_run() correctly refuses
-   UNAPPROVED AFTER LINK: alloc= 3 ['ALLOC:1:2026-08-01', 'ALLOC:1:2026-08-02', 'ALLOC:1:2026-08-03']
-   UNAPPROVED AFTER 2ND RECONCILE: not approved 3   # and never cleaned up
-   ```
+Reproduced (probe, executed):
 
-   A public, unreviewed submission reaching the shared calendar is precisely what the approval
-   gate exists to prevent.
+```
+# stale ALLOC: night whose CalendarEventMeta row was deleted, then window shrink
+PROBE-A result: ReconcileResult(created=0, updated=0, unchanged=2, blocked=0, skipped_nights=0,
+                detached=0, detach_declined=0, retired=0, rekeyed=0, legacy_deleted=0)
+PROBE-A urls left: ['ALLOC:1:2026-07-09', 'ALLOC:1:2026-07-10', 'ALLOC:1:2026-07-11']
+PROBE-A doomed still exists: True
 
-2. **Dispatch bypass.** A `source=lco_queue` run with a resolved ground site is D-10
-   container-dispatched (`campaign_reconciler.py:618-629`). Linking its observation record —
-   or merely saving that LCO/SOAR record, via
-   `observation_projector.receiver_on_record_save()` — mints the whole per-night set anyway:
-
-   ```
-   AFTER RECONCILE:   alloc= 0  container= 1
-   AFTER LINK:        alloc= 3  ['ALLOC:1:2026-08-01', 'ALLOC:1:2026-08-02', 'ALLOC:1:2026-08-03']
-   AFTER RECORD SAVE: alloc= 3
-   AFTER 2ND RECONCILE: alloc= 3      # the sweep never removes them
-   ```
-
-   The phase's own notes say eight such single-night queue runs exist in the real database. Every
-   subsequent portal status poll re-fires this.
-
-**Fix:** Give the allocation projector a single guarded entry point and call it from all three
-receivers, so the dispatch decision has exactly one owner:
-
-```python
-# campaign_reconciler.py -- extract the existing dispatch decision
-def dispatches_per_night(run: CampaignRun) -> bool:
-    """True when this run's calendar form is the per-night ALLOC: family."""
-    if run.telescope_class:
-        return False
-    if run.site is None:
-        return False
-    if run.site.observations_type == Observatory.SATELLITE_OBSTYPE:
-        return False
-    return run.source not in {
-        CampaignRun.Source.LCO_QUEUE, CampaignRun.Source.SOAR_QUEUE,
-        CampaignRun.Source.GEMINI_QUEUE, CampaignRun.Source.ESO_QUEUE,
-    }
-
-# allocation_projector.py -- the only thing a receiver may call
-def reproject_allocation_if_dispatched(run: CampaignRun) -> None:
-    """Trigger-side entry point: honours _skip_reason() and the dispatch rule."""
-    from solsys_code.campaign_reconciler import _skip_reason, dispatches_per_night
-    if _skip_reason(run) is not None or not dispatches_per_night(run):
-        return
-    project_allocation(run)
+# same night, companion row kept but meta.run set to NULL
+PROBE-A2 doomed still exists: True   (all counters zero again)
 ```
 
-Then `reconcile_run()`'s `else:` branch becomes `if dispatches_per_night(run)`, and the three
-receivers call `reproject_allocation_if_dispatched(run)` instead of `project_allocation(run)`.
+The same hole exists in three more places the fixes touched:
+
+1. `campaign_reconciler._stale_allocation_events()` (CR-02) uses the identical pipeline, so a
+   re-classified run's unattributed `ALLOC:` nights are also never cleaned up.
+2. `campaign_reconciler._stale_dated_events()` (WR-10) unions in only
+   `stale_dated.filter(telescope_label_meta__isnull=True)` — the no-companion-row half. A
+   `RUN:{pk}:{date}` event whose companion row exists with `run IS NULL` is in neither half,
+   even though `writable_events()` treats the two shapes identically. WR-10 is therefore only
+   half-fixed against its own stated D-16 contract ("either re-keyed or removed — no third
+   outcome").
+3. `allocation_projector.project_allocation()`'s CR-03 retire path: a legacy
+   `RUN:{pk}:{night}` event that `_may_write()` accepts but that `_clearable_and_declined()`
+   returns empty for is neither deleted, nor claimed into `legacy_urls_claimed`, nor counted.
+
+**Fix:** make "writable but unattributed" an explicit, deletable third case everywhere the
+pipeline is used, rather than letting it fall between the two filters:
+
+```python
+# campaign_reconciler.py -- one helper, used by all three call sites
+def _clearable_declined_and_unattributed(run, candidates) -> tuple[list[int], int]:
+    """Split candidates into (deletable_ids, declined). Deletable = an unconfirmed companion
+    row attributed to THIS run, OR no attribution at all (no companion row, or run IS NULL) --
+    the latter has nothing to preserve and is exactly the 'third outcome' D-16 forbids."""
+    clearable, declined = _clearable_and_declined(run, candidates)
+    unattributed_ids = list(
+        candidates.filter(
+            Q(telescope_label_meta__isnull=True) | Q(telescope_label_meta__run__isnull=True)
+        ).values_list('pk', flat=True)
+    )
+    return clearable + unattributed_ids, declined
+```
+
+Then use it in `project_allocation()`'s convergence, `_stale_allocation_events()`,
+`_stale_dated_events()` (replacing the partial orphan union) and the CR-03 retire branch. Add a
+regression test for each of the two unattributed shapes at both `ALLOC:` and `RUN:{pk}:{date}`.
 
 ---
 
-### CR-02: Re-classifying a run leaves its `ALLOC:` nights on the calendar forever — the runbook documents the opposite
+### NF-02: `cutover_classical_allocations --dry-run` exits zero on a run the real pass rejects — WR-08's guard was added to only one of the two paths
 
-**File:** `solsys_code/campaign_reconciler.py:476-581`, `solsys_code/campaign_reconciler.py:642-661`, `docs/runbooks/telescope_runs_calendar.rst:645-654`
+**File:** `solsys_code/management/commands/cutover_classical_allocations.py:352-383` (dry-run loop), `solsys_code/management/commands/cutover_classical_allocations.py:385-440` (real loop), contract stated at `solsys_code/management/commands/cutover_classical_allocations.py:61-65`
 **Severity:** BLOCKER
 
-**Issue:** `_detach_stale_family_events()` converges only over `owned_events(run)`, which is
-defined (`campaign_reconciler.py:135-142`) as the `RUN:{pk}` / `RUN:{pk}:` namespace. The
-`ALLOC:` namespace is never inspected. Phase 35 added a third key family and did not extend the
-convergence step to cover it, so when a run moves from the per-night branch to the container
-branch its `ALLOC:` nights are silently orphaned — they duplicate the new whole-window entry and
-no code path can ever reach them again (the run no longer dispatches to `project_allocation()`,
-whose own `stale_qs` step is the only deleter of `ALLOC:` events).
+**Issue:** The WR-11 fix rebuilt the dry-run branch to apply "the identical two collision checks
+the real path applies" — but the real path has **three** checks, and the WR-08 window-containment
+check (`run.window_start <= night <= run.window_end`, lines 402-406) is not one of the three
+copied. The dry-run loop goes straight from `observing_night()` to the collision checks.
 
-Reproduced for both re-classification triggers:
+This contradicts the module's own docstring, verbatim:
+
+> `--dry-run` ... still exits non-zero when it finds an event it cannot explain, because that
+> is exactly the condition the operator must clear before the real run — **a dry run that
+> silently exited 0 in the presence of an unexplainable row would hide the one thing the
+> operator most needs to see before running for real.**
+
+Reproduced (probe, executed; four blank-url events in one group, one of them deriving a night
+outside the schedule line's own window):
 
 ```
-per-night alloc: 3
-after relabel (source -> lco_queue):
-  ReconcileResult(created=1, ..., retired=0, rekeyed=0, legacy_deleted=0)
-  ALLOC left: ['ALLOC:1:2026-08-01', 'ALLOC:1:2026-08-02', 'ALLOC:1:2026-08-03']
-  container: 1
-after class relabel (telescope_class='1m0'):
-  ALLOC left: ['ALLOC:1:2026-08-01', 'ALLOC:1:2026-08-02', 'ALLOC:1:2026-08-03']
+PROBE-D2 dry-run EXITED ZERO:
+  Done (dry run). candidates: 4, groups: 1, runs created: 1, updated: 0, unchanged: 0,
+  events re-keyed: 4, unexplained: 0
+
+PROBE-D3 real run:
+  Done. candidates: 4, groups: 1, runs created: 1, updated: 0, unchanged: 0,
+  events re-keyed: 3, unexplained: 1
+    unexplained (other): 1 -- unexpected error
+  CommandError: 1 event(s) could not be explained and were left untouched (other=1).
 ```
 
-This contradicts shipped operator documentation. `docs/runbooks/telescope_runs_calendar.rst`
-(new in this phase) tells the operator:
+Two further consequences of the divergence, both inside the same loop:
 
-> *"Relabelling a per-night run's `source` to `lco_queue`/... does not change anything on the
-> calendar by itself: the next reconcile ... is what converges on it, deleting the run's leftover
-> per-night events (counted under `legacy_deleted`) and replacing them with a single whole-window
-> entry."*
+- The dry-run adds the out-of-window night to `claimed_nights` and counts it under
+  `events_rekeyed`; the real path does neither. A second event on the same (out-of-window) night
+  is therefore reported `key_collision` by the dry run and `other` by the real run — the two
+  passes disagree on both the count and the reason category.
+- In the dry-run branch the window bounds read come from the **existing** `CampaignRun` row
+  (`run = existing_run`), not from the previewed `fields`; the real path reads them from the
+  row `insert_or_create_campaign_run()` just updated. Even once the check is added, the two
+  must be made to read the same window.
 
-`legacy_deleted` only covers `RUN:{pk}:{date}`, the *retired* form. Post-cutover, per-night
-events are `ALLOC:`-keyed, so the documented convergence does not happen for any run created or
-converted by this phase.
+The mismatched reason category is itself a smaller defect: WR-08's failure is reported under
+`_OTHER` / "unexpected error", while WR-11 created a dedicated `_KEY_COLLISION` category
+precisely because "every printed reason tells the operator what to DO". An out-of-window
+derived night is a known, named condition, not an unexpected error, and it appears nowhere in
+the module docstring's reason vocabulary or in the runbook's reason list.
 
-**Fix:** Add the `ALLOC:` family to the convergence step, mirroring the existing
-confirmed/foreign guards. In `campaign_reconciler.reconcile_run()`, pass the run's allocation
-dispatch state down and clear the other family:
+**Fix:** hoist the per-event checks into one helper used by both branches, and give the window
+mismatch its own reason name:
 
 ```python
-# campaign_reconciler.py, inside _detach_stale_family_events()
-from solsys_code.allocation_projector import writable_allocation_events
+_WINDOW_MISMATCH = 'window_mismatch'
+_REASON_LABELS[_WINDOW_MISMATCH] = "derived observing night falls outside the run's own window"
 
-if not dispatches_per_night(run):        # container branch just ran
-    stale_alloc = writable_allocation_events(run)
-    alloc_ids, alloc_declined = _clearable_and_declined(run, stale_alloc)
-    if alloc_ids:
-        CalendarEvent.objects.filter(pk__in=alloc_ids).delete()
-        legacy_deleted += len(alloc_ids)
-    declined += alloc_declined
-```
+class _WindowMismatchError(Exception): ...
 
-and mirror the same read-only count in the `dry_run` branch of `reconcile_run()` so the preview
-and the real sweep still agree.
-
----
-
-### CR-03: The retire path deletes a legacy `RUN:{pk}:{night}` event with no ownership and no `confirmed_by` guard
-
-**File:** `solsys_code/allocation_projector.py:459-467`
-**Severity:** BLOCKER
-
-**Issue:**
-
-```python
-if night in retired:
-    retired_urls.add(url)
-    legacy_urls_claimed.add(legacy_url)
-    if not dry_run:
-        if existing is not None:
-            existing.delete()
-        CalendarEvent.objects.filter(url=legacy_url).delete()   # <-- unguarded
-```
-
-`_may_write()` was evaluated at line 453 against `existing` (the `ALLOC:`-keyed event), never
-against the legacy event. Twenty lines later, the takeover branch *does* check
-`_may_write(legacy_event, run)` before touching the same class of row (lines 474-481) — so this
-is an inconsistency inside one function, not a deliberate policy.
-
-The result violates both standing rules in this module's own documentation: T-29-19 (*"a
-companion row that points at a DIFFERENT run means a staff member attributed that event
-elsewhere ... a write path must never touch it"*) and the 2026-09-09 UAT decision B (*"a
-human-confirmed attribution is never cleared by an automated sweep"*). Because this is a
-`CalendarEvent.delete()`, the cascade also destroys the `CalendarEventMeta` row carrying
-`confirmed_by`/`confirmed_at` — the audit trail goes with it.
-
-Reproduced:
-
-```
-legacy still exists (human-confirmed):      False
-foreign-attributed legacy still exists:     False
-```
-
-Both events were deleted by an automated re-projection fired from a `CampaignRunObservation`
-save — no operator involved.
-
-**Fix:** Apply the same guard the takeover branch applies, and count a refusal rather than
-deleting:
-
-```python
-if night in retired:
-    retired_urls.add(url)
-    legacy_event = CalendarEvent.objects.filter(url=legacy_url).first()
-    if legacy_event is not None and not _may_write(legacy_event, run):
-        logger.warning(
-            'Allocation retire blocked: legacy event pk=%s is not owned by run pk=%s.',
-            legacy_event.pk, run.pk,
+def _check_event_night(event, run, site_zone, claimed_nights):
+    """The three per-event preconditions, identical for dry-run and real. Returns the night."""
+    night = observing_night(event.start_time, site_zone)
+    if run is not None and not (run.window_start <= night <= run.window_end):
+        raise _WindowMismatchError(
+            f"derived night {night} falls outside the run's window "
+            f'{run.window_start}..{run.window_end}'
         )
-        totals['blocked'] += 1
-    else:
-        legacy_urls_claimed.add(legacy_url)
-        if not dry_run:
-            if existing is not None:
-                existing.delete()
-            if legacy_event is not None:
-                legacy_event.delete()
-    totals['retired'] += 1
-    continue
+    if night in claimed_nights:
+        raise _KeyCollisionError(f'a second event already claims night {night}')
+    if run is not None:
+        holder = CalendarEvent.objects.filter(url=allocation_night_url(run, night)).exclude(pk=event.pk).first()
+        if holder is not None:
+            raise _KeyCollisionError(f'night {night} url is already held by CalendarEvent pk={holder.pk}')
+    return night
 ```
 
-Additionally gate the delete on `confirmed_by__isnull=True` (reuse
-`_clearable_and_declined()`), so a staff-confirmed night is reported under `detach_declined`
-rather than destroyed.
+In the dry-run branch, evaluate the window bounds from `fields['window_start']`/
+`fields['window_end']` (what the real pass would write) rather than from `existing_run`. Add a
+test asserting that a dry run and the immediately following real run agree on
+`events_rekeyed`, on `unexplained`, on every reason category count, and on exit status.
 
 ---
 
-### CR-04: Final convergence deletes stale `ALLOC:` events attributed to a *different* run
+### NF-03: CR-06's site-direction rule does not generalize — any site whose UTC offset is 0…+6 either can never be projected or is silently written a day early
 
-**File:** `solsys_code/allocation_projector.py:534-539`
+**File:** `solsys_code/allocation_projector.py:162-213`, `solsys_code/allocation_projector.py:251-266`, `solsys_code/models.py:266-277`
 **Severity:** BLOCKER
 
-**Issue:**
+**Issue:** `_site_runs_behind_utc()` keys the whole date-offset rule on the **sign** of the
+site's UTC offset. The property the rule actually needs is *whether the site's observing night
+crosses a UTC date boundary*, and those two are not the same predicate.
+
+A local night runs roughly 18:00 → 06:00 next day. In UTC that is `(18 − offset)` →
+`(30 − offset)`. It stays inside a single UTC date only when `6 < offset ≤ 18`. For
+`0 ≤ offset ≤ 6` the night crosses UTC midnight exactly as it does in Chile, but the code
+classifies the site as "not behind UTC" and therefore maps every stored time-of-day onto the
+night's own date. That covers, among others, Roque de los Muchachos / La Palma (`Atlantic/Canary`,
+UTC+0/+1), SAAO Sutherland (`Africa/Johannesburg`, UTC+2) and IAO Hanle (`Asia/Kolkata`,
+UTC+5:30 — the half-hour case). `Observatory.timezone` is a free-form `CharField` populated
+from the MPC Observatory Codes API (`MPCObscodeFetcher`), so such a site is one admin action
+away, with no code change.
+
+Reproduced (probe, executed, `Africa/Johannesburg` site, one-night window, `night_end_utc=03:00`):
+
+```
+PROBE-C  raised: ValueError Computed an inverted allocation-night span for run pk=1
+         night=2026-07-09: start=2026-07-09T19:00:00+00:00 >= end=2026-07-09T03:00:00+00:00
+PROBE-C2 raised: ValueError ... start=2026-07-09T15:52:40+00:00 >= end=2026-07-09T03:00:00+00:00
+```
+
+`PROBE-C2` sets only `night_end_utc`, with the start computed from the site's own sunset — so
+the inversion is not an operator input error; it is the rule disagreeing with the projector's
+own `sun_event()`. That run raises on **every** reconcile: `reconcile_campaign_runs` counts it
+under `failed` forever, `load_telescope_runs` reports its line as skipped forever, and a staff
+action on it returns a 500.
+
+`night_bounds()`'s new guard converts the loudest case into an error rather than bad data —
+but it does not catch the case where **both** boundaries land on the wrong side together. At
+Hanle (UTC+5:30, sunset ≈13:00 UTC on the night's own date, sunrise ≈00:00 UTC the next date),
+a `0000`-`0200` schedule window resolves to `00:00 → 02:00` on the *evening* date: start < end,
+no error raised, and a `CalendarEvent` written a full day early onto the shared calendar.
+
+The rule is also now stated as the durable field contract in `models.py:266-277`, where the
+taxonomy is asserted as complete and is not:
+
+> For a site whose local clock runs AHEAD of UTC (Siding Spring, Australia), the entire local
+> night maps into a SINGLE UTC date — the night's own — so that 12:00 threshold does not apply
+> at all.
+
+That sentence is false for every site with an offset of +1…+6.
+
+**Fix:** derive the answer from the night itself rather than the offset's sign. The cheap,
+astropy-free form D-13 requires is available from the site's own local clock:
 
 ```python
-stale_qs = allocation_events(run).exclude(url__in=active_urls | retired_urls)
-stale_count = stale_qs.count()
-if stale_count:
-    if not dry_run:
-        stale_qs.delete()
+def _night_crosses_utc_midnight(run, night) -> bool:
+    """True when this site's observing night spans two UTC dates, so an early-UTC-hour
+    boundary belongs to the FOLLOWING date. Uses the site's local 18:00 and the next local
+    06:00 -- a zoneinfo lookup only, never sun_event()."""
+    zone = ZoneInfo(run.site.timezone)
+    evening = datetime(night.year, night.month, night.day, 18, tzinfo=zone).astimezone(dt_timezone.utc)
+    morning = (datetime(night.year, night.month, night.day, 18, tzinfo=zone)
+               + timedelta(hours=12)).astimezone(dt_timezone.utc)
+    return evening.date() != morning.date()
 ```
 
-`allocation_events()` is namespace identity only — its own docstring at line 89-98 states
-*"namespace identity alone is NOT ownership"* and the module supplies
-`writable_allocation_events()` (lines 89-103) as the attribution-scoped twin. That helper is used
-by the `CampaignRun` `pre_delete` cascade but **not here**, where it matters just as much: this
-is the delete path an ordinary reconcile takes.
-
-Reproduced — a staff member re-attributes and confirms night 3 to another run, the run's window
-then shrinks:
-
-```
-result: ReconcileResult(..., retired=1, ...)
-foreign/confirmed ALLOC event still exists: False
-```
-
-An event confirmed by a person and attributed to run B is destroyed by run A's automated
-convergence step, with no `blocked`/`detach_declined` counter raised.
-
-**Fix:** Use the writable queryset, and report the difference instead of silently absorbing it:
-
-```python
-stale_qs = allocation_events(run).exclude(url__in=active_urls | retired_urls)
-writable_stale = writable_allocation_events(run).exclude(url__in=active_urls | retired_urls)
-stale_ids, declined = _clearable_and_declined(run, writable_stale)
-totals['blocked'] += stale_qs.count() - writable_stale.count()
-if stale_ids:
-    if not dry_run:
-        CalendarEvent.objects.filter(pk__in=stale_ids).delete()
-    totals['retired'] += len(stale_ids)
-```
-
-(`_clearable_and_declined` is already importable from `campaign_reconciler`, alongside
-`_may_write`/`_link_event_to_run`, under the module's stated private-import convention.)
-
----
-
-### CR-05: The cascade guard misses queryset deletes — admin bulk delete orphans events and leaves a dangling FK
-
-**File:** `solsys_code/allocation_projector.py:643-644`
-**Severity:** BLOCKER
-
-**Issue:**
-
-```python
-if isinstance(kwargs.get('origin'), CampaignRun):
-    return
-```
-
-Django sets `origin` to the object `.delete()` was called on for `Model.delete()`, but to the
-**QuerySet** for `QuerySet.delete()`. The Django admin's "Delete selected" action goes through
-`ModelAdmin.delete_queryset()` → `queryset.delete()`, so `origin` is a `QuerySet`, the
-`isinstance` check is False, and the receiver proceeds. `models.py:467` explicitly notes the
-sibling `pre_delete` receiver was written as a signal *"so this also fires for the admin bulk
-delete"* — so the bulk path is a supported, expected one.
-
-What then happens, in Django's `Collector.delete()` order: `pre_delete` fires and
-`_delete_owned_calendar_events_on_campaign_run_delete()` clears the `ALLOC:` events; the
-`SET_NULL` field updates for `CalendarEventMeta.run` are applied; the `CampaignRunObservation`
-rows are deleted and their `post_delete` fires — this receiver re-projects the run (which still
-exists in the DB at that moment, as the docstring itself explains), **re-creating both the
-`ALLOC:` events and `CalendarEventMeta` rows pointing at the run**; then the `CampaignRun` DELETE
-runs.
-
-Reproduced:
-
-```
-BEFORE DELETE:   alloc= 3
-AFTER QS DELETE: run exists= False   orphan alloc= 3
-django.db.utils.IntegrityError: The row in table 'solsys_code_calendareventmeta' with primary
-key '5' has an invalid foreign key: solsys_code_calendareventmeta.run_id contains a value '1'
-that does not have a corresponding value in solsys_code_campaignrun.id
-```
-
-On SQLite (dev) this leaves a corrupt `run_id` pointing at a nonexistent row. On PostgreSQL
-(the documented production target) the FK is enforced and the whole admin bulk delete raises
-`IntegrityError` and rolls back — the operator cannot delete runs at all.
-
-**Fix:** Test the *model class* of the origin rather than the instance type, which covers both
-the instance and queryset forms:
-
-```python
-origin = kwargs.get('origin')
-origin_model = getattr(origin, 'model', type(origin))
-if origin_model is CampaignRun or isinstance(origin, CampaignRun):
-    return
-```
-
-Add a regression test using `CampaignRun.objects.filter(pk=...).delete()` (the admin path) —
-the existing `test_deleting_the_run_cascades_the_link_without_raising_or_re_projecting`
-only exercises `self.run.delete()`.
-
----
-
-### CR-06: Sub-night window fields produce an inverted event span for Australia/Sydney (FTS)
-
-**File:** `solsys_code/allocation_projector.py:161-177`, `solsys_code/models.py:264-283`
-**Severity:** BLOCKER
-
-**Issue:** `_time_of_day_to_datetime()` hard-codes *"an hour before 12:00 UTC belongs to the NEXT
-morning for that observing night; 12:00 or later belongs to the night's own evening date."* That
-rule is correct only for western-hemisphere sites where the night straddles UTC midnight (La
-Silla, Las Campanas). For Siding Spring (`FTS`, `Australia/Sydney`, UTC+10/+11) the observing
-night's UTC span is entirely inside one UTC date, with the **start in the morning UTC hours and
-the end in the evening UTC hours** — exactly inverting the rule's assumption.
-
-Verified against the projector's own computed sun events for the same site and night:
-
-```
-FTS FULL NIGHT ALLOC:2:2026-08-01 start= 2026-08-01T07:33:39+00:00 end= 2026-08-01T20:46:06+00:00
-FTS EVENT      ALLOC:1:2026-08-01 start= 2026-08-02T09:30:00+00:00 end= 2026-08-01T19:00:00+00:00
-                                                                     inverted= True
-```
-
-The computed full night is `07:33Z -> 20:46Z` on the *same* UTC date. A `night_start_utc=09:30`
-run instead lands on `2026-08-02T09:30Z` — a full day late — producing a `CalendarEvent` whose
-`start_time` is 14.5 hours **after** its `end_time`. Nothing validates this; the row is written,
-counted as `created=1`, and rendered on the shared calendar.
-
-The rule is carried forward verbatim from the pre-phase
-`load_telescope_runs._resolve_window_time()` (confirmed against the diff base), but Phase 35
-promotes it from a per-line detail into the documented semantics of two new persisted model
-fields (`models.py:264-283` states the rule as the field contract) and into the per-night
-re-mint comparison `_span_needs_remint()`, so it is now a durable data-model invariant rather
-than a transient parse step. `FTS` is one of the four entries in `telescope_runs.SITES`, and
-`Australia/Sydney` is named as a supported timezone in the project constraints.
-
-**Fix:** Anchor the offset on the night's own computed sunset instead of a hard-coded UTC hour,
-so the rule works for any longitude:
-
-```python
-def _time_of_day_to_datetime(t, night, sunset_utc: datetime) -> datetime:
-    """A stored sub-night TimeField -> the UTC datetime nearest the night's own sunset."""
-    candidate = datetime.combine(night, t, tzinfo=dt_timezone.utc)
-    # Pick whichever of (night, night+1) puts the boundary inside the night's own span.
-    if candidate < sunset_utc - timedelta(hours=1):
-        candidate += timedelta(days=1)
-    return candidate
-```
-
-If the sunset is not available cheaply (D-13 forbids a `sun_event()` call on the update path),
-derive the anchor from `run.site` longitude or timezone offset instead — e.g. treat a UTC
-time-of-day as belonging to the *following* date only when the site's local UTC offset is
-negative. Either way, add a guard in `night_bounds()` that refuses to return `start >= end` and
-logs/counts it rather than writing an inverted event, plus a `TestSubNightWindow` case using an
-`Australia/Sydney` `Observatory`.
+and replace `west_of_utc` with that predicate in `_time_of_day_to_datetime()`,
+`night_bounds()` and `_span_needs_remint()`. Correct the `models.py` field comment and
+`_site_runs_behind_utc()`'s docstring, both of which currently state the false two-case
+taxonomy. Add `TestSubNightWindowSiteDirection` cases for a UTC+2 site and a UTC+5:30 site —
+the existing class covers only the two fixture sites the rule already happens to fit.
 
 ---
 
 ## Warnings
 
-### WR-01: The linked-run handoff never fires for non-LCO/SOAR records
+### NF-04: WR-01's re-ordering leaves the observation event unattributed on the very save that creates it
 
-**File:** `solsys_code/observation_projector.py:604-605`, `solsys_code/observation_projector.py:621-625`
+**File:** `solsys_code/observation_projector.py:610-626`, `solsys_code/allocation_projector.py:404-424`
 **Severity:** WARNING
 
-**Issue:** The new D-11 linked-run re-projection block was appended *below*
-`if instance.facility not in PROJECTED_FACILITIES: return` (line 604). `PROJECTED_FACILITIES` is
-`('LCO', 'SOAR')`, so a Gemini or ESO `ObservationRecord` save never re-projects its linked run.
-Yet `retired_nights()` (`allocation_projector.py:286-303`) applies **no facility filter at all**
-and happily retires a GEM record's night when a sweep eventually runs. The trigger and the
-projector therefore disagree about which records matter, and a Gemini record moving from queued
-to placed leaves a stale allocation night on the calendar until the next batch sweep.
+**Issue:** WR-01's fix moved the linked-run re-project block from *after* `project_record()` to
+*before* it. `project_allocation()`'s attribution bridge
+(`_sync_observation_attribution()`) adopts the record's own event by looking it up:
+`CalendarEvent.objects.filter(url=observation_projector.event_url(record, facility)).first()`,
+and returns early when it is `None`. Running the bridge before `project_record()` means that on
+the save that first creates (or re-keys) the observation event, the event does not exist yet and
+the adoption is silently skipped.
 
-**Fix:** Move the linked-run block above the facility guard (it does not depend on
-`project_record()`), or duplicate the guard's early-return into a dedicated helper:
+Reproduced (probe, executed; a record that is unprojectable on creation — no instrument signal
+— is linked to a run, then a portal poll supplies both the placed block and the instrument in
+one save):
+
+```
+PROBE-F2 event after first save: 0
+PROBE-F2 event exists after 2nd save: True
+PROBE-F2 attributed run_id: None (expected 1 )
+PROBE-F2 alloc nights left: ['ALLOC:1:2026-09-16', 'ALLOC:1:2026-09-17']
+PROBE-F2 attributed run_id after a 3rd save: 1
+```
+
+The allocation night (`ALLOC:1:2026-09-15`) is correctly retired on that save, but the event
+that is supposed to take over the night carries no campaign attribution — so
+`calendar_display_extras.campaign_decoration()` renders it without its campaign until some
+later save or sweep repairs it. The handoff is momentarily incoherent in exactly the transition
+D-11 exists to make immediate.
+
+**Fix:** the two steps have a real ordering dependency (retirement must follow, or at least
+accompany, the event that replaces it), so run the base projection first and keep WR-01's
+facility-independence by splitting the early return:
 
 ```python
 if raw:
     return
-try:
-    _reproject_linked_runs(instance)        # facility-independent, D-11
-except Exception as exc:  # noqa: BLE001
-    logger.warning('linked-run re-project failed for observation_id=%r: %s',
-                   instance.observation_id, type(exc).__name__)
-if instance.facility not in PROJECTED_FACILITIES:
-    return
-...
+
+action = stage = None
+if instance.facility in PROJECTED_FACILITIES:
+    try:
+        action, stage = project_record(instance)
+    except Exception as exc:  # noqa: BLE001 -- TRIG-02
+        logger.warning('receiver_on_record_save failed for observation_id=%r: %s',
+                       instance.observation_id, type(exc).__name__)
+
+# D-11, facility-independent, per-link isolated (WR-01/WR-02), AFTER the event exists
+for link in instance.campaign_run_links.select_related('run'):
+    ...
 ```
 
-### WR-02: One `try` wraps the whole linked-run loop, so one bad run skips every later one
+Add a regression test asserting `CalendarEventMeta.run_id == run.pk` immediately after the
+single save that creates the observation event for an already-linked record.
 
-**File:** `solsys_code/observation_projector.py:620-628`
+### NF-05: the cutover's group savepoint rolls back the writes but not the counters it already incremented
+
+**File:** `solsys_code/management/commands/cutover_classical_allocations.py:336-341`, `solsys_code/management/commands/cutover_classical_allocations.py:441-445`
+**Severity:** WARNING
+
+**Issue:** `runs_created`/`runs_updated`/`runs_unchanged` (lines 336-341) and `events_rekeyed`
+(lines 383, 436) are incremented **inside** the `with transaction.atomic()` block WR-06 added.
+They are plain Python ints, so the group-level `except Exception` at line 441 rolls back every
+database write and leaves the counters at their post-write values. The summary the operator
+reads for a one-time production migration then reports work that did not happen.
+
+Reproduced (probe, executed; a failure after the run write but inside the group savepoint — an
+invalid IANA name on the resolved `Observatory`, which `ZoneInfo(site.timezone)` at line 349
+raises on):
+
+```
+PROBE-E stdout: Done. candidates: 3, groups: 1, runs created: 1, updated: 0, unchanged: 0,
+                events re-keyed: 0, unexplained: 3 | unexplained (other): 3 -- unexpected error
+PROBE-E runs actually in db: 0
+```
+
+A second, smaller defect on the same path: the group-level handler calls
+`_mark_unexplained(events, ...)` over the **whole** group, including events already marked
+`_FOREIGN_ATTRIBUTION` by the loop at lines 298-304. Those events are reported twice on stderr
+and counted twice in `reason_counts` and in the `CommandError` breakdown.
+
+**Fix:** accumulate the group's counters locally and fold them into the totals only after the
+`with` block exits successfully; and mark only the events not already marked:
+
+```python
+group_created = group_updated = group_unchanged = group_rekeyed = 0
+try:
+    with transaction.atomic():
+        ...            # increment the group_* locals only
+except Exception as exc:  # noqa: BLE001
+    already_marked = {e.pk for e, _c, _r in unexplained}
+    _mark_unexplained([e for e in events if e.pk not in already_marked], _OTHER,
+                      f'{type(exc).__name__}: {exc}')
+    continue
+runs_created += group_created
+runs_updated += group_updated
+runs_unchanged += group_unchanged
+events_rekeyed += group_rekeyed
+```
+
+### NF-06: `_may_write()` and `writable_allocation_events()` disagree about every unattributed `ALLOC:` event
+
+**File:** `solsys_code/allocation_projector.py:90-104`, `solsys_code/allocation_projector.py:519-523`, `solsys_code/campaign_reconciler.py:248-264`
+**Severity:** WARNING
+
+**Issue:** `writable_allocation_events()`'s docstring claims it "mirrors
+[`writable_events()`'s] attribution-scoped filter exactly". It does not, because the predicate
+the two querysets are supposed to mirror — `_may_write()` — falls back to a **`RUN:`-namespace
+url check** when the companion row is absent or its `run` is unset:
+
+```python
+container_url = run_container_url(run)
+return event.url == container_url or event.url.startswith(f'{container_url}:')
+```
+
+An `ALLOC:{pk}:{night}` url can never match that, so `_may_write()` returns `False` for exactly
+the two shapes `writable_allocation_events()` admits as writable. The `pre_delete` cascade
+(`models.py:504`) will happily delete such an event while `project_allocation()` refuses to
+touch it.
+
+Reproduced (probe, executed):
+
+```
+PROBE-B _may_write says: False
+PROBE-B writable_allocation_events includes it: True
+PROBE-B result: ReconcileResult(created=0, updated=2, ..., blocked=1, ...)
+PROBE-B description refreshed: False
+```
+
+The night is permanently `blocked`, its title/description are never refreshed again (the other
+two nights in the same window updated normally), and the operator is told
+`N event(s) blocked -- owned by someone else`, which is untrue — nobody owns it. This is a
+latent pre-existing defect, but the CR-04 fix made `writable_allocation_events()` load-bearing
+on a second write path, so the contradiction now has two consumers that disagree.
+
+**Fix:** teach `_may_write()` about the second namespace it is now asked to police, so the
+predicate and its queryset twin state the same rule:
+
+```python
+def _may_write(event, run) -> bool:
+    if event is None:
+        return True
+    meta = CalendarEventMeta.objects.filter(event=event).first()
+    if meta is not None and meta.run_id is not None:
+        return meta.run_id == run.pk
+    container_url = run_container_url(run)
+    alloc_prefix = f'{ALLOC_URL_NAMESPACE}{run.pk}:'
+    return (event.url == container_url
+            or event.url.startswith(f'{container_url}:')
+            or event.url.startswith(alloc_prefix))
+```
+
+(Keeping the rule in `campaign_reconciler` per the module's stated one-owner convention; the
+prefix constant can be passed in or imported lazily to avoid the cycle.)
+
+### NF-07: WR-05 and CR-02 fixed the command output but left the runbook's counter definitions stale
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:995-999`, `docs/runbooks/telescope_runs_calendar.rst:1007-1013`
+**Severity:** WARNING
+
+**Issue:** WR-05's finding was that "`retired` means *now covered by a real observation*" is
+factually untrue, because `ReconcileResult.retired` is incremented from three unrelated places.
+The fix changed the per-run message in `reconcile_campaign_runs.py` but not the runbook, which
+still tells the operator, unchanged:
+
+> ``retired`` counts an allocation night handed over to a real observation: a run's linked
+> ``ObservationRecord`` placed or observed its block on that night ... Unlinking the record
+> restores the night on the next reconcile.
+
+The claim the review called untrue is therefore still shipped, in the operator-facing document
+the runbook's own "Always run `--dry-run` first and read the list" instruction sends people to.
+Per CLAUDE.md, `docs/runbooks/` pages whose documented behavior a change affects are part of
+the deliverable, not optional polish.
+
+The `legacy_deleted` definition two paragraphs down is stale for the same reason:
+
+> ``legacy_deleted`` counts a one-time removal: a run with a queue source ... so its leftover
+> per-night ``RUN:{pk}:{date}`` events ... an already-container run reports 0 here on every
+> later sweep.
+
+After CR-02 the counter also covers leftover `ALLOC:{pk}:{night}` events from a
+`telescope_class`/`site` re-classification (not a queue source at all), and after WR-10 a run
+that still dispatches per-night can report a non-zero `legacy_deleted` for a meta-less
+`RUN:{pk}:{date}` row — at which point the sibling per-run message, "this run now keeps a
+single whole-window entry", is also false.
+
+**Fix:** update both definitions to match the fixed code, e.g. "`retired` counts an allocation
+night removed for any of three reasons: a linked record's placed or observed block now covers
+it, a sub-night window field changed and the night was re-minted, or the run's window shrank";
+and "`legacy_deleted` counts one-time churn from a run's dispatch changing — leftover
+`RUN:{pk}:{date}` nights, leftover `ALLOC:{pk}:{night}` nights, and `RUN:{pk}:{date}` rows with
+no companion row at all." Gate the "keeps a single whole-window entry" clause on the run
+actually being container-dispatched.
+
+### NF-08: WR-09 widened the classical loader's `except` tuple around the whole reconcile call
+
+**File:** `solsys_code/management/commands/load_telescope_runs.py:316-321`
+**Severity:** WARNING
+
+**Issue:** `except (ValueError, KeyError, Observatory.DoesNotExist)` now wraps the entire
+per-line body — including `write_and_reconcile_campaign_run()` and `reconcile_run()`. The
+`KeyError` the fix intended to catch comes from one dictionary lookup at line 264; the handler
+it was added to spans ~80 lines of reconciliation. Any `KeyError` raised deep inside the
+reconciler or the projector (`totals[preview_calendar_event_action(...)] += 1`,
+`ReconcileResult(**totals)`, a `ZoneInfoNotFoundError` — which subclasses `KeyError` — from a
+malformed `Observatory.timezone`) is now swallowed and reported as
+`Line N: 'some-key' (line text: ...)`, a message that names neither the module nor the stage.
+
+Compounding it: `write_and_reconcile_campaign_run()` has no transaction boundary, so when
+`reconcile_run()` raises the `CampaignRun` row it just wrote stays committed while the line is
+counted under `run_skipped` — the summary reports a line as skipped when a run row was in fact
+created.
+
+**Fix:** narrow the catch to the statement that needs it, and keep the broad reconcile call
+under its original tuple:
+
+```python
+try:
+    run_status = _CLASSICAL_RUN_STATUS[parsed.status]
+except KeyError as exc:
+    self.stderr.write(f'Line {line_num}: unknown classical status {exc} (line text: {line.strip()!r})')
+    run_skipped += 1
+    continue
+...
+except (ValueError, Observatory.DoesNotExist) as exc:
+    ...
+```
+
+and wrap the write-plus-reconcile pair in `transaction.atomic()` so a reported-skipped line
+leaves no row behind.
+
+### NF-09: a declined legacy event on a retired night is counted twice, in two different counters
+
+**File:** `solsys_code/allocation_projector.py:552-559`, `solsys_code/campaign_reconciler.py:660`
+**Severity:** WARNING
+
+**Issue:** CR-03's fix reports a human-confirmed legacy `RUN:{pk}:{night}` event on a retired
+night under `totals['blocked']` and deliberately does **not** add its url to
+`legacy_urls_claimed`. Back in `reconcile_run()`, `_stale_dated_events()` therefore still sees
+it, `_clearable_and_declined()` classifies it as declined again, and it is reported a second
+time under `detach_declined`. One event, one decision, two counters incremented — the summary
+line implies two distinct events were left alone.
+
+The `legacy_urls_claimed` docstring (`allocation_projector.py:487-496`) states that the set is
+"every `RUN:{pk}:{date}` legacy url this per-night loop has already decided the fate of (a
+takeover re-key **or a retirement delete**)". A declined retirement is also a decided fate; the
+set's own contract implies it should be excluded from the downstream step.
+
+**Fix:** add the legacy url to `legacy_urls_claimed` whenever this loop has decided its fate at
+all — deleted, blocked or declined — not only when it is deletable:
+
+```python
+if legacy_event is not None:
+    legacy_urls_claimed.add(legacy_url)     # decided here, whatever the decision
+    if not _may_write(legacy_event, run):
+        ...
+```
+
+### NF-10: WR-03's dry-run short-circuit hides the one failure mode the new `night_bounds()` guard raises
+
+**File:** `solsys_code/allocation_projector.py:610-619`, `solsys_code/allocation_projector.py:251-266`
+**Severity:** WARNING
+
+**Issue:** WR-03's fix skips `_mint_fields()` entirely on the dry-run create path — correct for
+the wasted astropy work, but `_mint_fields()` is also the only caller of `night_bounds()`, and
+`night_bounds()` is where CR-06's new `ValueError` guard lives. So
+`reconcile_campaign_runs --dry-run` reports `would_create: N` for a run whose very next real
+sweep reports `failed` with an inverted-span `ValueError` (see NF-03, where this is reproduced
+for a UTC+2 site). The preview cannot show the operator the one condition that will actually
+stop the run from projecting.
+
+**Fix:** keep the mint skipped, but validate the boundaries cheaply — `_span_needs_remint()`
+already demonstrates that a set sub-night field's expected boundary is computable with no
+astropy call:
+
+```python
+if dry_run:
+    if run.night_start_utc is not None and run.night_end_utc is not None:
+        west = _site_runs_behind_utc(run, night)   # or the NF-03 replacement predicate
+        if _time_of_day_to_datetime(run.night_start_utc, night, west) >= _time_of_day_to_datetime(
+            run.night_end_utc, night, west
+        ):
+            raise ValueError(...)   # same message night_bounds() raises
+    totals['created'] += 1
+    continue
+```
+
+### NF-11: a vacuous assertion in the cutover sequence-contract test
+
+**File:** `solsys_code/tests/test_cutover_classical_allocations.py:528-531`
 **Severity:** WARNING
 
 **Issue:**
 
 ```python
-try:
-    for link in instance.campaign_run_links.select_related('run'):
-        if link.run is not None:
-            project_allocation(link.run)
-except Exception as exc:  # noqa: BLE001
-    ...
+rekeyed_count = 1
+legacy_deleted_count = 1
+self.assertEqual(rekeyed_count + legacy_deleted_count, 2)
 ```
 
-An exception on the first link aborts the loop; every remaining linked run silently goes
-un-projected, and the log names only the record, not which run failed. Today a record has at
-most one run (the `unique_campaign_run_observation_record` constraint), but the constraint's own
-docstring in `models.py` says it is *"expressed so it can be broadened cheaply"* to many runs per
-record — at which point this becomes a live partial-failure bug.
+Two local literals are added together and compared to their own sum. The assertion is `1 + 1
+== 2`; it exercises no production code and cannot fail. It sits under a comment claiming to
+verify "three-group reconciliation over the two hand-made legacy artifacts: one re-keyed, one
+deleted", which reads as real coverage in a test class named `TestCutoverSequenceContract` —
+the most misleading place for a no-op assertion.
 
-**Fix:** Move the `try` inside the loop and name the run:
+**Fix:** assert the real counters from the reconcile the test performs, e.g.
 
 ```python
-for link in instance.campaign_run_links.select_related('run'):
-    if link.run is None:
-        continue
-    try:
-        project_allocation(link.run)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning('linked-run re-project failed for run pk=%s (observation_id=%r): %s',
-                       link.run_id, instance.observation_id, type(exc).__name__)
+result = reconcile_run(stays_per_night_run)
+self.assertEqual(result.rekeyed, 1)
+container_result = reconcile_run(now_container_run)
+self.assertEqual(container_result.legacy_deleted, 1)
 ```
 
-### WR-03: `--dry-run` computes and discards two `sun_event()` calls per new night
+or delete the three lines — the preceding assertions in the same test already prove both
+outcomes against the database.
 
-**File:** `solsys_code/allocation_projector.py:511-523`
+### NF-12: the cutover's local `writable_events` collides with the codebase's established ownership-helper name
+
+**File:** `solsys_code/management/commands/cutover_classical_allocations.py:298-315`
 **Severity:** WARNING
 
-**Issue:** On the create path, `fields = _mint_fields(run, night)` runs *before* the `if dry_run`
-branch. `_mint_fields()` makes two `sun_event()` calls (lines 249-250). The dry-run branch then
-calls `preview_calendar_event_action(existing=None, fields)`, which returns `'created'`
-**without reading `fields` at all** (`calendar_utils.py:695-696`). The whole computation is
-discarded.
+**Issue:** `writable_events` is the name of `campaign_reconciler.writable_events(run)` — the
+canonical queryset-level ownership helper, referenced by name in `models.py`'s cascade
+docstring, in `allocation_projector.writable_allocation_events()`'s docstring and throughout
+the reconciler. Reusing it here for an unrelated plain `list` of blank-url `CalendarEvent`
+objects (built from a different rule: "has no companion row pointing at any run") invites a
+reader — or a future edit that adds the import — to conflate the two. The file already imports
+several underscore-named helpers across module boundaries, so the import is a plausible next
+change.
 
-Two consequences beyond wasted work: a `--dry-run` preview can now **raise** the `ValueError`
-`sun_event()` throws for a blank `Observatory.timezone` (the module docstring positions dry-run
-as a read-only preview and explicitly documents that `ValueError` propagating out for the
-*staff-action* call sites), and a dry-run sweep over a multi-week window costs the same astropy
-time as a real one.
+**Fix:** rename to something that names what it holds, e.g. `unattributed_events` or
+`convertible_events`.
 
-**Fix:**
+### NF-13: the WR-11 runbook edit broke the sentence listing what the cutover converts
 
-```python
-if existing is None:
-    if dry_run:
-        totals['created'] += 1
-        continue
-    fields = _mint_fields(run, night)
-else:
-    ...
-```
-
-### WR-04: `reconcile_campaign_runs --dry-run` reports deletions in the past tense
-
-**File:** `solsys_code/management/commands/reconcile_campaign_runs.py:85-100`
+**File:** `docs/runbooks/telescope_runs_calendar.rst:912-914`
 **Severity:** WARNING
 
-**Issue:** The three new per-run messages are emitted unconditionally, with no `dry_run` branch,
-in the past tense:
+**Issue:**
 
-```
-Run pk=7: 3 night(s) retired -- now covered by a real observation
-Run pk=7: 12 legacy RUN:-keyed night(s) re-keyed into ALLOC: in place
-Run pk=7: 8 leftover per-night event(s) deleted -- ...
-```
+> ... whose events agree on their campaign, and whose events are not already attributed to a
+> different run, **are not already claimed on a colliding night.** What it deliberately leaves
+> alone: ...
 
-Under `--dry-run` none of that happened, yet the summary line below correctly says
-`would_retire` / `would_rekey` / `would_delete_legacy`. An operator reading the per-run stream of
-a preview run is told events were deleted. The runbook explicitly instructs the operator to *"run
-`--dry-run` first and read the list"*, so these are the lines they are being sent to.
+The new clause was spliced in after the closing `and`, leaving a comma splice with no
+conjunction and a dangling subject. In the operator-facing paragraph that defines what the
+one-time production migration will and will not convert, the sentence no longer parses
+cleanly.
 
-**Fix:** Route the verb through the existing `dry_run` flag, matching the summary-line style:
-
-```python
-verb = 'would be retired' if dry_run else 'retired'
-if result.retired:
-    self.stdout.write(f'Run pk={run.pk}: {result.retired} night(s) {verb} -- ...')
-```
-
-### WR-05: The "retired" per-run message conflates three unrelated causes
-
-**File:** `solsys_code/management/commands/reconcile_campaign_runs.py:86-91`, `solsys_code/campaign_reconciler.py:110-113`
-**Severity:** WARNING
-
-**Issue:** The message asserts `retired` means *"now covered by a real observation"*, but
-`ReconcileResult.retired` is incremented from three different places in `project_allocation()`:
-the D-05/D-07 observation handoff (line 466), the D-13 sub-night **re-mint** (line 502, where the
-night is immediately re-created and is emphatically *not* covered by an observation), and the
-D-14 window-shrink convergence (line 539). An operator reading `3 night(s) retired -- now covered
-by a real observation` after editing `night_start_utc` in the admin is being told something
-factually untrue.
-
-**Fix:** Either split the counter (`retired` / `reminted` / `converged`) — `ReconcileResult` is a
-`NamedTuple` with defaults, so adding fields is cheap — or drop the causal clause:
-`f'{result.retired} allocation night(s) removed (observation handoff, sub-night re-mint or window change)'`.
-
-### WR-06: `cutover_classical_allocations` has no transaction boundary and commits before raising
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:196-330`
-**Severity:** WARNING
-
-**Issue:** `handle()` creates `CampaignRun` rows and re-keys `CalendarEvent` rows group by group
-with no `transaction.atomic()`, then raises `CommandError` at the very end if anything was
-unexplained. Every write already committed stays committed. The command is documented as
-*"safe to re-run"*, which mitigates but does not remove the hazard: an interruption (operator
-Ctrl-C, connection drop, an `IntegrityError` from a path not covered by the per-group
-`except Exception`) leaves a partially-converted database in which some runs exist with a subset
-of their nights re-keyed and the rest still blank-url. The operator has no transactional
-all-or-nothing option for a one-time production migration.
-
-**Fix:** Wrap each group's writes in a savepoint so a failing group rolls back cleanly while
-successful groups persist, which matches the command's documented per-group semantics:
-
-```python
-from django.db import transaction
-...
-for source_line, events in groups.items():
-    try:
-        with transaction.atomic():
-            ...          # run write + per-event re-key for this group
-    except Exception as exc:  # noqa: BLE001
-        _mark_unexplained(events, _OTHER, f'{type(exc).__name__}: {exc}')
-```
-
-### WR-07: The cutover creates an empty `CampaignRun` for a group whose events are all foreign-attributed
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:252-286`
-**Severity:** WARNING
-
-**Issue:** The `_FOREIGN_ATTRIBUTION` guard marks individual events unexplained and builds
-`writable_events`, but the run write at line 268 runs unconditionally afterwards. If *every*
-event in the group is attributed elsewhere, `writable_events` is empty and the command still
-creates a brand-new `CampaignRun` with zero events. That run is APPROVED, `CLASSICAL_FILE`, with
-a resolved site and a window — so the very next `reconcile_campaign_runs` sweep mints a fresh
-full set of `ALLOC:` nights for it, duplicating the nights the other run already owns. The
-command's docstring promises it *"deliberately does NOT touch any event"* it cannot explain; it
-says nothing about creating a run for one.
-
-**Fix:** Skip the run write entirely when nothing is writable:
-
-```python
-if not writable_events:
-    continue          # every event in this group is already attributed elsewhere
-```
-
-### WR-08: The cutover never checks the derived night lies inside the run's own window
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:289-305`
-**Severity:** WARNING
-
-**Issue:** The run's window comes from `_iter_run_nights(parsed)` (the schedule line's day range,
-adjusted for the ESO noon-to-noon convention), but each event's `ALLOC:` night comes from
-`observing_night(event.start_time, site_zone)` — a completely independent derivation from stored
-data. Nothing asserts the two agree. When they disagree (an off-by-one ESO boundary, or an event
-written under the CR-06 Sydney bug), the event is re-keyed to an `ALLOC:{pk}:{night}` url
-*outside* `[window_start, window_end]`. `project_allocation()`'s convergence step
-(line 534) then classifies it as stale and **deletes** it on the next sweep.
-
-That silently converts the command's headline guarantee — *"It never removes a `CalendarEvent`
-row from the database, on any path"* — into "it hands the next sweep a row to remove".
-
-**Fix:** Validate before re-keying and report a mismatch as a named reason rather than writing it:
-
-```python
-night = observing_night(event.start_time, site_zone)
-if not (run.window_start <= night <= run.window_end):
-    _mark_unexplained(
-        [event], _OTHER,
-        f"derived night {night} falls outside the run's window "
-        f'{run.window_start}..{run.window_end}',
-    )
-    continue
-```
-
-### WR-09: A `KeyError` from `_CLASSICAL_RUN_STATUS` escapes the cutover's per-group handler
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:240`
-**Severity:** WARNING
-
-**Issue:** `'run_status': _CLASSICAL_RUN_STATUS[parsed.status]` sits in the `fields` dict
-construction, **outside** any `try`. The command is currently safe only because
-`telescope_runs.KNOWN_STATUSES` and `load_telescope_runs._CLASSICAL_RUN_STATUS` happen to have
-identical key sets — an invariant nothing enforces and which lives in two different modules.
-Adding one status word to `KNOWN_STATUSES` turns this into an uncaught `KeyError` that aborts the
-whole cutover mid-run, after partial commits (see WR-06), with no reason report. The identical
-line in `load_telescope_runs.py:249` *is* inside a `try`, but that handler catches only
-`(ValueError, Observatory.DoesNotExist)` — a `KeyError` escapes there too and kills the whole
-file import.
-
-**Fix:** Either use `.get()` with an explicit unexplained reason, or (better) make the invariant
-structural:
-
-```python
-# load_telescope_runs.py, module level
-assert set(_CLASSICAL_RUN_STATUS) == KNOWN_STATUSES, (
-    'every telescope_runs.KNOWN_STATUSES member needs a CampaignRun.RunStatus mapping'
-)
-```
-
-plus `except (ValueError, KeyError, Observatory.DoesNotExist)` at both call sites.
-
-### WR-10: A legacy `RUN:{pk}:{date}` event with no companion row is never cleaned up
-
-**File:** `solsys_code/campaign_reconciler.py:394-397`, `solsys_code/campaign_reconciler.py:560-564`
-**Severity:** WARNING
-
-**Issue:** `_clearable_and_declined()` starts from
-`CalendarEventMeta.objects.filter(run_id=run.pk, event__in=candidates)`, so an event **with no
-`CalendarEventMeta` row at all** is in neither the clearable list nor the declined count. For the
-bare-container detach path that is correct (there is no attribution to release). For the new
-`_stale_dated_events()` **delete** path added by this phase it is not: D-16's stated contract is
-that every `RUN:{pk}:{date}` event is *"either re-keyed (elsewhere, by the projector) or removed
-(here) -- no third outcome."* A meta-less legacy event is exactly that third outcome — a
-container-dispatched run's leftover per-night event that no code path will ever visit again.
-Pre-Phase-29 events and events created by the admin FK picker can both lack a companion row.
-
-**Fix:** For the date-bearing group, delete the union of "clearable via an unconfirmed companion
-row" and "no companion row at all":
-
-```python
-_stale_bare, stale_dated = _split_stale_owned_events(run, active_urls)
-if claimed_legacy_urls:
-    stale_dated = stale_dated.exclude(url__in=claimed_legacy_urls)
-clearable, declined = _clearable_and_declined(run, stale_dated)
-orphan_ids = list(stale_dated.filter(telescope_label_meta__isnull=True).values_list('pk', flat=True))
-return clearable + orphan_ids, declined
-```
-
-### WR-11: Two legacy events for one night collide onto a single `ALLOC:` key, and `CalendarEvent.url` is not unique
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:290-303`, `solsys_code/allocation_projector.py:451`
-**Severity:** WARNING
-
-**Issue:** `tom_calendar.CalendarEvent.url` is `URLField(blank=True, default="")` with **no
-unique constraint**. The cutover re-keys every writable event in a group by its own derived
-night; if two legacy events resolve to the same night (a duplicate row from a pre-cutover
-re-ingest whose `start_time` drifted past the `start_time_tolerance` window, or two schedule
-lines sharing a night), both receive the *same* `ALLOC:{pk}:{night}` url with no error. From then
-on `project_allocation()` reads the night with `CalendarEvent.objects.filter(url=url).first()`
-(line 451) — it manages one of them and never sees the other, and because the url *is* in
-`active_urls` the convergence step will not remove it either. The duplicate is permanent and
-invisible to every counter.
-
-**Fix:** Detect the collision in the cutover and report it rather than writing it:
-
-```python
-claimed_nights: set = set()
-for event in writable_events:
-    night = observing_night(event.start_time, site_zone)
-    if night in claimed_nights:
-        _mark_unexplained([event], _OTHER, f'a second event already claims night {night}')
-        continue
-    claimed_nights.add(night)
-```
-
-Longer term, a `UniqueConstraint` on `CalendarEvent.url` restricted to non-blank values would
-make every `.filter(url=...).first()` in the reconciler and the projector honest; that is a
-`tom_calendar` change and out of this phase's scope, but worth recording.
+**Fix:** `... whose events agree on their campaign, whose events are not already attributed to
+a different run, and whose derived observing nights are not already claimed.`
 
 ---
 
 _Reviewed: 2026-09-13_
 _Reviewer: Claude (gsd-code-reviewer)_
-_Depth: deep_
+_Depth: deep (re-review, iteration 2)_
