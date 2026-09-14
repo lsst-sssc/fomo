@@ -1,160 +1,310 @@
 ---
 phase: 35-allocation-layer-classical-cutover
-fixed_at: 2026-09-13T19:54:37Z
+fixed_at: 2026-09-14T06:22:00Z
 review_path: .planning/phases/35-allocation-layer-classical-cutover/35-REVIEW.md
 iteration: 1
-findings_in_scope: 17
-fixed: 15
-skipped: 2
-status: partial
+findings_in_scope: 12
+fixed: 12
+skipped: 0
+status: all_fixed
 ---
 
 # Phase 35: Code Review Fix Report
 
-**Fixed at:** 2026-09-13T19:54:37Z
+**Fixed at:** 2026-09-14T06:22:00Z
 **Source review:** .planning/phases/35-allocation-layer-classical-cutover/35-REVIEW.md
+(iteration 3 — re-review after the `260913-ti1`/`260913-ti3`/`260913-rmd` fixes)
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 17 (CR-01..CR-06, WR-01..WR-11)
-- Fixed: 15
-- Skipped: 2 (WR-07, WR-11 — both require a design decision the review did not resolve)
+- Findings in scope: 12 (1 critical/BLOCKER — NF-14; 11 warning — NF-04, NF-05, NF-08,
+  NF-10, NF-11, NF-12, NF-13, NF-15, NF-16, NF-17, NF-18)
+- Fixed: 12
+- Skipped: 0
 
-All fixes were made in an isolated git worktree/branch
-(`gsd-reviewfix/35-4080497`) and fast-forward-merged onto
-`issue37-telescope-runs-calendar`. Every commit passed `pre-commit run
-ruff`/`ruff-format` and the project's own pre-commit test-suite gate. After
-all 15 commits, a full cross-module regression pass covering every affected
-test module (`test_campaign_reconciler`, `test_allocation_projector`,
-`test_allocation_projector_signals`, `test_campaign_approval`,
-`test_campaign_models`, `test_cutover_classical_allocations`,
-`test_load_telescope_runs`, `test_observation_projector`,
-`test_observation_projector_signals`, `test_project_observation_calendar`,
-`test_reconcile_campaign_runs`, `test_telescope_runs`,
-`test_write_and_reconcile`) ran **487 tests, all passing** (0 failures, 0
-errors). `test_views.TestEphemeris` was excluded per the project's known
-ASSIST-segfault gotcha (unrelated to this phase).
+All fixes were made in an isolated git worktree/branch (`gsd-reviewfix/35-606165`),
+fast-forward-merged onto `issue37-telescope-runs-calendar`. Every commit passed
+`pre-commit run ruff`/`ruff-format` and the project's own pre-commit test-suite gate.
+NF-04 and NF-08 were flagged in the review as "out of this review's file scope"
+(`solsys_code/observation_projector.py`, `solsys_code/management/commands/load_telescope_runs.py`)
+but were fixed anyway per the task's explicit instruction that file scope and fix scope
+are not the same thing.
 
 ## Fixed Issues
 
-### CR-01: Signal receivers call `project_allocation()` directly, bypassing `reconcile_run()`'s dispatch and approval gates
+### NF-14 (BLOCKER): the cutover's dry run still exits zero on a fixture the real run rejects — no identity-key collision guard, silent merge, wrong reason label
 
-**Files modified:** `solsys_code/allocation_projector.py`, `solsys_code/campaign_reconciler.py`, `solsys_code/observation_projector.py`
-**Commit:** `2a34a04`
-**Applied fix:** Extracted `campaign_reconciler.dispatches_per_night()` (the same predicate `reconcile_run()` uses to choose its branch) and added `allocation_projector.reproject_allocation_if_dispatched()`, which re-applies `_skip_reason()` and `dispatches_per_night()` before calling `project_allocation()`. All three signal receivers (two on `CampaignRunObservation`, one on `ObservationRecord`) now call the guarded entry point instead of `project_allocation()` directly. `reconcile_run()`'s own dispatch chain was refactored to a single `if dispatches_per_night(run): ... else: ...` so the decision has exactly one owner.
+**Files modified:** `solsys_code/management/commands/cutover_classical_allocations.py`,
+`solsys_code/tests/test_cutover_classical_allocations.py`,
+`docs/runbooks/telescope_runs_calendar.rst`,
+`docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb`
+**Commit:** `aabaea7`
+**Applied fix:** `_source_identifier()` deliberately ignores the schedule line's status
+word, so two `Source line:` groups differing only in status (e.g. an `allocation` line
+and a `cancelled` line for the same telescope/instrument/window) resolved to the same run
+identity key. The cutover grouped candidates by the raw `source_line` string, so those
+were two GROUPS mapping to one RUN: the second group's `insert_or_create_campaign_run()`
+found-and-updated the first group's already-created row, silently overwriting its fields,
+and its own events were then rejected under `key_collision` — a reason whose documented
+remedy (delete/re-attribute the duplicate row) is wrong for a legitimate second schedule
+line. Added a `load_telescope_runs.py`-style `seen_keys` guard: the moment a group's
+identity key is claimed, a second group sharing it is marked `duplicate_identity` and
+skipped entirely, on both `--dry-run` and the real pass, before either ever attempts a
+write for it. `claimed_nights` is now scoped to the identity key (`claimed_by_key[key]`)
+rather than a fresh `set()` per group, so the dry run's night-level check would also catch
+the collision even if the `seen_keys` guard were ever bypassed by a future refactor.
+Updated the module docstring, the reason vocabulary, and the operator runbook (both the
+"always dry-run first" parity claim and the identity-key-collision section, which wrongly
+asserted this guard already existed on the cutover path — this fix also closed **NF-13**'s
+broken sentence in the same paragraph, since both live in the same edited block). Added a
+self-contained, self-cleaning demonstration cell to the paired
+`reconcile_campaign_runs_demo.ipynb` notebook (verified via a real `jupyter nbconvert
+--execute --inplace` run against a scratch copy of the developer database — confirmed the
+new cell reproduces the exact `duplicate_identity=3` collision and that its cleanup
+restores the notebook's downstream end-state assertions unchanged). Added
+`TestDuplicateIdentityKeyAcrossGroups` (two tests: the real-run non-merge assertion, and a
+dry-run/real-run parity assertion) to `test_cutover_classical_allocations.py`.
 
-### CR-02: Re-classifying a run leaves its `ALLOC:` nights on the calendar forever
+### NF-15: a foreign-attributed leftover `RUN:{pk}:{date}` event was silently dropped — no counter, no log line
 
 **Files modified:** `solsys_code/campaign_reconciler.py`, `solsys_code/tests/test_campaign_reconciler.py`
-**Commit:** `b082f6f`
-**Applied fix:** Added `_stale_allocation_events()` (the `ALLOC:` mirror of the existing date-bearing `RUN:{pk}:{date}` convergence) and wired it into `_detach_stale_family_events()` (the real sweep) and `reconcile_run()`'s dry-run preview branch, reusing the existing `legacy_deleted` counter so the runbook's already-documented operator promise ("the next reconcile ... deletes the run's leftover per-night events ... and replaces them with a single whole-window entry") is now literally true for both origin families, not just the retired `RUN:` one. Updated the pre-existing test that asserted the *bug* as expected behavior; added idempotency and dry-run coverage.
+**Commit:** `c689eef`
+**Applied fix:** `_stale_dated_events()` passed `stale_dated` — derived from namespace
+identity alone — into `_clearable_declined_and_unattributed()`, a total partition over
+shapes (a)/(b)/(c-this-run). But `stale_dated` also contains shape (d): an event in this
+run's own `RUN:{pk}:{date}` namespace whose companion row attributes it to a DIFFERENT
+run. Shape (d) matched neither half of the partition, so it was left alone (correctly —
+a human attribution outranks a sweep) but silently, with no counter and no log line, in a
+key family this phase retires entirely. `_stale_dated_events()` now computes the same
+`foreign` count `project_allocation()`'s mirror `ALLOC:` convergence step already
+computes, logs a warning naming it, and returns it as a third tuple element;
+`_detach_stale_family_events()` and `reconcile_run()`'s dry-run twin fold it into the
+run's own `blocked` total. Extended the existing
+`test_foreign_attribution_is_neither_deleted_nor_detached` regression test to assert
+`blocked==1`, the warning log line (via `assertLogs`), and idempotency across a second
+sweep.
 
-### CR-03: The retire path deletes a legacy `RUN:{pk}:{night}` event with no ownership and no `confirmed_by` guard
+### NF-16: a human-confirmed legacy-retire decline was reported under `blocked` — a false "owned by someone else" message
 
 **Files modified:** `solsys_code/allocation_projector.py`, `solsys_code/tests/test_allocation_projector.py`
-**Commit:** `9a86d4b`
-**Applied fix:** Applied the same `_may_write()` ownership guard the takeover branch already uses, plus a `confirmed_by` check (via `_clearable_and_declined()`, reused from `campaign_reconciler`) so a human-confirmed or foreign-attributed legacy event is left alone and counted under `blocked` instead of deleted. Added regression tests for both the human-confirmed and foreign-attribution cases.
+**Commit:** `1f7b514`
+**Applied fix:** NF-09's earlier fix correctly stopped double-counting a declined legacy
+retirement, but the surviving counter was `totals['blocked']`, which
+`reconcile_campaign_runs` renders as "blocked — owned by someone else". That message is
+false twice over for this shape: the event is in THIS run's own `RUN:` namespace, and
+`confirmed_by`-stamped to THIS run — nobody else owns it. Routed the decision to
+`totals['detach_declined']` instead, whose rendered message ("a person confirmed them…")
+is the true one; seeded `'detach_declined': 0` into `project_allocation()`'s totals dict.
+Updated the one test pinning the old (wrong) categorization
+(`test_retiring_a_night_never_deletes_a_human_confirmed_legacy_event`) to assert
+`blocked==0, detach_declined==1`.
 
-### CR-04: Final convergence deletes stale `ALLOC:` events attributed to a different run
+### NF-17: `claimed_legacy_urls`' docstring still claimed the real-mode exclusion is a no-op, after NF-09 made it load-bearing
 
-**Files modified:** `solsys_code/allocation_projector.py`, `solsys_code/tests/test_allocation_projector.py`
-**Commit:** `a46aed2`
-**Applied fix:** Replaced the `allocation_events(run)` (namespace-identity) stale query with `writable_allocation_events(run)` plus `_clearable_and_declined()`, reporting foreign-attributed and human-confirmed counts under `totals['blocked']` instead of silently deleting or silently dropping them. Added regression tests for both a foreign-run-confirmed night and a same-run-confirmed night surviving a window shrink.
+**Files modified:** `solsys_code/campaign_reconciler.py`, `solsys_code/allocation_projector.py`
+**Commit:** `1f7b514` (same commit as NF-16, since NF-16's fix is exactly what makes this
+docstring's claim newly false in a way worth documenting precisely)
+**Applied fix:** NF-09 widened `claimed_legacy_urls` to also hold blocked/declined urls
+(not written), but both of this set's docstrings — the caller's in
+`campaign_reconciler.py` and the mirroring return-value docstring in
+`allocation_projector.py` — still claimed the caller's exclusion is a no-op in real mode
+"either way". That is true only for a re-keyed or deleted url; it is load-bearing (not a
+no-op) for a blocked or declined one, since that row is, by definition, still sitting in
+the `RUN:` namespace when the caller's convergence step runs. Fixed both copies of the
+claim to state the real rule (no-op for re-keyed/deleted, load-bearing for blocked/declined).
 
-### CR-05: The cascade guard misses queryset deletes — admin bulk delete orphans events and leaves a dangling FK
+### NF-18: `_check_event_night()`'s docstring denied the mutation its own parity depends on
 
-**Files modified:** `solsys_code/allocation_projector.py`, `solsys_code/tests/test_allocation_projector_signals.py`
-**Commit:** `59226c9`
-**Applied fix:** Changed the `isinstance(kwargs.get('origin'), CampaignRun)` check to also cover the model-class form (`getattr(origin, 'model', type(origin))`), which is what Django sets `origin` to for a `QuerySet.delete()` call (the admin's "Delete selected" bulk action). Added a regression test exercising `CampaignRun.objects.filter(pk=...).delete()` directly (the admin path), proving no re-projection occurs and no orphaned `ALLOC:`/`CalendarEventMeta` rows remain.
+**Files modified:** `solsys_code/management/commands/cutover_classical_allocations.py`
+**Commit:** `b4b5b9e`
+**Applied fix:** The docstring claimed `claimed_nights` is "mutated by neither this
+function nor its callers", but both callers mutate it via `claimed_nights.add(night)`
+right after their own write (or preview) succeeds — the mechanism the in-run collision
+check depends on. Replaced with the review's suggested correction: "Read here; the CALLER
+adds the night after its own write (or preview) succeeds, so a failed event leaves the
+night free for a later one."
 
-### CR-06: Sub-night window fields produce an inverted event span for Australia/Sydney (FTS)
+### NF-05: the cutover's group savepoint rolled back writes but not counters, and re-marked already-explained events
 
-**Files modified:** `solsys_code/allocation_projector.py`, `solsys_code/models.py`, `solsys_code/tests/test_allocation_projector.py`
-**Commit:** `6e91c3d`
-**Applied fix:** Added `_site_runs_behind_utc()` (a cheap `zoneinfo` offset lookup, never an astropy `sun_event()` call, so it stays valid on `_span_needs_remint()`'s astropy-free D-13 update path) and threaded its answer through `_time_of_day_to_datetime()`, `night_bounds()` and `_span_needs_remint()`. Also added a guard in `night_bounds()`: refuses to return `start >= end`, raising `ValueError` (propagating the same way `sun_event()`'s own `ValueError` already does) instead of silently writing an inverted event. Added `TestSubNightWindowSiteDirection` covering the exact reproduced Sydney case, the mirror evening-side case, unchanged Chile behavior, and the new guard. **Logic-sensitive fix — the site-direction rule (west-of-UTC vs. east-of-UTC) was independently verified against the projector's own `sun_event()`-computed full night for the exact Sydney date/time the review reproduced (2026-08-01), matching the review's numbers (sunset ≈07:33Z, sunrise ≈20:46Z, both same UTC date); still worth a human spot-check on the astronomy semantics given only two real-world sites (Chile, Sydney) exist in the fixture set.**
+**Files modified:** `solsys_code/management/commands/cutover_classical_allocations.py`
+**Commit:** `8d22999`
+**Applied fix:** `runs_created`/`runs_updated`/`runs_unchanged`/`events_rekeyed` were
+incremented inside the group's `with transaction.atomic()` block as the outer totals
+themselves, so a group-level rollback undid every write but left the counters at their
+post-write values. Routed the increments through group-local counters (`group_created`,
+etc.) folded into the outer totals only once the `with` block exits successfully. Also
+stopped the group-level `except` from re-marking every event in the group
+unconditionally — an event already rejected per-event (e.g. foreign attribution, decided
+before the savepoint even opened) was reported and counted a second time, under a second,
+misleading reason. Now marks only events not already present in `unexplained`.
 
-### WR-01 / WR-02: Linked-run re-project must run for every facility, and one failing run must not skip the rest
+### NF-14 (cross-reference): see above — reject a second cutover group sharing an earlier group's run identity key.
+
+### NF-11: a vacuous assertion in the cutover sequence-contract test
+
+**Files modified:** `solsys_code/tests/test_cutover_classical_allocations.py`
+**Commit:** `86be342`
+**Applied fix:** `TestCutoverSequenceContract` asserted `1 + 1 == 2` over two local
+literals — exercising no production code, under a comment claiming to verify three-group
+reconciliation. Both outcomes it claimed to cover (the re-keyed legacy night, the deleted
+legacy night) are already pinned against the database by the preceding assertions in the
+same test, so the no-op assertion was removed rather than duplicated (per the review's
+own stated alternative fix).
+
+### NF-12: the cutover's local `writable_events` collided with the codebase's ownership-helper name
+
+**Files modified:** `solsys_code/management/commands/cutover_classical_allocations.py`
+**Commit:** `86be342` (same commit as NF-11, both small mechanical fixes in the same file)
+**Applied fix:** Renamed the local `writable_events` list (built from "has no companion
+row pointing at any run", never namespace-identity) to `unattributed_events`, which names
+what it actually holds and no longer collides with
+`campaign_reconciler.writable_events(run)`, the canonical queryset-level ownership helper
+referenced throughout the reconciler and this module's own docstrings.
+
+### NF-04 (carried forward, out of review's file scope): the observation event was unattributed on the save that created it
 
 **Files modified:** `solsys_code/observation_projector.py`, `solsys_code/tests/test_observation_projector_signals.py`
-**Commit:** `9909e82`
-**Applied fix:** Moved the D-11 linked-run re-projection block above `receiver_on_record_save()`'s `if instance.facility not in PROJECTED_FACILITIES: return` guard (it never depends on `project_record()`), so a Gemini/ESO record's linked run re-projects too — `retired_nights()` applies no facility filter, so the trigger and projector no longer disagree about which records matter. Moved the `try`/`except` inside the per-link loop, naming the failing run's pk in the log, so one bad linked run no longer aborts re-projection for every later one. Added regression tests for a Gemini-facility record's linked-run re-project, and for one failing run not blocking a second.
+**Commit:** `30112a0`
+**Applied fix:** WR-01's earlier fix moved the D-11 linked-run re-project step above the
+base projection's own facility guard, to stay facility-independent even for a facility the
+base guard didn't (yet) handle. But on the save that FIRST CREATES (or re-keys) a
+record's own event, `project_allocation()`'s attribution bridge looked that event up by
+url BEFORE it existed, silently skipped the adoption, and left the event that takes over
+a retired night with no campaign attribution until a later save or sweep. Reordered so
+base projection (`project_record()`) runs first, then the D-11 step — the D-11 step only
+depends on `instance.campaign_run_links`, never on the base projection's action/stage or
+facility, so its own facility-independence (WR-01) is unchanged by this reordering; it
+also now runs even if `project_record()` raises (matching the review's suggested fix,
+consistent with D-11's "neither failure may abort the caller's save" contract). Added
+`test_placing_the_block_attributes_the_records_own_event_on_the_creating_save`, which
+makes a record unprojectable at creation (no instrument signal), then supplies both the
+instrument and the placed block in one save, asserting the attribution lands on that
+exact save.
 
-### WR-03: `--dry-run` computes and discards two `sun_event()` calls per new night
+### NF-08 (carried forward, out of review's file scope): the classical loader's widened `except` tuple wrapped the whole reconcile call
+
+**Files modified:** `solsys_code/management/commands/load_telescope_runs.py`
+**Commit:** `d57b461`
+**Applied fix:** WR-09's `except` tuple widening (`KeyError`) wrapped the entire per-line
+body — including `write_and_reconcile_campaign_run()` and `reconcile_run()` — not just the
+`_CLASSICAL_RUN_STATUS[parsed.status]` lookup it was added for. Narrowed the `KeyError`
+catch to that one lookup (a dedicated `try`/`except KeyError` right where it happens), and
+wrapped `write_and_reconcile_campaign_run()` (which has no transaction boundary of its
+own) in `transaction.atomic()` — without it, a `reconcile_run()` exception left the
+`CampaignRun` row it had just written committed while the line was counted under
+`run_skipped`.
+
+### NF-10: the dry-run create path hid the one failure mode `night_bounds()` raises
 
 **Files modified:** `solsys_code/allocation_projector.py`, `solsys_code/tests/test_allocation_projector.py`
-**Commit:** `c97b399`
-**Applied fix:** Skip `_mint_fields()` entirely on the create path when `dry_run` is set, since `preview_calendar_event_action(None, fields)` always returns `'created'` without reading `fields`. Added a regression test proving a dry-run reconcile over a multi-night, all-new-night window never calls `sun_event()`.
+**Commit:** `80cefed`
+**Applied fix:** `_mint_fields()` is the only caller of `night_bounds()`, where CR-06's
+inversion guard lives; the dry-run create path skipped `_mint_fields()` entirely (WR-03)
+to avoid a wasted `sun_event()` call, but that also hid the one failure mode an
+operator-set (not site-derived) `night_start_utc`/`night_end_utc` pair can raise. Extracted
+`night_bounds()`'s inversion check into a shared `_raise_if_inverted()` helper so both the
+real create path and the dry-run preview call the exact same guard over the exact same two
+datetimes. When both sub-night fields are set, the dry-run path now resolves them via the
+same `zoneinfo`-only span `night_bounds()` itself uses (no `sun_event()` call) and raises
+identically; a null field's boundary depends on the sun event and stays unchecked,
+matching `_span_needs_remint()`'s own null-field convention. Added
+`test_dry_run_of_a_brand_new_inverted_window_also_raises`, reproducing the sibling Sydney
+fixture on a brand-new night and asserting the dry run and the real run raise the
+identical error.
 
-### WR-04: `reconcile_campaign_runs --dry-run` reports deletions in the past tense
+### NF-13 (cross-reference): the WR-11 runbook edit's broken sentence
 
-**Files modified:** `solsys_code/management/commands/reconcile_campaign_runs.py`, `solsys_code/tests/test_reconcile_campaign_runs.py`
-**Commit:** `c8098a3`
-**Applied fix:** Routed the verb for all three new per-run messages (`retired`/`rekeyed`/`legacy_deleted`) through the existing `dry_run` flag, matching the summary line's own `would_*` vocabulary. Added 3 wording-specific regression tests (one per message).
-
-### WR-05: The "retired" per-run message conflates three unrelated causes
-
-**Files modified:** `solsys_code/management/commands/reconcile_campaign_runs.py`, `solsys_code/tests/test_reconcile_campaign_runs.py`
-**Commit:** `f46d6b1`
-**Applied fix:** Dropped the causal clause ("now covered by a real observation") in favor of a neutral message naming all three causes `ReconcileResult.retired` is actually incremented from (observation handoff, sub-night re-mint, window-shrink convergence) — the simpler of the review's two suggested fixes, since splitting the counter into three fields would have been a larger `ReconcileResult`/`ReconcileCampaignRuns` shape change touching several other call sites.
-
-### WR-06: `cutover_classical_allocations` has no transaction boundary and commits before raising
-
-**Files modified:** `solsys_code/management/commands/cutover_classical_allocations.py`, `solsys_code/tests/test_cutover_classical_allocations.py`
-**Commit:** `16f7077`
-**Applied fix:** Wrapped each group's run write plus its full per-event re-key loop in `transaction.atomic()`. Each per-event re-key additionally gets its own **nested** savepoint, so a per-event exception (still caught and reported individually, preserving D-18's existing "an event it cannot explain is left byte-identical and reported" contract) does not poison the group's outer transaction on backends that require a rollback after any failed statement inside an atomic block (PostgreSQL) — a correctness concern the review's own illustrative fix snippet did not address, since SQLite's autocommit-per-statement behavior masks it during dev testing. Added regression tests for both group-level rollback (an unexpected failure during run creation leaves nothing from the group persisted) and per-event isolation (one event's exception leaves the run and every other event in the group converted).
-
-### WR-08: The cutover never checks the derived night lies inside the run's own window
-
-**Files modified:** `solsys_code/management/commands/cutover_classical_allocations.py`, `solsys_code/tests/test_cutover_classical_allocations.py`
-**Commit:** `75d6e89`
-**Applied fix:** Added a `run.window_start <= night <= run.window_end` check before re-keying each event, raising (and reporting via the existing per-event `_OTHER` catch) when the event's independently-derived night falls outside the run's own window, rather than re-keying it to a url the very next sweep would classify as stale and delete. Added a regression test with an out-of-window event sharing a group with three in-window events.
-
-### WR-09: A `KeyError` from `_CLASSICAL_RUN_STATUS` escapes the cutover's per-group handler
-
-**Files modified:** `solsys_code/management/commands/load_telescope_runs.py`, `solsys_code/management/commands/cutover_classical_allocations.py`, `solsys_code/tests/test_load_telescope_runs.py`, `solsys_code/tests/test_cutover_classical_allocations.py`
-**Commit:** `b467a34`
-**Applied fix:** Added a structural `assert set(_CLASSICAL_RUN_STATUS) == KNOWN_STATUSES` at import time in `load_telescope_runs.py` (protects both call sites, since `cutover_classical_allocations.py` imports the same dict object), added `KeyError` to `load_telescope_runs.py`'s existing per-line `except` tuple as defense-in-depth, and wrapped the lookup in `cutover_classical_allocations.py` in its own per-group `try`/`except KeyError` that reports a named reason and continues. Added regression tests for both commands using `patch.dict`/`clear=True` to simulate the invariant breaking.
-
-### WR-10: A legacy `RUN:{pk}:{date}` event with no companion row is never cleaned up
-
-**Files modified:** `solsys_code/campaign_reconciler.py`, `solsys_code/tests/test_campaign_reconciler.py`
-**Commit:** `2d7c297`
-**Applied fix:** `_stale_dated_events()` now unions the "clearable via `_clearable_and_declined()`" set with "no companion row at all" (`stale_dated.filter(telescope_label_meta__isnull=True)`), since a meta-less event has no attribution to preserve — it is exactly D-16's stated "third outcome" that shouldn't exist. Added a regression test with a hand-created legacy event carrying no `CalendarEventMeta` row.
+**File:** `docs/runbooks/telescope_runs_calendar.rst`
+**Commit:** `aabaea7` (fixed as part of NF-14's runbook edit, since both findings touch the
+same paragraph)
+**Applied fix:** "…whose events agree on their campaign, and whose events are not already
+attributed to a different run, are not already claimed on a colliding night." → "…whose
+events agree on their campaign, whose events are not already attributed to a different
+run, and whose derived observing nights are not already claimed." — exactly the review's
+suggested correction.
 
 ## Skipped Issues
 
-### WR-07: The cutover creates an empty `CampaignRun` for a group whose events are all foreign-attributed
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:252-286`
-**Reason:** Per the task's binding instructions, this finding requires a design decision the review did not resolve, so it was skipped rather than guessed at.
-
-The review's suggested fix (`if not writable_events: continue`) looks simple on its face, but it silently changes behavior for the case where a `CampaignRun` **already exists** for this group's `source_identifier` key from a prior invocation, and every one of the group's events has since become foreign-attributed (e.g. a staff member manually re-attributed them via the attribution queue after a previous cutover run). `insert_or_create_campaign_run()` is a find-or-update helper: skipping the run write entirely would also skip re-syncing that EXISTING run's field values (window, telescope/instrument, status, etc.) on a re-run, contradicting the command's own "safe to re-run" and idempotent-update semantics for a run row that legitimately still needs its fields refreshed from the schedule line, even though none of its per-night events are writable anymore. The review's fix text does not distinguish "skip creating a brand-new empty run" from "skip updating a pre-existing run's fields" — those are two different policies, and choosing between them (or finding a third option, e.g. still upserting run fields but never creating a NEW run when `writable_events` is empty) is a product decision about idempotent-update behavior, not a mechanical fix.
-
-### WR-11: Two legacy events for one night collide onto a single `ALLOC:` key, and `CalendarEvent.url` is not unique
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:290-303`, `solsys_code/allocation_projector.py:451`
-**Reason:** Per the task's binding instructions (explicitly named alongside WR-07), this finding's key-collision semantics require a design decision, so it was skipped rather than guessed at.
-
-The review's own fix suggestion detects the *first* collision within one cutover run's per-group loop (`claimed_nights` set), but the deeper problem it names — `CalendarEvent.url` has no unique constraint, so `.filter(url=...).first()` throughout the reconciler and projector is inherently unable to detect a PRE-EXISTING duplicate written by an earlier cutover run, a hand-edit, or any other writer — is explicitly called out by the review itself as "a `tom_calendar` change and out of this phase's scope, but worth recording." Implementing only the in-run detection without addressing the underlying non-unique `url` field would give a false sense of safety (this run's own duplicates are caught, but a duplicate already sitting in the database from before this fix, or written by a different code path entirely, is not), and deciding the right remedy (a `UniqueConstraint` migration on a third-party app's model, a defensive `.filter(url=...).order_by('pk').first()` convention everywhere, or something else) is a design decision spanning a different app's model, not a self-contained fix to this command.
+None — all 12 in-scope findings were fixed.
 
 ## Verification
 
-All 15 fixes were verified in the isolated `gsd-reviewfix/35-4080497` worktree:
+All fixes were verified in the isolated `gsd-reviewfix/35-606165` worktree
+(`/home/tlister/git/fomo_devel/.claude/worktrees/rf-35-606165-1789363316`):
 
-- **Tier 1 (always):** every modified file was re-read after editing to confirm the fix text was present and surrounding code intact.
-- **Tier 2 (preferred):** `python -c "import ast; ast.parse(...)"` syntax-checked every modified `.py` file before each commit; `pre-commit run ruff --files ...` and `pre-commit run ruff-format --files ...` were run (and passed clean) on every commit's changed files.
-- **Test verification:** after each fix, the directly-relevant Django test module(s) were run and confirmed green before committing (per-finding test runs are recorded in each commit message). After all 15 commits, a full cross-module regression pass (13 test modules, 487 tests) ran clean with 0 failures/errors. `pre-commit`'s own bundled test-suite gate (which runs the project's full `manage.py test` invocation, excluding the known-segfaulting `test_views.TestEphemeris`) also passed on every commit.
-- **Environment note:** all test runs and gate checks above ran inside the isolated worktree (`.claude/worktrees/rf-35-...`), not the main checkout — the worktree shares the repository's installed environment (editable install, dependencies) but is a separate git working tree on its own temporary branch, fast-forwarded onto `issue37-telescope-runs-calendar` at cleanup.
+- **Tier 1 (always):** every modified file was re-read after editing to confirm the fix
+  text was present and surrounding code intact.
+- **Tier 2 (preferred):** `python -c "import ast; ast.parse(...)"` syntax-checked every
+  modified `.py` file before each commit; `pre-commit run ruff --files ...` was run (and
+  passed clean) on every commit's changed files, and `pre-commit run ruff-format
+  --all-files` / `pre-commit run ruff --all-files` both passed clean across the whole tree
+  at the end.
+- **Test verification:** after each fix, the directly-relevant Django test module(s) were
+  run and confirmed green before committing. After all 9 commits (covering all 12
+  findings), a full regression pass ran clean:
+  - `python manage.py test solsys_code.tests.test_allocation_projector
+    solsys_code.tests.test_campaign_reconciler solsys_code.tests.test_cutover_classical_allocations`
+    — **150 tests, all passing** (up from the review's own 147, +3 new regression tests
+    from this fix pass net of the removed NF-11 vacuous assertion).
+  - The full project test-gate label set (every `solsys_code`/`solsys_code_observatory`
+    test module except the known-segfaulting `test_views.TestEphemeris`) — **all passing**
+    (exit code 0), matching `.planning/config.json`'s configured `test_command`.
+  - `pre-commit`'s own bundled test-suite gate (which runs the project's full `manage.py
+    test` invocation) also passed on every one of the 9 commits.
+- **Notebook re-execution:** `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb`
+  was regenerated via a real `jupyter nbconvert --to notebook --execute --inplace` run
+  (against a scratch copy of the developer database, matching the notebook's own
+  documented isolation contract) after inserting NF-14's new demonstration cell — no cell
+  raised, and the notebook's own pre-existing end-state assertions (cells asserting zero
+  date-bearing `RUN:` nights, byte-identical facility events, etc.) still pass unchanged,
+  confirming the new cell's self-cleanup left no residue.
+- **Environment note:** all test runs, gate checks, and the notebook re-execution above ran
+  inside the isolated worktree (`.claude/worktrees/rf-35-606165-1789363316`), not the main
+  checkout — the worktree shares the repository's installed environment (editable install,
+  dependencies, `~/.cache/sorcha/` SPICE kernels) but is a separate git working tree on its
+  own temporary branch, fast-forwarded onto `issue37-telescope-runs-calendar` at cleanup.
+  Two generated, gitignored artifacts (`src/fomo/_version.py`, `src/fomo_db.sqlite3`) had
+  to be copied from the main checkout into the worktree to make the test suite and the
+  paired notebook runnable there; neither is tracked by git, and both remain
+  worktree-local (removed along with the worktree at cleanup).
 
-No paired-docs update was required: CR-02's fix reuses the existing `legacy_deleted` counter specifically so the runbook's already-shipped prose (`docs/runbooks/telescope_runs_calendar.rst`, the "Relabelling a per-night run's source" section) becomes literally true rather than needing new wording — the runbook was checked and contains no other references to any of the fixed behaviors that would now be stale. No notebook re-execution is required: none of these fixes change `campaign_reconciler.py`'s or `cutover_classical_allocations.py`'s *documented, demonstrated* behavior in `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` in a way that would make an existing cell's output inaccurate (the notebook does not exercise the specific bug scenarios CR-01 through WR-10 reproduce — re-classification-while-per-night-dispatched, cross-run foreign attribution, the Sydney sub-night-window bug, admin bulk delete, or cutover transaction/window-mismatch edge cases).
+No paired-docs update was skipped: NF-14 (and NF-13, in the same paragraph) required and
+received a runbook correction and a real, executed notebook demonstration cell — see the
+NF-14 entry above. No other fix in this pass changed `campaign_reconciler.py`'s,
+`allocation_projector.py`'s, `cutover_classical_allocations.py`'s, or
+`observation_projector.py`'s *documented, demonstrated* behavior in a way that would make
+an existing runbook sentence or notebook cell's output inaccurate (checked directly against
+each affected section of `docs/runbooks/telescope_runs_calendar.rst` and against the
+notebook's recorded output for the developer-database fixture, which does not exercise the
+NF-15/NF-16/NF-04/NF-08/NF-10 scenarios).
 
 ## Human Verification Recommended
 
-- **CR-06** (marked above): the site-UTC-offset-direction rule is a genuine astronomy/timezone logic change. It was verified against the review's own reproduced numbers and a dedicated regression test class, but only two real sites exist in the fixture set (Chile, west of UTC; Sydney, east of UTC) — a human should confirm the rule generalizes correctly if a third site with an unusual offset (e.g. very close to UTC, or a half-hour offset) is ever added to `telescope_runs.SITES`.
-- **WR-06**: the nested-savepoint transaction design was reasoned through for PostgreSQL correctness (the project's stated production target per CLAUDE.md) but only tested against the project's SQLite dev/test database, which does not exhibit the "poisoned transaction" failure mode the nesting exists to prevent — a human should confirm on a PostgreSQL-backed staging environment before this command is next run in production, if that has not already happened via the phase's own verification loop.
+None of these 12 fixes are classified by REVIEW.md as a logic-error-class finding in the
+sense that would warrant `"fixed: requires human verification"` over plain `"fixed"` — each
+is either a counter/categorization routing fix, a docstring correction, a missing guard
+(with an exhaustive collision check mirroring an existing sibling pattern), or a signal
+re-ordering whose correctness is pinned by a new, real regression test asserting the exact
+scenario the review reproduced. That said, two are worth a human's attention given their
+reach:
+
+- **NF-14**: the identity-key collision guard changes production behavior for a one-time
+  migration command (`cutover_classical_allocations`) that has likely already been run
+  once against the real developer database (per the paired notebook's "worked example").
+  A human should confirm no PRODUCTION database currently has two classical schedule lines
+  sharing an identity key before the corrected command is next run there — the fix's own
+  behavior (reporting `duplicate_identity` rather than silently merging) is safe either
+  way (nothing is deleted or merged), but an operator seeing a NEW `duplicate_identity`
+  count on a re-run that previously reported success should not be alarmed: it means this
+  fix newly detects a pre-existing collision the unfixed command silently merged before.
+- **NF-04**: the signal-ordering change in `observation_projector.py` is exercised by a
+  new regression test reproducing the exact review-cited scenario, but signal-ordering
+  changes are inherently sensitive to call-order assumptions elsewhere in the codebase; a
+  human should confirm no other code path depends on the D-11 linked-run step running
+  BEFORE base projection (none was found in this review).
 
 ---
 
-_Fixed: 2026-09-13T19:54:37Z_
+_Fixed: 2026-09-14T06:22:00Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
