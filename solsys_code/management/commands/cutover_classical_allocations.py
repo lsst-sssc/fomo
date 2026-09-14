@@ -33,11 +33,16 @@ The reasons an event or its group can be left unexplained are: no ``Source line:
 at all in the description; a ``Source line:`` that does not parse or whose telescope does
 not resolve to a known site; a resolved site with no ``timezone`` set; a group whose
 member events disagree on their campaign (``target_list``); an event already attributed to
-a DIFFERENT run; and any other exception, recorded with its own type name. Every reason is
-printed with the event's primary key and title so an operator can find and correct the row
-in the admin. When EVERY event in a group is attributed elsewhere, no ``CampaignRun`` is
-created or updated for that group at all (WR-07, 35-REVIEW.md) -- the command writes
-nothing for a group it can convert nothing in.
+a DIFFERENT run; a second event claiming a night this run has already claimed, or a night
+whose ``ALLOC:`` url another ``CalendarEvent`` already holds -- which is what an import of
+the same schedule file running before the cutover leaves behind (WR-11, 35-REVIEW.md; only
+the first claimant of a night is re-keyed, the rest are reported untouched, because
+``CalendarEvent.url`` carries no unique constraint for the database to enforce it); and any
+other exception, recorded with its own type name. Every reason is printed with the event's
+primary key and title so an operator can find and correct the row in the admin. When EVERY
+event in a group is attributed elsewhere, no ``CampaignRun`` is created or updated for that
+group at all (WR-07, 35-REVIEW.md) -- the command writes nothing for a group it can convert
+nothing in.
 
 Because nothing is ever removed, a non-zero exit here is purely operator-facing: it tells
 a human which rows to look at and re-run once they are fixed. Nothing in this repository
@@ -62,6 +67,7 @@ operator most needs to see before running for real.
 
 import logging
 from collections import defaultdict
+from datetime import date
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -103,6 +109,12 @@ _UNPARSEABLE_SOURCE_LINE = 'unparseable_source_line'
 _UNRESOLVABLE_SITE = 'unresolvable_site'
 _CAMPAIGN_MISMATCH = 'campaign_mismatch'
 _FOREIGN_ATTRIBUTION = 'foreign_attribution'
+# WR-11 (35-REVIEW.md): a dedicated category, not folded into _OTHER. The module's whole
+# contract is that every printed reason tells the operator what to DO -- and a collision
+# calls for a different action (find and delete or re-attribute the duplicate row) than a
+# generic unexpected error, so it needs its own name in both the summary breakdown and the
+# CommandError message for an operator to recognise and act on.
+_KEY_COLLISION = 'key_collision'
 _OTHER = 'other'
 
 _REASON_LABELS = {
@@ -111,8 +123,20 @@ _REASON_LABELS = {
     _UNRESOLVABLE_SITE: 'resolved site has no Observatory record or no timezone set',
     _CAMPAIGN_MISMATCH: "group's events disagree on their campaign",
     _FOREIGN_ATTRIBUTION: 'already attributed to a different CampaignRun',
+    _KEY_COLLISION: 'derived ALLOC: night is already claimed by another event',
     _OTHER: 'unexpected error',
 }
+
+
+class _KeyCollisionError(Exception):
+    """Raised inside the per-event savepoint (real path) or the read-only preview loop
+    (dry-run path) when a derived observing night is already claimed -- either by another
+    event in this same cutover run, or by a CalendarEvent row that already holds the
+    derived ALLOC:{run_pk}:{night} url. Raising (rather than branching) lets this check
+    live inside the same savepoint boundary that guarantees the losing event stays
+    byte-identical (D-18), and a dedicated `except _KeyCollisionError` clause ahead of the
+    broad `except Exception` below routes it to the _KEY_COLLISION reason instead of
+    _OTHER."""
 
 
 def _extract_source_line(description: str) -> str | None:
@@ -316,15 +340,48 @@ class Command(BaseCommand):
                     else:
                         runs_unchanged += 1
 
+                    # WR-11 (35-REVIEW.md): site_zone is needed by both paths now, so it is
+                    # computed once here rather than inside the (former) real-only branch.
+                    # claimed_nights is per-GROUP (never shared across groups -- two
+                    # different runs legitimately own nights of the same date, since the
+                    # url is keyed by run primary key too), created fresh for every group
+                    # and populated only after a night's own write (or preview) succeeds.
+                    site_zone = ZoneInfo(site.timezone)
+                    claimed_nights: set[date] = set()
+
                     if dry_run:
-                        # Every candidate event is blank-url by construction (the query
-                        # above), so its url always changes once its own group resolves --
-                        # there is no "would be unchanged" outcome to preview at the event
-                        # level; a real run's events_rekeyed count is exactly this same
-                        # len(writable_events) total.
-                        events_rekeyed += len(writable_events)
+                        # Read-only preview: apply the identical two collision checks the
+                        # real path applies, but write nothing. Every candidate event is
+                        # blank-url by construction (the query above), so an event that
+                        # claims its night cleanly always would re-key once its group
+                        # resolves -- there is no "would be unchanged" outcome to preview
+                        # at the event level.
+                        for event in writable_events:
+                            try:
+                                night = observing_night(event.start_time, site_zone)
+                                if night in claimed_nights:
+                                    raise _KeyCollisionError(f'a second event already claims night {night}')
+                                # run is None whenever this group's CampaignRun does not
+                                # exist yet: a run with no primary key can hold no ALLOC:
+                                # url in the table, so there is nothing to probe.
+                                if run is not None:
+                                    candidate_url = allocation_night_url(run, night)
+                                    holder = (
+                                        CalendarEvent.objects.filter(url=candidate_url).exclude(pk=event.pk).first()
+                                    )
+                                    if holder is not None:
+                                        raise _KeyCollisionError(
+                                            f'night {night} url is already held by CalendarEvent pk={holder.pk}'
+                                        )
+                            except _KeyCollisionError as exc:
+                                _mark_unexplained([event], _KEY_COLLISION, str(exc))
+                                continue
+                            except Exception as exc:  # noqa: BLE001 -- D-18's catch-all, per event
+                                _mark_unexplained([event], _OTHER, f'{type(exc).__name__}: {exc}')
+                                continue
+                            claimed_nights.add(night)
+                            events_rekeyed += 1
                     else:
-                        site_zone = ZoneInfo(site.timezone)
                         for event in writable_events:
                             try:
                                 with transaction.atomic():  # per-event savepoint
@@ -347,7 +404,20 @@ class Command(BaseCommand):
                                             f"derived night {night} falls outside the run's window "
                                             f'{run.window_start}..{run.window_end}'
                                         )
+                                    # WR-11 (35-REVIEW.md): the check runs BEFORE
+                                    # update_calendar_event_key_and_fields()/
+                                    # adopt_event_into_run() inside this same per-event
+                                    # savepoint -- that ordering is what keeps the losing
+                                    # event byte-identical, exactly as the WR-08 window
+                                    # check above.
+                                    if night in claimed_nights:
+                                        raise _KeyCollisionError(f'a second event already claims night {night}')
                                     url = allocation_night_url(run, night)
+                                    holder = CalendarEvent.objects.filter(url=url).exclude(pk=event.pk).first()
+                                    if holder is not None:
+                                        raise _KeyCollisionError(
+                                            f'night {night} url is already held by CalendarEvent pk={holder.pk}'
+                                        )
                                     dark_line = preserved_dark_window_line(event)
                                     rekey_fields = {
                                         'title': allocation_night_title(run),
@@ -358,7 +428,14 @@ class Command(BaseCommand):
                                         event, url, rekey_fields
                                     )
                                     adopt_event_into_run(rekeyed_event, run)
+                                # A night is claimed only AFTER the savepoint's `with` block
+                                # exits successfully: an event whose re-key failed for some
+                                # OTHER reason wrote no url, so a later event must still be
+                                # free to claim that night.
+                                claimed_nights.add(night)
                                 events_rekeyed += 1
+                            except _KeyCollisionError as exc:
+                                _mark_unexplained([event], _KEY_COLLISION, str(exc))
                             except Exception as exc:  # noqa: BLE001 -- D-18's catch-all, per event
                                 _mark_unexplained([event], _OTHER, f'{type(exc).__name__}: {exc}')
             except Exception as exc:  # noqa: BLE001 -- D-18's catch-all for a genuinely

@@ -702,3 +702,106 @@ class TestUnknownClassicalStatusGuard(CutoverClassicalAllocationsTestBase):
         for pk in pks:
             event = CalendarEvent.objects.get(pk=pk)
             self.assertEqual(event.url, '')  # left byte-identical, never partially converted
+
+
+class TestKeyCollisionDetection(CutoverClassicalAllocationsTestBase):
+    """WR-11 (35-REVIEW.md): a second event whose derived night is already claimed --
+    either within this run (two schedule lines colliding on the same night) or by a row
+    another CalendarEvent already holds (an import of the same schedule file that ran
+    before the cutover) -- is reported under its own named reason category and left
+    byte-identical, never re-keyed onto a url another row already holds."""
+
+    def _first_night_span(self) -> tuple[date, datetime, datetime]:
+        night = _THREE_NIGHTS[0]
+        start_time = datetime(night.year, night.month, night.day, 23, 0, tzinfo=dt_timezone.utc)
+        end_time = datetime(night.year, night.month, night.day + 1, 9, 0, tzinfo=dt_timezone.utc)
+        return night, start_time, end_time
+
+    def test_in_run_collision_rekeys_the_first_claimant_reports_the_second(self):
+        _night, start_time, end_time = self._first_night_span()
+        first = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE, start_time=start_time, end_time=end_time, target_list=self.campaign
+        )
+        second = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE, start_time=start_time, end_time=end_time, target_list=self.campaign
+        )
+
+        out = StringIO()
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out, stderr=err)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertNotEqual(first.url, '')  # first claimant converted
+        self.assertEqual(second.url, '')  # second claimant left byte-identical
+        self.assertFalse(CalendarEventMeta.objects.filter(event=second).exists())
+
+        self.assertIn(f'pk={second.pk}', err.getvalue())
+
+        stdout_value = out.getvalue()
+        self.assertIn('unexplained (key_collision): 1', stdout_value)
+
+        alloc_urls = list(CalendarEvent.objects.filter(url__startswith='ALLOC:').values_list('url', flat=True))
+        self.assertEqual(len(alloc_urls), len(set(alloc_urls)))  # no repeated ALLOC: url anywhere
+
+    def test_existing_url_collision_reports_legacy_event_leaves_pre_existing_row_untouched(self):
+        night, start_time, end_time = self._first_night_span()
+        parsed = parse_run_line(_THREE_NIGHT_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        run = CampaignRun.objects.create(
+            source_identifier=key,
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            campaign=self.campaign,
+            site=self.ntt,
+            site_raw='NTT',
+            window_start=_THREE_NIGHTS[0],
+            window_end=_THREE_NIGHTS[-1],
+        )
+        alloc_url = allocation_night_url(run, night)
+        pre_existing_event = CalendarEvent.objects.create(
+            title='Pre-existing ALLOC event (import ran first)',
+            url=alloc_url,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        legacy_event = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE, start_time=start_time, end_time=end_time, target_list=self.campaign
+        )
+
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=StringIO(), stderr=err)
+
+        legacy_event.refresh_from_db()
+        self.assertEqual(legacy_event.url, '')  # left byte-identical, never re-keyed onto the taken url
+        self.assertIn(f'pk={legacy_event.pk}', err.getvalue())
+
+        self.assertEqual(CalendarEvent.objects.filter(url=alloc_url).count(), 1)
+        pre_existing_event.refresh_from_db()
+        self.assertEqual(pre_existing_event.url, alloc_url)  # untouched
+
+    def test_dry_run_predicts_in_run_collision_without_writing(self):
+        _night, start_time, end_time = self._first_night_span()
+        first = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE, start_time=start_time, end_time=end_time, target_list=self.campaign
+        )
+        second = self._make_legacy_event(
+            source_line=_THREE_NIGHT_LINE, start_time=start_time, end_time=end_time, target_list=self.campaign
+        )
+
+        out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', '--dry-run', stdout=out, stderr=StringIO())
+
+        self.assertEqual(CampaignRun.objects.count(), 0)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.url, '')
+        self.assertEqual(second.url, '')
+
+        stdout_value = out.getvalue()
+        self.assertIn('unexplained (key_collision): 1', stdout_value)
+        self.assertIn('events re-keyed: 1', stdout_value)  # same count the real run then performs
