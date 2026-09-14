@@ -870,7 +870,16 @@ legacy event's own description already carries.
 This is a one-time migration step, run alongside
 ``repair_stale_campaign_run_sites`` above (the other one-time, safe-to-repeat
 command in this codebase) as part of the cutover to the allocation
-projector. It runs in four steps, in order:
+projector.
+
+**Run this command BEFORE the first rewritten ``load_telescope_runs``
+import of the same schedule file.** An import that runs first creates the
+``CampaignRun`` and its ``ALLOC:`` nights itself, so the cutover will then
+find those urls already held and refuse to re-key onto them -- reporting
+the stranded legacy events as ``key_collision`` instead of converting them.
+Running the cutover first avoids that entirely.
+
+It runs in four steps, in order:
 
 .. code-block:: console
 
@@ -901,17 +910,28 @@ re-parses each group, and creates or updates the ``CampaignRun`` that
 group would have produced under a fresh import. What it converts: every
 group whose schedule line parses, whose telescope resolves to a known
 ``Observatory`` with a timezone set, whose events agree on their campaign,
-and whose events are not already attributed to a different run. What it
-deliberately leaves alone: **an event or group it cannot explain is left
-completely untouched and reported** with its primary key, title and
-reason -- no parseable ``Source line:`` marker; a ``Source line:`` that
-does not parse or names an unknown telescope; a resolved site with no
-timezone; a group whose events disagree on their campaign; an event
-already attributed to a different run; or any other unexpected error. A
-group **all** of whose events are attributed elsewhere has no run created
-or updated for it at all, so a summary line reading ``runs created: 0``
-next to a ``foreign_attribution`` count is the designed outcome, not a
-silent failure.
+and whose events are not already attributed to a different run, are not
+already claimed on a colliding night. What it deliberately leaves alone:
+**an event or group it cannot explain is left completely untouched and
+reported** with its primary key, title and reason -- no parseable
+``Source line:`` marker; a ``Source line:`` that does not parse or names
+an unknown telescope; a resolved site with no timezone; a group whose
+events disagree on their campaign; an event already attributed to a
+different run; **``key_collision``** -- a second event whose derived
+observing night is already claimed, either by another event in this same
+run (a duplicate row from a pre-cutover re-ingest, or two schedule lines
+differing only in fields the identity key ignores) or by a
+``CalendarEvent`` row that already holds the derived
+``ALLOC:{run_pk}:{night}`` url (the import-ran-first case above); or any
+other unexpected error. For a ``key_collision``, the first event to claim
+a night is still converted -- only the extra claimants are reported. The
+operator action: find the duplicate row in the Django admin (the printed
+reason names the colliding pk when the url is already held elsewhere) and
+delete it or re-attribute it, then re-run the command. A group **all** of
+whose events are attributed elsewhere has no run created or updated for it
+at all, so a summary line reading ``runs created: 0`` next to a
+``foreign_attribution`` count is the designed outcome, not a silent
+failure.
 
 **A non-zero exit is expected, not a bug, whenever an unexplained event
 remains.** The command raises a self-contained error naming the count and
@@ -1378,15 +1398,23 @@ event it could not convert::
 marker at all, or the marker's text does not parse (an unknown telescope,
 a malformed schedule line), or the resolved site has no timezone set, or
 the group's own events disagree on their campaign, or the event is
-already attributed to a different ``CampaignRun``. See "How do I run the
-one-time classical cutover?" above for the full reason vocabulary.
+already attributed to a different ``CampaignRun``, or the reason is
+``key_collision`` -- the event's derived observing night is already
+claimed, either by another event in this same run or by a
+``CalendarEvent`` row that already holds the derived
+``ALLOC:{run_pk}:{night}`` url (typically because a rewritten
+``load_telescope_runs`` import of the same schedule file already ran).
+See "How do I run the one-time classical cutover?" above for the full
+reason vocabulary.
 
 **Fix:** resolve the listed event in the Django admin -- correct the
 description's ``Source line:``, fix the telescope name, set the
-``Observatory``'s timezone, or clear the conflicting attribution, as the
-printed reason names -- then re-run the command. It is safe to re-run:
-already-converted events drop out of the candidate set, so only the
-still-unexplained rows are reported again.
+``Observatory``'s timezone, clear the conflicting attribution, or -- for a
+``key_collision`` -- find and delete or re-attribute the duplicate row (the
+printed reason names the colliding pk when the url is already held
+elsewhere), as the printed reason names -- then re-run the command. It is
+safe to re-run: already-converted events drop out of the candidate set, so
+only the still-unexplained rows are reported again.
 
 ``import_campaign_csv`` unresolved rows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
