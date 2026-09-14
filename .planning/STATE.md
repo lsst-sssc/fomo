@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: verifying
 stopped_at: Completed 35-07-PLAN.md
-last_updated: "2026-09-14T00:03:54.812Z"
-last_activity: 2026-09-12
+last_updated: "2026-09-14T00:19:03.893Z"
+last_activity: 2026-09-13
 last_activity_desc: Phase 35 execution started
-state_head: bb20c2ecfc39aab2bced6ea0850b18d2b1dfbae8
+state_head: 338625d2481cc7aa53f0eb83cb006c37bb9f5129
 progress:
   total_phases: 5
   completed_phases: 1
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
 Plan: 7 of 7
 Status: Phase complete — ready for verification
-Last activity: 2026-09-13 - Completed quick task 260913-ng8: Fix 35-REVIEW.md WR-07 (cutover all-foreign-attributed group guard)
+Last activity: 2026-09-13 - Completed quick task 260913-npq: Fix 35-REVIEW.md WR-11 (cutover ALLOC: key-collision detection)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -343,6 +343,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260903-kpy | Collect every Target touched by a backfill_lco_observations sweep into a <proposal>_targets TargetList (create-or-reuse, idempotent, dry-run aware, --target-list override) | 2026-09-03 | 1082550 | complete | [260903-kpy-collect-every-target-touched-by-a-backfi](./quick/260903-kpy-collect-every-target-touched-by-a-backfi/) |
 | 260911-9rd | Close Phase 34 review finding CR-01 by analysis: record the LCO/SOAR shared request-ID rationale in 34-REVIEW-FIX.md and add an event_url() regression test | 2026-09-11 | 0a87174 | complete | [260911-9rd-close-phase-34-review-finding-cr-01-by-a](./quick/260911-9rd-close-phase-34-review-finding-cr-01-by-a/) |
 | 260913-ng8 | Fix 35-REVIEW.md WR-07: skip the CampaignRun write in cutover_classical_allocations for an all-foreign-attributed group | 2026-09-13 | bb20c2e | complete | [260913-ng8-fix-35-review-md-wr-07-skip-the-campaign](./quick/260913-ng8-fix-35-review-md-wr-07-skip-the-campaign/) |
+| 260913-npq | Fix 35-REVIEW.md WR-11: cutover_classical_allocations detects ALLOC: key collisions (in-run and existing-url) and reports them as key_collision; runbook pins cutover-before-import ordering | 2026-09-13 | 338625d | complete | [260913-npq-fix-35-review-md-wr-11-make-cutover-clas](./quick/260913-npq-fix-35-review-md-wr-11-make-cutover-clas/) |
 
 ## Deferred Items
 
