@@ -401,6 +401,15 @@ class Command(BaseCommand):
             if not writable_events:
                 continue
 
+            # NF-05 (35-REVIEW.md): these four counters are LOCAL to this group and folded
+            # into the outer totals only after the `with transaction.atomic()` block below
+            # exits successfully. Before this fix they were the outer totals themselves,
+            # incremented from inside the savepoint the very next comment describes -- so a
+            # group-level rollback rolled back every write the savepoint made but left the
+            # counters at their post-write values, and the operator-facing summary for a
+            # one-time production migration reported work that had just been undone.
+            group_created = group_updated = group_unchanged = group_rekeyed = 0
+
             # WR-06 (35-REVIEW.md): wrap this GROUP's writes (the run write plus every
             # event's re-key) in one savepoint, so an interruption (Ctrl-C, a connection
             # drop, an IntegrityError from a path not covered by the per-event `except`
@@ -420,11 +429,11 @@ class Command(BaseCommand):
                         run, action = insert_or_create_campaign_run({'source_identifier': key}, fields)
 
                     if action == 'created':
-                        runs_created += 1
+                        group_created += 1
                     elif action == 'updated':
-                        runs_updated += 1
+                        group_updated += 1
                     else:
-                        runs_unchanged += 1
+                        group_unchanged += 1
 
                     # WR-11 (35-REVIEW.md): site_zone is needed by both paths now, so it is
                     # computed once here rather than inside the (former) real-only branch.
@@ -465,7 +474,7 @@ class Command(BaseCommand):
                                 _mark_unexplained([event], _OTHER, f'{type(exc).__name__}: {exc}')
                                 continue
                             claimed_nights.add(night)
-                            events_rekeyed += 1
+                            group_rekeyed += 1
                     else:
                         for event in writable_events:
                             try:
@@ -498,17 +507,34 @@ class Command(BaseCommand):
                                 # OTHER reason wrote no url, so a later event must still be
                                 # free to claim that night.
                                 claimed_nights.add(night)
-                                events_rekeyed += 1
+                                group_rekeyed += 1
                             except _WindowMismatchError as exc:
                                 _mark_unexplained([event], _WINDOW_MISMATCH, str(exc))
                             except _KeyCollisionError as exc:
                                 _mark_unexplained([event], _KEY_COLLISION, str(exc))
                             except Exception as exc:  # noqa: BLE001 -- D-18's catch-all, per event
                                 _mark_unexplained([event], _OTHER, f'{type(exc).__name__}: {exc}')
+                # NF-05 (35-REVIEW.md): folded into the outer totals only now that the
+                # `with` block above has exited successfully -- a group-level exception
+                # below never reaches this line, so a rollback cannot leave these totals at
+                # their post-write values.
+                runs_created += group_created
+                runs_updated += group_updated
+                runs_unchanged += group_unchanged
+                events_rekeyed += group_rekeyed
             except Exception as exc:  # noqa: BLE001 -- D-18's catch-all for a genuinely
                 # unexpected, group-level failure -- the savepoint above has already rolled
-                # back this group's run write and every event re-key.
-                _mark_unexplained(events, _OTHER, f'{type(exc).__name__}: {exc}')
+                # back this group's run write and every event re-key. NF-05 (35-REVIEW.md):
+                # mark only the events NOT already marked by the per-event handling above
+                # (e.g. a foreign-attribution rejection before the savepoint even opened) --
+                # marking the whole group unconditionally reported (and counted) an
+                # already-explained event a second time, under a second, misleading reason.
+                already_marked = {marked_event.pk for marked_event, _category, _reason in unexplained}
+                _mark_unexplained(
+                    [event for event in events if event.pk not in already_marked],
+                    _OTHER,
+                    f'{type(exc).__name__}: {exc}',
+                )
                 continue
 
         for event, _category, reason in unexplained:
