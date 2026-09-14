@@ -266,15 +266,17 @@ class CampaignRun(models.Model):
     # permanent value for a web submission, a CSV import and every queue-sourced run; only a
     # classical schedule line that named a partial night ever sets them.
     #
-    # Which UTC calendar date a stored time-of-day belongs to depends on the site's own UTC
-    # offset direction (allocation_projector._site_runs_behind_utc(), CR-06, 35-REVIEW.md):
-    # for a site whose local clock runs BEHIND UTC (La Silla/Cerro Pachon, Chile), an hour
-    # before 12:00 UTC belongs to the NEXT morning for that observing night, 12:00 or later
-    # to the night's own evening date -- the rule the classical loader applied verbatim
-    # before this field existed. For a site whose local clock runs AHEAD of UTC (Siding
-    # Spring, Australia), the entire local night maps into a SINGLE UTC date -- the night's
-    # own -- so that 12:00 threshold does not apply at all. `night_bounds()` (the allocation
-    # projector) is the single place this per-site rule is now applied, per night.
+    # Which UTC calendar date a stored time-of-day belongs to depends on where the site's own
+    # observing night sits relative to UTC midnight, not the sign of its UTC offset
+    # (allocation_projector._night_span_utc(), NF-03, 35-REVIEW.md) -- three bands, not two:
+    # entirely inside its own UTC date for an offset above +6 (Siding Spring, Australia);
+    # straddling UTC midnight for an offset above -6 and at or below +6 (La Silla/Cerro
+    # Pachon, Chile; SAAO Sutherland; Hanle), where an evening-side time belongs to the
+    # night's own date and a morning-side time to the following date -- the rule the
+    # classical loader applied verbatim before this field existed, for the two sites it
+    # happened to cover; entirely inside the NEXT UTC date for an offset at or below -6
+    # (Maunakea/FTN). `night_bounds()` and `_night_span_utc()` (the allocation projector) are
+    # the single place this per-site rule is now applied, per night.
     #
     # The pair is deliberately NOT covered by a null-together constraint: a line may name a
     # start time and leave the end at the computed sunrise, or the reverse, and both forms

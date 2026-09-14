@@ -60,6 +60,16 @@ class AllocationProjectorTestBase(TestCase):
             timezone='Australia/Sydney',
             observations_type=Observatory.OPTICAL_OBSTYPE,
         )
+        cls.saao_site = Observatory.objects.create(
+            obscode='K92',
+            name='SAAO, Sutherland',
+            short_name='LSC-SAAO',
+            lat=-32.3808,
+            lon=20.8101,
+            altitude=1804,
+            timezone='Africa/Johannesburg',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
 
     def _make_run(self, **overrides) -> CampaignRun:
         """Create a CampaignRun; kwargs override the default (campaign-less, approved,
@@ -943,6 +953,28 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
             event.end_time,
             datetime(next_morning.year, next_morning.month, next_morning.day, 6, 26, 0, tzinfo=dt_timezone.utc),
         )
+
+    def test_saao_morning_side_end_resolves_to_the_following_utc_date(self):
+        """35-REVIEW.md NF-03: `Africa/Johannesburg` (+2) is band 2-east -- an offset above
+        -6 and at or below +6, so its night straddles UTC midnight exactly like Chile's, but
+        the superseded sign-of-offset rule treated every non-negative offset as band 1 and
+        raised `ValueError` on this exact fixture on every reconcile."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.saao_site,
+            site_raw='K92',
+            window_start=night,
+            window_end=night,
+            night_end_utc=time(3, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 3, 0, 0, tzinfo=dt_timezone.utc))
+        expected_sunset, _expected_sunrise = sun_event(self.saao_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
 
     def test_sydney_inverted_sub_night_fields_raise_instead_of_writing_an_inverted_event(self):
         """A guard, not just a corrected rule: an operator input (or a future site whose

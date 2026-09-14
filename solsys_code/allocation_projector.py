@@ -159,68 +159,92 @@ def preserved_dark_window_line(event: CalendarEvent) -> str | None:
     return None
 
 
-def _site_runs_behind_utc(run: CampaignRun, night) -> bool:
-    """Whether this run's site's local clock runs BEHIND UTC (west of Greenwich) around
-    ``night`` -- decides which UTC calendar date a stored sub-night time-of-day belongs to
-    (D-04, 35-REVIEW.md CR-06). A cheap ``zoneinfo`` offset lookup only, never an astropy
-    ``sun_event()`` call, so it stays safe to call from ``_span_needs_remint()``'s
-    astropy-free update path (D-13).
+def _night_span_utc(run: CampaignRun, night) -> tuple[datetime, datetime]:
+    """The site's own observing-night UTC span for ``night`` (D-04, 35-REVIEW.md NF-03): the
+    site's nominal local 18:00 through the local wall-clock instant twelve hours later, both
+    converted to UTC.
 
-    A hard-coded 12:00 UTC threshold (the pre-CR-06 rule) is correct only for a site whose
-    local clock runs behind UTC (La Silla/Cerro Pachon, Chile, UTC-3/-4): local evening maps
-    to a LATE UTC hour on the night's own date, and local morning maps to an EARLY UTC hour
-    on the FOLLOWING date, so the threshold correctly tells the two apart. For a site whose
-    local clock runs AHEAD of UTC (Siding Spring, Australia, UTC+10/+11), the entire local
-    night maps into a SINGLE UTC date -- the night's own -- so the fixed threshold produced
-    the exact inversion CR-06 reproduced: a stored morning-side time was pushed a full day
-    late.
+    Supersedes ``_site_runs_behind_utc()``'s sign-of-offset boolean (35-REVIEW.md NF-03): the
+    property a per-boundary date resolution needs is WHERE the site's observing night sits
+    relative to UTC midnight, not the SIGN of its UTC offset -- and there are three bands,
+    not two. A local night runs roughly local 18:00 -> local 06:00, i.e.
+    ``(18 - offset) -> (30 - offset)`` in UTC: entirely inside its own UTC date only when
+    ``offset > +6`` (Siding Spring, +10); straddling UTC midnight for
+    ``-6 < offset <= +6`` (La Silla -4, SAAO Sutherland +2, Hanle +5:30); entirely inside the
+    NEXT UTC date when ``offset <= -6`` (Maunakea/FTN, -10). The fixed 12:00 UTC threshold the
+    old rule used was correct only by coincidence for the two bands this project's fixture
+    sites happened to occupy.
+
+    This is a ``zoneinfo`` lookup only -- it must NEVER call ``sun_event()``. D-13 forbids any
+    astropy work on ``_span_needs_remint()``'s update path, and using the site's nominal local
+    18:00 rather than its true sunset is exactly what buys that. The twelve-hour offset is
+    added to the zone-carrying local datetime BEFORE converting to UTC, so a DST shift that
+    falls inside the night is applied by the conversion rather than assumed away.
 
     Args:
-        run: the ``CampaignRun`` being projected -- its ``site.timezone`` decides the
-            answer.
-        night: the site-local observing night (evening date); a stable anchor for the
-            offset lookup only, not itself part of the returned answer's arithmetic.
+        run: the ``CampaignRun`` being projected -- its ``site.timezone`` selects the zone.
+        night: the site-local observing night (evening date).
 
     Returns:
-        bool: True when the site's local clock runs behind UTC for this night.
+        tuple[datetime, datetime]: ``(span_start, span_end)``, both UTC-aware -- the site's
+        nominal local 18:00 on ``night`` and the wall-clock instant twelve hours later.
     """
     site_zone = ZoneInfo(run.site.timezone)
-    anchor = datetime(night.year, night.month, night.day, 12, tzinfo=site_zone)
-    offset = anchor.utcoffset()
-    return offset is not None and offset.total_seconds() < 0
+    local_evening = datetime(night.year, night.month, night.day, 18, tzinfo=site_zone)
+    local_morning = local_evening + timedelta(hours=12)
+    return local_evening.astimezone(dt_timezone.utc), local_morning.astimezone(dt_timezone.utc)
 
 
-def _time_of_day_to_datetime(t, night, west_of_utc: bool) -> datetime:
-    """A stored sub-night `TimeField` value -> a UTC datetime for one observing night (D-04).
+def _time_of_day_to_datetime(t, night, night_span: tuple[datetime, datetime]) -> datetime:
+    """A stored sub-night `TimeField` value -> a UTC datetime for one observing night (D-04,
+    35-REVIEW.md NF-03).
 
-    Reproduces `load_telescope_runs`'s pre-Phase-35 date-offset rule for a site whose local
-    clock runs behind UTC: an hour before 12:00 UTC belongs to the NEXT morning for that
-    observing night; 12:00 or later belongs to the night's own evening date. CR-06
-    (35-REVIEW.md): that rule inverts for a site whose local clock runs AHEAD of UTC, where
-    the entire local night maps into the night's own UTC date regardless of hour -- see
-    `_site_runs_behind_utc()`.
+    Builds two candidate UTC datetimes for ``t`` -- one on ``night``, one on
+    ``night + timedelta(days=1)`` -- and picks the one closer to the site's own
+    observing-night UTC span (``night_span``, from ``_night_span_utc()``): a candidate that
+    lies within the span, inclusive of both endpoints, has distance zero; otherwise its
+    distance is the smaller of its distances to the two span endpoints. On an exact tie the
+    candidate on ``night`` wins. There is no hour comparison anywhere in this body -- the
+    superseded rule's hard-coded ``t.hour < 12`` threshold is gone entirely, which is why a
+    half-hour offset (Asia/Kolkata, +5:30) needs no special case.
 
     Args:
         t: a ``datetime.time`` (a stored ``night_start_utc``/``night_end_utc`` value).
         night: the site-local observing night (evening date).
-        west_of_utc: `_site_runs_behind_utc(run, night)` -- whether an early UTC hour
-            belongs to the night's own evening date or the following morning.
+        night_span: ``_night_span_utc(run, night)`` -- the site's own observing-night UTC
+            span this stored time-of-day is resolved against.
 
     Returns:
         datetime: the UTC-aware datetime for that time-of-day on the correct date.
     """
-    base_date = (night + timedelta(days=1) if t.hour < 12 else night) if west_of_utc else night
-    return datetime(base_date.year, base_date.month, base_date.day, t.hour, t.minute, t.second, tzinfo=dt_timezone.utc)
+    span_start, span_end = night_span
+    next_night = night + timedelta(days=1)
+    candidates = [
+        datetime(night.year, night.month, night.day, t.hour, t.minute, t.second, tzinfo=dt_timezone.utc),
+        datetime(next_night.year, next_night.month, next_night.day, t.hour, t.minute, t.second, tzinfo=dt_timezone.utc),
+    ]
+
+    def _distance(candidate: datetime) -> timedelta:
+        if span_start <= candidate <= span_end:
+            return timedelta(0)
+        return min(abs(candidate - span_start), abs(candidate - span_end))
+
+    return min(candidates, key=_distance)
 
 
 def night_bounds(run: CampaignRun, night, sunset, sunrise) -> tuple[datetime, datetime]:
     """Resolve one allocation night's UTC start/end from the run's sub-night window fields
-    (D-04), each end independently.
+    (D-04, 35-REVIEW.md NF-03), each end independently.
 
     This is the same rule ``load_telescope_runs._resolve_window_time()`` applied per
     schedule line, moved behind the run so the allocation projector applies it per night
     instead of the command re-deriving it. The two ends are resolved independently, so a
-    line may name one boundary and leave the other computed from the sun event.
+    line may name one boundary and leave the other computed from the sun event. Each set
+    boundary is resolved against the site's own observing-night UTC span
+    (``_night_span_utc()``), computed once and shared by both ends: entirely inside its own
+    UTC date for a site with an offset above +6 (Siding Spring), straddling UTC midnight for
+    an offset above -6 and at or below +6 (La Silla, SAAO Sutherland, Hanle), entirely inside
+    the NEXT UTC date for an offset at or below -6 (Maunakea/FTN).
 
     Args:
         run: the ``CampaignRun`` being projected.
@@ -239,15 +263,15 @@ def night_bounds(run: CampaignRun, night, sunset, sunrise) -> tuple[datetime, da
             than silently minting a ``CalendarEvent`` whose ``start_time`` is after its
             ``end_time``.
     """
-    west_of_utc = _site_runs_behind_utc(run, night)
+    night_span = _night_span_utc(run, night)
     if run.night_start_utc is None:
         start = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     else:
-        start = _time_of_day_to_datetime(run.night_start_utc, night, west_of_utc)
+        start = _time_of_day_to_datetime(run.night_start_utc, night, night_span)
     if run.night_end_utc is None:
         end = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     else:
-        end = _time_of_day_to_datetime(run.night_end_utc, night, west_of_utc)
+        end = _time_of_day_to_datetime(run.night_end_utc, night, night_span)
     if start >= end:
         logger.error(
             'Allocation night_bounds inverted for run pk=%s night=%s: start=%s >= end=%s '
@@ -269,15 +293,17 @@ def night_bounds(run: CampaignRun, night, sunset, sunrise) -> tuple[datetime, da
 
 def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool:
     """D-13's cheap, astropy-free re-mint check: whether ``existing``'s stored boundaries no
-    longer match what the run's CURRENT sub-night fields say they should be.
+    longer match what the run's CURRENT sub-night fields say they should be (35-REVIEW.md
+    NF-03).
 
     A null sub-night field means the expected boundary is the sun-event pair, which cannot
     be known without calling ``sun_event()`` -- so a null field is deliberately never
     checked; D-13 forbids rewriting an existing night's stored boundary for astropy drift,
     and a null-null run therefore always reports "no re-mint needed" on this check. A SET
-    field's expected boundary is computable with no astropy call at all, so it is compared
-    directly against the stored boundary; a mismatch on either end marks the night for
-    re-mint.
+    field's expected boundary is computable with no astropy call at all -- a ``zoneinfo``
+    span lookup (``_night_span_utc()``) plus the same per-boundary resolution
+    ``night_bounds()`` uses -- so it is compared directly against the stored boundary; a
+    mismatch on either end marks the night for re-mint.
 
     Args:
         run: the ``CampaignRun`` being projected.
@@ -289,13 +315,13 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool
     """
     if run.night_start_utc is None and run.night_end_utc is None:
         return False
-    west_of_utc = _site_runs_behind_utc(run, night)
+    night_span = _night_span_utc(run, night)
     if run.night_start_utc is not None and existing.start_time != _time_of_day_to_datetime(
-        run.night_start_utc, night, west_of_utc
+        run.night_start_utc, night, night_span
     ):
         return True
     if run.night_end_utc is not None and existing.end_time != _time_of_day_to_datetime(
-        run.night_end_utc, night, west_of_utc
+        run.night_end_utc, night, night_span
     ):
         return True
     return False
