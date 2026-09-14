@@ -40,7 +40,14 @@ the first claimant of a night is re-keyed, the rest are reported untouched, beca
 ``CalendarEvent.url`` carries no unique constraint for the database to enforce it); an
 event whose own independently-derived observing night falls outside the window its own
 schedule line implies, corrected by fixing the event's stored start time or the schedule
-line's date range so the two agree (``window_mismatch``, NF-02, 35-REVIEW.md); and any
+line's date range so the two agree (``window_mismatch``, NF-02, 35-REVIEW.md); a second
+group whose ``Source line:`` resolves to the SAME run identity key as an earlier group --
+``_source_identifier()`` deliberately ignores the parsed status word, so two lines differing
+only in status (e.g. an allocation line and a cancelled line for the same telescope,
+instrument and window) collide -- reported (never silently merged into the earlier group's
+run) under its own reason, with the same remedy ``load_telescope_runs`` already documents
+for the identical collision: add a bracketed proposal token to one of the two lines
+(``duplicate_identity``, NF-14, 35-REVIEW.md); and any
 other exception, recorded with its own type name. Every reason is printed with the event's
 primary key and title so an operator can find and correct the row in the admin. When EVERY
 event in a group is attributed elsewhere, no ``CampaignRun`` is created or updated for that
@@ -69,9 +76,14 @@ operator most needs to see before running for real. ``--dry-run`` applies every 
 precondition the real pass applies -- window containment, in-run collision, and
 existing-``ALLOC:``-url collision -- through the same shared helper the real pass calls
 (NF-02, 35-REVIEW.md), so the two passes agree on the re-key count, the unexplained count,
-every per-reason count and the exit status. That agreement is what makes the promise in
-the preceding sentence true rather than aspirational: a dry run can no longer exit 0 over
-a fixture the immediately following real run rejects.
+every per-reason count and the exit status. A second GROUP whose ``Source line:`` resolves
+to the same run identity key as an earlier one (``duplicate_identity``, NF-14,
+35-REVIEW.md) is rejected outright, identically on both passes, before either one ever
+attempts a write for it -- so the two passes also agree about which group exists at all,
+not only which per-event preconditions a surviving group's events must clear. That
+agreement is what makes the promise in the preceding sentence true rather than
+aspirational: a dry run can no longer exit 0 over a fixture the immediately following
+real run rejects.
 """
 
 import logging
@@ -130,6 +142,19 @@ _KEY_COLLISION = 'key_collision'
 # date range, so the two agree), not an unexpected error. The module's contract is that
 # every printed reason tells the operator what to DO.
 _WINDOW_MISMATCH = 'window_mismatch'
+# NF-14 (35-REVIEW.md): a dedicated category, not folded into _KEY_COLLISION or _OTHER.
+# _source_identifier() deliberately ignores parsed.status (load_telescope_runs.py), so two
+# Source lines that differ only in status word (e.g. an "allocation" and a "cancelled" line
+# for the same telescope/instrument/window) resolve to the SAME run identity key -- two
+# GROUPS (keyed on the raw source_line string) that would find-or-update the SAME
+# CampaignRun row. Before this guard, the second group to be processed silently overwrote
+# the first group's run fields (whichever group's dict-insertion order came second won),
+# and its own per-event loop then reported the first group's already-re-keyed events as
+# _KEY_COLLISION -- a reason whose documented operator action ("delete or re-attribute the
+# duplicate row") is exactly wrong here: both lines are a legitimate second schedule entry,
+# and the correct action is the one load_telescope_runs.py's own seen_keys/skipped_collision
+# guard already documents -- add a bracketed proposal token to disambiguate.
+_DUPLICATE_IDENTITY = 'duplicate_identity'
 _OTHER = 'other'
 
 _REASON_LABELS = {
@@ -140,6 +165,7 @@ _REASON_LABELS = {
     _FOREIGN_ATTRIBUTION: 'already attributed to a different CampaignRun',
     _KEY_COLLISION: 'derived ALLOC: night is already claimed by another event',
     _WINDOW_MISMATCH: "derived observing night falls outside the run's own window",
+    _DUPLICATE_IDENTITY: 'a second Source line resolves to the same run identity key as an earlier group',
     _OTHER: 'unexpected error',
 }
 
@@ -305,6 +331,19 @@ class Command(BaseCommand):
         runs_created = runs_updated = runs_unchanged = 0
         events_rekeyed = 0
 
+        # NF-14 (35-REVIEW.md): seen_keys is the load_telescope_runs.py-style guard --
+        # keyed on the run identity key, populated the moment a group first claims it, so
+        # a SECOND group sharing that key is rejected outright, before either pass ever
+        # attempts a write for it. claimed_by_key is keyed the same way (rather than a
+        # fresh set() per group): in practice seen_keys already stops a second group from
+        # ever reaching the per-event loop, so the two dicts agree, but sharing the same
+        # key-scoped set here (instead of a per-group one) is what lets a dry run detect a
+        # collision even while `run is None` -- the actual mechanism this fix depends on --
+        # rather than relying solely on the seen_keys `continue` never being bypassed by a
+        # future refactor.
+        seen_keys: dict[str, str] = {}
+        claimed_by_key: dict[str, set[date]] = defaultdict(set)
+
         for source_line, events in groups.items():
             try:
                 parsed = parse_run_line(source_line)
@@ -335,6 +374,25 @@ class Command(BaseCommand):
                 reason = f'{_REASON_LABELS[_UNPARSEABLE_SOURCE_LINE]}: {exc}'
                 _mark_unexplained(events, _UNPARSEABLE_SOURCE_LINE, reason)
                 continue
+
+            # NF-14 (35-REVIEW.md): reject a second group whose Source line resolves to the
+            # SAME run identity key as an earlier group, BEFORE any write is attempted for
+            # it -- otherwise insert_or_create_campaign_run()/preview_campaign_run_action()
+            # would find-or-update the SAME CampaignRun row the earlier group already
+            # claimed, silently merging two schedule lines into one run (whichever group's
+            # dict-insertion order came second would win) rather than reporting the
+            # collision. Checked identically on both --dry-run and the real pass, in the
+            # same loop, so the two agree about which GROUP exists at all -- not only which
+            # per-event preconditions a surviving group's events must clear.
+            if key in seen_keys:
+                _mark_unexplained(
+                    events,
+                    _DUPLICATE_IDENTITY,
+                    f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: {seen_keys[key]!r} already claimed '
+                    f'{key!r}; add a bracketed proposal token to one of the two lines',
+                )
+                continue
+            seen_keys[key] = source_line
 
             target_list_ids = {event.target_list_id for event in events}
             if len(target_list_ids) > 1:
@@ -437,12 +495,16 @@ class Command(BaseCommand):
 
                     # WR-11 (35-REVIEW.md): site_zone is needed by both paths now, so it is
                     # computed once here rather than inside the (former) real-only branch.
-                    # claimed_nights is per-GROUP (never shared across groups -- two
-                    # different runs legitimately own nights of the same date, since the
-                    # url is keyed by run primary key too), created fresh for every group
-                    # and populated only after a night's own write (or preview) succeeds.
+                    # claimed_nights is scoped to this group's identity KEY (NF-14,
+                    # 35-REVIEW.md), via claimed_by_key[key] rather than a fresh set() --
+                    # never shared across two DIFFERENT keys, since two different runs
+                    # legitimately own nights of the same date (the url is keyed by run
+                    # primary key too). The seen_keys guard above means at most one group
+                    # ever reaches this line for a given key, so in every reachable case
+                    # this is still exactly one set per group -- populated only after a
+                    # night's own write (or preview) succeeds.
                     site_zone = ZoneInfo(site.timezone)
-                    claimed_nights: set[date] = set()
+                    claimed_nights = claimed_by_key[key]
 
                     if dry_run:
                         # Read-only preview: apply the identical three preconditions the

@@ -910,44 +910,55 @@ re-parses each group, and creates or updates the ``CampaignRun`` that
 group would have produced under a fresh import. What it converts: every
 group whose schedule line parses, whose telescope resolves to a known
 ``Observatory`` with a timezone set, whose events agree on their campaign,
-and whose events are not already attributed to a different run, are not
-already claimed on a colliding night. What it deliberately leaves alone:
-**an event or group it cannot explain is left completely untouched and
-reported** with its primary key, title and reason -- no parseable
-``Source line:`` marker; a ``Source line:`` that does not parse or names
-an unknown telescope; a resolved site with no timezone; a group whose
-events disagree on their campaign; an event already attributed to a
+whose events are not already attributed to a different run, and whose
+derived observing nights are not already claimed. What it deliberately
+leaves alone: **an event or group it cannot explain is left completely
+untouched and reported** with its primary key, title and reason -- no
+parseable ``Source line:`` marker; a ``Source line:`` that does not parse
+or names an unknown telescope; a resolved site with no timezone; a group
+whose events disagree on their campaign; an event already attributed to a
 different run; **``key_collision``** -- a second event whose derived
 observing night is already claimed, either by another event in this same
-run (a duplicate row from a pre-cutover re-ingest, or two schedule lines
-differing only in fields the identity key ignores) or by a
+run (a duplicate row from a pre-cutover re-ingest) or by a
 ``CalendarEvent`` row that already holds the derived
 ``ALLOC:{run_pk}:{night}`` url (the import-ran-first case above);
-**``window_mismatch``** -- the event's own independently-derived observing
-night falls outside the window its own schedule line implies (an
-off-by-one sub-night boundary, or a stored start time that disagrees with
-the line's date range); or any other unexpected error. For a
-``key_collision``, the first event to claim a night is still converted --
-only the extra claimants are reported. The operator action for a
-``key_collision``: find the duplicate row in the Django admin (the
-printed reason names the colliding pk when the url is already held
-elsewhere) and delete it or re-attribute it, then re-run the command. The
-operator action for a ``window_mismatch``: correct the event's stored
-start time in the Django admin, or correct the schedule line's date range
-and re-import, so the two agree -- the event is refused rather than
-converted because re-keying it would write an ``ALLOC:`` url outside the
-run's own window, which the next ``reconcile_campaign_runs`` sweep
-classifies as stale and deletes. A group **all** of whose events are
-attributed elsewhere has no run created or updated for it at all, so a
-summary line reading ``runs created: 0`` next to a ``foreign_attribution``
-count is the designed outcome, not a silent failure.
+**``duplicate_identity``** -- a second GROUP (a second, distinct
+``Source line:`` string) whose derived run identity key is the same as an
+earlier group's, because the key ignores the schedule line's status word
+-- e.g. an ``allocation`` line and a ``cancelled`` line for the same
+telescope, instrument and window; **``window_mismatch``** -- the event's
+own independently-derived observing night falls outside the window its
+own schedule line implies (an off-by-one sub-night boundary, or a stored
+start time that disagrees with the line's date range); or any other
+unexpected error. For a ``key_collision``, the first event to claim a
+night is still converted -- only the extra claimants are reported. The
+operator action for a ``key_collision``: find the duplicate row in the
+Django admin (the printed reason names the colliding pk when the url is
+already held elsewhere) and delete it or re-attribute it, then re-run the
+command. The operator action for a ``duplicate_identity``: the SECOND
+group is never merged into the first group's run -- add a bracketed
+proposal token to one of the two schedule lines to disambiguate them (the
+same remedy documented below for the identical collision in
+``load_telescope_runs``), then re-run the command; the first group's run
+and events are converted and left untouched either way. The operator
+action for a ``window_mismatch``: correct the event's stored start time in
+the Django admin, or correct the schedule line's date range and
+re-import, so the two agree -- the event is refused rather than converted
+because re-keying it would write an ``ALLOC:`` url outside the run's own
+window, which the next ``reconcile_campaign_runs`` sweep classifies as
+stale and deletes. A group **all** of whose events are attributed
+elsewhere has no run created or updated for it at all, so a summary line
+reading ``runs created: 0`` next to a ``foreign_attribution`` count is the
+designed outcome, not a silent failure.
 
 ``--dry-run`` applies every per-event check the real run applies -- window
 containment, in-run collision, and existing-``ALLOC:``-url collision --
 through the same shared helper the real run calls, so its counts, its
 reason breakdown and its exit status match what the real run then
-reports. That is what makes "always run ``--dry-run`` first" worth the
-operator's time.
+reports. A second group sharing an earlier group's run identity key is
+rejected identically on both passes, before either one attempts a write
+for it, so the two passes also agree about which group exists at all. That
+is what makes "always run ``--dry-run`` first" worth the operator's time.
 
 **A non-zero exit is expected, not a bug, whenever an unexplained event
 remains.** The command raises a self-contained error naming the count and
@@ -1404,12 +1415,11 @@ summary count.
 A reported classical-schedule identity-key collision
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``load_telescope_runs`` (and, on the legacy cutover path,
-``cutover_classical_allocations``) matches a schedule line to its
-``CampaignRun`` by a deterministic key built from the resolved telescope,
-instrument, the run's own stored observing-night window and its two
-sub-night tokens. Two lines in the same file that yield an identical key
-are a collision, reported on stderr naming both line numbers::
+``load_telescope_runs`` matches a schedule line to its ``CampaignRun`` by a
+deterministic key built from the resolved telescope, instrument, the
+run's own stored observing-night window and its two sub-night tokens.
+Two lines in the same file that yield an identical key are a collision,
+reported on stderr naming both line numbers::
 
    Line 14: source_identifier 'CLASSICAL:NTT:EFOSC2:2026-07-09:2026-07-12:BoN:EoN' already claimed by line 9 -- skipping (line text: 'NTT EFOSC2 confirmed 9-12 July')
 
@@ -1422,6 +1432,19 @@ identity spike found in a real schedule sample.
 -- e.g. ``NTT EFOSC2 confirmed 9-12 July [0110.C-0234]`` -- then re-import
 the file. The skipped line is never silently merged into the first; it is
 reported and dropped until the collision is resolved.
+
+On the legacy cutover path, ``cutover_classical_allocations`` guards
+against the identical collision (NF-14, 35-REVIEW.md), but reports it
+differently: it groups blank-url events by their own recovered
+``Source line:`` text first, so the collision is between two GROUPS, not
+two file lines, and it names the derived key ignoring the status word as
+the cause -- e.g. an ``allocation`` line and a ``cancelled`` line for the
+same telescope, instrument and window resolve to the same key. It is
+reported per unexplained event, under the ``duplicate_identity`` reason
+(see "How do I run the one-time classical cutover?" above and "A
+reported unexplainable event during the classical cutover" below), never
+as a separate skipped-line counter -- but the remedy is the same: add a
+bracketed proposal token to one of the two schedule lines and re-run.
 
 A reported unexplainable event during the classical cutover
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1441,17 +1464,23 @@ claimed, either by another event in this same run or by a
 ``CalendarEvent`` row that already holds the derived
 ``ALLOC:{run_pk}:{night}`` url (typically because a rewritten
 ``load_telescope_runs`` import of the same schedule file already ran) --
-or the reason is ``window_mismatch`` -- the event's own
-independently-derived observing night falls outside the window its own
-schedule line implies. See "How do I run the one-time classical cutover?"
-above for the full reason vocabulary.
+or the reason is ``duplicate_identity`` -- this event's own group's
+``Source line:`` resolves to the same run identity key as an earlier
+group's, because the key ignores the line's status word -- or the reason
+is ``window_mismatch`` -- the event's own independently-derived observing
+night falls outside the window its own schedule line implies. See "How do
+I run the one-time classical cutover?" above for the full reason
+vocabulary.
 
 **Fix:** resolve the listed event in the Django admin -- correct the
 description's ``Source line:``, fix the telescope name, set the
 ``Observatory``'s timezone, clear the conflicting attribution, or -- for a
 ``key_collision`` -- find and delete or re-attribute the duplicate row (the
 printed reason names the colliding pk when the url is already held
-elsewhere), or -- for a ``window_mismatch`` -- correct the event's stored
+elsewhere), or -- for a ``duplicate_identity`` -- add a bracketed
+proposal token to one of the two schedule lines to disambiguate them
+(the earlier group's run and events are converted and left untouched
+either way), or -- for a ``window_mismatch`` -- correct the event's stored
 start time or the schedule line's date range so the two agree, as the
 printed reason names -- then re-run the command. It is safe to re-run:
 already-converted events drop out of the candidate set, so only the

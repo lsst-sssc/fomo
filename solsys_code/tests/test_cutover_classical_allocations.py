@@ -999,3 +999,99 @@ class TestDryRunAndRealRunAgree(CutoverClassicalAllocationsTestBase):
         self.assertEqual(pre_existing_event.url, existing_url)  # untouched by either pass
         alloc_urls = list(CalendarEvent.objects.filter(url__startswith='ALLOC:').values_list('url', flat=True))
         self.assertEqual(len(alloc_urls), len(set(alloc_urls)))  # no repeated ALLOC: url anywhere
+
+
+class TestDuplicateIdentityKeyAcrossGroups(CutoverClassicalAllocationsTestBase):
+    """NF-14 (35-REVIEW.md): `_source_identifier()` deliberately ignores `parsed.status`
+    (`load_telescope_runs.py`), so two GROUPS -- keyed on the raw `source_line` string --
+    whose lines differ only in status word resolve to the SAME run identity key. Before
+    the fix, the second group silently overwrote the first group's `CampaignRun` (a
+    find-or-update on the same `source_identifier`), and its own events were then rejected
+    as `key_collision` -- a reason whose documented remedy (delete/re-attribute the
+    duplicate row) is wrong for a legitimate second schedule line. The exact status-only
+    difference the review reproduced: an 'allocation' line and a 'cancelled' line for the
+    same telescope, instrument and window."""
+
+    _ALLOCATION_LINE = 'NTT EFOSC2 allocation 9-12 July'
+    _CANCELLED_LINE = 'NTT EFOSC2 cancelled 9-12 July'
+
+    def _make_two_groups_same_identity_key_fixture(self) -> dict:
+        """Three blank-url events per line, one per night, sharing all three nights --
+        group A (`_ALLOCATION_LINE`) created first so it wins the identity key under
+        insertion-order dict processing, matching candidates.order_by('pk')."""
+
+        def _events_for(source_line: str) -> list[CalendarEvent]:
+            events = []
+            for night in _THREE_NIGHTS:
+                start_time = datetime(night.year, night.month, night.day, 23, 0, tzinfo=dt_timezone.utc)
+                end_time = datetime(night.year, night.month, night.day + 1, 9, 0, tzinfo=dt_timezone.utc)
+                events.append(
+                    self._make_legacy_event(
+                        source_line=source_line,
+                        start_time=start_time,
+                        end_time=end_time,
+                        status='allocation' if source_line == self._ALLOCATION_LINE else 'cancelled',
+                        target_list=self.campaign,
+                    )
+                )
+            return events
+
+        group_a = _events_for(self._ALLOCATION_LINE)
+        group_b = _events_for(self._CANCELLED_LINE)
+        return {'group_a': group_a, 'group_b': group_b}
+
+    def test_second_group_is_rejected_as_duplicate_identity_not_merged(self):
+        fixture = self._make_two_groups_same_identity_key_fixture()
+        group_a, group_b = fixture['group_a'], fixture['group_b']
+
+        out = StringIO()
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out, stderr=err)
+
+        # Exactly one CampaignRun for the shared identity key -- group B never merged into
+        # it, and never created a second one either.
+        parsed = parse_run_line(self._ALLOCATION_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        self.assertEqual(CampaignRun.objects.filter(source_identifier=key).count(), 1)
+        run = CampaignRun.objects.get(source_identifier=key)
+
+        # The run's fields are group A's (the first claimant), never overwritten by group
+        # B's differing status.
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.PLANNED)  # 'allocation' -> PLANNED
+        self.assertIn('Status: allocation', run.observation_details)
+
+        # Group A's events are re-keyed; group B's are left byte-identical and reported
+        # under duplicate_identity, never merged onto group A's run.
+        for event in group_a:
+            event.refresh_from_db()
+            self.assertTrue(event.url.startswith(f'ALLOC:{run.pk}:'))
+        for event in group_b:
+            event.refresh_from_db()
+            self.assertEqual(event.url, '')
+            self.assertFalse(CalendarEventMeta.objects.filter(event=event).exists())
+            self.assertIn(f'pk={event.pk}', err.getvalue())
+
+        stdout_value = out.getvalue()
+        self.assertIn('runs created: 1', stdout_value)
+        self.assertIn('events re-keyed: 3', stdout_value)
+        self.assertIn('unexplained (duplicate_identity): 3', stdout_value)
+        self.assertIn('already claimed', err.getvalue())
+
+    def test_dry_run_and_real_run_agree_on_duplicate_identity(self):
+        self._make_two_groups_same_identity_key_fixture()
+
+        dry_out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', '--dry-run', stdout=dry_out, stderr=StringIO())
+        dry_summary = _parse_cutover_summary(dry_out.getvalue())
+
+        real_out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=real_out, stderr=StringIO())
+        real_summary = _parse_cutover_summary(real_out.getvalue())
+
+        self.assertEqual(dry_summary, real_summary)
+        self.assertEqual(dry_summary['runs_created'], 1)
+        self.assertEqual(dry_summary['events_rekeyed'], 3)
+        self.assertEqual(dry_summary['reasons'], {'duplicate_identity': 3})
