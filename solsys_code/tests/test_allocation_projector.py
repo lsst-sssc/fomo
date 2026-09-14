@@ -1129,6 +1129,33 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
 
         self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
 
+    def test_dry_run_of_a_brand_new_inverted_window_also_raises(self):
+        """NF-10 (35-REVIEW.md): `_mint_fields()` is the only caller of `night_bounds()`,
+        where the CR-06 inversion guard lives, and the dry-run create path skipped it
+        entirely (WR-03) -- so a dry run used to report `would_create` for a night whose
+        immediately following real run failed with this exact inverted-span `ValueError`.
+        Reproduces the sibling fixture above on a BRAND-NEW night (no existing
+        CalendarEvent), so `existing is None` and the previewed create path is the one
+        under test, and asserts the dry run raises the identical error, over the same
+        night, before either pass has written anything."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(19, 0),
+            night_end_utc=time(8, 0),
+        )
+
+        with self.assertRaises(ValueError) as dry_ctx:
+            reconcile_run(run, dry_run=True)
+        with self.assertRaises(ValueError) as real_ctx:
+            reconcile_run(run)
+
+        self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
     def test_hanle_half_hour_offset_window_resolves_to_the_following_utc_date(self):
         """35-REVIEW.md NF-03: `Asia/Kolkata` (+5:30) is band 2-east -- both ends land
         outside their naive same-date position. Today both `00:00` and `02:00` land on

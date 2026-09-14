@@ -279,6 +279,27 @@ def night_bounds(run: CampaignRun, night, sunset, sunrise) -> tuple[datetime, da
         end = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     else:
         end = _time_of_day_to_datetime(run.night_end_utc, night, night_span)
+    _raise_if_inverted(run, night, start, end)
+    return start, end
+
+
+def _raise_if_inverted(run: CampaignRun, night, start: datetime, end: datetime) -> None:
+    """Shared guard (CR-06, 35-REVIEW.md; extracted for NF-10, 35-REVIEW.md): raises the
+    SAME ``ValueError`` :func:`night_bounds` raises when ``start`` is not strictly before
+    ``end``. Extracted into its own function so :func:`night_bounds`'s real-mode check and
+    the dry-run boundary preview below (NF-10) cannot drift apart the way ``night_bounds``
+    and its own dry-run short-circuit already had -- a dry run must see the same failure a
+    real run would, over the SAME two datetimes, checked the SAME way.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        night: the site-local observing night (evening date).
+        start: the resolved UTC start of the night's span.
+        end: the resolved UTC end of the night's span.
+
+    Raises:
+        ValueError: ``start`` is not strictly before ``end``.
+    """
     if start >= end:
         logger.error(
             'Allocation night_bounds inverted for run pk=%s night=%s: start=%s >= end=%s '
@@ -295,7 +316,6 @@ def night_bounds(run: CampaignRun, night, sunset, sunrise) -> tuple[datetime, da
             f'start={start.isoformat()} >= end={end.isoformat()}. Check night_start_utc/'
             'night_end_utc against the site timezone.'
         )
-    return start, end
 
 
 def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool:
@@ -677,7 +697,24 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             # same astropy work for every brand-new night in the previewed window, and could
             # raise `sun_event()`'s own `ValueError` (e.g. a blank `Observatory.timezone`)
             # on what the module's own docstring documents as a read-only preview.
+            #
+            # NF-10 (35-REVIEW.md): `_mint_fields()` is also the only caller of
+            # `night_bounds()`, where CR-06's inversion guard lives -- skipping it entirely
+            # under `dry_run` hid the one failure mode an OPERATOR-set (not site-derived)
+            # `night_start_utc`/`night_end_utc` pair can raise: a preview reported
+            # `would_create` for a night whose immediately following real run failed with
+            # an inverted-span `ValueError`. When BOTH sub-night fields are set, this can be
+            # checked with no `sun_event()` call at all -- the same `zoneinfo`-only span
+            # `night_bounds()` itself uses for a set boundary -- via the shared
+            # `_raise_if_inverted()` guard, so the two passes cannot drift apart on this
+            # check either. A null field's boundary depends on the sun event and is never
+            # checked here, matching `_span_needs_remint()`'s own null-field convention.
             if dry_run:
+                if run.night_start_utc is not None and run.night_end_utc is not None:
+                    night_span = _night_span_utc(run, night)
+                    start = _time_of_day_to_datetime(run.night_start_utc, night, night_span)
+                    end = _time_of_day_to_datetime(run.night_end_utc, night, night_span)
+                    _raise_if_inverted(run, night, start, end)
                 totals['created'] += 1
                 continue
             fields: dict[str, Any] = _mint_fields(run, night)
