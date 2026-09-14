@@ -1008,11 +1008,21 @@ The final summary line reports these counters -- ``would_create``/
    Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: 1, detach_declined: 0, would_retire: 0, would_rekey: 0, would_delete_legacy: 0
    Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1, detach_declined: 0, retired: 0, rekeyed: 0, legacy_deleted: 0
 
-``retired`` counts an allocation night handed over to a real observation:
-a run's linked ``ObservationRecord`` placed or observed its block on that
-night, so the projected sunset-to-sunrise event is no longer needed and is
-removed -- the observation's own calendar entry is that night's entry now.
-Unlinking the record restores the night on the next reconcile.
+``retired`` counts an allocation night removed from the calendar for any of
+four reasons (35-REVIEW.md NF-07): (1) a run's linked ``ObservationRecord``
+placed or observed its block on that night, so the projected
+sunset-to-sunrise event is no longer needed -- the observation's own
+calendar entry is that night's entry now, and unlinking the record restores
+the night on the next reconcile (this is the ONLY one of the four reasons
+that "unlink to restore" sentence applies to); (2) a sub-night window field
+(the run's own dawn/dusk or dark-window overrides) changed since the night
+was last minted, so it is deleted and re-created fresh rather than edited in
+place; (3) the night no longer falls inside the run's window at all -- a
+window shrink, or a re-classification that moves the run off the per-night
+allocation branch entirely; or (4), after this change (35-REVIEW.md NF-01),
+a leftover night whose companion row was deleted outright or had its ``run``
+cleared -- previously left on the calendar forever with no counter moved,
+now removed and counted here like every other unneeded night.
 
 ``rekeyed`` counts a night carried across from the old, retired
 ``RUN:{pk}:{date}`` key form into the current ``ALLOC:{pk}:{night}`` form,
@@ -1020,13 +1030,24 @@ in place -- same primary key, same start/end time, just re-keyed. This is
 the ongoing per-run takeover every reconcile performs for a run that still
 dispatches per-night.
 
-``legacy_deleted`` counts a one-time removal: a run with a queue source
-(``lco_queue``/``soar_queue``/``gemini_queue``/``eso_queue``) now keeps a
-single whole-window entry regardless of its site -- see "Can I correct a
-run's source?" below -- so its leftover per-night ``RUN:{pk}:{date}``
-events from before that dispatch rule applied are deleted, never detached.
-This is one-time churn for a run that changes family; an already-container
-run reports 0 here on every later sweep.
+``legacy_deleted`` counts one-time churn from a run's dispatch changing --
+never per-sweep, always zero again on the next reconcile of the same run --
+covering three distinct origins (35-REVIEW.md NF-07): (1) a run with a queue
+source (``lco_queue``/``soar_queue``/``gemini_queue``/``eso_queue``) leaves
+behind leftover per-night ``RUN:{pk}:{date}`` events from before that
+dispatch rule applied; (2) a run re-classified (a ``telescope_class``/
+``site`` correction -- see "Can I correct a run's source?" below) OUT of the
+per-night ``ALLOC:{pk}:{night}`` allocation branch leaves its old allocation
+nights behind, with no other code path left to reach them
+(35-REVIEW.md CR-02) -- not a queue source at all; and (3), after this
+change (35-REVIEW.md NF-01), a leftover per-night row in either family with
+no ``CalendarEventMeta`` companion row at all, or one whose ``run`` is
+unset, is deleted here too rather than left unreachable. The sibling claim
+"this run now keeps a single whole-window entry" applies ONLY when the run
+is actually container-dispatched after the reconcile that reported the
+count (origins (1) and (2) above): a run that still dispatches per-night
+(origin (3), or a night re-minted under reason (2) above) can report a
+non-zero ``legacy_deleted`` while continuing to keep many entries, not one.
 
 ``skipped_nights`` counts classical nights whose calendar entry already
 comes from another writer attributed to that run -- so
