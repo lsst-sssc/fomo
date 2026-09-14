@@ -490,6 +490,33 @@ class TestFinalConvergenceGuard(AllocationProjectorTestBase):
         self.assertEqual(result.retired, 0)
         self.assertEqual(result.blocked, 1)
 
+    def test_window_shrink_deletes_an_unattributed_night_shape_b(self):
+        """35-REVIEW.md NF-01/PROBE-A2: an `ALLOC:` night whose companion row exists but
+        whose `run` is unset (shape (b) -- attribution present but unset) must be deleted by
+        this convergence step and reported under exactly one counter (`retired`). Before the
+        fix, `_clearable_and_declined()` alone started from
+        `CalendarEventMeta.objects.filter(run_id=run.pk, ...)` and therefore never saw this
+        row at all: it survived forever with every counter at zero (PROBE-A2: "doomed still
+        exists: True", all counters zero) -- D-16's forbidden third outcome."""
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = None
+        meta.save(update_fields=['run'])
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.unchanged, 2)
+
 
 class TestAttributionBridge(AllocationProjectorTestBase):
     """Task 2, D-08: attribution is a link on the record's OWN event, both directions."""

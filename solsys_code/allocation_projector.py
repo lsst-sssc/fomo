@@ -47,7 +47,7 @@ from solsys_code.calendar_utils import (
 from solsys_code.campaign_reconciler import RUN_STATUS_CALENDAR_PREFIX as _RUN_STATUS_CALENDAR_PREFIX
 from solsys_code.campaign_reconciler import (
     ReconcileResult,
-    _clearable_and_declined,
+    _clearable_declined_and_unattributed,
     _link_event_to_run,
     _may_write,
     event_description,
@@ -91,11 +91,18 @@ def writable_allocation_events(run: CampaignRun):
     """The ``ALLOC:`` twin of ``campaign_reconciler.writable_events()`` -- namespace
     identity alone is NOT ownership.
 
-    Mirrors that helper's attribution-scoped filter exactly: no companion row at all, a
-    companion row whose ``run`` is unset, or a companion row that already points at this
-    run. Used by the ``CampaignRun`` ``pre_delete`` cascade (``models.py``) alongside
-    ``writable_events()`` so deleting run A never destroys an allocation night whose
-    companion row attributes it to run B.
+    Corrected relationship (35-REVIEW.md NF-06): this function's filter -- no companion row
+    at all, a companion row whose ``run`` is unset, or a companion row that already points at
+    this run -- was previously claimed to mirror ``writable_events()``'s queryset filter
+    "exactly", which was true of the two querysets but false of the row-level predicate the
+    pair is supposed to express: ``_may_write()`` used to admit only the ``RUN:`` namespace
+    fallback, so it diverged from this function for exactly the shapes it claims to admit.
+    ``_may_write()`` is now the single row-level predicate for BOTH namespaces;
+    ``writable_events()`` is its ``RUN:``-namespace queryset twin and this function its
+    ``ALLOC:``-namespace queryset twin -- all three now state the same rule. Used by the
+    ``CampaignRun`` ``pre_delete`` cascade (``models.py``) alongside ``writable_events()`` so
+    deleting run A never destroys an allocation night whose companion row attributes it to
+    run B.
     """
     return allocation_events(run).filter(
         Q(telescope_label_meta__isnull=True)
@@ -512,14 +519,19 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         ``CalendarEvent.url`` values this call considers current -- every non-retired night
         visited, including a blocked night and every night visited in ``dry_run``; and
         ``legacy_urls_claimed`` -- every ``RUN:{pk}:{date}`` legacy url this per-night loop
-        has already decided the fate of (a takeover re-key or a retirement delete), in
-        EITHER real or ``dry_run`` mode. The caller
-        (``campaign_reconciler.reconcile_run()``) excludes this set from its own
-        date-bearing convergence step (Task 1, Phase 35, D-16): in real mode the write
-        already happened by the time that step runs, so the url has already left the
-        ``RUN:`` namespace and the exclusion is a no-op; in ``dry_run`` mode nothing was
+        has already decided the fate of AT ALL (a takeover re-key, a retirement delete, OR
+        (NF-09, 35-REVIEW.md) a decision to leave the row alone -- blocked because a
+        different run owns it, or declined because a human confirmed it), in EITHER real or
+        ``dry_run`` mode. The caller (``campaign_reconciler.reconcile_run()``) excludes this
+        set from its own date-bearing convergence step (Task 1, Phase 35, D-16): in real mode
+        the write already happened by the time that step runs, so the url has already left
+        the ``RUN:`` namespace and the exclusion is a no-op; in ``dry_run`` mode nothing was
         written, so without this exclusion the SAME legacy url would be double-counted --
-        once here as ``rekeyed``/``retired``, and again there as ``legacy_deleted``.
+        once here as ``rekeyed``/``retired``/``blocked``, and again there as
+        ``legacy_deleted``/``detach_declined`` for the very same single decision (NF-09's
+        double-count regression: a blocked or declined legacy event used to be reported
+        under ``blocked`` here AND ``detach_declined`` downstream for one event, one
+        decision).
     """
     totals: dict[str, int] = {
         'created': 0,
@@ -553,14 +565,24 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             # CR-03 (35-REVIEW.md): the legacy RUN:{pk}:{night} event this retirement would
             # also delete gets the SAME two guards the takeover branch below already applies
             # to the same class of row -- ownership first (_may_write()), then a
-            # human-confirmed attribution (reused via _clearable_and_declined(), the same
-            # UAT-2026-09-09 Option B rule every other delete/detach path in this module and
-            # campaign_reconciler.py honours). Neither guard was applied here before, so an
-            # automated re-projection could delete a companion row a staff member had just
-            # confirmed, or one re-attributed to a different run entirely.
+            # human-confirmed attribution (reused via _clearable_declined_and_unattributed(),
+            # the same UAT-2026-09-09 Option B rule every other delete/detach path in this
+            # module and campaign_reconciler.py honours). Neither guard was applied here
+            # before, so an automated re-projection could delete a companion row a staff
+            # member had just confirmed, or one re-attributed to a different run entirely.
             legacy_event = CalendarEvent.objects.filter(url=legacy_url).first()
             legacy_deletable = False
             if legacy_event is not None:
+                # NF-09 (35-REVIEW.md): claim the url the moment this loop has decided the
+                # legacy event's fate AT ALL -- deleted, blocked or declined -- not only on
+                # the deletable path. This cannot over-delete: the downstream
+                # _stale_dated_events() step would have refused these same rows anyway (a
+                # foreign attribution is excluded from both halves of
+                # _clearable_declined_and_unattributed(); a confirmed_by row is counted
+                # declined there too), so excluding them here removes only the DOUBLE COUNT
+                # a blocked/declined legacy event used to produce (reported under `blocked`
+                # here AND `detach_declined` downstream for the same single decision).
+                legacy_urls_claimed.add(legacy_url)
                 if not _may_write(legacy_event, run):
                     logger.warning(
                         'Allocation retire blocked: legacy event pk=%s is not owned by run pk=%s.',
@@ -569,12 +591,11 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                     )
                     totals['blocked'] += 1
                 else:
-                    clearable_ids, confirmed_declined = _clearable_and_declined(
+                    deletable_ids, confirmed_declined = _clearable_declined_and_unattributed(
                         run, CalendarEvent.objects.filter(pk=legacy_event.pk)
                     )
-                    if clearable_ids:
+                    if deletable_ids:
                         legacy_deletable = True
-                        legacy_urls_claimed.add(legacy_url)
                     elif confirmed_declined:
                         logger.warning(
                             'Allocation retire declined: legacy event pk=%s is human-confirmed '
@@ -669,12 +690,16 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
     # ownership -- an event attributed to a DIFFERENT run, or human-confirmed to THIS run,
     # must survive this convergence exactly like every other delete/detach path in this
     # module and campaign_reconciler.py already requires. writable_allocation_events()
-    # narrows to what this run may actually write; _clearable_and_declined() then splits
-    # that into what an automated sweep may delete vs. what a human confirmation protects.
+    # narrows to what this run may actually write; _clearable_declined_and_unattributed()
+    # then splits that into what an automated sweep may delete (shape (c)-this-run
+    # unconfirmed, OR shape (a)/(b) unattributed -- NF-01's fix) vs. what a human
+    # confirmation protects. foreign_stale_count stays the only remaining "left alone"
+    # bucket after this swap, so len(stale_ids) + declined_stale == writable_stale.count()
+    # now holds, where before the NF-01 fix it did not (shapes (a)/(b) were neither).
     stale_qs = allocation_events(run).exclude(url__in=active_urls | retired_urls)
     writable_stale = writable_allocation_events(run).exclude(url__in=active_urls | retired_urls)
     foreign_stale_count = stale_qs.count() - writable_stale.count()
-    stale_ids, declined_stale = _clearable_and_declined(run, writable_stale)
+    stale_ids, declined_stale = _clearable_declined_and_unattributed(run, writable_stale)
     if foreign_stale_count or declined_stale:
         logger.warning(
             'Allocation convergence left %s event(s) alone for run pk=%s: %s attributed to a '

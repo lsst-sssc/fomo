@@ -251,17 +251,39 @@ def _may_write(event: CalendarEvent | None, run: CampaignRun) -> bool:
     Returns True when ``event`` is None. Otherwise looks up this event's
     ``CalendarEventMeta`` companion row: when it exists and its ``run`` is set, ownership is
     exact-match only; when there is no companion row or its ``run`` is unset, this run may
-    still write it if the event's ``url`` already lives in this run's ``RUN:`` namespace.
-    Everything else returns False -- a hand-created entry, a conference, a proposal deadline
-    or an un-attributed sync-command event is never created, modified or deleted.
+    still write it if the event's ``url`` already lives in one of this run's OWN key
+    namespaces -- the ``RUN:`` container/per-night form, or the ``ALLOC:`` per-night
+    allocation form. Everything else returns False -- a hand-created entry, a conference, a
+    proposal deadline or an un-attributed sync-command event is never created, modified or
+    deleted.
+
+    The fallback covers BOTH of this run's own key namespaces (35-REVIEW.md NF-06): before
+    this widening, an unattributed ``ALLOC:{pk}:{night}`` event (shape (a)/(b)) could never
+    match the ``RUN:``-only fallback, so this predicate diverged from
+    ``writable_allocation_events()``'s queryset twin, which admits exactly those shapes. The
+    divergence's cost: a night with no attribution at all was permanently ``blocked``, never
+    refreshed again, and the operator was told it was "owned by someone else" when nobody
+    owned it -- while the ``pre_delete`` cascade (``models.py``) would have happily deleted
+    the very same event. ``_may_write()`` and both queryset twins (``writable_events()`` for
+    ``RUN:``, ``writable_allocation_events()`` for ``ALLOC:``) now state the same rule.
     """
     if event is None:
         return True
     meta = CalendarEventMeta.objects.filter(event=event).first()
     if meta is not None and meta.run_id is not None:
         return meta.run_id == run.pk
+    # Local import: allocation_projector imports this module at its own top level (to reuse
+    # split_telescope_instrument()/_may_write()/_link_event_to_run()), so a top-level import
+    # here would deadlock on whichever module Python loads first -- the same idiom
+    # _stale_allocation_events() and models.py's pre_delete cascade already use.
+    from solsys_code.allocation_projector import ALLOC_URL_NAMESPACE
+
     container_url = run_container_url(run)
-    return event.url == container_url or event.url.startswith(f'{container_url}:')
+    return (
+        event.url == container_url
+        or event.url.startswith(f'{container_url}:')
+        or event.url.startswith(f'{ALLOC_URL_NAMESPACE}{run.pk}:')
+    )
 
 
 def _link_event_to_run(event: CalendarEvent, run: CampaignRun) -> None:
@@ -432,6 +454,62 @@ def _clearable_and_declined(run: CampaignRun, candidates) -> tuple[list[int], in
     return clearable_event_ids, declined
 
 
+def _clearable_declined_and_unattributed(run: CampaignRun, candidates) -> tuple[list[int], int]:
+    """Total-partition twin of :func:`_clearable_and_declined` (35-REVIEW.md NF-01, NF-06):
+    the shape-(c)-this-run split ALONE is not the whole story, because shapes (a) (no
+    ``CalendarEventMeta`` companion row at all) and (b) (a companion row whose ``run`` is
+    unset) are candidates too -- every one of this module's four delete/detach call sites
+    used to route through :func:`_clearable_and_declined` alone, which starts from
+    ``CalendarEventMeta.objects.filter(run_id=run.pk, ...)`` and therefore sees only
+    shape-(c)-this-run. Shapes (a) and (b) fell between that filter and
+    ``foreign_stale_count``'s namespace-identity check: not deleted, not declined, and not
+    counted foreign either -- silently permanent, with no log line. This is D-16's forbidden
+    "third outcome" (NF-01): every candidate must land in exactly one of deletable, declined,
+    or left-alone-because-attributed-elsewhere, and a candidate in none of the three is the
+    bug this helper closes.
+
+    Deletable means: an unconfirmed companion row attributed to THIS run (shape (c)-this-run,
+    via :func:`_clearable_and_declined`), OR no attribution at all (shape (a) or (b)) --
+    shape (a)/(b) has nothing to preserve, so it is exactly as safe to delete as a
+    shape-(c)-this-run row with no ``confirmed_by``.
+
+    The concatenation of the two halves cannot double-count: ``CalendarEventMeta.event`` is a
+    ``OneToOneField`` (``models.py:39-43``), so a row in the ``run_id=run.pk`` half (shape
+    (c)-this-run) can never also match "no companion row or ``run IS NULL``" (shape (a)/(b))
+    -- the two halves are disjoint by construction.
+
+    The unattributed half is ALSO split on ``confirmed_by``, even though
+    :func:`~solsys_code.campaign_utils.unlink_event_from_run`'s ``UNLINK_CLEARED_FIELDS``
+    clears ``run``, ``confirmed_by`` and ``confirmed_at`` together (D-16) -- so an unattributed
+    row carrying ``confirmed_by`` should not normally arise through that single writer. A
+    direct admin edit can still produce it, though, and a human stamp outranks an automated
+    sweep whatever the row's shape: routing that stray combination to ``declined`` keeps the
+    partition TOTAL rather than re-opening a narrower version of the very hole this helper
+    closes.
+
+    Performs reads only -- no ``.save()``, ``.update()``, ``.create()`` or ``.delete()`` runs
+    here, so a dry-run preview may call this directly, same contract as
+    :func:`_clearable_and_declined`.
+
+    Args:
+        run: the ``CampaignRun`` just reconciled.
+        candidates: a ``CalendarEvent`` queryset of stale events to split.
+
+    Returns:
+        tuple[list[int], int]: ``(deletable_event_ids, declined)`` -- the primary keys of
+        events an automated sweep may release/delete (shape (c)-this-run with no
+        ``confirmed_by``, plus shape (a)/(b) with no ``confirmed_by``), and the count of
+        companion rows left alone because ``confirmed_by`` is set (across both halves).
+    """
+    clearable, declined = _clearable_and_declined(run, candidates)
+    unattributed = candidates.filter(Q(telescope_label_meta__isnull=True) | Q(telescope_label_meta__run__isnull=True))
+    unattributed_deletable_ids = list(
+        unattributed.exclude(telescope_label_meta__confirmed_by__isnull=False).values_list('pk', flat=True)
+    )
+    stray_confirmed = unattributed.filter(telescope_label_meta__confirmed_by__isnull=False).count()
+    return clearable + unattributed_deletable_ids, declined + stray_confirmed
+
+
 def _stale_attributions(run: CampaignRun, active_urls: set[str]) -> tuple[list[int], int]:
     """Read-only split of this run's stale/superseded BARE-CONTAINER owned event into what
     an automated sweep may detach and what it must leave alone (33-UAT.md ``## Decisions``,
@@ -484,17 +562,18 @@ def _stale_dated_events(
     :func:`_stale_attributions`: an event attributed to a different run is left alone, and a
     human-confirmed attribution is reported under ``declined``, never cleared.
 
-    WR-10 (35-REVIEW.md): a ``RUN:{pk}:{date}`` event with NO ``CalendarEventMeta``
-    companion row at all (a pre-Phase-29 event, or one created by the admin FK picker) is
-    outside ``_clearable_and_declined()``'s own scope -- it starts from
-    ``CalendarEventMeta.objects.filter(run_id=run.pk, ...)``, so a meta-less event is in
-    neither the clearable list nor the declined count, and no later code path ever reaches
-    it again. D-16's stated contract is that every ``RUN:{pk}:{date}`` event is *"either
-    re-keyed (elsewhere, by the projector) or removed (here) -- no third outcome"* -- a
-    meta-less legacy event is exactly that third outcome. Unioned in here (not left to the
-    bare-container group's own detach step, which correctly has no attribution to release
-    for a meta-less row) because there is genuinely no attribution to preserve: an event
-    with no companion row was never confirmed by anyone.
+    NF-01 item 2 (35-REVIEW.md): before the shared total-partition helper existed, this
+    function unioned in ONLY the no-companion-row half of the unattributed candidates
+    (``stale_dated.filter(telescope_label_meta__isnull=True)``) -- shape (a). Shape (b), a
+    ``RUN:{pk}:{date}`` event with a companion row whose ``run IS NULL``, was in NEITHER
+    ``_clearable_and_declined()``'s own scope (which starts from
+    ``CalendarEventMeta.objects.filter(run_id=run.pk, ...)`` and therefore sees only
+    shape-(c)-this-run) NOR that partial union, so it survived every sweep forever with no
+    counter moved and no log line. D-16's stated contract is that every ``RUN:{pk}:{date}``
+    event is *"either re-keyed (elsewhere, by the projector) or removed (here) -- no third
+    outcome"* -- a meta-less (shape (a)) or unset-``run`` (shape (b)) legacy event is exactly
+    that third outcome. :func:`_clearable_declined_and_unattributed` now covers both shapes in
+    one pass, so no separate union is needed here.
 
     Read-only -- callers (the real detach/delete step and the dry-run preview) both build
     on this without any write occurring here.
@@ -512,14 +591,12 @@ def _stale_dated_events(
 
     Returns:
         tuple[list[int], int]: ``(deletable_event_ids, declined)`` -- see
-        :func:`_clearable_and_declined`.
+        :func:`_clearable_declined_and_unattributed`.
     """
     _stale_bare, stale_dated = _split_stale_owned_events(run, active_urls)
     if claimed_legacy_urls:
         stale_dated = stale_dated.exclude(url__in=claimed_legacy_urls)
-    clearable, declined = _clearable_and_declined(run, stale_dated)
-    orphan_ids = list(stale_dated.filter(telescope_label_meta__isnull=True).values_list('pk', flat=True))
-    return clearable + orphan_ids, declined
+    return _clearable_declined_and_unattributed(run, stale_dated)
 
 
 def _stale_allocation_events(run: CampaignRun) -> tuple[list[int], int]:
@@ -535,10 +612,15 @@ def _stale_allocation_events(run: CampaignRun) -> tuple[list[int], int]:
     an ``ALLOC:`` one, so every ``ALLOC:`` event this run still owns is stale by
     construction the moment this function is even reached.
 
-    Same two guards as :func:`_stale_attributions`/:func:`_stale_dated_events`: an event
-    attributed to a DIFFERENT run is left alone entirely (neither deleted nor counted), and
-    a human-confirmed attribution is reported under ``declined``, never cleared (UAT
-    decision, 2026-09-09, Option B).
+    Same two guards as :func:`_stale_attributions`/:func:`_stale_dated_events`, PLUS the
+    unattributed shapes NF-01 item 1 (35-REVIEW.md) names: an event attributed to a
+    DIFFERENT run is left alone entirely (neither deleted nor counted), a human-confirmed
+    attribution is reported under ``declined``, never cleared (UAT decision, 2026-09-09,
+    Option B), and an ``ALLOC:`` night with NO companion row at all, or one whose ``run`` is
+    unset, is now DELETED here too (shape (a)/(b)) -- before
+    :func:`_clearable_declined_and_unattributed` existed, ``_clearable_and_declined()`` alone
+    left those two shapes unreachable forever, the exact gap NF-01 item 1 reports for a run
+    re-classified INTO container dispatch.
 
     Args:
         run: the ``CampaignRun`` just reconciled.
@@ -556,7 +638,7 @@ def _stale_allocation_events(run: CampaignRun) -> tuple[list[int], int]:
     # module already uses for campaign_utils.
     from solsys_code.allocation_projector import writable_allocation_events
 
-    return _clearable_and_declined(run, writable_allocation_events(run))
+    return _clearable_declined_and_unattributed(run, writable_allocation_events(run))
 
 
 def _detach_stale_family_events(
