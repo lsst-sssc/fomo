@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: verifying
 stopped_at: Completed 35-07-PLAN.md
-last_updated: "2026-09-14T04:27:06.669Z"
+last_updated: "2026-09-14T04:57:31.266Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 35 execution started
-state_head: bc15c4d58eaf88f1836f391999eb867a4f2b7fb3
+state_head: a0834b3a01682e1d0394e9de8bbe00eb1507a1a9
 progress:
   total_phases: 5
   completed_phases: 1
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
 Plan: 7 of 7
 Status: Phase complete — ready for verification
-Last activity: 2026-09-13 - Completed quick task 260913-ti3: Fix 35-REVIEW.md NF-02 (cutover dry-run/real parity)
+Last activity: 2026-09-13 - Completed quick task 260913-ti1: Fix 35-REVIEW.md NF-01/NF-06/NF-09 (ownership predicate coherence)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -346,6 +346,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260913-npq | Fix 35-REVIEW.md WR-11: cutover_classical_allocations detects ALLOC: key collisions (in-run and existing-url) and reports them as key_collision; runbook pins cutover-before-import ordering | 2026-09-13 | 338625d | complete | [260913-npq-fix-35-review-md-wr-11-make-cutover-clas](./quick/260913-npq-fix-35-review-md-wr-11-make-cutover-clas/) |
 | 260913-rmd | Fix 35-REVIEW.md NF-03: resolve sub-night boundaries against the site's own UTC night span (three bands) instead of the sign of its UTC offset | 2026-09-13 | 09104f5 | complete | [260913-rmd-fix-35-review-md-nf-03-replace-the-sign-](./quick/260913-rmd-fix-35-review-md-nf-03-replace-the-sign-/) |
 | 260913-ti3 | Fix 35-REVIEW.md NF-02: hoist the cutover per-event preconditions so --dry-run and the real pass agree on every check, count and exit status; add the window_mismatch reason | 2026-09-13 | bc15c4d | complete | [260913-ti3-fix-35-review-md-nf-02-hoist-the-cutover](./quick/260913-ti3-fix-35-review-md-nf-02-hoist-the-cutover/) |
+| 260913-ti1 | Fix 35-REVIEW.md NF-01/NF-06/NF-09 (+NF-07 docs): one total-partition helper makes writable-but-unattributed events deletable at all four stale-event paths; _may_write now agrees with writable_allocation_events; declined legacy event counted once | 2026-09-13 | a0834b3 | complete | [260913-ti1-fix-35-review-md-nf-01-nf-06-nf-09-make-](./quick/260913-ti1-fix-35-review-md-nf-01-nf-06-nf-09-make-/) |
 
 ## Deferred Items
 
