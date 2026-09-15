@@ -1220,17 +1220,51 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
 
         self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
 
-    def test_dry_run_of_a_half_null_remint_inverted_window_also_raises(self):
-        """WR-01 (35-REVIEW.md): the half-null twin of
-        `test_dry_run_of_a_remint_inverted_window_also_raises` above. A half-night classical
-        line (`1130-EoN`, `BoN-0230`) produces exactly one set sub-night field and one null
-        one via `_window_token_to_time()` -- and before this fix, the guard's `or` early-out
-        declined to look at a half-null run at all, so this exact shape survived the NF-20
-        fix that only pinned the set/set case with the sibling test above. Mints a valid
-        half-null night (`night_start_utc` set, `night_end_utc` null) via a real reconcile,
-        then edits the set boundary to a value that inverts against the site's own sunrise
-        for that night -- and asserts the dry run raises the SAME `ValueError` the
-        immediately following real run raises."""
+    def test_dry_run_of_a_half_null_remint_after_nulling_a_set_start_agrees_with_the_real_run(self):
+        """PROBE-P1 (35-VERIFICATION.md): a FALSE POSITIVE the second gap-closure round
+        introduced. Before that round the guard returned early for a half-null run, so a
+        preview aborting a night the real run handles cleanly is behaviour the round-2
+        stored-boundary fallback added -- it substituted `existing.start_time` for the
+        nulled `night_start_utc` on the premise that the stored boundary was sun-derived,
+        which is false here: the re-mint branch is entered precisely because the field
+        CHANGED, and the stored `23:00` is the operator's own old value, not a sunset.
+        Downstream harm: `reconcile_campaign_runs --dry-run` reports the run under
+        `failed:`, and `load_telescope_runs --dry-run` folds the line into `skipped`,
+        sending an operator who follows the runbook's always-dry-run-first rule to
+        "correct" data that is already correct."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = None
+        run.night_end_utc = time(22, 30)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        reconcile_run(run, dry_run=True)
+
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertLess(event.start_time, event.end_time)
+        self.assertEqual(event.end_time, datetime(2026, 7, 9, 22, 30, 0, tzinfo=dt_timezone.utc))
+
+    def test_dry_run_of_a_half_null_remint_inverted_window_stays_silent_while_the_real_run_raises(self):
+        """Rewritten for 35-16 (this plan). The previous name and assertions here (removed)
+        claimed this half-null re-mint's dry run raised the SAME `ValueError` the real run
+        raises. That passed under the defect for exactly one sub-shape: the null field here
+        (`night_end_utc`) was ALSO null at mint time, so the stored `existing.end_time`
+        genuinely WAS the sunrise, and the now-deleted stored-boundary fallback happened to
+        be sound for it. The PROBE-P1 test above is the sub-shape that falsifies the general
+        claim -- there the null field was previously SET, so the stored value is a stale
+        operator value, not a sun event. After the revert the guard cannot see EITHER
+        sub-shape's inversion -- it returns early whenever either resolved boundary is
+        unknown -- so this test now pins the narrowed, true contract: the preview stays
+        silent and the real run still raises."""
         night = date(2026, 7, 9)
         run = self._make_run(
             window_start=night,
@@ -1244,12 +1278,10 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
         run.night_start_utc = time(11, 30)
         run.save(update_fields=['night_start_utc'])
 
-        with self.assertRaises(ValueError) as dry_ctx:
-            reconcile_run(run, dry_run=True)
-        with self.assertRaises(ValueError) as real_ctx:
-            reconcile_run(run)
+        reconcile_run(run, dry_run=True)
 
-        self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
 
     def test_hanle_half_hour_offset_window_resolves_to_the_following_utc_date(self):
         """35-REVIEW.md NF-03: `Asia/Kolkata` (+5:30) is band 2-east -- both ends land

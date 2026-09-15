@@ -318,7 +318,7 @@ def _raise_if_inverted(run: CampaignRun, night, start: datetime, end: datetime) 
         )
 
 
-def _raise_if_set_window_inverted(run: CampaignRun, night, existing: CalendarEvent | None = None) -> None:
+def _raise_if_set_window_inverted(run: CampaignRun, night) -> None:
     """Shared dry-run inversion guard (NF-20, WR-01, 35-REVIEW.md), serving BOTH
     ``_mint_fields()`` caller branches' dry-run short-circuits: the re-mint branch
     (``_span_needs_remint()`` returns True) and the create branch (``existing is None``).
@@ -346,9 +346,6 @@ def _raise_if_set_window_inverted(run: CampaignRun, night, existing: CalendarEve
     Args:
         run: the ``CampaignRun`` being projected.
         night: the site-local observing night (evening date).
-        existing: the already-identified allocation ``CalendarEvent`` when called from the
-            re-mint branch, so a null sub-night field can fall back to its stored boundary;
-            ``None`` on the create path, where no stored boundary exists.
 
     Raises:
         ValueError: the same error ``_raise_if_inverted()`` raises, when both resolved
@@ -358,18 +355,9 @@ def _raise_if_set_window_inverted(run: CampaignRun, night, existing: CalendarEve
         return
     night_span = _night_span_utc(run, night)
     start = (
-        _time_of_day_to_datetime(run.night_start_utc, night, night_span)
-        if run.night_start_utc is not None
-        else (existing.start_time if existing is not None else None)
+        _time_of_day_to_datetime(run.night_start_utc, night, night_span) if run.night_start_utc is not None else None
     )
-    end = (
-        _time_of_day_to_datetime(run.night_end_utc, night, night_span)
-        if run.night_end_utc is not None
-        else (existing.end_time if existing is not None else None)
-    )
-    # WR-01 (35-REVIEW.md): a null field on the CREATE path has no stored counterpart and
-    # genuinely needs sun_event(), which D-13 forbids on a preview -- that one case stays
-    # unchecked here, and the docstrings say so rather than claiming full parity.
+    end = _time_of_day_to_datetime(run.night_end_utc, night, night_span) if run.night_end_utc is not None else None
     if start is None or end is None:
         return
     _raise_if_inverted(run, night, start, end)
@@ -753,7 +741,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                 # inverted-span failure the immediately following real run would raise,
                 # including for a half-null pair (WR-01), by passing `existing` so the
                 # guard can fall back to its stored boundary for the null field.
-                _raise_if_set_window_inverted(run, night, existing)
+                _raise_if_set_window_inverted(run, night)
                 continue
             existing.delete()
             event, _action = insert_or_create_calendar_event({'url': url}, fields=_mint_fields(run, night))
