@@ -1437,7 +1437,15 @@ class TestClearedSubNightFieldRemints(AllocationProjectorTestBase):
     `is not None` gate can no longer even reach the second comparison -- it evaluates the
     remaining check False and returns "no re-mint needed" for a night whose declared window
     genuinely changed. Shapes A (both fields cleared) and B (a half-null window's remaining
-    field cleared) are pinned separately in Task 3."""
+    field cleared) are pinned below (Task 3), plus a dry-run parity test for shape A --
+    each shape reaches the defect through a different branch, so a fix that only handles one
+    shape can pass the other two.
+
+    Fixture provenance only (never asserted against directly -- every assertion below reads
+    the live `sun_event()` result for the test's own site and night): 35-VERIFICATION.md
+    measured the true sunset/sunrise for La Silla, 2026-07-09 as `22:06:35.918` /
+    `11:29:46.816` UTC.
+    """
 
     def test_clearing_only_one_of_two_set_fields_remints_the_night(self):
         night = date(2026, 7, 9)
@@ -1467,6 +1475,101 @@ class TestClearedSubNightFieldRemints(AllocationProjectorTestBase):
             event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
         )
         self.assertEqual(event_after.end_time, still_set_end)
+
+    def test_probe_shape_a_both_fields_cleared_remints_to_the_real_sun_event(self):
+        """Probe shape A (35-VERIFICATION.md): a night minted from a set/set window whose
+        BOTH fields are then cleared to null is re-minted -- the stored event's boundaries
+        become the computed sunset/sunrise for that night."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(
+            event_after.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+
+    def test_probe_shape_b_half_nulls_remaining_set_field_cleared_remints_to_the_real_sun_event(self):
+        """Probe shape B (35-VERIFICATION.md): a night minted from a half-null window (one
+        field set, one null) whose remaining set field is then cleared is re-minted the same
+        way -- the previously-set boundary becomes the true sun event."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(
+            event_after.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+
+    def test_dry_run_of_probe_shape_a_agrees_with_the_real_run_and_writes_nothing(self):
+        """Dry-run parity (35-19-PLAN.md): for shape A, `reconcile_run(run, dry_run=True)`
+        must report the same retired/created pair the immediately following real run
+        reports, and the preview must leave the event's pk and both boundaries untouched."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.retired, 1)
+        self.assertEqual(dry_result.created, 1)
+        event_after_dry_run = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry_run.pk, pk_before)
+        self.assertEqual(event_after_dry_run.start_time, start_before)
+        self.assertEqual(event_after_dry_run.end_time, end_before)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
 
 
 class TestUnrecordedProvenanceNight(AllocationProjectorTestBase):

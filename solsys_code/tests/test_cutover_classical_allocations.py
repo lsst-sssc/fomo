@@ -29,7 +29,7 @@ from solsys_code.management.commands.load_telescope_runs import _source_identifi
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import observing_night as real_observing_night
-from solsys_code.telescope_runs import parse_run_line
+from solsys_code.telescope_runs import parse_run_line, sun_event
 
 _DARK_LINE = 'Dark window (-15 deg, UTC): 2026-07-09T00:00:00+00:00 to 2026-07-09T10:00:00+00:00'
 
@@ -431,8 +431,27 @@ class TestCutoverSequenceContract(CutoverClassicalAllocationsTestBase):
     and asserts the pinned end-state."""
 
     def test_cutover_then_sweep_reaches_the_pinned_end_state(self):
-        # 1. Convertible blank-url group (this base class's own 3-night NTT fixture).
-        convertible_events = self._make_three_night_group()
+        # 1. Convertible blank-url group -- built with REAL sun_event()-derived boundaries
+        # rather than `_make_three_night_group()`'s round-hour convention (CR-01,
+        # 35-REVIEW.md iteration 7, plan 35-19): the reconciler sweep this test runs right
+        # after the cutover now audits every re-keyed legacy night's stored boundary
+        # against the true sun event (Task 2's unrecorded-provenance branch), and the
+        # round-hour convention other tests in this file use (none of which run the sweep
+        # afterward) sits outside the one-minute tolerance -- it would re-mint these nights
+        # on the very first sweep instead of leaving them unchanged. The real pre-cutover
+        # `load_telescope_runs` writer always computed sun_event()-derived boundaries, so
+        # this matches what a genuine legacy night actually looks like.
+        convertible_events = []
+        for night in _THREE_NIGHTS:
+            sunset, sunrise = sun_event(self.ntt, night, kind='sun')
+            convertible_events.append(
+                self._make_legacy_event(
+                    source_line=_THREE_NIGHT_LINE,
+                    start_time=sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0),
+                    end_time=sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0),
+                    target_list=self.campaign,
+                )
+            )
 
         # 2. Unexplainable blank-url event -- no Source line: marker at all.
         unexplained_event = self._make_legacy_event(
