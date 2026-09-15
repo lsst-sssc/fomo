@@ -4,18 +4,18 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
-status: executing
-stopped_at: Completed 35-14-PLAN.md
-last_updated: "2026-09-15T16:57:17.864Z"
+status: verifying
+stopped_at: Completed 35-15-PLAN.md
+last_updated: "2026-09-15T17:05:04.346Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 9bb2b64a074d626043ed8ad66e41246d46e2685b
+state_head: e8015e38f213065b17ca013e20978be079576ea4
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 33
-  completed_plans: 32
-  percent: 97
+  completed_plans: 33
+  percent: 100
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-15 — Completed 35-08-PLAN.md (NF-19 BLOCKER + NF-25/IN-01/IN-02 closed)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -203,6 +203,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P12 | ~40min | 3 tasks | 2 files |
 | Phase 35 P13 | 20min | 3 tasks | 3 files |
 | Phase 35 P14 | 35min | 3 tasks | 3 files |
+| Phase 35 P15 | ~35min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -306,6 +307,7 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-13: _raise_if_set_window_inverted() now short-circuits only when BOTH sub-night fields are null, matching _span_needs_remint(); a half-null run on the re-mint branch resolves its missing boundary from existing.start_time/end_time rather than sun_event(), closing the third iteration of the dry-run/real-run inversion-guard parity bug (NF-10 -> NF-20 -> WR-01).
 - [Phase 35]: 35-13: _stale_dated_events()'s claimed_legacy_urls Args description replaced with the same four-outcome, load-bearing-in-real-mode wording as the two already-corrected copies (NF-09/NF-17/NF-22), closing WR-03 -- the third and last stale copy of that contract.
 - [Phase 35]: 35-14: load_telescope_runs.py's dry-run branch now folds run_created/run_updated/run_unchanged only after both preview_campaign_run_action() and reconcile_run(existing, dry_run=True) have returned, mirroring the real branch -- closing WR-02, the counter-parity regression 35-09's NF-21 fix introduced.
+- [Phase 35]: [Phase 35]: 35-15: closed 35-VERIFICATION.md gap 2 -- rewrote the duplicate_identity runbook guarantee to state the Source line: marker precondition (no hedge words) instead of the unconditional promise that was still false on the CR-01 path; added the loader dry/real counter-parity sentence; regenerated reconcile_campaign_runs_demo.ipynb by re-execution so its committed output carries 35-12's corrected CommandError text.
 
 ### Pending Todos
 
@@ -406,8 +408,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T16:57:17.774Z
-Stopped at: Completed 35-14-PLAN.md
+Last session: 2026-09-15T17:05:04.257Z
+Stopped at: Completed 35-15-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
