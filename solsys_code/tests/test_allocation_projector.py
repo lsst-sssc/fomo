@@ -1220,6 +1220,37 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
 
         self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
 
+    def test_dry_run_of_a_half_null_remint_inverted_window_also_raises(self):
+        """WR-01 (35-REVIEW.md): the half-null twin of
+        `test_dry_run_of_a_remint_inverted_window_also_raises` above. A half-night classical
+        line (`1130-EoN`, `BoN-0230`) produces exactly one set sub-night field and one null
+        one via `_window_token_to_time()` -- and before this fix, the guard's `or` early-out
+        declined to look at a half-null run at all, so this exact shape survived the NF-20
+        fix that only pinned the set/set case with the sibling test above. Mints a valid
+        half-null night (`night_start_utc` set, `night_end_utc` null) via a real reconcile,
+        then edits the set boundary to a value that inverts against the site's own sunrise
+        for that night -- and asserts the dry run raises the SAME `ValueError` the
+        immediately following real run raises."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = time(11, 30)
+        run.save(update_fields=['night_start_utc'])
+
+        with self.assertRaises(ValueError) as dry_ctx:
+            reconcile_run(run, dry_run=True)
+        with self.assertRaises(ValueError) as real_ctx:
+            reconcile_run(run)
+
+        self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
+
     def test_hanle_half_hour_offset_window_resolves_to_the_following_utc_date(self):
         """35-REVIEW.md NF-03: `Asia/Kolkata` (+5:30) is band 2-east -- both ends land
         outside their naive same-date position. Today both `00:00` and `02:00` land on
