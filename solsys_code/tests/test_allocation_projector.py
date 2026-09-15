@@ -1283,6 +1283,44 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
         with self.assertRaises(ValueError):
             reconcile_run(run)
 
+    def test_dry_run_cannot_see_a_half_null_remint_inversion_and_the_real_run_still_raises(self):
+        """PROBE-P6 (35-VERIFICATION.md): pins a KNOWN, DELIBERATE limitation, not a passing
+        contract. The preview cannot see this half-null inversion because the missing
+        boundary is a sun event the preview may not compute (D-13), and the stored boundary
+        is not a sound stand-in for it -- it is the operator's own previous value whenever
+        the now-null field was previously set. PROBE-P1 (above) and PROBE-P6 (this test) are
+        the two directions that falsified round 2's substituted-boundary approach: PROBE-P1
+        showed the substitute produces a false positive when the null field's old value sat
+        AFTER the real sunset/sunrise; this test's fixture is the mirror -- the null field's
+        old value sits BEFORE it, so the substitute stayed silent while the real run still
+        raised. A future change that makes this preview raise again must first solve
+        provenance (recording whether a stored boundary really is sun-derived), not
+        re-infer it from a value the run row does not distinguish.
+
+        This is also this test's OWN shape's distinction from the sibling immediately above:
+        that one keeps `night_start_utc` set and nulls `night_end_utc` throughout, then
+        inverts the set field; this one nulls a `night_start_utc` that WAS set at mint time.
+        Two different half-null shapes reaching the same outcome -- preview silent, real run
+        raises -- not the same test written twice."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(21, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = None
+        run.night_end_utc = time(21, 30)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        reconcile_run(run, dry_run=True)
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
     def test_hanle_half_hour_offset_window_resolves_to_the_following_utc_date(self):
         """35-REVIEW.md NF-03: `Asia/Kolkata` (+5:30) is band 2-east -- both ends land
         outside their naive same-date position. Today both `00:00` and `02:00` land on

@@ -330,18 +330,23 @@ def _raise_if_set_window_inverted(run: CampaignRun, night) -> None:
     rather than a third inline copy -- that recurrence is exactly what turned NF-10 into
     NF-20.
 
-    Returns immediately only when BOTH ``night_start_utc`` and ``night_end_utc`` are None --
-    the same both-null short-circuit ``_span_needs_remint()`` uses. A HALF-null run (exactly
-    one field set -- a half-night classical line such as ``1130-EoN``/``BoN-0230`` produces
-    this shape via ``_window_token_to_time()``) is not skipped: the set field resolves with
-    ``zoneinfo`` alone, and the null field is read from ``existing.start_time``/
-    ``existing.end_time`` when ``existing`` is not None -- the boundary already stored on the
-    re-mint branch's own night, which was minted from the same deterministic ``sun_event()``
-    for the same site and night, so this adds no new ``sun_event()`` call and does not breach
-    D-13. WR-01: the one shape that remains unchecked is a half-null run on the CREATE path
-    (``existing is None``), which has no stored counterpart to fall back on and would need
-    the ``sun_event()`` call D-13 forbids on a preview -- that case still returns without
-    raising, and the immediately following real run is the only thing that can detect it.
+    Checks a span only when BOTH ``night_start_utc`` and ``night_end_utc`` are set. A
+    HALF-null run (exactly one field set -- a half-night classical line such as
+    ``1130-EoN``/``BoN-0230`` produces this shape via ``_window_token_to_time()``) is NOT
+    previewed for inversion on EITHER caller branch, create or re-mint: the null boundary is
+    a sun event the preview must not compute (D-13), and a boundary already stored on the
+    existing event is NOT a sound substitute for it. A second gap-closure round (35-13) tried
+    exactly that substitution, on the premise that the stored boundary was produced by the
+    same deterministic ``sun_event()`` for the same site and night -- false whenever the
+    now-null field was previously SET, because the re-mint branch is entered precisely when
+    the sub-night fields CHANGED, and nulling a previously-set field leaves that field's old
+    operator value sitting in the stored event, not a sunset or sunrise. Both directions of
+    the resulting false parity were reproduced against a real Django test database and
+    recorded in ``35-VERIFICATION.md``: PROBE-P1 (the preview RAISES on a night the real run
+    creates cleanly) and PROBE-P6 (the preview is clean while the real run raises). The guard
+    returns without raising whenever either resolved boundary is unknown -- restoring parity
+    by silence, not by a guessed answer -- for a half-null run on EITHER branch; only the
+    immediately following real run can detect that run's inversion.
 
     Args:
         run: the ``CampaignRun`` being projected.
@@ -736,11 +741,12 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             totals['retired'] += 1
             totals['created'] += 1
             if dry_run:
-                # NF-20/WR-01 (35-REVIEW.md): the shared guard -- same check the create
-                # branch below uses -- so a dry-run preview of a re-mint sees the same
-                # inverted-span failure the immediately following real run would raise,
-                # including for a half-null pair (WR-01), by passing `existing` so the
-                # guard can fall back to its stored boundary for the null field.
+                # NF-20/WR-01 (35-REVIEW.md, 35-VERIFICATION.md gap 1): both this branch and
+                # the create branch below call the SAME two-argument guard. It raises only
+                # for a set/set span; a half-null span here is left to the real run to
+                # detect, exactly as it already is on the create branch, since round 2's
+                # attempt to preview it via a stored-boundary fallback produced a false
+                # positive (PROBE-P1) and did not fix the original false negative (PROBE-P6).
                 _raise_if_set_window_inverted(run, night)
                 continue
             existing.delete()
@@ -756,20 +762,20 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             # raise `sun_event()`'s own `ValueError` (e.g. a blank `Observatory.timezone`)
             # on what the module's own docstring documents as a read-only preview.
             #
-            # NF-10/NF-20/WR-01 (35-REVIEW.md): `_mint_fields()` is also the only caller of
-            # `night_bounds()`, where CR-06's inversion guard lives -- skipping it entirely
-            # under `dry_run` hid the one failure mode an OPERATOR-set (not site-derived)
-            # `night_start_utc`/`night_end_utc` pair can raise: a preview reported
-            # `would_create` for a night whose immediately following real run failed with
-            # an inverted-span `ValueError`. `_raise_if_set_window_inverted()` is the shared
-            # guard also called from the re-mint branch above, so the two passes cannot
-            # drift apart on this check for a set/set pair on either branch, nor for a
-            # half-null pair on the re-mint branch, which falls back to `existing`'s stored
-            # boundary (WR-01). A half-null pair on THIS create branch is the single
-            # remaining shape whose inversion only the real run can detect: there is no
-            # stored counterpart to fall back to, and resolving the null field here would
-            # need the `sun_event()` call D-13 forbids on a preview -- documented here
-            # rather than silently skipped.
+            # NF-10/NF-20/WR-01 (35-REVIEW.md, 35-VERIFICATION.md gap 1): `_mint_fields()` is
+            # also the only caller of `night_bounds()`, where CR-06's inversion guard lives --
+            # skipping it entirely under `dry_run` hid the one failure mode an OPERATOR-set
+            # (not site-derived) `night_start_utc`/`night_end_utc` pair can raise: a preview
+            # reported `would_create` for a night whose immediately following real run failed
+            # with an inverted-span `ValueError`. `_raise_if_set_window_inverted()` is the
+            # shared guard also called from the re-mint branch above, so the two passes
+            # cannot drift apart on this check for a set/set pair on either branch. A
+            # half-null pair is left to the real run to detect on EITHER branch, this one
+            # included: there is no stored counterpart this preview may trust (a round-2
+            # attempt to fall back to one produced PROBE-P1's false positive without fixing
+            # PROBE-P6's false negative), and resolving the null field here directly would
+            # need the `sun_event()` call D-13 forbids on a preview -- documented here rather
+            # than silently skipped.
             if dry_run:
                 _raise_if_set_window_inverted(run, night)
                 totals['created'] += 1
