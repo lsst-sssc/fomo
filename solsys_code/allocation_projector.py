@@ -318,6 +318,41 @@ def _raise_if_inverted(run: CampaignRun, night, start: datetime, end: datetime) 
         )
 
 
+def _raise_if_set_window_inverted(run: CampaignRun, night) -> None:
+    """Shared dry-run inversion guard (NF-20, 35-REVIEW.md), serving BOTH ``_mint_fields()``
+    caller branches' dry-run short-circuits: the re-mint branch (``_span_needs_remint()``
+    returns True) and the create branch (``existing is None``). Before this helper existed,
+    only the create branch checked for an inverted set sub-night pair under ``dry_run``
+    (NF-10) -- the re-mint branch's own ``if dry_run: continue`` skipped the check entirely,
+    so an operator edit that both changed an already-minted night's boundary AND inverted it
+    previewed clean while the immediately following real run raised. A third caller of
+    ``_mint_fields()`` added later has this one guard to call, rather than a third inline
+    copy -- that recurrence is exactly what turned NF-10 into NF-20.
+
+    Returns immediately when either ``night_start_utc`` or ``night_end_utc`` is None: a null
+    field's expected boundary depends on ``sun_event()``, which D-13 forbids calling on a
+    dry-run preview of an existing night -- the same null-field convention
+    ``_span_needs_remint()`` itself already uses. When BOTH fields are set, the span
+    resolves with ``zoneinfo`` alone (``_night_span_utc()`` plus ``_time_of_day_to_datetime()``,
+    the same resolution ``night_bounds()`` uses for a set boundary), so this adds no
+    ``sun_event()`` call on any path.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        night: the site-local observing night (evening date).
+
+    Raises:
+        ValueError: the same error ``_raise_if_inverted()`` raises, when both sub-night
+            fields are set and resolve to an inverted span.
+    """
+    if run.night_start_utc is None or run.night_end_utc is None:
+        return
+    night_span = _night_span_utc(run, night)
+    start = _time_of_day_to_datetime(run.night_start_utc, night, night_span)
+    end = _time_of_day_to_datetime(run.night_end_utc, night, night_span)
+    _raise_if_inverted(run, night, start, end)
+
+
 def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool:
     """D-13's cheap, astropy-free re-mint check: whether ``existing``'s stored boundaries no
     longer match what the run's CURRENT sub-night fields say they should be (35-REVIEW.md
@@ -684,6 +719,10 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             totals['retired'] += 1
             totals['created'] += 1
             if dry_run:
+                # NF-20 (35-REVIEW.md): the shared guard -- same check the create branch
+                # below uses -- so a dry-run preview of a re-mint sees the same
+                # inverted-span failure the immediately following real run would raise.
+                _raise_if_set_window_inverted(run, night)
                 continue
             existing.delete()
             event, _action = insert_or_create_calendar_event({'url': url}, fields=_mint_fields(run, night))
@@ -698,23 +737,16 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             # raise `sun_event()`'s own `ValueError` (e.g. a blank `Observatory.timezone`)
             # on what the module's own docstring documents as a read-only preview.
             #
-            # NF-10 (35-REVIEW.md): `_mint_fields()` is also the only caller of
+            # NF-10/NF-20 (35-REVIEW.md): `_mint_fields()` is also the only caller of
             # `night_bounds()`, where CR-06's inversion guard lives -- skipping it entirely
             # under `dry_run` hid the one failure mode an OPERATOR-set (not site-derived)
             # `night_start_utc`/`night_end_utc` pair can raise: a preview reported
             # `would_create` for a night whose immediately following real run failed with
-            # an inverted-span `ValueError`. When BOTH sub-night fields are set, this can be
-            # checked with no `sun_event()` call at all -- the same `zoneinfo`-only span
-            # `night_bounds()` itself uses for a set boundary -- via the shared
-            # `_raise_if_inverted()` guard, so the two passes cannot drift apart on this
-            # check either. A null field's boundary depends on the sun event and is never
-            # checked here, matching `_span_needs_remint()`'s own null-field convention.
+            # an inverted-span `ValueError`. `_raise_if_set_window_inverted()` is the shared
+            # guard also called from the re-mint branch above, so the two passes cannot
+            # drift apart on this check.
             if dry_run:
-                if run.night_start_utc is not None and run.night_end_utc is not None:
-                    night_span = _night_span_utc(run, night)
-                    start = _time_of_day_to_datetime(run.night_start_utc, night, night_span)
-                    end = _time_of_day_to_datetime(run.night_end_utc, night, night_span)
-                    _raise_if_inverted(run, night, start, end)
+                _raise_if_set_window_inverted(run, night)
                 totals['created'] += 1
                 continue
             fields: dict[str, Any] = _mint_fields(run, night)

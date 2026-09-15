@@ -1156,6 +1156,34 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
         self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
         self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
 
+    def test_dry_run_of_a_remint_inverted_window_also_raises(self):
+        """NF-20 (35-REVIEW.md): the re-mint branch (`_span_needs_remint()`'s own
+        `if dry_run: continue` short-circuit) skipped the inversion guard entirely -- only
+        the create branch was fixed for NF-10. Mints one valid night via a real reconcile,
+        then edits the run's sub-night fields to a pair that both needs re-minting (per
+        `_span_needs_remint()`) AND resolves inverted for this site -- and asserts the dry
+        run raises the SAME `ValueError` the immediately following real run raises."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = time(9, 0)
+        run.night_end_utc = time(23, 0)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        with self.assertRaises(ValueError) as dry_ctx:
+            reconcile_run(run, dry_run=True)
+        with self.assertRaises(ValueError) as real_ctx:
+            reconcile_run(run)
+
+        self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
+
     def test_hanle_half_hour_offset_window_resolves_to_the_following_utc_date(self):
         """35-REVIEW.md NF-03: `Asia/Kolkata` (+5:30) is band 2-east -- both ends land
         outside their naive same-date position. Today both `00:00` and `02:00` land on
