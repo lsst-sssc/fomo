@@ -399,8 +399,8 @@ class Command(BaseCommand):
                 )
                 continue
 
-            # NF-19 (35-REVIEW.md, BLOCKER): seen_keys above only protects THIS process --
-            # the thing it protects, insert_or_create_campaign_run()/
+            # NF-14/NF-19/CR-01 (35-REVIEW.md, BLOCKER): seen_keys above only protects THIS
+            # process -- the thing it protects, insert_or_create_campaign_run()/
             # preview_campaign_run_action() below, find-or-update against the DATABASE,
             # where a claimant can already exist from an earlier cutover invocation or from
             # load_telescope_runs. The guard has to look there too, or the re-run this
@@ -408,21 +408,33 @@ class Command(BaseCommand):
             # first group's run (the harm NF-19 reproduced). The claimant's own schedule
             # line is recoverable from its stored observation_details with the SAME
             # _extract_source_line() parser this module already uses -- no new parsing
-            # code. A recovered line of None (ALLOC-01 `empty`) is deliberately permissive:
-            # a database row with no recoverable Source line: marker has nothing to
-            # disagree with, so it is treated as the SAME line rather than rejected.
+            # code. A recovered line of None is NOT permissive: observation_details is
+            # writable from the Django admin (solsys_code/admin.py:165), from
+            # import_campaign_csv.py:321 and from campaign_forms.py:65, so its absence is
+            # not evidence of agreement -- it is precisely the row this one-time destructive
+            # migration cannot prove it owns, and it must be refused, never find-and-updated
+            # (CR-01, 35-REVIEW.md).
             existing_run = CampaignRun.objects.filter(source_identifier=key).first()
             if existing_run is not None:
                 existing_source_line = _extract_source_line(existing_run.observation_details)
-                if existing_source_line not in (None, source_line):
-                    _mark_unexplained(
-                        events,
-                        _DUPLICATE_IDENTITY,
-                        f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: CampaignRun pk={existing_run.pk} already '
-                        f'claimed {key!r} for a different Source line; '
-                        "edit the affected events' description 'Source line:' text to "
-                        'disambiguate the two groups in the Django admin, then re-run',
-                    )
+                if existing_source_line != source_line:
+                    if existing_source_line is not None:
+                        reason = (
+                            f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: CampaignRun pk={existing_run.pk} already '
+                            f'claimed {key!r} for a different Source line; '
+                            "edit the affected events' description 'Source line:' text to "
+                            'disambiguate the two groups in the Django admin, then re-run'
+                        )
+                    else:
+                        reason = (
+                            f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: CampaignRun pk={existing_run.pk} already '
+                            f"claimed {key!r} with no recoverable 'Source line:' marker in its "
+                            'observation_details, so this command cannot prove the run came from this '
+                            "schedule line; restore or correct that run's observation_details 'Source "
+                            "line:' text in the Django admin so it matches, or disambiguate the two "
+                            'lines, then re-run'
+                        )
+                    _mark_unexplained(events, _DUPLICATE_IDENTITY, reason)
                     continue
 
             target_list_ids = {event.target_list_id for event in events}

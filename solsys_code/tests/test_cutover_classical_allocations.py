@@ -1101,7 +1101,7 @@ class TestDuplicateIdentityKeyAcrossGroups(CutoverClassicalAllocationsTestBase):
 
 
 class TestDatabaseScopedIdentityGuard(CutoverClassicalAllocationsTestBase):
-    """NF-19 (35-REVIEW.md, BLOCKER): `seen_keys` only protects a single process
+    """NF-19/CR-01 (35-REVIEW.md, BLOCKER): `seen_keys` only protects a single process
     invocation, but the collision it exists to stop is database-scoped --
     `insert_or_create_campaign_run()`/`preview_campaign_run_action()` match against the
     database, where a claimant can already exist from an earlier cutover invocation or from
@@ -1110,8 +1110,12 @@ class TestDatabaseScopedIdentityGuard(CutoverClassicalAllocationsTestBase):
     command's own `CommandError` prescribes); a pre-existing database claimant whose stored
     `Source line:` DIFFERS must reject on the FIRST pass (test 2); the SAME stored `Source
     line:` must still convert (test 3, the benign cutover-after-import ordering WR-11
-    pins); and no recoverable marker at all must also convert (test 4, the ALLOC-01
-    `empty` edge probe, the permissive predicate 35-REVIEW.md's fix prescribes)."""
+    pins); and no recoverable marker at all must also REFUSE (test 4), because
+    `observation_details` is a free-text field the Django admin, `import_campaign_csv` and
+    the campaign submission form can all clear, so its absence is not evidence the claimant
+    agrees with the group -- it is precisely the row this one-time destructive migration
+    cannot prove it owns (CR-01, 35-REVIEW.md, re-resolving the ALLOC-01 `empty` edge
+    probe the permissive predicate previously encoded)."""
 
     def _make_pre_existing_claimant(self, *, observation_details: str) -> CampaignRun:
         """A `CampaignRun` that already holds the identity key `_THREE_NIGHT_LINE` derives,
@@ -1218,18 +1222,26 @@ class TestDatabaseScopedIdentityGuard(CutoverClassicalAllocationsTestBase):
             event.refresh_from_db()
             self.assertTrue(event.url.startswith(f'ALLOC:{existing_run.pk}:'))
 
-    def test_pre_existing_claimant_with_no_recoverable_source_line_still_converts(self):
-        """ALLOC-01 `empty` edge probe: a database claimant whose `observation_details`
-        carries NO recoverable `Source line:` marker (`_extract_source_line()` returns
-        None) is treated as the SAME line and allowed to proceed -- the permissive
-        predicate 35-REVIEW.md NF-19 prescribes."""
+    def test_pre_existing_claimant_with_no_recoverable_source_line_is_refused(self):
+        """CR-01 (35-REVIEW.md, BLOCKER), re-resolving the ALLOC-01 `empty` edge probe: a
+        database claimant whose `observation_details` carries NO recoverable `Source line:`
+        marker (`_extract_source_line()` returns None) is a claimant this command cannot
+        prove it owns -- `observation_details` is writable from the Django admin, from
+        `import_campaign_csv.py` and from the campaign submission form, so absence of a
+        marker is not evidence of agreement. It must be reported under `duplicate_identity`
+        and refused, never treated as the same line and converted."""
         existing_run = self._make_pre_existing_claimant(observation_details='')
         events = self._make_three_night_group()
 
         out = StringIO()
-        call_command('cutover_classical_allocations', stdout=out, stderr=StringIO())
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out, stderr=err)
 
-        self.assertNotIn('duplicate_identity', out.getvalue())
+        self.assertIn('unexplained (duplicate_identity): 3', out.getvalue())
+        self.assertIn(f'CampaignRun pk={existing_run.pk}', err.getvalue())
+        self.assertIn('Django admin', err.getvalue())
         for event in events:
             event.refresh_from_db()
-            self.assertTrue(event.url.startswith(f'ALLOC:{existing_run.pk}:'))
+            self.assertEqual(event.url, '')
+            self.assertFalse(CalendarEventMeta.objects.filter(event=event).exists())
