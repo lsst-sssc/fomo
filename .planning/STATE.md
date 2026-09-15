@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-10-PLAN.md
-last_updated: "2026-09-15T14:55:56.594Z"
+stopped_at: Completed 35-11-PLAN.md
+last_updated: "2026-09-15T15:08:33.450Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 11b14da02aff483176b12356efa865f859be150d
+state_head: 5eb2718371823c0a2cf88b228f2145a41cc94396
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 29
-  completed_plans: 28
-  percent: 97
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 10 of 11
+Plan: 11 of 11
 Status: Ready to execute
 Last activity: 2026-09-15 — Completed 35-08-PLAN.md (NF-19 BLOCKER + NF-25/IN-01/IN-02 closed)
 
@@ -199,6 +199,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P08 | 30min | 3 tasks | 2 files |
 | Phase 35 P09 | 75min | 3 tasks | 5 files |
 | Phase 35 P10 | 50min | 3 tasks | 3 files |
+| Phase 35 P11 | 40min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -295,6 +296,8 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-09: legacy_urls_claimed.add() moved ahead of the takeover branch's _may_write() check, mirroring the retired branch's NF-09 fix -- a blocked legacy takeover event is claimed on every decision, not only the re-key path, so campaign_reconciler's foreign fold never double-counts it (NF-22).
 - [Phase 35]: 35-10: rewrapped runbook duplicate_identity phrase onto single unwrapped lines so the plan's exact-phrase grep -cF gate matches per-line (RST rendering unaffected).
 - [Phase 35]: 35-10: moved the notebook's existing duplicate-run-identity demo cell's fixture cleanup into the new second-invocation cell so both cells share the same live fixture, per the plan's literal requirement.
+- [Phase 35]: [Phase 35]: 35-11: unrecognised-status skip path demonstrated via parse_run_line()'s own ValueError (a parenthetical status not in KNOWN_STATUSES), not the narrower except KeyError around _CLASSICAL_RUN_STATUS[parsed.status] -- that inner clause is unreachable via real parse_run_line() output since a module-level assert enforces its key set equals KNOWN_STATUSES.
+- [Phase 35]: [Phase 35]: 35-11: malformed-timezone skip path demonstrated by temporarily mutating the already-seeded NTT Observatory's timezone (restored before any later cell resolves NTT again), since telescope_runs.SITES is a fixed 4-entry dict and a schedule line can only resolve to one of its four names.
 
 ### Pending Todos
 
@@ -395,8 +398,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T14:55:56.287Z
-Stopped at: Completed 35-10-PLAN.md
+Last session: 2026-09-15T15:08:33.368Z
+Stopped at: Completed 35-11-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
