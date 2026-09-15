@@ -63,6 +63,17 @@ ALLOC_URL_NAMESPACE = 'ALLOC:'
 
 _DARK_WINDOW_PREFIX = 'Dark window (-15 deg, UTC): '
 
+# CR-01 (35-REVIEW.md iteration 7, plan 35-19 Task 2): the unrecorded-provenance branch of
+# `_span_needs_remint()` compares a stored boundary against a freshly resolved sun_event()
+# result to decide whether a LEGACY night (no recorded mint provenance) is still correct.
+# Astropy drift between sessions (an IERS Earth-orientation refresh) moves a sun_event()
+# result by seconds -- D-13's actual concern, and the loader's drifted-reimport regression
+# test pins that drift alone must never re-mint a night. A stale OPERATOR value, by
+# contrast, sits minutes to hours away from the true sun event. One minute separates the two
+# classes cleanly: comfortably above any realistic astropy drift, comfortably below any
+# real stale-boundary shape.
+_UNRECORDED_PROVENANCE_TOLERANCE = timedelta(minutes=1)
+
 
 def allocation_night_url(run: CampaignRun, night) -> str:
     """The per-night allocation key.
@@ -439,16 +450,34 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
        token against ``'none|none'`` (shape B) all differ, so all three re-mint, while an
        unchanged null/null run's ``'none|none'`` matches itself and returns False with zero
        astropy. No ``sun_event()`` call is ever made on this branch (prohibition 3).
-    4. When provenance is NOT recorded, return False for now -- Task 2 (plan 35-19) replaces
-       this placeholder with the bounded, one-time ``sun_event()`` resolution for a night
-       minted before this column existed, or taken over by the legacy re-key path.
+    4. When provenance is NOT recorded, this is a LEGACY night -- minted before this column
+       existed, or taken over by the legacy re-key path while preserving the legacy event's
+       own boundaries. Round 2 SUBSTITUTED a stored boundary for an uncomputed sun event
+       here and was reverted for it; this branch instead COMPUTES the sun event, exactly
+       once, and records only what that computation confirms. Calls ``sun_event(run.site,
+       night, kind='sun')`` once for the night and compares only the NULL side or sides
+       against the returned sunset/sunrise, resolved with the SAME expression
+       :func:`night_bounds` uses so the two can never drift apart, against
+       ``_UNRECORDED_PROVENANCE_TOLERANCE``: astropy drift between sessions moves a
+       ``sun_event()`` result by seconds (D-13's actual concern), while a stale operator
+       value sits minutes to hours away, so the one-minute tolerance separates the two
+       cleanly. Outside the tolerance, logs a warning naming the run, the night, the stored
+       boundary and the resolved sun event, and returns True -- this projector no longer
+       reports a run/calendar disagreement it can detect as a silent ``unchanged``
+       (35-VERIFICATION.md `missing` item 4). Within the tolerance, the null side is PROVEN
+       sun-derived by the call just made and the set side (if any) was already proven to
+       match by step 1 -- so the run's current token is now an established fact, recorded
+       via :func:`_record_sub_night_provenance` (skipped only under ``dry_run``, so a
+       preview and the real run still reach the identical decision), and False is returned.
+       Cost bound: at most one ``sun_event(kind='sun')`` call per unrecorded night, once
+       ever -- once recorded, step 3 above decides that night astropy-free forever after.
 
     Args:
         run: the ``CampaignRun`` being projected.
         night: the site-local observing night (evening date).
         existing: the already-identified allocation ``CalendarEvent``.
-        dry_run: passed through for Task 2's unrecorded-provenance branch, which must skip
-            recording what it proves (but not the comparison itself) under a preview.
+        dry_run: when True, step 4 still performs its comparison (so a preview and the real
+            run reach the identical decision) but skips recording what it proves.
 
     Returns:
         bool: True when the night must be deleted and re-created fresh.
@@ -472,8 +501,33 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
         recorded_token = None
     if recorded_token is not None:
         return recorded_token != _sub_night_provenance_token(run)
-    # Task 2 (plan 35-19) replaces this placeholder with a bounded, one-time sun_event()
-    # resolution for a night whose provenance was never recorded.
+
+    # Legacy night, provenance unrecorded (CR-01 Task 2): resolve the unknown side(s)
+    # against ONE real sun_event() call, never inferring provenance from the stored value.
+    sunset, sunrise = sun_event(run.site, night, kind='sun')
+    expected_sunset = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+    expected_sunrise = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+    stale = False
+    if run.night_start_utc is None and abs(existing.start_time - expected_sunset) > _UNRECORDED_PROVENANCE_TOLERANCE:
+        stale = True
+    if run.night_end_utc is None and abs(existing.end_time - expected_sunrise) > _UNRECORDED_PROVENANCE_TOLERANCE:
+        stale = True
+    if stale:
+        logger.warning(
+            'Allocation unrecorded-provenance night pk=%s run pk=%s night=%s: stored '
+            'boundary start=%s end=%s disagrees beyond tolerance with the resolved sun '
+            'event sunset=%s sunrise=%s.',
+            existing.pk,
+            run.pk,
+            night,
+            existing.start_time,
+            existing.end_time,
+            expected_sunset,
+            expected_sunrise,
+        )
+        return True
+    if not dry_run:
+        _record_sub_night_provenance(existing, _sub_night_provenance_token(run))
     return False
 
 
