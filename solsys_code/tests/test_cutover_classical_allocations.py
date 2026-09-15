@@ -1245,3 +1245,40 @@ class TestDatabaseScopedIdentityGuard(CutoverClassicalAllocationsTestBase):
             event.refresh_from_db()
             self.assertEqual(event.url, '')
             self.assertFalse(CalendarEventMeta.objects.filter(event=event).exists())
+
+    def test_no_marker_claimant_keeps_run_status_details_and_target_byte_identical(self):
+        """PROBE-A (35-REVIEW.md CR-01) -- the assertion shape the pre-CR-01 suite lacked:
+        no test asserted `run_status`/`observation_details`/`target` were unchanged after a
+        refused pass. The prior fourth case's `observation_details=''` fixture made every
+        overwritten field invisible to its assertions, which is exactly why the suite
+        green-lit the blocker. This test uses a realistic staff note instead, gives the
+        claimant a real `Target` so the merge's `'target': None` write would be observable,
+        and collides it with the CANCELLED counterpart of its own Source line so a merge
+        would flip `run_status` too -- the harm PROBE-A reproduced with exit 0,
+        `unexplained: 0`, `updated: 1`, `events re-keyed: 3`."""
+        existing_run = self._make_pre_existing_claimant(
+            observation_details='Rescheduled per PI request; see ticket OPS-4412.'
+        )
+        existing_run.target = NonSiderealTargetFactory()
+        existing_run.save(update_fields=['target'])
+
+        run_status_before = existing_run.run_status
+        observation_details_before = existing_run.observation_details
+        target_id_before = existing_run.target_id
+
+        events = self._make_three_night_group(source_line=self._CANCELLED_LINE)
+
+        out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out, stderr=StringIO())
+
+        existing_run.refresh_from_db()
+        self.assertEqual(existing_run.run_status, run_status_before)
+        self.assertEqual(existing_run.observation_details, observation_details_before)
+        self.assertEqual(existing_run.target_id, target_id_before)
+        self.assertIn('events re-keyed: 0', out.getvalue())
+
+        for event in events:
+            event.refresh_from_db()
+            self.assertEqual(event.url, '')
+            self.assertFalse(CalendarEventMeta.objects.filter(event=event).exists())
