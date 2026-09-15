@@ -1,97 +1,47 @@
 {
-  "captured_at": "2026-09-11T04:44:59.526430+00:00",
+  "captured_at": "2026-09-15T15:04:51.716779+00:00",
   "proposal": "KEY2026B-004",
-  "record_count": 74,
+  "record_count": 50,
   "records": {
-    "4378021": {
-      "target": "220P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-04T16:00:00+00:00",
-      "scheduled_end": "2026-09-04T16:16:50+00:00",
-      "event_start": "2026-09-04T16:00:00+00:00",
-      "event_end": "2026-09-04T16:16:50+00:00",
-      "event_title": "[S] 1m0 220P"
-    },
-    "4378022": {
-      "target": "220P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-06T08:14:00+00:00",
-      "scheduled_end": "2026-09-06T08:30:50+00:00",
-      "event_start": "2026-09-06T08:14:00+00:00",
-      "event_end": "2026-09-06T08:30:50+00:00",
-      "event_title": "[S] 1m0 220P"
-    },
-    "4378023": {
-      "target": "220P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-08T02:00:00+00:00",
-      "scheduled_end": "2026-09-08T02:16:50+00:00",
-      "event_start": "2026-09-08T02:00:00+00:00",
-      "event_end": "2026-09-08T02:16:50+00:00",
-      "event_title": "[S] 1m0 220P"
-    },
-    "4378024": {
-      "target": "220P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-09T18:14:00+00:00",
-      "scheduled_end": "2026-09-09T18:30:50+00:00",
-      "event_start": "2026-09-09T18:14:00+00:00",
-      "event_end": "2026-09-09T18:30:50+00:00",
-      "event_title": "[S] 1m0 220P"
-    },
-    "4378025": {
-      "target": "220P",
-      "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-11T11:14:00+00:00",
-      "event_end": "2026-09-12T16:14:00+00:00",
-      "event_title": "[Q] 1m0 220P"
-    },
     "4378026": {
       "target": "220P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-13T04:14:00+00:00",
-      "event_end": "2026-09-14T09:14:00+00:00",
-      "event_title": "[Q] 1m0 220P"
+      "stage": "placed",
+      "scheduled_start": "2026-09-13T06:15:00+00:00",
+      "scheduled_end": "2026-09-13T06:31:50+00:00",
+      "event_start": "2026-09-13T06:15:00+00:00",
+      "event_end": "2026-09-13T06:31:50+00:00",
+      "event_title": "[S] 1m0 220P"
     },
     "4378027": {
       "target": "220P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-14T21:14:00+00:00",
-      "event_end": "2026-09-16T02:14:00+00:00",
-      "event_title": "[Q] 1m0 220P"
+      "stage": "placed",
+      "scheduled_start": "2026-09-15T06:00:00+00:00",
+      "scheduled_end": "2026-09-15T06:16:50+00:00",
+      "event_start": "2026-09-15T06:00:00+00:00",
+      "event_end": "2026-09-15T06:16:50+00:00",
+      "event_title": "[S] 1m0 220P"
     },
     "4378028": {
       "target": "220P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-16T14:14:00+00:00",
-      "event_end": "2026-09-17T19:14:00+00:00",
-      "event_title": "[Q] 1m0 220P"
+      "stage": "placed",
+      "scheduled_start": "2026-09-16T15:15:00+00:00",
+      "scheduled_end": "2026-09-16T15:31:50+00:00",
+      "event_start": "2026-09-16T15:15:00+00:00",
+      "event_end": "2026-09-16T15:31:50+00:00",
+      "event_title": "[S] 1m0 220P"
     },
     "4378029": {
       "target": "220P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
+      "stage": "placed",
+      "scheduled_start": "2026-09-18T07:14:00+00:00",
+      "scheduled_end": "2026-09-18T07:30:50+00:00",
       "event_start": "2026-09-18T07:14:00+00:00",
-      "event_end": "2026-09-19T12:14:00+00:00",
-      "event_title": "[Q] 1m0 220P"
+      "event_end": "2026-09-18T07:30:50+00:00",
+      "event_title": "[S] 1m0 220P"
     },
     "4378030": {
       "target": "220P",
@@ -163,175 +113,85 @@
       "event_end": "2026-10-04T12:44:00+00:00",
       "event_title": "[Q] 1m0 220P"
     },
-    "4378038": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-04T11:35:00+00:00",
-      "scheduled_end": "2026-09-04T11:48:22+00:00",
-      "event_start": "2026-09-04T11:35:00+00:00",
-      "event_end": "2026-09-04T11:48:22+00:00",
-      "event_title": "[S] 1m0 10P"
-    },
-    "4378039": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-05T02:21:00+00:00",
-      "scheduled_end": "2026-09-05T02:34:22+00:00",
-      "event_start": "2026-09-05T02:21:00+00:00",
-      "event_end": "2026-09-05T02:34:22+00:00",
-      "event_title": "[S] 1m0 10P"
-    },
-    "4378040": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-06T01:21:00+00:00",
-      "scheduled_end": "2026-09-06T01:34:22+00:00",
-      "event_start": "2026-09-06T01:21:00+00:00",
-      "event_end": "2026-09-06T01:34:22+00:00",
-      "event_title": "[S] 1m0 10P"
-    },
-    "4378041": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-07T00:21:00+00:00",
-      "scheduled_end": "2026-09-07T00:34:22+00:00",
-      "event_start": "2026-09-07T00:21:00+00:00",
-      "event_end": "2026-09-07T00:34:22+00:00",
-      "event_title": "[S] 1m0 10P"
-    },
-    "4378042": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-07T23:45:00+00:00",
-      "scheduled_end": "2026-09-07T23:58:22+00:00",
-      "event_start": "2026-09-07T23:45:00+00:00",
-      "event_end": "2026-09-07T23:58:22+00:00",
-      "event_title": "[S] 1m0 10P"
-    },
-    "4378043": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-08T23:45:00+00:00",
-      "scheduled_end": "2026-09-08T23:58:22+00:00",
-      "event_start": "2026-09-08T23:45:00+00:00",
-      "event_end": "2026-09-08T23:58:22+00:00",
-      "event_title": "[S] 1m0 10P"
-    },
-    "4378044": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-09T23:45:00+00:00",
-      "scheduled_end": "2026-09-09T23:58:22+00:00",
-      "event_start": "2026-09-09T23:45:00+00:00",
-      "event_end": "2026-09-09T23:58:22+00:00",
-      "event_title": "[S] 1m0 10P"
-    },
-    "4378045": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-10T20:21:00+00:00",
-      "event_end": "2026-09-11T13:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
-    },
-    "4378046": {
-      "target": "10P",
-      "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-11T19:21:00+00:00",
-      "event_end": "2026-09-12T12:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
-    },
     "4378047": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-12T18:21:00+00:00",
-      "event_end": "2026-09-13T11:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "stage": "placed",
+      "scheduled_start": "2026-09-13T01:10:00+00:00",
+      "scheduled_end": "2026-09-13T01:23:22+00:00",
+      "event_start": "2026-09-13T01:10:00+00:00",
+      "event_end": "2026-09-13T01:23:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378048": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-13T17:21:00+00:00",
-      "event_end": "2026-09-14T10:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "stage": "placed",
+      "scheduled_start": "2026-09-13T23:45:00+00:00",
+      "scheduled_end": "2026-09-13T23:58:22+00:00",
+      "event_start": "2026-09-13T23:45:00+00:00",
+      "event_end": "2026-09-13T23:58:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378049": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
+      "stage": "placed",
+      "scheduled_start": "2026-09-14T16:21:00+00:00",
+      "scheduled_end": "2026-09-14T16:34:22+00:00",
       "event_start": "2026-09-14T16:21:00+00:00",
-      "event_end": "2026-09-15T09:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "event_end": "2026-09-14T16:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378050": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
+      "stage": "placed",
+      "scheduled_start": "2026-09-15T15:21:00+00:00",
+      "scheduled_end": "2026-09-15T15:34:22+00:00",
       "event_start": "2026-09-15T15:21:00+00:00",
-      "event_end": "2026-09-16T08:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "event_end": "2026-09-15T15:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378051": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
+      "stage": "placed",
+      "scheduled_start": "2026-09-16T14:21:00+00:00",
+      "scheduled_end": "2026-09-16T14:34:22+00:00",
       "event_start": "2026-09-16T14:21:00+00:00",
-      "event_end": "2026-09-17T07:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "event_end": "2026-09-16T14:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378052": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
+      "stage": "placed",
+      "scheduled_start": "2026-09-17T13:21:00+00:00",
+      "scheduled_end": "2026-09-17T13:34:22+00:00",
       "event_start": "2026-09-17T13:21:00+00:00",
-      "event_end": "2026-09-18T06:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "event_end": "2026-09-17T13:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378053": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
+      "stage": "placed",
+      "scheduled_start": "2026-09-18T12:21:00+00:00",
+      "scheduled_end": "2026-09-18T12:34:22+00:00",
       "event_start": "2026-09-18T12:21:00+00:00",
-      "event_end": "2026-09-19T05:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "event_end": "2026-09-18T12:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378054": {
       "target": "10P",
       "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
+      "stage": "placed",
+      "scheduled_start": "2026-09-19T11:21:00+00:00",
+      "scheduled_end": "2026-09-19T11:34:22+00:00",
       "event_start": "2026-09-19T11:21:00+00:00",
-      "event_end": "2026-09-20T04:21:00+00:00",
-      "event_title": "[Q] 1m0 10P"
+      "event_end": "2026-09-19T11:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
     },
     "4378055": {
       "target": "10P",
@@ -452,96 +312,6 @@
       "event_start": "2026-10-03T20:21:00+00:00",
       "event_end": "2026-10-04T12:51:00+00:00",
       "event_title": "[Q] 1m0 10P"
-    },
-    "4378323": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-03T18:07:00+00:00",
-      "event_end": "2026-09-04T02:37:00+00:00",
-      "event_title": "[Q] 1m0 11P"
-    },
-    "4378324": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-04T23:15:00+00:00",
-      "scheduled_end": "2026-09-04T23:34:18+00:00",
-      "event_start": "2026-09-04T23:15:00+00:00",
-      "event_end": "2026-09-04T23:34:18+00:00",
-      "event_title": "[S] 1m0 11P"
-    },
-    "4378325": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-05T23:15:00+00:00",
-      "scheduled_end": "2026-09-05T23:34:18+00:00",
-      "event_start": "2026-09-05T23:15:00+00:00",
-      "event_end": "2026-09-05T23:34:18+00:00",
-      "event_title": "[S] 1m0 11P"
-    },
-    "4378326": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-06T23:15:00+00:00",
-      "scheduled_end": "2026-09-06T23:34:18+00:00",
-      "event_start": "2026-09-06T23:15:00+00:00",
-      "event_end": "2026-09-06T23:34:18+00:00",
-      "event_title": "[S] 1m0 11P"
-    },
-    "4378328": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-08T04:37:00+00:00",
-      "scheduled_end": "2026-09-08T04:56:18+00:00",
-      "event_start": "2026-09-08T04:37:00+00:00",
-      "event_end": "2026-09-08T04:56:18+00:00",
-      "event_title": "[S] 1m0 11P"
-    },
-    "4378329": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-09T03:37:00+00:00",
-      "scheduled_end": "2026-09-09T03:56:18+00:00",
-      "event_start": "2026-09-09T03:37:00+00:00",
-      "event_end": "2026-09-09T03:56:18+00:00",
-      "event_title": "[S] 1m0 11P"
-    },
-    "4378330": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-10T02:37:00+00:00",
-      "scheduled_end": "2026-09-10T02:56:18+00:00",
-      "event_start": "2026-09-10T02:37:00+00:00",
-      "event_end": "2026-09-10T02:56:18+00:00",
-      "event_title": "[S] 1m0 11P"
-    },
-    "4378331": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-11T01:37:00+00:00",
-      "event_end": "2026-09-11T18:37:00+00:00",
-      "event_title": "[Q] 1m0 11P"
-    },
-    "4378332": {
-      "target": "11P",
-      "status": "PENDING",
-      "stage": "queued",
-      "scheduled_start": null,
-      "scheduled_end": null,
-      "event_start": "2026-09-12T00:37:00+00:00",
-      "event_end": "2026-09-12T17:37:00+00:00",
-      "event_title": "[Q] 1m0 11P"
     },
     "4378333": {
       "target": "11P",
@@ -732,16 +502,6 @@
       "event_start": "2026-10-04T01:37:00+00:00",
       "event_end": "2026-10-04T18:07:00+00:00",
       "event_title": "[Q] 1m0 11P"
-    },
-    "4378366": {
-      "target": "112P",
-      "status": "PENDING",
-      "stage": "placed",
-      "scheduled_start": "2026-09-08T03:30:00+00:00",
-      "scheduled_end": "2026-09-08T03:37:28+00:00",
-      "event_start": "2026-09-08T03:30:00+00:00",
-      "event_end": "2026-09-08T03:37:28+00:00",
-      "event_title": "[S] 1m0 112P"
     }
   }
 }
