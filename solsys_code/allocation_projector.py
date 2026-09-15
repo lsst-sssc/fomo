@@ -368,31 +368,94 @@ def _raise_if_set_window_inverted(run: CampaignRun, night) -> None:
     _raise_if_inverted(run, night, start, end)
 
 
-def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool:
-    """D-13's cheap, astropy-free re-mint check: whether ``existing``'s stored boundaries no
-    longer match what the run's CURRENT sub-night fields say they should be (35-REVIEW.md
-    NF-03).
+def _sub_night_provenance_token(run: CampaignRun) -> str:
+    """The canonical text form of a run's CURRENT sub-night window pair (CR-01,
+    35-REVIEW.md iteration 7; plan 35-19's design rationale).
 
-    A null sub-night field means the expected boundary is the sun-event pair, which cannot
-    be known without calling ``sun_event()`` -- so a null field is deliberately never
-    checked; D-13 forbids rewriting an existing night's stored boundary for astropy drift,
-    and a null-null run therefore always reports "no re-mint needed" on this check. A SET
-    field's expected boundary is computable with no astropy call at all -- a ``zoneinfo``
-    span lookup (``_night_span_utc()``) plus the same per-boundary resolution
-    ``night_bounds()`` uses -- so it is compared directly against the stored boundary; a
-    mismatch on either end marks the night for re-mint.
+    Each side is ``isoformat()`` of the ``TimeField`` when set and the literal ``'none'``
+    when null, joined by a single ``'|'``. Pure, astropy-free, no database access.
+
+    ``'none'`` is itself a RECORDED value here, not an absence of one -- it means "this
+    boundary was minted from the sun event", which is what makes the null case decidable at
+    all once a run's current token is compared against a previously recorded one (see
+    :func:`_span_needs_remint`).
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+
+    Returns:
+        str: e.g. ``'23:00:00|05:00:00'``, ``'none|05:00:00'``, or ``'none|none'``.
+    """
+    start_token = run.night_start_utc.isoformat() if run.night_start_utc is not None else 'none'
+    end_token = run.night_end_utc.isoformat() if run.night_end_utc is not None else 'none'
+    return f'{start_token}|{end_token}'
+
+
+def _record_sub_night_provenance(event: CalendarEvent, token: str) -> None:
+    """Writer (CR-01, 35-REVIEW.md iteration 7; plan 35-19): set ONLY
+    ``CalendarEventMeta.minted_sub_night_window`` on ``event``'s companion row -- mirrors
+    ``_link_event_to_run()``'s "Writer WR-03" docstring contract.
+
+    Uses ``update_or_create`` keyed on ``event`` so this is safe whether or not
+    ``_link_event_to_run()`` has already created the row for this event. Never touches
+    ``run``, ``is_verified``, ``confirmed_by``, ``confirmed_at``, ``observation_record`` or
+    ``observation_group`` -- an already-linked row's attribution and audit history must
+    survive untouched.
+
+    Args:
+        event: the just-minted or just-re-minted allocation ``CalendarEvent``.
+        token: :func:`_sub_night_provenance_token` for the run this event was minted from.
+    """
+    CalendarEventMeta.objects.update_or_create(event=event, defaults={'minted_sub_night_window': token})
+
+
+def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_run: bool = False) -> bool:
+    """D-13's re-mint check: whether ``existing``'s stored boundaries no longer match what
+    the run's CURRENT sub-night fields say they should be (35-REVIEW.md NF-03, CR-01
+    iteration 7).
+
+    Proves CR-01 closed against all three probe shapes 35-VERIFICATION.md reproduced: (A) a
+    set/set window cleared to null/null, (B) a half-null window's remaining set field
+    cleared, and (C) clearing only ONE of two set fields while the other stays set and still
+    matches its stored boundary -- the shape a naive "check whether BOTH fields are null"
+    fix would still miss, since the per-field ``is not None`` gate reaches the second
+    comparison, finds it unchanged, and used to return False for a window that genuinely
+    changed. Comparing a null side against a stored boundary WITHOUT recorded provenance is
+    what round 2 did and round 3 correctly deleted -- this function never does that; it
+    proves the null case in two ways, neither of them a guess:
+
+    1. Both existing SET-field comparisons run FIRST, byte-identical in meaning to before:
+       a SET field whose expected boundary differs from the stored one returns True. These
+       stay because they also catch a boundary edited directly on the ``CalendarEvent``,
+       which provenance cannot see. ``_night_span_utc()`` is computed only when at least one
+       field is set, so a null/null run does no ``zoneinfo`` work it will not use.
+    2. If BOTH fields are set, return False -- fully decided, astropy-free, exactly as
+       before.
+    3. Otherwise read the recorded provenance from ``existing``'s companion row
+       (``CalendarEventMeta.minted_sub_night_window``). When it is recorded, return whether
+       it differs from :func:`_sub_night_provenance_token` for the run's current fields --
+       this is the line that closes CR-01: a token of ``'23:00:00|05:00:00'`` against a
+       current ``'none|05:00:00'`` (shape C), ``'none|none'`` (shape A), or a half-null
+       token against ``'none|none'`` (shape B) all differ, so all three re-mint, while an
+       unchanged null/null run's ``'none|none'`` matches itself and returns False with zero
+       astropy. No ``sun_event()`` call is ever made on this branch (prohibition 3).
+    4. When provenance is NOT recorded, return False for now -- Task 2 (plan 35-19) replaces
+       this placeholder with the bounded, one-time ``sun_event()`` resolution for a night
+       minted before this column existed, or taken over by the legacy re-key path.
 
     Args:
         run: the ``CampaignRun`` being projected.
         night: the site-local observing night (evening date).
         existing: the already-identified allocation ``CalendarEvent``.
+        dry_run: passed through for Task 2's unrecorded-provenance branch, which must skip
+            recording what it proves (but not the comparison itself) under a preview.
 
     Returns:
         bool: True when the night must be deleted and re-created fresh.
     """
-    if run.night_start_utc is None and run.night_end_utc is None:
-        return False
-    night_span = _night_span_utc(run, night)
+    night_span = None
+    if run.night_start_utc is not None or run.night_end_utc is not None:
+        night_span = _night_span_utc(run, night)
     if run.night_start_utc is not None and existing.start_time != _time_of_day_to_datetime(
         run.night_start_utc, night, night_span
     ):
@@ -401,6 +464,16 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent) -> bool
         run.night_end_utc, night, night_span
     ):
         return True
+    if run.night_start_utc is not None and run.night_end_utc is not None:
+        return False
+    try:
+        recorded_token = existing.telescope_label_meta.minted_sub_night_window
+    except CalendarEventMeta.DoesNotExist:
+        recorded_token = None
+    if recorded_token is not None:
+        return recorded_token != _sub_night_provenance_token(run)
+    # Task 2 (plan 35-19) replaces this placeholder with a bounded, one-time sun_event()
+    # resolution for a night whose provenance was never recorded.
     return False
 
 
@@ -733,7 +806,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             totals['rekeyed'] += 1
             continue
 
-        if existing is not None and _span_needs_remint(run, night, existing):
+        if existing is not None and _span_needs_remint(run, night, existing, dry_run=dry_run):
             # D-13: a sub-night field change never rewrites start_time/end_time in place --
             # the night is deleted and re-created fresh, counted as retired + created, never
             # updated. Both halves are skipped under dry_run (no sun_event() call either),
@@ -752,6 +825,10 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             existing.delete()
             event, _action = insert_or_create_calendar_event({'url': url}, fields=_mint_fields(run, night))
             _link_event_to_run(event, run)
+            # CR-01 (35-REVIEW.md iteration 7, plan 35-19): record what this re-mint's
+            # boundaries were minted from, so the next sweep's _span_needs_remint() can
+            # decide a future null-side change astropy-free.
+            _record_sub_night_provenance(event, _sub_night_provenance_token(run))
             continue
 
         if existing is None:
@@ -795,9 +872,15 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
 
         if existing is None:
             event, action = insert_or_create_calendar_event({'url': url}, fields=fields)
+            _link_event_to_run(event, run)
+            # CR-01 (35-REVIEW.md iteration 7, plan 35-19): record provenance only on the
+            # create path -- the plain-update path's boundaries are whatever is already
+            # stored, not this run's current sub-night window, so recording there would
+            # claim a fact this write never proved.
+            _record_sub_night_provenance(event, _sub_night_provenance_token(run))
         else:
             event, action = update_calendar_event_key_and_fields(existing, url, fields)
-        _link_event_to_run(event, run)
+            _link_event_to_run(event, run)
         totals[action] += 1
 
     totals['blocked'] += _sync_observation_attribution(run, dry_run=dry_run)

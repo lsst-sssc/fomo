@@ -103,16 +103,26 @@ class CalendarEventMetaInline(admin.TabularInline):
 
     PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group are also read-only
     here -- only the observation projector (Phase 34) writes them, never a staff form.
+
+    CR-01 (35-REVIEW.md iteration 7, plan 35-19): minted_sub_night_window is also read-only
+    here -- only the allocation projector writes it, and the re-mint decision it feeds must
+    not be typeable by a staff member the way observation_details can be.
     """
 
     model = CalendarEventMeta
     formset = CalendarEventMetaInlineFormSet
     fk_name = 'run'
     extra = 0
-    # D-09: only the observation projector writes observation_record/observation_group, so
-    # no staff surface may bind them -- the same mechanism already protecting
-    # confirmed_by/confirmed_at.
-    readonly_fields = ['confirmed_by', 'confirmed_at', 'observation_record', 'observation_group']
+    # D-09/CR-01 (35-19): only the observation/allocation projectors write
+    # observation_record/observation_group/minted_sub_night_window, so no staff surface may
+    # bind them -- the same mechanism already protecting confirmed_by/confirmed_at.
+    readonly_fields = [
+        'confirmed_by',
+        'confirmed_at',
+        'observation_record',
+        'observation_group',
+        'minted_sub_night_window',
+    ]
 
 
 class CampaignRunObservationInline(admin.TabularInline):
@@ -317,8 +327,18 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
     # writer of either field on this surface.
     # PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group join the same list
     # for the same reason -- only the observation projector (Phase 34) writes these links,
-    # so no staff surface may bind them.
-    readonly_fields = ['confirmed_by', 'confirmed_at', 'observation_record', 'observation_group']
+    # so no staff surface may bind them. CR-01 (35-REVIEW.md iteration 7, plan 35-19) adds
+    # minted_sub_night_window for the identical reason: only the allocation projector writes
+    # it, and it feeds an automated re-mint decision a staff member must not be able to
+    # forge -- the same trust hole the cutover's admin-writable observation_details marker
+    # named.
+    readonly_fields = [
+        'confirmed_by',
+        'confirmed_at',
+        'observation_record',
+        'observation_group',
+        'minted_sub_night_window',
+    ]
 
     def get_readonly_fields(self, request, obj=None):
         """CR-02: extend the WR-08 primary-key freeze to the standalone change form.

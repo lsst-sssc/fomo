@@ -34,6 +34,17 @@ class CalendarEventMeta(models.Model):
     and ``observation_group`` carry which ``ObservationRecord`` and ``ObservationGroup`` the
     event was drawn from. Both are written only by the observation projector (Phase 34), never
     by a staff form -- the same rule that already governs ``run``.
+
+    CR-01 (35-REVIEW.md iteration 7, closed by plan 35-19) adds ``minted_sub_night_window``:
+    the allocation projector's own record of the ``CampaignRun`` sub-night window pair
+    (``night_start_utc``/``night_end_utc``) that this event's ``start_time``/``end_time``
+    were minted from. A ``null`` value means NOT RECORDED -- an event minted before this
+    column existed, or one the cutover's re-key branch took over while preserving the
+    legacy event's own boundaries -- it never means "both sub-night fields were null", which
+    is recorded as the explicit token ``'none|none'`` (see
+    ``allocation_projector._sub_night_provenance_token()``). Only the allocation projector
+    writes it, the same rule that already governs ``run``, ``observation_record`` and
+    ``observation_group``.
     """
 
     event = models.OneToOneField(
@@ -99,6 +110,13 @@ class CalendarEventMeta(models.Model):
         verbose_name='Confirmed by',
     )
     confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='Confirmed at')
+    # CR-01 (35-REVIEW.md iteration 7, plan 35-19): the sub-night window pair this event's
+    # boundaries were minted from, in `_sub_night_provenance_token()`'s canonical text form
+    # (e.g. `'23:00:00|05:00:00'`, `'none|05:00:00'`, `'none|none'`). Null means NOT
+    # RECORDED -- see the class docstring. Only the allocation projector writes it.
+    minted_sub_night_window = models.CharField(
+        max_length=32, null=True, blank=True, verbose_name='Minted sub-night window'
+    )
 
     def __str__(self):
         """Verified/Fallback prefix + event title + event start (Task 1, 27.1-02).
