@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 13/15 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans added 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5)
+**Plans:** 14/15 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans added 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5)
 
 Plans:
 **Wave 1**
@@ -296,7 +296,7 @@ Plans:
 
 - [x] 35-12-PLAN.md — CR-01 (BLOCKER): the cutover's identity guard must not treat a missing `Source line:` marker as permission to overwrite; replaces the test that pinned the defect (wave 1, tracer)
 - [x] 35-13-PLAN.md — WR-01 dry-run inversion guard reaches the half-null sub-night shape; WR-03 third `claimed_legacy_urls` contract copy (wave 1, tracer)
-- [ ] 35-14-PLAN.md — WR-02 loader dry-run counter ordering, dry/real parity test, paired loader demo notebook (wave 1, tracer)
+- [x] 35-14-PLAN.md — WR-02 loader dry-run counter ordering, dry/real parity test, paired loader demo notebook (wave 1, tracer)
 - [ ] 35-15-PLAN.md — Runbook guarantees narrowed to the shipped predicate; reconciler demo notebook re-executed against the corrected command output (wave 2)
 
 ### Phase 36: Unattended Operation
@@ -374,7 +374,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 13/15 | In Progress|  |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 14/15 | In Progress|  |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 

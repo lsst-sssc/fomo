@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-13-PLAN.md
-last_updated: "2026-09-15T16:45:35.124Z"
+stopped_at: Completed 35-14-PLAN.md
+last_updated: "2026-09-15T16:57:17.864Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 2448264c0026f96e0c2524aca3d8d2e9aba4d7e6
+state_head: 9bb2b64a074d626043ed8ad66e41246d46e2685b
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 33
-  completed_plans: 31
-  percent: 94
+  completed_plans: 32
+  percent: 97
 ---
 
 # Project State
@@ -202,6 +202,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P11 | 40min | 2 tasks | 3 files |
 | Phase 35 P12 | ~40min | 3 tasks | 2 files |
 | Phase 35 P13 | 20min | 3 tasks | 3 files |
+| Phase 35 P14 | 35min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -304,6 +305,7 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-12: TestDryRunAndRealRunAgree's _make_all_three_preconditions_fixture() needed a matching Source line: marker on its pre-existing CampaignRun after the CR-01 inversion, or the fixture's group was refused under duplicate_identity before its own key_collision/window_mismatch preconditions were ever reached (Rule 1 auto-fix).
 - [Phase 35]: 35-13: _raise_if_set_window_inverted() now short-circuits only when BOTH sub-night fields are null, matching _span_needs_remint(); a half-null run on the re-mint branch resolves its missing boundary from existing.start_time/end_time rather than sun_event(), closing the third iteration of the dry-run/real-run inversion-guard parity bug (NF-10 -> NF-20 -> WR-01).
 - [Phase 35]: 35-13: _stale_dated_events()'s claimed_legacy_urls Args description replaced with the same four-outcome, load-bearing-in-real-mode wording as the two already-corrected copies (NF-09/NF-17/NF-22), closing WR-03 -- the third and last stale copy of that contract.
+- [Phase 35]: 35-14: load_telescope_runs.py's dry-run branch now folds run_created/run_updated/run_unchanged only after both preview_campaign_run_action() and reconcile_run(existing, dry_run=True) have returned, mirroring the real branch -- closing WR-02, the counter-parity regression 35-09's NF-21 fix introduced.
 
 ### Pending Todos
 
@@ -404,8 +406,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T16:45:35.039Z
-Stopped at: Completed 35-13-PLAN.md
+Last session: 2026-09-15T16:57:17.774Z
+Stopped at: Completed 35-14-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
