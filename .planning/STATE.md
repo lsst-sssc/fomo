@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: verifying
-stopped_at: Completed 35-18-PLAN.md
-last_updated: "2026-09-15T18:51:38.438Z"
+stopped_at: Completed 35-19-PLAN.md
+last_updated: "2026-09-15T19:58:45.479Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: aa6dbb009a9018f4616f72ce40d5bbbf9b698f18
+state_head: 857c3b7c1a36063368c6eff21cdf0fb25dec89e6
 progress:
   total_phases: 5
   completed_phases: 34
-  total_plans: 36
-  completed_plans: 36
+  total_plans: 37
+  completed_plans: 37
   percent: 100
 ---
 
@@ -207,6 +207,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P16 | ~10min | 2 tasks | 2 files |
 | Phase 35 P17 | 35min | 2 tasks | 4 files |
 | Phase 35 P18 | 35min | 3 tasks | 3 files |
+| Phase 35 P19 | 18min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -314,6 +315,8 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-16: reverted _raise_if_set_window_inverted()'s stored-boundary fallback to a two-parameter (run, night) signature -- the guard resolves both sub-night boundaries only from the run's own fields and returns silently when either is unknown, closing the fourth iteration of the dry-run/real-run inversion-guard parity bug (NF-10 -> NF-20 -> WR-01).
 - [Phase 35]: 35-17: Narrowed the loader's create-arm dry-run claim (PROBE-P5) and documented the cutover's matching-marker re-run gotcha (PROBE-P4) rather than adding new write paths or refusal branches -- both are text-only corrections pinned by new tests.
 - [Phase 35]: [Phase 35]: 35-18: narrowed the runbook's loader claim to the existing-run arm and added the brand-new-line's limitation, extended both duplicate_identity definitions with the second (database-claimant) cause, added a cutover 'Re-run gotcha' note, and regenerated both notebooks by re-execution against plans 35-16/35-17's fixes -- closing the third and intended-final gap-closure round for Phase 35.
+- [Phase 35]: [Phase 35]: 35-19: implemented the design_rationale's provenance-recording fix for CR-01 (minted_sub_night_window on CalendarEventMeta) instead of the review's naive per-sweep sun_event() call, which would have broken TestNoSunEventRecompute's D-13 astropy-budget pin.
+- [Phase 35]: [Phase 35]: 35-19: Rule 1 deviation -- rebuilt test_cutover_classical_allocations.py's TestCutoverSequenceContract convertible-group fixture with real sun_event()-derived boundaries; the shared round-hour convention sat outside CR-01's one-minute tolerance and the fix correctly re-minted it as a genuinely-stale legacy night.
 
 ### Pending Todos
 
@@ -414,8 +417,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T18:51:38.379Z
-Stopped at: Completed 35-18-PLAN.md
+Last session: 2026-09-15T19:58:45.420Z
+Stopped at: Completed 35-19-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

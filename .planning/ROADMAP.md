@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 18/19 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans executed 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6; 1 round-4 BLOCKER-only gap-closure plan added 2026-09-15 from the fourth `gaps_found` pass + 35-REVIEW.md iteration 7 CR-01)
+**Plans:** 19/19 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans executed 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6; 1 round-4 BLOCKER-only gap-closure plan added 2026-09-15 from the fourth `gaps_found` pass + 35-REVIEW.md iteration 7 CR-01)
 
 Plans:
 **Wave 1**
@@ -307,7 +307,7 @@ Plans:
 
 **Gap closure, round 4** *(added 2026-09-15 — fourth 35-VERIFICATION.md `gaps_found` pass, 183/186 must-haves, 3 failures collapsing to ONE root cause; 35-REVIEW.md iteration 7 CR-01. Round 3 verified in full; the new BLOCKER is in the REAL re-mint path, not the preview: `_span_needs_remint()` gates every comparison on `is not None`, so clearing a previously-set sub-night field to null never re-mints and the calendar keeps the operator's stale boundary permanently, reported as `unchanged`. BLOCKER-only round by explicit user decision: WR-01, WR-02 and WR-03 are recorded under `user_deferred:` and the runbook, both notebooks, the loader and the cutover command are all out of scope — reopening them is how rounds 2 and 3 acquired their regressions.)*
 
-- [ ] 35-19-PLAN.md — CR-01 (BLOCKER): record the sub-night window a night was minted from and decide the cleared-field case from it; all three probe shapes (A, B, C) pinned, D-13's astropy budget intact (wave 1, tracer)
+- [x] 35-19-PLAN.md — CR-01 (BLOCKER): record the sub-night window a night was minted from and decide the cleared-field case from it; all three probe shapes (A, B, C) pinned, D-13's astropy budget intact (wave 1, tracer)
 
 ### Phase 36: Unattended Operation
 
@@ -384,7 +384,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 18/18 | In Progress|  |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 19/19 | In Progress|  |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
