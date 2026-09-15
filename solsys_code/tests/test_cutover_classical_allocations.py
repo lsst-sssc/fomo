@@ -111,6 +111,37 @@ class CutoverClassicalAllocationsTestBase(TestCase):
             events.append(self._make_legacy_event(start_time=start_time, end_time=end_time, **kwargs))
         return events
 
+    # NF-19/IN-02 (35-REVIEW.md): shared by TestDuplicateIdentityKeyAcrossGroups (in-process
+    # collision, both groups blank-url) and TestDatabaseScopedIdentityGuard (database-scoped
+    # collision, tests 1-2-3-4). Lifted onto the base class rather than copied twice.
+    _ALLOCATION_LINE = 'NTT EFOSC2 allocation 9-12 July'
+    _CANCELLED_LINE = 'NTT EFOSC2 cancelled 9-12 July'
+
+    def _make_two_groups_same_identity_key_fixture(self) -> dict:
+        """Three blank-url events per line, one per night, sharing all three nights --
+        group A (`_ALLOCATION_LINE`) created first so it wins the identity key under
+        insertion-order dict processing, matching candidates.order_by('pk')."""
+
+        def _events_for(source_line: str) -> list[CalendarEvent]:
+            events = []
+            for night in _THREE_NIGHTS:
+                start_time = datetime(night.year, night.month, night.day, 23, 0, tzinfo=dt_timezone.utc)
+                end_time = datetime(night.year, night.month, night.day + 1, 9, 0, tzinfo=dt_timezone.utc)
+                events.append(
+                    self._make_legacy_event(
+                        source_line=source_line,
+                        start_time=start_time,
+                        end_time=end_time,
+                        status='allocation' if source_line == self._ALLOCATION_LINE else 'cancelled',
+                        target_list=self.campaign,
+                    )
+                )
+            return events
+
+        group_a = _events_for(self._ALLOCATION_LINE)
+        group_b = _events_for(self._CANCELLED_LINE)
+        return {'group_a': group_a, 'group_b': group_b}
+
 
 class TestThreeEventGroupConvertsToOneRun(CutoverClassicalAllocationsTestBase):
     """Test 1: three blank-url classical events sharing one parseable Source line: produce
@@ -525,10 +556,12 @@ class TestCutoverSequenceContract(CutoverClassicalAllocationsTestBase):
             self.assertTrue(event.url.startswith(f'ALLOC:{converted_run.pk}:'))
 
         # NF-11 (35-REVIEW.md): the two hand-made legacy artifacts' outcomes -- one
-        # re-keyed (asserted above at line 507, rekeyed_event.url), one deleted (asserted
-        # above at line 512, delete_legacy_pk) -- are already pinned against the database
-        # by the preceding assertions; a third, standalone `1 + 1 == 2` assertion of two
-        # local literals exercised no production code and was removed.
+        # re-keyed (asserted above via `rekeyed_event.url`), one deleted (asserted above via
+        # `delete_legacy_pk`) -- are already pinned against the database by the preceding
+        # assertions; a third, standalone `1 + 1 == 2` assertion of two local literals
+        # exercised no production code and was removed (IN-01, 35-REVIEW.md: cite the
+        # assertion by identifier alone, not by an absolute line number that the next edit
+        # above it would silently invalidate).
 
 
 class TestGroupTransactionBoundary(CutoverClassicalAllocationsTestBase):
@@ -1010,34 +1043,6 @@ class TestDuplicateIdentityKeyAcrossGroups(CutoverClassicalAllocationsTestBase):
     difference the review reproduced: an 'allocation' line and a 'cancelled' line for the
     same telescope, instrument and window."""
 
-    _ALLOCATION_LINE = 'NTT EFOSC2 allocation 9-12 July'
-    _CANCELLED_LINE = 'NTT EFOSC2 cancelled 9-12 July'
-
-    def _make_two_groups_same_identity_key_fixture(self) -> dict:
-        """Three blank-url events per line, one per night, sharing all three nights --
-        group A (`_ALLOCATION_LINE`) created first so it wins the identity key under
-        insertion-order dict processing, matching candidates.order_by('pk')."""
-
-        def _events_for(source_line: str) -> list[CalendarEvent]:
-            events = []
-            for night in _THREE_NIGHTS:
-                start_time = datetime(night.year, night.month, night.day, 23, 0, tzinfo=dt_timezone.utc)
-                end_time = datetime(night.year, night.month, night.day + 1, 9, 0, tzinfo=dt_timezone.utc)
-                events.append(
-                    self._make_legacy_event(
-                        source_line=source_line,
-                        start_time=start_time,
-                        end_time=end_time,
-                        status='allocation' if source_line == self._ALLOCATION_LINE else 'cancelled',
-                        target_list=self.campaign,
-                    )
-                )
-            return events
-
-        group_a = _events_for(self._ALLOCATION_LINE)
-        group_b = _events_for(self._CANCELLED_LINE)
-        return {'group_a': group_a, 'group_b': group_b}
-
     def test_second_group_is_rejected_as_duplicate_identity_not_merged(self):
         fixture = self._make_two_groups_same_identity_key_fixture()
         group_a, group_b = fixture['group_a'], fixture['group_b']
@@ -1093,3 +1098,138 @@ class TestDuplicateIdentityKeyAcrossGroups(CutoverClassicalAllocationsTestBase):
         self.assertEqual(dry_summary['runs_created'], 1)
         self.assertEqual(dry_summary['events_rekeyed'], 3)
         self.assertEqual(dry_summary['reasons'], {'duplicate_identity': 3})
+
+
+class TestDatabaseScopedIdentityGuard(CutoverClassicalAllocationsTestBase):
+    """NF-19 (35-REVIEW.md, BLOCKER): `seen_keys` only protects a single process
+    invocation, but the collision it exists to stop is database-scoped --
+    `insert_or_create_campaign_run()`/`preview_campaign_run_action()` match against the
+    database, where a claimant can already exist from an earlier cutover invocation or from
+    `load_telescope_runs`. These four tests pin the database-scoped guard: a second
+    invocation over the two-group fixture must not silently merge (test 1, the re-run the
+    command's own `CommandError` prescribes); a pre-existing database claimant whose stored
+    `Source line:` DIFFERS must reject on the FIRST pass (test 2); the SAME stored `Source
+    line:` must still convert (test 3, the benign cutover-after-import ordering WR-11
+    pins); and no recoverable marker at all must also convert (test 4, the ALLOC-01
+    `empty` edge probe, the permissive predicate 35-REVIEW.md's fix prescribes)."""
+
+    def _make_pre_existing_claimant(self, *, observation_details: str) -> CampaignRun:
+        """A `CampaignRun` that already holds the identity key `_THREE_NIGHT_LINE` derives,
+        with caller-supplied `observation_details` so each test controls whether its stored
+        `Source line:` matches, differs from, or is absent entirely."""
+        parsed = parse_run_line(_THREE_NIGHT_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        return CampaignRun.objects.create(
+            source_identifier=key,
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.PLANNED,
+            telescope_instrument='NTT/EFOSC2',
+            campaign=self.campaign,
+            site=self.ntt,
+            site_raw='NTT',
+            window_start=_THREE_NIGHTS[0],
+            window_end=_THREE_NIGHTS[-1],
+            observation_details=observation_details,
+        )
+
+    def test_second_invocation_over_two_group_fixture_does_not_silently_merge(self):
+        """NF-19 case 1 (the prescribed re-run): after a second invocation over the
+        two-group status-only-collision fixture, group A's run is still `PLANNED` /
+        `'Status: allocation'`, group A's events keep their titles and urls, the second
+        pass raises `CommandError`, and the reported reason is `duplicate_identity`, never
+        `key_collision`."""
+        fixture = self._make_two_groups_same_identity_key_fixture()
+        group_a = fixture['group_a']
+
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=StringIO(), stderr=StringIO())
+
+        parsed = parse_run_line(self._ALLOCATION_LINE)
+        key = _source_identifier(parsed, _THREE_NIGHTS[0], _THREE_NIGHTS[-1])
+        run = CampaignRun.objects.get(source_identifier=key)
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.PLANNED)
+        self.assertIn('Status: allocation', run.observation_details)
+
+        titles_and_urls_before = []
+        for event in group_a:
+            event.refresh_from_db()
+            titles_and_urls_before.append((event.title, event.url))
+
+        out2 = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out2, stderr=StringIO())
+        stdout_value = out2.getvalue()
+
+        # Byte-identical, not merely inspected: the run's fields are unchanged by pass 2.
+        run.refresh_from_db()
+        self.assertEqual(run.run_status, CampaignRun.RunStatus.PLANNED)
+        self.assertIn('Status: allocation', run.observation_details)
+
+        self.assertIn('unexplained (duplicate_identity): 3', stdout_value)
+        self.assertNotIn('key_collision', stdout_value)
+
+        for event, (title_before, url_before) in zip(group_a, titles_and_urls_before, strict=True):
+            event.refresh_from_db()
+            self.assertEqual(event.title, title_before)
+            self.assertEqual(event.url, url_before)
+
+    def test_pre_existing_claimant_with_different_source_line_rejects_on_first_pass(self):
+        """NF-19 case 2: a `CampaignRun` that already holds the derived identity key --
+        from a prior cutover invocation or from `load_telescope_runs` -- but whose stored
+        `Source line:` differs from the group's causes the group to be reported under
+        `duplicate_identity` and the command to exit non-zero on the FIRST pass, never a
+        silent find-and-update."""
+        existing_run = self._make_pre_existing_claimant(
+            observation_details=('Status: allocation\nSource line: NTT EFOSC2 allocation 9-12 July [OTHER-PROPOSAL]')
+        )
+        details_before = existing_run.observation_details
+        status_before = existing_run.run_status
+        events = self._make_three_night_group()
+
+        out = StringIO()
+        with self.assertRaises(CommandError):
+            call_command('cutover_classical_allocations', stdout=out, stderr=StringIO())
+
+        existing_run.refresh_from_db()
+        self.assertEqual(existing_run.run_status, status_before)
+        self.assertEqual(existing_run.observation_details, details_before)
+
+        self.assertIn('unexplained (duplicate_identity): 3', out.getvalue())
+        for event in events:
+            event.refresh_from_db()
+            self.assertEqual(event.url, '')
+            self.assertFalse(CalendarEventMeta.objects.filter(event=event).exists())
+
+    def test_pre_existing_claimant_with_same_source_line_still_converts(self):
+        """The benign path the guard must not break (WR-11, 35-REVIEW.md): a `CampaignRun`
+        holding the same key whose stored `Source line:` is the SAME line as the group's
+        converts normally -- the cutover-after-import ordering."""
+        existing_run = self._make_pre_existing_claimant(
+            observation_details=f'Status: allocation\nSource line: {_THREE_NIGHT_LINE}'
+        )
+        events = self._make_three_night_group()
+
+        out = StringIO()
+        call_command('cutover_classical_allocations', stdout=out, stderr=StringIO())
+
+        self.assertNotIn('duplicate_identity', out.getvalue())
+        for event in events:
+            event.refresh_from_db()
+            self.assertTrue(event.url.startswith(f'ALLOC:{existing_run.pk}:'))
+
+    def test_pre_existing_claimant_with_no_recoverable_source_line_still_converts(self):
+        """ALLOC-01 `empty` edge probe: a database claimant whose `observation_details`
+        carries NO recoverable `Source line:` marker (`_extract_source_line()` returns
+        None) is treated as the SAME line and allowed to proceed -- the permissive
+        predicate 35-REVIEW.md NF-19 prescribes."""
+        existing_run = self._make_pre_existing_claimant(observation_details='')
+        events = self._make_three_night_group()
+
+        out = StringIO()
+        call_command('cutover_classical_allocations', stdout=out, stderr=StringIO())
+
+        self.assertNotIn('duplicate_identity', out.getvalue())
+        for event in events:
+            event.refresh_from_db()
+            self.assertTrue(event.url.startswith(f'ALLOC:{existing_run.pk}:'))

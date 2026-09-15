@@ -392,6 +392,31 @@ class Command(BaseCommand):
                     f'{key!r}; add a bracketed proposal token to one of the two lines',
                 )
                 continue
+
+            # NF-19 (35-REVIEW.md, BLOCKER): seen_keys above only protects THIS process --
+            # the thing it protects, insert_or_create_campaign_run()/
+            # preview_campaign_run_action() below, find-or-update against the DATABASE,
+            # where a claimant can already exist from an earlier cutover invocation or from
+            # load_telescope_runs. The guard has to look there too, or the re-run this
+            # command's own CommandError prescribes silently merges a second group into the
+            # first group's run (the harm NF-19 reproduced). The claimant's own schedule
+            # line is recoverable from its stored observation_details with the SAME
+            # _extract_source_line() parser this module already uses -- no new parsing
+            # code. A recovered line of None (ALLOC-01 `empty`) is deliberately permissive:
+            # a database row with no recoverable Source line: marker has nothing to
+            # disagree with, so it is treated as the SAME line rather than rejected.
+            existing_run = CampaignRun.objects.filter(source_identifier=key).first()
+            if existing_run is not None:
+                existing_source_line = _extract_source_line(existing_run.observation_details)
+                if existing_source_line not in (None, source_line):
+                    _mark_unexplained(
+                        events,
+                        _DUPLICATE_IDENTITY,
+                        f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: CampaignRun pk={existing_run.pk} already '
+                        f'claimed {key!r} for a different Source line; add a bracketed proposal token to '
+                        'one of the two lines',
+                    )
+                    continue
             seen_keys[key] = source_line
 
             target_list_ids = {event.target_list_id for event in events}
