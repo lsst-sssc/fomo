@@ -508,6 +508,42 @@ class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
         self.assertEqual(result.legacy_deleted, 0)
 
 
+class TestTakeoverBlockedCountedOnce(AllocationProjectorTestBase):
+    """35-REVIEW.md NF-22: a foreign-attributed legacy `RUN:{pk}:{night}` event reached on
+    the TAKEOVER path (no `ALLOC:` event exists for the night yet) must be counted once,
+    not twice. The retired branch already claims `legacy_urls_claimed` the moment it has
+    decided the legacy event's fate at all (NF-09); the takeover branch only claimed it on
+    the re-key path, so a blocked takeover legacy event was left visible to
+    `campaign_reconciler._stale_dated_events()`'s own downstream `foreign` count too --
+    the same single decision reported under `blocked` here AND `foreign`/`blocked` there."""
+
+    def test_foreign_attributed_legacy_event_on_takeover_path_counted_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=other_run)
+
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            result = reconcile_run(run)
+
+        blocked_records = [r for r in log_ctx.records if 'legacy event' in r.getMessage()]
+        self.assertEqual(len(blocked_records), 1)
+        self.assertEqual(result.blocked, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        meta = CalendarEventMeta.objects.get(event=legacy_event)
+        self.assertEqual(meta.run_id, other_run.pk)
+
+
 class TestFinalConvergenceGuard(AllocationProjectorTestBase):
     """35-REVIEW.md CR-04: the final `stale_qs` convergence step must use
     `writable_allocation_events()`, not namespace identity alone -- an event attributed to a

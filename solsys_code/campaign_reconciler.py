@@ -675,7 +675,7 @@ def _stale_allocation_events(run: CampaignRun) -> tuple[list[int], int]:
 
 def _detach_stale_family_events(
     run: CampaignRun, active_urls: set[str], claimed_legacy_urls: frozenset[str] = frozenset()
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """Convergence step (29-REVIEW.md CR-01, user-directed fix: DETACH, not delete or
     flag-only, for the bare-container group; Task 1/D-16, Phase 35, adds a DELETE branch for
     the date-bearing group).

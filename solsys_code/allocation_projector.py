@@ -688,6 +688,14 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         legacy_event = CalendarEvent.objects.filter(url=legacy_url).first() if existing is None else None
 
         if existing is None and legacy_event is not None:
+            # NF-22 (35-REVIEW.md): claim the url the moment this loop has decided the
+            # legacy event's fate AT ALL, exactly as the retired branch above already does
+            # (NF-09) -- including the blocked-because-a-different-run-owns-it outcome, not
+            # only the re-key path. Without this, a blocked takeover legacy event stayed
+            # visible to campaign_reconciler._stale_dated_events()'s downstream `foreign`
+            # count too, so the SAME single decision was reported under `blocked` here AND
+            # `foreign`/`blocked` there -- one event, two counts.
+            legacy_urls_claimed.add(legacy_url)
             if not _may_write(legacy_event, run):
                 logger.warning(
                     'Allocation blocked: legacy event pk=%s is not owned by run pk=%s.',
@@ -696,7 +704,6 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                 )
                 totals['blocked'] += 1
                 continue
-            legacy_urls_claimed.add(legacy_url)
             dark_line = preserved_dark_window_line(legacy_event)
             rekey_fields: dict[str, Any] = {
                 'title': allocation_night_title(run),
