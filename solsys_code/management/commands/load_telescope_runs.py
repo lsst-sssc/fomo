@@ -294,12 +294,6 @@ class Command(BaseCommand):
                 if dry_run:
                     existing = CampaignRun.objects.filter(source_identifier=key).first()
                     action = preview_campaign_run_action(existing, fields)
-                    if action == 'created':
-                        run_created += 1
-                    elif action == 'updated':
-                        run_updated += 1
-                    else:
-                        run_unchanged += 1
 
                     if existing is not None:
                         reconcile_result = reconcile_run(existing, dry_run=True)
@@ -314,6 +308,22 @@ class Command(BaseCommand):
                         # No row exists yet: a first-time dry run predicts night counts from
                         # the window length rather than from a sun-event computation.
                         night_created += len(nights)
+
+                    # WR-02 (35-REVIEW.md, 35-14-PLAN.md): folded only here, after BOTH
+                    # preview_campaign_run_action() and reconcile_run(existing, dry_run=True)
+                    # have returned -- mirroring the real branch below, which increments only
+                    # after its transaction.atomic() block has returned. Folding this BEFORE
+                    # the reconcile call (the pre-fix shape) double-counted a line whose
+                    # preview reconcile raised into both a run_created/run_updated/
+                    # run_unchanged bucket AND run_skipped (via the except clauses further
+                    # down), so a raising preview reported `skipped` alone in real mode but
+                    # `skipped` PLUS one of the other three on the preview.
+                    if action == 'created':
+                        run_created += 1
+                    elif action == 'updated':
+                        run_updated += 1
+                    else:
+                        run_unchanged += 1
                 else:
                     # NF-08 (35-REVIEW.md): write_and_reconcile_campaign_run() has no
                     # transaction boundary of its own -- without this, a reconcile_run()

@@ -1,5 +1,6 @@
 import io
 import pathlib
+import re
 import tempfile
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -550,12 +551,44 @@ class TestLoadTelescopeRuns(TestCase):
             self.assertIn('nights -- created: 0, updated: 0, unchanged: 4', summary)
 
 
+_RUN_SUMMARY_RE = re.compile(
+    r'lines processed: (?P<lines_processed>\d+), '
+    r'created: (?P<created>\d+), '
+    r'updated: (?P<updated>\d+), '
+    r'unchanged: (?P<unchanged>\d+), '
+    r'skipped: (?P<skipped>\d+)'
+)
+
+
+def _parse_run_summary(stdout_text: str) -> tuple[int, int, int, int, int]:
+    """Extracts (lines_processed, created, updated, unchanged, skipped) from a
+    `load_telescope_runs` run-level summary line (the FIRST `Done`/`Done (dry run).`
+    line, not the second `nights --` line the command also prints)."""
+    match = _RUN_SUMMARY_RE.search(stdout_text)
+    assert match is not None, f'no run-level summary line found in: {stdout_text!r}'
+    return (
+        int(match['lines_processed']),
+        int(match['created']),
+        int(match['updated']),
+        int(match['unchanged']),
+        int(match['skipped']),
+    )
+
+
 class TestMalformedTimezoneSkipsOneLine(TestCase):
     """35-REVIEW.md NF-21: a mistyped `Observatory.timezone` must be skipped and logged
     per-line -- the runbook's stated "one bad row never aborts the whole run" invariant --
     not escape as an uncaught `ZoneInfoNotFoundError` (a `KeyError` subclass, 35-VERIFICATION.md
     L234) that aborts the whole import mid-batch with a bare traceback, no summary, and no
-    subsequent lines processed."""
+    subsequent lines processed.
+
+    WR-02 (35-REVIEW.md, closed by 35-14-PLAN.md): this class also pins that the loader's
+    `--dry-run` preview and the immediately following real pass report the SAME single
+    outcome for a line whose own `reconcile_run(existing, dry_run=True)` raises -- not one
+    line folded into two different run-level counters on the preview. NF-21's original
+    coverage (`test_malformed_timezone_skips_only_its_own_line` above) exercised only the
+    REAL path, which is exactly why WR-02 survived the NF-21 fix inside the same
+    gap-closure round."""
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -613,6 +646,107 @@ class TestMalformedTimezoneSkipsOneLine(TestCase):
 
         # The bad line's CampaignRun does not exist -- transaction.atomic() rolled it back.
         self.assertFalse(CampaignRun.objects.filter(telescope_instrument='NTT/EFOSC2').exists())
+
+    def test_dry_run_and_real_run_report_the_same_counters_for_a_skipped_line(self):
+        """WR-02 (35-REVIEW.md): a line whose CampaignRun already exists and whose preview
+        `reconcile_run(existing, dry_run=True)` raises must land in exactly ONE run-level
+        counter on both the dry-run and the immediately following real pass.
+
+        Pre-fix reproduction (35-REVIEW.md PROBE-B, verbatim):
+            dry run : Done (dry run). lines processed: 1, created: 0, updated: 0,
+                      unchanged: 1, skipped: 1
+            real run: Done. lines processed: 1, created: 0, updated: 0,
+                      unchanged: 0, skipped: 1
+        One line, `unchanged: 1 + skipped: 1` on the preview against `skipped: 1` for
+        real -- the preview's four counters no longer summed to `lines processed`.
+        """
+        # setUpTestData seeds NTT with the typo'd timezone from the start (it is the
+        # class's shared malformed-timezone fixture) -- fix it to a VALID IANA zone first
+        # so the initial pass below can actually create the CampaignRun this test needs
+        # as `existing`, then mutate it back to the typo, exactly as PROBE-B did.
+        Observatory.objects.filter(obscode='809').update(timezone='America/Santiago')
+
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            # First pass over the VALID NTT timezone creates the CampaignRun the dry-run
+            # preview will later find as `existing`, taking the `existing is not None` arm.
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            self.assertTrue(CampaignRun.objects.filter(telescope_instrument='NTT/EFOSC2').exists())
+
+            # Mutate the timezone to the typo AFTER the row exists, so a re-import of the
+            # SAME line reaches the raising reconcile_run(existing, dry_run=True) call.
+            Observatory.objects.filter(obscode='809').update(timezone='America/Santigo')
+
+            dry_stdout = io.StringIO()
+            call_command('load_telescope_runs', path, '--dry-run', stdout=dry_stdout, stderr=io.StringIO())
+
+            real_stdout = io.StringIO()
+            call_command('load_telescope_runs', path, stdout=real_stdout, stderr=io.StringIO())
+
+        dry_tuple = _parse_run_summary(dry_stdout.getvalue())
+        real_tuple = _parse_run_summary(real_stdout.getvalue())
+
+        # Same (created, updated, unchanged, skipped) tuple on both passes.
+        self.assertEqual(dry_tuple[1:], real_tuple[1:], f'dry={dry_tuple!r} real={real_tuple!r}')
+
+        # created + updated + unchanged + skipped == lines processed, on BOTH passes.
+        for lines_processed, created, updated, unchanged, skipped in (dry_tuple, real_tuple):
+            self.assertEqual(created + updated + unchanged + skipped, lines_processed)
+
+        # The line is reported as skipped alone, matching the raising reconcile call.
+        self.assertEqual(dry_tuple, (1, 0, 0, 0, 1))
+        self.assertEqual(real_tuple, (1, 0, 0, 0, 1))
+
+    def test_dry_run_pass_leaves_no_campaign_run_and_still_processes_the_next_line(self):
+        """Task 2 (35-14-PLAN.md): confirms NF-21's skip-and-continue invariant on the
+        DRY-RUN pass too, not only the real pass `test_malformed_timezone_skips_only_its_own_line`
+        already pins -- a preview must never write anything (including to a run that
+        already exists), and a bad line whose PREVIEW reconcile raises must never stop
+        the following line from being previewed.
+
+        Reuses the `existing is not None` fixture shape from the parity test above --
+        the create-branch dry-run arm (`night_created += len(nights)`) never calls
+        `reconcile_run()` at all, so it cannot reach WR-02's raising call; only a line
+        whose run already exists does.
+        """
+        Observatory.objects.filter(obscode='809').update(timezone='America/Santiago')
+        first_path, first_tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with first_tmpdir_ctx:
+            # Creates the CampaignRun the dry-run preview below will find as `existing`.
+            call_command('load_telescope_runs', first_path, stdout=io.StringIO(), stderr=io.StringIO())
+        self.assertTrue(CampaignRun.objects.filter(telescope_instrument='NTT/EFOSC2').exists())
+
+        # Mutate the timezone to the typo AFTER the row exists.
+        Observatory.objects.filter(obscode='809').update(timezone='America/Santigo')
+
+        before_count = CampaignRun.objects.count()
+        path, tmpdir_ctx = self._write_schedule_file(
+            [
+                'NTT EFOSC2 allocation 9-13 July',
+                'Magellan-Baade IMACS 17-18 July',
+            ]
+        )
+        with tmpdir_ctx:
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            call_command('load_telescope_runs', path, '--dry-run', stdout=stdout_buf, stderr=stderr_buf)
+
+        # The dry run wrote no ADDITIONAL CampaignRun at all -- a preview must never
+        # write, whether the line's run already exists or would be newly created.
+        self.assertEqual(CampaignRun.objects.count(), before_count)
+        self.assertFalse(CampaignRun.objects.filter(telescope_instrument='Magellan-Baade/IMACS').exists())
+
+        # stderr still names the bad line.
+        err = stderr_buf.getvalue()
+        self.assertIn('NTT', err)
+        self.assertIn('America/Santigo', err)
+
+        # The SECOND line was still previewed -- one bad row never aborts the whole
+        # preview either. It has no existing row, so it is folded into `created`
+        # (night_created += len(nights)); the bad NTT line is folded into `skipped` alone.
+        summary = stdout_buf.getvalue()
+        self.assertIn('created: 1', summary)
+        self.assertIn('skipped: 1', summary)
 
 
 def _expected_boundary(token: str | None, sunset, sunrise, night, *, at_full_night: str) -> datetime:
