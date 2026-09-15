@@ -613,6 +613,14 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
     allocation must never mask or discard the base projection's own result, and neither
     failure may abort the caller's save.
 
+    F-34-1 (34-VERIFICATION.md, 2026-09-15): the ``campaign_run_links`` lookup itself --
+    evaluated as the ``for`` loop's own iterable, before any per-link ``try`` -- had no
+    guard of its own. A DB error there (reproduced live: a schema mismatch from an
+    unapplied migration) escaped this receiver and propagated out of the caller's
+    ``ObservationRecord.save()``, breaking TRIG-02's guarantee. The lookup is now resolved
+    into a plain list inside its own ``try`` first, matching the same never-abort-the-save
+    contract every other step in this receiver already honors.
+
     Args:
         sender: the model class Django's signal framework passes (ObservationRecord).
         instance: the ObservationRecord that was just saved.
@@ -636,7 +644,20 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
 
     from solsys_code.allocation_projector import reproject_allocation_if_dispatched
 
-    for link in instance.campaign_run_links.select_related('run'):
+    try:
+        links = list(instance.campaign_run_links.select_related('run'))
+    except Exception as exc:  # noqa: BLE001 -- F-34-1/TRIG-02: a query fault here must
+        # never abort the caller's save, same guarantee project_record() gets above.
+        # Nothing to iterate if the lookup itself failed -- a later save or sweep
+        # re-attempts it.
+        logger.warning(
+            'linked-run lookup failed for observation_id=%r: %s',
+            instance.observation_id,
+            type(exc).__name__,
+        )
+        links = []
+
+    for link in links:
         if link.run is None:
             continue
         try:

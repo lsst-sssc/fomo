@@ -13,7 +13,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.facilities.lco import LCOFacility
@@ -661,3 +661,32 @@ class TestLinkedRunReproject(TestCase):
         joined = '\n'.join(logs.output)
         self.assertIn(f'run pk={self.run.pk}', joined)
         self.assertIn('RuntimeError', joined)
+
+    def test_linked_run_lookup_raising_does_not_abort_the_records_own_save_or_projection(self):
+        """F-34-1 (34-VERIFICATION.md, 2026-09-15): the `campaign_run_links` lookup itself --
+        evaluated as the `for` loop's own iterable, before any per-link `try` -- had no guard
+        of its own. A DB error there (reproduced live: a schema mismatch from an unapplied
+        migration) escaped this receiver and propagated out of the caller's `save()`, breaking
+        TRIG-02's guarantee. The lookup is now resolved into a plain list inside its own `try`
+        first, so a query fault logs and is treated as no linked runs for this save, without
+        aborting the save or skipping the record's own base projection."""
+        record = self._make_record()
+        own_url = facility_for(record).get_observation_url(record.observation_id)
+
+        def _raise_select_related(*_args, **_kwargs):
+            raise OperationalError('no such column: solsys_code_campaignrun.night_start_utc')
+
+        fake_manager = SimpleNamespace(select_related=_raise_select_related)
+
+        with (
+            patch.object(type(record), 'campaign_run_links', fake_manager, create=True),
+            self.assertLogs('solsys_code.observation_projector', level='WARNING') as logs,
+        ):
+            record.status = 'COMPLETED'
+            record.save()  # must not raise
+
+        self.assertEqual(ObservationRecord.objects.get(pk=record.pk).status, 'COMPLETED')
+        self.assertTrue(CalendarEvent.objects.filter(url=own_url).exists())
+        joined = '\n'.join(logs.output)
+        self.assertIn('linked-run lookup failed', joined)
+        self.assertIn('OperationalError', joined)
