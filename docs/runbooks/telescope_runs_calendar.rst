@@ -936,12 +936,17 @@ operator action for a ``key_collision``: find the duplicate row in the
 Django admin (the printed reason names the colliding pk when the url is
 already held elsewhere) and delete it or re-attribute it, then re-run the
 command. The operator action for a ``duplicate_identity``: the SECOND
-group is never merged into the first group's run -- add a bracketed
-proposal token to one of the two schedule lines to disambiguate them (the
-same remedy documented below for the identical collision in
-``load_telescope_runs``), then re-run the command; the first group's run
-and events are converted and left untouched either way. The operator
-action for a ``window_mismatch``: correct the event's stored start time in
+group is never merged into the first group's run -- this holds on the
+first invocation and on every re-run, because the guard reads the
+database rather than only this process's own bookkeeping, so a claimant
+left behind by an earlier cutover pass or by a prior
+``load_telescope_runs`` import is caught too. The remedy: edit the
+affected events' description ``Source line:`` text to
+disambiguate the two groups in the Django admin -- give the later
+group's events a different bracketed proposal token from the earlier
+group's -- then re-run the command; the first group's run and events are
+converted and left untouched either way, across however many times the
+command is repeated. The operator action for a ``window_mismatch``: correct the event's stored start time in
 the Django admin, or correct the schedule line's date range and
 re-import, so the two agree -- the event is refused rather than converted
 because re-keying it would write an ``ALLOC:`` url outside the run's own
@@ -1385,13 +1390,19 @@ never aborts the whole run.** A problem with a single line or record is
 logged and skipped, and the command continues to the end, reporting a
 summary count.
 
-* ``load_telescope_runs`` skips and logs any schedule line it cannot parse,
-  or whose telescope name doesn't resolve to a known ``Observatory``
-  (a caught ``ValueError``/``Observatory.DoesNotExist``), and reports a
-  ``skipped: N`` count in its final summary line, e.g.::
+* ``load_telescope_runs`` skips and logs any schedule line it cannot
+  parse, or whose telescope name doesn't resolve to a known
+  ``Observatory``, or whose classical status word is unrecognised (all
+  three caught as ``ValueError``/``Observatory.DoesNotExist``), and --
+  caught by its own dedicated clause, ahead of that same catch -- an
+  ``Observatory`` whose ``timezone`` field holds a malformed IANA name:
+  resolving it raises ``ZoneInfoNotFoundError``, which subclasses
+  ``KeyError`` rather than ``ValueError`` and so needs its own handler.
+  Either way the command reports a ``skipped: N`` count in its final
+  summary line, e.g.::
 
-      Line 12: Observatory 'XYZ' (obscode=???) has no timezone set (line text: 'XYZ Instrument 1-5 July')
-      Done. lines processed: 20, created: 95, updated: 0, unchanged: 0, skipped: 1
+      Line 1: invalid Observatory.timezone 'America/Santigo' for site 'NTT' (obscode '809'): 'No time zone found with key America/Santigo' (line text: 'NTT EFOSC2 allocation 9-13 July')
+      Done. lines processed: 1, created: 0, updated: 0, unchanged: 0, skipped: 1, skipped_collision: 0
 
 * ``project_observation_calendar`` counts, rather than skips, a record it
   cannot project under ``unprojectable`` -- whether its own fields could
@@ -1443,8 +1454,11 @@ same telescope, instrument and window resolve to the same key. It is
 reported per unexplained event, under the ``duplicate_identity`` reason
 (see "How do I run the one-time classical cutover?" above and "A
 reported unexplainable event during the classical cutover" below), never
-as a separate skipped-line counter -- but the remedy is the same: add a
-bracketed proposal token to one of the two schedule lines and re-run.
+as a separate skipped-line counter -- and the remedy is NOT the same:
+``load_telescope_runs`` reads a schedule file the operator can edit and
+re-import, while ``cutover_classical_allocations`` reads no such file, so
+its remedy is to edit the affected events' description ``Source line:``
+text to disambiguate the two groups in the Django admin, then re-run.
 
 A reported unexplainable event during the classical cutover
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1477,14 +1491,16 @@ description's ``Source line:``, fix the telescope name, set the
 ``Observatory``'s timezone, clear the conflicting attribution, or -- for a
 ``key_collision`` -- find and delete or re-attribute the duplicate row (the
 printed reason names the colliding pk when the url is already held
-elsewhere), or -- for a ``duplicate_identity`` -- add a bracketed
-proposal token to one of the two schedule lines to disambiguate them
-(the earlier group's run and events are converted and left untouched
-either way), or -- for a ``window_mismatch`` -- correct the event's stored
-start time or the schedule line's date range so the two agree, as the
-printed reason names -- then re-run the command. It is safe to re-run:
-already-converted events drop out of the candidate set, so only the
-still-unexplained rows are reported again.
+elsewhere), or -- for a ``duplicate_identity`` -- edit the affected
+events' description ``Source line:`` text to
+disambiguate the two groups in the Django admin (the earlier group's run
+and events are converted and left untouched either way), or -- for a
+``window_mismatch`` --
+correct the event's stored start time or the schedule line's date range
+so the two agree, as the printed reason names -- then re-run the
+command. It is safe to re-run: already-converted events drop out of the
+candidate set, so only the still-unexplained rows are reported again,
+and a repeat pass rewrites no existing ``CampaignRun``.
 
 ``import_campaign_csv`` unresolved rows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
