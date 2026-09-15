@@ -1,8 +1,8 @@
 ---
 phase: 35-allocation-layer-classical-cutover
-verified: 2026-09-15T15:51:23Z
+verified: 2026-09-15T17:25:47Z
 status: gaps_found
-score: 108/116 must-haves verified
+score: 146/155 must-haves verified
 covered_files:
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/35-allocation-layer-classical-cutover/35-01-PLAN.md"
@@ -27,11 +27,19 @@ covered_files:
   - ".planning/phases/35-allocation-layer-classical-cutover/35-10-SUMMARY.md"
   - ".planning/phases/35-allocation-layer-classical-cutover/35-11-PLAN.md"
   - ".planning/phases/35-allocation-layer-classical-cutover/35-11-SUMMARY.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-12-PLAN.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-12-SUMMARY.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-13-PLAN.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-13-SUMMARY.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-14-PLAN.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-14-SUMMARY.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-15-PLAN.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-15-SUMMARY.md"
+  - ".planning/phases/35-allocation-layer-classical-cutover/35-CONTEXT.md"
   - ".planning/phases/35-allocation-layer-classical-cutover/35-REVIEW.md"
   - "CLAUDE.md"
   - "docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb"
   - "docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb"
-  - "docs/notebooks/pre_executed/project_observation_calendar_demo.sched06-baseline.json"
   - "docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb"
   - "docs/runbooks/telescope_runs_calendar.rst"
   - "solsys_code/admin.py"
@@ -55,377 +63,306 @@ covered_files:
   - "solsys_code/tests/test_observation_projector_signals.py"
   - "solsys_code/tests/test_reconcile_campaign_runs.py"
   - "solsys_code/tests/test_telescope_runs.py"
-covered_digest: "v1:sha256:7c530f3dc93173aa6d4f077812feafecab0b0a02e2d0680a3bdef9e4559610cc"
+covered_digest: "v1:sha256:c820350e6025e26b2779adf6cf3276814a46201133a09925bd2e9ff9f1d7af54"
 behavior_unverified: 0
 overrides_applied: 0
+flagged_prohibitions: 1
 re_verification:
   previous_status: gaps_found
-  previous_score: 74/76
-  previous_verified: 2026-09-15T04:29:09Z
-  gap_closure_plans: ["35-08", "35-09", "35-10", "35-11"]
+  previous_score: 108/116
+  previous_verified: 2026-09-15T15:51:23Z
+  gap_closure_plans: ["35-12", "35-13", "35-14", "35-15"]
   gaps_closed:
-    - "NF-21 — load_telescope_runs.py:338-353 now has a dedicated `except ZoneInfoNotFoundError` clause AHEAD of `(ValueError, Observatory.DoesNotExist)`; one malformed site timezone skips its line and the following line still processes."
-    - "NF-22 — allocation_projector.py:690-698 claims `legacy_urls_claimed` before the `_may_write()` check, symmetric with the retired branch; a blocked takeover legacy event is counted once."
-    - "NF-23 — campaign_reconciler.py:678 is now `-> tuple[int, int, int, int]`, matching docstring, return statement and 4-way caller unpack."
-    - "NF-24 — both stale paired notebooks regenerated with real executed output. `load_telescope_runs_demo.ipynb` 15/15 code cells, 0 null execution counts, new per-line skip-path section whose OUTPUT contains the live `invalid Observatory.timezone` stderr text. `project_observation_calendar_demo.ipynb` 13/13 code cells, 0 nulls, creating-save attribution cell with real `CalendarEventMeta`/`run_id` output."
-    - "NF-25 — both `duplicate_identity` message sites (cutover_classical_allocations.py:396-398, :421-424) and all three runbook passages now name the Django-admin `Source line:` edit; the schedule-file remedy survives unchanged in the `load_telescope_runs` section, where it is correct."
-    - "IN-01 — test_cutover_classical_allocations.py comment now cites identifiers, not absolute line numbers."
-    - "IN-02 — `seen_keys[key] = source_line` moved to cutover_classical_allocations.py:501, after the campaign-mismatch, status-lookup and all-events-foreign checks."
-    - "T-35-17 — `reconcile_campaign_runs_demo.ipynb` regenerated and committed: 18/18 code cells, 0 null execution counts. `git status --short` shows no dirty source or notebook file."
+    - "CR-01 (BLOCKER) — the cutover's identity guard no longer derives write authority from a MISSING `Source line:` marker. `cutover_classical_allocations.py:426-445` is now `if existing_source_line != source_line:` with a two-branch reason string. Independently re-run in this process: `python manage.py test solsys_code.tests.test_cutover_classical_allocations.TestDatabaseScopedIdentityGuard` -> Ran 5 tests, OK (was 4 tests pinning the defect). The test that pinned the blocker was REPLACED (`..._still_converts` -> `..._is_refused`), not left beside a new one, and `test_no_marker_claimant_keeps_run_status_details_and_target_byte_identical` adds the destructive-case assertion the suite lacked, using `NonSiderealTargetFactory` per CLAUDE.md. Reviewer PROBE-P3 confirms the `--dry-run` path refuses identically (`unexplained: 3`, `CommandError`, `run_status` still `planned`, staff note intact, all three events still `url=''`). No third sub-case survives: `source_identifier` carries a `UniqueConstraint` and only two code paths write it, both in the same format."
+    - "Runbook cutover guarantees (prior gap 2) — `telescope_runs_calendar.rst:946-968` and `:1511-1521` now state the marker predicate explicitly ('but only WHEN the first group's `CampaignRun` has a stored `Source line:` marker that is recoverable and matches'), name BOTH remedies, and volunteer the honest sentence that the failure mode is reachable through the admin edit the paragraph itself prescribes. Grep over the two passages finds zero hedge words (`usually` / `in normal operation` / `in most cases`), satisfying 35-15 prohibition 2. Zero occurrences of `rewrites no existing` or `left untouched either way` remain in the file."
+    - "WR-03 round-2 (third stale `claimed_legacy_urls` contract copy) — `campaign_reconciler.py:600-607` now enumerates all four outcomes and states the exclusion is LOAD-BEARING in real mode, matching `campaign_reconciler.py:750-760` and `allocation_projector.py:595-617`. No fourth copy exists."
+    - "Loader dry/real counter double-count on the `existing is not None` arm (prior regression WR-02) — `load_telescope_runs.py:294-326` folds `run_created`/`run_updated`/`run_unchanged` only after the preview reconcile returns; the notebook's executed cell 9 prints `(0, 0, 0, 1)` on both passes. `created + updated + unchanged + skipped == lines processed` now holds on the preview as well as the real pass."
+    - "Reconciler demo notebook regenerated by re-execution: 18/18 code cells, 0 null execution counts, 5 occurrences of the corrected `CommandError` wording, 0 of the superseded clause."
+    - "IN-01 round-2 (shadowed `existing_run` re-query) — the guard's binding is reused at `:542-548`; the redundant query is gone."
   gaps_remaining:
-    - "NF-19 (BLOCKER) — only PARTIALLY closed. The guard is now database-scoped, which closes both harms the prior pass reproduced, but its `not in (None, source_line)` predicate makes the no-marker claimant permissive. Re-filed as CR-01 and reproduced end-to-end by 35-REVIEW.md iteration 5."
-    - "NF-20 — only PARTIALLY closed. The shared `_raise_if_set_window_inverted()` helper exists and both `_mint_fields()` caller branches call it, but its `or` early-out skips the half-null shape `_span_needs_remint()`'s `and` short-circuit reaches. Re-filed as WR-01; third consecutive iteration of the same dry-run/real divergence (NF-10 -> NF-20 -> WR-01)."
-    - "Runbook accuracy — one false operator-facing guarantee was replaced by a narrower one that is still false on the CR-01 path (telescope_runs_calendar.rst:939-949, :1497, :1503)."
+    - "WR-01 (dry-run / real-run inversion parity) — THIRD consecutive round only partially closed, and this round's fix introduced a NEW false-positive direction. Root cause: `allocation_projector.py:357-375`'s stored-boundary fallback assumes the stored boundary is sun-derived, which is false whenever the now-null sub-night field was previously SET."
+    - "Loader preview / real divergence on the CREATE arm (re-filed WR-03) — `load_telescope_runs.py:307-310` predicts `created` from window length and never previews the reconcile the real pass runs, so a brand-new line previews `created: 1` where the real run reports `skipped: 1`."
+    - "Operator-facing parity claims overstate the shipped code — the runbook's loader paragraph (`:82-89`) attributes the invariant to a mechanism the create arm does not have, and the loader notebook's committed output prints 'the preview never disagrees with the real run', falsified by PROBE-P5."
   regressions:
-    - "WR-02 — load_telescope_runs.py:294-316: the dry-run branch now increments run_created/run_updated/run_unchanged BEFORE the `reconcile_run(existing, dry_run=True)` call at :305 that can raise. The NF-21 handler added by this same gap-closure round then adds `run_skipped += 1` for the same line, so `created + updated + unchanged + skipped != lines processed` on the preview. Introduced/exposed by 35-09's own fix."
-    - "WR-03 — campaign_reconciler.py:600-606: NF-23's batch corrected two copies of the `claimed_legacy_urls` contract and left the third (on `_stale_dated_events()`, the function that PERFORMS the exclusion at :615-616) carrying the pre-NF-09 meaning, now also missing the blocked-takeover outcome NF-22 added in this very batch."
+    - "WR-01 false positive (NEW this round) — `reconcile_run(dry_run=True)` now RAISES on a night the immediately following real run creates cleanly (PROBE-P1). Before this round the guard returned early for a half-null run, so a preview that aborts a night the real run handles is behaviour 35-13 introduced. Downstream: `reconcile_campaign_runs --dry-run` reports the run under `failed:`, and `load_telescope_runs --dry-run` folds the line into `skipped` — an operator following the runbook's 'always dry-run first' rule is sent to 'correct' data that is already correct."
 gaps:
-  - truth: "The cutover never silently mutates a `CampaignRun` it did not create in this invocation — NF-19 case 2: a database claimant of the derived identity key whose stored `Source line:` does not provably match the group's is reported under `duplicate_identity` with a non-zero exit, never a find-and-update (35-08 must_haves truth 2 and prohibition 1; 35-08 truth 12; ROADMAP SC-5's stated sequencing)."
+  - truth: "`reconcile_run(run, dry_run=True)` raises the same `ValueError` the immediately following real run raises, on BOTH `_mint_fields()` caller branches — a `--dry-run` preview never hides a condition that makes the real run raise, and never invents one (35-09 truths 4 and the ALLOC-02 edge probe; 35-13 truths 1, 3, 4, 8, 9; 35-13 prohibitions 1 and 2)."
     status: failed
-    reason: "CR-01 (BLOCKER, 35-REVIEW.md iteration 5). The database-scoped guard resolves WHO the claimant is by re-parsing the claimant's own `observation_details` — a field `CampaignRunAdmin` leaves fully editable — and puts `None` on the PERMISSIVE side of the predicate. A claimant with no recoverable `Source line:` marker is exactly the row this one-time destructive migration CANNOT prove it owns, and the write it then performs is a full find-and-update of every dispatch-deciding field on an APPROVED run. Reproduced end-to-end by the reviewer against a real Django test database, with exit 0 and empty stderr."
-    artifacts:
-      - path: "solsys_code/management/commands/cutover_classical_allocations.py"
-        issue: "L414-426, predicate at L417: `if existing_source_line not in (None, source_line):` — `None` is permissive. The comment at L411-413 states the rationale explicitly ('a database row with no recoverable Source line: marker has nothing to disagree with, so it is treated as the SAME line rather than rejected'), so this is a deliberate inverted default, not an oversight. REPRODUCTION (35-REVIEW.md, executed probe): a pre-existing classical `CampaignRun` holding the derived key whose `observation_details` a staff member replaced with an ops note ('Rescheduled per PI request; see ticket OPS-4412.'), plus the stranded blank-url events of the CANCELLED counterpart line -> `Done. candidates: 3, groups: 1, runs created: 0, updated: 1, events re-keyed: 3, unexplained: 0`, EXIT 0, `run_status` planned -> cancelled, `observation_details` overwritten to 'Status: cancelled\\nSource line: NTT EFOSC2 cancelled 9-12 July', `target` set to None, and `campaign`/`window_start`/`window_end`/`site`/`site_raw` all overwritten from a line that is not the line that created the run (fields dict at L451-466). The three events are then re-keyed onto it and retitled `[CANCELLED] NTT EFOSC2` by `allocation_night_title()` on the next sweep (step 4 of the documented four-step cutover sequence)."
-      - path: "solsys_code/admin.py"
-        issue: "L165 `readonly_fields = ['approval_status']` on `CampaignRunAdmin`, and `get_readonly_fields()` (L168+) narrows only `source`. `observation_details` is therefore freely editable in the Django admin for every `CampaignRun`, classical ones included — and this command's OWN remedy text (cutover_classical_allocations.py:396-398, :421-424) sends operators into the admin to edit exactly these rows. It is also written from an arbitrary CSV column by `import_campaign_csv.py:321` and from a `forms.CharField(widget=forms.Textarea)` at `campaign_forms.py:65`. Any of those clears the marker and silently disarms the guard."
-      - path: "solsys_code/tests/test_cutover_classical_allocations.py"
-        issue: "L1221 `test_pre_existing_claimant_with_no_recoverable_source_line_still_converts` PINS THE WRONG OUTCOME as correct. Verified by running the class in this process: `python manage.py test solsys_code.tests.test_cutover_classical_allocations.TestDatabaseScopedIdentityGuard` -> Ran 4 tests, OK. The test builds the claimant with `observation_details=''` and an `allocation`-shaped line, so no field visibly changes and the destruction is invisible to the assertion. The suite therefore green-lights the defect; 215 green tests are not evidence here."
-      - path: "solsys_code/management/commands/cutover_classical_allocations.py"
-        issue: "Three documentation statements now assert the guarantee UNCONDITIONALLY and are false for this path: module docstring L48 'This guarantee holds on every invocation, not only the first, because the check reads the database'; `CommandError` L664 'and rewrites no existing CampaignRun (NF-19, 35-REVIEW.md)', which is printed verbatim into the reconciler notebook's committed output."
-    missing:
-      - "CR-01 fix (one-predicate inversion): change L417 to `if existing_source_line != source_line:` so the command REFUSES what it cannot prove it owns. Give the unprovable case its own actionable reason text rather than folding it into the existing `duplicate_identity` wording — see 35-REVIEW.md section CR-01 for the exact suggested `reason` string, which branches on `existing_source_line is not None` and tells the operator to restore or correct the run's `observation_details` 'Source line:' text in the Django admin."
-      - "REPLACE `test_pre_existing_claimant_with_no_recoverable_source_line_still_converts` (test_cutover_classical_allocations.py:1221) with its INVERSE — the no-marker claimant must now be reported, not converted."
-      - "ADD the destructive-case regression the current suite is missing: a claimant with `run_status=PLANNED` and a non-marker `observation_details`, a group whose line is the `cancelled` counterpart, asserting a NON-ZERO exit AND that `run_status`, `observation_details` and `target` are byte-identical afterwards. This is the assertion shape that would have caught CR-01."
-      - "Correct the three unconditional documentation statements to name the marker requirement: cutover_classical_allocations.py:48 (module docstring) and :664 (CommandError text)."
-      - "Re-generate `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` afterwards — its committed output prints the L664 CommandError text verbatim."
-  - truth: "The operator runbook's cutover section states only guarantees the shipped code holds (35-07 truth 1; 35-10 must_haves truth 1 and truth 8; 35-10 prohibition 2 'An operator-facing runbook sentence must NOT state a guarantee the shipped code does not hold')."
-    status: failed
-    reason: "35-10 corrected the PRIOR false sentence and replaced it with a narrower one that is still false on the CR-01 path. This is the same failure mode at one remove: the documentation was updated to match the intended fix rather than the shipped fix."
-    artifacts:
-      - path: "docs/runbooks/telescope_runs_calendar.rst"
-        issue: "L938-949: 'the SECOND group is never merged into the first group's run -- this holds on the first invocation and on every re-run, because the guard reads the database rather than only this process's own bookkeeping, so a claimant left behind by an earlier cutover pass or by a prior load_telescope_runs import is caught too' and 'the first group's run and events are converted and left untouched either way, across however many times the command is repeated'. Both halves are false when the claimant's `observation_details` carries no recoverable `Source line:` marker (CR-01), which is reachable through the very admin edit this same passage instructs the operator to perform."
-      - path: "docs/runbooks/telescope_runs_calendar.rst"
-        issue: "L1497 '(the earlier group's run and events are converted and left untouched either way)' and L1503 'and a repeat pass rewrites no existing ``CampaignRun``' — the same unconditional claim, repeated."
-    missing:
-      - "After the CR-01 predicate inversion lands, narrow all three runbook passages (L938-949, L1497, L1503) to state the marker requirement: the guarantee holds when the claimant's stored `Source line:` is recoverable AND matches, and a claimant with no recoverable marker is REPORTED rather than converted."
-      - "Do not soften this into 'usually' or 'in normal operation' — state the predicate, since the operator is the person who can restore the marker."
-  - truth: "`reconcile_run(run, dry_run=True)` raises the same `ValueError` the immediately following real run raises, on BOTH `_mint_fields()` caller branches — a `--dry-run` preview never hides a condition that makes the real run raise (35-09 must_haves truth 4, 35-09 flagged assumption ALLOC-02 `unclassified`, 35-09 prohibition 2)."
-    status: failed
-    reason: "WR-01 (35-REVIEW.md iteration 5), third consecutive iteration of the same defect (NF-10 -> NF-20 -> WR-01). 35-09 built the correct shared helper and wired both branches to it, then gave the helper an early-out whose null-field convention does NOT match the one its own docstring claims to mirror."
+    reason: "WR-01, iteration 6 — fourth iteration of this defect class (NF-10 -> NF-20 -> WR-01 -> WR-01). The half-null shape is now REACHED (the `or` short-circuit became an `and`, correctly), but the boundary the guard substitutes is wrong. `_raise_if_set_window_inverted()` falls back to `existing.start_time`/`existing.end_time` for the null field on the premise, stated twice (docstring `:338-344`, call site `:751-755`), that the stored boundary 'was minted from the same deterministic `sun_event()` for the same site and night'. That premise holds only when the field was ALSO null at mint time. The re-mint branch is entered precisely because the sub-night fields changed, and nulling a previously-set field is one of those changes — after a `2300-EoN` -> `BoN-2230` edit, `existing.start_time` is the old operator value `23:00`, not a sunset. BOTH directions are reproduced by executed probes against a real Django test database."
     artifacts:
       - path: "solsys_code/allocation_projector.py"
-        issue: "L348-349 `if run.night_start_utc is None or run.night_end_utc is None: return` — an OR. The helper's docstring at L332-338 justifies this as 'the same null-field convention `_span_needs_remint()` itself already uses'. It is not the same: `_span_needs_remint()` at L378 short-circuits on `if run.night_start_utc is None and run.night_end_utc is None` — an AND — so for a HALF-NULL run it checks the one set field and can return True, routing the night into the re-mint branch (L725-733), whose `if dry_run:` short-circuit at L729-733 then calls a guard that declines to look. A half-night classical line (`1130-EoN`, `BoN-0230`) produces exactly one set field and one null one via `_window_token_to_time()`, so this is not an exotic shape."
+        issue: "L357-375 (fallback at :360-369), premise asserted at :338-344 and :751-755, reached from :756. PROBE-P1 (new false positive): La Silla, night 2026-07-09, minted `2300-EoN` then edited to `BoN-2230` — dry run raises `ValueError: ... start=2026-07-09T23:00:00+00:00 >= end=2026-07-09T22:30:00+00:00`; the real run creates `22:06:35 -> 22:30` cleanly. PROBE-P6 (original false negative, verbatim): same site, minted `2100-EoN` then edited to `BoN-2130` — dry run returns `ReconcileResult(created=1, retired=1, ...)` with no error; the real run raises `... start=2026-07-09T22:06:35+00:00 >= end=2026-07-09T21:30:00+00:00`."
       - path: "solsys_code/allocation_projector.py"
-        issue: "L750-754 comment now asserts the opposite without a null-field qualifier: '`_raise_if_set_window_inverted()` is the shared guard also called from the re-mint branch above, so the two passes cannot drift apart on this check.'"
+        issue: "The docstring at :338-344 and the create-branch comment now state that the CREATE-path half-null case is 'the one shape that remains unchecked'. That is false: the re-mint half-null case whose null field was previously set is neither checked correctly nor left alone — it is checked against a boundary the real run will never use. 35-13 truth 4 and the `verification: backstop` statement (35-13 truth 9, 'the only shape for which the dry-run/real-run parity prohibition is knowingly not upheld') are both falsified by PROBE-P6."
       - path: "solsys_code/tests/test_allocation_projector.py"
-        issue: "`test_dry_run_of_a_remint_inverted_window_also_raises` pins only the set/set re-mint case. No test covers the half-null shape, which is why 215 green tests do not catch WR-01."
+        issue: "`test_dry_run_of_a_half_null_remint_inverted_window_also_raises` keeps `night_end_utc` null from mint through edit, so its `existing.end_time` genuinely IS the sunrise — the one sub-shape the fallback is sound for. It passes under the bug. 201 tests green is not evidence for this truth."
     missing:
-      - "WR-01 fix: change L348 to `if run.night_start_utc is None and run.night_end_utc is None: return`, resolve each boundary independently, and on the RE-MINT branch supply the missing boundary from `existing.start_time`/`existing.end_time` — it was minted from the same deterministic `sun_event()` for the same site and night, so this adds no astropy call and does not breach D-13. 35-REVIEW.md section WR-01 carries the full suggested helper body with an `existing: CalendarEvent | None = None` parameter."
-      - "Call it as `_raise_if_set_window_inverted(run, night, existing)` from the re-mint branch (L732) and `_raise_if_set_window_inverted(run, night)` from the create branch (L756)."
-      - "Add the half-null twin of `test_dry_run_of_a_remint_inverted_window_also_raises`. The reviewer's executed probe is the fixture: La Silla, one night, `night_start_utc=23:00`/`night_end_utc=None` minted first, then the start edited to `11:30` — after that night's 11:29:46 sunrise. Current behaviour: `reconcile_run(dry_run=True)` -> `ReconcileResult(created=1, retired=1, ...)` and NO error; `reconcile_run(run)` -> `ValueError: Computed an inverted allocation-night span for run pk=1 night=2026-07-09: start=2026-07-10T11:30:00+00:00 >= end=2026-07-10T11:29:46+00:00`."
-      - "Narrow the L750-754 comment and the L332-338 helper docstring to say the CREATE-path half-null case is the one shape that remains unpreviewable (it has no stored counterpart and genuinely needs `sun_event()`, which D-13 forbids on a preview) — rather than claiming full parity."
-  - truth: "`load_telescope_runs --dry-run` and the real pass report the same outcome for the same line — `created + updated + unchanged + skipped` equals `lines processed` on both."
+      - "Stop guessing and narrow the guard to what it can prove: return early when EITHER resolved boundary is unknown (`if start is None or end is None: return`) and delete the `existing.start_time`/`existing.end_time` fallback this round added. This removes the new false positive AND restores parity-by-silence for the false negative; it is a revert-shaped change, not new design. 35-REVIEW.md WR-01 carries the exact body."
+      - "If the half-null re-mint case is judged worth previewing at all, do it by recording mint provenance (the event description already carries the dark-window line) rather than inferring it — or accept one `sun_event()` call on the RE-MINT path only, which D-13 does not forbid because that night is about to be deleted and re-minted anyway. Do NOT infer provenance from the stored value again."
+      - "Add BOTH PROBE-P1 and PROBE-P6 as regression tests (mint with one shape, edit to the other, assert dry and real agree). The existing half-null test passes under the current bug, which is exactly how this defect survived four rounds."
+      - "Correct the docstring at :338-344 and the comment at :751-755 to describe what the guard actually proves, instead of asserting a provenance property the run row does not record."
+  - truth: "`load_telescope_runs --dry-run` and the real pass report the SAME decision for the same line — the preview and the real pass are the same decision reported twice, never two different decisions (35-14 truth 7, the ALLOC-04 `unclassified` edge probe re-resolution; 35-14 prohibition 1)."
     status: failed
-    reason: "WR-02 (35-REVIEW.md iteration 5). 35-09's NF-21 fix added a per-line `except ZoneInfoNotFoundError` handler that increments `run_skipped`, but the dry-run branch had already folded the line into `run_unchanged` before the call that raises. The real branch does not have this shape, so one line produces two different outcomes."
+    reason: "Re-filed WR-03, iteration 6. 35-14's fix covers only the `existing is not None` arm. The CREATE arm (`existing is None`) never calls `reconcile_run()` at all — it predicts `night_created += len(nights)` from the window length and folds `run_created += 1`, so nothing in that arm can fail. The real branch runs `write_and_reconcile_campaign_run()` for the same line, whose reconcile CAN raise (ZoneInfoNotFoundError, `sun_event()`'s ValueError for a blank timezone or polar site, an inverted create-path span), and reports the line under `skipped`."
     artifacts:
       - path: "solsys_code/management/commands/load_telescope_runs.py"
-        issue: "L294-316: the dry-run branch increments `run_created`/`run_updated`/`run_unchanged` at L297-302 from `preview_campaign_run_action()`, BEFORE calling `reconcile_run(existing, dry_run=True)` at L305. If that call raises (NF-21's `ZoneInfoNotFoundError`, `sun_event()`'s own `ValueError` for a blank timezone or a polar site, or WR-01's inverted-span `ValueError`), the handlers at L338-353 / L354-357 then add `run_skipped += 1` for the same line. The real branch at L317-337 increments only after the `transaction.atomic()` block has returned, so a failure there yields `skipped` alone."
+        issue: "L294-326, create arm at :307-310. PROBE-P5 (executed): NTT timezone typo'd, no pre-existing `CampaignRun` — `dry : Done (dry run). lines processed: 1, created: 1, updated: 0, unchanged: 0, skipped: 0` against `real: Done. lines processed: 1, created: 0, updated: 0, unchanged: 0, skipped: 1`; `CampaignRun` rows afterwards: 0. This is WR-02's own sentence ('an operator reading the dry run believes a run will be created when in fact the line will be dropped') surviving in the sibling branch."
       - path: "solsys_code/tests/test_load_telescope_runs.py"
-        issue: "`TestMalformedTimezoneSkipsOneLine` exercises only the REAL path, which is why this survived the NF-21 fix."
+        issue: "The new parity assertion was added to the existing-run variant only. `TestMalformedTimezoneSkipsOneLine.setUpTestData` already seeds the no-existing-run fixture PROBE-P5 uses, and no test runs `--dry-run` over it."
     missing:
-      - "WR-02 fix: mirror the real branch — compute the action, run the preview reconcile, and fold `run_created`/`run_updated`/`run_unchanged` only once BOTH have succeeded. 35-REVIEW.md section WR-02 carries the suggested re-ordered block."
-      - "Add a dry/real parity assertion to `TestMalformedTimezoneSkipsOneLine`: same fixture, both modes, identical `(created, updated, unchanged, skipped)` tuple. Reproduced current behaviour — preview: `Done (dry run). lines processed: 1, created: 0, updated: 0, unchanged: 1, skipped: 1`; real: `Done. lines processed: 1, created: 0, updated: 0, unchanged: 0, skipped: 1`."
-  - truth: "Every copy of the `claimed_legacy_urls` contract in the codebase states the same, current meaning (the NF-17 contract 35-09 was closing)."
-    status: partial
-    reason: "WR-03 (35-REVIEW.md iteration 5). NF-17 corrected two of three copies. The third sits on `_stale_dated_events()` — the function whose `stale_dated.exclude(url__in=claimed_legacy_urls)` IS the exclusion — so a reader of the function that does the work gets the superseded contract while a reader of its caller gets the current one."
+      - "EITHER give the create arm the same failure surface (preview against a transient `transaction.atomic()` row with `set_rollback(True)`) OR — recommended, given this loop's history of fixes introducing regressions — narrow the claim: state in the runbook and the notebook that a brand-new line's preview cannot predict a reconcile failure."
+      - "Extend `TestMalformedTimezoneSkipsOneLine` with the no-existing-run `--dry-run` variant so whichever contract is chosen is pinned."
+  - truth: "No operator-facing sentence states a parity guarantee the shipped code does not hold (35-15 truth 4 and prohibition 1; 35-14 truth 6's notebook artifact)."
+    status: failed
+    reason: "The third round of this exact prohibition failing. 35-15 correctly repaired the CUTOVER passages, but the LOADER paragraph it added in the same file, and the loader notebook cell committed one commit earlier, both assert the parity the create arm does not have."
     artifacts:
-      - path: "solsys_code/campaign_reconciler.py"
-        issue: "L600-606 Arg docstring still says 'already decided the fate of THIS call (a takeover re-key or a retirement delete) -- excluded here so a ``dry_run`` preview never double-counts'. Both halves are stale: NF-09 widened the set to blocked and human-declined urls and NF-22 (closed in this same batch) widened it again to the blocked-takeover url, so the parenthetical enumeration is missing two of four outcomes; and the 'so a dry_run preview never double-counts' clause is the exact claim NF-17 was filed to correct — the two sibling copies at L746-756 and `allocation_projector.py:576-595` both now state that the exclusion is LOAD-BEARING IN REAL MODE for a blocked or declined url."
+      - path: "docs/runbooks/telescope_runs_calendar.rst"
+        issue: "L82-89: the literal invariant (`created + updated + unchanged + skipped` equals `lines processed`) is true on both passes, but the stated MECHANISM — 'because the dry run folds its own created/updated/unchanged counter only after the same per-line preview reconcile the real pass performs has returned' — is false for a brand-new line, where no preview reconcile is performed at all. The neighbouring sentence 'A line whose preview reconcile raises is reported under skipped alone on both passes' is vacuous rather than true on that arm."
+      - path: "docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb"
+        issue: "Code cell 9 (`cells[18]`), committed executed output: `Both passes agree: (0, 0, 0, 1) -- the preview never disagrees with the real run.` That is the strongest claim in the phase's operator-facing documentation and PROBE-P5 falsifies it with the same command, the same site and the same typo'd timezone. The fixture is deliberately chosen to take the `existing is not None` arm."
     missing:
-      - "Replace campaign_reconciler.py:600-606 with the same wording the two corrected copies use, adding the blocked-takeover outcome NF-22 introduced. 35-REVIEW.md section WR-03 carries the exact replacement text."
+      - "Narrow the notebook's final `print` to the invariant the cell actually demonstrates (the existing-run arm's counter parity), and re-execute the notebook rather than hand-patching it."
+      - "Correct the runbook's because-clause at L82-89 to describe the two arms separately, keeping the honest note already present three paragraphs earlier ('for a brand-new run, a first-time dry run predicts night counts from the window length rather than computing a real sun-event time')."
+  - truth: "The `duplicate_identity` reason vocabulary states every cause the command can report it for — the operator-facing definition matches the reasons the code actually emits (35-12 truth 3's operator-action contract, NF-25's shared-phrase key link)."
+    status: partial
+    reason: "WR-04, iteration 6. CR-01 gave `duplicate_identity` a SECOND, structurally different cause (a pre-existing `CampaignRun` claimant whose stored marker is absent or differs) and the three places that DEFINE the reason still describe only the original group-vs-group collision. The remedy paragraphs adjacent to two of them were correctly updated, so an operator who reads on gets the right action — but the label printed verbatim above every claimant-marker stderr line asserts a cause that is false for that line."
+    artifacts:
+      - path: "solsys_code/management/commands/cutover_classical_allocations.py"
+        issue: "L180 `_REASON_LABELS[_DUPLICATE_IDENTITY] = 'a second Source line resolves to the same run identity key as an earlier group'` is prefixed onto BOTH branch strings, including the no-marker one, producing stderr that reads 'a second Source line resolves to the same run identity key as an earlier group: CampaignRun pk=1 already claimed ... with no recoverable Source line: marker' — a self-contradictory line where there is only one group."
+      - path: "docs/runbooks/telescope_runs_calendar.rst"
+        issue: "L933-937 (the passage the rest of the runbook calls 'the full reason vocabulary') and L1498-1500 (the troubleshooting Cause list) both define `duplicate_identity` as 'a second GROUP (a second, distinct Source line: string)'. An operator hitting the CR-01 branch goes looking for a second schedule line that does not exist."
+    missing:
+      - "State both causes in all three places: `_REASON_LABELS[_DUPLICATE_IDENTITY]`, runbook L933-937, runbook L1498-1500. 35-REVIEW.md WR-04 carries the exact two-cause sentence."
+      - "Re-run `pre-commit run sphinx-build --all-files` after the runbook edit."
 deferred: []
+flagged_prohibitions:
+  - statement: "The cutover must NOT silently mutate a `CampaignRun` it did not create in this invocation (35-12 prohibition 2, carried forward from 35-08)."
+    verification: judgment
+    status: unverified
+    flagged: true
+    finding: "WR-02 (new, iteration 6). The guard's SURVIVING permissive branch — a claimant whose stored `Source line:` MATCHES — is still find-and-updated, so a `run_status` (or `observation_details`, or `target`) edit a staff member made after the import is reverted to the schedule line's value with exit 0 and no report beyond `runs updated: 1`. Reproduced (PROBE-P4): claimant with a matching marker and `run_status` set to CANCELLED by staff -> `Done. candidates: 3, groups: 1, runs created: 0, updated: 1, unchanged: 0, events re-keyed: 3, unexplained: 0`, `run_status after: planned`. This round's own CR-01 remedy text (`:436-443`, runbook `:959-968`) instructs the operator to restore the marker and re-run, which is exactly the action that converts a refused (safe) claimant into a matching (silently-overwritten) one."
+    verifier_judgment: "NOT must-have-blocking for ALLOC-04 or ALLOC-05, on three grounds. (1) It does not breach any ROADMAP success criterion: the calendar's final state is still one event per night with no duplicate and no orphan; nothing is deleted; no event is re-keyed onto a run the command cannot prove owns it. (2) The literal prohibition text is in direct tension with 35-12 truth 5, which REQUIRES that a claimant with a matching marker still converts (the benign cutover-after-import ordering). The prohibition's operative meaning, as CR-01 resolved it, is 'must not mutate a run it cannot PROVE it owns' — and provenance is exactly what the matching marker establishes. (3) The behaviour is the project's already-accepted file-authoritative semantics: `load_telescope_runs` re-applies the same `fields` dict on every re-import, and the runbook devotes a whole 'Re-import gotcha' section (L734-790) to this class for `import_campaign_csv`, naming the two fields that are deliberately preserved. So this is find-or-update working as designed on a provable row, not a silent destruction of an unprovable one. What IS genuinely missing is the caveat: the cutover has no equivalent gotcha note, no test pins the intended outcome, and the remedy text routes an operator into it without saying so. Treat as a documented residual risk requiring one runbook sentence and one test, NOT a code change and NOT a blocker. D-18 ('an event the command cannot explain is left untouched and reported') does not reach this case — the command CAN explain this row."
+    human_decision_requested: "Confirm the WARNING severity above, or overrule it in favour of the reviewer's narrowing fix (compare line-derived fields against the claimant and report a `_RUN_DRIFT` divergence instead of overwriting). Overruling costs a new reason code, new operator vocabulary and a new refusal path in a command that has now had two rounds of refusal-path regressions."
 advisory:
-  - finding: "WR-04 — `observation_projector.py:647-658`'s swallowed `campaign_run_links` lookup error has no `transaction.atomic()` savepoint, while the module's own `project_record()` spends twelve lines (L339-352) explaining that the savepoint, not the `except`, is what makes such a catch safe. The comment's claim 'same guarantee project_record() gets above' is inaccurate. On PostgreSQL (the production target CLAUDE.md names) a failed statement poisons the surrounding transaction, so swallowing hands the caller an `InFailedSqlTransaction` on its next statement — the save is relocated, not protected."
-    category: architectural
-    reason: "The reviewer's executed probe showed NO failure on this project's current SQLite backend ({'count': 0}, the caller's next query succeeded), so the exposure is backend-dependent and not reproducible here today. The file was last modified by 24875bf, which PREDATES the prior verification's 2026-09-15T04:29:09Z timestamp — `git log --since` over solsys_code shows observation_projector.py unchanged by the 35-08..35-11 gap-closure round. Under the convergence evidence gate this is a new-scope finding with no deterministic evidence of failure, so it is recorded here rather than blocking. Resolution: wrap the lookup in `with transaction.atomic():` with the `except` OUTSIDE the `with`, correct the comment to name the savepoint as the mechanism, and either extend the same treatment to the three sibling catches (observation_projector.py:664-675, allocation_projector.py:871-880 and :952-961) or note in each why it is unnecessary there."
-    evidence_status: "probe executed, no failure reproduced on SQLite; PostgreSQL exposure argued from backend semantics, not demonstrated"
-  - finding: "IN-01 — cutover_classical_allocations.py:524 re-runs `CampaignRun.objects.filter(source_identifier=key).first()` and rebinds `existing_run`, a name already bound at L414 by the CR-01 guard. Redundant query plus a shadowed name that invites a reader to assume the guard's result is reused."
+  - finding: "IN-01 — no executed notebook cell covers the branch CR-01 actually inverted. `reconcile_campaign_runs_demo.ipynb`'s `duplicate_identity` demo uses two groups with genuinely DIFFERING markers (the branch CR-01 left unchanged); the committed notebook would look identical if the predicate were reverted."
     category: other
-    reason: "Cosmetic; no behavioural difference. Fix: delete L524 and use the outer binding, or rename (`claimant_run` for the guard, `existing_run` for the write) if a fresh read is wanted for race safety. Worth folding into the CR-01 fix since it touches the same predicate's surroundings."
-    evidence_status: "none provided — static observation, no failing behaviour"
-  - finding: "IN-02 — cutover_classical_allocations.py:648 hardcodes `url__startswith='ALLOC:'` while the module imports `allocation_night_url`/`allocation_night_title` from `solsys_code.allocation_projector`, which defines `ALLOC_URL_NAMESPACE = 'ALLOC:'` for exactly this purpose. A namespace rename would silently make the final summary count zero."
+    reason: "35-15 truth 5 requires only regeneration plus the corrected `CommandError` text, both of which are present (18/18 cells, 0 nulls, 5 occurrences). The CLAUDE.md paired-docs rule's 'exercise the new behavior' clause is met at the level of the corrected operator text but not at the level of an executed demonstration. Fix: one cell seeding a claimant with a non-marker `observation_details`, using the fixture `test_no_marker_claimant_keeps_run_status_details_and_target_byte_identical` already builds. Cheap; fold into any further doc round."
+    evidence_status: "static observation; notebook inspected programmatically"
+  - finding: "IN-02 — `cutover_classical_allocations.py:671` still hardcodes `url__startswith='ALLOC:'` while `allocation_projector.ALLOC_URL_NAMESPACE` exists and this module already imports four names from it. Carried forward unchanged from iteration 5."
     category: other
-    reason: "Fix: import `ALLOC_URL_NAMESPACE` alongside the existing names and use it at L648 and L656."
+    reason: "Latent: a namespace rename would silently make the final summary count zero. Fix: import the constant and use it."
     evidence_status: "none provided — latent, no current failure"
-  - finding: "IN-03 — cutover_classical_allocations.py:501 claims `seen_keys[key]` after the convertibility checks (IN-02's fix, correctly landed) but still BEFORE the group's `try: with transaction.atomic():` at L521. A group whose transaction rolls back entirely (the `except` at L628, which marks every event `_OTHER` and writes nothing) keeps the key claimed, so a sibling group sharing that key is reported under `duplicate_identity` naming a line that converted nothing."
+  - finding: "IN-03 — `seen_keys[key] = source_line` (`:520`) is still claimed before the group's `try: with transaction.atomic():` (`:540-664`). A group whose transaction rolls back wholesale keeps the key claimed, so a sibling group sharing it is reported under `duplicate_identity` naming a line that converted nothing. Carried forward unchanged."
     category: other
-    reason: "Residual of the same operator-confusion IN-02 described. Fix: move `seen_keys[key] = source_line` to just after the `runs_created += group_created` fold at L624-627, i.e. only once the group's writes have committed."
+    reason: "Fix: move the assignment to just after the `events_rekeyed += group_rekeyed` fold at `:647-650`."
     evidence_status: "none provided — reasoned from control flow, no probe run"
+  - finding: "IN-04 — the loader notebook's new parity cell (`cells[18]`) writes `ntt.timezone = 'America/Santigo'` to the shared developer database and restores it with a plain statement, not a `try/finally`. An interruption between the two writes leaves obscode 809 with a typo'd timezone that every later cell and every other notebook then resolves against. 35-11's skip-path cell has the same shape."
+    category: other
+    reason: "Verified by reading the cell source: the restore is unguarded and the asserts follow it. Fix: `try/finally`, or a deliberately-rolled-back `transaction.atomic()` as `project_observation_calendar_demo.ipynb`'s attribution cell already uses."
+    evidence_status: "static observation; notebook cell source inspected"
+  - finding: "WR-04 round-2 — `observation_projector.py:647-658`'s savepoint-less swallowed `campaign_run_links` lookup error. Deliberately deferred as advisory by this round's plan set and not re-verified by iteration 6."
+    category: architectural
+    reason: "Unchanged since 24875bf, which predates both prior verification timestamps; the file was not touched by either gap-closure round. The exposure is PostgreSQL-specific and was not reproducible on this project's SQLite backend. Carried forward unresolved."
+    evidence_status: "probe executed in a prior round, no failure reproduced on SQLite"
 behavior_unverified_items: []
 coincidental_reliance_items:
-  - truth: "The cutover's identity guard rejects a colliding second group (35-08 truths 1-3, `TestDatabaseScopedIdentityGuard`, 4 tests, OK)."
+  - truth: "The cutover's identity guard refuses what it cannot prove it owns (35-12 truths 1-2, `TestDatabaseScopedIdentityGuard`, 5 tests, OK)."
     reason: fixture-only
-    harden: "Every passing case in `TestDatabaseScopedIdentityGuard` constructs its claimant through `_make_pre_existing_claimant()`, which supplies an `observation_details` string the fixture itself controls. Production claimants come from `import_campaign_csv.py:321` (an arbitrary CSV column), `campaign_forms.py:65` (a free-text Textarea) and the Django admin (`admin.py:165` leaves the field editable) — none of which guarantees a `Source line:` marker. The guard's correctness silently depends on a precondition only the fixture establishes. Promote it into a declared precondition: either make `observation_details` non-editable for classical rows, or store the identity provenance in a field the operator cannot overwrite, or (the CR-01 fix) refuse whenever the precondition cannot be proven."
+    harden: "The guard is now SAFE under the fixture-controlled precondition it previously depended on — absence of a marker denies rather than grants — so the prior pass's coincidental-reliance flag is substantially discharged. What remains is the mirror image: the PERMISSIVE branch's correctness still depends on `observation_details` being trustworthy when it happens to match, and that field is writable from the Django admin (`admin.py:165`), from `import_campaign_csv.py:321` and from `campaign_forms.py:65`. Nothing in production guarantees a matching marker was written by this pipeline rather than typed by a person. Promote the provenance out of free text: store the identity provenance in a field the operator cannot overwrite (or mark it readonly for classical rows), which would also dissolve WR-02's remedy-text trap."
 ---
 
-# Phase 35: Allocation Layer & Classical Cutover — Verification Report
+# Phase 35: Allocation Layer & Classical Cutover — Verification Report (third pass)
 
 **Phase Goal:** An allocation — classical schedule line, approved submission, TBD/range run, campaign or no campaign — draws its own sunset→sunrise intent nights and hands each night over the moment a real observation links to it; `load_telescope_runs` writes allocations instead of calendar events.
-
-**Verified:** 2026-09-15T15:51:23Z
+**Verified:** 2026-09-15T17:25:47Z
 **Status:** gaps_found
-**Re-verification:** Yes — second gap-closure round check. Prior pass `gaps_found` 74/76 at 2026-09-15T04:29:09Z; plans 35-08 through 35-11 executed since (commits `868caa6`, `9e555eb`, `0eceeb5`, `eb79263`, `0b7599f`, `45b38a7`, `33f0a61`, `11b14da`, `4cee1f1`, `5eb2718`).
+**Re-verification:** Yes — third pass, after the second gap-closure round (plans 35-12 … 35-15)
 
----
+## Headline
 
-## What changed since the prior pass
+**The BLOCKER is closed and the phase goal is achieved. Every open finding is about preview fidelity and operator-facing wording, not about what the calendar ends up containing.**
 
-| Event | Outcome |
-|-------|---------|
-| 35-08 (`868caa6`, `9e555eb`) | NF-19 guard made database-scoped; NF-25 remedy made actionable; IN-02 claim ordering moved; IN-01 comment fixed. **Guard is database-scoped — but its permissive `None` branch re-opens the harm. See CR-01.** |
-| 35-09 (`0eceeb5`, `eb79263`, `0b7599f`) | NF-21 **closed**; NF-22 **closed**; NF-23 **closed**; NF-20 shared helper built and both branches wired. **Helper's `or` early-out misses the half-null shape. See WR-01. New divergence introduced on the loader's dry-run counters. See WR-02.** |
-| 35-10 (`45b38a7`, `33f0a61`, `11b14da`) | Runbook remedies corrected; reconciler notebook regenerated (18/18 cells, T-35-17 closed); CLAUDE.md now maps `allocation_projector.py`. **Runbook's replacement guarantee is still false on the CR-01 path.** |
-| 35-11 (`4cee1f1`, `5eb2718`) | NF-24 **closed, both halves.** Loader demo 15/15 cells with live `invalid Observatory.timezone` stderr in real output; projector demo 13/13 cells with creating-save attribution output; SCHED-06 baseline rewritten. |
-| 35-REVIEW.md iteration 5 (`894c982`) | **`status: issues_found` — 1 BLOCKER (CR-01) + 4 WARNINGs + 3 INFO.** 7 of 9 prior findings genuinely closed, 2 only partially closed with the surviving half re-filed under a new id. |
+All five ROADMAP success criteria verify. CR-01 — the one finding that could corrupt data — is genuinely fixed, with the defect-pinning test inverted rather than deleted and a destructive-case regression added; I re-ran that class in this process (5 tests, OK) and the whole phase test surface once (201 tests, OK). What remains is four findings in two root causes, all of which make a `--dry-run` preview or a sentence of documentation say something the real run does not do. None of them can produce a wrong event, a duplicate or an orphan.
 
-**Working tree is clean** of source and notebook modifications (`git status --short` shows only `.planning/` and untracked scratch files) — T-35-17's uncommitted hand-edit from the prior pass is gone.
-
-### Convergence evidence gate (applied, is_re_verification = true)
-
-Every file carrying a blocking finding this pass was **modified by the gap-closure round itself**, so each is in-contract under the gate and blocks unconditionally regardless of evidence:
-
-| Finding | File | Modified since 2026-09-15T04:29:09Z? | Also a carried-forward gap? | Verdict |
-|---|---|---|---|---|
-| CR-01 | `cutover_classical_allocations.py` | Yes — `868caa6` 06:25, `9e555eb` 06:26 | Yes — prior gap 1's first `missing` item is the NF-19 guard | 🛑 Blocks (regression + carried-forward + executed reproduction) |
-| WR-01 | `allocation_projector.py` | Yes — `eb79263` 07:23, `0b7599f` 07:42 | Yes — prior gap 3 named NF-20 | 🛑 In-contract (WARNING severity) |
-| WR-02 | `load_telescope_runs.py` | Yes — `0eceeb5` 06:52 | Regression introduced by the NF-21 fix | 🛑 In-contract (WARNING severity) |
-| WR-03 | `campaign_reconciler.py` | Yes — `0b7599f` 07:42 | Yes — prior gap 3 named NF-23 | 🛑 In-contract (WARNING severity) |
-| WR-04 | `observation_projector.py` | **No** — last touched by `24875bf`, before the prior pass | No | 📋 Advisory — new-scope, probe reproduced no failure on SQLite |
-| IN-01/02/03 | `cutover_classical_allocations.py` | Yes | No | 📋 Advisory — INFO severity, no failing behaviour |
-
----
+That distinction drives the recommendation in the Gaps Summary: the honest fix for most of what is left is to **stop over-claiming parity**, not to keep engineering it. This loop has now spent four rounds trying to make a preview match a real run, and each round's fix has been narrower than the sentence written about it.
 
 ## Goal Achievement
 
-### ROADMAP Success Criteria (the contract)
+### ROADMAP Success Criteria
 
 | # | Success Criterion | Status | Evidence |
-|---|-------------------|--------|----------|
-| 1 | Per-night events for a resolved-site awarded window; queue/class-wide/satellite keeps one whole-window entry | ✓ VERIFIED | `reconcile_run()` dispatches on `dispatches_per_night(run)`; container branch otherwise. 215 tests across the five phase modules pass (35-REVIEW.md verification method); `TestDatabaseScopedIdentityGuard` re-run in this process — 4 tests, OK. |
-| 2 | Nights follow the site-local observing night, Chile and Australia | ✓ VERIFIED | `ZoneInfo(run.site.timezone)`; `_time_of_day_to_datetime()` resolves against the site's own UTC span with no hour threshold. Unchanged since the prior pass; `TestAllocationNightBoundary` passes both hemispheres. |
-| 3 | Linking an `ObservationRecord` retires that night; unlinking restores it; the observation's own event is untouched | ✓ VERIFIED | Attribution writes route only through `adopt_event_into_run()`/`unlink_event_from_run()`. Now also shown in executed notebook output: `project_observation_calendar_demo.ipynb`'s creating-save cell prints `CalendarEventMeta.run_id: 74`, `allocation nights left: 2`. |
-| 4 | `load_telescope_runs` produces the same per-night calendar, via an allocation record, idempotently | ✓ VERIFIED | The module imports no calendar writer; the only write path is `write_and_reconcile_campaign_run()`. NF-21 closed — the dedicated `ZoneInfoNotFoundError` clause at L338-353 restores the per-line skip-and-log invariant, verified by execution (a three-line file with a typo'd timezone on line 2 reports `skipped: 2`, processes line 3, leaves no `CampaignRun` behind). **Reporting defect WR-02 does not falsify this criterion** — the per-night calendar and idempotence are correct; the dry-run *summary* disagrees with the real run. |
-| 5 | After the cutover, one event per night — no duplicate, no orphan | ✗ **FAILED** | The end-state COUNTS from the real-database run stand (241→233, `RUN:{pk}:{date}` 56→0, `ALLOC:` 0→57, human-confirmed in 35-UAT.md). But ALLOC-05's criterion is about the **stated sequencing**, and CR-01 shows an operator following that documented sequencing silently merging two distinct schedule lines into one `CampaignRun` — the allocation line's run keeps the cancelled line's identity, its three nights are re-keyed onto it, and the next sweep retitles them `[CANCELLED] NTT EFOSC2`. Exit 0, `unexplained: 0`, empty stderr. The prior pass recorded this as a caveat on a VERIFIED criterion; after a full gap-closure round failed to close it, it is recorded as a failure. |
+|---|---|---|---|
+| 1 | Allocation with resolved site + awarded window shows one sunset→sunrise event per window night; queue/class-wide/satellite keeps a single container | ✓ VERIFIED | `allocation_projector.py` dispatch intact (`ALLOC_URL_NAMESPACE`, `allocation_night_url()`, `reproject_allocation_if_dispatched()`); 201 tests across the five phase modules pass in this process; untouched by round 2 except the guard helper |
+| 2 | Allocation nights follow the site-local observing night (Chilean + Australian sites) | ✓ VERIFIED | `_night_span_utc()` / `night_bounds()` unchanged; `test_allocation_projector` green. The WR-01 defect is in the dry-run PREVIEW of an inverted span, not in which night a boundary lands on |
+| 3 | Linking an `ObservationRecord` removes that night's allocation event, leaves the observation's own event untouched; unlinking restores it | ✓ VERIFIED | `test_allocation_projector_signals` green; `reconcile_campaign_runs_demo.ipynb` re-executed end to end this round (18/18 cells, 0 null execution counts), re-demonstrating the handoff rather than carrying it on trust |
+| 4 | `load_telescope_runs` produces the same per-night calendar as before, by way of an allocation record, and re-running changes nothing | ✓ VERIFIED | The command imports no calendar writer (`grep` over its imports: only `reconcile_run`, `write_and_reconcile_campaign_run`, models and `telescope_runs` helpers); `test_load_telescope_runs` green. The create-arm defect is in `--dry-run` reporting only — the real import path is correct |
+| 5 | After the cutover, one event per night: no duplicate, no orphan left behind | ✓ VERIFIED (was FAILED) | CR-01's closure is what turns this. The silent merge that re-keyed three events onto a run the command could not prove it owned is gone: `TestDatabaseScopedIdentityGuard` 5/5 OK, PROBE-P3 confirms refusal on the `--dry-run` path too, and the refused events stay `url=''` with no `CalendarEventMeta` row |
 
-**ROADMAP score: 4/5**
+**Roadmap contract: 5/5.**
 
-### Plan-level Must-Have Truths
+### Observable Truths — round-2 plan must-haves
 
-| Plan | Truths | Status | Evidence |
-|------|--------|--------|----------|
-| 35-01 | 16 + 1 backstop | ✓ 17/17 VERIFIED | Unchanged since the prior pass; the 35-09 edits to `allocation_projector.py` were additive guard/counter changes, and the module's test file passes. |
-| 35-02 | 6 + 1 backstop | ✓ 7/7 VERIFIED | Unchanged. |
-| 35-03 | 7 | ✓ 7/7 VERIFIED | Unchanged. `0018_campaignrun_night_window_fields.py` remains two `AddField` ops, no `RunPython`. |
-| 35-04 | 9 | ✓ 9/9 VERIFIED | Unchanged. |
-| 35-05 | 10 | ✓ 10/10 VERIFIED | Unchanged. |
-| 35-06 | 10 + 1 backstop | ✓ 11/11 VERIFIED (literal) | `TestSecondInvocationIsANoOp` passes, so truth 5's literal wording still holds. The CR-01 harm lives on the re-run path after an *unsuccessful* pass, which no 35-06 truth names — recorded as a blocker anti-pattern and against 35-08's truths, not here. |
-| 35-07 | 10 | ✓ 9/10 | **Truth 5 now CLOSED** — `load_telescope_runs_demo.ipynb` regenerated at `4cee1f1` with the per-line skip-path section, 15/15 code cells, 0 null execution counts, real `invalid Observatory.timezone` stderr in output. **Truth 1 still FAILED** — the runbook's one false guarantee was replaced by a narrower one that is still false (L938-949, L1497, L1503). |
-| 35-08 | 12 | ✗ 10/12 | Truths 1, 3-11 verified (`TestDatabaseScopedIdentityGuard` 4 tests OK; remedy text actionable; `seen_keys` moved to L501; `--dry-run` parity preserved; no absolute line numbers in comments). **Truth 2 FAILED** — 'never a silent find-and-update' holds only when a `Source line:` marker is recoverable. **Truth 12 FAILED** — 'a re-run after an unresolved `duplicate_identity` changes no `CampaignRun` field' is falsified by the executed reproduction. **Truth 11 is VERIFIED literally and is the defect's specification**: it states the permissive `None` predicate as the intended behaviour, flagged at plan time as an unresolved ALLOC-01 `empty` assumption. The code matches the plan; the plan encoded the wrong default. That is why 215 green tests and a literally-satisfied must-have coexist with a live BLOCKER. |
-| 35-09 | 10 | ✗ 8/10 | Truths 1, 2, 3, 5, 6, 8, 9, 10 verified (NF-21 dedicated clause with correct order and provably-bound `site`; `transaction.atomic()` rollback intact; NF-22 claim before `_may_write()` at L690-698; NF-23 four-tuple at L678). **Truth 4 FAILED** — the shared guard skips the half-null shape. **Flagged assumption ALLOC-02 `unclassified` FAILED** — it asserts the helper matches `_span_needs_remint()`'s null-field convention; the two differ (`or` at L348 vs `and` at L378), proven by reproduction. |
-| 35-10 | 9 | ✗ 7/9 | Truths 2-7 and 9 verified (all three remedy passages corrected; the `load_telescope_runs` schedule-file remedy survives; NF-21 bullet names `ZoneInfoNotFoundError` at L1399; notebook 18/18 cells, 0 nulls; `CLAUDE.md` now maps `allocation_projector.py`). **Truth 1 FAILED** — the runbook's `duplicate_identity` passage states a guarantee the shipped code does not hold. **Truth 8 FAILED** — 'the runbook's "safe to repeat" promise is now backed by 35-08's guard' is false on the no-marker path. |
-| 35-11 | 9 | ✓ 9/9 VERIFIED | Both notebooks regenerated with real executed output and non-null execution counts on every code cell; creating-save attribution cell present and run inside a rolled-back `atomic()`; `NonSiderealTargetFactory` used per CLAUDE.md; `sched06-baseline.json` rewritten. |
+Only the round-2 plans are itemised; plans 35-01 … 35-11 were verified in the prior two passes and re-checked for regression (201 tests green, no source file outside the ten round-2 files changed).
 
-**Plan-level score: 104/111**
+| # | Truth (source) | Status | Evidence |
+|---|---|---|---|
+| 1 | No-marker claimant reported under `duplicate_identity`, non-zero exit, never find-and-updated (35-12 t1) | ✓ VERIFIED | `cutover_classical_allocations.py:426-445` is `if existing_source_line != source_line:`; `test_..._is_refused` asserts `CommandError`, `unexplained (duplicate_identity): 3`, events still `url=''` |
+| 2 | After a refusal the claimant's `run_status`, `observation_details`, `target` are byte-identical, asserted field by field (35-12 t2) | ✓ VERIFIED | `test_no_marker_claimant_keeps_run_status_details_and_target_byte_identical` captures all three before, refreshes from DB, asserts each; uses `NonSiderealTargetFactory` per CLAUDE.md |
+| 3 | The reason text branches on whether a marker was recovered; both name an action the operator can take (35-12 t3) | ✓ VERIFIED | Two-branch `reason` at `:427-444`; both end in 'then re-run'. (The shared `_REASON_LABELS` prefix is inaccurate for the new branch — see gap 4, WR-04) |
+| 4 | The ALLOC-01 `empty` case is asserted as a REFUSAL, replacing rather than sitting beside the case that asserted conversion (35-12 t4) | ✓ VERIFIED | `..._still_converts` (no-marker) is gone; `..._is_refused` is in its place. Class grew 4 → 5 tests, the fifth being the destructive regression |
+| 5 | A claimant whose stored marker MATCHES still converts normally (35-12 t5) | ✓ VERIFIED | `test_pre_existing_claimant_with_same_source_line_still_converts` unchanged and green. (This is also the branch WR-02 concerns — see flagged prohibition) |
+| 6 | No in-module guarantee asserts the no-rewrite property without naming the marker precondition (35-12 t6) | ✓ VERIFIED | Module docstring, `CommandError` and runbook all now read '… updates an existing `CampaignRun` only when that run's stored `Source line:` matches the line being converted'; zero occurrences of `rewrites no existing` remain anywhere |
+| 7-10 | Edge probes ALLOC-01 `empty` / `adjacency` / `ordering`, ALLOC-05 `unclassified` re-resolved (35-12 t7-t10) | ✓ VERIFIED | Each maps onto one of the five passing guard tests plus PROBE-P3's `--dry-run` confirmation |
+| 11 | The command still never deletes a `CalendarEvent` and still exits non-zero on any unexplained event (35-12 t11) | ✓ VERIFIED | `CommandError` path exercised by both new tests; no delete call on the refusal path |
+| 12 | Half-null dry run raises the SAME `ValueError` the real run raises (35-13 t1) | ✗ FAILED | PROBE-P6: dry clean, real raises. PROBE-P1: dry raises, real clean. See gap 1 |
+| 13 | Guard short-circuits only when BOTH sub-night fields are null (35-13 t2) | ✓ VERIFIED | `allocation_projector.py:357` is now `and`, matching `_span_needs_remint():378` |
+| 14 | Missing boundary supplied from the stored event, 'which was minted from the same deterministic `sun_event()`' (35-13 t3) | ✗ FAILED | The fallback exists and adds no astropy call, but its stated provenance premise is false whenever the null field was previously SET — the mechanism of both probes |
+| 15 | The CREATE-path half-null case is the ONLY shape the guard cannot check, and the docstrings say so (35-13 t4) | ✗ FAILED | The re-mint half-null-after-edit shape is also uncheckable, and is checked WRONGLY rather than skipped; the docstring claims the opposite |
+| 16 | Half-null twin regression test exists (35-13 t5) | ✓ VERIFIED | `test_dry_run_of_a_half_null_remint_inverted_window_also_raises` exists and passes — but only pins the one sub-shape the fallback is sound for |
+| 17 | Every `claimed_legacy_urls` contract copy states the same current meaning (35-13 t6) | ✓ VERIFIED | Read `campaign_reconciler.py:596-608`: four outcomes, LOAD-BEARING clause, NF-09/NF-17/NF-22/WR-03 cited. Siblings at `:755` and `allocation_projector.py:606` agree; no fourth copy |
+| 18 | That third copy enumerates all four outcomes and the real-mode load-bearing property (35-13 t7) | ✓ VERIFIED | Same read |
+| 19 | Edge probe ALLOC-02 `unclassified` re-resolved — inversion surfaced identically on both branches (35-13 t8) | ✗ FAILED | PROBE-P1/P6 |
+| 20 | [backstop] The create-path half-null case is the only shape where dry/real parity is knowingly not upheld (35-13 t9) | ✗ FAILED | Explicit counter-evidence (PROBE-P6). Per the backstop rule this truth needed positive evidence; it has negative evidence instead |
+| 21 | `sun_event()` still called only on create/re-mint; no new astropy call (35-13 t10) | ✓ VERIFIED | The fallback reads stored fields; no new call site |
+| 22 | `ALLOC:` / `RUN:{pk}` namespace ownership unchanged (35-13 t11) | ✓ VERIFIED | `ALLOC_URL_NAMESPACE` defined and used in the projector only |
+| 23 | Dry and real report the same `(created, updated, unchanged, skipped)` tuple over PROBE-B's fixture (35-14 t1) | ✓ VERIFIED | Notebook cell 9 executed output: both passes `(0, 0, 0, 1)`; new parity test in `TestMalformedTimezoneSkipsOneLine` |
+| 24 | `created + updated + unchanged + skipped == lines processed` in both modes (35-14 t2) | ✓ VERIFIED | Holds on both arms — the create arm's divergence is in WHICH bucket, not in the sum |
+| 25 | The dry-run branch folds counters only after both calls return (35-14 t3) | ✓ VERIFIED | `load_telescope_runs.py:312-326`, fold moved below the reconcile |
+| 26 | `TestMalformedTimezoneSkipsOneLine` asserts dry/real parity (35-14 t4) | ✓ VERIFIED | Present for the existing-run variant |
+| 27 | NF-21 not regressed — dedicated `except ZoneInfoNotFoundError` still precedes `(ValueError, Observatory.DoesNotExist)` (35-14 t5) | ✓ VERIFIED | Read at `:345-360`; clause order intact with the explanatory comment |
+| 28 | Loader notebook demonstrates parity with real executed output, no null execution counts (35-14 t6) | ✓ VERIFIED | 16/16 code cells, 0 nulls, real stderr/stdout in the output. (Its printed CONCLUSION overclaims — gap 3) |
+| 29 | Edge probe ALLOC-04 `unclassified` — preview and real are the same decision reported twice (35-14 t7) | ✗ FAILED | PROBE-P5: `created: 1` vs `skipped: 1`. See gap 2 |
+| 30 | One bad line still never aborts the import; the command still writes allocations only (35-14 t8-t9) | ✓ VERIFIED | Import list carries no calendar writer; per-line handlers intact |
+| 31 | Every runbook sentence about the cutover's `duplicate_identity` guarantee states the marker precondition (35-15 t1) | ✓ VERIFIED | `:946-968` and `:1511-1521` read in full; both branch on the marker and name both remedies |
+| 32 | No passage hedges into 'usually' / 'in normal operation' (35-15 t2) | ✓ VERIFIED | Grep over both passages: zero hits |
+| 33 | The remedy covers both branches the code reports (35-15 t3) | ✓ VERIFIED | 'when the two Source lines differ … when no marker is recoverable at all …' |
+| 34 | The runbook's loader section states the dry/real parity invariant 35-14 restores (35-15 t4) | ✗ FAILED | The stated mechanism is false for the create arm; the notebook's claim is false outright. See gap 3 |
+| 35 | Reconciler notebook regenerated by re-execution, non-null counts, corrected `CommandError` text (35-15 t5) | ✓ VERIFIED | 18/18 cells, 0 nulls, 5 occurrences of the corrected wording, 0 of the superseded clause |
+| 36 | The regenerated notebook re-executes the allocation/observation handoff cells end to end (35-15 t6) | ✓ VERIFIED | No null execution counts anywhere in the file |
+| 37 | Edge probe ALLOC-03 `unclassified` — handoff untouched this round and re-demonstrated (35-15 t7) | ✓ VERIFIED | No round-2 commit touches the handoff path; notebook re-executed |
+| 38 | `pre-commit run sphinx-build --all-files` still passes (35-15 t8) | ✓ VERIFIED | Executed by the iteration-6 reviewer: Passed (with ruff and ruff-format) |
 
-**Overall score: 108/116 truths verified (0 present, behavior-unverified)**
+**Score:** 146/155 must-haves verified (150 plan truths + 5 ROADMAP success criteria; 9 failed, 0 behavior-unverified, 1 prohibition flagged for human decision).
 
-### Advisory (New Scope, Unevidenced)
-
-New-scope findings from Step 7 with no deterministic evidence — reported, not blocking, do not revert a completed must-have.
-
-| # | Finding | Category | Why Advisory |
-|---|---------|----------|--------------|
-| 1 | WR-04 — no savepoint around `observation_projector.py:647-658`'s swallowed lookup error | architectural | New-scope: the file was NOT modified since the prior `verified:` timestamp (`24875bf` predates it), and the reviewer's executed probe reproduced no failure on this project's SQLite backend. The PostgreSQL exposure is argued from backend semantics, not demonstrated. |
-| 2 | IN-01 — `existing_run` re-queried and shadowed at `cutover_classical_allocations.py:524` | other | INFO severity, no behavioural difference. Fold into the CR-01 fix. |
-| 3 | IN-02 — `'ALLOC:'` literal at `cutover_classical_allocations.py:648` instead of `ALLOC_URL_NAMESPACE` | other | Latent; no current failure. |
-| 4 | IN-03 — `seen_keys[key]` claimed at L501, still before the group's `transaction.atomic()` at L521 | other | Reasoned from control flow; no probe run. |
-
-### Deferred Items
-
-None. `roadmap.analyze` shows Phases 36 (Unattended Operation — SCHED-08/09/10, DISCOVER-01) and 37 (Status Vocabulary, Public Tallies — STATUS/TALLY/UNUSED/GAPB) as the only later phases in this milestone, and neither goal nor any of their ten success criteria covers the cutover identity guard, the dry-run inversion guard, the loader's dry-run counters or the reconciler docstring. All five gaps are this phase's own work.
-
----
+Seven of the nine failures share a single root cause (the half-null stored-boundary fallback); the remaining two share a second (the create-arm preview). There are two defects here, not nine.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
-|----------|----------|--------|---------|
-| `solsys_code/allocation_projector.py` | Module owning the `ALLOC:` namespace | ⚠️ VERIFIED (defect) | 966 lines. Imported and used by `campaign_reconciler`, `apps.py`, `observation_projector`, `models.py`, `cutover_classical_allocations`. Wired, data flowing. NF-22 closed at L690-698. **WR-01 open at L348-349.** |
-| `solsys_code/management/commands/cutover_classical_allocations.py` | One-time cutover command | ✗ **DEFECTIVE** | 666 lines; registered and runnable. Guard is now database-scoped (L414) — a real improvement — but **CR-01 (BLOCKER) open at L417**, plus IN-01/02/03. |
-| `solsys_code/tests/test_cutover_classical_allocations.py` | Cutover coverage incl. the NF-19 hole | ⚠️ INCOMPLETE — **pins the defect** | `TestDatabaseScopedIdentityGuard` added, 4 tests, all pass (re-run in this process). The four cases (merge / differing line / same line / no marker) are the right partition — but the fourth case's assertion pins the PERMISSIVE outcome as correct, and its `observation_details=''` fixture makes the destruction invisible. |
-| `solsys_code/management/commands/load_telescope_runs.py` | Writes allocations, not events | ⚠️ VERIFIED (defect) | 377 lines; no calendar import. **NF-21 closed** — dedicated `except ZoneInfoNotFoundError` at L338-353, correctly ordered ahead of `(ValueError, Observatory.DoesNotExist)` at L354. **WR-02 open at L294-316.** |
-| `solsys_code/campaign_reconciler.py` | Migrated onto `ALLOC:`/D-10 | ⚠️ VERIFIED (doc defect) | 902 lines. **NF-23 closed** — L678 is `-> tuple[int, int, int, int]`, matching docstring, return and 4-way unpack. **WR-03 open at L600-606.** |
-| `solsys_code/observation_projector.py` | Record-save trigger, D-11 re-project | ⚠️ VERIFIED (advisory) | 811 lines. F-34-1 guard present at L647-658; WR-04 recorded as advisory (see gate table). |
-| `solsys_code/admin.py` | Staff surface for `CampaignRun` | ⚠️ **CR-01 PREMISE** | L165 `readonly_fields = ['approval_status']`; `get_readonly_fields()` withholds only `source`. `observation_details` is freely editable — this is what makes CR-01 reachable by an ordinary staff action. |
-| `docs/runbooks/telescope_runs_calendar.rst` | Cutover + ingest + source sections | ✗ **INACCURATE** | 1565 lines, toctree-wired at `docs/index.rst:24`. NF-25 and NF-21 passages **corrected**. **L938-949, L1497, L1503 state a guarantee the code does not hold.** |
-| `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb` | Executed allocation-path demo | ✓ **VERIFIED — was STALE** | 15/15 code cells, 0 null execution counts, all with output. New "Per-line skip paths" section; output contains the live `invalid Observatory.timezone` stderr text. |
-| `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` | D-11 trigger demo | ✓ **VERIFIED — was STALE** | 13/13 code cells, 0 nulls, all with output. Creating-save attribution cell present with real `CalendarEventMeta`/`run_id` output, run inside a rolled-back `atomic()`. |
-| `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` | Executed cutover before/after diff | ✓ **VERIFIED — was DIRTY** | 18/18 code cells, 0 null execution counts. T-35-17 closed: the working tree is clean. **Caveat:** its committed output prints `cutover_classical_allocations.py:664`'s CommandError text verbatim, including the now-false "rewrites no existing CampaignRun" clause — it must be regenerated after the CR-01 fix. |
-| `CLAUDE.md` | Paired-docs notebook map | ✓ VERIFIED | Now maps `solsys_code/allocation_projector.py` into `reconcile_campaign_runs_demo.ipynb` (`11b14da`), closing the hole that let this phase's central module ship with no mapped demo notebook. Breach-history entry added. |
+|---|---|---|---|
+| `solsys_code/management/commands/cutover_classical_allocations.py` | Identity guard refuses unprovable claimants | ✓ VERIFIED | 691 lines; `!=` predicate at `:427`; two-branch reason; guard binding reused at the write site |
+| `solsys_code/tests/test_cutover_classical_allocations.py` | Defect-pinning test replaced + destructive regression added | ✓ VERIFIED | 5-test guard class, re-run in this process: OK |
+| `solsys_code/allocation_projector.py` | Shared inversion guard reaching the half-null shape | ⚠️ HOLLOW | 996 lines; the guard is reached and wired, but the value it substitutes is not the one the real run uses — present and wired, wrong data |
+| `solsys_code/tests/test_allocation_projector.py` | Half-null regression coverage | ⚠️ PARTIAL | Covers the one sound sub-shape; both probe shapes uncovered |
+| `solsys_code/management/commands/load_telescope_runs.py` | Counter fold after the preview reconcile | ⚠️ PARTIAL | Fixed on the existing-run arm; create arm has no preview reconcile at all |
+| `solsys_code/tests/test_load_telescope_runs.py` | Dry/real parity assertion | ⚠️ PARTIAL | Existing-run variant only |
+| `solsys_code/campaign_reconciler.py` | Third `claimed_legacy_urls` contract copy corrected | ✓ VERIFIED | `:596-608` |
+| `docs/runbooks/telescope_runs_calendar.rst` | Cutover guarantees narrowed to the shipped predicate | ⚠️ PARTIAL | Cutover section correct; loader paragraph and reason vocabulary are not |
+| `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` | Regenerated against the corrected command output | ✓ VERIFIED | 18/18 executed |
+| `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb` | Parity demonstrated with real output | ⚠️ PARTIAL | Genuinely executed (16/16), but its printed conclusion overstates |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
-|------|----|-----|--------|---------|
-| `campaign_reconciler.reconcile_run()` | `allocation_projector.project_allocation()` | single dispatch seam (D-09) | ✓ WIRED | Unchanged; guarded by `dispatches_per_night(run)`. |
-| `allocation_projector` | `telescope_runs.observing_night()` / `sun_event()` | shared site-local night anchor (D-05) | ✓ WIRED | `ZoneInfo(run.site.timezone)`. |
-| `allocation_projector` | `campaign_utils.adopt_event_into_run()` / `unlink_event_from_run()` | only attribution writers (D-08) | ✓ WIRED | No direct `meta.run =` in the bridge. |
-| `_raise_if_set_window_inverted()` | both `if dry_run:` short-circuits in `project_allocation()` | one shared guard (35-09 key link) | ⚠️ **WIRED, INCOMPLETE** | Called from L732 (re-mint) and L756 (create) — the wiring 35-09 promised is real. But the helper's L348 `or` early-out declines to check the half-null shape the re-mint caller reaches, so the link carries no signal on exactly the operator edit it was built for (WR-01). |
-| `cutover_classical_allocations` group loop | `CampaignRun.objects.filter(source_identifier=key)` | database-scoped identity guard (35-08 key link) | ⚠️ **WIRED, UNSOUND** | L414 — the lookup IS now against the database, the same place `insert_or_create_campaign_run()` matches. The defect is downstream at L417: the guard then derives its authority from `observation_details`, an admin-editable free-text field, and treats absence as consent (CR-01). |
-| `_extract_source_line()` | `CampaignRun.observation_details` | reuse the existing parser (35-08 key link) | ⚠️ **WIRED, WRONG TRUST BOUNDARY** | The parser is reused with no new parsing code, as planned. The problem is what the *result* authorises: `None` (parse found nothing) is routed to the same branch as a positive match. |
-| `load_telescope_runs.handle()` | `write_and_reconcile_campaign_run()` → `reconcile_run()` → `project_allocation()` | ALLOC-04 chain | ✓ WIRED | Inside `transaction.atomic()`; per-line handlers now cover both `ZoneInfoNotFoundError` and `(ValueError, Observatory.DoesNotExist)`. |
-| `_DUPLICATE_IDENTITY` message | runbook's three remedy passages | one shared operator phrase (35-10 key link) | ✓ WIRED | "edit the affected events' description `Source line:` text … in the Django admin" appears at `cutover_classical_allocations.py:396-398`, `:421-424`, `telescope_runs_calendar.rst:939-949`, `:1454-1461`, `:1494-1503`, and in the notebook's committed output. |
-| `docs/index.rst` toctree | `runbooks/telescope_runs_calendar` | operator-reachable page | ✓ WIRED | `docs/index.rst:24`. |
-| `CLAUDE.md` notebook map | `allocation_projector.py` → `reconcile_campaign_runs_demo.ipynb` | paired-docs enforceability | ✓ WIRED | `CLAUDE.md:133-135`. |
+|---|---|---|---|---|
+| `_extract_source_line()` result | the guard's write authorisation | `None` on the refusing side | ✓ WIRED | The trust boundary the prior pass marked 'WIRED, WRONG TRUST BOUNDARY' is now correct: a parse that found nothing can only deny |
+| `CampaignRunAdmin`'s editable `observation_details` | the cutover's identity decision | `_extract_source_line()` | ⚠️ WIRED, ASYMMETRIC | The field can now only DENY a conversion, never grant one — except on the matching branch, where a hand-typed marker still grants a full field overwrite (see flagged prohibition) |
+| `_raise_if_set_window_inverted(run, night, existing)` | re-mint branch `if dry_run:` short-circuit | shared guard | ⚠️ WIRED, WRONG VALUE | The link is complete; the substituted boundary is not the one the real run pairs with |
+| `preview_campaign_run_action()` result | run-level counters | fold after the preview reconcile | ⚠️ WIRED, ONE ARM | Existing-run arm only |
+| Cutover `duplicate_identity` reason strings | runbook remedy passages → notebook output | shared operator phrase | ✓ WIRED | NF-25's shared phrase survives 35-12's rewrite; both remedies appear in code, runbook and the re-executed notebook |
+| `docs/index.rst:24` toctree | `runbooks/telescope_runs_calendar` | Sphinx | ✓ WIRED | `sphinx-build` passed in the reviewer's executed run |
 
 ### Data-Flow Trace (Level 4)
 
-| Artifact | Data Variable | Source | Produces Real Data | Status |
-|----------|---------------|--------|--------------------|--------|
-| `allocation_projector._mint_fields()` | `start`/`end` | `sun_event(run.site, night)` via `night_bounds()` | Yes — real astropy spans in the executed notebooks | ✓ FLOWING |
-| `cutover_classical_allocations` | `existing_source_line` | `_extract_source_line(existing_run.observation_details)` — an **admin-editable** `TextField` also written by `import_campaign_csv.py:321` and `campaign_forms.py:65` | Yes, but the value is **operator-controlled and may legitimately be `None`**, and `None` is routed to the permissive branch. This is the CR-01 seam at the data-flow level. | ⚠️ **FLOWING FROM AN UNTRUSTED SOURCE** |
-| `allocation_night_title()` | event title prefix | `run.run_status` → `_RUN_STATUS_CALENDAR_PREFIX` | Yes — **and this is what makes CR-01 calendar-visible**: the silently flipped `run_status` retitles every one of that run's nights `[CANCELLED] …` on the next sweep (step 4 of the documented cutover sequence) | ✓ FLOWING |
-| `load_telescope_runs` dry-run summary | `run_unchanged` / `run_skipped` | `preview_campaign_run_action()` folded at L297-302, then the exception handler at L338-353 | Both increment for the same line — the preview total no longer sums to `lines processed` (WR-02) | ⚠️ **DOUBLE-COUNTED** |
-| `campaign_views.py:750` | `result.skipped_nights` | nothing — no code path assigns it any more | No | ⚠️ STATIC (cosmetic, pre-disclosed in 35-02-SUMMARY.md) |
+| Artifact | Data | Source | Produces real data | Status |
+|---|---|---|---|---|
+| `cutover_classical_allocations` summary | `runs updated`, `events re-keyed`, `unexplained` | live DB queries over `CalendarEvent` / `CampaignRun` | Yes | ✓ FLOWING |
+| `_raise_if_set_window_inverted` | `start` / `end` on a half-null run | half from `_time_of_day_to_datetime()`, half from the STORED event | Partly — the stored half is a historical operator value, not a sun event | ⚠️ STATIC (stale stored value stands in for a computed one) |
+| `load_telescope_runs --dry-run` night counters, create arm | `night_created` | `len(nights)` — a literal window length, not a reconcile | No | ⚠️ STATIC (documented in the runbook, but the parity claim built on top of it is not) |
+| Loader notebook cell 9 output | both summary lines | two real `call_command()` invocations | Yes | ✓ FLOWING (the numbers are real; the sentence under them is not) |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
-|----------|---------|--------|--------|
-| The NF-19 guard's four cases | `python manage.py test solsys_code.tests.test_cutover_classical_allocations.TestDatabaseScopedIdentityGuard` | **Ran 4 tests in 0.031s — OK** | ✓ PASS — **and this is the problem.** The fourth case, `test_pre_existing_claimant_with_no_recoverable_source_line_still_converts` (L1221), asserts the CR-01 behaviour is correct. A green run here certifies the defect. |
-| Full phase suite | `python manage.py test` over the five phase test modules (35-REVIEW.md verification method, executed by the reviewer) | **215 tests, all passing** | ✓ PASS (not re-run here — one full-suite run per verification, and the reviewer's run is the one) |
-| CR-01 reproduction | Reviewer's executed probe against a real Django test DB (35-REVIEW.md, PROBE-A) | `Done. candidates: 3, groups: 1, runs created: 0, updated: 1, unchanged: 0, events re-keyed: 3, unexplained: 0`; **exit 0**; `run_status` planned → cancelled; `observation_details` `'Rescheduled per PI request; see ticket OPS-4412.'` → `'Status: cancelled\nSource line: NTT EFOSC2 cancelled 9-12 July'` | ✗ **FAIL — reproduced** |
-| WR-01 reproduction | Reviewer's executed probe (35-REVIEW.md, PROBE-D), La Silla half-null run | sunset/sunrise `2026-07-09 22:06:35.918` / `2026-07-10 11:29:46.816`; `reconcile_run(dry_run=True)` → `ReconcileResult(created=1, retired=1, …)` **no error**; `reconcile_run(run)` → `ValueError: Computed an inverted allocation-night span for run pk=1 night=2026-07-09: start=2026-07-10T11:30:00+00:00 >= end=2026-07-10T11:29:46+00:00` | ✗ **FAIL — reproduced** |
-| WR-02 reproduction | Reviewer's executed probe (35-REVIEW.md, PROBE-B) | dry run `unchanged: 1, skipped: 1` vs real run `unchanged: 0, skipped: 1` — one line, two outcomes | ✗ **FAIL — reproduced** |
-| CR-01 predicate present in current code | `grep -n "not in (None, source_line)" cutover_classical_allocations.py` | `417:                if existing_source_line not in (None, source_line):` | ✗ FAIL (confirmed) |
-| WR-01 convention mismatch present | read `allocation_projector.py:348` vs `:378` | L348 `if run.night_start_utc is None or run.night_end_utc is None:` vs L378 `if run.night_start_utc is None and run.night_end_utc is None:` | ✗ FAIL (confirmed) |
-| `observation_details` admin-editable | read `admin.py:165` + `get_readonly_fields()` | `readonly_fields = ['approval_status']`; `get_readonly_fields()` withholds only `source` | ✗ FAIL — CR-01 premise confirmed |
-| Other writers of `observation_details` | `grep -n observation_details import_campaign_csv.py campaign_forms.py` | `import_campaign_csv.py:321` (`row.get('Observation Details', '')`), `campaign_forms.py:65` (`forms.CharField(widget=forms.Textarea)`) | ✗ FAIL — three independent paths can clear the marker |
-| NF-21 closure | read `load_telescope_runs.py:338-357` | Dedicated `except ZoneInfoNotFoundError` clause placed AHEAD of `(ValueError, Observatory.DoesNotExist)`; stderr names the obscode and offending timezone | ✓ PASS |
-| NF-22 closure | read `allocation_projector.py:690-698` | `legacy_urls_claimed.add(legacy_url)` precedes the `_may_write()` check | ✓ PASS |
-| NF-23 closure | `sed -n '676,679p' campaign_reconciler.py` | `-> tuple[int, int, int, int]` | ✓ PASS |
-| WR-03 stale docstring | read `campaign_reconciler.py:600-606` | Still says "(a takeover re-key or a retirement delete)" and "so a ``dry_run`` preview never double-counts" | ✗ FAIL (confirmed) |
-| WR-04 no savepoint | read `observation_projector.py:647-658` | Bare `try:` with no `with transaction.atomic():`; comment claims "same guarantee project_record() gets above" | ⚠️ confirmed present, no failure reproducible on SQLite |
-| Notebook execution counts | JSON scan of all three pre-executed notebooks | loader 15/15 cells 0 nulls; projector 13/13 0 nulls; reconciler 18/18 0 nulls; every code cell has output | ✓ PASS |
-| Notebook content currency | JSON scan for new-cell markers in source and output | loader: "Per-line skip" in source, `invalid Observatory.timezone` in OUTPUT; projector: "creating save" in source, `CalendarEventMeta`/`run_id` in OUTPUT | ✓ PASS |
-| Working tree clean of source edits | `git status --short` | Only `.planning/config.json` (M) and untracked `.gsd/`, scratch JSON, phase-34 review files. No source or notebook file dirty. | ✓ PASS |
-| Content fingerprint | `gsd_run query verification.fingerprint` | `7c530f3d…` vs the prior report's `b6a64521…` — changed, as expected for a gap-closure round | ℹ️ Recorded |
+|---|---|---|---|
+| CR-01 refusal + byte-identity | `python manage.py test solsys_code.tests.test_cutover_classical_allocations.TestDatabaseScopedIdentityGuard` | `Ran 5 tests … OK` | ✓ PASS |
+| No regression across the phase surface | `python manage.py test solsys_code.tests.{test_allocation_projector,test_campaign_reconciler,test_cutover_classical_allocations,test_load_telescope_runs,test_allocation_projector_signals}` (run once) | `Ran 201 tests in 103.961s … OK` | ✓ PASS |
+| Reconciler notebook fully executed with corrected text | JSON inspection | 18 code cells, 0 nulls, 5× corrected `CommandError`, 0× superseded clause | ✓ PASS |
+| Loader notebook parity claim | JSON inspection of `cells[18]` output | `Both passes agree: (0, 0, 0, 1) -- the preview never disagrees with the real run.` | ✗ FAIL (claim falsified by PROBE-P5) |
+| Loader writes allocations only | import-list grep | no calendar-writer import | ✓ PASS |
+| Guard null-field convention | direct read | `:357` `and`, matching `:378` | ✓ PASS |
+| Half-null fallback provenance | direct read of `:360-369` + `:338-344` | fallback reads stored boundary; premise stated, not enforced | ✗ FAIL |
 
 ### Probe Execution
 
-Not applicable — this project defines no `scripts/*/tests/probe-*.sh` probes and no plan declares one. The Django test runner and the code reviewer's executed reproduction probes (written under `solsys_code/tests/`, run, then deleted; `git status --short` confirms no source file was modified by that review) are the equivalent runnable evidence.
+No `scripts/*/tests/probe-*.sh` convention exists in this repository. The probe evidence for this pass is the iteration-6 reviewer's executed probe module (written under `solsys_code/tests/`, run against a real Django test database, then deleted; `git status --short` clean of source changes). Per the task's instruction those reproductions (PROBE-P1 … P6) are treated as verified facts. I independently re-ran the CR-01 test class and the five-module suite in my own process.
 
-| Probe | Command | Result | Status |
-|-------|---------|--------|--------|
-| — | — | no probes declared or conventional in this repo | ? SKIP |
-
-### Test Quality Audit
-
-| Test File | Linked Req | Active | Skipped | Circular | Assertion Level | Verdict |
-|-----------|-----------|--------|---------|----------|-----------------|---------|
-| `test_cutover_classical_allocations.py` | ALLOC-04, ALLOC-05 | yes (`TestDatabaseScopedIdentityGuard` 4/4 pass) | 0 | no | Value + behavioural (second-invocation) | ⚠️ **INSUFFICIENT for the requirement it claims.** The class is the first in this phase to test a SECOND invocation — genuine progress. But `test_pre_existing_claimant_with_no_recoverable_source_line_still_converts` (L1221) asserts the wrong outcome, and its `observation_details=''` fixture is chosen such that no field visibly changes, so the destructive write it permits is invisible to every assertion in the case. No test asserts `run_status`/`observation_details`/`target` are byte-identical after a rejected pass. |
-| `test_allocation_projector.py` | ALLOC-01, ALLOC-02 | yes | 0 | no | Value + exception-raising | ⚠️ **INCOMPLETE.** `test_dry_run_of_a_remint_inverted_window_also_raises` covers the set/set shape only; no half-null twin, which is the WR-01 hole. |
-| `test_load_telescope_runs.py` | ALLOC-04 | yes | 0 | no | Value + behavioural (following line still processed) | ⚠️ **INCOMPLETE.** `TestMalformedTimezoneSkipsOneLine` correctly asserts the *following* line still processed — the right invariant. But it exercises only the real path, so WR-02's dry/real counter divergence is untested. |
-| `test_observation_projector_signals.py` | ALLOC-03 | yes | 0 | no | Behavioural | ⚠️ Advisory. `test_linked_run_lookup_raising_does_not_abort_the_records_own_save_or_projection` patches `campaign_run_links` with a `SimpleNamespace` whose `select_related` raises a Python-constructed `OperationalError` that never reaches the database — it proves the `except` clause exists, not that the transaction survives (WR-04). |
-
-**Disabled tests on requirements:** 0 — no `@skip`, `@unittest.skip`, `self.skipTest` or `@expectedFailure` in any phase test module.
-**Circular patterns detected:** 0.
-**Insufficient assertions:** 3 → ⚠️ WARNING, and one of them (`test_cutover_classical_allocations.py:1221`) actively pins a BLOCKER as correct behaviour, which is the single most important finding of this audit.
+| Probe | Result | Status |
+|---|---|---|
+| PROBE-P3 (CR-01 `--dry-run`) | `unexplained: 3`, `CommandError`, run byte-identical | ✓ PASS (guard refuses) |
+| PROBE-P2 (half-null, stored boundary genuinely sun-derived) | dry and real raise identically | ✓ PASS |
+| PROBE-P1 (half-null, previously-set field nulled) | dry RAISES, real creates cleanly | ✗ FAIL (new false positive) |
+| PROBE-P6 (mirror edit sequence) | dry clean, real RAISES | ✗ FAIL (original false negative) |
+| PROBE-P4 (matching-marker claimant, staff `run_status` edit) | exit 0, `updated: 1`, `run_status` cancelled → planned | ⚠️ FLAGGED (see flagged prohibition) |
+| PROBE-P5 (brand-new line, typo'd timezone) | dry `created: 1` vs real `skipped: 1` | ✗ FAIL |
 
 ### Requirements Coverage
 
-| Requirement | Source Plan(s) | Description | Status | Evidence |
-|-------------|----------------|-------------|--------|----------|
-| ALLOC-01 | 35-01, 35-02, 35-03, 35-09 | Per-night events for resolved-site awarded windows; queue/class-wide/satellite keep one container | ✓ SATISFIED | SC-1; `dispatches_per_night()` dispatch; 215 tests green; NF-22 closed. |
-| ALLOC-02 | 35-01, 35-09 | Nights keyed by site-local observing night, Chile and Australia | ✓ SATISFIED | SC-2; `_time_of_day_to_datetime()` span-nearest rule; boundary tests both hemispheres. WR-01 is a *preview-parity* defect on this surface, not a wrong-night defect — the real run computes the correct span and raises when the operator's edit is inverted. |
-| ALLOC-03 | 35-01, 35-02, 35-04, 35-11 | Linked record ⇒ no allocation event; unlink restores; observation's own event untouched | ✓ SATISFIED | SC-3; signal and attribution-bridge tests; now also shown in executed notebook output (creating-save attribution). |
-| ALLOC-04 | 35-03, 35-05, 35-07, 35-08, 35-09, 35-10, 35-11 | `load_telescope_runs` writes a campaign-less `CampaignRun` with a collision-safe `source_identifier`; same per-night events, idempotent | ✗ **BLOCKED** | SC-4's calendar and idempotence properties hold, and NF-21/NF-24 are closed. **But the collision-safety of the `source_identifier` contract is not upheld end to end:** a `CampaignRun` created by `load_telescope_runs` is exactly one of the claimant shapes CR-01 lets the cutover silently find-and-update — the guard's own comment at L405-406 names "from load_telescope_runs" as a case it exists to catch, and the no-marker branch lets it through. WR-02 additionally breaks the command's dry/real summary parity. |
-| ALLOC-05 | 35-06, 35-07, 35-08, 35-10 | Cutover has explicit stated sequencing that never leaves a duplicate or orphan | ✗ **BLOCKED** | SC-5 failed. The stated sequencing — including the `CommandError`'s own "it is safe to repeat … rewrites no existing CampaignRun" at L664 and the runbook's L938-949 — drives an operator into the reproduced CR-01 silent merge, with exit 0 and empty stderr. Two schedule lines collapse into one run and the calendar retitles the allocated nights `[CANCELLED]`. |
+| Requirement | Source plans | Description | Status | Evidence |
+|---|---|---|---|---|
+| ALLOC-01 | 35-01, 35-13, 35-15 | Per-night events for resolved classical/awarded allocations; container for queue/class-wide/satellite | ✓ SATISFIED | SC-1; dispatch untouched; 201 tests green. The WR-01 defect affects only the preview of an inverted span |
+| ALLOC-02 | 35-13, 35-15 | Nights keyed by the site-local observing night (Chilean + Australian) | ✓ SATISFIED | SC-2; `test_allocation_projector` green. Note the ALLOC-02 edge probe's dry/real parity clause is FAILED (gap 1) — the requirement's own substance (which calendar day a night lands on) is unaffected |
+| ALLOC-03 | 35-15 | Handoff on link, restore on unlink, observation's own event untouched | ✓ SATISFIED | SC-3; signals suite green; notebook re-executed this round |
+| ALLOC-04 | 35-12, 35-14, 35-15 | `load_telescope_runs` creates/updates a campaign-less `CampaignRun` with a collision-safe `source_identifier`; same per-night events, idempotent | ✓ SATISFIED (with a preview caveat) | SC-4. The real import path is correct and idempotent; the `--dry-run` create arm misreports (gap 2) — a preview defect, not an ingest defect |
+| ALLOC-05 | 35-12, 35-15 | Cutover has explicit stated sequencing and never leaves a duplicate or orphan | ✓ SATISFIED | SC-5, turned by CR-01's closure. The matching-marker overwrite (flagged prohibition) leaves no duplicate and no orphan — it changes run FIELDS, not calendar topology |
 
-**Orphaned requirements:** none. REQUIREMENTS.md maps exactly ALLOC-01..05 to Phase 35 (L113-117, all currently marked "Complete" — **these three rows should not be treated as authoritative while ALLOC-04 and ALLOC-05 are blocked**), all five appear in plan frontmatter, and no plan claims an ID not in REQUIREMENTS.md.
-
-### Prohibitions
-
-Judgment-tier. The seven carried forward from earlier passes were human-confirmed in 35-UAT.md test 3 (pass). The gap-closure plans added new ones, and **three are violated**:
-
-| # | Plan | Prohibition | Verdict | Evidence |
-|---|------|-------------|---------|----------|
-| 1 | 35-08 | "The cutover must NOT silently mutate a `CampaignRun` it did not create in this invocation." (Explicitly widened from the Phase 35 original in response to the prior pass's own Prohibitions note.) | ✗ **VIOLATED** | CR-01's executed reproduction: `run_status` planned → cancelled, `observation_details` overwritten, `target` set to `None`, exit 0, `unexplained: 0`, empty stderr. The prohibition was widened correctly and the code still breaches it. |
-| 2 | 35-08 | "A `--dry-run` must NOT exit 0 over a fixture the immediately following real run rejects." (cutover) | ✓ Upheld | `--dry-run`/real parity preserved on every cutover fixture. |
-| 3 | 35-08 | "The cutover must NOT delete a `CalendarEvent` on any path." | ✓ Upheld | No `.delete()` call site in the command. |
-| 4 | 35-08 | "An operator-facing remedy string must NOT name an artifact this command never reads." | ✓ Upheld | NF-25 closed — all sites name the Django admin edit. |
-| 5 | 35-09 | "A `--dry-run` preview must NOT hide a condition that makes the immediately following real run raise." | ✗ **VIOLATED** | WR-01's executed reproduction: dry run returns `ReconcileResult(created=1, retired=1, …)` with no error; the real run raises `ValueError`. Third consecutive iteration of this exact prohibition failing. |
-| 6 | 35-09 | "One bad schedule line must NOT abort the whole `load_telescope_runs` import." | ✓ Upheld | NF-21 closed; verified by execution (line 2 skipped, line 3 processed). |
-| 7 | 35-09 | "A single calendar row must NOT be reported under a counter more than once." | ⚠️ **Partially violated** | Upheld for the calendar row (NF-22 closed). Violated for a schedule *line* in the loader's dry-run summary (WR-02: `unchanged: 1` + `skipped: 1` for one line). |
-| 8 | 35-09 | "A function's signature annotation must NOT contradict its own docstring or its return statement." | ✓ Upheld | NF-23 closed at L678. |
-| 9 | 35-10 | "An operator-facing runbook sentence must NOT state a guarantee the shipped code does not hold." | ✗ **VIOLATED** | `telescope_runs_calendar.rst:938-949`, `:1497`, `:1503` — the replacement guarantee is still false on the CR-01 path. |
-| 10 | 35-10 / 35-11 | "A paired notebook must NOT be hand-patched to repair execution counts or output." | ✓ Upheld | All three notebooks show contiguous non-null execution counts and real output; T-35-17's hand-edit is gone from the working tree. |
-| 11 | 35-11 | "A `Target` fixture must NOT use `SiderealTargetFactory`." | ✓ Upheld | `NonSiderealTargetFactory` in the projector demo's new cell, per CLAUDE.md. |
-
-### Decision Coverage
-
-Non-blocking gate. The phase's CONTEXT.md decisions (D-05, D-08, D-09, D-10, D-11, D-13, D-14, D-16, D-18, D-19) are each traceable to a shipped artifact and, for the gap-closure round, to a commit subject: D-13's "no `sun_event()` on a preview" is explicitly reasoned about in both branches of the WR-01 fix site (`allocation_projector.py:332-338`, `:739-754`), and D-18's six unexplained categories are intact in the cutover. **No decision vanished during execution.** Recorded for drift tracking only; no status impact.
+No orphaned requirements: REQUIREMENTS.md maps exactly ALLOC-01 … ALLOC-05 to Phase 35 and every one appears in at least one plan's `requirements` field.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| `solsys_code/management/commands/cutover_classical_allocations.py` | 417 | Trust boundary inverted — an admin-editable free-text field's *absence* is treated as consent to a destructive find-and-update (CR-01) | 🛑 **Blocker** | Reproduced end-to-end. In-contract under the evidence gate: carried-forward gap AND the file was modified by this round. An operator following the documented cutover sequence silently loses a run's lifecycle state and staff note, with exit 0. |
-| `solsys_code/tests/test_cutover_classical_allocations.py` | 1221 | A passing regression test that pins a BLOCKER as correct behaviour | 🛑 **Blocker** | Self-evidencing: the test name states the asserted outcome. This is why 215 green tests, a passing UAT and a clean security audit coexist with a live blocker — and why the fix must REPLACE this test, not just add one. |
-| `solsys_code/allocation_projector.py` | 348-349 | `or` where the convention it claims to mirror uses `and` — guard declines to check the shape its caller reaches (WR-01) | ⚠️ Warning | Dry run previews clean; real run raises. Third consecutive iteration (NF-10 → NF-20 → WR-01). The L750-754 comment now asserts full parity, so the code and its own documentation disagree. |
-| `solsys_code/management/commands/load_telescope_runs.py` | 294-316 | Counter folded before the call that can fail; the failure handler then counts the same line again (WR-02) | ⚠️ Warning | `created + updated + unchanged + skipped != lines processed` on the preview. An operator reading the dry run believes a run will be left untouched when the line will in fact be dropped. Regression introduced by this round's own NF-21 fix. |
-| `solsys_code/campaign_reconciler.py` | 600-606 | Third copy of a contract corrected in two places — on the function that actually performs the exclusion (WR-03) | ⚠️ Warning | Superseded meaning, missing two of four outcomes including the one NF-22 added in this same batch. |
-| `solsys_code/observation_projector.py` | 647-658 | Swallowed DB error with no savepoint, comment claims a guarantee it does not have (WR-04) | 📋 **Advisory** | New-scope (file unmodified since the prior pass) and no failure reproducible on SQLite. See Advisory table. |
-| `solsys_code/management/commands/cutover_classical_allocations.py` | 524 | `existing_run` re-queried and shadowed (IN-01) | 📋 Advisory | Redundant query; invites a reader to assume the guard's result is reused. |
-| `solsys_code/management/commands/cutover_classical_allocations.py` | 648 | `'ALLOC:'` literal instead of `ALLOC_URL_NAMESPACE` (IN-02) | 📋 Advisory | A namespace rename would silently zero the summary count. |
-| `solsys_code/management/commands/cutover_classical_allocations.py` | 501 vs 521 | `seen_keys[key]` claimed before the group's transaction (IN-03) | 📋 Advisory | A rolled-back group keeps the key claimed; a sibling is reported naming a line that converted nothing. |
-| `solsys_code/campaign_views.py` | 750 | Interpolates `result.skipped_nights`, which no code path assigns | ℹ️ Info | Cosmetic; pre-disclosed in 35-02-SUMMARY.md as a deliberate non-fix. Carried forward unchanged. |
+|---|---|---|---|---|
+| `solsys_code/allocation_projector.py` | 360-369 | Stale stored value substituted for a computed one, justified by an unenforced premise | ⚠️ Warning | Both directions of preview/real divergence (gap 1) |
+| `solsys_code/management/commands/load_telescope_runs.py` | 307-310 | Prediction from a literal (`len(nights)`) standing in for the real call | ⚠️ Warning | Create-arm preview divergence (gap 2) |
+| `solsys_code/management/commands/cutover_classical_allocations.py` | 180 | One reason label prefixed onto two structurally different causes | ⚠️ Warning | Self-contradictory stderr (gap 4) |
+| `solsys_code/management/commands/cutover_classical_allocations.py` | 671 | Hardcoded `'ALLOC:'` beside an importable constant | ℹ️ Info | IN-02, carried forward |
+| `solsys_code/management/commands/cutover_classical_allocations.py` | 520 | Key claimed before the group's transaction commits | ℹ️ Info | IN-03, carried forward |
+| `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb` | cell 9 | Shared-DB mutation without `try/finally` | ℹ️ Info | IN-04 |
 
-**Debt-marker gate: clean.** Every `TBD` across this phase's modified files is domain vocabulary (`'TBD window'` — a run whose dates are To Be Determined: `campaign_reconciler.py:240`, `test_allocation_projector.py:941`, `telescope_runs_calendar.rst:1104`). No `FIXME`, `XXX`, `HACK`, `PLACEHOLDER`, or un-referenced `TODO` in any file this phase touched.
-
-**Stub scan: clean.** No stub returns on any write path; every rendered value traces to a real `sun_event()` computation, a model field, or a DB query.
+No `TBD` / `FIXME` / `XXX` debt markers in any of the ten files modified this round.
 
 ### Human Verification Required
 
-None. Every failure this pass is code-evidenced: four by executed reproduction against a real Django test database (CR-01, WR-01, WR-02, WR-04's scope), the rest by direct reading of the cited lines and one named test run in this process. The three human items from the 2026-09-13 pass remain closed (35-UAT.md, 3/3 pass), and no truth is behavior-unverified.
-
----
+None as a gate — status is already `gaps_found`. One judgment-tier prohibition is **flagged for a human decision** (see `flagged_prohibitions` in the frontmatter): whether the cutover's matching-marker branch silently reverting a post-import staff edit is an acceptable, documentable limitation (my assessment) or must be narrowed in code (the reviewer's suggested `_RUN_DRIFT` refusal).
 
 ## Gaps Summary
 
-**The gap-closure round did substantial, genuine work — and the phase still does not pass, because the two findings it only half-closed are the two that carry the phase's data-integrity contract.**
+**Two defects, four findings, zero data-integrity risk.**
 
-What is genuinely fixed, verified against the code rather than the summaries: NF-21 (the loader's exception routing, with correct clause ORDER and a provably-bound `site`), NF-22 (blocked takeover counted once), NF-23 (the four-tuple annotation), NF-25 (actionable remedy text in all five places), IN-01, IN-02, T-35-17, and both halves of NF-24 — the two stale paired notebooks are regenerated with real executed output, and `CLAUDE.md` now maps `allocation_projector.py`, closing the enforcement hole that let this phase's central module ship unmapped. Three prior gaps are closed; the working tree is clean; 215 tests pass; both ruff gates pass.
+*Defect A — the half-null boundary fallback (gap 1; truths 12, 14, 15, 19, 20 plus the two carried 35-09 truths).* This is the fourth round of the same bug class. The pattern across rounds is consistent and worth naming, because it predicts what a fifth round would do: each round has correctly identified the shape that escaped the previous guard, extended the guard to reach it, and then written a sentence claiming parity broader than the extension delivers. This round's extension is the first to make the preview *worse* in one direction — it now aborts a night the real run handles cleanly. The fix with the best odds is subtractive: delete the fallback, return early when either boundary is unknown, and let the docstring say the preview cannot see a half-null span. That restores parity by silence, removes the new false positive, and is a smaller change than the one that introduced it.
 
-**The BLOCKER is not closed, and its shape changed rather than shrank.**
+*Defect B — the create-arm preview (gaps 2 and 3).* Same shape, different module: the existing-run arm was fixed, a sentence was written about both arms, and the untouched arm falsifies the sentence. Here the subtractive fix is also the better one — narrow the notebook's print and the runbook's because-clause to the arm they actually demonstrate. The runbook already contains the honest version three paragraphs earlier ('for a brand-new run, a first-time dry run predicts night counts from the window length'); the new paragraph contradicts it.
 
-NF-19's fix correctly moved the identity guard from an in-process `dict` to a database lookup (`cutover_classical_allocations.py:414`). That closes both harms the prior verification reproduced. It then resolves *who* the database claimant is by re-parsing the claimant's own `observation_details` and puts `None` on the permissive side of the predicate at L417 — with a comment (L411-413) stating the rationale outright: *"a database row with no recoverable `Source line:` marker has nothing to disagree with, so it is treated as the SAME line rather than rejected."*
+*Gap 4 (WR-04)* is a twenty-minute vocabulary fix in three places, and matters because the command's own stderr currently asserts a cause that is false for the branch CR-01 just added.
 
-That reasoning is inverted for a one-time destructive migration. A row with no marker is precisely the row this command **cannot prove it owns**, and the write it then performs is a full find-and-update of every dispatch-deciding field on an APPROVED run. `observation_details` is not an internal field: `CampaignRunAdmin` (`admin.py:165`) leaves it fully editable, `import_campaign_csv.py:321` writes it from an arbitrary CSV column, `campaign_forms.py:65` exposes it as a free-text Textarea — and this command's own remedy text sends operators into the admin to edit exactly these rows. Reproduced against a real test database: a staff-edited run flips `run_status` planned → cancelled, loses its ops note, has `target` nulled and `campaign`/`window_start`/`window_end`/`site`/`site_raw` overwritten from a line that did not create it, with three events re-keyed onto it — **exit 0, `unexplained: 0`, empty stderr.** `allocation_night_title()` then retitles those nights `[CANCELLED] NTT EFOSC2` on step 4 of the documented sequence.
+*The flagged prohibition (WR-02, new)* is the one I was asked to judge independently, and I disagree with treating it as blocking. The reviewer is right that it is real, reproduced and undocumented, and right that this round's remedy text routes an operator into it. But the run in question is one this command can PROVE came from the schedule line in hand — which is the exact distinction CR-01 established — and re-applying a schedule line to a row derived from it is the same file-authoritative behaviour `load_telescope_runs` has on every re-import and `import_campaign_csv` has on every re-import, the latter documented at length in this very runbook's 'Re-import gotcha' section. D-18 governs events the command *cannot explain*; this row it can. The correct response is the caveat the cutover is missing, not a new refusal path in a command that has now produced refusal-path regressions in two consecutive rounds.
 
-**Why the green suite did not catch it:** `test_pre_existing_claimant_with_no_recoverable_source_line_still_converts` (`test_cutover_classical_allocations.py:1221`) *pins this outcome as correct*. I re-ran `TestDatabaseScopedIdentityGuard` in this process — 4 tests, OK. The four cases (merge / differing line / same line / no marker) are the right partition; the bug is that the fourth case asserts the wrong answer, and its `observation_details=''` fixture is chosen such that no field visibly changes, making the destruction invisible to every assertion. The fix must **replace** that test, not add beside it.
+### Recommendation on a third gap-closure round
 
-**Why this kept recurring, for both open findings.** 35-08's plan frontmatter carries the permissive predicate as a *flagged, unresolved* must-have (ALLOC-01 `empty`): *"is treated as the SAME line and allowed to proceed — the permissive predicate 35-REVIEW.md NF-19 prescribes."* 35-09's carries the parallel one for WR-01: *"matching `_span_needs_remint()`'s own null-field convention."* **Both flagged assumptions are false, and both were implemented faithfully.** The executor did what the plan said; the plan encoded an inverted default and a mis-read convention (`or` at `allocation_projector.py:348` versus `and` at `:378` — not the same convention at all). Three truths in this report are literally VERIFIED while specifying the defect. The closure plan should treat the flagged assumptions themselves as the artifacts to correct, not only the code.
+**Yes, but scope it as 'stop over-claiming', not 'achieve parity' — and make it the last round.**
 
-WR-01 is now the third consecutive iteration of one sentence — NF-10, then NF-20, now WR-01: *a dry run previews clean and the immediately following real run raises.* 35-09 built the right shared helper and wired both callers to it; the helper then declines to look at the half-null shape (`1130-EoN`, `BoN-0230` — an ordinary half-night classical line), which is exactly the shape `_span_needs_remint()` routes into the branch that calls it. The good news is that the fix is now cheap and local: on the re-mint branch the missing boundary is already on `existing`, minted from the same deterministic `sun_event()` for the same site and night, so no astropy call and no D-13 breach.
+The phase goal is met and the milestone-relevant risk is retired. What is left would be safe to ship *if the documentation described it accurately*, and it does not — so a round is warranted, but a small and mostly subtractive one:
 
-Two further in-contract warnings, both self-inflicted by this round: **WR-02**, where the NF-21 handler this round added now double-counts a line the dry-run branch had already folded into `unchanged` (the preview total no longer sums to `lines processed`); and **WR-03**, where NF-23's batch corrected two copies of the `claimed_legacy_urls` contract and left the third — on `_stale_dated_events()`, the function that *performs* the exclusion — carrying the superseded meaning, now also missing the blocked-takeover outcome NF-22 added in this very batch.
+1. **Code (one change, revert-shaped):** delete the `existing.start_time`/`existing.end_time` fallback in `_raise_if_set_window_inverted()`; return when either boundary is unknown. Add PROBE-P1 and PROBE-P6 as regression tests. This removes the regression this round introduced and stops the fourth-iteration bug from having a fifth.
+2. **Docs (three narrowings):** the loader notebook's final `print`, the runbook's L82-89 because-clause, and the `_raise_if_set_window_inverted()` docstring — each narrowed to what the code proves.
+3. **Docs (one addition):** the cutover's missing re-run caveat, in the same sentence that sends the operator to the admin, plus a test pinning PROBE-P4's outcome as intended.
+4. **Docs (one vocabulary fix):** the two-cause `duplicate_identity` wording in `_REASON_LABELS` and the two runbook definitions.
 
-**Requirement impact:** ALLOC-01, ALLOC-02 and ALLOC-03 are satisfied. **ALLOC-04 and ALLOC-05 are blocked** — a `load_telescope_runs`-created run is one of the claimant shapes CR-01 lets the cutover silently overwrite (the guard's own comment names it as a case it exists to catch), and ALLOC-05's "explicit, stated sequencing" is the surface the operator follows into the merge. REQUIREMENTS.md currently marks all five "Complete" at L113-117; those two rows should not be treated as authoritative until CR-01 is closed.
+Explicitly **do not** attempt the transient-rolled-back-row preview for the create arm. It is the only suggestion on the table that adds a new write path to a command with a four-round regression history, and its entire benefit is a more precise preview of a line that the real run will refuse anyway.
 
-**What passes:** the allocation layer itself. SC-1 through SC-4 are solid, every key link is wired with real data flowing, the debt-marker and stub gates are clean, no test is disabled or circular, requirement traceability is complete with no orphans, all three paired notebooks are current and executed, the runbook is toctree-wired, and the real-database cutover numbers remain human-confirmed. The defects are concentrated in one predicate, one boolean operator, one counter ordering, and one docstring.
+If the developer prefers to ship now instead, item 2 is the minimum that must land first: shipping a notebook whose committed output states 'the preview never disagrees with the real run' is worse than shipping the divergence, because it is the sentence that stops an operator from noticing it.
 
 ---
 
-_Verified: 2026-09-15T15:51:23Z_
+_Verified: 2026-09-15T17:25:47Z_
 _Verifier: Claude (gsd-verifier)_
