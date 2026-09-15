@@ -45,14 +45,21 @@ group whose ``Source line:`` resolves to the SAME run identity key as an earlier
 ``_source_identifier()`` deliberately ignores the parsed status word, so two lines differing
 only in status (e.g. an allocation line and a cancelled line for the same telescope,
 instrument and window) collide -- reported (never silently merged into the earlier group's
-run) under its own reason. This guarantee holds on every invocation, not only the first,
-because the check reads the database -- a claimant can already exist from an earlier
-cutover invocation or from ``load_telescope_runs``, not only from this process's own
-in-memory bookkeeping (``duplicate_identity``, NF-14/NF-19, 35-REVIEW.md). The remedy this
-command can actually carry out: edit the affected events' description ``Source line:`` text
-in the Django admin so it carries a different bracketed ``[proposal]`` token from the
-earlier group's, then re-run -- this command reads no schedule file, so editing one changes
-nothing it will ever see (NF-25, 35-REVIEW.md); and any
+run) under its own reason. The database check also catches a claimant left by an earlier
+cutover invocation or by ``load_telescope_runs``, not only this process's own in-memory
+bookkeeping -- but only WHEN that claimant's own stored ``Source line:`` is recoverable and
+matches; a claimant whose marker is absent or differs is reported under
+``duplicate_identity`` instead of converted, because ``observation_details`` is writable
+from the Django admin, from ``import_campaign_csv.py`` and from the campaign submission
+form, so this command cannot prove such a row came from the line in hand
+(``duplicate_identity``, NF-14/NF-19/CR-01, 35-REVIEW.md). The remedy this command can
+actually carry out: when the two Source lines differ, edit the affected events' description
+``Source line:`` text in the Django admin so it carries a different bracketed
+``[proposal]`` token from the earlier group's; when no marker is recoverable at all, restore
+or correct the claimant's ``observation_details`` ``Source line:`` text in the Django admin
+so it matches, or disambiguate the two lines -- then re-run in either case, since this
+command reads no schedule file, so editing one changes nothing it will ever see (NF-25,
+35-REVIEW.md); and any
 other exception, recorded with its own type name. Every reason is printed with the event's
 primary key and title so an operator can find and correct the row in the admin. When EVERY
 event in a group is attributed elsewhere, no ``CampaignRun`` is created or updated for that
@@ -533,7 +540,11 @@ class Command(BaseCommand):
             try:
                 with transaction.atomic():
                     if dry_run:
-                        existing_run = CampaignRun.objects.filter(source_identifier=key).first()
+                        # IN-01 (35-REVIEW.md): existing_run is already bound above by the
+                        # NF-19/CR-01 guard's own lookup -- nothing between that binding and
+                        # here creates a run holding this key, so re-querying it here was a
+                        # redundant read and a name shadowed a reader could mistake for a
+                        # fresh one.
                         action = preview_campaign_run_action(existing_run, fields)
                         run = existing_run
                     else:
@@ -673,6 +684,8 @@ class Command(BaseCommand):
                 f'{total_unexplained} event(s) could not be explained and were left untouched ({breakdown}). '
                 'Resolve the listed events in the admin (see the stderr lines above for each pk, title and '
                 'reason), then re-run this command -- it is safe to repeat: a repeat pass converts nothing '
-                'it has not already explained, and rewrites no existing CampaignRun (NF-19, 35-REVIEW.md).'
+                "it has not already explained, and updates an existing CampaignRun only when that run's "
+                'stored Source line: matches the line being converted, reporting anything else instead '
+                '(NF-19/CR-01, 35-REVIEW.md).'
             )
         return None

@@ -949,6 +949,11 @@ class TestDryRunAndRealRunAgree(CutoverClassicalAllocationsTestBase):
             site_raw='NTT',
             window_start=date(year, 7, 1),
             window_end=date(year, 7, 31),
+            # CR-01 (35-REVIEW.md): the run's stored Source line: must match the group's own
+            # line, or the database-scoped guard now refuses the whole group under
+            # duplicate_identity before any of the three per-event preconditions this
+            # fixture exists to exercise are ever reached.
+            observation_details=f'Status: allocation\nSource line: {_THREE_NIGHT_LINE}',
         )
 
         def _span(night: date) -> tuple[datetime, datetime]:
