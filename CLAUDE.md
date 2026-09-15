@@ -130,8 +130,9 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   `solsys_code/management/commands/sync_gemini_observation_calendar.py` ->
   `sync_gemini_observation_calendar_demo.ipynb`;
   `solsys_code/management/commands/backfill_lco_observations.py -> backfill_lco_observations_demo.ipynb`;
-  `solsys_code/campaign_reconciler.py` and
-  `solsys_code/management/commands/reconcile_campaign_runs.py` ->
+  `solsys_code/campaign_reconciler.py`,
+  `solsys_code/management/commands/reconcile_campaign_runs.py` and
+  `solsys_code/allocation_projector.py` ->
   `reconcile_campaign_runs_demo.ipynb`;
   `solsys_code/management/commands/cutover_classical_allocations.py` ->
   `reconcile_campaign_runs_demo.ipynb`; the v2.2 campaign submission/approval/
@@ -155,7 +156,11 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   must-have gap, not a nice-to-have). Breach history: Phase 5 (`260619-f7u`) and Phase 6
   (`260620-v9x`) — both notebook-scope misses — and quick task `260726-kdp`, where the operator
   runbook went stale because `docs/runbooks/` wasn't covered by the rule at all, since it didn't
-  exist when the rule was originally written.
+  exist when the rule was originally written; and Phase 35 (NF-24, 35-REVIEW.md), where fixes to
+  `load_telescope_runs.py` and `observation_projector.py` landed with no update to their paired
+  `load_telescope_runs_demo.ipynb` and `project_observation_calendar_demo.ipynb` notebooks, and
+  `allocation_projector.py` — the phase's central new module — had no mapped notebook at all
+  to miss, the enforcement hole this entry now closes.
 
 <!-- GSD:project-start source:PROJECT.md -->
 
