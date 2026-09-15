@@ -1,5 +1,6 @@
 from datetime import date, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfoNotFoundError
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
@@ -334,6 +335,22 @@ class Command(BaseCommand):
                     night_rekeyed += result.reconcile.rekeyed
                     night_blocked += result.reconcile.blocked
                     night_skipped += result.reconcile.skipped_nights
+            except ZoneInfoNotFoundError as exc:
+                # NF-21 (35-REVIEW.md): a dedicated clause ahead of the (ValueError,
+                # Observatory.DoesNotExist) catch below -- ZoneInfoNotFoundError subclasses
+                # KeyError, not ValueError (35-VERIFICATION.md L234), so clause ORDER is what
+                # decides which handler sees it; without this clause it escaped both and
+                # aborted the whole import. `site` is bound at L244 by get_site(), two
+                # statements into this same try, and ZoneInfoNotFoundError can only
+                # originate downstream of it (inside write_and_reconcile_campaign_run() /
+                # reconcile_run()), so `site` is always bound when this clause runs -- do
+                # not "fix" this into a defensive getattr, it would hide a real bug instead.
+                self.stderr.write(
+                    f'Line {line_num}: invalid Observatory.timezone {site.timezone!r} for site '
+                    f'{site.short_name!r} (obscode {site.obscode!r}): {exc} (line text: {line.strip()!r})'
+                )
+                run_skipped += 1
+                continue
             except (ValueError, Observatory.DoesNotExist) as exc:
                 self.stderr.write(f'Line {line_num}: {exc} (line text: {line.strip()!r})')
                 run_skipped += 1

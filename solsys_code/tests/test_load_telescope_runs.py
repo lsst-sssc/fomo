@@ -550,6 +550,71 @@ class TestLoadTelescopeRuns(TestCase):
             self.assertIn('nights -- created: 0, updated: 0, unchanged: 4', summary)
 
 
+class TestMalformedTimezoneSkipsOneLine(TestCase):
+    """35-REVIEW.md NF-21: a mistyped `Observatory.timezone` must be skipped and logged
+    per-line -- the runbook's stated "one bad row never aborts the whole run" invariant --
+    not escape as an uncaught `ZoneInfoNotFoundError` (a `KeyError` subclass, 35-VERIFICATION.md
+    L234) that aborts the whole import mid-batch with a bare traceback, no summary, and no
+    subsequent lines processed."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santigo',  # typo -- the exact reproduction from 35-REVIEW.md
+        )
+        Observatory.objects.create(
+            obscode='269',
+            name='Magellan Baade Telescope',
+            short_name='Magellan-Baade',
+            lat=-29.0146,
+            lon=-70.6926,
+            altitude=2402,
+            timezone='America/Santiago',
+        )
+
+    def _write_schedule_file(self, lines: list[str]) -> tuple[str, tempfile.TemporaryDirectory]:
+        tmpdir_ctx = tempfile.TemporaryDirectory()
+        path = pathlib.Path(tmpdir_ctx.name) / 'schedule.txt'
+        path.write_text('\n'.join(lines) + '\n')
+        return str(path), tmpdir_ctx
+
+    def test_malformed_timezone_skips_only_its_own_line(self):
+        path, tmpdir_ctx = self._write_schedule_file(
+            [
+                'NTT EFOSC2 allocation 9-13 July',
+                'Magellan-Baade IMACS 17-18 July',
+            ]
+        )
+        with tmpdir_ctx:
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            call_command('load_telescope_runs', path, stdout=stdout_buf, stderr=stderr_buf)
+
+        # stderr names the Observatory, its obscode and the offending timezone -- not a
+        # bare key repr from the parse bucket.
+        err = stderr_buf.getvalue()
+        self.assertIn('NTT', err)
+        self.assertIn('809', err)
+        self.assertIn('America/Santigo', err)
+
+        # The command reaches its summary and reports the bad line as skipped.
+        summary = stdout_buf.getvalue()
+        self.assertIn('skipped: 1', summary)
+
+        # The SECOND line was still processed -- one bad row never aborts the whole run.
+        self.assertTrue(CampaignRun.objects.filter(telescope_instrument='Magellan-Baade/IMACS').exists())
+        self.assertEqual(CalendarEvent.objects.filter(url__startswith=ALLOC_URL_NAMESPACE).count(), 2)
+
+        # The bad line's CampaignRun does not exist -- transaction.atomic() rolled it back.
+        self.assertFalse(CampaignRun.objects.filter(telescope_instrument='NTT/EFOSC2').exists())
+
+
 def _expected_boundary(token: str | None, sunset, sunrise, night, *, at_full_night: str) -> datetime:
     """Test-local, from-first-principles expression of the BoN/EoN/HHMM sub-night rule
     (D-04) -- deliberately NOT calling any production helper, so this states the contract
