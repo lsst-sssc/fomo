@@ -45,9 +45,14 @@ group whose ``Source line:`` resolves to the SAME run identity key as an earlier
 ``_source_identifier()`` deliberately ignores the parsed status word, so two lines differing
 only in status (e.g. an allocation line and a cancelled line for the same telescope,
 instrument and window) collide -- reported (never silently merged into the earlier group's
-run) under its own reason, with the same remedy ``load_telescope_runs`` already documents
-for the identical collision: add a bracketed proposal token to one of the two lines
-(``duplicate_identity``, NF-14, 35-REVIEW.md); and any
+run) under its own reason. This guarantee holds on every invocation, not only the first,
+because the check reads the database -- a claimant can already exist from an earlier
+cutover invocation or from ``load_telescope_runs``, not only from this process's own
+in-memory bookkeeping (``duplicate_identity``, NF-14/NF-19, 35-REVIEW.md). The remedy this
+command can actually carry out: edit the affected events' description ``Source line:`` text
+in the Django admin so it carries a different bracketed ``[proposal]`` token from the
+earlier group's, then re-run -- this command reads no schedule file, so editing one changes
+nothing it will ever see (NF-25, 35-REVIEW.md); and any
 other exception, recorded with its own type name. Every reason is printed with the event's
 primary key and title so an operator can find and correct the row in the admin. When EVERY
 event in a group is attributed elsewhere, no ``CampaignRun`` is created or updated for that
@@ -388,8 +393,9 @@ class Command(BaseCommand):
                 _mark_unexplained(
                     events,
                     _DUPLICATE_IDENTITY,
-                    f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: {seen_keys[key]!r} already claimed '
-                    f'{key!r}; add a bracketed proposal token to one of the two lines',
+                    f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: {seen_keys[key]!r} already claimed {key!r}; '
+                    "edit the affected events' description 'Source line:' text to "
+                    'disambiguate the two groups in the Django admin, then re-run',
                 )
                 continue
 
@@ -413,11 +419,11 @@ class Command(BaseCommand):
                         events,
                         _DUPLICATE_IDENTITY,
                         f'{_REASON_LABELS[_DUPLICATE_IDENTITY]}: CampaignRun pk={existing_run.pk} already '
-                        f'claimed {key!r} for a different Source line; add a bracketed proposal token to '
-                        'one of the two lines',
+                        f'claimed {key!r} for a different Source line; '
+                        "edit the affected events' description 'Source line:' text to "
+                        'disambiguate the two groups in the Django admin, then re-run',
                     )
                     continue
-            seen_keys[key] = source_line
 
             target_list_ids = {event.target_list_id for event in events}
             if len(target_list_ids) > 1:
@@ -483,6 +489,16 @@ class Command(BaseCommand):
             # write this group has nothing left to justify.
             if not unattributed_events:
                 continue
+
+            # IN-02 (35-REVIEW.md): claimed only NOW, after the group is known to have
+            # something to write -- not the moment its key first resolves. Before this
+            # fix, an unconvertible group (campaign mismatch, unknown status, or every
+            # event foreign-attributed) permanently claimed the key anyway, causing a
+            # convertible sibling group to be reported under duplicate_identity, naming a
+            # line that converted nothing. seen_keys is what the in-process guard above
+            # reads; claimed_by_key[key] (populated below) is the per-night set, unaffected
+            # by this move.
+            seen_keys[key] = source_line
 
             # NF-05 (35-REVIEW.md): these four counters are LOCAL to this group and folded
             # into the outer totals only after the `with transaction.atomic()` block below
@@ -644,6 +660,7 @@ class Command(BaseCommand):
             raise CommandError(
                 f'{total_unexplained} event(s) could not be explained and were left untouched ({breakdown}). '
                 'Resolve the listed events in the admin (see the stderr lines above for each pk, title and '
-                'reason), then re-run this command -- it is safe to repeat.'
+                'reason), then re-run this command -- it is safe to repeat: a repeat pass converts nothing '
+                'it has not already explained, and rewrites no existing CampaignRun (NF-19, 35-REVIEW.md).'
             )
         return None
