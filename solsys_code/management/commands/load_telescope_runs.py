@@ -170,8 +170,10 @@ class Command(BaseCommand):
             help=(
                 'Report what would be created or updated without writing anything. For a run '
                 'that already exists, the night-level preview comes from reconcile_run(dry_run=True). '
-                'For a line that would create a brand-new run, a first-time dry run predicts night '
-                'counts from the window length rather than from a sun-event computation.'
+                'For a line that would create a brand-new run (the create arm), a first-time dry run '
+                'predicts night counts from the window length rather than from a sun-event computation, '
+                'and previews no reconcile at all -- so it also cannot predict the run-level decision: '
+                'a line the real pass will drop under skipped can still preview as created.'
             ),
         )
         # No return statement — BaseCommand.add_arguments() returns None
@@ -306,7 +308,20 @@ class Command(BaseCommand):
                         night_skipped += reconcile_result.skipped_nights
                     else:
                         # No row exists yet: a first-time dry run predicts night counts from
-                        # the window length rather than from a sun-event computation.
+                        # the window length rather than from a sun-event computation. This is
+                        # the create arm, and it has no preview reconcile to order against at
+                        # all -- reconcile_run() is never called here, so nothing on this arm
+                        # can fail. The real branch below runs the same fields through
+                        # write_and_reconcile_campaign_run() for this line, whose reconcile CAN
+                        # raise, and reports the line under `skipped` when it does. PROBE-P5
+                        # (35-VERIFICATION.md, executed): NTT timezone typo'd, no pre-existing
+                        # CampaignRun -- `dry : ... created: 1, ... skipped: 0` against
+                        # `real: ... created: 0, ... skipped: 1`, zero CampaignRun rows
+                        # afterwards either way. The deliberate choice is to leave this arm's
+                        # preview unable to predict a reconcile failure, not to add a
+                        # speculative write path -- a transient, rolled-back CampaignRun row --
+                        # to a command with a four-round regression history; 35-VERIFICATION.md
+                        # rejects that alternative explicitly.
                         night_created += len(nights)
 
                     # WR-02 (35-REVIEW.md, 35-14-PLAN.md): folded only here, after BOTH
@@ -317,7 +332,11 @@ class Command(BaseCommand):
                     # preview reconcile raised into both a run_created/run_updated/
                     # run_unchanged bucket AND run_skipped (via the except clauses further
                     # down), so a raising preview reported `skipped` alone in real mode but
-                    # `skipped` PLUS one of the other three on the preview.
+                    # `skipped` PLUS one of the other three on the preview. This ordering
+                    # restores preview/real agreement on the `existing is not None` arm only --
+                    # the arm that has a preview reconcile above to order against. The create
+                    # arm above has no such call, so this fold does not extend the same
+                    # guarantee to it; see the comment there.
                     if action == 'created':
                         run_created += 1
                     elif action == 'updated':

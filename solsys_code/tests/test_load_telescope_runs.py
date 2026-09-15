@@ -748,6 +748,39 @@ class TestMalformedTimezoneSkipsOneLine(TestCase):
         self.assertIn('created: 1', summary)
         self.assertIn('skipped: 1', summary)
 
+    def test_dry_run_of_a_brand_new_line_cannot_predict_a_reconcile_failure(self):
+        """PROBE-P5 (35-VERIFICATION.md, WR-03 iteration 6): pins a KNOWN, DELIBERATE
+        limitation, not a passing parity contract. The create arm (`existing is None`)
+        never calls `reconcile_run()` at all, so nothing on that arm can fail -- while the
+        real branch runs the same fields through `write_and_reconcile_campaign_run()` for
+        the same line, whose reconcile CAN raise and reports the line under `skipped`. The
+        round-2 counter-fold fix (WR-02, 35-14-PLAN.md) restored preview/real agreement on
+        the `existing is not None` arm only; this test uses the OTHER arm -- the class
+        fixture AS SEEDED, with NTT's `America/Santigo` typo in place and no pre-existing
+        `CampaignRun` -- exactly PROBE-P5's no-existing-run state, deliberately NOT
+        repairing the timezone first the way the sibling parity test above does. The
+        alternative -- previewing against a transient rolled-back row -- was rejected
+        because it adds a new write path to a command with a four-round regression
+        history."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            dry_stdout = io.StringIO()
+            call_command('load_telescope_runs', path, '--dry-run', stdout=dry_stdout, stderr=io.StringIO())
+
+            real_stdout = io.StringIO()
+            call_command('load_telescope_runs', path, stdout=real_stdout, stderr=io.StringIO())
+
+        dry_tuple = _parse_run_summary(dry_stdout.getvalue())
+        real_tuple = _parse_run_summary(real_stdout.getvalue())
+
+        # The divergence IS the contract: the preview reports the line under `created`
+        # where the real pass reports it under `skipped` -- PROBE-P5's exact five-tuples.
+        self.assertEqual(dry_tuple, (1, 1, 0, 0, 0), f'dry={dry_tuple!r}')
+        self.assertEqual(real_tuple, (1, 0, 0, 0, 1), f'real={real_tuple!r}')
+
+        # The real pass wrote nothing -- the divergence is in the report, not the data.
+        self.assertEqual(CampaignRun.objects.count(), 0)
+
 
 def _expected_boundary(token: str | None, sunset, sunrise, night, *, at_full_night: str) -> datetime:
     """Test-local, from-first-principles expression of the BoN/EoN/HHMM sub-night rule
