@@ -1467,3 +1467,98 @@ class TestClearedSubNightFieldRemints(AllocationProjectorTestBase):
             event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
         )
         self.assertEqual(event_after.end_time, still_set_end)
+
+
+class TestUnrecordedProvenanceNight(AllocationProjectorTestBase):
+    """CR-01's second branch (35-REVIEW.md iteration 7, plan 35-19 Task 2): a night whose
+    provenance was never recorded -- an event minted before `minted_sub_night_window`
+    existed, or taken over by the legacy re-key path. Simulated here with an explicit
+    queryset `.update()` on the companion row, since that is what such an event actually
+    looks like (35-VERIFICATION.md's `missing` item 2's other route).
+
+    Round 2 SUBSTITUTED a stored boundary for an uncomputed sun event and was reverted for
+    it (35-REVIEW.md CR-01's own warning: "do NOT infer provenance from the stored value
+    again"). This class instead proves the resolution is COMPUTED -- exactly one
+    `sun_event()` call per unrecorded night, its result compared with a tolerance against
+    the stored boundary, and only what that comparison confirms is ever recorded."""
+
+    def _clear_provenance(self, run: CampaignRun, night) -> None:
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=None)
+
+    def test_a_legacy_night_that_is_actually_correct_reports_unchanged_and_records_provenance_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        self._clear_provenance(run, night)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(event_after.telescope_label_meta.minted_sub_night_window, 'none|none')
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+
+    def test_a_legacy_night_that_is_genuinely_stale_remints_to_the_real_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        self._clear_provenance(run, night)
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(
+            event_after.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+
+    def test_dry_run_of_a_genuinely_stale_legacy_night_agrees_with_the_real_run_and_writes_nothing(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        self._clear_provenance(run, night)
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.retired, 1)
+        self.assertEqual(dry_result.created, 1)
+        event_after_dry_run = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry_run.pk, pk_before)
+        self.assertEqual(event_after_dry_run.start_time, start_before)
+        self.assertEqual(event_after_dry_run.end_time, end_before)
+        self.assertIsNone(event_after_dry_run.telescope_label_meta.minted_sub_night_window)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
