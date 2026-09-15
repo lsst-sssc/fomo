@@ -79,13 +79,22 @@ sun-event time:
 
    >> python3 manage.py load_telescope_runs path/to/schedule.txt --dry-run
 
-The run-level line's four counters state an invariant the preview and the
-real pass share: ``created`` + ``updated`` + ``unchanged`` + ``skipped``
-equals ``lines processed`` on both passes, because the dry run folds its
-own ``created``/``updated``/``unchanged`` counter only after the same
-per-line preview reconcile the real pass performs has returned. A line
-whose preview reconcile raises is reported under ``skipped`` alone on
-both passes, never counted under ``unchanged`` and ``skipped`` at once.
+The run-level line's four counters state an invariant that holds on both
+passes no matter which arm a line takes: ``created`` + ``updated`` +
+``unchanged`` + ``skipped`` equals ``lines processed``. The two arms
+reach that invariant differently, and only one of them lets the preview
+predict what the real pass will report. For a line whose run already
+exists, the preview runs the same reconcile the real pass runs and folds
+its own ``created``/``updated``/``unchanged`` counter only after that
+call returns -- so the preview and the real pass report the same
+decision, and a line whose preview reconcile raises is reported under
+``skipped`` alone on both passes, never counted under ``unchanged`` and
+``skipped`` at once. For a brand-new line there is no preview reconcile
+at all -- the note above already says a first-time dry run predicts
+night counts from the window length rather than a sun-event computation
+-- so the preview cannot predict a reconcile failure that the real
+pass's own call can still raise: a line the real pass drops under
+``skipped`` can still preview as ``created``.
 
 An optional ``--campaign <name>`` flag associates every ``CampaignRun`` the
 file creates or updates with a named campaign (a ``tom_targets.TargetList``),
@@ -930,11 +939,15 @@ observing night is already claimed, either by another event in this same
 run (a duplicate row from a pre-cutover re-ingest) or by a
 ``CalendarEvent`` row that already holds the derived
 ``ALLOC:{run_pk}:{night}`` url (the import-ran-first case above);
-**``duplicate_identity``** -- a second GROUP (a second, distinct
+**``duplicate_identity``** -- either a second GROUP (a second, distinct
 ``Source line:`` string) whose derived run identity key is the same as an
 earlier group's, because the key ignores the schedule line's status word
 -- e.g. an ``allocation`` line and a ``cancelled`` line for the same
-telescope, instrument and window; **``window_mismatch``** -- the event's
+telescope, instrument and window -- or a ``CampaignRun`` row that
+already holds the derived identity key whose own stored
+``observation_details`` ``Source line:`` marker is absent or differs
+from the group's own line, so the command cannot prove the run came
+from it; **``window_mismatch``** -- the event's
 own independently-derived observing night falls outside the window its
 own schedule line implies (an off-by-one sub-night boundary, or a stored
 start time that disagrees with the line's date range); or any other
@@ -972,6 +985,27 @@ stale and deletes. A group **all** of whose events are attributed
 elsewhere has no run created or updated for it at all, so a summary line
 reading ``runs created: 0`` next to a ``foreign_attribution`` count is the
 designed outcome, not a silent failure.
+
+.. note::
+   **Re-run gotcha:** a claimant whose stored ``Source line:`` marker
+   MATCHES the group's own line is find-and-updated, so ``run_status``,
+   ``target``, ``campaign``, ``site``/``site_raw``,
+   ``window_start``/``window_end``, the two sub-night fields and
+   ``observation_details`` are all re-applied from the schedule line on
+   every invocation. A post-import staff edit to any of them does not survive the next cutover run.
+   This is expected behaviour for a
+   file-authoritative command, not a defect -- the same class of
+   behaviour the ``import_campaign_csv`` "Re-import gotcha" note above
+   documents at length -- and it applies here because this command CAN
+   prove the row came from this schedule line, which is exactly the
+   distinction the identity guard above establishes.
+
+   This closes a loop worth naming explicitly: the ``duplicate_identity``
+   no-marker remedy above tells an operator to restore the claimant's
+   ``observation_details`` ``Source line:`` marker -- doing so converts a
+   refused claimant into a matching one, whose fields will then be
+   re-applied on the next run. Restore the marker deliberately, not
+   reflexively.
 
 ``--dry-run`` applies every per-event check the real run applies -- window
 containment, in-run collision, and existing-``ALLOC:``-url collision --
@@ -1495,9 +1529,12 @@ claimed, either by another event in this same run or by a
 ``CalendarEvent`` row that already holds the derived
 ``ALLOC:{run_pk}:{night}`` url (typically because a rewritten
 ``load_telescope_runs`` import of the same schedule file already ran) --
-or the reason is ``duplicate_identity`` -- this event's own group's
-``Source line:`` resolves to the same run identity key as an earlier
-group's, because the key ignores the line's status word -- or the reason
+or the reason is ``duplicate_identity`` -- either this event's own
+group's ``Source line:`` resolves to the same run identity key as an
+earlier group's, because the key ignores the line's status word, or a
+``CampaignRun`` row already holds the derived identity key whose own
+stored ``Source line:`` marker is absent or differs from this event's
+own group's line -- or the reason
 is ``window_mismatch`` -- the event's own independently-derived observing
 night falls outside the window its own schedule line implies. See "How do
 I run the one-time classical cutover?" above for the full reason
