@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 15/18 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans added 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6)
+**Plans:** 16/18 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans added 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6)
 
 Plans:
 **Wave 1**
@@ -301,7 +301,7 @@ Plans:
 
 **Gap closure, round 3** *(added 2026-09-15 — third 35-VERIFICATION.md `gaps_found` pass, 146/155 must-haves, 9 failures collapsing to 2 root-cause defects plus doc/vocabulary gaps; 35-REVIEW.md iteration 6, 0 BLOCKERs + 4 WARNINGs + 4 INFO. CR-01 is confirmed genuinely closed and SC-5 now verifies, so the phase goal is achieved and no finding can produce a wrong event, a duplicate or an orphan. The verifier's scoped recommendation drives this round: stop over-claiming parity rather than keep engineering it, and make it the last round. Round 2's WR-01 fix introduced a NEW false positive, so Defect A is closed by REVERT. IN-01..IN-04 and round-2's observation_projector savepoint advisory are explicitly out of scope.)*
 
-- [ ] 35-16-PLAN.md — Defect A: revert the half-null stored-boundary fallback in the dry-run inversion guard; pin PROBE-P1 (agreement) and PROBE-P6 (accepted limitation) (wave 1, tracer)
+- [x] 35-16-PLAN.md — Defect A: revert the half-null stored-boundary fallback in the dry-run inversion guard; pin PROBE-P1 (agreement) and PROBE-P6 (accepted limitation) (wave 1, tracer)
 - [ ] 35-17-PLAN.md — Defect B create-arm claim narrowed and pinned (PROBE-P5); two-cause `duplicate_identity` reason label; the cutover's missing re-run gotcha and its PROBE-P4 pinning test (wave 1)
 - [ ] 35-18-PLAN.md — Runbook loader/vocabulary/gotcha corrections and both paired demo notebooks re-executed against the shipped text (wave 2)
 
@@ -380,7 +380,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 15/15 | In Progress|  |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 16/18 | In Progress|  |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
