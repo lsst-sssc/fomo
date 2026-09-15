@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-11-PLAN.md
-last_updated: "2026-09-15T15:08:33.450Z"
+stopped_at: Completed 35-12-PLAN.md
+last_updated: "2026-09-15T16:37:03.837Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 5eb2718371823c0a2cf88b228f2145a41cc94396
+state_head: 479c52955162f30350d0cb2ef174e42f2ab2b853
 progress:
   total_phases: 5
   completed_phases: 34
-  total_plans: 29
-  completed_plans: 29
-  percent: 100
+  total_plans: 33
+  completed_plans: 30
+  percent: 91
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
+Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
 Plan: 11 of 11
 Status: Ready to execute
 Last activity: 2026-09-15 — Completed 35-08-PLAN.md (NF-19 BLOCKER + NF-25/IN-01/IN-02 closed)
@@ -200,6 +200,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P09 | 75min | 3 tasks | 5 files |
 | Phase 35 P10 | 50min | 3 tasks | 3 files |
 | Phase 35 P11 | 40min | 2 tasks | 3 files |
+| Phase 35 P12 | ~40min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -298,6 +299,8 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-10: moved the notebook's existing duplicate-run-identity demo cell's fixture cleanup into the new second-invocation cell so both cells share the same live fixture, per the plan's literal requirement.
 - [Phase 35]: [Phase 35]: 35-11: unrecognised-status skip path demonstrated via parse_run_line()'s own ValueError (a parenthetical status not in KNOWN_STATUSES), not the narrower except KeyError around _CLASSICAL_RUN_STATUS[parsed.status] -- that inner clause is unreachable via real parse_run_line() output since a module-level assert enforces its key set equals KNOWN_STATUSES.
 - [Phase 35]: [Phase 35]: 35-11: malformed-timezone skip path demonstrated by temporarily mutating the already-seeded NTT Observatory's timezone (restored before any later cell resolves NTT again), since telescope_runs.SITES is a fixed 4-entry dict and a schedule line can only resolve to one of its four names.
+- [Phase 35]: [Phase 35]: 35-12: inverted the cutover's database-scoped duplicate_identity guard predicate to a direct inequality (CR-01, BLOCKER) -- a claimant with no recoverable Source line: marker is now refused, never find-and-updated, since observation_details is admin/CSV/form-writable and its absence is not evidence of agreement.
+- [Phase 35]: [Phase 35]: 35-12: TestDryRunAndRealRunAgree's _make_all_three_preconditions_fixture() needed a matching Source line: marker on its pre-existing CampaignRun after the CR-01 inversion, or the fixture's group was refused under duplicate_identity before its own key_collision/window_mismatch preconditions were ever reached (Rule 1 auto-fix).
 
 ### Pending Todos
 
@@ -398,8 +401,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T15:08:33.368Z
-Stopped at: Completed 35-11-PLAN.md
+Last session: 2026-09-15T16:37:03.750Z
+Stopped at: Completed 35-12-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
