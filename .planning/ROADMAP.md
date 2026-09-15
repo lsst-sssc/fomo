@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 9/11 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans added 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4)
+**Plans:** 10/11 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans added 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4)
 
 Plans:
 **Wave 1**
@@ -289,7 +289,7 @@ Plans:
 
 - [x] 35-08-PLAN.md — NF-19 (BLOCKER): make the cutover's identity-key guard read the database; NF-25 actionable remedy, IN-02 claim ordering, IN-01 (wave 1, tracer)
 - [x] 35-09-PLAN.md — NF-21 loader exception routing, NF-20 dry-run inversion guard on the re-mint branch, NF-22 blocked-counted-once, NF-23 four-tuple annotation (wave 1)
-- [ ] 35-10-PLAN.md — Runbook corrections, reconciler demo notebook regeneration (T-35-17), CLAUDE.md paired-docs map (wave 2)
+- [x] 35-10-PLAN.md — Runbook corrections, reconciler demo notebook regeneration (T-35-17), CLAUDE.md paired-docs map (wave 2)
 - [ ] 35-11-PLAN.md — NF-24's two stale paired notebooks re-executed, plus the SCHED-06 baseline step owed from 34-UAT.md (wave 2)
 
 ### Phase 36: Unattended Operation
@@ -367,7 +367,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 9/11 | In Progress|  |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 10/11 | In Progress|  |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 

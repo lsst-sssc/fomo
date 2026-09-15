@@ -1,7 +1,7 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v2.3",
+  "milestone": "v2.4 — Observation-First Calendar",
   "phases": [
     {
       "number": "1",
@@ -162,12 +162,47 @@
       "number": "30",
       "name": "v2.2 Tech-Debt Cleanup",
       "status": "complete"
+    },
+    {
+      "number": "31",
+      "name": "Foundation Spikes — Run Identity & Unattended Invocation",
+      "status": "pending"
+    },
+    {
+      "number": "32",
+      "name": "Adapter Consolidation",
+      "status": "pending"
+    },
+    {
+      "number": "33",
+      "name": "Series Identity & Reconciler Inversion",
+      "status": "complete"
+    },
+    {
+      "number": "34",
+      "name": "The Observation Projector & Trigger",
+      "status": "complete"
+    },
+    {
+      "number": "35",
+      "name": "Allocation Layer & Classical Cutover",
+      "status": "in_progress"
+    },
+    {
+      "number": "36",
+      "name": "Unattended Operation",
+      "status": "pending"
+    },
+    {
+      "number": "37",
+      "name": "Status Vocabulary, Public Tallies & Provenance-Blind Gaps",
+      "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd:discuss-phase",
-    "label": "Discuss the first phase",
-    "reason": "Project initialized — plan your first phase"
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 35 of 5 · 97% · executing"
   },
-  "updated_at": "2026-09-01T19:24:27.915Z"
+  "updated_at": "2026-09-15T14:55:47.112Z"
 }
