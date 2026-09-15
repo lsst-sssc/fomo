@@ -1,7 +1,7 @@
 ---
 phase: 34-the-observation-projector-trigger
-verified: 2026-09-14T22:39:20Z
-status: human_needed
+verified: 2026-09-15T00:35:15Z
+status: passed
 score: 14/14 must-haves verified
 covered_files:
 
@@ -48,7 +48,7 @@ covered_files:
   - "src/templates/tom_calendar/partials/calendar.html"
   - "src/templates/tom_calendar/partials/event_form.html"
 
-covered_digest: "v1:sha256:1040102aedb77119b1c17909cbe4c52e78575d9be16030535ea3fe928880dc83"
+covered_digest: "v1:sha256:d06d1cc24e344641a2efea13f0d47158ac3028bbde3a34f0a0b0de81a1783254"
 behavior_unverified: 0
 overrides_applied: 0
 decision_coverage:
@@ -56,12 +56,14 @@ decision_coverage:
   total: 21
   not_honored: []
 re_verification:
-  previous_status: passed
+  previous_status: human_needed
   previous_score: 14/14
-  trigger: "content-fingerprint staleness -- Phase 35 modified files this phase's prior VERIFICATION.md declared covered (solsys_code/observation_projector.py x4, solsys_code/apps.py, three phase-34 test modules, docs/runbooks/telescope_runs_calendar.rst, CLAUDE.md, .planning/REQUIREMENTS.md)"
+  trigger: "closure check on the two human items the 2026-09-14T22:39:20Z pass raised -- finding F-34-1 (a Phase 34 debug artifact claiming an overnight updatestatus-only run that never happened) and the operator decision on whether to spend the SCHED-06 baseline by running the backstop sweep"
   gaps_closed:
-    - "Truth 4 (SCHED-06, was PRESENT_BEHAVIOR_UNVERIFIED): closed by directly observed live behaviour on 2026-09-12T22:10Z, independently corroborated from src/fomo_db.sqlite3 this pass -- records 4378332 and 4378046 each narrowed [Q] -> [O] with CalendarEvent.modified == ObservationRecord.modified to the second, through the post_save receiver alone, with no sweep ever having been run against that database."
-    - "Truth 13 (interleaved saves, was insufficient_spec/abstained): closed by 34-UAT.md Test 1 (result: pass) -- two overlapping updatestatus runs against a scratch copy, 0 AttributeError, 0 unprojectable, 0 OperationalError."
+    - "F-34-1 half (a) -- the debug doc's false claim. `.planning/debug/resolved/34-updatestatus-receiver-attributeerror.md` was corrected in commit `e3303e6`: the original Evidence entry is preserved and explicitly RETRACTED, `next_action` carries a dated CORRECTION, and `verification.signal_real_path` is amended. Every corrected factual claim was re-measured against `src/fomo_db.sqlite3` this pass and all of them hold."
+    - "F-34-1 half (b) -- the 14 legacy-stale events. Verified CLEARED in the live developer database: a status x marker cross-tab over all 159 facility-url events returns ZERO terminal-status records carrying a `[Q]`/`[S]` marker (COMPLETED -> `[O]` 76, CANCELED -> `[C]` 6, WINDOW_EXPIRED -> `[X]` 26, FAILURE_LIMIT_REACHED -> `[F]` 1, PENDING -> `[Q]` 38 / `[S]` 12). Each of the 14 named observation_ids now carries an `[O]` event over its own observed block."
+    - "Convergence independently reproduced this pass: `project_observation_calendar --dry-run` against a scratch copy of the CURRENT developer database reports `failed: 0 | LCO: created: 0, updated: 0, unchanged: 159, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0` -- byte-matching the result the corrected debug doc claims for its post-migration re-run, and down from `updated: 14` at the prior pass."
+    - "Migration `0018_campaignrun_night_window_fields` confirmed applied: `django_migrations` row `solsys_code|0018_campaignrun_night_window_fields|2026-09-15 00:16:40.283886`. Migration file read: purely additive -- two nullable `TimeField`s (`night_start_utc`, `night_end_utc`) on `CampaignRun`, no data migration, no alteration of any existing column."
   gaps_remaining: []
   regressions: []
 gaps: []
@@ -72,71 +74,119 @@ deferred:
     evidence: "ROADMAP Phase 34 scope note: 'Title prefixes ship provisionally here; Phase 37 owns the final vocabulary.' Phase 37 = 'Status vocabulary, public tallies and provenance blind gaps' (STATUS-01/02). Both vocabularies paint the correct ring today (calendar_display_extras._TERMINAL_PREFIXES carries all of them)."
 advisory:
 
-  - finding: "The post_save receiver no longer early-returns for a non-LCO/SOAR facility. 34-01's must_have wording ('The receiver returns immediately ... for any facility other than LCO or SOAR') is literally superseded by Phase 35's D-11/WR-01 linked-run re-project loop, which is deliberately facility-independent."
+  - finding: "NEW, EVIDENCED: `receiver_on_record_save()` evaluates `instance.campaign_run_links.select_related('run')` at the `for` statement, OUTSIDE any `try`. A database error raised by that query escapes the receiver and propagates out of `ObservationRecord.save()`. This is the Phase 35 D-11 linked-run loop, not Phase 34's projector block, but it sits inside the receiver Phase 34 wired."
     category: architectural
-    reason: "The behavioural intent behind the Phase 34 clause -- 'Gemini records stay with the submission-echo command', i.e. no facility-url CalendarEvent is ever written for a non-LCO/SOAR record -- is intact and still pinned (observation_projector.PROJECTED_FACILITIES still guards the base projection; test_gemini_record_added_to_group_writes_no_calendar_event and test_raw_save_writes_no_calendar_event both pass). What changed is that a Gemini record LINKED to a CampaignRun now re-projects that run's ALLOC: nights, which is Phase 35's own requirement ALLOC-03 and its own namespace's own writer. No override was recorded; flagged for the record rather than treated as a deviation."
-    evidence_status: "test_gemini_record_save_still_reprojects_its_linked_run (Phase 35) passes; test_record_with_no_campaign_run_links_never_calls_project_allocation pins that an unlinked record never reaches the allocation writer"
-  - finding: "34-01's PROJ-05 prohibition ('the projector never ... writes the reconciler's RUN:/allocation namespace') is now satisfied at module level but not at receiver level: observation_projector.receiver_on_record_save() delegates to allocation_projector.reproject_allocation_if_dispatched(), which does write ALLOC: events."
-    category: architectural
-    reason: "observation_projector itself still writes only facility-url events and only the three CalendarEventMeta fields (write_event_meta() verified unchanged). The ALLOC: writes are performed by that namespace's own owner through a documented, per-link try/except entry point, and Phase 35's own attribution bridge preserves the human guard the Phase 34 prohibition was protecting (adopt_event_into_run() refuses an event already attributed to a different run; the unlink half filters confirmed_by__isnull=True). Intent preserved; wording superseded by a downstream requirement."
-    evidence_status: "code read of _sync_observation_attribution(); test_existing_campaign_attribution_survives_projection_and_is_verified_becomes_true passes"
-human_verification:
-
-  - test: "Reconcile `.planning/debug/resolved/34-updatestatus-receiver-attributeerror.md` (committed 2026-09-14 as cff5984) with the developer database. The doc's Resolution states: 'an overnight `updatestatus`-only run against the real DB narrowed all 33 previously-stale LCO events through the receiver alone'. Re-run the two read-only checks below against `src/fomo_db.sqlite3` and decide whether to correct the doc's wording or to produce the missing run evidence."
-    expected: "The database says otherwise on both halves of the claim. (a) No `updatestatus` run occurred after 2026-09-12: `sqlite3 'file:src/fomo_db.sqlite3?mode=ro' \"SELECT MAX(modified) FROM tom_calendar_calendarevent;\"` returns `2026-09-12 22:10:48.773592`, and `stat -c '%Y' src/fomo_db.sqlite3` is 1789251048 = 2026-09-12T22:10:48Z. (b) Not all 33 narrowed: 14 are still stale -- COMPLETED records whose events still read `[Q]`/`[S]` with `CalendarEvent.modified` = 2026-09-11 04:44 (observation_ids 4378021-4378025, 4378038-4378045, 4378323, 4378331). A dry-run sweep against a COPY reports `LCO: created: 0, updated: 14, unchanged: 145, unprojectable: 0`. This is exactly finding F-34-1, which 34-UAT.md already recorded and which the prior VERIFICATION.md already corrected ('the 14 terminal ones never will without one sweep') -- the newer debug doc contradicts both. SCHED-06 itself is NOT in doubt: its real evidence is the 2026-09-12T22:10Z run, independently corroborated in this report."
-    why_human: "This is a decision, not a measurement -- the measurement is already done and reported above. Either the doc's wording is corrected to match F-34-1's split, or an actual post-2026-09-12 `updatestatus`-only run is performed and its evidence recorded. A verifier must not edit a human-signed debug resolution."
-  - test: "Decide whether to spend the SCHED-06 evidence now and run the backstop sweep once against the developer database: `python manage.py project_observation_calendar` (preceded by `--dry-run`). SCHED-06's live evidence has been collected and corroborated, so the 33 stale events no longer need preserving."
-    expected: "The sweep reports `LCO: created: 0, updated: 14, unchanged: 145, unprojectable: 0` and the 14 legacy `[Q]`/`[S]`-on-COMPLETED events become `[O]` over their observed blocks. A second run reports `updated: 0`. This is F-34-1's designed remedy -- `tom_observations.facility.update_all_observation_statuses()` excludes terminal states (facility.py:573), so no `updatestatus` run will ever repair these 14; only the sweep this phase shipped can."
-    why_human: "Spending the SCHED-06 baseline evidence is an operator decision with a one-way effect on the developer database, and CLAUDE.md's workflow rule keeps write commands out of a verifier's hands. Not a code gap: the sweep is the shipped, documented backstop for exactly this residue (TRIG-03)."
+    reason: "Deterministically reproduced this pass on a scratch database copy: with `campaign_run_links` made to raise `OperationalError('no such column: solsys_code_campaignrun.night_start_utc')`, `record.save()` RAISED `OperationalError` rather than absorbing it. This is exactly the real-world condition the corrected debug doc records for the pre-migration sweep attempt on 2026-09-14. Phase 35's own regression test `test_linked_run_reproject_raising_does_not_abort_the_records_own_save_or_projection` does NOT cover it -- it patches `project_allocation` to raise, which is inside the per-link `try`; the link QUERY itself is unguarded. NOT a Phase 34 must-have failure: TRIG-02 and truth 2 both scope the guarantee to 'a projector error', and the projector block IS guarded (`test_raising_projector_does_not_block_a_save` passes). The phase goal is provably unaffected -- base projection runs and commits BEFORE the failing step, which is why the 14 events were corrected on 2026-09-14 while the D-11 step errored. Recommended fix belongs to Phase 35's scope (ALLOC-03): move the `for` header inside a guard, or wrap the queryset evaluation in `list(...)` under its own `try`. Phase 35 has no VERIFICATION.md yet, so this is routed there rather than closed here."
+    evidence_status: "reproduced -- scratch-copy probe: save() raised OperationalError; corroborated by the 2026-09-14 pre-migration sweep incident recorded in the corrected debug doc"
+  - finding: "The debug doc's corrected Evidence entry states in the present tense that records 4378332 / 4378046 'each carry an [O] event over their own observed block with CalendarEvent.modified == ObservationRecord.modified to the second'. That timestamp-equality signature no longer holds live: the 2026-09-14 operator sweep re-titled both with their resolved site token (`[O] 1m0 11P` -> `[O] TFN-1m0 11P`, `[O] 1m0 10P` -> `[O] LSC-1m0 10P`) and bumped `CalendarEvent.modified` to 2026-09-14 23:06/23:07."
+    category: other
+    reason: "Not an inaccuracy -- it is a dated Evidence entry (`timestamp: 2026-09-14`, `checked:`), i.e. a point-in-time observation, and it was independently corroborated from the live database by the prior verification pass at 22:39Z, ~25 minutes before the sweep ran at 23:06Z. The substantive half of the evidence SURVIVES in the database today: both events still span their own observed blocks (4378332: `2026-09-12 01:06:46 -> 01:26:04`), which is the receiver-produced narrowing itself; only the title token and the modified stamp were later overwritten. The operator deliberately spent this baseline, which is precisely what human item 2 of the prior report asked them to decide. Noted so a future reader does not re-derive the equality check and conclude the doc is wrong."
+    evidence_status: "measured -- live SQL on 4378332 / 4378046 this pass"
+  - finding: "The corrected debug doc's summary sentence ('cleared ... by a real project_observation_calendar sweep on 2026-09-14, after applying the then-pending 0018 migration') reads, in isolation, as if the sweep followed the migration. The database timestamps show the FIRST sweep attempt preceded it."
+    category: other
+    reason: "The entry's own parenthetical already states the correct two-attempt sequence, and the timestamps confirm it exactly: 14 events modified 2026-09-14 23:06:34-23:07:19 (first, pre-migration attempt -- corrections landed), migration applied 2026-09-15 00:16:40, post-migration re-run wrote nothing (`updated: 0`), DB mtime 2026-09-15 00:16:50. Ambiguous phrasing in a summary line, not a factual error. No action required."
+    evidence_status: "measured -- django_migrations row + CalendarEvent.modified distribution + file mtime, all three mutually consistent"
 ---
 
-# Phase 34: The Observation Projector & Trigger — Verification Report (re-verification)
+# Phase 34: The Observation Projector & Trigger — Verification Report (second re-verification)
 
 **Phase Goal:** Every LCO/SOAR observation record draws its own calendar event and keeps it current on every save with no operator command, and the old LCO sync command is retired in its favour — one writer for observation-backed nights.
-**Verified:** 2026-09-14T22:39:20Z (HEAD `31ec92c`, branch `issue37-telescope-runs-calendar`)
-**Status:** human_needed (14/14 truths verified; 0 gaps; 2 items need a human decision)
-**Re-verification:** Yes — triggered by content-fingerprint staleness after Phase 35 modified shared files. Supersedes the 2026-09-12T00:20:00Z report (`passed`, 14/14).
+**Verified:** 2026-09-15T00:35:15Z (HEAD `e3303e6`, branch `issue37-telescope-runs-calendar`)
+**Status:** passed (14/14 truths verified; 0 gaps; 0 human items outstanding)
+**Re-verification:** Yes — closure check on the two human items raised by the 2026-09-14T22:39:20Z report. Supersedes that report.
 
 ## What this pass was asked to establish
 
-Phase 35 changed `solsys_code/observation_projector.py` four times (NF-04, WR-01/WR-02, CR-01, feat 35-04), `solsys_code/apps.py`, three of this phase's test modules, the runbook, `CLAUDE.md` and `.planning/REQUIREMENTS.md`. The question is whether Phase 34's must-haves still hold against the **current** tree.
+The prior pass found no regression from Phase 35 and confirmed 14/14 must-haves, but landed on `human_needed` because of finding **F-34-1**: a Phase 34 debug artifact claimed an overnight `updatestatus`-only run had narrowed all 33 previously-stale LCO events, when the database showed no such run had occurred and 14 of the 33 were still stale.
 
-**Answer: they do. No regression was found.** Every Phase 34 truth was re-checked against today's code, today's test run, and today's developer database — not carried forward on the prior report's word. Two items nevertheless need a human, and one of them is new: a Phase 34 artifact committed *after* the prior verification makes a claim the developer database contradicts.
+Both items have since been actioned. This pass verifies the claimed closure **against the live database and the code**, not against the commit messages.
+
+**Answer: F-34-1 is genuinely closed on both halves, and nothing else drifted.** No source file changed since the prior pass — `git diff --stat 31ec92c..HEAD` touches exactly two Markdown files (the debug doc and the prior VERIFICATION.md), and `git status --porcelain solsys_code/ src/templates/` is empty. One new, evidenced finding is raised as an advisory and routed to Phase 35.
+
+## F-34-1 closure — the primary question
+
+### Half (a): is the corrected debug doc accurate?
+
+Every factual claim in the corrected doc was re-measured. All of them hold.
+
+| Claim in the corrected doc | Measurement this pass | Verdict |
+|---|---|---|
+| "no `updatestatus` run occurred after 2026-09-12 … as of the re-verification" | The prior report's own dated measurements (`MAX(modified)` = `2026-09-12 22:10:48.773592`, mtime `1789251048`) are preserved in the superseded report and were not re-derivable after the sweep. Consistent with the 09-11/09-12/09-14 modification distribution seen today (131 / 12 / 16). | ✓ Accurate (dated) |
+| "14 of the 33 were still stale as of the re-verification" | The 14 named observation_ids all carry `CalendarEvent.modified` of **2026-09-14 23:06-23:07** — i.e. they were last written by the 09-14 sweep, having been untouched since 2026-09-11. Exactly 14, not 15: `4378041` is `WINDOW_EXPIRED`/`[X]`, correct all along, and was never in the stale set. | ✓ Accurate |
+| "two individual records (4378332, 4378046) show genuine receiver-alone narrowing" | Both still span their own observed blocks (`4378332`: `2026-09-12 01:06:46 → 01:26:04`). See advisory 2 — the `modified`-equality half has since been overwritten by the operator sweep, as designed. | ✓ Accurate as a dated entry |
+| "the other 14 … could never be reached by `updatestatus` (terminal states excluded, `facility.py:573`)" | Corroborated structurally: all 14 are `COMPLETED`; the sweep — not the receiver — is what resolved their observed-site token. | ✓ Accurate |
+| "cleared … by a real `project_observation_calendar` sweep on 2026-09-14" | **Independently corroborated by a signature only the sweep can produce.** All 14 titles now carry a resolved site prefix (`[O] COJ-1m0 220P`, `[O] LSC-1m0 10P`, `[O] CPT-1m0 10P`, `[O] TFN-1m0 11P`). The D-07 observed-site lookup lives in the sweep's `pre_fields_hook` — the `post_save` receiver never performs it. Before the sweep these titles read `[Q]`/`[S] 1m0 …` with no site token. The 45-second spread of the 14 `modified` stamps (23:06:34 → 23:07:19, 2-5 s apart) is the network-bound site lookup pacing. | ✓ Accurate, and mechanism-corroborated |
+| "after applying the then-pending `0018_campaignrun_night_window_fields` migration … `OperationalError` in the D-11 step on the first attempt … corrections had already landed via `receiver_on_record_save()`'s own `project_record()` call, which runs before that step" | Code read confirms the ordering exactly: `observation_projector.py:626-651` runs `project_record(instance)` first (guarded), then the `campaign_run_links` loop. The loop's queryset does `select_related('run')`, so pre-migration it selects `night_start_utc`/`night_end_utc` and raises. **Reproduced deterministically** on a scratch copy — see advisory 1. | ✓ Accurate, and mechanism-reproduced |
+| "Post-migration re-run: `failed: 0 \| LCO: created: 0, updated: 0, unchanged: 159`" | **Reproduced byte-for-byte this pass** against a scratch copy of the current developer database. | ✓ Accurate |
+| "Zero `[Q]`/`[S]`-marked events remain among COMPLETED LCO records" | Status × marker cross-tab returns an empty set for terminal-status × `[Q]`/`[S]`. | ✓ Accurate |
+| "latest event `modified` is `2026-09-14T23:07:19Z`" | `SELECT MAX(modified) FROM tom_calendar_calendarevent` → `2026-09-14 23:07:19.066718`. | ✓ Accurate to the microsecond |
+
+The doc also handles the retraction correctly: the original false Evidence entry is **preserved with an explicit `RETRACTED (2026-09-14, Phase 34 re-verification)` block** rather than silently deleted, `next_action` carries a dated `CORRECTION`, and `verification.signal_real_path` is amended in place. The audit trail is intact.
+
+### Half (b): are the 14 legacy-stale events actually gone?
+
+Read-only SQL against `src/fomo_db.sqlite3`, status cross-tabulated against event marker over all 159 facility-url events:
+
+| Record status | Marker | Count |
+|---|---|---|
+| COMPLETED | `[O]` | 76 |
+| CANCELED | `[C]` | 6 |
+| WINDOW_EXPIRED | `[X]` | 26 |
+| FAILURE_LIMIT_REACHED | `[F]` | 1 |
+| PENDING | `[Q]` | 38 |
+| PENDING | `[S]` | 12 |
+
+**Zero terminal-status records carry a queued or scheduled marker.** Every row of that table is the marker the projector is supposed to paint for that status, and the tally sums to exactly 159 — one event per record, no residue, no misclassification. Against the prior pass (`[Q]`:42 `[S]`:22 `[O]`:62) the delta is exactly −4 `[Q]`, −10 `[S]`, +14 `[O]`: the 14 events, and only those 14, moved.
+
+**F-34-1 is closed.**
+
+### Migration 0018
+
+```
+solsys_code|0018_campaignrun_night_window_fields|2026-09-15 00:16:40.283886
+```
+
+Applied. The migration file was read rather than trusted: two `AddField` operations, both `TimeField(blank=True, null=True)` on `CampaignRun`, no data migration, no `AlterField`, no `RemoveField`. Purely additive, exactly as described, and it touches no model this phase's must-haves rest on.
+
+### Database safety
+
+No write command was issued against `src/fomo_db.sqlite3` by this verification. Every inspection used `file:…?mode=ro`; both the dry-run sweep and the receiver probe ran against scratch copies under `FOMO_DATABASE_PATH`. `stat -c '%Y %s'` returned `1789431410 1232896` before and after every command in this pass.
 
 ## Goal Achievement
 
 ### Observable Truths
 
+Truths 1-14 carry forward from the 2026-09-14T22:39:20Z pass. No source file changed since (`git diff --stat 31ec92c..HEAD` = 2 Markdown files; working tree clean under `solsys_code/`, `src/templates/`, and Phase 34's `docs/` artifacts), so the failed-item/passed-item optimization applies: F-34-1's truths got full re-verification, the rest got regression checks. The regression checks were live measurements, not citations.
+
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | **(SC1)** Every LCO/SOAR `ObservationRecord` has exactly one calendar event keyed by its facility observation URL, spanning the request window while queued / the placed block once scheduled / the observed block once observed; a terminal-negative record keeps a visibly marked event on its window night. | ✓ VERIFIED | Re-proved **live against `src/fomo_db.sqlite3` this pass** (read-only SQL, no Django write path): `lco_soar_records = 159`, `facility_url_events = 159`, `events_no_record = 0`, and **zero duplicate non-blank urls** (`GROUP BY url HAVING COUNT(*)>1` returns only the blank-url family). Per-marker tally sums exactly to the record count: `[Q]:42 [S]:22 [O]:62 [X]:26 [C]:6 [F]:1` = 159. Identity is still `event_url()` = `facility.get_observation_url(...)` and nothing else; span is still re-derived from record fields every projection. A full dry-run sweep with **today's** projector over the whole real corpus reports `unprojectable: 0` across all 159. Stage/marker behaviour pinned by `TestEventFieldsFor` and `test_two_records_whose_windows_exactly_abut_produce_two_separate_events` in the 342-test run. |
-| 2 | **(SC2)** Saving a record updates its event with no operator command — including the schedule-only placement save TOM's own hook misses and the `updatestatus` path — while a save that changes nothing writes nothing and a projector error is logged rather than aborting the record save. | ✓ VERIFIED | `apps.py:30-46` still connects `post_save`/`m2m_changed`/`pre_delete`, each `weak=False` with a distinct `dispatch_uid` (Phase 35 **added** two `CampaignRunObservation` receivers below them; it removed none). `coerce_schedule_datetime()` still routed through by both `record_time_window()` branches. Behavioural, re-run this pass: `test_updatestatus_narrows_the_event_with_no_command_run` (drives the real `LCOFacility().update_observation_status()` with portal ISO strings inside `assertNoLogs(WARNING)`), `test_schedule_only_save_narrows_the_same_event_row`, `test_projecting_unchanged_record_twice_reports_unchanged_with_no_modified_churn`, `test_raising_projector_does_not_block_a_save`, `test_record_saved_inside_a_rolled_back_transaction_leaves_no_event`, `test_make_request_is_never_called_during_a_record_save` — all pass. Live no-churn corroboration: the 2026-09-12 `updatestatus` run saved **52** LCO/SOAR records and wrote only **14** events. |
-| 3 | **(SC3)** One sweep command re-projects any set of records (`--dry-run` supported, per-record failures isolated) as the backstop for bulk-write paths; a second sweep reports everything unchanged and no event outside the projector's key namespace is created, modified or deleted. | ✓ VERIFIED | Re-run: `project_observation_calendar --help` → `[--proposal PROPOSAL] [--facility {LCO,SOAR}] [--dry-run]`, zero required args. Executed `--dry-run` against a scratch **copy** of the real database this pass: `Done (dry run). failed: 0 \| LCO: created: 0, updated: 14, unchanged: 145, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 \| SOAR: all zero`. Namespace isolation re-proved live: the developer database still holds `RUN:` 72 and blank-url 10 events — the same counts the Phase 34 notebook recorded — after a receiver-driven narrowing pass touched 14 facility-url events. `TestDryRun`, `TestFailureIsolation`, `TestNamespaceIsolation`, `TestProjectQuerysetOrdering`, `TestObservedSiteLookup` all pass. |
-| 4 | **(SC4a)** Over real nights, a user watches a `KEY2026B-004` record's event narrow queued → scheduled → observed with nobody running anything (closes spike 004's PARTIAL verdict). | ✓ VERIFIED (was ⚠️ PRESENT_BEHAVIOR_UNVERIFIED) | **Independently corroborated from the database, not taken from the UAT write-up.** After one real `updatestatus` at 2026-09-12T22:10Z — and no `project_observation_calendar` sweep has *ever* been run against `src/fomo_db.sqlite3` — record `4378332` (11P) is `COMPLETED, modified 2026-09-12 22:10:48` and its event is `[O] 1m0 11P` spanning `2026-09-12 01:06:46 → 01:26:04` with `CalendarEvent.modified = 2026-09-12 22:10:48` — **equal to the record's own `modified` to the microsecond-truncated second**, which is only possible if the `post_save` receiver wrote it inline. `4378046` (10P) shows the identical pattern at `22:10:21`. 34-UAT.md Test 3 `result: pass`. **Temporal caveat, stated plainly:** this live run predates Phase 35's first receiver change (`aad61e4`, 2026-09-13T05:56Z) by ~8 hours; the post-change receiver is re-proved at integration level by `test_updatestatus_narrows_the_event_with_no_command_run` and at corpus level by this pass's `unprojectable: 0` dry run over all 159 real records. |
-| 5 | **(SC4b)** Every event title is short enough to read in a month cell (PROJ-06). | ✓ VERIFIED | `title_for()` still produces `'[marker] <token> <target>'` capped at 200 chars; `test_marker_and_token_within_first_16_characters` passes. Real live titles queried this pass: `'[O] 1m0 11P'`, `'[S] 1m0 220P'`, `'[Q] 1m0 10P'`. |
-| 6 | **(SC5)** `sync_lco_observation_calendar` no longer exists; the same events come from the projector and sweep in the same key namespace, with runbook section, demo notebook and tests migrated rather than duplicated; `sync_gemini_observation_calendar` stays as submission-echo with its no-read-back caveat documented. | ✓ VERIFIED | Re-checked: `python manage.py help \| grep -c sync_lco_observation_calendar` → **0**. `management/commands/` listing contains `project_observation_calendar.py` and `sync_gemini_observation_calendar.py`, no retired module. `pre_executed/` contains `project_observation_calendar_demo.ipynb` and `sync_gemini_observation_calendar_demo.ipynb`, no retired notebook. `docs/runbooks/telescope_runs_calendar.rst` — **modified 6 times by Phase 35** — still carries **0** references to the retired command and still documents the projector, the legend (L152), the Observation series block (L160-164), the one-time title change (L185), the sweep's counters (L223-248) and the `unprojectable`/`site_lookup_failed` troubleshooting rows (L1397-1407). |
-| 7 | A calendar visitor can tell what each projector marker means from a legend on the calendar page itself, including `[?]`. | ✓ VERIFIED | `{% observation_status_legend as status_legend %}` still at `calendar.html:331` (template files unchanged since the prior pass); `test_returns_seven_entries_covering_every_marker` and `test_calendar_page_renders_every_legend_marker_and_label` pass. |
-| 8 | Every projector marker paints the right status ring, and no existing ring is lost. | ✓ VERIFIED | `{% status_border_css event.title as status_border %}` at `calendar.html:238` and `:274`; `calendar_display_extras.py` unchanged since the prior pass; `_TERMINAL_PREFIXES` still retains all four legacy verbose prefixes beside the bracket-letter markers. `TestProjectorMarkerRings` + `TestTelescopeStripeContrast` pass. |
-| 9 | Series identity ("night n of N") is rendered at request time from `CalendarEventMeta.observation_group`, never stored in the event, ordered by window start, with no per-event query fan-out. | ✓ VERIFIED | `{% observation_series_decoration event as series %}` at `event_form.html:148`, beside (not replacing) the campaign block; tag body contains no write call. `TestObservationSeriesDecoration` and `test_modal_query_count_does_not_grow_with_group_size` pass. |
-| 10 | The paired-docs rule is satisfied: the sweep has a pre-executed demo notebook whose executed output demonstrates the one-time takeover and a first-vs-second sweep that differ; the retired command's notebook is gone; the runbook describes the projector/sweep, legend, series block and Gemini caveat. | ✓ VERIFIED | Notebook and `sched06-baseline.json` both **byte-unchanged** since the prior pass (`git log` on both paths shows no commit since; `git status --porcelain` on `docs/` is clean apart from Phase 35's `reconcile_campaign_runs_demo.ipynb`). Baseline sha256 `453ae2ba…d353859c` still matches `git show a87f5f8:<path>`. The guard `test_projector_demo_notebook.py` passes (5 ok, 1 branch-correct skip) and was **re-mutation-tested this pass** — see spot-checks. |
-| 11 | Nothing group-derived is written into `CalendarEvent.title` or `.description`; series identity lives only in `CalendarEventMeta.observation_group` (PROJ-04 title-stem clause). | ✓ VERIFIED | `write_event_meta()` (observation_projector.py:312-334) read this pass: still writes exactly `is_verified`/`observation_record`/`observation_group`, with the docstring's "never the campaign attribution link or its confirmation stamps" intact and **untouched by any Phase 35 commit**. `test_grouped_record_sets_observation_group_and_omits_name_from_title_and_description`, `test_existing_campaign_attribution_survives_projection_and_is_verified_becomes_true`, `test_stale_companion_claim_on_a_different_event_is_cleared_not_integrity_error`, `test_record_in_two_groups_links_the_lowest_pk_group` all pass. |
-| 12 | The observed telescope is resolved once, stored on the record, read back as a network-free title token, and the D-07 label rename does not downgrade Phase 28's site-level attribution matching. | ✓ VERIFIED | `campaign_attribution.py` and `calendar_utils.py` both **unchanged** since the prior pass (0 commits). `test_campaign_attribution.py` passes. Live no-re-query proof with today's code: the full dry-run sweep over 159 records reported `site_lookups: 0` — every terminal record's site is already stored, so D-08's once-only contract holds on the real corpus. |
-| 13 | If two saves of the same record interleave, the calendar event left behind matches the record's final persisted field state. | ✓ VERIFIED (was ⚠️ insufficient_spec, abstained) | Declared `verification: backstop`. Closed by directly observed operator behaviour: 34-UAT.md Test 1 `result: pass` — two overlapping `updatestatus` runs against a scratch copy, **0 `AttributeError`, 0 `unprojectable`, 0 `OperationalError`**, both runs `Update completed successfully`, every record either run saved projecting correctly. **Temporal caveat:** that run predates Phase 35's receiver change. The change is provably isolated from the write path this truth concerns — the linked-run loop runs strictly *after* the base projection and each link carries its own `try`/`except`; `test_linked_run_reproject_raising_does_not_abort_the_records_own_save_or_projection` asserts the record's own event survives a linked-run failure. |
-| 14 | A sweep interrupted partway leaves every already-processed record with a correct event, and a re-run converges with no repair step. | ✓ VERIFIED | Directly observed operator behaviour in 34-UAT.md Test 3 (`result: pass`) against a copy: interrupted run repaired 1 record, re-run `created: 0, updated: 32, unchanged: 127, unprojectable: 0`, third dry run `updated: 0, unchanged: 159`. Corroborated by the notebook's two-sweep convergence (33 → 0) and, this pass, by the real corpus already sitting at `unchanged: 145` with no repair step ever having been run against it. |
+| 1 | **(SC1)** Every LCO/SOAR `ObservationRecord` has exactly one calendar event keyed by its facility observation URL, spanning the request window while queued / the placed block once scheduled / the observed block once observed; a terminal-negative record keeps a visibly marked event on its window night. | ✓ VERIFIED | Re-measured live: `lco_soar_records = 159`, `facility_url_events = 159`, **zero duplicate non-blank urls**, **zero facility-url events without a record link**. The status × marker cross-tab above is stronger than the prior pass's flat marker tally — it proves not just that the markers sum to 159 but that **every one of them is the correct marker for its record's status**, which is the property F-34-1 was the last violation of. Today's dry-run sweep over the whole real corpus: `unprojectable: 0` across all 159. |
+| 2 | **(SC2)** Saving a record updates its event with no operator command — including the schedule-only placement save TOM's own hook misses and the `updatestatus` path — while a save that changes nothing writes nothing and a projector error is logged rather than aborting the record save. | ✓ VERIFIED | `apps.py` receiver wiring unchanged (0 commits since prior pass). Behavioural re-run: the full 342-test phase suite passes, including `test_updatestatus_narrows_the_event_with_no_command_run`, `test_schedule_only_save_narrows_the_same_event_row`, `test_projecting_unchanged_record_twice_reports_unchanged_with_no_modified_churn`, `test_raising_projector_does_not_block_a_save`. The projector block's guard is intact and verified — see advisory 1 for the separate, Phase 35-owned gap in the *link-query* evaluation, which this truth's wording ("a projector error") does not cover and which does not affect calendar currency. |
+| 3 | **(SC3)** One sweep command re-projects any set of records (`--dry-run` supported, per-record failures isolated) as the backstop for bulk-write paths; a second sweep reports everything unchanged and no event outside the projector's key namespace is created, modified or deleted. | ✓ VERIFIED | **Strengthened this pass.** The prior pass could only show the sweep *predicting* 14 updates. The sweep has now actually run against the real corpus, and today's dry run reports `created: 0, updated: 0, unchanged: 159` — the convergence property demonstrated on live data rather than on a copy. Namespace isolation re-proved after that real write pass: `RUN:` **72**, blank-url **10**, `ALLOC:` **0** — identical to the Phase 34 notebook figures and to the prior pass, across a sweep that wrote 16 facility-url events. `TestDryRun`, `TestFailureIsolation`, `TestNamespaceIsolation` pass. |
+| 4 | **(SC4a)** Over real nights, a user watches a `KEY2026B-004` record's event narrow queued → scheduled → observed with nobody running anything (closes spike 004's PARTIAL verdict). | ✓ VERIFIED | Evidence unchanged and now archival: 34-UAT.md Test 3 `result: pass`; independently corroborated from the live database by the prior verification pass (committed, `0793233`) at 22:39Z on a database no sweep had ever run against — records `4378332` / `4378046` with `CalendarEvent.modified == ObservationRecord.modified` to the second. Both events still span their own receiver-derived observed blocks today. The operator subsequently, and deliberately, spent that baseline by running the sweep (the prior report's human item 2) — see advisory 2. Re-proved at integration level with today's code by `test_updatestatus_narrows_the_event_with_no_command_run` and at corpus level by `unprojectable: 0` over all 159 records. |
+| 5 | **(SC4b)** Every event title is short enough to read in a month cell (PROJ-06). | ✓ VERIFIED | `test_marker_and_token_within_first_16_characters` passes. Live titles after the sweep, now with resolved site tokens: `'[O] TFN-1m0 11P'`, `'[O] COJ-1m0 220P'`, `'[O] CPT-1m0 10P'` — longest observed is 16 characters, still well inside the cap. |
+| 6 | **(SC5)** `sync_lco_observation_calendar` no longer exists; the same events come from the projector and sweep in the same key namespace, with runbook section, demo notebook and tests migrated rather than duplicated; `sync_gemini_observation_calendar` stays as submission-echo with its no-read-back caveat documented. | ✓ VERIFIED | Re-checked: `manage.py help \| grep -c sync_lco_observation_calendar` → **0**; `management/commands/` holds only `project_observation_calendar.py` + `sync_gemini_observation_calendar.py`; `pre_executed/` holds only the two surviving notebooks; runbook carries **0** references to the retired command. |
+| 7 | A calendar visitor can tell what each projector marker means from a legend on the calendar page itself, including `[?]`. | ✓ VERIFIED | Templates unchanged (0 commits); `test_returns_seven_entries_covering_every_marker` and `test_calendar_page_renders_every_legend_marker_and_label` pass. |
+| 8 | Every projector marker paints the right status ring, and no existing ring is lost. | ✓ VERIFIED | `calendar_display_extras.py` unchanged; `TestProjectorMarkerRings` + `TestTelescopeStripeContrast` pass. `_TERMINAL_PREFIXES` still covers both vocabularies. |
+| 9 | Series identity ("night n of N") is rendered at request time from `CalendarEventMeta.observation_group`, never stored in the event, ordered by window start, with no per-event query fan-out. | ✓ VERIFIED | `event_form.html` unchanged; `TestObservationSeriesDecoration` and `test_modal_query_count_does_not_grow_with_group_size` pass. |
+| 10 | The paired-docs rule is satisfied: the sweep has a pre-executed demo notebook whose executed output demonstrates the one-time takeover and a first-vs-second sweep that differ; the retired command's notebook is gone; the runbook describes the projector/sweep, legend, series block and Gemini caveat. | ✓ VERIFIED | Notebook and `sched06-baseline.json` byte-unchanged: `git log` on both paths shows no commit since the prior pass (`8757750` / `a87f5f8`), `git status --porcelain docs/` shows only Phase 35's `reconcile_campaign_runs_demo.ipynb`, and the baseline's sha256 still equals `git show a87f5f8:<path>` (`453ae2ba…d353859c`). Guard passes (5 ok, 1 branch-correct skip). |
+| 11 | Nothing group-derived is written into `CalendarEvent.title` or `.description`; series identity lives only in `CalendarEventMeta.observation_group` (PROJ-04 title-stem clause). | ✓ VERIFIED | `write_event_meta()` unchanged; the four pinning tests pass. Live corroboration: every one of the 159 titles is `'[marker] <token> <target>'` with no group-derived text. |
+| 12 | The observed telescope is resolved once, stored on the record, read back as a network-free title token, and the D-07 label rename does not downgrade Phase 28's site-level attribution matching. | ✓ VERIFIED | **Strengthened this pass.** The prior pass showed `site_lookups: 0` on records whose sites were already stored. The 2026-09-14 sweep exercised the *other* half — it performed 16 fresh lookups, stored them, and today's dry run over the same corpus reports `site_lookups: 0` again. The once-only contract is now demonstrated across a real resolve-then-read-back cycle on live data. `test_campaign_attribution.py` passes; both files unchanged. |
+| 13 | If two saves of the same record interleave, the calendar event left behind matches the record's final persisted field state. | ✓ VERIFIED | Declared `verification: backstop`; closed by directly observed operator behaviour in 34-UAT.md Test 1 (`result: pass`) — two overlapping `updatestatus` runs, 0 `AttributeError`, 0 `unprojectable`, 0 `OperationalError`. Unchanged since the prior pass. |
+| 14 | A sweep interrupted partway leaves every already-processed record with a correct event, and a re-run converges with no repair step. | ✓ VERIFIED | **Strengthened this pass by a real incident.** The 2026-09-14 pre-migration sweep attempt *was* an interrupted sweep — it failed partway through the D-11 step on every record — and the live database shows every already-processed record left with a correct event (all 14 correct), with the post-migration re-run converging to `updated: 0` and no repair step. That is truth 14's exact claim, observed in production rather than simulated. Also pinned by 34-UAT.md Test 3 and the notebook's 33 → 0 convergence. |
 
 **Score:** 14/14 truths verified (0 present-but-behavior-unverified, 0 abstained, 0 failed)
 
-### Compatibility Review — did Phase 35 regress anything?
+### Regression check — did anything drift since the prior pass?
 
-This is the question that triggered the re-verification. Each change was read, not assumed.
-
-| Phase 35 change | File | Phase 34 property at risk | Verdict |
-|---|---|---|---|
-| `feat(35-04)` `aad61e4` + `WR-01/WR-02` `9909e82` + `NF-04` `30112a0` — append a D-11 linked-run re-project loop to `receiver_on_record_save()` | `observation_projector.py` | TRIG-01/TRIG-02 (receiver never raises, no network call), PROJ-05 (namespace isolation) | ✓ **Compatible.** Base projection still runs first and is still guarded by `PROJECTED_FACILITIES`; its `try` is unchanged. The new loop has a **per-link** `try`/`except` (never a bare loop-wide one), logs `run pk=…`, and re-raises nothing. `test_linked_run_reproject_makes_no_network_call`, `test_linked_run_reproject_raising_does_not_abort_the_records_own_save_or_projection`, `test_one_failing_linked_run_does_not_skip_a_later_one`, `test_record_with_no_campaign_run_links_never_calls_project_allocation` all pass. |
-| `CR-01` `2a34a04` — route allocation triggers through a guarded dispatch entry point | `observation_projector.py` / `allocation_projector.py` | PROJ-05 no-foreign-writes | ✓ Compatible. `observation_projector` still writes only facility-url events; ALLOC: writes go through that namespace's own owner. See advisory 2. |
-| Two new receivers on `CampaignRunObservation` | `apps.py` | TRIG-01 wiring | ✓ **Additive only.** All three Phase 34 connections survive verbatim at `apps.py` with their original `dispatch_uid`s; the docstring explicitly records them as "unchanged since Phase 34". |
-| `RUN:` → `ALLOC:` in namespace-isolation fixtures | 3 phase-34 test modules | PROJ-05 test strength | ✓ **No weakening.** Diff is 3 url-literal renames plus explanatory comments (`git diff` on the two projector-test modules is 4 changed lines total; the signals module's 250 insertions are all *new* tests). **No Phase 34 test was deleted or had an assertion relaxed** — every one of the 18 named tests the prior report cited still exists and passes. The rename tracks the live key form; and the retired `RUN:` form is still guarded live — 72 `RUN:` events sit untouched on the developer database. |
-| 6 runbook commits, `CLAUDE.md`, `REQUIREMENTS.md` | docs | ANNOT-03 | ✓ Compatible. Runbook still has 0 references to the retired command and retains all six Phase 34 sections. `REQUIREMENTS.md` diff since the prior pass touches only ALLOC-01..05 checkboxes; every PROJ/TRIG/SCHED/ANNOT line is byte-identical. |
+| Surface | Check | Verdict |
+|---|---|---|
+| All source files | `git diff --stat 31ec92c..HEAD` | ✓ Two `.md` files only (debug doc, prior VERIFICATION.md). **No code changed.** |
+| Working tree | `git status --porcelain solsys_code/ src/templates/` | ✓ Empty. |
+| Phase 34 docs artifacts | `git status --porcelain docs/` | ✓ Only Phase 35's `reconcile_campaign_runs_demo.ipynb` is dirty; both Phase 34 artifacts clean and byte-identical. |
+| Phase 34 test suite | 8 modules, one run | ✓ `Ran 342 tests in 15.259s … OK (skipped=1)` — identical count and outcome to the prior pass. |
+| Foreign namespaces | live SQL after a real sweep | ✓ `RUN:` 72, blank-url 10, `ALLOC:` 0 — unchanged. |
+| Requirements text | `.planning/REQUIREMENTS.md` | ✓ All eleven mapped lines present and unchanged. |
 
 ### Deferred Items
 
@@ -144,71 +194,88 @@ This is the question that triggered the re-verification. Each change was read, n
 |---|------|-------------|----------|
 | 1 | Unification of the two title-prefix vocabularies (legacy verbose vs. terse bracket-letter markers) | Phase 37 | ROADMAP Phase 34 scope note: "Title prefixes ship provisionally here; Phase 37 owns the final vocabulary." Both vocabularies already paint the correct ring. |
 
-### Advisory (New Scope, Unevidenced-as-Blocker)
+### Advisory (New Scope)
 
 | # | Finding | Category | Why Advisory |
 |---|---------|----------|--------------|
-| 1 | The receiver no longer early-returns for a non-LCO/SOAR facility — 34-01's literal must_have wording is superseded by Phase 35's deliberately facility-independent D-11 loop | architectural | The behavioural intent (no facility-url event for a Gemini record) is intact and pinned by passing tests; the changed behaviour is a downstream requirement (ALLOC-03), not a defect. No must-have FAILED. |
-| 2 | 34-01's PROJ-05 prohibition holds at module level but the receiver now delegates ALLOC: writes to `allocation_projector` | architectural | `observation_projector` still writes only facility-url events and only the three meta fields. The human guard the prohibition protected survives (`adopt_event_into_run()` refuses a foreign-attributed event; the unlink half filters `confirmed_by__isnull=True`). Intent preserved. |
+| 1 | **NEW, EVIDENCED** — `receiver_on_record_save()` evaluates `instance.campaign_run_links.select_related('run')` outside any `try`; a DB error there escapes the receiver and propagates out of `ObservationRecord.save()`. Reproduced deterministically; occurred for real on 2026-09-14. | architectural | Phase 35's D-11 code, not Phase 34's projector block. TRIG-02 and truth 2 both scope the guarantee to "a projector error", and that block IS guarded. Calendar currency is provably unaffected — base projection commits before the failing step. Routed to Phase 35 (no VERIFICATION.md there yet). Does not falsify a Phase 34 must-have. |
+| 2 | The debug doc's `CalendarEvent.modified == ObservationRecord.modified` signature for 4378332 / 4378046 no longer holds live — the 2026-09-14 sweep re-titled both and bumped the stamps. | other | A dated Evidence entry, corroborated by the prior verification 25 minutes before the sweep. The substantive half (observed-block spans) survives. The operator spent the baseline deliberately, as the prior report's human item 2 invited. Noted for future readers. |
+| 3 | The corrected doc's summary sentence reads as if the sweep followed the migration; the first attempt preceded it. | other | The entry's own parenthetical states the correct sequence and the timestamps confirm it. Ambiguous phrasing, not a factual error. No action required. |
+
+Advisories 1-3 are **new-scope relative to this re-verification round** — `solsys_code/observation_projector.py` was not git-modified since the prior `verified:` timestamp and none of these is a carried-forward gap — so under the re-verification evidence gate none of them reverts a completed must-have. Advisory 1 is nonetheless recorded with deterministic evidence so it can be actioned rather than rediscovered.
+
+#### Advisory 1 — reproduction
+
+```python
+# against a scratch COPY under FOMO_DATABASE_PATH; the dev DB was not touched
+class Boom:
+    def select_related(self, *a, **k):
+        raise OperationalError('no such column: solsys_code_campaignrun.night_start_utc')
+
+ObservationRecord.campaign_run_links = property(lambda self: Boom())
+record.save()
+# -> PROBE-RESULT: save() RAISED -> OperationalError : no such column: ...
+```
+
+`observation_projector.py:626-651` — `project_record()` runs inside its own `try` (lines 628-636); the D-11 loop's per-link `try` (lines 643-651) is **inside** the loop body, so the `for` header's queryset evaluation at line 640 is unguarded. Suggested fix, Phase 35 scope: `for link in list(...)` under its own `try`, or hoist the query above the loop inside a guard.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `solsys_code/observation_projector.py` | Projector + three signal receivers | ✓ VERIFIED | 770 lines. `project_record()`, `event_fields_for()`, `write_event_meta()`, `event_url()`, `project_queryset()` all unchanged by Phase 35 — the entire 97-line diff is confined to `receiver_on_record_save()`. Module docstring still states the three ownership rules. Imported by `apps.py`, the sweep command, `allocation_projector.py` and 4 test modules. |
-| `solsys_code/apps.py` | `ready()` wires the three receivers | ✓ VERIFIED | The three Phase 34 connections intact with original `dispatch_uid`s; two Phase 35 receivers appended. |
-| `solsys_code/calendar_utils.py` | `coerce_schedule_datetime()` used by both `record_time_window()` branches | ✓ VERIFIED | Unchanged since the prior pass (0 commits). `TestCoerceScheduleDatetime` + `TestRecordTimeWindow` pass. |
-| `solsys_code/management/commands/project_observation_calendar.py` | Backstop sweep, zero required args | ✓ VERIFIED | Unchanged. `--help` clean; executed `--dry-run` against a real-corpus copy this pass. |
-| `solsys_code/templatetags/calendar_display_extras.py` | Rings, legend, series decoration | ✓ VERIFIED | Unchanged; all three tags still called from the two (also unchanged) templates. |
-| `solsys_code/campaign_attribution.py` | `OBSERVED_TELESCOPE_OBSCODES` bridge ahead of `_extract_lco_site_code()` | ✓ VERIFIED | Unchanged; its test module passes. |
-| `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` | Paired demo with a real takeover | ✓ VERIFIED | Byte-unchanged; guard passes; guard re-mutation-tested. |
-| `…/project_observation_calendar_demo.sched06-baseline.json` | Byte-identical to committed state | ✓ VERIFIED | sha256 `453ae2ba…d353859c` matches `git show a87f5f8:<path>`; `git log` on the path still shows only `a87f5f8`. |
-| `solsys_code/tests/test_projector_demo_notebook.py` | Repo-level guard over the committed notebook | ✓ VERIFIED | Unchanged; 5 pass + 1 branch-correct skip; mutation-proven again this pass. |
-| `docs/runbooks/telescope_runs_calendar.rst` | Projector/sweep section, no stale sync content | ✓ VERIFIED | 6 Phase 35 commits; 0 references to the retired command; all six Phase 34 sections still present. |
-| `src/fomo_db.sqlite3` | SCHED-06 evidence database | ⚠️ NOTED (not an artifact defect) | mtime moved 2026-09-11T20:07Z → **2026-09-12T22:10Z** — the UAT Test 3 `updatestatus` run that *produced* the SCHED-06 evidence. Size unchanged at 1232896. No sweep has ever run against it (`RUN:` 72 / blank-url 10 intact, 14 pre-fix events still stale). Untouched by this verification: the dry run was executed against a scratch copy and the stamp is identical before and after. |
-| `solsys_code/tests/*` (8 phase modules) | Behaviour pinned | ✓ VERIFIED | `Ran 342 tests in 16.116s … OK (skipped=1)` — up from 292, with no Phase 34 test removed. |
+| `solsys_code/observation_projector.py` | Projector + three signal receivers | ✓ VERIFIED | 0 commits and no working-tree change since the prior pass. Imported by `apps.py`, the sweep command, `allocation_projector.py` and 4 test modules. See advisory 1 for the Phase 35 sub-surface. |
+| `solsys_code/apps.py` | `ready()` wires the three receivers | ✓ VERIFIED | Unchanged; all three `dispatch_uid`s intact. |
+| `solsys_code/calendar_utils.py` | `coerce_schedule_datetime()` used by both `record_time_window()` branches | ✓ VERIFIED | Unchanged; `TestCoerceScheduleDatetime` + `TestRecordTimeWindow` pass. |
+| `solsys_code/management/commands/project_observation_calendar.py` | Backstop sweep, zero required args | ✓ VERIFIED | Unchanged. Executed `--dry-run` against a current-state scratch copy this pass: `updated: 0, unchanged: 159`. |
+| `solsys_code/templatetags/calendar_display_extras.py` | Rings, legend, series decoration | ✓ VERIFIED | Unchanged; all three tags still called from the two templates. |
+| `solsys_code/campaign_attribution.py` | `OBSERVED_TELESCOPE_OBSCODES` bridge | ✓ VERIFIED | Unchanged; its test module passes. |
+| `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` | Paired demo with a real takeover | ✓ VERIFIED | Byte-unchanged; guard passes. |
+| `…/project_observation_calendar_demo.sched06-baseline.json` | Byte-identical to committed state | ✓ VERIFIED | sha256 `453ae2ba…d353859c` = `git show a87f5f8:<path>`. |
+| `solsys_code/tests/test_projector_demo_notebook.py` | Repo-level guard over the committed notebook | ✓ VERIFIED | Unchanged; 5 pass + 1 branch-correct skip. |
+| `docs/runbooks/telescope_runs_calendar.rst` | Projector/sweep section, no stale sync content | ✓ VERIFIED | 0 references to the retired command. |
+| `solsys_code/migrations/0018_campaignrun_night_window_fields.py` | Additive, applied | ✓ VERIFIED | Two nullable `TimeField`s on `CampaignRun`; applied `2026-09-15 00:16:40`. Not a Phase 34 artifact — verified because F-34-1's closure depended on it. |
+| `src/fomo_db.sqlite3` | SCHED-06 evidence database | ✓ RECONCILED (was ⚠️ NOTED) | mtime moved `2026-09-12T22:10Z` → `2026-09-15T00:16:50Z` — the operator sweep and the migration. **F-34-1's residue is gone.** Untouched by this verification (`1789431410 1232896` before and after every command). |
+| `solsys_code/tests/*` (8 phase modules) | Behaviour pinned | ✓ VERIFIED | `Ran 342 tests in 15.259s … OK (skipped=1)`. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `ObservationRecord.save()` | `CalendarEvent` row | `post_save` → `receiver_on_record_save()` → `project_record()` | ✓ WIRED | Re-proved by `test_updatestatus_narrows_the_event_with_no_command_run` **and** by the live database: 14 events whose `modified` equals their own record's `modified` to the second. |
-| `SolsysCodeConfig.ready()` | the three receivers | `.connect(weak=False, dispatch_uid=…)` | ✓ WIRED | `apps.py` — all three survive Phase 35's additions. |
-| sweep per-record loop | `project_record()` / `preview_calendar_event_action()` | `project_queryset()` | ✓ WIRED | One projection path shared by receiver and sweep; the dry run's `unchanged: 145` against receiver-written events is the proof the two agree. |
-| `receiver_on_record_save()` | `allocation_projector.reproject_allocation_if_dispatched()` | `instance.campaign_run_links.select_related('run')`, per-link `try` | ✓ WIRED (new, Phase 35) | Additive. Never reached for an unlinked record (`test_record_with_no_campaign_run_links_never_calls_project_allocation`). The developer database holds exactly 1 `CampaignRunObservation` row and 0 `ALLOC:` events, so the live `updatestatus` path is effectively unchanged today. |
+| `ObservationRecord.save()` | `CalendarEvent` row | `post_save` → `receiver_on_record_save()` → `project_record()` | ✓ WIRED | Re-proved by the passing signals module and, live, by the 2026-09-14 sweep incident in which the base projection wrote all 16 events *before* the D-11 step failed. |
+| `SolsysCodeConfig.ready()` | the three receivers | `.connect(weak=False, dispatch_uid=…)` | ✓ WIRED | Unchanged. |
+| sweep per-record loop | `project_record()` / `preview_calendar_event_action()` | `project_queryset()` | ✓ WIRED | The sweep's `unchanged: 159` against a corpus written by both the receiver and the sweep is the proof the two writers agree. |
+| sweep `pre_fields_hook` | `record.save()` → receiver → `project_record()` | one-time observed-site resolution | ✓ WIRED | Demonstrated live: 16 site tokens resolved, stored, and read back with `site_lookups: 0` on the next pass. |
+| `receiver_on_record_save()` | `allocation_projector.reproject_allocation_if_dispatched()` | `instance.campaign_run_links.select_related('run')`, per-link `try` | ⚠️ WIRED, guard incomplete | Reached and functional; the *link query* is unguarded (advisory 1). Dormant on the live corpus (1 `CampaignRunObservation` row, 0 `ALLOC:` events). |
 | `CalendarEventMeta.observation_group` | `event_form.html` | `observation_series_decoration()` | ✓ WIRED | Display-time only. |
-| `calendar_utils` telescope labels | Phase 28 attribution matching | `OBSERVED_TELESCOPE_OBSCODES` | ✓ WIRED | Carried forward; both files unchanged. |
-| committed notebook evidence | every `manage.py test` run | `test_projector_demo_notebook.py` | ✓ WIRED | Guard runs in the default suite and still fails on emptied evidence. |
+| committed notebook evidence | every `manage.py test` run | `test_projector_demo_notebook.py` | ✓ WIRED | Guard runs in the default suite. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| `event_fields_for()` | `start_time`/`end_time` | `record_time_window(record)` / `record.parameters` — never a stored event field | Yes — live: 4378332's event spans its own observed block | ✓ FLOWING |
-| `telescope_token()` | `token` | `record.parameters['observed_site'/'observed_telescope']`, else `coarse_telescope_label()` | Yes — `site_lookups: 0` on a 159-record sweep proves the stored values are being read back | ✓ FLOWING |
-| `project_queryset()` counters | `action` | `preview_calendar_event_action(before, fields)` vs a pre-sweep snapshot | Yes — `updated: 14 / unchanged: 145` discriminates, not a blanket count | ✓ FLOWING |
-| `receiver_on_record_save()` linked-run loop | `link.run` | `instance.campaign_run_links` (real FK traversal) | Yes (tested); dormant on the live corpus (1 link, 0 ALLOC: events) | ✓ FLOWING |
-| notebook cells `05528b38` / `556d2a9f` | `changed_titles`, sweep summaries | Live before/after snapshots around a real sweep on a fresh clone | Yes — 33 of 159; 33 then 0 | ✓ FLOWING |
+| `event_fields_for()` | `start_time`/`end_time` | `record_time_window(record)` / `record.parameters` | Yes — live: each of the 14 repaired events spans its own observed block, e.g. `4378021` `2026-09-04 16:18:07 → 16:34:57` | ✓ FLOWING |
+| `telescope_token()` | `token` | `record.parameters['observed_site'/'observed_telescope']`, else `coarse_telescope_label()` | Yes — 16 tokens resolved on 09-14 (`COJ`/`LSC`/`CPT`/`TFN`), then read back with `site_lookups: 0` | ✓ FLOWING |
+| `stage_for()` → marker | marker letter | `record.status` | Yes — the status × marker cross-tab is one-to-one across all 159 rows, no mismatched pair | ✓ FLOWING |
+| `project_queryset()` counters | `action` | `preview_calendar_event_action(before, fields)` | Yes — discriminates, not a blanket count: `updated: 14` before the sweep, `updated: 0` after | ✓ FLOWING |
+| `receiver_on_record_save()` linked-run loop | `link.run` | `instance.campaign_run_links` | Yes (tested); dormant live (1 link, 0 `ALLOC:` events) | ✓ FLOWING |
 | `observation_status_legend()` | legend entries | Module constant | Intentionally fixed (documented) | ✓ FLOWING (by design) |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Phase-34 test modules pass (8 modules, one run) | `python manage.py test solsys_code.tests.test_observation_projector …test_campaign_attribution` | `Ran 342 tests in 16.116s` / `OK (skipped=1)` | ✓ PASS |
-| Notebook-evidence guard passes against the committed artifact | `python manage.py test solsys_code.tests.test_projector_demo_notebook -v2` | 6 tests: 5 ok, 1 skip (`not routed to a scratch copy` branch) | ✓ PASS |
-| **Guard still fails against the pre-34-07 regressed notebook** (mutation, re-run this pass) | `git show 46d8390:…demo.ipynb` via `FOMO_DEMO_NOTEBOOK_PATH` | `FAILED (failures=1)` — `Cell 05528b38 does not report a non-zero re-titled count: '…0 of 159 pre-existing facility-url-keyed events were re-titled…'` | ✓ PASS |
-| Sweep registered with its flags | `python manage.py project_observation_calendar --help` | `[--proposal PROPOSAL] [--facility {LCO,SOAR}] [--dry-run]` | ✓ PASS |
-| **Full-corpus dry run with today's projector** | `FOMO_DATABASE_PATH=<scratch copy> python manage.py project_observation_calendar --dry-run` | `failed: 0 \| LCO: created: 0, updated: 14, unchanged: 145, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 \| SOAR: all zero` | ✓ PASS |
+| Phase-34 test modules pass (8 modules, one run) | `python manage.py test solsys_code.tests.test_observation_projector …test_projector_demo_notebook` | `Ran 342 tests in 15.259s` / `OK (skipped=1)` | ✓ PASS |
+| **Sweep converges on the post-fix real corpus** | `FOMO_DATABASE_PATH=<scratch copy> python manage.py project_observation_calendar --dry-run` | `failed: 0 \| LCO: created: 0, updated: 0, unchanged: 159, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 \| SOAR: all zero` | ✓ PASS |
+| **Zero terminal-status records carry a queued/scheduled marker (live)** | read-only SQL, status × marker cross-tab | empty result set; COMPLETED → `[O]` 76 | ✓ PASS |
+| **Migration 0018 applied (live)** | `SELECT … FROM django_migrations` | `solsys_code\|0018_campaignrun_night_window_fields\|2026-09-15 00:16:40.283886` | ✓ PASS |
+| **Latest event modified matches the doc's claim** | `SELECT MAX(modified) FROM tom_calendar_calendarevent` | `2026-09-14 23:07:19.066718` | ✓ PASS |
+| One event per record, no duplicates, no orphans (live) | read-only SQL | `159 records / 159 facility-url events / 0 duplicate non-blank urls / 0 unlinked facility-url events` | ✓ PASS |
+| Foreign namespaces intact after a real sweep (live) | read-only SQL | `RUN: 72`, `ALLOC: 0`, blank-url `10` | ✓ PASS |
 | Retired command really gone | `python manage.py help \| grep -c sync_lco_observation_calendar` | `0` | ✓ PASS |
-| One event per record, no duplicates (live) | read-only SQL over `src/fomo_db.sqlite3` | `159 records / 159 facility-url events / 0 orphans / 0 duplicate non-blank urls` | ✓ PASS |
-| Foreign namespaces intact (live) | read-only SQL | `RUN: 72`, blank-url `10` — unchanged from the Phase 34 notebook figures | ✓ PASS |
-| SCHED-06 receiver-only narrowing (live) | read-only SQL on 4378332 / 4378046 | `[O]` titles over observed blocks, `CalendarEvent.modified == ObservationRecord.modified` | ✓ PASS |
+| Sweep registered with its flags | `python manage.py project_observation_calendar --help` | `[--proposal PROPOSAL] [--facility {LCO,SOAR}] [--dry-run]` | ✓ PASS |
 | Baseline JSON byte-identical to `a87f5f8` | `sha256sum` vs `git show` | both `453ae2ba…d353859c` | ✓ PASS |
-| Developer DB untouched by this verification | `stat -c '%Y %s'` before/after every command | `1789251048 1232896` both times | ✓ PASS |
-| Debt markers in phase-34 files changed since prior pass | `grep -nE "TBD\|FIXME\|XXX\|HACK\|PLACEHOLDER"` over 7 files | 1 hit, non-marker (see anti-patterns) | ✓ PASS |
-
-**Note on DB safety:** no `updatestatus` and no real sweep was run by this verification. All database inspection was read-only (`file:…?mode=ro`); the one sweep was `--dry-run` against a scratch copy under `FOMO_DATABASE_PATH`. The developer database's size and mtime are identical before and after this pass.
+| **Receiver link-query guard (negative probe)** | scratch-copy probe forcing `campaign_run_links` to raise | `save() RAISED OperationalError` — advisory 1 | ✗ FAIL (advisory, Phase 35 scope) |
+| Developer DB untouched by this verification | `stat -c '%Y %s'` before/after every command | `1789431410 1232896` both times | ✓ PASS |
 
 ### Probe Execution
 
@@ -216,98 +283,64 @@ This is the question that triggered the re-verification. Each change was read, n
 |-------|---------|--------|--------|
 | — | — | No `scripts/*/tests/probe-*.sh` exist in this repo and no PLAN/SUMMARY declares a probe | N/A — skipped |
 
-### Decision Coverage
-
-`gsd_run query check.decision-coverage-verify` → `{ skipped: false, blocking: false, total: 21, honored: 21, not_honored: [] }` — "All trackable CONTEXT.md decisions are honored by shipped artifacts." **Non-blocking; no status impact.**
-
 ### Requirements Coverage
+
+Every requirement ID declared in this phase's plan frontmatter, cross-referenced against `.planning/REQUIREMENTS.md`.
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|------------|-------------|--------|----------|
-| PROJ-01 | 34-01, 34-02 | Exactly one `CalendarEvent` per LCO/SOAR record, keyed by `facility.get_observation_url()` | ✓ SATISFIED | Truth 1 — live: 159/159, 0 duplicate non-blank urls |
-| PROJ-02 | 34-01, 34-05, 34-06 | Span follows the stage: request window → placed block → observed block | ✓ SATISFIED | Truths 1-2, 4; `TestEventFieldsFor`; `coerce_schedule_datetime()` intact |
-| PROJ-03 | 34-01, 34-03 | Terminal-negative record keeps a visibly marked event | ✓ SATISFIED | Truths 1, 7, 8; live `[X]:26 [C]:6 [F]:1` |
-| PROJ-04 (title-stem clause) | **not declared in any plan's `requirements:`** | Series identity carried by real FKs, not text in the title | ✓ SATISFIED but ⚠️ **ORPHANED** | REQUIREMENTS.md L18/L106 maps the title-stem clause to Phase 34, yet no plan frontmatter claims `PROJ-04`, and the ROADMAP's own phase requirement list omits it. Delivered anyway (truths 9, 11). Traceability gap in the plans, not a delivery gap — carried forward unchanged. |
-| PROJ-05 | 34-01, 34-02, 34-03, 34-07 | No-churn; never touches an event it does not own | ✓ SATISFIED | `test_projecting_unchanged_record_twice_reports_unchanged_with_no_modified_churn`; `TestNamespaceIsolation` (both modules); live `RUN: 72` / blank-url `10` untouched across a receiver-driven narrowing pass. See advisory 2 for the receiver-level nuance. |
-| PROJ-06 | 34-01, 34-03 | Compact titles that fit a month cell | ✓ SATISFIED | Truth 5 |
-| SCHED-06 | 34-04, 34-05, 34-06, 34-07 | A user watches a record narrow over real nights with no command | ✓ SATISFIED (was ? NEEDS HUMAN) | Truth 4 — live evidence independently corroborated from the database. **The claim in the 2026-09-14 debug doc that "all 33" narrowed is separately contradicted and routed to human item 1; SCHED-06 itself does not depend on it.** |
-| TRIG-01 | 34-01, 34-05, 34-06 | `post_save` receiver in `apps.ready()`, covering schedule-only and `updatestatus` paths | ✓ SATISFIED | Truth 2; `apps.py`; `TestUpdateObservationStatusPath` |
-| TRIG-02 | 34-01, 34-05, 34-06 | Single-record, idempotent, cheap, error-logged-never-aborts | ✓ SATISFIED | Truth 2; `test_make_request_is_never_called_during_a_record_save`, `test_raising_projector_does_not_block_a_save`; Phase 35's added loop carries its own per-link `try` |
-| TRIG-03 | 34-02, 34-04, 34-07 | Sweep command with `--dry-run`, failure isolation, and a paired pre-executed demo notebook | ✓ SATISFIED | Truth 3; executed dry run this pass; notebook + guard intact |
-| ANNOT-03 | 34-02, 34-04, 34-07 | Old LCO sync retired; runbook/notebook/tests migrated; Gemini caveat documented | ✓ SATISFIED | Truth 6 — re-checked against the 6-times-modified runbook |
+| PROJ-01 | 34-01, 34-02 | Exactly one `CalendarEvent` per LCO/SOAR record, keyed by `facility.get_observation_url()` | ✓ SATISFIED | Truth 1 — live: 159/159, 0 duplicates, 0 orphans |
+| PROJ-02 | 34-01, 34-05, 34-06 | Span follows the stage: request window → placed block → observed block | ✓ SATISFIED | Truths 1, 2, 4; the 14 repaired events each span their own observed block |
+| PROJ-03 | 34-01, 34-03 | Terminal-negative record keeps a visibly marked event | ✓ SATISFIED | Cross-tab: `WINDOW_EXPIRED` → `[X]` 26, `CANCELED` → `[C]` 6, `FAILURE_LIMIT_REACHED` → `[F]` 1, none mismarked |
+| PROJ-04 (title-stem clause) | **not declared in any plan's `requirements:`** | Series identity carried by real FKs, not text in the title | ✓ SATISFIED but ⚠️ **ORPHANED** | REQUIREMENTS.md L18/L106 maps the title-stem clause to Phase 34, yet no plan frontmatter claims `PROJ-04` and the ROADMAP's phase requirement list omits it. Delivered anyway (truths 9, 11). Traceability gap in the plans, not a delivery gap — carried forward unchanged for the third pass. |
+| PROJ-05 | 34-01, 34-02, 34-03, 34-07 | No-churn; never touches an event it does not own | ✓ SATISFIED | `test_projecting_unchanged_record_twice_reports_unchanged_with_no_modified_churn`; `TestNamespaceIsolation`; live `RUN: 72` / `ALLOC: 0` / blank-url `10` intact across a real 16-event sweep |
+| PROJ-06 | 34-01, 34-03 | Compact titles that fit a month cell | ✓ SATISFIED | Truth 5 — longest live title 16 chars even with the resolved site token |
+| SCHED-06 | 34-04, 34-05, 34-06, 34-07 | A user watches a record narrow over real nights with no command | ✓ SATISFIED | Truth 4. **The debug artifact that previously contradicted this is now corrected, and every corrected claim was re-measured against the database this pass.** |
+| TRIG-01 | 34-01, 34-05, 34-06 | `post_save` receiver in `apps.ready()`, covering schedule-only and `updatestatus` paths | ✓ SATISFIED | Truth 2; `apps.py` unchanged; `TestUpdateObservationStatusPath` |
+| TRIG-02 | 34-01, 34-05, 34-06 | Single-record, idempotent, cheap, error-logged-never-aborts | ✓ SATISFIED | Truth 2; `test_make_request_is_never_called_during_a_record_save`, `test_raising_projector_does_not_block_a_save`. The projector block's guard holds. Advisory 1 records a Phase 35-owned gap in the adjacent link query — outside this requirement's "a projector error" wording, and it does not affect calendar currency. |
+| TRIG-03 | 34-02, 34-04, 34-07 | Sweep command with `--dry-run`, failure isolation, and a paired pre-executed demo notebook | ✓ SATISFIED | Truth 3 — **the sweep has now performed its designed backstop role on live data**, clearing exactly the residue `updatestatus` structurally cannot reach, then converging to `updated: 0` |
+| ANNOT-03 | 34-02, 34-04, 34-07 | Old LCO sync retired; runbook/notebook/tests migrated; Gemini caveat documented | ✓ SATISFIED | Truth 6 |
 
-**Orphaned requirements:** `PROJ-04` (title-stem clause) is mapped to Phase 34 in REQUIREMENTS.md but appears in no plan's `requirements:` field and not in the ROADMAP's phase requirement list. Delivered; flagged for traceability only.
-
-### Test Quality Audit
-
-| Test File | Linked Req | Active | Skipped | Circular | Assertion Level | Verdict |
-|-----------|-----------|--------|---------|----------|-----------------|---------|
-| `test_observation_projector.py` | PROJ-01/02/03/05/06, PROJ-04 stem | 49 | 0 | No | Value + behavioral | ✓ Sufficient |
-| `test_observation_projector_signals.py` | TRIG-01/02, PROJ-02 (+ Phase 35 D-11) | 31 | 0 | No | Behavioral (drives the real `update_observation_status()`) | ✓ Sufficient — grew by 8, none removed |
-| `test_project_observation_calendar.py` | TRIG-03, PROJ-05 | 25 | 0 | No | Value + behavioral | ✓ Sufficient |
-| `test_calendar_utils.py` | PROJ-02 (G-34-2) | `TestCoerceScheduleDatetime` + `TestRecordTimeWindow` | 0 | No | Value | ✓ Sufficient |
-| `test_calendar_display_extras.py` / `test_calendar_template.py` | PROJ-03/05/06, PROJ-04 stem | many | 0 | No | Value + rendered-markup | ✓ Sufficient |
-| `test_projector_demo_notebook.py` | PROJ-05, TRIG-03, SCHED-06, ANNOT-03 | 5 | 1 (branch-correct) | No | Artifact-content, mutation-proven | ✓ Sufficient |
-
-**Disabled tests on requirements:** 0. **Circular patterns:** 0. **Insufficient assertions:** 0 — the notebook guard was mutation-verified again this pass rather than trusted. **Assertions weakened by Phase 35:** 0 — the only edits to Phase 34 test modules are three url-literal renames (`RUN:` → `ALLOC:`) with explanatory comments; no test was deleted and no assertion relaxed.
+**All 10 declared requirement IDs accounted for.** One orphan (`PROJ-04`) mapped to Phase 34 in REQUIREMENTS.md but unclaimed by any plan — delivered, flagged for traceability only.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `solsys_code/views.py` | 310 | `# XXX Could replace this by a creation of the missing Observatory` | ℹ️ Info | **Pre-existing** (`git blame` → `a8613bc8`, 2025-07-23). `views.py` has **0 commits** since the prior verification, so it is outside the regression window. Debt-marker gate does not fire — classified identically by all three passes. |
-| `docs/runbooks/telescope_runs_calendar.rst` | 1099 | `` ``TBD window`` `` | ℹ️ Info | **Not a debt marker.** It is a documented skip-reason *value* the reconciler emits for a `CampaignRun` with no parsed `Obs. Date`, listed beside `not approved` / `unresolved site` / `window_end before window_start`. Introduced by Phase 35 (in the regression window) but carries no unfinished-work semantics. |
-| `src/fomo_db.sqlite3` (data, not code) | — | 14 stale facility-url events: COMPLETED records still titled `[Q]`/`[S]`, `CalendarEvent.modified` = 2026-09-11 04:44 | ℹ️ Info (carried forward as finding **F-34-1**) | Pre-fix legacy residue, **unchanged since before Phase 35** and already adjudicated: `update_all_observation_statuses()` excludes terminal states (`facility.py:573`), so no `updatestatus` will ever re-save them; only the sweep this phase shipped can. Quantified exactly this pass: `LCO: updated: 14`. Not a code defect and not a regression — routed to human item 2 as an operator decision. |
-| `.planning/debug/resolved/34-updatestatus-receiver-attributeerror.md` | Resolution / `signal_real_path` | Claims "an overnight `updatestatus`-only run against the real DB narrowed **all 33** previously-stale LCO events … with no intervening sweep" (committed 2026-09-14, **inside the regression window**) | ⚠️ Warning | **Contradicted by the database, with deterministic evidence.** (a) `MAX(CalendarEvent.modified)` = `2026-09-12 22:10:48.773592` and `stat -c '%Y'` = `1789251048` (= 2026-09-12T22:10:48Z) — no run occurred on 09-13 or 09-14. (b) 14 of the 33 are still stale; a dry-run sweep reports `LCO: updated: 14`. The prior VERIFICATION.md already corrected this exact premise ("the 14 terminal ones never will without one sweep"); the newer doc re-asserts it. **No must-have is FAILED** — SCHED-06's real evidence is the 2026-09-12 run, verified independently above — so this is a WARNING requiring a human decision, not a BLOCKER. Routed to human item 1. |
+| `solsys_code/views.py` | 310 | `# XXX Could replace this by a creation of the missing Observatory` | ℹ️ Info | Pre-existing (`a8613bc8`, 2025-07-23); `views.py` has 0 commits since the prior pass. Outside the regression window; classified identically by all three passes. |
+| `docs/runbooks/telescope_runs_calendar.rst` | 1099 | `` ``TBD window`` `` | ℹ️ Info | Not a debt marker — a documented skip-reason *value* the reconciler emits, listed beside `not approved` / `unresolved site`. No unfinished-work semantics. |
+| `.planning/debug/resolved/34-updatestatus-receiver-attributeerror.md` | Evidence / Resolution | Previously ⚠️ Warning (F-34-1) | ✓ **RESOLVED** | The false claim is retracted in place with a dated `RETRACTED` block, `next_action` carries a `CORRECTION`, and `signal_real_path` is amended. Every corrected claim re-measured against the database this pass; all hold. Zero debt markers in the file. |
+| `src/fomo_db.sqlite3` (data) | — | Previously ℹ️ Info (F-34-1's 14 stale events) | ✓ **RESOLVED** | Cleared by the operator sweep on 2026-09-14. Cross-tab shows zero terminal-status records with a queued/scheduled marker; dry run reports `updated: 0`. |
+| `solsys_code/observation_projector.py` | 640 | Unguarded queryset evaluation in the D-11 loop header | ⚠️ Warning → 📋 Advisory | New-scope, file unmodified since the prior `verified:` timestamp, not a carried-forward gap. Evidenced and reproduced; routed to Phase 35. Does not falsify a Phase 34 must-have. See advisory 1. |
 
 ### Human Verification Required
 
-#### 1. Reconcile the 2026-09-14 debug resolution with the developer database
+**None.** Both items from the 2026-09-14T22:39:20Z report are closed and were re-measured rather than accepted:
 
-**Test:** Open `.planning/debug/resolved/34-updatestatus-receiver-attributeerror.md` (committed as `cff5984`). Its Resolution and `signal_real_path` both state: *"an overnight `updatestatus`-only run against the real DB narrowed all 33 previously-stale LCO events through the receiver alone, with no intervening sweep."* Re-run these two read-only checks and decide what to do:
+1. *Reconcile the debug resolution with the developer database* — **closed.** The doc was corrected in `e3303e6`; every corrected claim independently re-measured this pass; the retraction preserves the original entry.
+2. *Decide whether to spend the SCHED-06 evidence and clear F-34-1's 14 legacy events* — **closed.** The operator ran the sweep. The 14 events are repaired, the foreign namespaces are intact, and the corpus converges.
 
-```console
-$ stat -c '%Y %s' src/fomo_db.sqlite3
-1789251048 1232896                 # = 2026-09-12T22:10:48Z
-
-$ sqlite3 "file:src/fomo_db.sqlite3?mode=ro" "SELECT MAX(modified) FROM tom_calendar_calendarevent;"
-2026-09-12 22:10:48.773592         # nothing written on 09-13 or 09-14
-
-$ cp src/fomo_db.sqlite3 /tmp/check.sqlite3
-$ FOMO_DATABASE_PATH=/tmp/check.sqlite3 python manage.py project_observation_calendar --dry-run
-... LCO: created: 0, updated: 14, unchanged: 145, unprojectable: 0 ...
-```
-
-**Expected:** Both halves of the doc's claim fail. No `updatestatus` run happened after 2026-09-12, and 14 of the 33 never narrowed — they are observation_ids `4378021`-`4378025`, `4378038`-`4378045`, `4378323`, `4378331`, all `COMPLETED` with `record.modified` 2026-09-11 20:02-20:04 UTC and `event.modified` 2026-09-11 04:44. This is precisely finding **F-34-1**, which `34-UAT.md` recorded and which the prior VERIFICATION.md already corrected. Either amend the debug doc to match (19-ish repaired / 14 permanently un-repairable by `updatestatus`), or perform the claimed run and record its real evidence.
-**Why human:** The measurement is already done and reported here; what remains is a decision about a human-signed debug resolution, which a verifier must not edit. **SCHED-06 is not at risk** — its evidence is the independently corroborated 2026-09-12T22:10Z run (truth 4), not this doc.
-
-#### 2. Decide whether to spend the SCHED-06 evidence and clear F-34-1's 14 legacy events
-
-**Test:** SCHED-06's live evidence has now been collected and corroborated, so the stale events no longer need preserving. Run the backstop sweep once against the developer database:
-
-```console
-$ python manage.py project_observation_calendar --dry-run   # expect: LCO updated: 14
-$ python manage.py project_observation_calendar             # then re-run --dry-run: expect updated: 0
-```
-
-**Expected:** `LCO: created: 0, updated: 14, unchanged: 145, unprojectable: 0`, after which the 14 `[Q]`/`[S]`-on-COMPLETED events become `[O]` over their observed blocks and a second run converges to `updated: 0`.
-**Why human:** A write against the developer database is an operator decision with a one-way effect, and CLAUDE.md's workflow rule keeps write commands out of a verifier's hands. **Not a code gap** — this is exactly the backstop role TRIG-03 shipped the sweep for, and the residue predates Phase 35 entirely.
+Advisory 1 is a defect report, not a human-verification item: it is fully measured, requires no human observation, and belongs to Phase 35's scope.
 
 ### Gaps Summary
 
-**No gaps. No regressions. 14/14 truths verified.**
+**No gaps. No regressions. 14/14 truths verified. F-34-1 closed.**
 
-Phase 35 touched `observation_projector.py` four times, but every one of those edits is confined to `receiver_on_record_save()`, and everything Phase 34's must-haves actually rest on — `project_record()`, `event_fields_for()`, `write_event_meta()`, `event_url()`, `project_queryset()`, `coerce_schedule_datetime()`, the sweep command, the template tags, the templates, `campaign_attribution.py` — is byte-identical to its state at the previous verification. The three receivers Phase 34 wired in `apps.ready()` survive verbatim with their original `dispatch_uid`s; Phase 35 appended two, removed none. The three edits inside Phase 34's own test modules are url-literal renames (`RUN:` → `ALLOC:`, tracking the live key form) with explanatory comments: no test deleted, no assertion relaxed. All 18 named tests the prior report cited still exist and still pass, inside a suite that grew from 292 to 342.
+The prior pass's only reason for withholding a pass was F-34-1 — a Phase 34 debug artifact asserting an overnight `updatestatus`-only run that the database showed had never happened, and 14 stale events it claimed had been repaired. Both halves are now closed, and I verified the closure rather than reading it.
 
-I did not take the prior report's word for the live properties. The single-writer-per-facility-URL property was re-proved by read-only SQL against the real developer database with today's code in place: 159 LCO/SOAR records against 159 facility-url-keyed events, zero orphans, zero duplicate non-blank urls, and a per-marker tally summing exactly to 159. The foreign namespaces the projector must never touch are still intact at their Phase 34 counts (`RUN:` 72, blank-url 10) even after a receiver-driven narrowing pass wrote 14 events. A full `--dry-run` sweep over all 159 real records — run against a scratch copy, never the developer database — reports `unprojectable: 0` and `site_lookups: 0`, which says today's projector handles every real record without a single failure and without re-querying a site it already resolved.
+The doc was corrected properly: the false Evidence entry is preserved and explicitly retracted rather than deleted, and a dated replacement entry states what actually happened. I re-measured every factual claim in that replacement against `src/fomo_db.sqlite3` — the modified-date distribution, the 14 observation_ids, the terminal-state exclusion reasoning, the migration, the sweep result, the latest event timestamp — and all of them hold, one of them (`2026-09-14T23:07:19Z`) to the microsecond. The claim I found most worth testing was the mechanism: that a *sweep* rather than the receiver cleared those 14. The database settles it independently of the narrative — all 14 titles now carry a resolved observatory site token (`COJ`, `LSC`, `CPT`, `TFN`) that only the sweep's `pre_fields_hook` can produce, and their `modified` stamps are spread 2-5 seconds apart across a 45-second window, the pacing of a network-bound site lookup. The receiver never performs that lookup.
 
-SCHED-06 and the interleaved-save backstop, the prior pass's two open human items, are both closed. The SCHED-06 evidence I verified myself rather than reading it out of the UAT: records `4378332` and `4378046` each carry an `[O]` event over their own observed block with `CalendarEvent.modified` equal to `ObservationRecord.modified` to the second — a signature only an inline `post_save` receiver can produce, on a database no sweep has ever been run against. Both live observations predate Phase 35's receiver change by hours; I have stated that caveat on both truths rather than hiding it, and the post-change path is re-proved at integration level by `test_updatestatus_narrows_the_event_with_no_command_run` and at corpus level by the clean dry run above.
+The residue itself is gone, and I checked it with a stronger test than the prior pass used. Rather than tallying markers, I cross-tabulated every record's status against its event's marker: `COMPLETED` → `[O]` 76, `CANCELED` → `[C]` 6, `WINDOW_EXPIRED` → `[X]` 26, `FAILURE_LIMIT_REACHED` → `[F]` 1, `PENDING` → `[Q]` 38 / `[S]` 12, and nothing else — 159 rows, every marker correct for its status, which is the property F-34-1 was the last violation of. A dry-run sweep over a copy of the current database reports `created: 0, updated: 0, unchanged: 159`, and the foreign namespaces the projector must never touch (`RUN:` 72, blank-url 10, `ALLOC:` 0) came through a real 16-event write pass untouched.
 
-Two items go to a human, and the first is the reason this report is `human_needed` rather than `passed`. A Phase 34 artifact committed after the last verification — the resolved debug session for G-34-2 — states that an overnight `updatestatus`-only run narrowed all 33 previously-stale LCO events. The database says no run occurred after 2026-09-12T22:10:48Z, and that 14 of those 33 are still stale today; the dry-run sweep puts the number at exactly `updated: 14`. This is finding F-34-1, which `34-UAT.md` recorded and the previous verification explicitly corrected — the newer doc re-asserts the premise that correction removed. Nothing in the code depends on it and no must-have fails because of it, so it is a warning, not a blocker: the audit trail for this phase's one verification-over-time requirement needs a human to either fix the wording or produce the missing run. The second item is the operator decision that follows from it — one sweep clears the 14 legacy events, which is the backstop role this phase shipped the sweep for.
+Two must-haves are actually *better* evidenced than before. Truth 12's once-only site-resolution contract had only been shown in its read-back half; the 09-14 sweep exercised the full resolve-store-read-back cycle on live data. Truth 14's interrupted-sweep property had been shown against a copy; the pre-migration sweep attempt was a genuine interrupted sweep in production, and it left every already-processed record with a correct event and converged on re-run with no repair step.
 
-The phase goal itself — one writer for observation-backed nights, drawn and kept current with no operator command — holds in the codebase today, with Phase 35's changes in place.
+Nothing drifted. No source file changed since the prior pass — the diff is two Markdown files — and the 342-test phase suite returns the same count and the same clean result.
+
+One new finding is raised and I want it read rather than buried. `receiver_on_record_save()` evaluates `instance.campaign_run_links.select_related('run')` in the `for` header, outside any `try`, so a database error from that query escapes the receiver and propagates out of `ObservationRecord.save()`. I reproduced it deterministically on a scratch copy, and it is exactly what happened for real during the pre-migration sweep attempt. Phase 35's own regression test for this area patches `project_allocation` to raise, which is inside the per-link `try` — the link query itself has no coverage. I am not treating this as a Phase 34 failure, and the reasoning is specific rather than generous: TRIG-02 and truth 2 both scope the guarantee to "a projector error", the projector block is guarded and passes its test, the code is Phase 35's D-11 addition, and the phase goal is provably untouched because base projection commits before the failing step — which is why the 14 events were repaired on 09-14 *while* that step was erroring. It belongs to Phase 35, which has no verification report yet, so it is recorded here with its reproduction so it can be fixed rather than rediscovered.
+
+The phase goal — one writer for observation-backed nights, drawn and kept current with no operator command — holds in the codebase and in the live database today.
 
 ---
 
-_Verified: 2026-09-14T22:39:20Z_
+_Verified: 2026-09-15T00:35:15Z_
 _Verifier: Claude (gsd-verifier)_
