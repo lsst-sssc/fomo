@@ -4,18 +4,18 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
-status: executing
-stopped_at: Completed 35-17-PLAN.md
-last_updated: "2026-09-15T18:41:55.557Z"
+status: verifying
+stopped_at: Completed 35-18-PLAN.md
+last_updated: "2026-09-15T18:51:38.438Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 73a2149929e7591b766cdfdea53787a537eb7d5b
+state_head: aa6dbb009a9018f4616f72ce40d5bbbf9b698f18
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 36
-  completed_plans: 35
-  percent: 97
+  completed_plans: 36
+  percent: 100
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-15 — Completed 35-08-PLAN.md (NF-19 BLOCKER + NF-25/IN-01/IN-02 closed)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -206,6 +206,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P15 | ~35min | 2 tasks | 2 files |
 | Phase 35 P16 | ~10min | 2 tasks | 2 files |
 | Phase 35 P17 | 35min | 2 tasks | 4 files |
+| Phase 35 P18 | 35min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -312,6 +313,7 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-15: closed 35-VERIFICATION.md gap 2 -- rewrote the duplicate_identity runbook guarantee to state the Source line: marker precondition (no hedge words) instead of the unconditional promise that was still false on the CR-01 path; added the loader dry/real counter-parity sentence; regenerated reconcile_campaign_runs_demo.ipynb by re-execution so its committed output carries 35-12's corrected CommandError text.
 - [Phase 35]: 35-16: reverted _raise_if_set_window_inverted()'s stored-boundary fallback to a two-parameter (run, night) signature -- the guard resolves both sub-night boundaries only from the run's own fields and returns silently when either is unknown, closing the fourth iteration of the dry-run/real-run inversion-guard parity bug (NF-10 -> NF-20 -> WR-01).
 - [Phase 35]: 35-17: Narrowed the loader's create-arm dry-run claim (PROBE-P5) and documented the cutover's matching-marker re-run gotcha (PROBE-P4) rather than adding new write paths or refusal branches -- both are text-only corrections pinned by new tests.
+- [Phase 35]: [Phase 35]: 35-18: narrowed the runbook's loader claim to the existing-run arm and added the brand-new-line's limitation, extended both duplicate_identity definitions with the second (database-claimant) cause, added a cutover 'Re-run gotcha' note, and regenerated both notebooks by re-execution against plans 35-16/35-17's fixes -- closing the third and intended-final gap-closure round for Phase 35.
 
 ### Pending Todos
 
@@ -412,8 +414,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T18:41:55.492Z
-Stopped at: Completed 35-17-PLAN.md
+Last session: 2026-09-15T18:51:38.379Z
+Stopped at: Completed 35-18-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
