@@ -4,18 +4,18 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
-status: verifying
+status: executing
 stopped_at: Completed 35-07-PLAN.md
-last_updated: "2026-09-14T04:57:31.266Z"
+last_updated: "2026-09-15T05:07:27.560Z"
 last_activity: 2026-09-13
 last_activity_desc: Phase 35 execution started
-state_head: a0834b3a01682e1d0394e9de8bbe00eb1507a1a9
+state_head: 4b1f404652dad3fab513d461e69056bebe3d38c9
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 25
+  total_plans: 29
   completed_plans: 25
-  percent: 20
+  percent: 86
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
+Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
 Plan: 7 of 7
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-09-13 - Completed quick task 260913-ti1: Fix 35-REVIEW.md NF-01/NF-06/NF-09 (ownership predicate coherence)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
