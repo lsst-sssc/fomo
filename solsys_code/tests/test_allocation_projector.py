@@ -1420,3 +1420,50 @@ class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
         self.assertEqual(result.retired, 0)
         event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
         self.assertEqual(event_after.pk, event_pk_before)
+
+
+class TestClearedSubNightFieldRemints(AllocationProjectorTestBase):
+    """CR-01 (35-REVIEW.md iteration 7, 35-VERIFICATION.md fourth pass, plan 35-19): before
+    this fix, `_span_needs_remint()` gated every comparison on `is not None`, so clearing a
+    previously-SET sub-night field to null was read as "nothing to compare" rather than as
+    "the boundary changed" -- the calendar kept the operator's stale old value forever and
+    `reconcile_run()` reported it as `unchanged`, with no exception, no log line and no
+    counter.
+
+    This class pins probe shape C (La Silla, obscode 809, night 2026-07-09) -- the nastiest
+    of the three shapes 35-VERIFICATION.md reproduced, and the one a "check whether BOTH
+    fields are null" fix would still miss: clearing only ONE of two SET fields leaves the
+    OTHER field still set and still matching its stored boundary, so the per-field
+    `is not None` gate can no longer even reach the second comparison -- it evaluates the
+    remaining check False and returns "no re-mint needed" for a night whose declared window
+    genuinely changed. Shapes A (both fields cleared) and B (a half-null window's remaining
+    field cleared) are pinned separately in Task 3."""
+
+    def test_clearing_only_one_of_two_set_fields_remints_the_night(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        still_set_end = event_before.end_time
+        self.assertEqual(still_set_end, datetime(2026, 7, 10, 5, 0, 0, tzinfo=dt_timezone.utc))
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(event_after.end_time, still_set_end)
