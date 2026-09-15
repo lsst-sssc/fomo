@@ -2,141 +2,171 @@
 phase: 35-allocation-layer-classical-cutover
 reviewed: 2026-09-15T00:00:00Z
 depth: deep
-iteration: 5
-prior_review: 35-REVIEW.md (git show 8a393cf)
-diff_base: 8a393cf75608981aef6199de136044bb8df6ed08
-files_reviewed: 16
+iteration: 6
+prior_review: 35-REVIEW.md (git show 894c982)
+diff_base: 894c982c62c4c78655ee0959eac5ad2ed2a2d704
+files_reviewed: 10
 files_reviewed_list:
-  - CLAUDE.md
   - docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb
-  - docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb
-  - docs/notebooks/pre_executed/project_observation_calendar_demo.sched06-baseline.json
   - docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb
   - docs/runbooks/telescope_runs_calendar.rst
   - solsys_code/allocation_projector.py
   - solsys_code/campaign_reconciler.py
   - solsys_code/management/commands/cutover_classical_allocations.py
   - solsys_code/management/commands/load_telescope_runs.py
-  - solsys_code/observation_projector.py
   - solsys_code/tests/test_allocation_projector.py
   - solsys_code/tests/test_cutover_classical_allocations.py
   - solsys_code/tests/test_load_telescope_runs.py
-  - solsys_code/tests/test_observation_projector_signals.py
 prior_findings:
-  total: 9
-  closed: 7
+  total: 4
+  closed: 2
   partially_closed: 2
   still_open: 0
+  deferred: 1
 findings:
-  critical: 1
+  critical: 0
   warning: 4
-  info: 3
+  info: 4
   total: 8
 status: issues_found
 ---
 
-# Phase 35: Code Review Report (iteration 5 — re-review of the `8a393cf..HEAD` gap-closure round)
+# Phase 35: Code Review Report (iteration 6 — re-review of the `894c982..HEAD` second gap-closure round)
 
 **Reviewed:** 2026-09-15
 **Depth:** deep
-**Files Reviewed:** 16
+**Files Reviewed:** 10
 **Status:** issues_found
 
 ## Summary
 
-This re-reviews the four gap-closure plans 35-08 through 35-11 (commits `868caa6`,
-`9e555eb`, `0eceeb5`, `eb79263`, `0b7599f`, `45b38a7`, `33f0a61`, `11b14da`, `4cee1f1`,
-`5eb2718`), plus the F-34-1 fix `24875bf` that also landed in this range, against the nine
-iteration-4 findings.
+This re-reviews plans 35-12 through 35-15 (commits `e0f1f66`, `478852d`, `479c529`,
+`ffd5174`, `2448264`, `909a67a`, `9bb2b64`, `25f41de`, `e8015e3`) against iteration 5's one
+BLOCKER and three attempted warnings. WR-04 (`observation_projector.py`'s savepoint-less
+swallowed database error) was deliberately deferred this round as advisory — its absence is
+**not** treated as a regression here.
 
-**Counting convention:** the `findings:` block counts only NEW findings (`CR-01`,
-`WR-01`..`WR-04`, `IN-01`..`IN-03`). No iteration-4 finding is carried forward by its old
-id — seven are genuinely closed, and the two that are only *partially* closed have their
-surviving half re-filed under a new id so a number never stands for a claim that is now
-partly true.
+**The blocker is genuinely closed this time.** CR-01's predicate inversion holds on *both*
+the real and the `--dry-run` path, refuses the no-marker claimant, leaves the run
+byte-identical, and the test that previously pinned the defect has been replaced with its
+inverse plus the destructive-case regression the suite was missing. Reproduced by probe:
+`Done (dry run). candidates: 3, groups: 1, runs created: 0, updated: 0, unchanged: 0, events
+re-keyed: 0, unexplained: 3` with `CommandError`, `run_status` still `planned`, the staff
+note intact, all three events still `url=''`.
 
-The batch is the strongest so far on the mechanical findings: NF-22, NF-23, NF-24 and NF-25
-are cleanly closed, and NF-24's notebook work is real regenerated output rather than prose
-(the loader demo's new skip-path cell prints both stderr lines; the projector demo proves
-attribution on the creating save; the reconciler demo runs the cutover a *second* time and
-asserts the winning run byte-identical). 215 tests pass; both ruff gates pass; the working
-tree was not modified by this review.
+**But the loop's dominant failure mode recurred again, in the same two places.** Both
+"partially closed" iteration-5 findings are partially closed *again*, and one of the two
+fixes introduced a failure mode that did not exist before it:
 
-But the loop's dominant failure mode recurred twice more, in both of the same two places:
+- **WR-01's fix is half a fix and half a new bug.** `_raise_if_set_window_inverted()` now
+  falls back to `existing.start_time`/`existing.end_time` for the null sub-night field, on
+  the stated premise that the stored boundary "was minted from the same deterministic
+  `sun_event()` for the same site and night". That premise is **false whenever the
+  now-null field was previously SET** — the stored boundary is then the old operator value,
+  not a sun event. Reproduced in **both** directions on a realistic `2300-EoN` → `BoN-2230`
+  edit: the dry run raises `ValueError` for a night the real run creates cleanly (**new**
+  false alarm), and — with the stale boundary on the other side of sunset — the dry run
+  returns clean for a night the real run refuses (**WR-01's original symptom, verbatim,
+  fourth iteration running**). Re-filed as **WR-01**.
+- **WR-02's fix closes the arm it was filed against and leaves its twin open.** The
+  existing-run arm now folds after the preview reconcile, and the probe confirms
+  `(0,0,0,1)` on both passes. The **create** arm (`existing is None`) never calls
+  `reconcile_run()` at all, so a brand-new line whose real reconcile raises still previews
+  `created: 1, skipped: 0` against the real run's `created: 0, skipped: 1`. That is WR-02's
+  own sentence — "an operator reading the dry run believes a run will be created when in
+  fact the line will be dropped" — surviving in the sibling branch, and the loader
+  notebook's freshly committed output prints `the preview never disagrees with the real
+  run` directly underneath it. Re-filed as **WR-03**.
 
-- **NF-19 (BLOCKER) is only partially closed.** The new guard reads the database, which
-  closes both harms the review reproduced. It then reads the claimant's identity out of
-  `CampaignRun.observation_details` — a **free-text field that `CampaignRunAdmin` leaves
-  fully editable** and that `import_campaign_csv` and the campaign submission form both
-  write — and treats "no recoverable `Source line:`" as **permission to proceed**. A staff
-  member replacing a classical run's details with an ops note silently disarms the guard.
-  Reproduced: `run_status` planned → cancelled, the staff note destroyed, three events
-  re-keyed, **exit 0, `unexplained: 0`, empty stderr** — verbatim NF-19 case 2. Re-filed as
-  **CR-01 (BLOCKER)**.
-- **NF-20 is only partially closed.** `_raise_if_set_window_inverted()` returns early when
-  *either* sub-night field is null, but `_span_needs_remint()` — the branch that calls it —
-  returns True for a **half-null** run. Reproduced on a realistic `1130-EoN` half-night
-  edit: dry run returns `created=1, retired=1` with no error, the immediately following real
-  run raises `ValueError: Computed an inverted allocation-night span…`. That is NF-10's
-  original sentence, unchanged, in its third consecutive iteration. Re-filed as **WR-01**.
+A third, separate harm surfaced while probing CR-01's *surviving* permissive branch: a
+claimant whose marker **matches** is still find-and-updated, so a staff `run_status`
+edit made after the import is silently reverted with **exit 0** — and the runbook's new
+CR-01 remedy paragraph instructs the operator to restore the marker and re-run, which is
+exactly the action that triggers it (**WR-02**, new).
 
-### Prior-finding verification: 7 closed, 2 partially closed, 0 still open
+### Prior-finding verification: 2 closed, 2 partially closed, 1 deferred
 
 | Prior finding | Verdict |
 |---|---|
-| **NF-19** cutover identity-key guard invocation-scoped, not database-scoped (BLOCKER) | **Partially closed.** `cutover_classical_allocations.py:414-426` now queries `CampaignRun.objects.filter(source_identifier=key).first()` before any write, on both passes. Both harms the review reproduced are gone, verified by the four new tests in `TestDatabaseScopedIdentityGuard` and by the reconciler notebook's own executed second-invocation cell (`run_status` `'planned'` before and after, `duplicate_identity=3`, no `key_collision`). `IN-02`'s `seen_keys` move landed too. **But the guard's `not in (None, source_line)` predicate makes a claimant with no recoverable `Source line:` marker permissive**, and `observation_details` is editable in the Django admin — re-filed as **CR-01 (BLOCKER)**. |
-| **NF-20** dry-run inversion guard covers only the create path (WARNING) | **Partially closed.** `_raise_if_set_window_inverted()` (`allocation_projector.py:321-353`) is a genuine shared helper, called from both `_mint_fields()` caller branches (`:732`, `:756`), and `test_dry_run_of_a_remint_inverted_window_also_raises` pins the set/set re-mint case. **But the helper's `if run.night_start_utc is None or run.night_end_utc is None: return` early-out leaves the half-null shape uncovered, and `_span_needs_remint()` reaches that shape** — re-filed as **WR-01**. |
-| **NF-21** malformed `Observatory.timezone` aborts the whole loader (WARNING) | **Closed.** `load_telescope_runs.py:338-353` adds a dedicated `except ZoneInfoNotFoundError` clause *ahead* of the `(ValueError, Observatory.DoesNotExist)` clause — clause order is correct, and `site` is provably bound (`get_site()` is the second statement in the same `try` and cannot itself raise this class). Verified by execution: a three-line file with a typo'd timezone on line 2 reports `skipped: 2`, processes line 3, and leaves no `CampaignRun` behind for either bad line. The new `TestMalformedTimezoneSkipsOneLine` test and the loader notebook's cell 16 both pin it with real output. **A dry-run/real counter divergence on this same path survives — WR-02.** |
-| **NF-22** blocked legacy takeover event double-counted (WARNING) | **Closed.** `allocation_projector.py:690-698` claims `legacy_urls_claimed` before the `_may_write()` check, symmetric with the retired branch (`:651`). `TestTakeoverBlockedCountedOnce` asserts `result.blocked == 1` and exactly one log record for the row, and that the legacy event and its foreign attribution both survive. I traced the downstream consumer (`_stale_dated_events()` `:615-616`) and confirmed the exclusion cannot over-delete: the excluded row is shape (d), which that function leaves alone anyway. |
-| **NF-23** `_detach_stale_family_events()` 3-tuple annotation vs 4 returns (WARNING) | **Closed.** `campaign_reconciler.py:678` is now `-> tuple[int, int, int, int]`, matching the `Returns:` docstring (`:757`), the `return` (`:817`) and the caller's 4-way unpack (`:883`). **The third copy of the *other* NF-17 contract was missed — WR-03.** |
-| **NF-24** paired notebooks for the two changed modules not updated (WARNING) | **Closed, and better than asked.** `load_telescope_runs_demo.ipynb` gains a "Per-line skip paths" section whose executed output shows both stderr lines and `skipped: 2`, with assertions that line 3 still converted and neither bad line left a run row. `project_observation_calendar_demo.ipynb` gains a creating-save attribution cell with real output (`CalendarEventMeta.run_id: 74`, `allocation nights left: 2`), run inside a deliberately-rolled-back `atomic()` against the real dev database and using `NonSiderealTargetFactory` per CLAUDE.md. `CLAUDE.md:133-135` also maps `allocation_projector.py` — the phase's central module, which had no paired notebook at all — into `reconcile_campaign_runs_demo.ipynb`, and the breach history entry is added. The `sched06-baseline.json` rewrite (74 → 50 records) is a deliberate, separately-documented discharge of the SCHED-06 step owed since `34-UAT.md`, not collateral damage. |
-| **NF-25** un-actionable `duplicate_identity` remedy (WARNING) | **Closed.** Both message sites (`cutover_classical_allocations.py:396-398`, `:421-424`) and all three runbook passages (`:939-949`, `:1454-1461`, `:1494-1503`) now say "edit the affected events' description `Source line:` text … in the Django admin", and the runbook explicitly contrasts it with `load_telescope_runs`'s schedule-file remedy ("the remedy is NOT the same"). The notebook's committed output shows the new text. |
-| **IN-01** comment hard-coding line numbers (INFO) | **Closed.** `test_cutover_classical_allocations.py:559-564` now cites `rekeyed_event.url` / `delete_legacy_pk` by identifier. |
-| **IN-02** identity key claimed before convertibility is known (INFO) | **Closed as specified.** `seen_keys[key] = source_line` moved to `:501`, after the campaign-mismatch, status-lookup and all-events-foreign checks. **One residual branch — IN-03.** |
+| **CR-01** cutover identity guard permissive on a missing `Source line:` marker (BLOCKER) | **Closed.** `cutover_classical_allocations.py:426-445` is now `if existing_source_line != source_line:` with a two-branch reason string. Verified by probe on **both** passes (real pass: `TestDatabaseScopedIdentityGuard` tests 4 and 5; `--dry-run`: my own PROBE-P3 — `unexplained: 3`, `duplicate_identity=3`, `CommandError`, `run_status='planned'`, `observation_details` still `'Rescheduled per PI request; see ticket OPS-4412.'`, all three events still `url=''`). No third sub-case survives: `existing_source_line` is `str \| None`, `source_line` is always a non-`None` `str` (the groups dict is keyed on it), so `None` now lands on the refusing side; `source_identifier` carries a `UniqueConstraint` (`models.py:413-417`) so `.first()` cannot disagree with `get_or_create()`'s match; and only `load_telescope_runs` and this command ever write `source_identifier`, both via `f'…\nSource line: {line.strip()}'`, so the benign cutover-after-import ordering still matches byte-for-byte (verified against the pre-rewrite loader at `git show 6ec5955^`). The three named doc statements (module docstring `:45-62`, `CommandError` `:683-690`, runbook `:946-968`) all now carry the marker precondition. **The matching-marker branch's own destructive update is a separate, new finding — WR-02.** |
+| **WR-01** dry-run inversion guard skips the half-null shape (WARNING) | **Partially closed, and regressed in the other direction.** The shape the new test pins (`night_start_utc` set, `night_end_utc` null, stored end = a real sunrise) is genuinely fixed — my PROBE-P2 confirms dry and real now raise the **identical** message. But the stored-boundary fallback is wrong whenever the null field was previously set. Re-filed as **WR-01**. |
+| **WR-02** loader dry/real counter double-count (WARNING) | **Partially closed.** `load_telescope_runs.py:312-326` folds after the preview reconcile; PROBE-P5's existing-run arm reproduces `(0,0,0,1)` on both passes, matching the new `test_dry_run_and_real_run_report_the_same_counters_for_a_skipped_line`. The create arm still diverges. Re-filed as **WR-03**. |
+| **WR-03** stale third copy of the `claimed_legacy_urls` contract (WARNING) | **Closed.** `campaign_reconciler.py:600-607` now carries the same four-outcome, real-mode-load-bearing wording as its two siblings (`:750-760`, `allocation_projector.py:595-617`). I checked for a fourth copy: `campaign_reconciler.py:842-844` is a neutral inline comment that enumerates no outcomes and repeats no superseded claim — correctly left alone. |
+| **WR-04** `observation_projector.py` savepoint-less swallowed DB error | **Deferred by design this round** (advisory). Not re-verified, not counted as a regression. |
+| **IN-01** shadowed `existing_run` re-query | **Closed.** `cutover_classical_allocations.py:542-548` reuses the guard's binding; the redundant query is gone and the reason is commented. |
 
 ### Verification method
 
 `python manage.py test solsys_code.tests.test_allocation_projector
 solsys_code.tests.test_campaign_reconciler solsys_code.tests.test_cutover_classical_allocations
 solsys_code.tests.test_load_telescope_runs solsys_code.tests.test_observation_projector_signals`
-— **215 tests, all passing.** `pre-commit run ruff --all-files` and `pre-commit run
-ruff-format --all-files` — **both Passed.**
+— **219 tests, all passing.** `pre-commit run ruff --all-files`, `pre-commit run
+ruff-format --all-files` and `pre-commit run sphinx-build --all-files` — **all Passed.**
 
-CR-01, WR-01, WR-02 and WR-04 are backed by **executed probes** against a real Django test
-database (probe modules written under `solsys_code/tests/`, run, then deleted;
+WR-01, WR-02 and WR-03 are backed by **executed probes** against a real Django test
+database (a probe module written under `solsys_code/tests/`, run, then deleted;
 `git status --short` confirms **no source file was modified by this review**). Reproduced
 facts, not inferences:
 
-- A pre-existing `CampaignRun` holding the derived key whose `observation_details` is a
-  staff free-text note: `Done. candidates: 3, groups: 1, runs created: 0, updated: 1,
-  events re-keyed: 3, unexplained: 0`, **exit 0**, `run_status` `planned` → `cancelled`,
-  `observation_details` `'Rescheduled per PI request; see ticket OPS-4412.'` →
-  `'Status: cancelled\nSource line: NTT EFOSC2 cancelled 9-12 July'` (CR-01).
-- Half-null run (`night_start_utc=11:30`, `night_end_utc=None`) at La Silla:
-  `reconcile_run(dry_run=True)` → `ReconcileResult(created=1, retired=1, …)` and no error;
-  `reconcile_run(run)` → `ValueError: Computed an inverted allocation-night span for run
-  pk=1 night=2026-07-09: start=2026-07-10T11:30:00+00:00 >= end=2026-07-10T11:29:46+00:00`
-  (WR-01).
-- `load_telescope_runs --dry-run` over an existing run with a typo'd timezone:
-  `Done (dry run). lines processed: 1, created: 0, updated: 0, unchanged: 1, skipped: 1`
-  against the real run's `unchanged: 0, skipped: 1` — one line, two outcomes (WR-02).
-- A genuine DB-level failure inside the `campaign_run_links` lookup is swallowed with no
-  savepoint; on SQLite the caller's next query still succeeds (`{'count': 0}`), so the
-  exposure is backend-dependent — see WR-04 for the honest scope (WR-04).
+```
+PROBE-P1 (WR-01, false positive) -- La Silla, one night, minted 2300-EoN then edited to BoN-2230:
+  sunset/sunrise UTC      : 2026-07-09 22:06:35.917  2026-07-10 11:29:46.816
+  minted span             : 2026-07-09 23:00:00+00:00 -> 2026-07-10 11:29:46+00:00
+  dry run RAISED          : Computed an inverted allocation-night span for run pk=1
+                            night=2026-07-09: start=2026-07-09T23:00:00+00:00 >=
+                            end=2026-07-09T22:30:00+00:00.
+  real run returned       : ReconcileResult(created=1, retired=1, ...)
+  event after real run    : (2026-07-09 22:06:35+00:00, 2026-07-09 22:30:00+00:00)   <- valid
+  DIVERGENCE              : True
+
+PROBE-P6 (WR-01, false negative) -- same site, minted 2100-EoN then edited to BoN-2130:
+  minted span             : 2026-07-09 21:00:00+00:00 -> 2026-07-10 11:29:46+00:00
+  dry run returned        : ReconcileResult(created=1, retired=1, ...)   <- no error
+  real run RAISED         : ... start=2026-07-09T22:06:35+00:00 >= end=2026-07-09T21:30:00+00:00
+  DIVERGENCE              : True
+
+PROBE-P2 (WR-01, the shape the new test pins) -- stored boundary IS sun-derived:
+  dry RAISED / real RAISED, identical message.  PARITY: True
+
+PROBE-P3 (CR-01, --dry-run path):
+  Done (dry run). candidates: 3, groups: 1, runs created: 0, updated: 0, unchanged: 0,
+                  events re-keyed: 0, unexplained: 3
+  CommandError raised; run_status 'planned'; details 'Rescheduled per PI request; see
+  ticket OPS-4412.'; urls ['', '', '']
+
+PROBE-P4 (WR-02) -- claimant whose marker MATCHES, run_status set to CANCELLED by staff:
+  exit_nonzero            : False
+  Done. candidates: 3, groups: 1, runs created: 0, updated: 1, unchanged: 0,
+        events re-keyed: 3, unexplained: 0
+  run_status after        : planned     (was cancelled)
+
+PROBE-P5 (WR-03) -- brand-new line, NTT timezone typo'd, no existing CampaignRun:
+  dry : Done (dry run). lines processed: 1, created: 1, updated: 0, unchanged: 0, skipped: 0
+  real: Done.           lines processed: 1, created: 0, updated: 0, unchanged: 0, skipped: 1
+  AGREE: False ; CampaignRun rows in db afterwards: 0
+```
 
 ### Positives worth recording
 
-The NF-22 fix is the model of what this loop should produce: a one-line move, a regression
-test that asserts both the counter *and* the log-record count (the actual symptom), and a
-comment naming the sibling branch it is now symmetric with. The NF-19 test class is the
-first in this phase to test a *second invocation* rather than a single pass, and its four
-cases (merge / differing line / same line / no marker) are the right partition — the bug in
-CR-01 is that the fourth case's assertion pins the wrong outcome, not that the case was
-missed. `TestMalformedTimezoneSkipsOneLine` correctly asserts the *following* line still
-processed, which is the real invariant rather than the error message. And the loader
-notebook's skip-path cell restores the mutated `Observatory.timezone` immediately after the
-demonstration, so later sections still resolve NTT — a failure mode a less careful
-regeneration would have shipped.
+The CR-01 fix is the best work this phase has produced. It is not just a predicate flip: the
+reason string branches so each of the two causes gets its own operator action, the module
+docstring, the `CommandError` text and the runbook all name the precondition instead of
+restating a guarantee, and — the part previous rounds kept missing — the *test that pinned
+the defect was inverted rather than deleted*, with
+`test_no_marker_claimant_keeps_run_status_details_and_target_byte_identical` added to assert
+the three fields the old fixture's `observation_details=''` had made invisible. The
+`TestDryRunAndRealRunAgree` fixture change (adding a matching marker so the group still
+reaches the per-event preconditions) shows the author traced which *other* tests the new
+refusal would silently reroute, instead of chasing a red bar.
+
+Both notebooks are genuine regenerated output, not hand patches: `reconcile_campaign_runs_demo`
+carries execution counts 1..18 with no nulls and five occurrences of the corrected
+`CommandError` text (`updates an existing CampaignRun only when that run's stored Source
+line: matches…`) and zero of the superseded `rewrites no existing` clause;
+`load_telescope_runs_demo` carries 1..16 with the new WR-02 parity cell printing the real
+`(0, 0, 0, 1)` on both passes. The runbook's new paragraph even volunteers the honest
+sentence most doc fixes would omit — *"This is reachable through the very Django-admin edit
+this paragraph itself asks the operator to perform."*
 
 ## Structural Findings (fallow)
 
@@ -146,378 +176,317 @@ No `<structural_findings>` block was supplied with this review request.
 
 ## Critical Issues
 
-### CR-01: NF-19's database-scoped guard derives its authority from an admin-editable free-text field, and treats "no `Source line:` marker" as permission — a staff edit re-opens the silent merge, with exit 0
-
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:402-426`
-(specifically the `not in (None, source_line)` predicate at `:417`); contract asserted at
-`:46-51`, `:663-664`, and `docs/runbooks/telescope_runs_calendar.rst:939-949`, `:1501-1503`
-**Severity:** BLOCKER
-
-**Issue:** The fix correctly moved the guard from an in-process `dict` to a database lookup.
-It then resolves *who* the database claimant is by re-parsing the claimant's own
-`observation_details`:
-
-```python
-existing_run = CampaignRun.objects.filter(source_identifier=key).first()
-if existing_run is not None:
-    existing_source_line = _extract_source_line(existing_run.observation_details)
-    if existing_source_line not in (None, source_line):
-        _mark_unexplained(events, _DUPLICATE_IDENTITY, ...)
-        continue
-```
-
-`None` is on the permissive side of that predicate, and the comment above it states the
-rationale: *"a database row with no recoverable `Source line:` marker has nothing to
-disagree with, so it is treated as the SAME line rather than rejected."* That reasoning is
-inverted for a one-time, destructive migration: a row with no marker is precisely the row
-this command **cannot prove it owns**, and the write it then performs is a full
-find-and-update of every dispatch-deciding field on an APPROVED run.
-
-`observation_details` is not an internal field. `CampaignRunAdmin` (`solsys_code/admin.py:132`)
-sets only `readonly_fields = ['approval_status']`, so **`observation_details` is freely
-editable in the Django admin for every `CampaignRun`, classical ones included** — and this
-command's own remedy text sends operators into the admin to edit exactly these rows. It is
-also written from an arbitrary CSV column by `import_campaign_csv.py:321` and from a
-`forms.CharField(widget=forms.Textarea)` on the campaign submission form
-(`campaign_forms.py:65`). Any of those clears the marker.
-
-Reproduced (probe, executed; a classical run created by a prior import, whose details a
-staff member replaced with an ops note, and the stranded blank-url events of the *cancelled*
-counterpart line):
-
-```
-PROBE-A exit_nonzero: False
-PROBE-A stdout: Done. candidates: 3, groups: 1, runs created: 0, updated: 1, unchanged: 0,
-                events re-keyed: 3, unexplained: 0
-PROBE-A run_status now: cancelled (was planned)
-PROBE-A observation_details now: 'Status: cancelled\nSource line: NTT EFOSC2 cancelled 9-12 July'
-```
-
-Exit 0, `unexplained: 0`, empty stderr. The run's real-world lifecycle state is flipped, the
-operator's free-text note is destroyed, `target` is set to `None` and `campaign`,
-`window_start`/`window_end`, `site` and `site_raw` are all overwritten from a line that is
-*not* the line that created the run (`fields` at `:451-466`). The three events are then
-re-keyed onto it and titled `[CANCELLED] NTT EFOSC2`. This is the same class of harm NF-19
-was filed for, and nothing tells the operator it happened.
-
-The command's own test suite pins this outcome as correct:
-`test_pre_existing_claimant_with_no_recoverable_source_line_still_converts` asserts the
-conversion proceeds — but it constructs the claimant with `observation_details=''` and an
-`allocation`-shaped line, so no field visibly changes and the destruction is invisible to
-the assertion.
-
-Three documentation statements now assert the guarantee unconditionally and are false for
-this path: the module docstring's *"This guarantee holds on every invocation, not only the
-first, because the check reads the database"* (`:46-48`); the `CommandError`'s new
-*"rewrites no existing `CampaignRun` (NF-19, 35-REVIEW.md)"* (`:663-664`), which is printed
-verbatim in the reconciler notebook's committed output; and the runbook's *"this holds on
-the first invocation and on every re-run"* (`:939-942`).
-
-**Fix:** invert the default — refuse what the command cannot prove it owns, and give the
-unprovable case its own actionable reason rather than folding it into `duplicate_identity`:
-
-```python
-existing_run = CampaignRun.objects.filter(source_identifier=key).first()
-if existing_run is not None:
-    existing_source_line = _extract_source_line(existing_run.observation_details)
-    if existing_source_line != source_line:
-        # CR-01: a claimant whose stored Source line: is absent (an admin edit, an
-        # import_campaign_csv 'Observation Details' column, a submission-form note) is a
-        # claimant this command cannot prove it owns -- refuse and report, never
-        # find-and-update. `observation_details` is admin-editable, so its absence is not
-        # evidence of agreement.
-        reason = (
-            f'CampaignRun pk={existing_run.pk} already claims {key!r} '
-            + (
-                'for a different Source line'
-                if existing_source_line is not None
-                else "with no recoverable 'Source line:' marker in its observation_details, so "
-                'this command cannot prove the run came from this schedule line'
-            )
-            + "; restore or correct that run's observation_details 'Source line:' text in the "
-            'Django admin so it matches, or disambiguate the two lines, then re-run'
-        )
-        _mark_unexplained(events, _DUPLICATE_IDENTITY, reason)
-        continue
-```
-
-Replace `test_pre_existing_claimant_with_no_recoverable_source_line_still_converts` with its
-inverse, and add the destructive-case regression the current suite is missing: a claimant
-with `run_status=PLANNED` and a non-marker `observation_details`, a group whose line is the
-`cancelled` counterpart, asserting a non-zero exit **and** that `run_status`,
-`observation_details` and `target` are byte-identical afterwards. Then correct the three
-documentation statements above to name the marker requirement.
-
----
+None. Iteration 5's CR-01 is closed (see the verification table and PROBE-P3 above).
 
 ## Warnings
 
-### WR-01: NF-20's shared guard skips the half-null sub-night shape that `_span_needs_remint()` reaches — a `1130-EoN` operator edit still previews clean and raises on the real run
+### WR-01: the new half-null fallback assumes the stored boundary is sun-derived — false whenever the null field was previously set, so the dry run now raises on valid nights *and* still misses inverted ones
 
-**File:** `solsys_code/allocation_projector.py:348-349` (the early-out), reached from `:732`
-and `:756`; contrast with `_span_needs_remint()` at `:378-379`
+**File:** `solsys_code/allocation_projector.py:357-375` (the fallback at `:360-369`; the
+premise stated at `:338-344`), reached from `:756` (re-mint branch)
 **Severity:** WARNING
 
-**Issue:** `_raise_if_set_window_inverted()` refuses to check anything unless **both**
-sub-night fields are set:
+**Issue:** The fix reaches the half-null shape by reading the missing boundary off the
+stored event:
 
 ```python
-if run.night_start_utc is None or run.night_end_utc is None:
-    return
+start = (
+    _time_of_day_to_datetime(run.night_start_utc, night, night_span)
+    if run.night_start_utc is not None
+    else (existing.start_time if existing is not None else None)
+)
 ```
 
-Its docstring justifies that as *"the same null-field convention `_span_needs_remint()`
-itself already uses"*. The two conventions are **not** the same. `_span_needs_remint()`
-short-circuits only when **both** fields are null (`:378`, `and`, not `or`); for a half-null
-run it checks the one set field and can return True — routing the night into the re-mint
-branch, whose `if dry_run:` short-circuit then calls a guard that declines to look. The real
-run's `_mint_fields()` → `night_bounds()` resolves the set end from `zoneinfo` and the null
-end from `sun_event()`, and those two can be inverted.
+Its justification is stated twice, in the docstring (`:338-344`) and at the call site
+(`:751-755`): *"the boundary already stored on the re-mint branch's own night, which was
+minted from the same deterministic `sun_event()` for the same site and night"*. That holds
+only if the field was null **at mint time too**. The re-mint branch is reached precisely
+because the run's sub-night fields **changed**, and one of the changes an operator can make
+is nulling a previously-set field — `2300-EoN` → `BoN-2230`, i.e. "start at sunset instead
+of 23:00, end at 22:30 instead of sunrise". After that edit `existing.start_time` is
+`23:00`, an old operator value, and the guard compares it against a boundary the real run
+will never pair it with.
 
-This is not an exotic shape: a half-night classical line (`1130-EoN`, `BoN-0230`) produces
-exactly one set field and one null one via `_window_token_to_time()`.
+Both directions are reachable, and both are reproduced above:
 
-Reproduced (probe, executed; La Silla, one night, valid `23:00`/null minted first, then the
-start edited to `11:30` — after that night's 11:29:46 sunrise):
+- **False positive (new, introduced by this fix):** stale stored boundary *after* sunset.
+  PROBE-P1 — dry run raises `ValueError: … start=2026-07-09T23:00:00+00:00 >=
+  end=2026-07-09T22:30:00+00:00`; the real run creates the night `22:06:35 → 22:30`
+  without complaint. Before this round the guard simply returned early for a half-null run,
+  so a preview that *aborts a night the real run handles* is a behaviour this fix
+  introduced. `reconcile_campaign_runs --dry-run` reports the run under `failed:`
+  (`reconcile_campaign_runs.py:64-67` contains it per-run), and `load_telescope_runs
+  --dry-run` folds the line into `skipped` — the exact WR-02-shaped preview/real
+  disagreement, now pointing the other way. An operator following the runbook's "always run
+  `--dry-run` first" will go and "correct" data that is already correct.
+- **False negative (WR-01's original symptom, unchanged):** stale stored boundary *before*
+  sunset. PROBE-P6 — dry run returns `ReconcileResult(created=1, retired=1, …)` with no
+  error; the real run raises `… start=2026-07-09T22:06:35+00:00 >=
+  end=2026-07-09T21:30:00+00:00`.
 
-```
-PROBE-D sunset/sunrise UTC: 2026-07-09 22:06:35.918  2026-07-10 11:29:46.816
-PROBE-D minted span: 2026-07-09 23:00:00+00:00 -> 2026-07-10 11:29:46+00:00
-PROBE-D dry run returned (no error): ReconcileResult(created=1, retired=1, ...)
-PROBE-D real run RAISED: Computed an inverted allocation-night span for run pk=1
-        night=2026-07-09: start=2026-07-10T11:30:00+00:00 >= end=2026-07-10T11:29:46+00:00.
-```
+`test_dry_run_of_a_half_null_remint_inverted_window_also_raises` cannot see either case: it
+keeps `night_end_utc` null from mint through edit, so its `existing.end_time` really *is*
+the sunrise, which is the one sub-shape the fallback is sound for.
 
-`reconcile_campaign_runs --dry-run` reports `would_retire: 1, would_create: 1`; the real
-sweep reports the run under `failed`. That is NF-10's original sentence, verbatim, for the
-third iteration running — and the create-branch comment at `:750-754` now asserts the
-opposite without a null-field qualifier (*"so the two passes cannot drift apart on this
-check"*).
-
-**Fix:** on the **re-mint** branch the missing boundary is already available with no astropy
-call — it is the stored boundary on `existing`, which was minted from the same deterministic
-`sun_event()` for the same site and night:
+**Fix:** only trust the stored boundary when it provably came from a sun event — i.e. when
+the field was null at mint time as well as now. The run row does not record that, but the
+event's own description does: `_mint_fields()` writes the dark-window line, and the stored
+boundary is sun-derived exactly when the corresponding sub-night field is null *and* the
+night was minted under the same null. The cheapest correct option is to stop guessing and
+narrow the guard to what it can prove, restoring parity by *silence* rather than by a wrong
+answer:
 
 ```python
-def _raise_if_set_window_inverted(run: CampaignRun, night, existing: CalendarEvent | None = None) -> None:
-    if run.night_start_utc is None and run.night_end_utc is None:
-        return
-    night_span = _night_span_utc(run, night)
-    start = (
-        _time_of_day_to_datetime(run.night_start_utc, night, night_span)
-        if run.night_start_utc is not None
-        else (existing.start_time if existing is not None else None)
-    )
-    end = (
-        _time_of_day_to_datetime(run.night_end_utc, night, night_span)
-        if run.night_end_utc is not None
-        else (existing.end_time if existing is not None else None)
-    )
-    # WR-01: a null field on the CREATE path has no stored counterpart and genuinely needs
-    # sun_event(), which D-13 forbids on a preview -- that one case stays unchecked, and
-    # the docstrings must say so rather than claiming full parity.
+    # WR-01 (iteration 6): only fall back to a stored boundary when it is provably the
+    # sun-derived one -- i.e. when the event was minted while this same field was null.
+    # A field the operator has just NULLED leaves its old value in start_time/end_time,
+    # which the real run will replace with sun_event(); comparing against it produces a
+    # preview that disagrees with the real run in BOTH directions (PROBE-P1/P6).
+    start = _time_of_day_to_datetime(run.night_start_utc, night, night_span) if run.night_start_utc is not None else None
+    end = _time_of_day_to_datetime(run.night_end_utc, night, night_span) if run.night_end_utc is not None else None
     if start is None or end is None:
         return
-    _raise_if_inverted(run, night, start, end)
 ```
 
-Call it as `_raise_if_set_window_inverted(run, night, existing)` from the re-mint branch and
-`_raise_if_set_window_inverted(run, night)` from the create branch. Add the half-null twin of
-`test_dry_run_of_a_remint_inverted_window_also_raises` (the probe above is the fixture), and
-narrow the `:750-754` comment and the helper docstring to say the create-path half-null case
-is the one shape that remains unpreviewable.
+…and, if the half-null re-mint case is worth previewing at all, do it by recording the mint
+provenance rather than inferring it — e.g. store the resolved boundaries' origin in the
+description alongside the dark-window line, or accept one `sun_event()` call on the
+*re-mint* path only (D-13 forbids recomputing an **unchanged** night's boundary; this night
+is by definition changing and is about to be deleted and re-minted anyway, so the call is
+not the drift-rewrite D-13 bans). Whichever is chosen, add both PROBE-P1 and PROBE-P6 as
+regression tests — the existing half-null test passes under the current bug.
 
-### WR-02: `load_telescope_runs --dry-run` counts one line twice when the preview's own `reconcile_run()` raises — the dry run and the real run disagree about the totals
+### WR-02: the cutover's surviving matching-marker branch silently reverts a post-import staff edit with exit 0 — and the new CR-01 remedy text routes the operator straight into it
 
-**File:** `solsys_code/management/commands/load_telescope_runs.py:294-316` (counters at
-`:297-302`, the raising call at `:305`), handled at `:338-353` and `:354-357`
+**File:** `solsys_code/management/commands/cutover_classical_allocations.py:424-445`
+(the permissive branch is the fall-through at `:445`), write at `:470-485` / `:551`;
+remedy text at `:436-443` and `docs/runbooks/telescope_runs_calendar.rst:959-968`
 **Severity:** WARNING
 
-**Issue:** The dry-run branch increments `run_created`/`run_updated`/`run_unchanged` from
-`preview_campaign_run_action()` **before** calling `reconcile_run(existing, dry_run=True)`.
-If that call raises — NF-21's `ZoneInfoNotFoundError`, `sun_event()`'s own `ValueError` for a
-blank timezone or a polar site, or WR-01's inverted-span `ValueError` — the per-line handler
-then adds `run_skipped += 1` for the same line. The real branch does not have this shape:
-`:325-330` increments only after the `transaction.atomic()` block has returned, so a failure
-there yields `skipped` alone.
+**Issue:** CR-01's guard proves **provenance** ("this run was created from this schedule
+line"), and the code then treats that as **currency** ("so every field on it may be
+overwritten from the line"). A `CampaignRun` that *did* come from this line, and whose
+`run_status` a staff member has since changed in the admin, is find-and-updated back to the
+line's status with no report beyond `runs updated: 1`.
 
-Reproduced (probe, executed; a line whose run already exists, site timezone then mistyped):
+Reproduced (PROBE-P4; claimant's `observation_details` = `'Status: allocation\nSource line:
+NTT EFOSC2 allocation 9-12 July'` — a *matching* marker — with `run_status` set to
+`CANCELLED` by staff):
 
 ```
-PROBE-B first (real) pass: Done. lines processed: 1, created: 1, updated: 0, unchanged: 0, skipped: 0
-PROBE-B dry run  : Done (dry run). lines processed: 1, created: 0, updated: 0, unchanged: 1, skipped: 1
-PROBE-B real run : Done. lines processed: 1, created: 0, updated: 0, unchanged: 0, skipped: 1
+P4 exit_nonzero: False
+P4 stdout: Done. candidates: 3, groups: 1, runs created: 0, updated: 1, unchanged: 0,
+           events re-keyed: 3, unexplained: 0
+P4 run_status after (was CANCELLED): planned
 ```
 
-One line, `unchanged: 1 + skipped: 1` in the preview against `skipped: 1` for real — so
-`created + updated + unchanged + skipped` no longer equals `lines processed` on the preview,
-and an operator reading the dry run believes a run will be left untouched when in fact the
-line will be dropped. NF-21's own regression test (`TestMalformedTimezoneSkipsOneLine`)
-exercises only the real path, which is why this survived the fix.
+The `fields` dict at `:470-485` also unconditionally writes `target: None`, `campaign`,
+`site`, `site_raw`, `window_start`/`window_end` and `observation_details` — so the staff
+member's free-text note goes too, on a one-time migration, with exit 0 and empty stderr.
+This is the same harm class CR-01 was filed for; CR-01 removed the *unprovable* half of it
+and left the provable half untouched, which is defensible as find-or-update semantics but
+is nowhere stated as a caveat.
 
-**Fix:** mirror the real branch — compute the action, run the preview reconcile, and fold the
-counters only once both have succeeded:
+What makes it worth a finding rather than a note is the interaction with the new remedy
+text this very round added. The `duplicate_identity` no-marker message (`:436-443`) and the
+runbook (`:959-968`) both tell the operator: *"restore or correct that run's
+`observation_details` 'Source line:' text in the Django admin so it matches … then
+re-run"*. An operator who follows that instruction converts a refused (safe) claimant into
+a matching (silently-overwritten) one. The documentation's own worked remedy is the trigger.
+
+**Fix:** either narrow the write, or say so loudly. Narrowing is cheap and matches D-18's
+"report what you cannot explain" posture — compare the line-derived fields against the
+claimant before writing and report a divergence instead of overwriting it:
 
 ```python
-if dry_run:
-    existing = CampaignRun.objects.filter(source_identifier=key).first()
-    action = preview_campaign_run_action(existing, fields)
-    if existing is not None:
-        reconcile_result = reconcile_run(existing, dry_run=True)   # may raise -> handled below
-        night_created += reconcile_result.created
-        ...
-    else:
-        night_created += len(nights)
-    # WR-02: folded only now, so a raising preview reports `skipped` alone -- the same
-    # single outcome the real branch reports for the identical failure.
-    if action == 'created':
-        run_created += 1
-    elif action == 'updated':
-        run_updated += 1
-    else:
-        run_unchanged += 1
+if existing_run is not None and existing_source_line == source_line:
+    drifted = [f for f, v in fields.items() if f != 'observation_details' and getattr(existing_run, f) != v]
+    if drifted:
+        _mark_unexplained(
+            events,
+            _RUN_DRIFT,   # new named reason: "claimant disagrees with its own schedule line"
+            f'CampaignRun pk={existing_run.pk} came from this Source line but its '
+            f'{", ".join(drifted)} no longer match it -- an edit made after the import would be '
+            'silently reverted; reconcile the run in the Django admin (or re-import the line), then re-run',
+        )
+        continue
 ```
 
-Add a dry/real parity assertion to `TestMalformedTimezoneSkipsOneLine` (same fixture, both
-modes, identical `created/updated/unchanged/skipped` tuple).
+If instead the overwrite is intended, add the caveat to the module docstring, the
+`CommandError` and the runbook remedy paragraph in the same sentence that sends the
+operator to the admin ("restoring the marker also makes the next run re-apply the schedule
+line's `run_status`, `window` and `campaign` to that row"), and add PROBE-P4 as a test that
+pins the intended outcome explicitly rather than leaving it unasserted.
 
-### WR-03: the third copy of the `claimed_legacy_urls` contract was left behind — `_stale_dated_events()`, the function that actually performs the exclusion, still documents the pre-NF-09 meaning
+### WR-03: WR-02's parity fix covers only the `existing is not None` arm — a brand-new line still previews `created: 1` and really runs `skipped: 1`, under a notebook cell that prints the opposite
 
-**File:** `solsys_code/campaign_reconciler.py:600-606`; contrast with the two corrected
-copies at `:746-756` and `solsys_code/allocation_projector.py:576-595`
+**File:** `solsys_code/management/commands/load_telescope_runs.py:294-326` (the create arm
+at `:307-310`); claim at `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`
+code cell 9 (`cells[18]`), and `docs/runbooks/telescope_runs_calendar.rst:82-89`
 **Severity:** WARNING
 
-**Issue:** NF-17 corrected two descriptions of what `claimed_legacy_urls` holds and why
-excluding it matters. There are three. The Arg docstring on `_stale_dated_events()` — the
-function whose `stale_dated.exclude(url__in=claimed_legacy_urls)` at `:615-616` *is* the
-exclusion — still carries the original, now-wrong text:
+**Issue:** The dry-run branch calls the raising `reconcile_run(existing, dry_run=True)`
+**only** when a run already exists. When it does not, it predicts from the window length
+(`night_created += len(nights)`) and folds `run_created += 1` — nothing in that arm can
+fail. The real branch runs `write_and_reconcile_campaign_run()` for the same line, whose
+reconcile *can* raise (NF-21's `ZoneInfoNotFoundError`, `sun_event()`'s `ValueError` for a
+blank timezone or a polar site, WR-01's create-path inverted span), and reports the line
+under `skipped`.
+
+Reproduced (PROBE-P5; NTT timezone typo'd, **no** pre-existing `CampaignRun` — the exact
+state `TestMalformedTimezoneSkipsOneLine.setUpTestData` seeds):
 
 ```
-claimed_legacy_urls: legacy ``RUN:{pk}:{date}`` urls the allocation projector's own
-    per-night loop already decided the fate of THIS call (a takeover re-key or a
-    retirement delete) -- excluded here so a ``dry_run`` preview never
-    double-counts the SAME url under both ``rekeyed``/``retired`` and
-    ``legacy_deleted``.
+dry : Done (dry run). lines processed: 1, created: 1, updated: 0, unchanged: 0, skipped: 0
+real: Done.           lines processed: 1, created: 0, updated: 0, unchanged: 0, skipped: 1
+AGREE: False ; CampaignRun rows in db afterwards: 0
 ```
 
-Both halves are stale. NF-09 widened the set to include blocked and human-declined urls, and
-**NF-22 (closed in this very batch) widened it again** to include the blocked takeover url —
-so the parenthetical enumeration is missing two of the four outcomes. And the "so a
-`dry_run` preview never double-counts" clause is the exact claim NF-17 was filed to correct:
-the two sibling copies now both state that the exclusion is *load-bearing in real mode* for a
-blocked or declined url. A reader of the function that does the work gets the superseded
-contract; a reader of its caller gets the current one.
-
-**Fix:** replace `:600-606` with the same wording the two corrected copies use, and add the
-blocked-takeover outcome NF-22 introduced:
+The four counters still sum to `lines processed` on both passes, so the runbook's new
+paragraph (`:82-89`) is literally true — but its neighbouring sentence, and the notebook
+cell committed one commit later, both promise more than that. The notebook's executed
+output ends with:
 
 ```
-claimed_legacy_urls: legacy ``RUN:{pk}:{date}`` urls the allocation projector's own
-    per-night loop already decided the fate of THIS call AT ALL -- a takeover re-key, a
-    retirement delete, a block (either branch), or a human-confirmed decline. Excluded
-    here so the SAME single decision is never reported twice: a no-op in real mode for a
-    re-keyed or deleted url (it has already left the ``RUN:`` namespace), but LOAD-BEARING
-    in real mode for a blocked or declined one, which is by definition not written and is
-    still sitting in this namespace right now (NF-09/NF-17/NF-22, 35-REVIEW.md). Empty for
-    a container-dispatched run, which never takes over a legacy night at all.
+Both passes agree: (0, 0, 0, 1) -- the preview never disagrees with the real run.
 ```
 
-### WR-04: F-34-1's swallowed database error has no savepoint — the module's own `project_record()` docstring explains at length why that is the thing that makes such a catch safe
+printed from a fixture deliberately chosen to take the `existing is not None` arm. That is
+the strongest claim in the phase's operator-facing documentation, and PROBE-P5 falsifies it
+with the same command, the same site and the same typo'd timezone.
 
-**File:** `solsys_code/observation_projector.py:647-658`; contrast with `:339-352` and
-`:365-370`
-**Severity:** WARNING
-
-**Issue:** The new guard catches a database error and continues:
+**Fix:** give the create arm the same failure surface the real run has, so the two passes
+can only disagree when nothing can be known:
 
 ```python
-try:
-    links = list(instance.campaign_run_links.select_related('run'))
-except Exception as exc:  # noqa: BLE001 -- F-34-1/TRIG-02: a query fault here must
-    # never abort the caller's save, same guarantee project_record() gets above.
+if existing is not None:
+    reconcile_result = reconcile_run(existing, dry_run=True)
     ...
-    links = []
-```
-
-The comment's claim — *"same guarantee `project_record()` gets above"* — is not accurate.
-`project_record()`'s guarantee does not come from its `except`; it comes from the
-`transaction.atomic()` savepoint at `:365`, and that module already spends twelve lines
-(`:339-352`) explaining precisely why: *"a database error … has to propagate all the way out
-of the `with` block before this function's own `try` catches it, so `Atomic.__exit__` sees
-the exception still in flight and rolls back to the savepoint rather than committing it."*
-The new lookup has no `with transaction.atomic():` at all, so on a backend where a failed
-statement poisons the surrounding transaction (PostgreSQL — which CLAUDE.md names as the
-production target: *"SQLite3 has concurrent write limitations; production deployments should
-migrate to PostgreSQL"*), swallowing the error hands the caller a transaction whose next
-statement raises `InFailedSqlTransaction`/`TransactionManagementError`. The save is not
-actually protected; the failure is only relocated and made harder to attribute.
-
-Honest scope: on this project's current SQLite backend the probe showed no failure —
-`{'count': 0}`, the caller's next query succeeded. So the exposure is backend-dependent, not
-reproducible here today. What *is* reproducible here is that the regression test cannot
-detect it either way: `test_linked_run_lookup_raising_does_not_abort_the_records_own_save_or_projection`
-patches `campaign_run_links` with a `SimpleNamespace` whose `select_related` raises a
-Python-constructed `OperationalError` that never reaches the database — so it proves the
-`except` clause exists, not that the transaction survives. The same gap applies to the
-pre-existing per-link `except` at `:664-675` and to `allocation_projector.py:871-880`/`:952-961`.
-
-**Fix:** give the lookup the savepoint the module's own convention requires, with the `except`
-outside the `with` as `project_record()` documents:
-
-```python
-try:
+else:
+    # WR-03 (iteration 6): the real branch runs the SAME reconcile for a brand-new run, and
+    # a raising reconcile there yields `skipped` alone. Preview it against a transient,
+    # rolled-back row so the create arm cannot report `created` for a line the real pass drops.
     with transaction.atomic():
-        links = list(instance.campaign_run_links.select_related('run'))
-except Exception as exc:  # noqa: BLE001 -- WR-04: the savepoint, not the except, is what
-    # makes this safe; catching inside the `with` would commit the broken block instead.
-    logger.warning(...)
-    links = []
+        probe_run, _action = insert_or_create_campaign_run({'source_identifier': key}, fields)
+        reconcile_result = reconcile_run(probe_run, dry_run=True)
+        transaction.set_rollback(True)
+    night_created += reconcile_result.created
+    ...
 ```
 
-Correct the comment's "same guarantee `project_record()` gets" to name the savepoint as the
-mechanism, and either extend the same treatment to the three sibling catches or note in each
-why it is unnecessary there.
+(If a transient row is judged too invasive for a preview, the alternative is to narrow the
+claim: drop the notebook cell's final `print` to the invariant it actually demonstrates,
+and state in the runbook that a *brand-new* line's preview cannot predict a reconcile
+failure.) Either way, extend `TestMalformedTimezoneSkipsOneLine` with the no-existing-run
+variant — its own `setUpTestData` already builds the fixture, and no test currently runs
+`--dry-run` over it.
+
+### WR-04: the runbook's `duplicate_identity` reason vocabulary and troubleshooting "Cause" paragraph still describe only the group-vs-group collision — the new claimant-marker cause is missing from both
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:933-937` (the reason vocabulary the
+rest of the runbook calls "the full reason vocabulary") and `:1498-1500` (the
+troubleshooting Cause list); contrast with the corrected remedy paragraphs at `:946-968`
+and `:1511-1521`
+**Severity:** WARNING
+
+**Issue:** 35-15 corrected the three passages `35-VERIFICATION.md` gap 2 named (L938-949,
+L1497, L1503) — I verified each: `grep` finds zero occurrences of `left untouched either
+way` or `rewrites no existing`, no hedge words, and both remedy paragraphs now branch on
+the marker. But `duplicate_identity` acquired a **second, structurally different cause**
+this round, and the two places that *define* the reason were not touched:
+
+```
+**``duplicate_identity``** -- a second GROUP (a second, distinct
+``Source line:`` string) whose derived run identity key is the same as an
+earlier group's, because the key ignores the schedule line's status word
+```
+
+```
+or the reason is ``duplicate_identity`` -- this event's own group's
+``Source line:`` resolves to the same run identity key as an earlier
+group's, because the key ignores the line's status word
+```
+
+Both are false for the CR-01 branch, where there is only **one** group and the claimant is
+a pre-existing `CampaignRun` row. PROBE-P3's stderr for that case reads *"CampaignRun
+pk=1 already claimed 'CLASSICAL:NTT:EFOSC2:…' with no recoverable 'Source line:' marker…"*
+— an operator who takes the runbook's cause definition at face value goes looking for a
+second schedule line that does not exist. The `_REASON_LABELS` entry in the command itself
+(`cutover_classical_allocations.py:180`) has the same single-cause wording.
+
+**Fix:** state both causes wherever the reason is defined:
+
+```
+**``duplicate_identity``** -- either a second GROUP (a second, distinct
+``Source line:`` string) whose derived run identity key is the same as an
+earlier group's, because the key ignores the schedule line's status word;
+or a ``CampaignRun`` row that already holds the derived identity key whose
+own stored ``observation_details`` ``Source line:`` is absent or differs
+from the group's line, so this command cannot prove the run came from it.
+```
+
+Mirror the same two-cause sentence into the `:1498-1500` Cause list and into
+`_REASON_LABELS[_DUPLICATE_IDENTITY]`, whose current text ("a second Source line resolves
+to the same run identity key as an earlier group") is printed verbatim above every
+per-event stderr line, including the claimant-marker ones.
 
 ---
 
 ## Info
 
-### IN-01: the cutover re-queries `existing_run` inside the group transaction, shadowing the NF-19 lookup it already performed
+### IN-01: no executed notebook cell covers the branch CR-01 actually inverted
 
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:414` and `:524`
-**Issue:** The dry-run branch re-runs `CampaignRun.objects.filter(source_identifier=key).first()`
-and rebinds `existing_run`, a name already bound 110 lines above by the NF-19 guard. The two
-lookups are identical, so the second is a redundant query and a shadowed name that invites a
-future reader to assume the guard's result is being reused when it is not.
-**Fix:** delete `:524` and use the outer `existing_run` binding; if a fresh read is wanted for
-race safety, rename it (`claimant_run` for the guard, `existing_run` for the write) so the two
-roles stay distinguishable.
+**File:** `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` (cells 9-11)
+**Issue:** 35-15's own key-decision records that the notebook's `duplicate_identity` demo
+uses two groups with genuinely *differing* markers, which exercises the branch CR-01 left
+unchanged; the pre-existing `pk=334` row is a `no_source_line` case on a different code
+path. So the phase's one BLOCKER fix ships with corrected `CommandError` text in the
+committed output but **no executed demonstration of the behaviour change itself** — the
+committed notebook would look identical if the predicate were reverted.
+**Fix:** add one cell that seeds a claimant with a non-marker `observation_details` and runs
+the cutover, showing the refusal and the byte-identical run — the same fixture
+`test_no_marker_claimant_keeps_run_status_details_and_target_byte_identical` already builds.
 
-### IN-02: the cutover hardcodes `'ALLOC:'` instead of the `ALLOC_URL_NAMESPACE` constant it already imports the module's helpers from
+### IN-02: the cutover still hardcodes `'ALLOC:'` instead of the constant it could import (carried forward, still open)
 
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:648`
-**Issue:** `CalendarEvent.objects.filter(url__startswith='ALLOC:')` is a bare literal in the
-summary line, while the module imports `allocation_night_url`/`allocation_night_title` from
-`solsys_code.allocation_projector`, which defines `ALLOC_URL_NAMESPACE = 'ALLOC:'` for exactly
-this purpose. A namespace rename would silently make the final summary count zero.
-**Fix:** import `ALLOC_URL_NAMESPACE` alongside the existing four names and use
-`url__startswith=ALLOC_URL_NAMESPACE`.
+**File:** `solsys_code/management/commands/cutover_classical_allocations.py:671`
+**Issue:** Unchanged from iteration 5's IN-02. `CalendarEvent.objects.filter(url__startswith='ALLOC:')`
+is a bare literal in the final summary line, while `allocation_projector` defines
+`ALLOC_URL_NAMESPACE = 'ALLOC:'` and this module already imports four names from it. The
+reconciler notebook (cell 4) imports the constant properly, so the two disagree on style
+for the same string.
+**Fix:** import `ALLOC_URL_NAMESPACE` alongside the existing four and use it.
 
-### IN-03: IN-02's fix leaves one branch where an unconvertible group still claims the identity key
+### IN-03: an identity key is still claimed before the group's transaction commits (carried forward, still open)
 
-**File:** `solsys_code/management/commands/cutover_classical_allocations.py:501` relative to
-`:521-641`
-**Issue:** `seen_keys[key] = source_line` now runs after the campaign-mismatch, status-lookup
-and all-events-foreign checks — but still *before* the group's `try: with
-transaction.atomic():` block. A group whose transaction rolls back entirely (the `except` at
-`:628`, which marks every event `_OTHER` and writes nothing) keeps the key claimed, so a
-sibling group sharing that key is reported under `duplicate_identity` naming a line that
-converted nothing — the residual of the same operator-confusion IN-02 described.
-**Fix:** move `seen_keys[key] = source_line` to just after the `runs_created += group_created`
-fold at `:624-627`, i.e. only once the group's writes have committed.
+**File:** `solsys_code/management/commands/cutover_classical_allocations.py:520` relative to
+`:540-664`
+**Issue:** Unchanged from iteration 5's IN-03. `seen_keys[key] = source_line` runs after the
+convertibility checks (IN-02's fix) but still *before* `try: with transaction.atomic():`. A
+group whose transaction rolls back wholesale (the `except` at `:651`, which marks every
+event `_OTHER` and writes nothing) keeps the key claimed, so a sibling group sharing that
+key is reported under `duplicate_identity` naming a line that converted nothing.
+**Fix:** move the assignment to just after the `events_rekeyed += group_rekeyed` fold at
+`:647-650`, i.e. only once the group's writes have committed.
+
+### IN-04: the loader notebook's new parity cell mutates the shared dev database without a `finally`
+
+**File:** `docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb`, code cell 9
+(`cells[18]`), added by 35-14
+**Issue:** The cell writes `ntt.timezone = 'America/Santigo'` to the real developer database,
+runs two `call_command()` invocations, and restores the original value with a plain
+statement afterwards. Neither call is expected to raise today (the loader catches
+`ZoneInfoNotFoundError` per line), but the notebook is re-executed by hand during
+regeneration and any failure between the two writes — an interrupted kernel, an edit to the
+schedule line, a future loader change that lets the error escape — leaves obscode `809`
+with a typo'd timezone in the shared dev database, which every later cell and every other
+notebook then resolves against. 35-11's own skip-path cell has the same shape.
+**Fix:** wrap the mutation in `try: … finally: ntt.timezone = original; ntt.save(...)`, or
+run the whole cell inside a deliberately-rolled-back `transaction.atomic()` the way
+`project_observation_calendar_demo.ipynb`'s attribution cell already does.
 
 ---
 
 _Reviewed: 2026-09-15_
 _Reviewer: Claude (gsd-code-reviewer)_
-_Depth: deep (re-review, iteration 5)_
+_Depth: deep (re-review, iteration 6)_
