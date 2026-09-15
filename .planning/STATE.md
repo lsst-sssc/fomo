@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-12-PLAN.md
-last_updated: "2026-09-15T16:37:03.837Z"
+stopped_at: Completed 35-13-PLAN.md
+last_updated: "2026-09-15T16:45:35.124Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 479c52955162f30350d0cb2ef174e42f2ab2b853
+state_head: 2448264c0026f96e0c2524aca3d8d2e9aba4d7e6
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 33
-  completed_plans: 30
-  percent: 91
+  completed_plans: 31
+  percent: 94
 ---
 
 # Project State
@@ -201,6 +201,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P10 | 50min | 3 tasks | 3 files |
 | Phase 35 P11 | 40min | 2 tasks | 3 files |
 | Phase 35 P12 | ~40min | 3 tasks | 2 files |
+| Phase 35 P13 | 20min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -301,6 +302,8 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-11: malformed-timezone skip path demonstrated by temporarily mutating the already-seeded NTT Observatory's timezone (restored before any later cell resolves NTT again), since telescope_runs.SITES is a fixed 4-entry dict and a schedule line can only resolve to one of its four names.
 - [Phase 35]: [Phase 35]: 35-12: inverted the cutover's database-scoped duplicate_identity guard predicate to a direct inequality (CR-01, BLOCKER) -- a claimant with no recoverable Source line: marker is now refused, never find-and-updated, since observation_details is admin/CSV/form-writable and its absence is not evidence of agreement.
 - [Phase 35]: [Phase 35]: 35-12: TestDryRunAndRealRunAgree's _make_all_three_preconditions_fixture() needed a matching Source line: marker on its pre-existing CampaignRun after the CR-01 inversion, or the fixture's group was refused under duplicate_identity before its own key_collision/window_mismatch preconditions were ever reached (Rule 1 auto-fix).
+- [Phase 35]: 35-13: _raise_if_set_window_inverted() now short-circuits only when BOTH sub-night fields are null, matching _span_needs_remint(); a half-null run on the re-mint branch resolves its missing boundary from existing.start_time/end_time rather than sun_event(), closing the third iteration of the dry-run/real-run inversion-guard parity bug (NF-10 -> NF-20 -> WR-01).
+- [Phase 35]: 35-13: _stale_dated_events()'s claimed_legacy_urls Args description replaced with the same four-outcome, load-bearing-in-real-mode wording as the two already-corrected copies (NF-09/NF-17/NF-22), closing WR-03 -- the third and last stale copy of that contract.
 
 ### Pending Todos
 
@@ -401,8 +404,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T16:37:03.750Z
-Stopped at: Completed 35-12-PLAN.md
+Last session: 2026-09-15T16:45:35.039Z
+Stopped at: Completed 35-13-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
