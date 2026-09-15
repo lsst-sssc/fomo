@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-16-PLAN.md
-last_updated: "2026-09-15T18:31:59.133Z"
+stopped_at: Completed 35-17-PLAN.md
+last_updated: "2026-09-15T18:41:55.557Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 36355736a138e5c726e1ca8d7338f18cb7ae3ea3
+state_head: 73a2149929e7591b766cdfdea53787a537eb7d5b
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 36
-  completed_plans: 34
-  percent: 94
+  completed_plans: 35
+  percent: 97
 ---
 
 # Project State
@@ -205,6 +205,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P14 | 35min | 3 tasks | 3 files |
 | Phase 35 P15 | ~35min | 2 tasks | 2 files |
 | Phase 35 P16 | ~10min | 2 tasks | 2 files |
+| Phase 35 P17 | 35min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -310,6 +311,7 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-14: load_telescope_runs.py's dry-run branch now folds run_created/run_updated/run_unchanged only after both preview_campaign_run_action() and reconcile_run(existing, dry_run=True) have returned, mirroring the real branch -- closing WR-02, the counter-parity regression 35-09's NF-21 fix introduced.
 - [Phase 35]: [Phase 35]: 35-15: closed 35-VERIFICATION.md gap 2 -- rewrote the duplicate_identity runbook guarantee to state the Source line: marker precondition (no hedge words) instead of the unconditional promise that was still false on the CR-01 path; added the loader dry/real counter-parity sentence; regenerated reconcile_campaign_runs_demo.ipynb by re-execution so its committed output carries 35-12's corrected CommandError text.
 - [Phase 35]: 35-16: reverted _raise_if_set_window_inverted()'s stored-boundary fallback to a two-parameter (run, night) signature -- the guard resolves both sub-night boundaries only from the run's own fields and returns silently when either is unknown, closing the fourth iteration of the dry-run/real-run inversion-guard parity bug (NF-10 -> NF-20 -> WR-01).
+- [Phase 35]: 35-17: Narrowed the loader's create-arm dry-run claim (PROBE-P5) and documented the cutover's matching-marker re-run gotcha (PROBE-P4) rather than adding new write paths or refusal branches -- both are text-only corrections pinned by new tests.
 
 ### Pending Todos
 
@@ -410,8 +412,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T18:31:59.045Z
-Stopped at: Completed 35-16-PLAN.md
+Last session: 2026-09-15T18:41:55.492Z
+Stopped at: Completed 35-17-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
