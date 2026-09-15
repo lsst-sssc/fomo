@@ -79,6 +79,14 @@ sun-event time:
 
    >> python3 manage.py load_telescope_runs path/to/schedule.txt --dry-run
 
+The run-level line's four counters state an invariant the preview and the
+real pass share: ``created`` + ``updated`` + ``unchanged`` + ``skipped``
+equals ``lines processed`` on both passes, because the dry run folds its
+own ``created``/``updated``/``unchanged`` counter only after the same
+per-line preview reconcile the real pass performs has returned. A line
+whose preview reconcile raises is reported under ``skipped`` alone on
+both passes, never counted under ``unchanged`` and ``skipped`` at once.
+
 An optional ``--campaign <name>`` flag associates every ``CampaignRun`` the
 file creates or updates with a named campaign (a ``tom_targets.TargetList``),
 matched by exact name. It is genuinely optional: if you omit it, no campaign
@@ -936,17 +944,26 @@ operator action for a ``key_collision``: find the duplicate row in the
 Django admin (the printed reason names the colliding pk when the url is
 already held elsewhere) and delete it or re-attribute it, then re-run the
 command. The operator action for a ``duplicate_identity``: the SECOND
-group is never merged into the first group's run -- this holds on the
-first invocation and on every re-run, because the guard reads the
-database rather than only this process's own bookkeeping, so a claimant
-left behind by an earlier cutover pass or by a prior
-``load_telescope_runs`` import is caught too. The remedy: edit the
-affected events' description ``Source line:`` text to
-disambiguate the two groups in the Django admin -- give the later
-group's events a different bracketed proposal token from the earlier
-group's -- then re-run the command; the first group's run and events are
-converted and left untouched either way, across however many times the
-command is repeated. The operator action for a ``window_mismatch``: correct the event's stored start time in
+group is never merged into the first group's run -- but only WHEN the
+first group's ``CampaignRun`` has a stored ``Source line:`` marker that
+is recoverable and matches the group's own line. The database check
+catches a claimant left behind by an earlier cutover pass or by a prior
+``load_telescope_runs`` import, not only this process's own in-memory
+bookkeeping -- but ``observation_details`` is a free-text field editable
+from the Django admin, from ``import_campaign_csv.py`` and from the
+campaign submission form, so a claimant whose marker is absent or
+differs from the group's own line is reported under
+``duplicate_identity`` instead of converted, because this command
+cannot prove such a row came from the line in hand. This is reachable
+through the very Django-admin edit this paragraph itself asks the
+operator to perform. The remedy covers both cases: when the two Source
+lines differ, edit the affected events' description ``Source line:``
+text to disambiguate the two groups in the Django admin -- give the
+later group's events a different bracketed proposal token from the
+earlier group's; when no marker is recoverable at all, restore or
+correct the claimant run's ``observation_details`` ``Source line:``
+text in the Django admin so it matches, or disambiguate the two lines --
+then re-run the command in either case. The operator action for a ``window_mismatch``: correct the event's stored start time in
 the Django admin, or correct the schedule line's date range and
 re-import, so the two agree -- the event is refused rather than converted
 because re-keying it would write an ``ALLOC:`` url outside the run's own
@@ -1491,16 +1508,22 @@ description's ``Source line:``, fix the telescope name, set the
 ``Observatory``'s timezone, clear the conflicting attribution, or -- for a
 ``key_collision`` -- find and delete or re-attribute the duplicate row (the
 printed reason names the colliding pk when the url is already held
-elsewhere), or -- for a ``duplicate_identity`` -- edit the affected
-events' description ``Source line:`` text to
-disambiguate the two groups in the Django admin (the earlier group's run
-and events are converted and left untouched either way), or -- for a
+elsewhere), or -- for a ``duplicate_identity`` -- when the two Source
+lines differ, edit the affected events' description ``Source line:``
+text to disambiguate the two groups in the Django admin; when no marker
+is recoverable at all, restore or correct the claimant run's
+``observation_details`` ``Source line:`` text in the Django admin so it
+matches, or disambiguate the two lines, or -- for a
 ``window_mismatch`` --
 correct the event's stored start time or the schedule line's date range
 so the two agree, as the printed reason names -- then re-run the
 command. It is safe to re-run: already-converted events drop out of the
 candidate set, so only the still-unexplained rows are reported again,
-and a repeat pass rewrites no existing ``CampaignRun``.
+and a repeat pass converts nothing it has not already explained and
+updates an existing ``CampaignRun`` only when that run's stored
+``Source line:`` matches the line being converted -- reporting anything
+else instead, because this command cannot prove an unmarked or
+differently-marked claimant came from the line in hand.
 
 ``import_campaign_csv`` unresolved rows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
