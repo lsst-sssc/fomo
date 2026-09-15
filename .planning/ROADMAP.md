@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 11/11 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans added 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4)
+**Plans:** 11/15 plans executed (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans added 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5)
 
 Plans:
 **Wave 1**
@@ -291,6 +291,13 @@ Plans:
 - [x] 35-09-PLAN.md — NF-21 loader exception routing, NF-20 dry-run inversion guard on the re-mint branch, NF-22 blocked-counted-once, NF-23 four-tuple annotation (wave 1)
 - [x] 35-10-PLAN.md — Runbook corrections, reconciler demo notebook regeneration (T-35-17), CLAUDE.md paired-docs map (wave 2)
 - [x] 35-11-PLAN.md — NF-24's two stale paired notebooks re-executed, plus the SCHED-06 baseline step owed from 34-UAT.md (wave 2)
+
+**Gap closure, round 2** *(added 2026-09-15 — second 35-VERIFICATION.md `gaps_found` pass, 108/116 truths, 5 gaps; 35-REVIEW.md iteration 5 `issues_found`, 1 BLOCKER + 4 WARNINGs + 3 INFO. NF-19 and NF-20 were only PARTIALLY closed by round 1 and are re-filed as CR-01 and WR-01; WR-02 and WR-03 are regressions round 1 introduced. Root cause the verifier flagged: both surviving defects were implemented faithfully from flagged, unresolved assumptions in round 1's own plan frontmatter, so this round re-resolves those probes with the reproductions as evidence.)*
+
+- [ ] 35-12-PLAN.md — CR-01 (BLOCKER): the cutover's identity guard must not treat a missing `Source line:` marker as permission to overwrite; replaces the test that pinned the defect (wave 1, tracer)
+- [ ] 35-13-PLAN.md — WR-01 dry-run inversion guard reaches the half-null sub-night shape; WR-03 third `claimed_legacy_urls` contract copy (wave 1, tracer)
+- [ ] 35-14-PLAN.md — WR-02 loader dry-run counter ordering, dry/real parity test, paired loader demo notebook (wave 1, tracer)
+- [ ] 35-15-PLAN.md — Runbook guarantees narrowed to the shipped predicate; reconciler demo notebook re-executed against the corrected command output (wave 2)
 
 ### Phase 36: Unattended Operation
 
