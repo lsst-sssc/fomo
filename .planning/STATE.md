@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-07-PLAN.md
-last_updated: "2026-09-15T05:07:27.560Z"
-last_activity: 2026-09-13
+stopped_at: Completed 35-08-PLAN.md
+last_updated: "2026-09-15T13:43:51.037Z"
+last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 4b1f404652dad3fab513d461e69056bebe3d38c9
+state_head: 9e555eb60060c1b7751e09b602530238620dd7f1
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 34
   total_plans: 29
-  completed_plans: 25
-  percent: 86
+  completed_plans: 26
+  percent: 90
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
-Plan: 7 of 7
-Status: Ready to execute
-Last activity: 2026-09-13 - Completed quick task 260913-ti1: Fix 35-REVIEW.md NF-01/NF-06/NF-09 (ownership predicate coherence)
+Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
+Plan: 8 of 11
+Status: Executing Phase 35 (35-08 gap-closure plan complete; 35-09/35-10/35-11 remaining)
+Last activity: 2026-09-15 — Completed 35-08-PLAN.md (NF-19 BLOCKER + NF-25/IN-01/IN-02 closed)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -196,6 +196,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P05 | 25min | 3 tasks | 7 files |
 | Phase 35 P06 | 95min | 3 tasks | 10 files |
 | Phase 35 P07 | 195min | 3 tasks | 4 files |
+| Phase 35 P08 | 30min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -285,6 +286,8 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-06: found, not fixed -- 8 of the developer database's 16 RUN:{pk} containers carried a stale pre-Phase-33 campaign-label title prefix, corrected by this plan's first post-D-12 reconcile sweep; a pre-existing staleness finding, not a Phase 35 defect.
 - [Phase 35]: Phase 35 Plan 07: the reconciler demo's cutover section runs before the fixture/dispatch demo (opposite of the plan's literal action-item order) so its before-state capture reflects the pristine developer database, reproducing plan 35-06's exact real numbers (241/56/16/10/0/45 -> 233/0/16/1/57/48) rather than a diluted diff.
 - [Phase 35]: Phase 35 Plan 07: deleting a CampaignRunObservation link restores its allocation night automatically via D-11's post_delete receiver, with no explicit reconcile_run() call needed -- the reconciler demo's observation-handoff cell was corrected mid-execution to assert this no-op convergence rather than a fresh creation.
+- [Phase 35]: [Phase 35]: 35-08: cutover_classical_allocations's duplicate_identity guard now queries CampaignRun.objects.filter(source_identifier=key) and recovers the claimant's own stored Source line: via _extract_source_line() -- an in-process seen_keys dict alone cannot protect a find-or-update that matches against the database (NF-19 BLOCKER).
+- [Phase 35]: [Phase 35]: 35-08: seen_keys[key] is now claimed only after a group's convertibility gates (campaign mismatch, unknown status, all-foreign-attributed) have already passed, not at the moment its identity key first resolves, so an unconvertible group can no longer poison a convertible sibling's duplicate_identity error (IN-02).
 
 ### Pending Todos
 
@@ -385,8 +388,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T08:56:48.088Z
-Stopped at: Completed 35-07-PLAN.md
+Last session: 2026-09-15T13:43:50.698Z
+Stopped at: Completed 35-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
