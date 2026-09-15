@@ -598,11 +598,14 @@ def _stale_dated_events(
         active_urls: the exact set of ``CalendarEvent.url`` values the branch just run
             considers current for this run (one container url, or one url per night).
         claimed_legacy_urls: legacy ``RUN:{pk}:{date}`` urls the allocation projector's own
-            per-night loop already decided the fate of THIS call (a takeover re-key or a
-            retirement delete) -- excluded here so a ``dry_run`` preview never
-            double-counts the SAME url under both ``rekeyed``/``retired`` and
-            ``legacy_deleted``. Empty for a container-dispatched run, which never takes
-            over a legacy night at all.
+            per-night loop already decided the fate of THIS call AT ALL -- a takeover
+            re-key, a retirement delete, a block (either branch), or a human-confirmed
+            decline. Excluded here so the SAME single decision is never reported twice: a
+            no-op in real mode for a re-keyed or deleted url (it has already left the
+            ``RUN:`` namespace), but LOAD-BEARING in real mode for a blocked or declined
+            one, which is by definition not written and is still sitting in this namespace
+            right now (NF-09/NF-17/NF-22, WR-03, 35-REVIEW.md). Empty for a
+            container-dispatched run, which never takes over a legacy night at all.
 
     Returns:
         tuple[list[int], int, int]: ``(deletable_event_ids, declined, foreign)`` --
