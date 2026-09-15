@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 7/7 plans executed across 5 waves
+**Plans:** 11 plans (7/7 original executed across 5 waves; 4 gap-closure plans added 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4)
 
 Plans:
 **Wave 1**
@@ -284,6 +284,13 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 35-07-PLAN.md — Paired docs: runbook cutover section and both re-executed demo notebooks (wave 5)
+
+**Gap closure** *(added 2026-09-15 — 35-VERIFICATION.md `gaps_found`, 3 failed truths; 35-REVIEW.md iteration 4 `issues_found`, 1 BLOCKER + 6 WARNINGs + 2 INFO, zero fix commits since)*
+
+- [ ] 35-08-PLAN.md — NF-19 (BLOCKER): make the cutover's identity-key guard read the database; NF-25 actionable remedy, IN-02 claim ordering, IN-01 (wave 1, tracer)
+- [ ] 35-09-PLAN.md — NF-21 loader exception routing, NF-20 dry-run inversion guard on the re-mint branch, NF-22 blocked-counted-once, NF-23 four-tuple annotation (wave 1)
+- [ ] 35-10-PLAN.md — Runbook corrections, reconciler demo notebook regeneration (T-35-17), CLAUDE.md paired-docs map (wave 2)
+- [ ] 35-11-PLAN.md — NF-24's two stale paired notebooks re-executed, plus the SCHED-06 baseline step owed from 34-UAT.md (wave 2)
 
 ### Phase 36: Unattended Operation
 
