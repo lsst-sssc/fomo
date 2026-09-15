@@ -66,6 +66,20 @@ event in a group is attributed elsewhere, no ``CampaignRun`` is created or updat
 group at all (WR-07, 35-REVIEW.md) -- the command writes nothing for a group it can convert
 nothing in.
 
+Re-run gotcha: a claimant whose stored ``Source line:`` marker MATCHES the group's is
+find-and-updated, so ``source``, ``approval_status``, ``run_status``, ``target``,
+``campaign``, ``site``/``site_raw``, ``window_start``/``window_end``, the two sub-night
+fields and ``observation_details`` are all re-applied from the schedule line on every
+invocation. A post-import staff edit to any of them does not survive the next cutover run.
+This is the same file-authoritative behaviour ``load_telescope_runs`` has on every
+re-import and ``import_campaign_csv`` has on every re-import (documented at length in the
+runbook's "Re-import gotcha" section), and it is expected behaviour for this class of
+command rather than a defect -- the command CAN prove this row came from this line, which
+is exactly the distinction the identity guard above establishes. This closes a loop worth
+naming explicitly: the no-marker remedy above tells an operator to restore the marker,
+which converts a refused claimant into a matching one that will then be re-applied on the
+next run -- so restore the marker deliberately, not reflexively.
+
 Because nothing is ever removed, a non-zero exit here is purely operator-facing: it tells
 a human which rows to look at and re-run once they are fixed. Nothing in this repository
 gates a pipeline step, a CI step, or another command's exit code on this command's exit
@@ -177,7 +191,11 @@ _REASON_LABELS = {
     _FOREIGN_ATTRIBUTION: 'already attributed to a different CampaignRun',
     _KEY_COLLISION: 'derived ALLOC: night is already claimed by another event',
     _WINDOW_MISMATCH: "derived observing night falls outside the run's own window",
-    _DUPLICATE_IDENTITY: 'a second Source line resolves to the same run identity key as an earlier group',
+    _DUPLICATE_IDENTITY: (
+        'a second Source line resolves to the same run identity key as an earlier group, or a '
+        'CampaignRun already holds the derived identity key and cannot be proved to have come '
+        'from this line'
+    ),
     _OTHER: 'unexpected error',
 }
 
@@ -439,7 +457,8 @@ class Command(BaseCommand):
                             'observation_details, so this command cannot prove the run came from this '
                             "schedule line; restore or correct that run's observation_details 'Source "
                             "line:' text in the Django admin so it matches, or disambiguate the two "
-                            'lines, then re-run'
+                            'lines, then re-run -- note a run whose marker then matches will have its '
+                            'fields re-applied from the schedule line on that re-run'
                         )
                     _mark_unexplained(events, _DUPLICATE_IDENTITY, reason)
                     continue

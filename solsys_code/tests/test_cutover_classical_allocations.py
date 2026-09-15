@@ -1251,6 +1251,48 @@ class TestDatabaseScopedIdentityGuard(CutoverClassicalAllocationsTestBase):
             self.assertEqual(event.url, '')
             self.assertFalse(CalendarEventMeta.objects.filter(event=event).exists())
 
+    def test_matching_marker_claimant_has_its_staff_edited_fields_reapplied_from_the_line(self):
+        """PROBE-P4 (35-VERIFICATION.md `flagged_prohibitions`) -- pins this outcome as
+        INTENDED, not a regression. This is the MATCHING-marker case: a claimant whose
+        stored `Source line:` marker matches the group's is find-and-updated, and any
+        post-import staff edit to its fields is reverted to the schedule line's value on
+        that re-run. Distinct from `test_pre_existing_claimant_with_different_source_line_rejects_on_first_pass`
+        and `test_pre_existing_claimant_with_no_recoverable_source_line_is_refused` above,
+        which pin the no-marker/mismatched-marker cases as REFUSALS -- a future reader must
+        not mistake this test's conversion for a contradiction of those tests' refusal.
+
+        The third verification pass judged this non-blocking on three grounds: (1) it
+        breaches no ROADMAP success criterion -- no duplicate, no orphan, nothing deleted;
+        (2) the literal no-silent-mutation prohibition is in tension with 35-12 truth 5,
+        which REQUIRES a matching-marker claimant to convert -- the prohibition's operative
+        meaning, as CR-01 resolved it, is 'must not mutate a run it cannot PROVE it owns';
+        and (3) it is the project's already-accepted file-authoritative semantics, the same
+        class of behaviour `import_campaign_csv`'s documented 'Re-import gotcha' already
+        covers.
+        """
+        existing_run = self._make_pre_existing_claimant(
+            observation_details=f'Status: allocation\nSource line: {_THREE_NIGHT_LINE}'
+        )
+        existing_run.run_status = CampaignRun.RunStatus.CANCELLED
+        existing_run.save(update_fields=['run_status'])
+
+        events = self._make_three_night_group()
+
+        out = StringIO()
+        err = StringIO()
+        call_command('cutover_classical_allocations', stdout=out, stderr=err)
+
+        stdout_value = out.getvalue()
+        self.assertIn('runs created: 0, updated: 1', stdout_value)
+        self.assertIn('unexplained: 0', stdout_value)
+
+        existing_run.refresh_from_db()
+        self.assertEqual(existing_run.run_status, CampaignRun.RunStatus.PLANNED)
+
+        for event in events:
+            event.refresh_from_db()
+            self.assertTrue(event.url.startswith(f'ALLOC:{existing_run.pk}:'))
+
     def test_no_marker_claimant_keeps_run_status_details_and_target_byte_identical(self):
         """PROBE-A (35-REVIEW.md CR-01) -- the assertion shape the pre-CR-01 suite lacked:
         no test asserted `run_status`/`observation_details`/`target` were unchanged after a
