@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-20-PLAN.md
-last_updated: "2026-09-16T13:52:33.652Z"
+stopped_at: Completed 35-21-PLAN.md
+last_updated: "2026-09-16T14:36:52.831Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 execution started
-state_head: e000ae6c897d55cde060f04189b4e8493abd40e8
+state_head: 175132f025bce54b8778787320ab383eaeb32366
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 40
-  completed_plans: 38
-  percent: 95
+  completed_plans: 39
+  percent: 98
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 2 of 22
+Plan: 3 of 22
 Status: Ready to execute
 Last activity: 2026-09-16 — Phase 35 execution started
 
@@ -209,6 +209,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P18 | 35min | 3 tasks | 3 files |
 | Phase 35 P19 | 18min | 3 tasks | 6 files |
 | Phase 35 P20 | 65min | 3 tasks | 2 files |
+| Phase 35 P21 | 41min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -319,6 +320,7 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-19: implemented the design_rationale's provenance-recording fix for CR-01 (minted_sub_night_window on CalendarEventMeta) instead of the review's naive per-sweep sun_event() call, which would have broken TestNoSunEventRecompute's D-13 astropy-budget pin.
 - [Phase 35]: [Phase 35]: 35-19: Rule 1 deviation -- rebuilt test_cutover_classical_allocations.py's TestCutoverSequenceContract convertible-group fixture with real sun_event()-derived boundaries; the shared round-hour convention sat outside CR-01's one-minute tolerance and the fix correctly re-minted it as a genuinely-stale legacy night.
 - [Phase 35]: [Phase 35]: 35-20: closed CR-01/CR-03 (35-REVIEW.md iteration 8) via _remint_decline_reason() (shared _clearable_declined_and_unattributed() rule plus a re-mint-local staff-state check on observation_record/observation_group/is_verified) and a compute-before-destroy + scoped transaction.atomic() reorder in the re-mint branch, per design_rationale's decline-not-preserve, no-foreign-arm design rather than the review's literal fix snippet.
+- [Phase 35]: 35-21 closed CR-02 (35-REVIEW.md iteration 8): the mint-provenance token now carries a version marker and run.site_id, not just the sub-night pair, so a CampaignRun.site correction on an already-projected run re-mints instead of reporting unchanged forever.
 
 ### Pending Todos
 
@@ -419,8 +421,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-16T13:52:26.533Z
-Stopped at: Completed 35-20-PLAN.md
+Last session: 2026-09-16T14:36:52.580Z
+Stopped at: Completed 35-21-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
