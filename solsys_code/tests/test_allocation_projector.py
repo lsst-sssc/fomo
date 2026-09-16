@@ -1665,3 +1665,76 @@ class TestUnrecordedProvenanceNight(AllocationProjectorTestBase):
 
         self.assertEqual(real_result.retired, dry_result.retired)
         self.assertEqual(real_result.created, dry_result.created)
+
+
+class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md iteration 8, CR-01 (plan 35-20): the re-mint branch was the only delete
+    path in this module with no human-confirmation guard. `_span_needs_remint()` returning
+    True ran straight into `existing.delete()`, and `CalendarEventMeta.event`'s
+    `OneToOneField(primary_key=True, on_delete=CASCADE)` took the companion row with it --
+    `confirmed_by`, `confirmed_at`, `observation_record`, `observation_group` and
+    `is_verified`, all destroyed by an automated sweep with no warning, no counter, and
+    `retired=1/created=1` reported as ordinary work (probes 8 and 9)."""
+
+    def test_confirmed_night_survives_a_would_be_remint(self):
+        """Probe 8 (35-REVIEW.md): a staff-confirmed night whose sub-night window is then
+        edited so its stored boundary no longer matches must survive the WHOLE
+        `reconcile_run()` call -- same pk, same boundaries, same companion row -- reported
+        as `detach_declined`, never `retired`/`created`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='remint-guard-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            result = reconcile_run(run)
+
+        self.assertEqual(result.detach_declined, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        # The assertion runs on a FRESH query after the whole reconcile_run() call has
+        # returned -- so the D-14 convergence step at the end of project_allocation() has
+        # already had its chance at this night too.
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        meta_after = CalendarEventMeta.objects.get(event=event_after)
+        self.assertEqual(meta_after.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta_after.confirmed_at)
+        declined_records = [r for r in log_ctx.records if 're-mint declined' in r.getMessage()]
+        self.assertEqual(len(declined_records), 1)
+
+    def test_unconfirmed_night_still_remints_normally(self):
+        """The control case the guard must not break: an otherwise identical unconfirmed
+        night (self-attributed to this run, no staff-set state) still re-mints -- new
+        primary key, boundary equal to the real `sun_event()` sunset."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.detach_declined, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )

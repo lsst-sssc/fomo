@@ -531,6 +531,60 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
     return False
 
 
+def _remint_decline_reason(run: CampaignRun, existing: CalendarEvent) -> str | None:
+    """Decides whether an automated re-mint may destroy and re-create `existing` (CR-01,
+    35-REVIEW.md iteration 8; plan 35-20).
+
+    Two rules, in order:
+
+    1. Reuse ``campaign_reconciler._clearable_declined_and_unattributed()``, unmodified --
+       the same UAT-2026-09-09 "Option B: human outranks machine" rule the four sibling
+       delete/detach paths in this module and in ``campaign_reconciler.py`` already apply.
+       When it reports no deletable primary key for ``existing``, this re-mint would destroy
+       a companion row a human has confirmed -- return the ``'confirmed'`` reason. That
+       helper's third possible outcome (a companion row attributed to a DIFFERENT run) cannot
+       arise at this call site: the per-night loop's own ``_may_write(existing, run)`` gate
+       (``:765``) has already routed a foreign-owned night to ``blocked`` and ``continue``d
+       before this branch is ever reached. So the partition here is two-way (deletable vs.
+       confirmed-declined), and the absence of a foreign arm is deliberate, not an omission
+       (D-16 / NF-01's "no third outcome" rule).
+    2. Otherwise, check the companion row for staff-set facts a freshly created row would not
+       reproduce: ``observation_record`` set, ``observation_group`` set, or ``is_verified``
+       False. Any of them returns the ``'staff_state'`` reason.
+       ``CalendarEventMeta.DoesNotExist`` reads as "no staff state", the same convention
+       ``_span_needs_remint()`` already uses. This branch is stricter than its four siblings
+       for a reason worth stating: the sibling delete/detach paths delete a night that is
+       genuinely going away, while THIS branch destroys a row it intends to immediately
+       re-create, so it owes the row's contents a decision. ``is_verified`` is the
+       production-reachable half of that companion-row state -- the one companion-row field
+       neither admin surface lists in ``readonly_fields`` -- and the two link fields are
+       covered for the same reason at no extra cost.
+
+    Performs reads only -- no ``.save()``, ``.update()``, ``.create()`` or ``.delete()`` runs
+    here, so a dry-run preview may call this directly, the same contract
+    ``_clearable_declined_and_unattributed()`` states for itself.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        existing: the already-identified ``ALLOC:`` ``CalendarEvent`` the re-mint branch is
+            about to destroy and re-create.
+
+    Returns:
+        str | None: ``None`` when this automated re-mint may proceed; otherwise a short
+        reason token (``'confirmed'`` or ``'staff_state'``) naming why it may not.
+    """
+    deletable_ids, _declined = _clearable_declined_and_unattributed(run, CalendarEvent.objects.filter(pk=existing.pk))
+    if existing.pk not in deletable_ids:
+        return 'confirmed'
+    try:
+        meta = existing.telescope_label_meta
+    except CalendarEventMeta.DoesNotExist:
+        return None
+    if meta.observation_record_id is not None or meta.observation_group_id is not None or meta.is_verified is False:
+        return 'staff_state'
+    return None
+
+
 def _mint_fields(run: CampaignRun, night) -> dict[str, Any]:
     """The full field set for a brand-new allocation night -- the only place `sun_event()`
     (both `'sun'` and `'dark'`) is called for a per-night create (D-13).
@@ -861,6 +915,38 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             continue
 
         if existing is not None and _span_needs_remint(run, night, existing, dry_run=dry_run):
+            # CR-01 (35-REVIEW.md iteration 8, plan 35-20): the guard runs FIRST, before
+            # either counter moves and before the dry_run short-circuit below -- it is a pure
+            # read (same contract as _clearable_declined_and_unattributed()), so a dry-run
+            # preview and a real run reach the identical decision and report the identical
+            # counters for a declined re-mint, exactly as they already do for a re-minted one.
+            decline_reason = _remint_decline_reason(run, existing)
+            if decline_reason is not None:
+                if decline_reason == 'confirmed':
+                    logger.warning(
+                        'Allocation re-mint declined: event pk=%s night=%s is human-confirmed '
+                        'to run pk=%s -- an automated re-mint never clears it.',
+                        existing.pk,
+                        night,
+                        run.pk,
+                    )
+                else:
+                    logger.warning(
+                        'Allocation re-mint declined: event pk=%s night=%s carries staff-set '
+                        'state (an observation_record/observation_group link, or '
+                        'is_verified=False) for run pk=%s -- an automated re-mint never '
+                        'clears it.',
+                        existing.pk,
+                        night,
+                        run.pk,
+                    )
+                totals['detach_declined'] += 1
+                # Load-bearing, not cosmetic: without this, the D-14 convergence step at the
+                # bottom of this function deletes the very night this guard just refused to
+                # delete.
+                active_urls.add(url)
+                continue
+
             # D-13: a sub-night field change never rewrites start_time/end_time in place --
             # the night is deleted and re-created fresh, counted as retired + created, never
             # updated. Both halves are skipped under dry_run (no sun_event() call either),
