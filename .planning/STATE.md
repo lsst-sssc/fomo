@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
-current_phase_name: Allocation Layer & Classical Cutover
-status: verifying
+current_phase_name: allocation-layer-classical-cutover
+status: executing
 stopped_at: Completed 35-19-PLAN.md
-last_updated: "2026-09-15T19:58:45.479Z"
+last_updated: "2026-09-16T06:06:28.842Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 35 execution started
-state_head: 857c3b7c1a36063368c6eff21cdf0fb25dec89e6
+state_head: 8ee77c3dc17ff3d2ced82a00f66a7330e8051dfd
 progress:
   total_phases: 5
   completed_phases: 34
-  total_plans: 37
+  total_plans: 40
   completed_plans: 37
-  percent: 100
+  percent: 93
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (Allocation Layer & Classical Cutover) — READY TO EXECUTE
+Phase: 35 (allocation-layer-classical-cutover) — READY TO EXECUTE
 Plan: 11 of 11
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-09-15 — Completed 35-08-PLAN.md (NF-19 BLOCKER + NF-25/IN-01/IN-02 closed)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
