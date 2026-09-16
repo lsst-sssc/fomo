@@ -1076,20 +1076,30 @@ The final summary line reports these counters -- ``would_create``/
    Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1, detach_declined: 0, retired: 0, rekeyed: 0, legacy_deleted: 0
 
 ``retired`` counts an allocation night removed from the calendar for any of
-four reasons (35-REVIEW.md NF-07): (1) a run's linked ``ObservationRecord``
+five reasons (35-REVIEW.md NF-07): (1) a run's linked ``ObservationRecord``
 placed or observed its block on that night, so the projected
 sunset-to-sunrise event is no longer needed -- the observation's own
 calendar entry is that night's entry now, and unlinking the record restores
-the night on the next reconcile (this is the ONLY one of the four reasons
-that "unlink to restore" sentence applies to); (2) a sub-night window field
-(the run's own dawn/dusk or dark-window overrides) changed since the night
-was last minted, so it is deleted and re-created fresh rather than edited in
-place; (3) the night no longer falls inside the run's window at all -- a
-window shrink, or a re-classification that moves the run off the per-night
-allocation branch entirely; or (4), after this change (35-REVIEW.md NF-01),
-a leftover night whose companion row was deleted outright or had its ``run``
-cleared -- previously left on the calendar forever with no counter moved,
-now removed and counted here like every other unneeded night.
+the night on the next reconcile (this is the ONLY one of the five reasons
+that "unlink to restore" sentence applies to); (2) a boundary-affecting
+field changed since the night was last minted -- either a sub-night window
+field (the run's own dawn/dusk or dark-window overrides), or a correction
+to the run's ``site`` (see "Can I correct a run's source?" above) -- so the
+night is deleted and re-created fresh, at the corrected site's real
+sunset/sunrise, rather than edited in place; (3) the night no longer falls
+inside the run's window at all -- a window shrink, or a re-classification
+that moves the run off the per-night allocation branch entirely; (4), after
+this change (35-REVIEW.md NF-01), a leftover night whose companion row was
+deleted outright or had its ``run`` cleared -- previously left on the
+calendar forever with no counter moved, now removed and counted here like
+every other unneeded night; or (5) a one-time provenance audit: a night
+minted before this release, or carried across by the re-key path, whose
+recorded mint inputs are absent or were recorded in a pre-release format is
+resolved once against the computed sun event, and re-minted when the
+stored boundary disagrees by more than one minute. This happens at most
+once per night -- the same night reports ``unchanged`` on every sweep after
+it, because the resolution records a current-format provenance token the
+first time it runs.
 
 ``rekeyed`` counts a night carried across from the old, retired
 ``RUN:{pk}:{date}`` key form into the current ``ALLOC:{pk}:{night}`` form,
@@ -1129,12 +1139,42 @@ note above). ``--dry-run``'s ``would_detach`` reports the same number a
 real sweep would detach -- the count is a pure read, so there is nothing
 stopping the preview from showing it.
 
-``detach_declined`` counts companion rows the sweep deliberately did NOT
-release, because a person had already confirmed the attribution -- a human
-decision always outranks an automated sweep, and this counter exists so
-that fact is reported rather than left to look identical to "nothing to
-release". There is nothing for an operator to do about a non-zero
-``detach_declined``: it is a report that a human decision was respected.
+``detach_declined`` counts two things the sweep deliberately declined to
+do, because a person had already confirmed the attribution or the night
+otherwise carried real staff-set or observation state -- a human decision
+always outranks an automated sweep, and this counter exists so that fact
+is reported rather than left to look identical to "nothing to release".
+The first is a companion row the sweep did not RELEASE: a
+``telescope_class``/``site`` correction moved the run out of the
+calendar-event family that row belongs to, but a staff member had already
+confirmed that row's attribution, so it is left alone rather than detached
+back into the attribution queue (see "What happens to an already-reconciled
+run's calendar events when you correct its ``telescope_class`` or ``site``"
+above). The second is a re-mint the sweep declined to PERFORM: an
+allocation night whose boundary would otherwise change (a sub-night window
+edit or a site correction, see ``retired`` above) instead carries a human
+confirmation, a real ``ObservationRecord``/``ObservationGroup`` link, or an
+unverified companion row -- destroying and re-creating that night would
+lose state a delete-and-re-create cannot preserve, so the sweep leaves the
+night exactly as it is and reports the decline here instead.
+
+For a declined attribution release, there is nothing for an operator to
+do: it is a report that a human decision was respected. For a declined
+re-mint -- the second thing a non-zero ``detach_declined`` can now mean --
+the night keeps a boundary its run no longer declares, and there IS a
+remedy: clear the confirmation or the link on that night's companion row
+in the Django admin and re-run the sweep, or leave it as is and accept the
+stored boundary.
+
+**Post-upgrade deploy note.** After upgrading to a release carrying the
+provenance-audit behaviour described under ``retired`` reason (5) above,
+run ``reconcile_campaign_runs --dry-run`` first: a non-zero
+``would_retire`` on nights nobody edited is that one-time audit, not a
+regression -- every night minted before this release carries absent or
+pre-release-format mint inputs, and each one is resolved once against the
+real sun-event calculation. The same nights report ``unchanged`` on every
+sweep afterwards, because the audit records a current-format provenance
+token the first time it resolves a night.
 
 A per-run line accompanies each non-zero counter: a skipped-night line on
 stdout (normal, expected convergence, not a failure); a detached line on
