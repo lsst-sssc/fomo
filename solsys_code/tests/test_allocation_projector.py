@@ -26,6 +26,7 @@ from solsys_code.allocation_projector import (
     _UNRECORDED_PROVENANCE_TOLERANCE,
     _sub_night_provenance_token,
     allocation_events,
+    allocation_night_title,
     night_bounds,
 )
 from solsys_code.campaign_reconciler import event_description, owned_events, reconcile_run
@@ -1919,6 +1920,159 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         self.assertEqual(event_after.pk, pk_before)
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
+
+
+class TestDeclinedRemintStillUpdatesLabels(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-04 (plan 35-23): the re-mint decline must refuse only the DESTRUCTIVE
+    half -- the delete/create pair and its boundary rewrite. A declined night must still
+    reach the plain-update path (`title`/`description`/`target_list`), which is how a staff
+    `mark_cancelled`/`mark_weather_failure` action reaches an allocation night at all
+    (`allocation_night_description()`'s own docstring). Before this fix the decline
+    `continue`d out of the per-night loop entirely, freezing a declined night's title
+    forever."""
+
+    def test_declined_night_still_receives_a_cancelled_title(self):
+        """The property CR-04 broke, restored: a cancelled run's declined night must still
+        carry the cancelled marker, while its primary key and both boundaries are byte-
+        identical to before the sweep. The marker text is read from allocation_night_title()
+        rather than hardcoded."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='cr04-cancelled-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(event_after.title, allocation_night_title(run))
+        self.assertTrue(event_after.title.startswith('[CANCELLED]'))
+
+    def test_declined_night_confirmation_stamp_survives_the_fall_through(self):
+        """`_link_event_to_run()` writes only `run` -- the fall-through's own update path
+        must never touch `confirmed_by`/`confirmed_at`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr04-stamp-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        reconcile_run(run)
+
+        meta_after = CalendarEventMeta.objects.get(event=event_before)
+        self.assertEqual(meta_after.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta_after.confirmed_at)
+
+    def test_declined_night_reports_remint_declined_alongside_updated(self):
+        """The counter pair: a declined night that ALSO changed its labelling reports
+        remint_declined together with updated, never retired/created, and detach_declined
+        stays at its own unrelated 0."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr04-counter-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_declined_night_repeats_on_the_next_sweep_and_reports_unchanged(self):
+        """Deliberate (documented, not fixed here): nothing on this path records provenance,
+        so the decline repeats on every subsequent sweep. Once the labelling has already
+        been refreshed once, a further sweep with nothing else changed reports unchanged
+        instead of updated. The astropy cost of this repetition is bounded and pinned by
+        plan 35-24 (WR-07), not by this test."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr04-repeat-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        first_result = reconcile_run(run)
+        self.assertEqual(first_result.updated, 1)
+
+        second_result = reconcile_run(run)
+
+        self.assertEqual(second_result.remint_declined, 1)
+        self.assertEqual(second_result.unchanged, 1)
+        self.assertEqual(second_result.updated, 0)
+
+    def test_declined_night_dry_run_parity_for_the_counter_pair(self):
+        """A dry-run preview and the real run must agree on the identical remint_declined
+        and updated/unchanged pair, and the preview must write nothing."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        title_before = event_before.title
+        staff_user = User.objects.create(username='cr04-dry-run-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.remint_declined, 1)
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.created, 0)
+        event_after_dry = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry.pk, pk_before)
+        self.assertEqual(event_after_dry.start_time, start_before)
+        self.assertEqual(event_after_dry.end_time, end_before)
+        self.assertEqual(event_after_dry.title, title_before)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.remint_declined, dry_result.remint_declined)
+        self.assertEqual(real_result.updated, dry_result.updated)
 
 
 class TestRemintAtomicity(AllocationProjectorTestBase):
