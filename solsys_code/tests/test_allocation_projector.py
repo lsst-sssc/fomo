@@ -515,6 +515,166 @@ class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
         self.assertEqual(result.legacy_deleted, 0)
 
 
+class TestRetirePathAllocationEventGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-05 (plan 35-23): the retirement branch's own `existing.delete()` gets
+    the same human-confirmation guard `TestRetirePathLegacyEventGuard` above already proves
+    for the legacy `RUN:{pk}:{night}` row beside it. Before this fix `existing` passed only
+    `_may_write()` -- which admits this run's own night regardless of `confirmed_by` -- so a
+    confirmed allocation night was destroyed silently, taking the companion row's
+    `confirmed_by`/`confirmed_at`/both observation links with it via
+    `CalendarEventMeta.event`'s `OneToOneField(on_delete=CASCADE)`, counted as ordinary
+    `retired` work.
+
+    Only `confirmed_by` declines a retirement -- deliberately narrower than the re-mint
+    branch's `_remint_decline_reason()`, which also vetoes on `is_verified=False` or an
+    observation link. The re-mint branch destroys a row it intends to immediately re-create,
+    so it owes the row's contents a decision; the retirement branch removes a night that is
+    genuinely superseded by the linked observation's own calendar entry, and extending the
+    veto there would leave a permanent duplicate night on the calendar beside the very
+    observation that retired it."""
+
+    def test_retiring_a_night_never_deletes_a_human_confirmed_alloc_event(self):
+        """Creating the `CampaignRunObservation` link ALONE reaches the branch via
+        `receiver_on_run_observation_save()` -- no explicit projector call and no sweep --
+        so the survival assertions run right after `_link_record()`. The subsequent explicit
+        `reconcile_run()` call only reproduces the same already-applied decision so its
+        counters (unavailable from the receiver itself, which returns nothing) can be
+        captured."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event.pk
+        staff_user = User.objects.create(username='cr05-confirmed-staffer')
+        CalendarEventMeta.objects.filter(event=event).update(confirmed_by=staff_user, confirmed_at=timezone.now())
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=pk_before).exists())
+        meta = CalendarEventMeta.objects.get(event_id=pk_before)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta.confirmed_at)
+        declined_records = [r for r in log_ctx.records if 'retire declined' in r.getMessage()]
+        self.assertEqual(len(declined_records), 1)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.detach_declined, 1)
+
+    def test_unconfirmed_night_still_retires_normally(self):
+        """The control case the guard must not break."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_pk = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_is_verified_false_with_no_confirmation_still_retires(self):
+        """The pinned divergence from `_remint_decline_reason()`'s rule 2: an
+        `is_verified=False` companion row does NOT decline a retirement -- vetoing here
+        would leave a duplicate night beside the observation's own event permanently."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        CalendarEventMeta.objects.filter(event=event).update(is_verified=False)
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event.pk).exists())
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_confirmed_allocation_night_and_deletable_legacy_row_decide_independently(self):
+        """The allocation-night guard and the legacy-row guard are independent: a confirmed
+        allocation night survives while a deletable legacy `RUN:{pk}:{night}` row beside it
+        is still deleted."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr05-independence-staffer')
+        CalendarEventMeta.objects.filter(event=event).update(confirmed_by=staff_user, confirmed_at=timezone.now())
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+
+    def test_deletable_allocation_night_and_confirmed_legacy_row_decide_independently(self):
+        """The mirror case: a deletable allocation night is still deleted while a confirmed
+        legacy row beside it survives."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_pk = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        staff_user = User.objects.create(username='cr05-mirror-staffer')
+        CalendarEventMeta.objects.create(
+            event=legacy_event, run=run, confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+
+    def test_dry_run_parity_for_the_confirmed_retirement_decline(self):
+        """A dry-run preview and the real run must agree on the identical retired/
+        detach_declined pair for the confirmed case, and both leave the row in place."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr05-dry-run-staffer')
+        CalendarEventMeta.objects.filter(event=event).update(confirmed_by=staff_user, confirmed_at=timezone.now())
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+
+        dry_result = reconcile_run(run, dry_run=True)
+        real_result = reconcile_run(run)
+
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.detach_declined, 1)
+        self.assertEqual(dry_result.retired, real_result.retired)
+        self.assertEqual(dry_result.detach_declined, real_result.detach_declined)
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+
+
 class TestTakeoverBlockedCountedOnce(AllocationProjectorTestBase):
     """35-REVIEW.md NF-22: a foreign-attributed legacy `RUN:{pk}:{night}` event reached on
     the TAKEOVER path (no `ALLOC:` event exists for the night yet) must be counted once,
