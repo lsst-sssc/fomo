@@ -2642,16 +2642,88 @@ class TestSetWindowSiteCorrection(AllocationProjectorTestBase):
         self.assertEqual(event_after.pk, pk_before)
 
 
+class TestDeclinedNightResolutionCostIsBounded(AllocationProjectorTestBase):
+    """WR-07 (35-REVIEW.md iteration 9, plan 35-24): the docstring used to promise at most
+    one `sun_event(kind='sun')` call per unrecorded night, ONCE EVER. With plan 35-20's
+    human-confirmation guard, a stale night carrying staff state is DECLINED instead of
+    re-minted, so it never receives a token from the re-mint path either -- and re-resolves
+    on every sweep, forever. This class proves the repetition is BOUNDED (exactly one call
+    per sweep, never more, both warnings each time) rather than merely present, across two
+    consecutive real sweeps, and proves no false provenance is ever recorded for boundaries
+    that were not re-minted -- the alternative round 2 was reverted for."""
+
+    def test_a_declined_and_unrecorded_night_resolves_once_per_sweep_and_records_nothing(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='bounded-cost-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now(), minted_sub_night_window=None
+        )
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        # Sweep 1.
+        with (
+            patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event,
+            self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx_1,
+        ):
+            result_1 = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result_1.remint_declined, 1)
+        self.assertEqual(result_1.retired, 0)
+        self.assertEqual(result_1.created, 0)
+        staleness_warnings_1 = [r for r in log_ctx_1.records if 'unrecorded-provenance night' in r.getMessage()]
+        declined_warnings_1 = [r for r in log_ctx_1.records if 're-mint declined' in r.getMessage()]
+        self.assertEqual(len(staleness_warnings_1), 1)
+        self.assertEqual(len(declined_warnings_1), 1)
+        event_after_1 = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after_1.start_time, start_before)
+        self.assertEqual(event_after_1.end_time, end_before)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event_after_1).minted_sub_night_window)
+
+        # Sweep 2 -- the repetition, not a one-off.
+        with (
+            patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event_2,
+            self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx_2,
+        ):
+            result_2 = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event_2.call_count, 1)
+        self.assertEqual(result_2.remint_declined, 1)
+        self.assertEqual(result_2.retired, 0)
+        self.assertEqual(result_2.created, 0)
+        staleness_warnings_2 = [r for r in log_ctx_2.records if 'unrecorded-provenance night' in r.getMessage()]
+        declined_warnings_2 = [r for r in log_ctx_2.records if 're-mint declined' in r.getMessage()]
+        self.assertEqual(len(staleness_warnings_2), 1)
+        self.assertEqual(len(declined_warnings_2), 1)
+        event_after_2 = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after_2.pk, pk_before)
+        self.assertEqual(event_after_2.start_time, start_before)
+        self.assertEqual(event_after_2.end_time, end_before)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event_after_2).minted_sub_night_window)
+
+
 class TestProvenanceTokenFormat(AllocationProjectorTestBase):
     """Pins CR-02's format contract (35-REVIEW.md iteration 8, plan 35-21, and IN-02's
-    widening/bound): three groups of cases, each named for what it pins. Group 1 --
-    `NULL`, `''` and a pre-release token all read as unrecorded and take the identical
-    bounded resolution branch. Group 2 -- the tolerance boundary, pinned on both sides, so a
-    later change from `>` to `>=` cannot pass silently. Group 3 -- the widened column is
-    wide enough for the worst-case token, proven against the model field's own declared
-    `max_length` rather than assumed, because SQLite does not enforce `max_length` and a
-    regression here would surface only on the PostgreSQL deployment CLAUDE.md names as the
-    production target (35-REVIEW.md IN-02)."""
+    widening/bound), extended by T-35-24-01/T-35-24-03 (35-REVIEW.md iteration 9, plan
+    35-24) for the `v3` version bump and part-count test: three groups of cases, each named
+    for what it pins. Group 1 -- `NULL`, `''`, a pre-release (no-version) token, a `v2|`
+    (previous-version) token, and a current-version token with the WRONG part count all
+    read as unrecorded and take the identical bounded resolution branch. Group 2 -- the
+    tolerance boundary, pinned on both sides, so a later change from `>` to `>=` cannot
+    pass silently -- untouched by this round (prohibition 9), and itself evidence the `v3`
+    bump changed nothing in step 4. Group 3 -- the widened column is wide enough for the
+    worst-case token, now including the position fingerprint, proven against the model
+    field's own declared `max_length` rather than assumed, because SQLite does not enforce
+    `max_length` and a regression here would surface only on the PostgreSQL deployment
+    CLAUDE.md names as the production target (35-REVIEW.md IN-02)."""
 
     def _clear_provenance(self, event: CalendarEvent) -> None:
         CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=None)
@@ -2674,7 +2746,9 @@ class TestProvenanceTokenFormat(AllocationProjectorTestBase):
         event_after = CalendarEvent.objects.get(pk=pk_before)
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
-        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v2|'))
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: version literal updated 'v2|' -> 'v3|'
+        # for the same reason TestSiteChangeRemints's literals were -- see that class.
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
 
         with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
             reconcile_run(run)
@@ -2696,7 +2770,8 @@ class TestProvenanceTokenFormat(AllocationProjectorTestBase):
         event_after = CalendarEvent.objects.get(pk=pk_before)
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
-        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v2|'))
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: version literal updated 'v2|' -> 'v3|'.
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
 
         with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
             reconcile_run(run)
@@ -2720,7 +2795,63 @@ class TestProvenanceTokenFormat(AllocationProjectorTestBase):
         event_after = CalendarEvent.objects.get(pk=pk_before)
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
-        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v2|'))
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: version literal updated 'v2|' -> 'v3|'.
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_v2_token_reads_as_unrecorded_and_resolves_once(self):
+        """T-35-24-01 (35-REVIEW.md iteration 9, plan 35-24): the exact literal form CR-02
+        (plan 35-21) wrote -- version `v2`, `site_id`, and the sub-night pair, four parts,
+        no position fingerprint -- is exactly what an existing row minted after CR-02 but
+        before this round carries. It must read as unrecorded (the version-prefix test
+        fails) and resolve through the same bounded branch, ending in a fresh `v3` token."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=f'v2|{run.site_id}|none|none')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_current_version_wrong_part_count_token_reads_as_unrecorded_and_resolves_once(self):
+        """T-35-24-01: a token that starts with the CURRENT version marker but does not
+        split into the current format's five parts (here, four -- as if the fingerprint
+        component were dropped by a hand edit or a bug) is no more trustworthy than an
+        old-version token, and takes the identical bounded branch."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=f'v3|{run.site_id}|none|none')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_after.startswith('v3|'))
+        self.assertEqual(len(recorded_token_after.split('|')), 5)
 
         with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
             reconcile_run(run)
@@ -2792,18 +2923,38 @@ class TestProvenanceTokenFormat(AllocationProjectorTestBase):
     # -- Group 3: the column is wide enough, proven not assumed -------------------------
 
     def test_worst_case_token_fits_within_the_declared_max_length(self):
-        """Builds the worst-case token directly -- a microsecond-valued sub-night pair and
-        a many-digit `site_id` -- without saving anything, since
-        `_sub_night_provenance_token()` is pure and reads only `run.site_id`,
-        `run.night_start_utc` and `run.night_end_utc`. Asserts against
+        """Builds the worst-case token directly -- a microsecond-valued sub-night pair, a
+        many-digit `site_id`, and a real position fingerprint (T-35-24-01, plan 35-24).
+        `_sub_night_provenance_token()` now reads `run.site` (not just `run.site_id`) to
+        build the fingerprint, so the many-digit `site_id` this test pins must resolve to a
+        REAL `Observatory` row -- an explicit huge primary key, set at create time exactly
+        as Django's ORM allows for an integer PK, rather than an unsaved FK id with no
+        matching row (which raises `Observatory.DoesNotExist` the moment the fingerprint
+        helper dereferences it -- setting `.site_id` directly does not leave a stale cached
+        `.site` behind to paper over that). The position fingerprint is a FIXED-WIDTH
+        16-character hexadecimal digest regardless of the underlying
+        lat/lon/altitude/timezone values (`_site_position_fingerprint()`'s own docstring),
+        so which real site supplies it does not change the worst-case WIDTH being pinned
+        here. Asserts against
         `CalendarEventMeta._meta.get_field('minted_sub_night_window').max_length`, read off
         the model field rather than hardcoded, so this assertion and the schema cannot drift
         apart."""
+        worst_case_site = Observatory.objects.create(
+            pk=999999999,
+            obscode='WC9',
+            name='Worst-case fixture site',
+            short_name='WC9',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
         worst_case_run = CampaignRun(
+            site=worst_case_site,
             night_start_utc=time(23, 59, 59, 999999),
             night_end_utc=time(0, 0, 0, 999999),
         )
-        worst_case_run.site_id = 999999999
 
         token = _sub_night_provenance_token(worst_case_run)
 
@@ -2814,22 +2965,27 @@ class TestProvenanceTokenFormat(AllocationProjectorTestBase):
 class TestMintInputInvariant(AllocationProjectorTestBase):
     """The assumption-delta invariant test (`<assumption_delta_decision>`, plan 35-21): the
     recorded token must carry every input `_mint_fields()`'s boundary computation reads. As
-    of today that set is `night_start_utc`, `night_end_utc`, `site`, and the `night` the
-    event's own key already carries -- CR-02 (35-REVIEW.md iteration 8) promoted the
-    recorded fact from "the sub-night pair" to this full identity.
+    of today that set is `night_start_utc`, `night_end_utc`, `site` (both its IDENTITY and,
+    since T-35-24-01, its boundary-relevant POSITION), and the `night` the event's own key
+    already carries -- CR-02 (35-REVIEW.md iteration 8) promoted the recorded fact from "the
+    sub-night pair" to the wider identity; T-35-24-01 (35-REVIEW.md iteration 9, plan 35-24,
+    the round-5 verifier's escalated decision) promoted the site component again, from
+    identity alone to identity-plus-position.
 
     Rename trigger, recorded so it is not rediscovered: a THIRD boundary input entering
     `_mint_fields()`'s boundary computation -- for example a per-run dark-window override or
-    a site-elevation correction feeding `sun_event()`. At that point rename the column
-    (still `minted_sub_night_window` today for historical reasons) rather than widening the
-    token a second time under a name that names one of three inputs.
+    a site-elevation correction feeding `sun_event()` through some OTHER path than the
+    position fingerprint already covers. At that point rename the column (still
+    `minted_sub_night_window` today for historical reasons) rather than widening the token a
+    second time under a name that names one of three inputs.
 
     Stated honestly as a limitation, not overclaimed: this test cannot detect a NEW input
     nobody wrote a case for -- it only makes an existing omission visible to the next
     person editing `_mint_fields()`. One case per recorded mint input today: the sub-night
-    pair and the site, walked here together as one named invariant rather than left implicit
-    across the two unrelated classes (`TestClearedSubNightFieldRemints`,
-    `TestSiteChangeRemints`) that each separately pin one of them."""
+    pair, the site's identity, and (since plan 35-24) the site's position, walked here
+    together as one named invariant rather than left implicit across the unrelated classes
+    (`TestClearedSubNightFieldRemints`, `TestSiteChangeRemints`,
+    `TestObservatoryCorrectionRemints`) that each separately pin one of them."""
 
     def test_changing_the_sub_night_pair_remints(self):
         night = date(2026, 7, 9)
@@ -2862,13 +3018,40 @@ class TestMintInputInvariant(AllocationProjectorTestBase):
         event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
         self.assertNotEqual(event_after.pk, pk_before)
 
+    def test_changing_the_sites_position_in_place_remints(self):
+        """T-35-24-01 (35-REVIEW.md iteration 9, plan 35-24): the escalated decision's own
+        shape, walked into this invariant alongside the sub-night pair and the site's
+        identity -- an in-place `Observatory` correction, `run.site` never reassigned, is a
+        recorded mint input exactly like the other two. `TestObservatoryCorrectionRemints`
+        proves this same fact in detail with the verifier's own probe; this case is the
+        one-line version that belongs beside its siblings here."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        site = Observatory.objects.get(pk=self.chilean_site.pk)
+        site.lat = self.australian_site.lat
+        site.lon = self.australian_site.lon
+        site.altitude = self.australian_site.altitude
+        site.timezone = self.australian_site.timezone
+        site.save()
+        run = CampaignRun.objects.get(pk=run.pk)
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+
     def test_the_token_functions_source_mentions_every_current_mint_input(self):
         """A deliberately weak tripwire, not a proof -- see the class docstring: this only
-        checks the token function's SOURCE TEXT names the three FK/field inputs it must
-        carry, so a future edit that adds a fourth boundary input to `_mint_fields()`
-        without extending the token has a named test sitting next to the function it
-        changed."""
+        checks the token function's SOURCE TEXT names the FK/field inputs it must carry,
+        and (since T-35-24-01) that it reaches for the fingerprint helper too, so a future
+        edit that adds a fourth boundary input to `_mint_fields()` without extending the
+        token has a named test sitting next to the function it changed."""
         source = inspect.getsource(_sub_night_provenance_token)
         self.assertIn('run.site_id', source)
         self.assertIn('run.night_start_utc', source)
         self.assertIn('run.night_end_utc', source)
+        self.assertIn('_site_position_fingerprint', source)
