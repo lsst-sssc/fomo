@@ -28,6 +28,7 @@ owner -- promoting it would invite a second implementation here, and two project
 disagree about who may write an event is the defect this module exists downstream of.
 """
 
+import hashlib
 import logging
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -84,7 +85,66 @@ _UNRECORDED_PROVENANCE_TOLERANCE = timedelta(minutes=1)
 # that predates this version re-resolve once through the bounded legacy branch below,
 # instead of a data migration rewriting every stored token by hand (D-15's no-data-migration
 # rule). Bump this marker, and nothing else, the next time a new input joins the identity.
-_PROVENANCE_TOKEN_VERSION = 'v2'
+#
+# T-35-24-01 (35-REVIEW.md iteration 9, plan 35-24; the round-5 verifier's escalated
+# decision, 35-VERIFICATION.md "Human Verification Required" #1): bumped from `v2` to `v3`
+# because `_sub_night_provenance_token()` now carries a site POSITION fingerprint alongside
+# `site_id` -- an in-place `Observatory` correction (`lat`/`lon`/`altitude`/`timezone`
+# edited, `run.site` untouched) changes the fingerprint but not `site_id`, and a `v2|` token
+# could not have carried it. The bump is what makes every `v2|` token already stored read as
+# unrecorded, so each such night resolves once through the bounded legacy branch
+# (`_span_needs_remint()` step 4) and re-records in the current `v3` format -- the same
+# read-time transition CR-02 used one release earlier, with no `RunPython` data migration
+# (D-15) and no stored value ever rewritten in place.
+_PROVENANCE_TOKEN_VERSION = 'v3'
+
+
+def _site_position_fingerprint(run: CampaignRun) -> str:
+    """A stable fingerprint of ``run.site``'s boundary-relevant POSITION (T-35-24-01,
+    35-REVIEW.md iteration 9, plan 35-24; the round-5 verifier's escalated decision).
+
+    Covers exactly the four ``Observatory`` fields ``sun_event()`` reads: ``lat`` and
+    ``lon`` (through ``to_earth_location()``, which also needs ``altitude``) and
+    ``timezone`` (through ``_local_noon_utc()`` and ``sun_event()``'s own blank-timezone
+    guard). Those four, and nothing else, are what an in-place site correction can change
+    that the boundaries actually depend on -- so those four, and nothing else, are what this
+    fingerprint must cover.
+
+    Reads ``run.site``, which ``project_allocation()`` has already loaded at the top of its
+    sweep (building the site's ``ZoneInfo``), so the projector's own call path issues no
+    additional query; a caller that has NOT already loaded the relation pays one lazy FK
+    fetch. This corrects, rather than repeats, the "no database access" claim
+    :func:`_sub_night_provenance_token` makes for itself: that claim is true of its own body
+    (a plain FK-id read), but this sibling function may touch the database depending on the
+    caller's own state, and the two must not be conflated.
+
+    Each coordinate is rendered with ``repr()``, which in Python 3 gives the shortest
+    decimal string that round-trips back to the identical float -- stable across process
+    restarts and across a save/reload cycle, unlike ``str()`` for a float in general. A null
+    coordinate renders as ``repr(None)`` (``'None'``) rather than a special case, so a
+    satellite/space `Observatory` (no fixed lon/lat/altitude, see
+    ``Observatory.to_earth_location()``) still produces a well-defined, comparable
+    fingerprint rather than raising.
+
+    The digest is TRUNCATED to 16 hexadecimal characters (64 bits) because the column this
+    token feeds must stay bounded (see `CalendarEventMeta.minted_sub_night_window`'s
+    `max_length`); a collision here costs at most a missed re-mint on a position change,
+    which the next genuine position change still catches (the fingerprint is recomputed and
+    compared on every sweep, never trusted twice for the same claim).
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+
+    Returns:
+        str: the literal ``'none'`` when ``run.site_id`` is None; otherwise the first 16
+        characters of the lowercase hexadecimal SHA-256 digest of
+        ``f'{lat!r},{lon!r},{altitude!r},{timezone!r}'``.
+    """
+    if run.site_id is None:
+        return 'none'
+    site = run.site
+    canonical = f'{site.lat!r},{site.lon!r},{site.altitude!r},{site.timezone!r}'
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()[:16]
 
 
 def allocation_night_url(run: CampaignRun, night) -> str:
@@ -394,13 +454,14 @@ def _raise_if_set_window_inverted(run: CampaignRun, night) -> None:
 def _sub_night_provenance_token(run: CampaignRun) -> str:
     """The canonical text form of the full identity a run's ``ALLOC:`` night boundaries are
     CURRENTLY minted from (CR-01, 35-REVIEW.md iteration 7, plan 35-19; widened by CR-02,
-    35-REVIEW.md iteration 8, plan 35-21).
+    35-REVIEW.md iteration 8, plan 35-21; widened again by T-35-24-01, 35-REVIEW.md
+    iteration 9, plan 35-24 -- the round-5 verifier's escalated decision).
 
     ``_mint_fields()`` computes a night's ``start_time``/``end_time`` from exactly four
     inputs: ``sun_event(run.site, night, kind='sun')`` and ``night_bounds(run, night,
     sunset, sunrise)`` read ``run.night_start_utc``, ``run.night_end_utc``, ``run.site`` and
     ``night`` -- so those four, and nothing else, are the boundary inputs this token must
-    carry. Three of the four are carried here:
+    carry. All four are carried here, ``run.site`` now as two parts:
 
     - A leading version marker (:data:`_PROVENANCE_TOKEN_VERSION`), so a token written
       before an input joined this identity reads as unrecorded rather than as agreement --
@@ -411,6 +472,14 @@ def _sub_night_provenance_token(run: CampaignRun) -> str:
       Rendered as the literal ``'none'`` when null, the same convention the two time fields
       already use, so this function does not assume a caller that enforces a non-null site
       (``reconcile_run()``'s stage-0 guard happens to, but this function must not assume it).
+    - :func:`_site_position_fingerprint` -- the site's boundary-relevant POSITION
+      (``lat``/``lon``/``altitude``/``timezone``), not merely its identity. ``site_id`` alone
+      cannot detect an in-place ``Observatory`` correction: the round-5 verifier reproduced a
+      ~15-hour error reported as `unchanged` forever, because the token recorded WHICH row
+      supplied the position, never the position itself. ``site_id`` is KEPT alongside the
+      fingerprint, not replaced by it -- it keeps a stored token legible in a log line and
+      preserves the documented behaviour that a site SWAP (two different `Observatory` rows,
+      even with byte-identical position) still re-mints.
     - The sub-night window pair, unchanged from the pre-CR-02 token: each side is
       ``isoformat()`` of the ``TimeField`` when set and the literal ``'none'`` when null.
 
@@ -425,8 +494,11 @@ def _sub_night_provenance_token(run: CampaignRun) -> str:
     they are not boundary inputs, and including them would make an ordinary title or
     campaign change delete and re-create the night for no boundary reason at all.
 
-    All four parts are joined by the existing single ``'|'`` separator. Pure, astropy-free,
-    no database access beyond the FK column already loaded on ``run``.
+    All five parts are joined by the existing single ``'|'`` separator. Pure and astropy-free
+    itself; database access is only what ``run.site_id``/``run.site`` already cost the
+    caller -- see :func:`_site_position_fingerprint`'s own docstring for the honest
+    statement of when that is zero (this module's own call path) versus one lazy fetch (a
+    caller that has not already resolved the relation).
 
     A sub-night side reading ``'none'`` is itself a RECORDED value, not an absence of one --
     it means "this boundary was minted from the sun event", unchanged from 35-19. That is
@@ -437,13 +509,15 @@ def _sub_night_provenance_token(run: CampaignRun) -> str:
         run: the ``CampaignRun`` being projected.
 
     Returns:
-        str: e.g. ``'v2|3|23:00:00|05:00:00'``, ``'v2|3|none|05:00:00'``, or
-            ``'v2|3|none|none'``.
+        str: e.g. ``'v3|3|a1b2c3d4e5f6a7b8|23:00:00|05:00:00'``,
+            ``'v3|3|a1b2c3d4e5f6a7b8|none|05:00:00'``, or
+            ``'v3|3|a1b2c3d4e5f6a7b8|none|none'``.
     """
     start_token = run.night_start_utc.isoformat() if run.night_start_utc is not None else 'none'
     end_token = run.night_end_utc.isoformat() if run.night_end_utc is not None else 'none'
     site_token = run.site_id if run.site_id is not None else 'none'
-    return f'{_PROVENANCE_TOKEN_VERSION}|{site_token}|{start_token}|{end_token}'
+    fingerprint_token = _site_position_fingerprint(run)
+    return f'{_PROVENANCE_TOKEN_VERSION}|{site_token}|{fingerprint_token}|{start_token}|{end_token}'
 
 
 def _record_sub_night_provenance(event: CalendarEvent, token: str) -> None:
@@ -488,50 +562,77 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
        before.
     3. Otherwise read the recorded provenance from ``existing``'s companion row
        (``CalendarEventMeta.minted_sub_night_window``). CR-02 (35-REVIEW.md iteration 8,
-       plan 35-21) changed this from a presence test to a VERSION test: the token is
-       trusted only when it starts with the current :data:`_PROVENANCE_TOKEN_VERSION`
-       marker followed by the separator -- a token written in an older format could not
-       have carried every current boundary input (CR-02's own defect: a pre-CR-02 token
-       carried the sub-night pair alone, so a ``run.site`` correction produced no comparison
-       that could detect it, forever). ``None``, the empty string, and any pre-release
-       token all fail this test and fall through to step 4 exactly as an unrecorded token
-       always has. When the version test passes, return whether the token differs from
-       :func:`_sub_night_provenance_token` for the run's current fields -- this is the line
-       that closes CR-01: a token of ``'v2|3|23:00:00|05:00:00'`` against a current
-       ``'v2|3|none|05:00:00'`` (shape C), ``'v2|3|none|none'`` (shape A), or a half-null
-       token against ``'v2|3|none|none'`` (shape B) all differ, so all three re-mint, while
-       an unchanged null/null run's token matches itself and returns False with zero
-       astropy. It is also the line that closes CR-02: a token recording one site against
-       the run's current (corrected) site differs, so the site correction re-mints instead
-       of comparing equal to itself. No ``sun_event()`` call is ever made on this branch
-       (prohibition 3).
-    4. When provenance is NOT recorded (a version-test failure, including plain absence),
-       this is a LEGACY night -- minted before this column existed, taken over by the
-       legacy re-key path while preserving the legacy event's own boundaries, or minted
-       before an input (CR-02's site) joined the identity this token records. Round 2
-       SUBSTITUTED a stored boundary for an uncomputed sun event here and was reverted for
-       it; this branch instead COMPUTES the sun event, exactly once, and records only what
-       that computation confirms -- and what it records is always a CURRENT-format token,
-       which is how existing rows migrate to the wider identity with no ``RunPython`` data
-       migration (D-15's no-data-migration rule): the first reconcile after an upgrade
-       resolves each such night once, the same bounded cost CR-01 already established, one
-       release wider. Calls ``sun_event(run.site,
+       plan 35-21) changed this from a presence test to a VERSION test; T-35-24-01
+       (35-REVIEW.md iteration 9, plan 35-24 -- the round-5 verifier's escalated decision,
+       35-VERIFICATION.md "Human Verification Required" #1) adds a PART-COUNT test on top of
+       it. The token is trusted only when it starts with the current
+       :data:`_PROVENANCE_TOKEN_VERSION` marker followed by the separator AND splits into
+       exactly the number of parts the current format has (five) -- a token written in an
+       older format could not have carried every current boundary input (CR-02's own
+       defect: a pre-CR-02 token carried the sub-night pair alone, so a ``run.site``
+       correction produced no comparison that could detect it, forever), and a
+       CURRENT-version token with the wrong part count is no more trustworthy than an
+       old-version one. ``None``, the empty string, any pre-release token, and a
+       current-version token with the wrong part count all fail this test and fall through
+       to step 4 exactly as an unrecorded token always has.
+
+       When the token is trusted, the comparison is COMPONENT-WISE rather than a single
+       string equality -- this is what closes the escalated decision. The two sub-night
+       sides differing, or ``site_id`` differing, returns True immediately: this is today's
+       behaviour for both of those inputs and the documented meaning of a sub-night edit or
+       a site SWAP (two different `Observatory` rows, even with byte-identical position --
+       the accepted cost of keeping ``site_id`` in the token for log legibility). When only
+       the POSITION FINGERPRINT differs, this function does NOT return True here: it falls
+       through to step 4's resolution branch below, which makes one real ``sun_event()``
+       call and compares the stored boundary against it at the established tolerance,
+       either re-minting or re-recording a current-format token. This is the line that
+       closes the escalated decision itself: an in-place ``Observatory`` correction
+       (``lat``/``lon``/``altitude``/``timezone`` edited, ``run.site`` untouched, `site_id`
+       therefore unchanged) now produces a fingerprint difference that routes to
+       resolution -- proving whether the BOUNDARY actually moved -- rather than being
+       invisible forever (the verifier's probe: a ``v2|`` token recording a stale
+       ``site_id``-only identity, read as agreement regardless of how far the position
+       drifted). Routing to resolution rather than to an outright re-mint is deliberate: an
+       INPUT moving is not the same fact as the BOUNDARY moving, and a trivial one-metre
+       altitude correction must not destroy and re-create every night at that site for no
+       boundary reason. When every component matches, return False, astropy-free, exactly
+       as before. No ``sun_event()`` call is ever made inside this step (prohibition 3 of
+       the plan that introduced it still names this constraint).
+    4. When provenance is NOT recorded (a version-or-part-count-test failure, including
+       plain absence) OR a trusted token's position fingerprint alone differed (step 3
+       above), this branch resolves the night against a real sun event rather than trusting
+       or guessing. The two entry paths share this branch because they share the same
+       proof obligation: neither a truly-unrecorded night nor a trusted-but-repositioned one
+       has yet had its CURRENT boundary proven correct, so both are resolved identically,
+       once, against ``sun_event()``. The unrecorded case covers a night minted before this
+       column existed, taken over by the legacy re-key path while preserving the legacy
+       event's own boundaries, or minted before an input (CR-02's site, or T-35-24-01's
+       position fingerprint) joined the identity this token records. Round 2 SUBSTITUTED a
+       stored boundary for an uncomputed sun event here and was reverted for it; this branch
+       instead COMPUTES the sun event, exactly once, and records only what that computation
+       confirms -- and what it records is always a CURRENT-format token, which is how
+       existing rows migrate to the wider identity with no ``RunPython`` data migration
+       (D-15's no-data-migration rule): the first reconcile after an upgrade resolves each
+       such night once, the same bounded cost CR-01 already established, two releases wider.
+       Calls ``sun_event(run.site,
        night, kind='sun')`` once for the night and compares only the NULL side or sides
        against the returned sunset/sunrise, resolved with the SAME expression
        :func:`night_bounds` uses so the two can never drift apart, against
        ``_UNRECORDED_PROVENANCE_TOLERANCE``: astropy drift between sessions moves a
        ``sun_event()`` result by seconds (D-13's actual concern), while a stale operator
-       value sits minutes to hours away, so the one-minute tolerance separates the two
-       cleanly. Outside the tolerance, logs a warning naming the run, the night, the stored
-       boundary and the resolved sun event, and returns True -- this projector no longer
-       reports a run/calendar disagreement it can detect as a silent ``unchanged``
-       (35-VERIFICATION.md `missing` item 4). Within the tolerance, the null side is PROVEN
+       value -- or a genuinely relocated site -- sits minutes to hours away, so the
+       one-minute tolerance separates the two cleanly. Outside the tolerance, logs a warning
+       naming the run, the night, the stored boundary and the resolved sun event, and
+       returns True -- this projector no longer reports a run/calendar disagreement it can
+       detect as a silent ``unchanged`` (35-VERIFICATION.md `missing` item 4, and the
+       escalated decision's own probe). Within the tolerance, the null side is PROVEN
        sun-derived by the call just made and the set side (if any) was already proven to
        match by step 1 -- so the run's current token is now an established fact, recorded
        via :func:`_record_sub_night_provenance` (skipped only under ``dry_run``, so a
        preview and the real run still reach the identical decision), and False is returned.
-       Cost bound: at most one ``sun_event(kind='sun')`` call per unrecorded night, once
-       ever -- once recorded, step 3 above decides that night astropy-free forever after.
+       Cost bound: at most one ``sun_event(kind='sun')`` call per unrecorded (or
+       trusted-but-repositioned) night, once ever -- once recorded, step 3 above decides
+       that night astropy-free forever after.
 
     Args:
         run: the ``CampaignRun`` being projected.
@@ -560,14 +661,35 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
         recorded_token = existing.telescope_label_meta.minted_sub_night_window
     except CalendarEventMeta.DoesNotExist:
         recorded_token = None
-    # CR-02 (35-REVIEW.md iteration 8, plan 35-21): a version-prefix test, not a presence
-    # test. `None`, `''` and any pre-release token all fail this and fall through to the
-    # legacy branch below, which resolves and re-records them in the current format.
-    if recorded_token is not None and recorded_token.startswith(f'{_PROVENANCE_TOKEN_VERSION}|'):
-        return recorded_token != _sub_night_provenance_token(run)
+    # CR-02 (35-REVIEW.md iteration 8, plan 35-21), extended by T-35-24-01 (35-REVIEW.md
+    # iteration 9, plan 35-24): a version-AND-part-count test, not a presence test and not a
+    # version-prefix-only test. `None`, `''`, any pre-release token, and a current-version
+    # token with the wrong part count all fail this and fall through to the legacy branch
+    # below, which resolves and re-records them in the current format.
+    recorded_parts = recorded_token.split('|') if recorded_token is not None else None
+    token_trusted = (
+        recorded_parts is not None and len(recorded_parts) == 5 and recorded_parts[0] == _PROVENANCE_TOKEN_VERSION
+    )
+    if token_trusted:
+        current_parts = _sub_night_provenance_token(run).split('|')
+        # T-35-24-01: component-wise, not a single string equality -- this is the line that
+        # closes the escalated decision. A sub-night side or `site_id` differing returns
+        # True immediately (today's behaviour, the documented meaning of a sub-night edit or
+        # a site swap). Only the position fingerprint differing does NOT return True here --
+        # it falls through to step 4's resolution branch below, which proves whether the
+        # BOUNDARY actually moved rather than treating "an input moved" as "the boundary
+        # moved". Everything matching returns False, astropy-free.
+        (_version, site_id_part, fingerprint_part, start_part, end_part) = recorded_parts
+        (_c_version, c_site_id_part, c_fingerprint_part, c_start_part, c_end_part) = current_parts
+        if start_part != c_start_part or end_part != c_end_part or site_id_part != c_site_id_part:
+            return True
+        if fingerprint_part == c_fingerprint_part:
+            return False
+        # else: only the position fingerprint differs -- fall through to step 4.
 
-    # Legacy night, provenance unrecorded (CR-01 Task 2): resolve the unknown side(s)
-    # against ONE real sun_event() call, never inferring provenance from the stored value.
+    # Legacy night, provenance unrecorded, OR a trusted token whose position fingerprint
+    # alone differed (CR-01 Task 2; T-35-24-01): resolve the unknown side(s) against ONE
+    # real sun_event() call, never inferring provenance from the stored value.
     sunset, sunrise = sun_event(run.site, night, kind='sun')
     expected_sunset = sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
     expected_sunrise = sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)

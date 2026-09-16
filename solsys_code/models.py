@@ -19,15 +19,23 @@ class CalendarEventMeta(models.Model):
     `CalendarEventRunLink` precisely so a third field added in a future version needs no
     second rename.
 
-    WR-06 (Phase 34 review): as of Phase 34, no writer in this codebase sets
-    ``is_verified=False`` any more -- the v1.3-era LCO/SOAR sync command that could is
-    retired (D-06/D-18); the observation projector (Phase 34) writes ``is_verified=True``
-    unconditionally, and the campaign reconciler never touches this field at all. A
-    ``False`` value can therefore only be a historical row from before this phase, or one
-    set directly (the admin form, a test fixture) rather than by any current projection
-    path -- it is not currently reachable by re-running any sweep or receiver. The two
-    ``calendar.html`` template branches keyed on ``is_verified == False`` are consequently
-    unreachable from current production writes; see the code comment at each branch.
+    WR-06 (Phase 34 review), corrected by WR-08 (35-REVIEW.md iteration 9, plan 35-24): as
+    of Phase 34, no writer in this codebase SETS ``is_verified=False`` any more -- the
+    v1.3-era LCO/SOAR sync command that could is retired (D-06/D-18); the observation
+    projector (Phase 34) writes ``is_verified=True`` unconditionally, and the campaign
+    reconciler never touches this field at all. But since plan 35-20 the field is READ as a
+    load-bearing veto: ``allocation_projector._remint_decline_reason()`` checks it, and a
+    ``False`` value permanently prevents an automated re-mint of that night's boundaries,
+    reported under ``ReconcileResult.remint_declined``. It does NOT veto the night being
+    retired when a linked observation places a block on it -- plan 35-23's CR-05 decision,
+    which guards a retirement on ``confirmed_by`` alone. So a historical ``False`` row from
+    before Phase 34 -- unreachable by any current writer -- acquires that veto the moment
+    plan 35-20's guard exists, and ``is_verified`` is the one companion-row field neither
+    admin surface (``CalendarEventMetaInline``, the run-scoped inline, and
+    ``CalendarEventMetaAdmin``, the standalone surface) lists in ``readonly_fields``. The
+    two ``calendar.html`` template branches keyed on ``is_verified == False`` are still
+    unreachable from current production WRITES; see the code comment at each branch -- that
+    half of WR-06 is unchanged.
 
     A row whose ``run`` is unset means "not attributed to any campaign run" -- never "do not
     touch". Phase 33 (PROJ-04, D-05/D-06/D-07) adds two further links: ``observation_record``
@@ -40,17 +48,25 @@ class CalendarEventMeta(models.Model):
     (35-REVIEW.md iteration 8, closed by plan 35-21) showed that a night's boundaries are
     minted from the full set of inputs ``_mint_fields()`` reads -- a format version, the
     run's site, and the sub-night window pair (``night_start_utc``/``night_end_utc``) -- so
-    the column now records that whole identity, not one component of it. The column's NAME
-    stays ``minted_sub_night_window`` for historical reasons (renaming it is real scope this
-    round did not take on); this docstring and
-    ``allocation_projector._sub_night_provenance_token()``'s own docstring are where a reader
-    learns the wider truth. A ``null`` value means NOT RECORDED -- an event minted before
-    this column existed, or one the cutover's re-key branch took over while preserving the
-    legacy event's own boundaries. A token written in a pre-release format (one that could
-    not have carried every current input) ALSO means NOT RECORDED, for the same reason: it
-    cannot be trusted to agree or disagree with the current identity. Neither case means
-    "every input was null", which is recorded as the explicit current-format token whose
-    sub-night sides both read ``'none'`` (see
+    the column now records that whole identity, not one component of it. The escalated
+    decision closed by plan 35-24 (35-REVIEW.md iteration 9; 35-VERIFICATION.md "Human
+    Verification Required" #1) widened the site component again: an in-place ``Observatory``
+    correction (``lat``/``lon``/``altitude``/``timezone`` edited, ``run.site`` untouched) used
+    to read as ``unchanged`` forever, because the column recorded only WHICH row supplied the
+    position (``site_id``), never the position itself. The site component is now ``site_id``
+    PLUS a fingerprint of the site's boundary-relevant POSITION -- ``lat``, ``lon``,
+    ``altitude`` and ``timezone``, the four fields ``sun_event()`` reads -- so a current
+    stored value is the version marker ``v3``, ``site_id``, the position fingerprint, and the
+    sub-night window pair, in that order. The column's NAME stays ``minted_sub_night_window``
+    for historical reasons (renaming it is real scope neither round took on); this docstring
+    and ``allocation_projector._sub_night_provenance_token()``'s own docstring are where a
+    reader learns the wider truth. A ``null`` value means NOT RECORDED -- an event minted
+    before this column existed, or one the cutover's re-key branch took over while preserving
+    the legacy event's own boundaries. A token written in a pre-release format (one that could
+    not have carried every current input, e.g. any ``v2|``-prefixed value) ALSO means NOT
+    RECORDED, for the same reason: it cannot be trusted to agree or disagree with the current
+    identity. Neither case means "every input was null", which is recorded as the explicit
+    current-format token whose sub-night sides both read ``'none'`` (see
     ``allocation_projector._sub_night_provenance_token()``). Only the allocation projector
     writes it, the same rule that already governs ``run``, ``observation_record`` and
     ``observation_group``.
@@ -63,11 +79,25 @@ class CalendarEventMeta(models.Model):
         related_name='telescope_label_meta',
         verbose_name='Calendar event',
     )
-    # WR-06: verbose_name text is left as-is (changing it would need a migration -- out of
-    # scope for this fix); see the class docstring above for what this field currently
-    # means in practice: no current writer sets it False.
+    # WR-08 (35-REVIEW.md iteration 9, plan 35-24): the WR-06 comment this replaces left the
+    # verbose_name unchanged because correcting it would need a migration -- that migration
+    # is now being written anyway (the same 0021 migration that widens
+    # minted_sub_night_window below). The verbose_name and help_text now state, on the one
+    # admin surface that renders this field, what the class docstring's WR-06/WR-08 paragraph
+    # above already says: unchecking this is a permanent veto on an automated re-mint, not
+    # (only) a note about how the telescope label was resolved.
     is_verified = models.BooleanField(
-        default=True, verbose_name='Whether the telescope label was live-verified against the LCO API'
+        default=True,
+        verbose_name=(
+            'Whether the telescope label was live-verified against the LCO API '
+            '(unchecking also vetoes an automated re-mint)'
+        ),
+        help_text=(
+            'Setting this False permanently prevents the allocation projector from correcting '
+            'the boundaries of this night: an automated re-mint is declined and reported under '
+            'remint_declined. It does not prevent the night being retired when a linked '
+            'observation places a block on it. See the runbook section on remint_declined.'
+        ),
     )
     run = models.ForeignKey(
         'CampaignRun',
@@ -120,15 +150,20 @@ class CalendarEventMeta(models.Model):
     )
     confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='Confirmed at')
     # CR-01 (35-REVIEW.md iteration 7, plan 35-19), widened by CR-02 (35-REVIEW.md
-    # iteration 8, plan 35-21): the full set of inputs this event's boundaries were minted
-    # from -- a format version, the run's site, and the sub-night window pair -- in
-    # `_sub_night_provenance_token()`'s canonical text form (e.g.
-    # `'v2|3|23:00:00|05:00:00'`, `'v2|3|none|05:00:00'`, `'v2|3|none|none'`). Null, the
-    # empty string, and a pre-release token (one that could not have carried every current
-    # input) all mean NOT RECORDED -- see the class docstring. Only the allocation projector
-    # writes it.
+    # iteration 8, plan 35-21) and again by the escalated decision closed by plan 35-24
+    # (35-REVIEW.md iteration 9): the full set of inputs this event's boundaries were minted
+    # from -- a format version, the run's site identity AND its boundary-relevant position
+    # (lat/lon/altitude/timezone, carried as a fingerprint), and the sub-night window pair --
+    # in `_sub_night_provenance_token()`'s canonical text form (e.g.
+    # `'v3|3|a1b2c3d4e5f6a7b8|23:00:00|05:00:00'`, `'v3|3|a1b2c3d4e5f6a7b8|none|05:00:00'`,
+    # `'v3|3|a1b2c3d4e5f6a7b8|none|none'`). Null, the empty string, and a pre-release token
+    # (one that could not have carried every current input, e.g. any `v2|`-prefixed value)
+    # all mean NOT RECORDED -- see the class docstring. Only the allocation projector writes
+    # it. max_length is 128 (widened from 64 by plan 35-24's migration 0021) -- wide enough
+    # for the worst-case token; see `TestProvenanceTokenFormat` in
+    # `test_allocation_projector.py`.
     minted_sub_night_window = models.CharField(
-        max_length=64, null=True, blank=True, verbose_name='Minted sub-night window'
+        max_length=128, null=True, blank=True, verbose_name='Minted sub-night window'
     )
 
     def __str__(self):

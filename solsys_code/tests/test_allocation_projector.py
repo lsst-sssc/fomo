@@ -2329,7 +2329,12 @@ class TestSiteChangeRemints(AllocationProjectorTestBase):
         event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
         pk_before = event_before.pk
         recorded_token_before = event_before.telescope_label_meta.minted_sub_night_window
-        self.assertTrue(recorded_token_before.startswith('v2|'))
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: the version marker this assertion pins
+        # bumped from 'v2' to 'v3' in the SAME plan that widened the token with a site
+        # position fingerprint -- this literal is updated to the current marker, exactly as
+        # plan 35-21 updated the equivalent pre-version literal when CR-02 introduced 'v2'.
+        # The class's actual behaviour under test (a SITE SWAP re-mints) is unchanged.
+        self.assertTrue(recorded_token_before.startswith('v3|'))
 
         run.site = self.australian_site
         run.site_raw = 'E10'
@@ -2347,8 +2352,86 @@ class TestSiteChangeRemints(AllocationProjectorTestBase):
         self.assertEqual(event_after.start_time, expected_start)
         self.assertEqual(event_after.end_time, expected_end)
         recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
-        self.assertTrue(recorded_token_after.startswith('v2|'))
+        self.assertTrue(recorded_token_after.startswith('v3|'))
         self.assertNotEqual(recorded_token_after, recorded_token_before)
+
+
+class TestObservatoryCorrectionRemints(AllocationProjectorTestBase):
+    """The escalated decision (35-VERIFICATION.md "Human Verification Required" #1;
+    35-UAT.md test 4; user decision 2026-09-16: fix in round 6). `TestSiteChangeRemints`
+    above proves a SITE SWAP (`run.site` reassigned to a different `Observatory` row)
+    re-mints; this class proves the harder, previously-broken case: correcting the SAME
+    `Observatory` row's `lat`/`lon`/`altitude`/`timezone` IN PLACE, with `run.site` never
+    touched, must also re-mint.
+
+    Reproduces the round-5 verifier's own probe transcript exactly, as this fixture's
+    provenance (35-VERIFICATION.md):
+
+    ```
+    PROBE token= v2|1|none|none
+    PROBE before start/end= 2026-07-09 22:06:35+00:00 2026-07-10 11:29:46+00:00
+    PROBE result= ReconcileResult(created=0, updated=0, unchanged=1, ..., retired=0, ...)
+    PROBE after  start/end= 2026-07-09 22:06:35+00:00 2026-07-10 11:29:46+00:00
+    PROBE true corrected sunset/sunrise= 2026-07-09 07:20:39  2026-07-09 20:57:12
+    PROBE same pk? True
+    ```
+
+    Before this plan's `v3` position fingerprint, the token recorded only WHICH
+    `Observatory` row supplied the position (`site_id`), never the position itself -- so an
+    in-place edit of that SAME row was invisible to `_span_needs_remint()` forever, and a
+    ~15-hour error was reported as `unchanged`, permanently, with no counter and no log
+    line. `ObservatoryAdmin` declares no `readonly_fields`, so a staff member correcting a
+    site definition reaches this path directly."""
+
+    def test_in_place_observatory_correction_remints_to_the_corrected_positions_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        recorded_token_before = event_before.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_before.startswith('v3|'))
+        site_pk_before = run.site_id
+        self.assertEqual(site_pk_before, self.chilean_site.pk)
+
+        # Correct the SAME Observatory row in place, to the Australian site's real values --
+        # never reassign run.site. This is the verifier's own reproduction shape.
+        site = Observatory.objects.get(pk=self.chilean_site.pk)
+        site.lat = self.australian_site.lat
+        site.lon = self.australian_site.lon
+        site.altitude = self.australian_site.altitude
+        site.timezone = self.australian_site.timezone
+        site.save()
+
+        run = CampaignRun.objects.get(pk=run.pk)
+        self.assertEqual(run.site_id, site_pk_before)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.telescope_label_meta.run_id, run.pk)
+
+        corrected_site = Observatory.objects.get(pk=self.chilean_site.pk)
+        expected_sunset, expected_sunrise = sun_event(corrected_site, night, kind='sun')
+        expected_start, expected_end = night_bounds(run, night, expected_sunset, expected_sunrise)
+        self.assertEqual(event_after.start_time, expected_start)
+        self.assertEqual(event_after.end_time, expected_end)
+
+        recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_after.startswith('v3|'))
+        self.assertNotEqual(recorded_token_after, recorded_token_before)
+
+        # A further reconcile with nothing changed must now report unchanged, astropy-free --
+        # the corrected position's fingerprint is recorded, so the next sweep decides this
+        # night without ever calling sun_event() again.
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            idempotent_result = reconcile_run(run)
+        mock_sun_event.assert_not_called()
+        self.assertEqual(idempotent_result.unchanged, 1)
 
 
 class TestProvenanceTokenFormat(AllocationProjectorTestBase):
