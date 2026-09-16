@@ -1,14 +1,18 @@
 ---
-status: complete
+status: testing
 phase: 35-allocation-layer-classical-cutover
 source: [35-VERIFICATION.md]
 started: 2026-09-13T09:30:00Z
-updated: 2026-09-15T04:05:06Z
+updated: 2026-09-16T15:31:32Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 4
+name: Decide whether an in-place `Observatory` position/timezone correction must re-mint already-projected allocation nights (round-5 verifier escalation)
+expected: |
+  DECISION, not a manual test. Correcting an `Observatory` row's `lat`/`lon`/`altitude`/`timezone` in the Django admin WITHOUT changing `run.site` leaves every allocation night already projected at that site permanently stale: the verifier reproduced `ReconcileResult(created=0, updated=0, unchanged=1, ..., retired=0)` with boundaries unchanged at 2026-07-09 22:06:35+00:00 -> 2026-07-10 11:29:46+00:00 while the corrected site's true sunset/sunrise are 2026-07-09 07:20:39 / 20:57:12 (~15 h, silent, uncounted). The recorded token was `v2|1|none|none` before and after because it carries `site_id`, not the site's coordinates. Decide: fix in round 6 (alongside 35-REVIEW.md iteration-9 CR-04/CR-05), file as a follow-up, or defer with WR-01/WR-02/WR-03.
+awaiting: user response
 
 ## Tests
 
@@ -27,12 +31,17 @@ expected: Review the seven judgment-tier prohibitions listed in the 'Prohibition
 why_human: unverified-prohibition -- human review recommended. Autonomous verify records a NON-AUTHORITATIVE LLM-judge verdict for judgment-tier prohibitions; these are never silently passed.
 result: pass
 
+### 4. Decide whether an in-place `Observatory` position/timezone correction must re-mint already-projected allocation nights (round-5 verifier escalation)
+expected: DECISION, not a manual test. Correcting an `Observatory` row's `lat`/`lon`/`altitude`/`timezone` in the Django admin WITHOUT changing `run.site` leaves every allocation night already projected at that site permanently stale: the verifier reproduced `ReconcileResult(created=0, updated=0, unchanged=1, ..., retired=0)` with boundaries unchanged at 2026-07-09 22:06:35+00:00 -> 2026-07-10 11:29:46+00:00 while the corrected site's true sunset/sunrise are 2026-07-09 07:20:39 / 20:57:12 (~15 h, silent, uncounted). The recorded token was `v2|1|none|none` before and after because it carries `site_id`, not the site's coordinates. Decide: fix in round 6 (alongside 35-REVIEW.md iteration-9 CR-04/CR-05), file as a follow-up, or defer with WR-01/WR-02/WR-03.
+why_human: Same defect signature as iteration 8's CR-02 one input further out, but no must-have as worded is falsified (35-21 truth 2 defines the boundary inputs as `(night_start_utc, night_end_utc, run.site, night)` and the token does carry `run.site`); entirely pre-existing and narrowed by this round; reachable only by a manual admin edit of a site definition after projection (`MPCObscodeFetcher.to_observatory()` builds new rows, never updates existing ones). Product decision, not a verification call. Source: 35-VERIFICATION.md (round-5 re-verification) human_verification.
+result: [pending]
+
 ## Summary
 
-total: 3
+total: 4
 passed: 3
 issues: 0
-pending: 0
+pending: 1
 skipped: 0
 blocked: 0
 
