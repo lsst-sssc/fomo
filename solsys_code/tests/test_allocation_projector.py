@@ -21,7 +21,7 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import observation_projector as op
-from solsys_code.allocation_projector import allocation_events
+from solsys_code.allocation_projector import allocation_events, night_bounds
 from solsys_code.campaign_reconciler import event_description, owned_events, reconcile_run
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -1960,3 +1960,51 @@ class TestRemintAtomicity(AllocationProjectorTestBase):
         self.assertEqual(event_after.pk, pk_before)
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
+
+
+class TestSiteChangeRemints(AllocationProjectorTestBase):
+    """CR-02 (35-REVIEW.md iteration 8, plan 35-21): the pre-CR-02 token recorded only the
+    sub-night pair, so once provenance was recorded, correcting `run.site` on an
+    already-projected run produced no comparison that could detect it -- the reviewer's
+    probe 1 reproduced a real ~15-hour error reported as `unchanged`, permanently, moving a
+    run from La Silla (`America/Santiago`) to Siding Spring (`Australia/Sydney`) after one
+    reconcile:
+
+    ```
+    PROBE1 sun_event calls after site change = 0
+    PROBE1 same pk? True
+    ```
+
+    This test proves the fix: the widened token records the site, so the identical site
+    change now re-mints -- a new primary key, `retired == 1 / created == 1`, `unchanged ==
+    0` -- with both new boundaries equal to the AUSTRALIAN site's real `sun_event()` values
+    for the same night, resolved through `night_bounds()` exactly as `_mint_fields()` itself
+    would, never a hardcoded timestamp."""
+
+    def test_site_correction_on_an_already_projected_run_remints_to_the_new_sites_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        recorded_token_before = event_before.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_before.startswith('v2|'))
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.australian_site, night, kind='sun')
+        expected_start, expected_end = night_bounds(run, night, expected_sunset, expected_sunrise)
+        self.assertEqual(event_after.start_time, expected_start)
+        self.assertEqual(event_after.end_time, expected_end)
+        recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_after.startswith('v2|'))
+        self.assertNotEqual(recorded_token_after, recorded_token_before)

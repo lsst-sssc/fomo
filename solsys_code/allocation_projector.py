@@ -75,6 +75,17 @@ _DARK_WINDOW_PREFIX = 'Dark window (-15 deg, UTC): '
 # real stale-boundary shape.
 _UNRECORDED_PROVENANCE_TOLERANCE = timedelta(minutes=1)
 
+# CR-02 (35-REVIEW.md iteration 8, plan 35-21): what the version marker is FOR. A night's
+# boundaries are minted from every input `_mint_fields()`'s boundary computation reads, and
+# that set can grow over time (CR-02 itself added the site to a token that used to carry
+# only the sub-night pair). A token written before an input joined that set could not have
+# carried it, so it must never be trusted to agree or disagree with a current-format token
+# built from the wider identity -- reading it as "provenance unrecorded" is what lets a row
+# that predates this version re-resolve once through the bounded legacy branch below,
+# instead of a data migration rewriting every stored token by hand (D-15's no-data-migration
+# rule). Bump this marker, and nothing else, the next time a new input joins the identity.
+_PROVENANCE_TOKEN_VERSION = 'v2'
+
 
 def allocation_night_url(run: CampaignRun, night) -> str:
     """The per-night allocation key.
@@ -381,26 +392,58 @@ def _raise_if_set_window_inverted(run: CampaignRun, night) -> None:
 
 
 def _sub_night_provenance_token(run: CampaignRun) -> str:
-    """The canonical text form of a run's CURRENT sub-night window pair (CR-01,
-    35-REVIEW.md iteration 7; plan 35-19's design rationale).
+    """The canonical text form of the full identity a run's ``ALLOC:`` night boundaries are
+    CURRENTLY minted from (CR-01, 35-REVIEW.md iteration 7, plan 35-19; widened by CR-02,
+    35-REVIEW.md iteration 8, plan 35-21).
 
-    Each side is ``isoformat()`` of the ``TimeField`` when set and the literal ``'none'``
-    when null, joined by a single ``'|'``. Pure, astropy-free, no database access.
+    ``_mint_fields()`` computes a night's ``start_time``/``end_time`` from exactly four
+    inputs: ``sun_event(run.site, night, kind='sun')`` and ``night_bounds(run, night,
+    sunset, sunrise)`` read ``run.night_start_utc``, ``run.night_end_utc``, ``run.site`` and
+    ``night`` -- so those four, and nothing else, are the boundary inputs this token must
+    carry. Three of the four are carried here:
 
-    ``'none'`` is itself a RECORDED value here, not an absence of one -- it means "this
-    boundary was minted from the sun event", which is what makes the null case decidable at
-    all once a run's current token is compared against a previously recorded one (see
-    :func:`_span_needs_remint`).
+    - A leading version marker (:data:`_PROVENANCE_TOKEN_VERSION`), so a token written
+      before an input joined this identity reads as unrecorded rather than as agreement --
+      see the constant's own comment.
+    - ``run.site_id`` -- the plain foreign-key column, read directly rather than through
+      ``run.site`` so this function stays pure and database-free exactly as its predecessor
+      was, without depending on a caller happening to have already resolved the relation.
+      Rendered as the literal ``'none'`` when null, the same convention the two time fields
+      already use, so this function does not assume a caller that enforces a non-null site
+      (``reconcile_run()``'s stage-0 guard happens to, but this function must not assume it).
+    - The sub-night window pair, unchanged from the pre-CR-02 token: each side is
+      ``isoformat()`` of the ``TimeField`` when set and the literal ``'none'`` when null.
+
+    ``night`` is deliberately ABSENT. The event's own key already carries it
+    (``ALLOC:{run.pk}:{night.isoformat()}``), and :func:`_span_needs_remint` is only ever
+    called with the night that key encodes -- so ``night`` is a constant of every comparison
+    this token feeds, not a variable the token could fail to carry.
+
+    ``run.telescope_instrument`` and ``run.campaign`` are deliberately ABSENT too. They feed
+    ``title``/``description``/``target_list``, which the plain-update path (the branch that
+    runs when :func:`_span_needs_remint` returns False) rewrites on every sweep regardless --
+    they are not boundary inputs, and including them would make an ordinary title or
+    campaign change delete and re-create the night for no boundary reason at all.
+
+    All four parts are joined by the existing single ``'|'`` separator. Pure, astropy-free,
+    no database access beyond the FK column already loaded on ``run``.
+
+    A sub-night side reading ``'none'`` is itself a RECORDED value, not an absence of one --
+    it means "this boundary was minted from the sun event", unchanged from 35-19. That is
+    what makes the null case decidable at all once a run's current token is compared against
+    a previously recorded one (see :func:`_span_needs_remint`).
 
     Args:
         run: the ``CampaignRun`` being projected.
 
     Returns:
-        str: e.g. ``'23:00:00|05:00:00'``, ``'none|05:00:00'``, or ``'none|none'``.
+        str: e.g. ``'v2|3|23:00:00|05:00:00'``, ``'v2|3|none|05:00:00'``, or
+            ``'v2|3|none|none'``.
     """
     start_token = run.night_start_utc.isoformat() if run.night_start_utc is not None else 'none'
     end_token = run.night_end_utc.isoformat() if run.night_end_utc is not None else 'none'
-    return f'{start_token}|{end_token}'
+    site_token = run.site_id if run.site_id is not None else 'none'
+    return f'{_PROVENANCE_TOKEN_VERSION}|{site_token}|{start_token}|{end_token}'
 
 
 def _record_sub_night_provenance(event: CalendarEvent, token: str) -> None:
@@ -444,18 +487,35 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
     2. If BOTH fields are set, return False -- fully decided, astropy-free, exactly as
        before.
     3. Otherwise read the recorded provenance from ``existing``'s companion row
-       (``CalendarEventMeta.minted_sub_night_window``). When it is recorded, return whether
-       it differs from :func:`_sub_night_provenance_token` for the run's current fields --
-       this is the line that closes CR-01: a token of ``'23:00:00|05:00:00'`` against a
-       current ``'none|05:00:00'`` (shape C), ``'none|none'`` (shape A), or a half-null
-       token against ``'none|none'`` (shape B) all differ, so all three re-mint, while an
-       unchanged null/null run's ``'none|none'`` matches itself and returns False with zero
-       astropy. No ``sun_event()`` call is ever made on this branch (prohibition 3).
-    4. When provenance is NOT recorded, this is a LEGACY night -- minted before this column
-       existed, or taken over by the legacy re-key path while preserving the legacy event's
-       own boundaries. Round 2 SUBSTITUTED a stored boundary for an uncomputed sun event
-       here and was reverted for it; this branch instead COMPUTES the sun event, exactly
-       once, and records only what that computation confirms. Calls ``sun_event(run.site,
+       (``CalendarEventMeta.minted_sub_night_window``). CR-02 (35-REVIEW.md iteration 8,
+       plan 35-21) changed this from a presence test to a VERSION test: the token is
+       trusted only when it starts with the current :data:`_PROVENANCE_TOKEN_VERSION`
+       marker followed by the separator -- a token written in an older format could not
+       have carried every current boundary input (CR-02's own defect: a pre-CR-02 token
+       carried the sub-night pair alone, so a ``run.site`` correction produced no comparison
+       that could detect it, forever). ``None``, the empty string, and any pre-release
+       token all fail this test and fall through to step 4 exactly as an unrecorded token
+       always has. When the version test passes, return whether the token differs from
+       :func:`_sub_night_provenance_token` for the run's current fields -- this is the line
+       that closes CR-01: a token of ``'v2|3|23:00:00|05:00:00'`` against a current
+       ``'v2|3|none|05:00:00'`` (shape C), ``'v2|3|none|none'`` (shape A), or a half-null
+       token against ``'v2|3|none|none'`` (shape B) all differ, so all three re-mint, while
+       an unchanged null/null run's token matches itself and returns False with zero
+       astropy. It is also the line that closes CR-02: a token recording one site against
+       the run's current (corrected) site differs, so the site correction re-mints instead
+       of comparing equal to itself. No ``sun_event()`` call is ever made on this branch
+       (prohibition 3).
+    4. When provenance is NOT recorded (a version-test failure, including plain absence),
+       this is a LEGACY night -- minted before this column existed, taken over by the
+       legacy re-key path while preserving the legacy event's own boundaries, or minted
+       before an input (CR-02's site) joined the identity this token records. Round 2
+       SUBSTITUTED a stored boundary for an uncomputed sun event here and was reverted for
+       it; this branch instead COMPUTES the sun event, exactly once, and records only what
+       that computation confirms -- and what it records is always a CURRENT-format token,
+       which is how existing rows migrate to the wider identity with no ``RunPython`` data
+       migration (D-15's no-data-migration rule): the first reconcile after an upgrade
+       resolves each such night once, the same bounded cost CR-01 already established, one
+       release wider. Calls ``sun_event(run.site,
        night, kind='sun')`` once for the night and compares only the NULL side or sides
        against the returned sunset/sunrise, resolved with the SAME expression
        :func:`night_bounds` uses so the two can never drift apart, against
@@ -500,7 +560,10 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
         recorded_token = existing.telescope_label_meta.minted_sub_night_window
     except CalendarEventMeta.DoesNotExist:
         recorded_token = None
-    if recorded_token is not None:
+    # CR-02 (35-REVIEW.md iteration 8, plan 35-21): a version-prefix test, not a presence
+    # test. `None`, `''` and any pre-release token all fail this and fall through to the
+    # legacy branch below, which resolves and re-records them in the current format.
+    if recorded_token is not None and recorded_token.startswith(f'{_PROVENANCE_TOKEN_VERSION}|'):
         return recorded_token != _sub_night_provenance_token(run)
 
     # Legacy night, provenance unrecorded (CR-01 Task 2): resolve the unknown side(s)

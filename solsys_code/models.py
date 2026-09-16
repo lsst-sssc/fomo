@@ -35,13 +35,22 @@ class CalendarEventMeta(models.Model):
     event was drawn from. Both are written only by the observation projector (Phase 34), never
     by a staff form -- the same rule that already governs ``run``.
 
-    CR-01 (35-REVIEW.md iteration 7, closed by plan 35-19) adds ``minted_sub_night_window``:
-    the allocation projector's own record of the ``CampaignRun`` sub-night window pair
-    (``night_start_utc``/``night_end_utc``) that this event's ``start_time``/``end_time``
-    were minted from. A ``null`` value means NOT RECORDED -- an event minted before this
-    column existed, or one the cutover's re-key branch took over while preserving the
-    legacy event's own boundaries -- it never means "both sub-night fields were null", which
-    is recorded as the explicit token ``'none|none'`` (see
+    CR-01 (35-REVIEW.md iteration 7, closed by plan 35-19) adds ``minted_sub_night_window``.
+    Despite the field's name, it does NOT record the sub-night window pair alone: CR-02
+    (35-REVIEW.md iteration 8, closed by plan 35-21) showed that a night's boundaries are
+    minted from the full set of inputs ``_mint_fields()`` reads -- a format version, the
+    run's site, and the sub-night window pair (``night_start_utc``/``night_end_utc``) -- so
+    the column now records that whole identity, not one component of it. The column's NAME
+    stays ``minted_sub_night_window`` for historical reasons (renaming it is real scope this
+    round did not take on); this docstring and
+    ``allocation_projector._sub_night_provenance_token()``'s own docstring are where a reader
+    learns the wider truth. A ``null`` value means NOT RECORDED -- an event minted before
+    this column existed, or one the cutover's re-key branch took over while preserving the
+    legacy event's own boundaries. A token written in a pre-release format (one that could
+    not have carried every current input) ALSO means NOT RECORDED, for the same reason: it
+    cannot be trusted to agree or disagree with the current identity. Neither case means
+    "every input was null", which is recorded as the explicit current-format token whose
+    sub-night sides both read ``'none'`` (see
     ``allocation_projector._sub_night_provenance_token()``). Only the allocation projector
     writes it, the same rule that already governs ``run``, ``observation_record`` and
     ``observation_group``.
@@ -110,12 +119,16 @@ class CalendarEventMeta(models.Model):
         verbose_name='Confirmed by',
     )
     confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='Confirmed at')
-    # CR-01 (35-REVIEW.md iteration 7, plan 35-19): the sub-night window pair this event's
-    # boundaries were minted from, in `_sub_night_provenance_token()`'s canonical text form
-    # (e.g. `'23:00:00|05:00:00'`, `'none|05:00:00'`, `'none|none'`). Null means NOT
-    # RECORDED -- see the class docstring. Only the allocation projector writes it.
+    # CR-01 (35-REVIEW.md iteration 7, plan 35-19), widened by CR-02 (35-REVIEW.md
+    # iteration 8, plan 35-21): the full set of inputs this event's boundaries were minted
+    # from -- a format version, the run's site, and the sub-night window pair -- in
+    # `_sub_night_provenance_token()`'s canonical text form (e.g.
+    # `'v2|3|23:00:00|05:00:00'`, `'v2|3|none|05:00:00'`, `'v2|3|none|none'`). Null, the
+    # empty string, and a pre-release token (one that could not have carried every current
+    # input) all mean NOT RECORDED -- see the class docstring. Only the allocation projector
+    # writes it.
     minted_sub_night_window = models.CharField(
-        max_length=32, null=True, blank=True, verbose_name='Minted sub-night window'
+        max_length=64, null=True, blank=True, verbose_name='Minted sub-night window'
     )
 
     def __str__(self):
