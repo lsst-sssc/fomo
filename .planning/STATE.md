@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
-current_phase_name: allocation-layer-classical-cutover
+current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-22-PLAN.md
-last_updated: "2026-09-16T16:39:48.632Z"
+stopped_at: "Completed 35-23-PLAN.md (gap-closure: CR-04, CR-05, WR-06, IN-05)"
+last_updated: "2026-09-16T17:49:56.666Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 execution started
-state_head: 8fb77320f2f9c7987a030a0c15b17e67b8c7fb6a
+state_head: 776bf229ca7c3cd168c230cf814cb23f4840546f
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 43
-  completed_plans: 40
-  percent: 93
+  completed_plans: 41
+  percent: 95
 ---
 
 # Project State
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (allocation-layer-classical-cutover) — READY TO EXECUTE
-Plan: 4 of 22
+Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
+Plan: 2 of 25
 Status: Ready to execute
 Last activity: 2026-09-16 — Phase 35 execution started
 
@@ -211,6 +211,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P20 | 65min | 3 tasks | 2 files |
 | Phase 35 P21 | 41min | 2 tasks | 4 files |
 | Phase 35 P22 | ~30min | 2 tasks | 2 files |
+| Phase 35 P23 | 85min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -325,6 +326,9 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-22: seeded a second real ground site (E10, Siding Spring) in the notebook's site-correction cell rather than reassigning to the existing satellite fixture -- a satellite reassignment would exercise dispatch-branch re-classification, not CR-02's provenance-token fix.
 - [Phase 35]: [Phase 35]: 35-22: the declined-re-mint notebook cell seeds a dedicated single-night CampaignRun rather than reusing classical_run, mirroring TestRemintHumanConfirmationGuard's own fixture shape and avoiding compounded state across demos.
 - [Phase 35]: [Phase 35]: 35-22 closes gap-closure round 5: the runbook's retired (5 reasons)/detach_declined (2 outcomes + remedy) documentation and a re-executed reconcile_campaign_runs_demo.ipynb now describe and prove plan 35-20's CR-01 guard and plan 35-21's CR-02 token together, discharging CLAUDE.md's paired-docs rule at round granularity.
+- [Phase 35]: 35-23: CR-04 closed via a two-way split on the re-mint decline -- falls through to the plain-update path instead of continue-ing, so a declined night still receives its ordinary title/description/target_list refresh. — The decline must refuse only the destructive half (boundary rewrite); the update path is how a staff mark_cancelled action reaches an allocation night at all.
+- [Phase 35]: 35-23: CR-05 closed by applying _clearable_declined_and_unattributed() directly to the retirement branch's own existing.delete(), proven on both the sweep and the no-sweep receiver path; deliberately does NOT reuse _remint_decline_reason() -- only confirmed_by declines a retirement, never is_verified=False or an observation link. — The re-mint branch destroys a row it intends to re-create and owes its contents a decision; the retirement branch removes a night genuinely superseded by the linked observation, so extending the veto there would leave a permanent duplicate night.
+- [Phase 35]: 35-23: WR-06 closed by splitting detach_declined into detach_declined (confirmed_by-only legacy/allocation retire declines) and remint_declined (a separate re-mint decline, three causes), keeping detach_declined's existing message byte-identical. — One counter carrying two meanings made both printed operator messages false for one of them; splitting also removes CR-04's counter ambiguity.
 
 ### Pending Todos
 
@@ -425,8 +429,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-16T15:09:26.441Z
-Stopped at: Completed 35-22-PLAN.md
+Last session: 2026-09-16T17:49:56.589Z
+Stopped at: Completed 35-23-PLAN.md (gap-closure: CR-04, CR-05, WR-06, IN-05)
 Resume file: None
 
 ## Operator Next Steps
