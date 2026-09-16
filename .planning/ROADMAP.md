@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 21/22 plans executed — 19 executed, 3 pending (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans executed 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6; 1 round-4 BLOCKER-only gap-closure plan added 2026-09-15 from the fourth `gaps_found` pass + 35-REVIEW.md iteration 7 CR-01; 3 round-5 gap-closure plans added 2026-09-15 from 35-REVIEW.md iteration 8's three criticals — 19 executed, 3 pending)
+**Plans:** 22/22 plans executed — 19 executed, 3 pending (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans executed 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6; 1 round-4 BLOCKER-only gap-closure plan added 2026-09-15 from the fourth `gaps_found` pass + 35-REVIEW.md iteration 7 CR-01; 3 round-5 gap-closure plans added 2026-09-15 from 35-REVIEW.md iteration 8's three criticals — 19 executed, 3 pending)
 
 Plans:
 **Wave 1**
@@ -313,7 +313,7 @@ Plans:
 
 - [x] 35-20-PLAN.md — CR-01 + CR-03: a human-confirmation and staff-state guard before the re-mint delete, then compute-before-destroy plus a `transaction.atomic()` boundary so a failed re-mint cannot leave a hole (wave 1, tracer)
 - [x] 35-21-PLAN.md — CR-02: the provenance token carries every mint input (version, site, sub-night pair), a pre-release token reads as unrecorded, the column widens to 64 (IN-02 rider) (wave 2)
-- [ ] 35-22-PLAN.md — The round's paired docs for both behaviour changes: runbook `retired`/`detach_declined` corrections and a post-upgrade deploy note, plus `reconcile_campaign_runs_demo.ipynb` re-executed with a site-correction cell and a declined-re-mint cell (wave 3)
+- [x] 35-22-PLAN.md — The round's paired docs for both behaviour changes: runbook `retired`/`detach_declined` corrections and a post-upgrade deploy note, plus `reconcile_campaign_runs_demo.ipynb` re-executed with a site-correction cell and a declined-re-mint cell (wave 3)
 
 ### Phase 36: Unattended Operation
 
@@ -390,7 +390,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 21/22 | In Progress|  |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 22/22 | In Progress|  |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
