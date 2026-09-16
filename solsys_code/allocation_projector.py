@@ -636,6 +636,17 @@ def _remint_decline_reason(run: CampaignRun, existing: CalendarEvent) -> str | N
     Returns:
         str | None: ``None`` when this automated re-mint may proceed; otherwise a short
         reason token (``'confirmed'`` or ``'staff_state'``) naming why it may not.
+
+    Cross-reference (CR-05, 35-REVIEW.md, plan 35-23): the retirement branch's own delete of
+    an ``existing`` allocation night answers this same "may an automated write destroy this
+    row" question DIFFERENTLY, deliberately, and does NOT call this function. It declines
+    ONLY on ``confirmed_by`` (rule 1 above, via ``_clearable_declined_and_unattributed()``
+    directly) -- never on ``is_verified=False`` or an observation-record/observation-group
+    link (rule 2 above). This branch destroys a row it intends to immediately re-create, so
+    it owes the row's contents a decision; the retirement branch removes a night genuinely
+    superseded by the linked observation's own calendar entry, and extending rule 2's veto
+    there would leave a permanent duplicate night on the calendar beside the very observation
+    that retired it.
     """
     deletable_ids, _declined = _clearable_declined_and_unattributed(run, CalendarEvent.objects.filter(pk=existing.pk))
     if existing.pk not in deletable_ids:
@@ -941,12 +952,52 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                         # message ("owned by someone else") was false for this shape, while
                         # 'detach_declined's message ("a person confirmed them...") is true.
                         totals['detach_declined'] += 1
+            # CR-05 (35-REVIEW.md, plan 35-23): the allocation night's OWN delete gets the
+            # same two-way split the legacy event above already receives -- before this fix
+            # the only gate `existing` passed was `_may_write()`, which admits this run's own
+            # night regardless of `confirmed_by`, so a confirmed night was destroyed
+            # silently (its companion row's stamp and both observation links cascaded away
+            # with it, `CalendarEventMeta.event` being a `OneToOneField(on_delete=CASCADE)`),
+            # counted as ordinary `retired` work. Deliberately NOT `_remint_decline_reason()`:
+            # only `confirmed_by` declines a retirement here, never `is_verified=False` or an
+            # observation_record/observation_group link -- the re-mint branch destroys a row
+            # it intends to immediately re-create, so it owes the row's contents a decision,
+            # while this branch removes a night genuinely superseded by the linked
+            # observation's own calendar entry, and extending the veto here would leave a
+            # permanent duplicate night on the calendar beside the very observation that
+            # retired it. Operator remedy: clear the confirmation on that night's companion
+            # row and re-run the sweep.
+            existing_deletable = existing is None
+            if existing is not None:
+                deletable_ids, confirmed_declined = _clearable_declined_and_unattributed(
+                    run, CalendarEvent.objects.filter(pk=existing.pk)
+                )
+                if existing.pk in deletable_ids:
+                    existing_deletable = True
+                elif confirmed_declined:
+                    logger.warning(
+                        'Allocation retire declined: night pk=%s night=%s is human-confirmed '
+                        'to run pk=%s -- an automated retirement never destroys it.',
+                        existing.pk,
+                        night,
+                        run.pk,
+                    )
+                    totals['detach_declined'] += 1
             if not dry_run:
-                if existing is not None:
+                if existing_deletable and existing is not None:
                     existing.delete()
                 if legacy_deletable:
                     legacy_event.delete()
-            totals['retired'] += 1
+            # "retired" counts a night that went away, not a night we walked past (CR-05):
+            # it fires when there was nothing to delete to begin with (existing is None,
+            # today's preserved behaviour) and when the allocation night was actually
+            # deletable -- never when its delete was declined.
+            if existing_deletable:
+                totals['retired'] += 1
+            # No active_urls.add(url) here (IN-05, 35-REVIEW.md): retired_urls.add(url) at
+            # the top of this branch already excludes this url from the D-14 convergence
+            # step at the bottom of this function -- adding it to active_urls too would be a
+            # second no-op of exactly the kind IN-05 removed.
             continue
 
         active_urls.add(url)
