@@ -1711,7 +1711,10 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
             result = reconcile_run(run)
 
-        self.assertEqual(result.detach_declined, 1)
+        # 35-23: this counter genuinely split -- a re-mint decline is remint_declined, not
+        # detach_declined (the two now name different causes; see CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
         self.assertEqual(result.retired, 0)
         self.assertEqual(result.created, 0)
         # The assertion runs on a FRESH query after the whole reconcile_run() call has
@@ -1770,7 +1773,9 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         run.save(update_fields=['night_start_utc'])
         result = reconcile_run(run)
 
-        self.assertEqual(result.detach_declined, 1)
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
         self.assertEqual(result.retired, 0)
         self.assertEqual(result.created, 0)
         event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
@@ -1805,7 +1810,9 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         run.save(update_fields=['night_start_utc'])
         result = reconcile_run(run)
 
-        self.assertEqual(result.detach_declined, 1)
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
         self.assertEqual(result.retired, 0)
         self.assertEqual(result.created, 0)
         event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
@@ -1831,7 +1838,9 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         run.save(update_fields=['night_start_utc'])
         result = reconcile_run(run)
 
-        self.assertEqual(result.detach_declined, 1)
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
         self.assertEqual(result.retired, 0)
         self.assertEqual(result.created, 0)
         event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
@@ -1860,7 +1869,9 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         run.save(update_fields=['night_start_utc'])
         dry_result = reconcile_run(run, dry_run=True)
 
-        self.assertEqual(dry_result.detach_declined, 1)
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(dry_result.remint_declined, 1)
+        self.assertEqual(dry_result.detach_declined, 0)
         self.assertEqual(dry_result.retired, 0)
         self.assertEqual(dry_result.created, 0)
         event_after_dry_run = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
@@ -1871,6 +1882,7 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
 
         real_result = reconcile_run(run)
 
+        self.assertEqual(real_result.remint_declined, dry_result.remint_declined)
         self.assertEqual(real_result.detach_declined, dry_result.detach_declined)
         self.assertEqual(real_result.retired, dry_result.retired)
         self.assertEqual(real_result.created, dry_result.created)
@@ -1898,7 +1910,9 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         run.save(update_fields=['night_start_utc', 'night_end_utc'])
         result = reconcile_run(run)
 
-        self.assertEqual(result.detach_declined, 1)
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
         self.assertEqual(result.retired, 0)
         self.assertEqual(result.created, 0)
         event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')

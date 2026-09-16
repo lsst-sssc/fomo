@@ -23,7 +23,7 @@ run (`CLASSICAL_FILE`/`LEGACY`) now dispatches to the peer `allocation_projector
 """
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from io import StringIO
 from uuid import uuid4
@@ -576,6 +576,52 @@ class TestSummaryCounters(ReconcileCampaignRunsTestBase):
         legacy_meta = CalendarEventMeta.objects.get(event=legacy_event)
         self.assertEqual(legacy_meta.run_id, run.pk)
         self.assertEqual(legacy_meta.confirmed_by_id, staffer.pk)
+
+    def test_real_sweep_reports_remint_declined_for_a_human_confirmed_alloc_night(self):
+        """35-23 (CR-04/WR-06): a re-mint the sweep declines because a person confirmed the
+        allocation night is a SEPARATE end-to-end fact from the legacy-retire decline above
+        -- exercised here through the command, the projector's decision, ReconcileResult's
+        merge and the operator's printed summary and per-run line in one pass. The command's
+        ``remint_declined`` token and ``detach_declined``'s byte-identical wording
+        (prohibition 1) are proven together so the split is pinned end to end."""
+        night = date(2026, 8, 1)
+        # The fixture's ground_site (Australia/Sydney, UTC+10 in southern-hemisphere
+        # winter) has its observing-night UTC span entirely inside one UTC date --
+        # 08:00..20:00 UTC (site-local 18:00 -> next-day 06:00). Both sub-night times must
+        # sit inside that span or night_bounds() raises an inverted-span ValueError.
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(9, 0), night_end_utc=time(19, 0)
+        )
+        call_command('reconcile_campaign_runs', stdout=StringIO())
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staffer = User.objects.create(username='remint-declined-command-staffer')
+        CalendarEventMeta.objects.filter(event=event).update(
+            confirmed_by=staffer, confirmed_at=datetime(2026, 8, 1, 9, 0, tzinfo=dt_timezone.utc)
+        )
+
+        # Clear the stored sub-night start so the projector's computed boundary (the real
+        # sunset) no longer matches what is on disk -- the night now needs a re-mint, which
+        # the human confirmation above must decline.
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+
+        out = StringIO()
+        err = StringIO()
+        call_command('reconcile_campaign_runs', stdout=out, stderr=err)
+
+        error_output = err.getvalue()
+        self.assertIn(f'Run pk={run.pk}', error_output)
+        self.assertIn('existing boundaries', error_output)
+        # detach_declined's own message must stay byte-identical (prohibition 1) -- this
+        # sweep produces none of that cause, so asserting its absence here is a cheap way to
+        # confirm the two messages have not been merged back together.
+        self.assertNotIn('left attributed', error_output)
+        summary = _parse_summary(out.getvalue())
+        self.assertEqual(summary['remint_declined'], 1)
+        self.assertEqual(summary['detach_declined'], 0)
+        meta_after = CalendarEventMeta.objects.get(event=event)
+        self.assertEqual(meta_after.confirmed_by_id, staffer.pk)
 
     def test_sweep_with_nothing_retired_or_detached_reports_zero_and_no_per_run_lines(self):
         self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 2))

@@ -445,11 +445,14 @@ def _message_reconcile_side_effects(request, result) -> None:
     when it is non-zero (Task 1, Phase 35: leftover per-night events from the retired
     ``RUN:{pk}:{date}`` family, belonging to a run that now dispatches to the whole-window
     container, deleted as one-time churn -- never a detach, since there is no attribution
-    left to release once the row is gone), and an info message naming
-    ``result.detach_declined`` when it is non-zero (entries were left attributed because a
-    person had already confirmed them -- 33-10 Task 1, UAT option B, 2026-09-09). No message
-    names a contact field, an email, a ``source`` value or another run's identity -- only
-    counts and this run's own calendar state.
+    left to release once the row is gone), an info message naming ``result.detach_declined``
+    when it is non-zero (entries were left attributed because a person had already confirmed
+    them -- 33-10 Task 1, UAT option B, 2026-09-09), and an info message naming
+    ``result.remint_declined`` when it is non-zero (an allocation night's boundaries were
+    left unchanged because a person's confirmation, an observation link, or an unverified
+    companion row outranks the automated correction -- 35-23, CR-04/WR-06). No message names
+    a contact field, an email, a ``source`` value or another run's identity -- only counts
+    and this run's own calendar state.
     """
     if result.detached:
         messages.warning(
@@ -469,6 +472,14 @@ def _message_reconcile_side_effects(request, result) -> None:
             request,
             f'{result.detach_declined} superseded entr{"y" if result.detach_declined == 1 else "ies"} '
             'left attributed -- someone had already confirmed them.',
+        )
+    if result.remint_declined:
+        messages.info(
+            request,
+            f'{result.remint_declined} allocation night{"" if result.remint_declined == 1 else "s"} kept '
+            f'{"its" if result.remint_declined == 1 else "their"} existing boundaries -- a person\'s '
+            'confirmation, an observation link, or an unverified companion row outranks this automated '
+            'correction.',
         )
 
 

@@ -864,8 +864,14 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         # NF-16 (35-REVIEW.md): seeded so the confirmed_declined branch below can route to
         # it -- nobody else owns this legacy event (it is in THIS run's own namespace,
         # confirmed_by-stamped to THIS run), so 'blocked' (whose reconcile_campaign_runs
-        # message reads "owned by someone else") was false twice over for this shape.
+        # message reads "owned by someone else") was false twice over for this shape. The
+        # legacy-retire decline below stays on 'detach_declined' (its cause is confirmed_by,
+        # so NF-16's reasoning and its message are both still correct).
         'detach_declined': 0,
+        # 35-23 (CR-04/WR-06): the re-mint decline moves here -- a separate cause from the
+        # legacy-retire decline above, so each printed message can name its own causes
+        # truthfully instead of one counter claiming two things.
+        'remint_declined': 0,
     }
     site_zone = ZoneInfo(run.site.timezone)
     n_nights = (run.window_end - run.window_start).days + 1
@@ -1004,7 +1010,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                         night,
                         run.pk,
                     )
-                totals['detach_declined'] += 1
+                totals['remint_declined'] += 1
                 # Load-bearing, not cosmetic: without this, the D-14 convergence step at the
                 # bottom of this function deletes the very night this guard just refused to
                 # delete.

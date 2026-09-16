@@ -102,11 +102,23 @@ class ReconcileResult(NamedTuple):
     event after this reconciler had already minted its own event for it: that superseded
     event is detached, never deleted, back into Phase 28's attribution queue."""
     detach_declined: int = 0
-    """Superseded or stale companion rows the sweep deliberately did NOT release because
+    """Superseded or stale companion rows -- and, since Phase 35 plan 35-23, an allocation
+    night's own retirement -- the sweep deliberately did NOT release/delete because
     ``confirmed_by`` is set (UAT decision, 2026-09-09 ``## Decisions``: option B -- a human
     decision outranks an automated sweep). Exists so an operator is told a release was
     declined rather than left to infer it from an unchanged ``detached`` -- silence and
-    'nothing to release' are otherwise indistinguishable."""
+    'nothing to release' are otherwise indistinguishable. A re-mint the sweep declined to
+    perform is a SEPARATE cause and is counted under ``remint_declined`` instead (35-23,
+    WR-06/CR-04) -- one counter carrying both meanings made both printed messages false for
+    one of them, so the two are kept apart."""
+    remint_declined: int = 0
+    """Allocation nights whose boundaries would have changed but which the sweep declined to
+    destroy and re-create, because the night carries a human confirmation, a real
+    ``ObservationRecord``/``ObservationGroup`` link, or an unverified companion row (35-23,
+    CR-04/WR-06) -- three causes. The night keeps its stored boundaries while still
+    receiving its ordinary title/description/campaign refresh (CR-04's fall-through), so a
+    declined night reports this counter alongside an ``updated`` or ``unchanged``, never
+    instead of one."""
     retired: int = 0
     """Allocation nights deleted because a linked record's placed or observed block now
     occupies them (D-05/D-07, Phase 35), or because a re-classification left them out of

@@ -51,6 +51,7 @@ class Command(BaseCommand):
         skipped_nights = 0
         detached = 0
         detach_declined = 0
+        remint_declined = 0
         retired = 0
         rekeyed = 0
         legacy_deleted = 0
@@ -79,6 +80,7 @@ class Command(BaseCommand):
             skipped_nights += result.skipped_nights
             detached += result.detached
             detach_declined += result.detach_declined
+            remint_declined += result.remint_declined
             retired += result.retired
             rekeyed += result.rekeyed
             legacy_deleted += result.legacy_deleted
@@ -129,6 +131,14 @@ class Command(BaseCommand):
                     f"{'y' if result.detach_declined == 1 else 'ies'} left attributed -- a person confirmed "
                     'them, and an automated sweep never clears a human confirmation'
                 )
+            if result.remint_declined:
+                self.stderr.write(
+                    f'Run pk={run.pk}: {result.remint_declined} allocation night'
+                    f"{'' if result.remint_declined == 1 else 's'} kept "
+                    f"{'its' if result.remint_declined == 1 else 'their'} existing boundaries -- a person's "
+                    'confirmation, an observation link, or an unverified companion row outranks this '
+                    "automated correction; see the runbook's remint_declined section for the remedy"
+                )
 
         if dry_run:
             self.stdout.write(
@@ -142,6 +152,7 @@ class Command(BaseCommand):
                 f'skipped_nights: {skipped_nights}, '
                 f'would_detach: {detached}, '
                 f'detach_declined: {detach_declined}, '
+                f'remint_declined: {remint_declined}, '
                 f'would_retire: {retired}, '
                 f'would_rekey: {rekeyed}, '
                 f'would_delete_legacy: {legacy_deleted}'
@@ -158,6 +169,7 @@ class Command(BaseCommand):
                 f'skipped_nights: {skipped_nights}, '
                 f'detached: {detached}, '
                 f'detach_declined: {detach_declined}, '
+                f'remint_declined: {remint_declined}, '
                 f'retired: {retired}, '
                 f'rekeyed: {rekeyed}, '
                 f'legacy_deleted: {legacy_deleted}'
