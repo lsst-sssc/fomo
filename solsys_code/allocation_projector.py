@@ -559,7 +559,21 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
        which provenance cannot see. ``_night_span_utc()`` is computed only when at least one
        field is set, so a null/null run does no ``zoneinfo`` work it will not use.
     2. If BOTH fields are set, return False -- fully decided, astropy-free, exactly as
-       before.
+       before. T-35-24-02 (35-REVIEW.md iteration 9, plan 35-24, WR-05) states what this
+       actually means for a site correction, which the runbook, this docstring itself
+       (before this correction) and plan 35-21's own success criterion all got wrong: a
+       fully-set sub-night pair pins BOTH boundaries here, before the token is ever read --
+       so the token, and therefore the site, is NEVER consulted for such a run. An in-place
+       site correction on a fully-set run therefore changes NOTHING this function decides;
+       the only site-derived field left for a correction to reach is the event's stored
+       dark-window line, which ``project_allocation()``'s plain-update path now refreshes
+       via :func:`_site_provenance_differs` (a separate, later read this function does not
+       perform). A correction that moves the run's site to a DIFFERENT TIMEZONE is caught
+       one step EARLIER, by step 1 above, because the resolved boundaries themselves move --
+       not by this step. Operator remedy for that case: a sub-night window pinned to one
+       site's observing night is not portable to another site's timezone, so the window
+       fields (``night_start_utc``/``night_end_utc``) must be corrected together with the
+       site, not left as-is.
     3. Otherwise read the recorded provenance from ``existing``'s companion row
        (``CalendarEventMeta.minted_sub_night_window``). CR-02 (35-REVIEW.md iteration 8,
        plan 35-21) changed this from a presence test to a VERSION test; T-35-24-01
@@ -715,6 +729,53 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
     if not dry_run:
         _record_sub_night_provenance(existing, _sub_night_provenance_token(run))
     return False
+
+
+def _site_provenance_differs(run: CampaignRun, existing: CalendarEvent) -> bool:
+    """A pure read (T-35-24-02, 35-REVIEW.md iteration 9, plan 35-24, WR-05): whether
+    ``existing``'s recorded provenance token proves the run's site component has moved --
+    either ``site_id`` or the position fingerprint -- since it was last recorded.
+
+    This is the one read ``project_allocation()``'s plain-update path needs to decide
+    whether a FULLY-SET sub-night pair's dark-window line is stale: such a run's boundaries
+    are pinned by :func:`_span_needs_remint`'s step 2 before its token is ever read, so this
+    function performs the one site-only comparison that function never reaches. No astropy,
+    no writes -- exactly the same contract :func:`_remint_decline_reason` states for itself.
+
+    Returns True only when the recorded token passes the current version-AND-part-count
+    test (:func:`_span_needs_remint` step 3's own test, repeated here rather than shared
+    because the two callers act on the result differently) AND either its ``site_id``
+    component or its position-fingerprint component differs from the run's current values.
+
+    A token that FAILS the version-or-part-count test returns False -- a deliberate
+    limitation, stated here with its reason: an UNRECORDED token is no evidence that the
+    stored dark-window line is stale, since the boundaries it describes may never have been
+    proven against the current site at all. Refreshing on an unrecorded token would pay one
+    ``sun_event(kind='dark')`` call per legacy night on EVERY sweep, forever -- the same
+    permanent per-sweep cost WR-07 documents for a declined re-mint's ``kind='sun'`` call.
+    The operator's escape for such a night: clear one sub-night field, which routes it
+    through the re-mint path instead, and that path recomputes the whole description (both
+    the boundaries and the dark-window line) from scratch.
+
+    Args:
+        run: the ``CampaignRun`` being projected.
+        existing: the already-identified allocation ``CalendarEvent``.
+
+    Returns:
+        bool: True only when a TRUSTED recorded token's ``site_id`` or position fingerprint
+        differs from the run's current values.
+    """
+    try:
+        recorded_token = existing.telescope_label_meta.minted_sub_night_window
+    except CalendarEventMeta.DoesNotExist:
+        recorded_token = None
+    recorded_parts = recorded_token.split('|') if recorded_token is not None else None
+    if recorded_parts is None or len(recorded_parts) != 5 or recorded_parts[0] != _PROVENANCE_TOKEN_VERSION:
+        return False
+    current_parts = _sub_night_provenance_token(run).split('|')
+    _version, site_id_part, fingerprint_part, _start_part, _end_part = recorded_parts
+    _c_version, c_site_id_part, c_fingerprint_part, _c_start_part, _c_end_part = current_parts
+    return site_id_part != c_site_id_part or fingerprint_part != c_fingerprint_part
 
 
 def _remint_decline_reason(run: CampaignRun, existing: CalendarEvent) -> str | None:
@@ -1263,8 +1324,49 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                 totals['created'] += 1
                 continue
             fields: dict[str, Any] = _mint_fields(run, night)
+            refresh_dark_window = False
         else:
-            dark_line = preserved_dark_window_line(existing)
+            # T-35-24-02 (35-REVIEW.md iteration 9, plan 35-24, WR-05): a fully-set
+            # sub-night pair pins both boundaries at _span_needs_remint()'s step 2, so a
+            # site correction never reaches this run's night through the token at all --
+            # the stored dark-window line is the only site-derived field left for a
+            # correction to reach. The both-set condition below is not decoration: for a
+            # fully-set run, step 1 of _span_needs_remint() has already compared both
+            # stored boundaries against what the current site and the current sub-night
+            # fields produce and found them equal on THIS SAME sweep, so refreshing the
+            # description and recording the current token below are both claims this sweep
+            # just proved. For any other sub-night case the token comparison has already
+            # decided the night, so this refresh is unreachable and must stay so.
+            refresh_dark_window = (
+                run.night_start_utc is not None
+                and run.night_end_utc is not None
+                and _site_provenance_differs(run, existing)
+            )
+            if refresh_dark_window and not dry_run:
+                # D-13 (verbatim): "`sun_event()` (both `'sun'` and `'dark'`) runs only for
+                # a night being created or re-minted." This call is the ONE stated exception
+                # to that clause. The night reaching this line is neither created nor
+                # re-minted; the call fires ONLY on the transition where a recorded
+                # current-format token proves the site component moved AND both sub-night
+                # fields are set; it is bounded to exactly one call per night per site
+                # correction, because this same sweep records the current token below (see
+                # the comment on that write); and it never fires in a preview (the `dry_run`
+                # half of this condition) or on an idempotent sweep (the flag is False
+                # whenever the site component has not moved). What is NOT narrowed: D-13's
+                # purpose -- no `sun_event()` call on an idempotent re-reconcile of an
+                # existing night, the todo
+                # `2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md`
+                # asked for -- is untouched, and `TestNoSunEventRecompute` staying green
+                # unedited is what proves it. WR-05 is the reason this exception exists at
+                # all: for a fully-set pair the boundaries are correctly pinned, so the
+                # dark-window line is the only site-derived field a correction can still
+                # reach.
+                dark_start, dark_end = sun_event(run.site, night, kind='dark')
+                dark_start_iso = dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+                dark_end_iso = dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+                dark_line = f'{_DARK_WINDOW_PREFIX}{dark_start_iso} to {dark_end_iso}'
+            else:
+                dark_line = preserved_dark_window_line(existing)
             fields = {
                 'title': allocation_night_title(run),
                 'description': allocation_night_description(run, dark_line),
@@ -1272,6 +1374,19 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             }
 
         if dry_run:
+            if existing is not None and refresh_dark_window:
+                # The preview already KNOWS the description will change, because the site
+                # component of the recorded token differs from the run's current site, and
+                # it reports that without paying the astropy call the real run pays above --
+                # keeping WR-02's deferred preview-raises-ValueError surface exactly as wide
+                # as it was (35-23-PLAN.md's ledger; WR-02 stays deferred). Accepted
+                # divergence, pinned by its own test rather than left for a reader to
+                # discover: when the corrected position happens to produce an identical
+                # dark window, this preview still reports `updated` where the real run
+                # reports `unchanged`
+                # (test_preview_may_over_report_updated_by_one_on_a_site_correction).
+                totals['updated'] += 1
+                continue
             totals[preview_calendar_event_action(existing, fields)] += 1
             continue
 
@@ -1281,11 +1396,20 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             # CR-01 (35-REVIEW.md iteration 7, plan 35-19): record provenance only on the
             # create path -- the plain-update path's boundaries are whatever is already
             # stored, not this run's current sub-night window, so recording there would
-            # claim a fact this write never proved.
+            # claim a fact this write never proved. T-35-24-02 (plan 35-24) adds this
+            # branch's single exception, just below: when the dark-window refresh fired,
+            # step 1 of _span_needs_remint() already compared both boundaries against the
+            # current inputs on this SAME sweep, so recording here claims only what this
+            # sweep just proved.
             _record_sub_night_provenance(event, _sub_night_provenance_token(run))
         else:
             event, action = update_calendar_event_key_and_fields(existing, url, fields)
             _link_event_to_run(event, run)
+            if refresh_dark_window:
+                # T-35-24-02: the plain-update path's one exception to "provenance is
+                # recorded on the create path only" -- see the comment on the create
+                # branch's own call above for why this is sound.
+                _record_sub_night_provenance(event, _sub_night_provenance_token(run))
         totals[action] += 1
 
     totals['blocked'] += _sync_observation_attribution(run, dry_run=dry_run)
