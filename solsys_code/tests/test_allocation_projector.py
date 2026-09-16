@@ -1738,3 +1738,71 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         self.assertEqual(
             event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
         )
+
+
+class TestRemintAtomicity(AllocationProjectorTestBase):
+    """35-REVIEW.md iteration 8, CR-03 (plan 35-20): the re-mint branch deleted before it
+    could fail -- `existing.delete()` ran, and only then `_mint_fields()` ->
+    `night_bounds()` -> `_raise_if_inverted()` raised for an inverted span, leaving the
+    night gone and the caller with an exception instead of the event (probe 6). Two
+    separate mechanisms close it: `_mint_fields()` now runs BEFORE `existing.delete()`
+    (this class's first test), and the delete/create/link/record-provenance group is
+    wrapped in `transaction.atomic()` (this class's second test, for a failure landing
+    strictly between the delete and the create). A single test cannot tell which
+    mechanism saved the night, so each gets its own."""
+
+    def test_compute_before_destroy_leaves_the_event_in_place_on_an_inverted_span(self):
+        """Probe 6 (35-REVIEW.md): `PROBE6 exists after = False` before this fix. Reuses
+        the exact fixture `TestSubNightWindowSiteDirection.
+        test_dry_run_of_a_remint_inverted_window_also_raises` uses to reproduce a
+        re-mint-inverted span for this site: mint a valid night, then edit the run's
+        sub-night pair to one that both needs re-minting and resolves inverted."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+
+        run.night_start_utc = time(9, 0)
+        run.night_end_utc = time(23, 0)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+
+    def test_a_failure_between_the_delete_and_the_create_rolls_back(self):
+        """A raise landing strictly between `existing.delete()` and the create call must
+        also leave the event in place. Django's `TestCase` already wraps each test in a
+        transaction, so `transaction.atomic()` here is a savepoint and this is a savepoint
+        rollback -- catching the exception with `assertRaises` and then querying is valid
+        and does not raise `TransactionManagementError`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        with patch(
+            'solsys_code.allocation_projector.insert_or_create_calendar_event',
+            side_effect=RuntimeError('boom'),
+        ):
+            with self.assertRaises(RuntimeError):
+                reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)

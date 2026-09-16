@@ -34,6 +34,7 @@ from datetime import timezone as dt_timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
 from django.db.models import Q
 from tom_calendar.models import CalendarEvent
 
@@ -962,13 +963,25 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                 # positive (PROBE-P1) and did not fix the original false negative (PROBE-P6).
                 _raise_if_set_window_inverted(run, night)
                 continue
-            existing.delete()
-            event, _action = insert_or_create_calendar_event({'url': url}, fields=_mint_fields(run, night))
-            _link_event_to_run(event, run)
-            # CR-01 (35-REVIEW.md iteration 7, plan 35-19): record what this re-mint's
-            # boundaries were minted from, so the next sweep's _span_needs_remint() can
-            # decide a future null-side change astropy-free.
-            _record_sub_night_provenance(event, _sub_night_provenance_token(run))
+            # CR-03 (35-REVIEW.md): compute BEFORE destroying. _mint_fields() reaches
+            # night_bounds() -> _raise_if_inverted(), so an inverted span raises HERE, with
+            # nothing deleted yet -- the reorder protects against a failure in the one
+            # movable failure point.
+            remint_fields = _mint_fields(run, night)
+            with transaction.atomic():
+                # CR-03: contain the rest. The wrap protects against a failure in the three
+                # write steps below, which cannot be moved ahead of the delete -- a failure
+                # anywhere in this block rolls the delete back, so no night is ever left with
+                # zero calendar events. Scoped to exactly this one night's delete/create pair
+                # and nothing wider (prohibition 7): a sweep over many runs still commits the
+                # runs and nights it has already finished when a later one raises.
+                existing.delete()
+                event, _action = insert_or_create_calendar_event({'url': url}, fields=remint_fields)
+                _link_event_to_run(event, run)
+                # CR-01 (35-REVIEW.md iteration 7, plan 35-19): record what this re-mint's
+                # boundaries were minted from, so the next sweep's _span_needs_remint() can
+                # decide a future null-side change astropy-free.
+                _record_sub_night_provenance(event, _sub_night_provenance_token(run))
             continue
 
         if existing is None:
