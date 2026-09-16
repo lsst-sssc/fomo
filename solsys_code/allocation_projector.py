@@ -644,9 +644,32 @@ def _span_needs_remint(run: CampaignRun, night, existing: CalendarEvent, *, dry_
        match by step 1 -- so the run's current token is now an established fact, recorded
        via :func:`_record_sub_night_provenance` (skipped only under ``dry_run``, so a
        preview and the real run still reach the identical decision), and False is returned.
-       Cost bound: at most one ``sun_event(kind='sun')`` call per unrecorded (or
-       trusted-but-repositioned) night, once ever -- once recorded, step 3 above decides
-       that night astropy-free forever after.
+       Cost bound, qualified honestly (WR-01/WR-07, 35-REVIEW.md iteration 9, plan 35-24):
+       "once ever" is true only when this branch's resolution is ALLOWED to record what it
+       proves, and that has two escapes, named here rather than left for a reader to
+       discover.
+
+       - A night whose re-mint is DECLINED (``_remint_decline_reason()`` returns non-None,
+         reported under ``remint_declined`` after plan 35-23's counter split) never
+         receives a token from the re-mint path, and THIS branch deliberately records
+         nothing on the stale path above (``return True`` before any write) -- so such a
+         night resolves once PER SWEEP, indefinitely, paying exactly one
+         ``sun_event(kind='sun')`` call and emitting both its warnings (this branch's
+         staleness warning and ``_remint_decline_reason``'s own) every time, never more.
+         This is accepted rather than fixed, for a stated reason: the repeated warning is
+         the standing report that a night a person confirmed disagrees with its run, and
+         the operator's remedy is in the runbook's ``remint_declined`` section. The
+         alternative was considered and rejected: recording a token for boundaries that
+         were not re-minted would claim a fact this sweep never proved -- the exact
+         false-provenance mistake round 2 was reverted for (see this function's own
+         module-level history).
+       - Under ``--dry_run``, this resolution repeats on EVERY invocation, because a
+         preview may not record what it proves (the ``if not dry_run:`` guard above).
+         This is WR-01, a separate, still-open finding -- NOT claimed fixed here.
+
+       Neither escape widens step 3's own bound above (component-wise, zero-astropy once
+       every component matches): both apply only to nights that reach THIS branch at all,
+       which step 3 already gates.
 
     Args:
         run: the ``CampaignRun`` being projected.
@@ -805,7 +828,13 @@ def _remint_decline_reason(run: CampaignRun, existing: CalendarEvent) -> str | N
        re-create, so it owes the row's contents a decision. ``is_verified`` is the
        production-reachable half of that companion-row state -- the one companion-row field
        neither admin surface lists in ``readonly_fields`` -- and the two link fields are
-       covered for the same reason at no extra cost.
+       covered for the same reason at no extra cost. WR-08 (35-REVIEW.md iteration 9, plan
+       35-24): setting ``is_verified`` False PERMANENTLY vetoes an automated correction of
+       this night's boundaries through this rule, while NOT vetoing the night being retired
+       when a linked observation places a block on it -- that is plan 35-23's separate
+       decision for the retirement branch (see the Cross-reference paragraph below).
+       ``CalendarEventMeta``'s own class docstring is where this field's full meaning --
+       both halves -- is now recorded for a reader who starts there instead of here.
 
     Performs reads only -- no ``.save()``, ``.update()``, ``.create()`` or ``.delete()`` runs
     here, so a dry-run preview may call this directly, the same contract
