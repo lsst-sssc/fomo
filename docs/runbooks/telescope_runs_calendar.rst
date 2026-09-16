@@ -1068,12 +1068,12 @@ The final summary line reports these counters -- ``would_create``/
 ``created``/``updated``/``unchanged`` for a real sweep, alongside ``runs``,
 ``skipped``, ``failed``, ``blocked``, ``skipped_nights``, either
 ``would_detach`` (``--dry-run``) or ``detached`` (a real sweep),
-``detach_declined``, and three allocation-handoff counters --
-``would_retire``/``retired``, ``would_rekey``/``rekeyed`` and
+``detach_declined``, ``remint_declined``, and three allocation-handoff
+counters -- ``would_retire``/``retired``, ``would_rekey``/``rekeyed`` and
 ``would_delete_legacy``/``legacy_deleted``::
 
-   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: 1, detach_declined: 0, would_retire: 0, would_rekey: 0, would_delete_legacy: 0
-   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1, detach_declined: 0, retired: 0, rekeyed: 0, legacy_deleted: 0
+   Done (dry run). runs: 19, would_create: 0, would_update: 0, would_leave_unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, would_detach: 1, detach_declined: 0, remint_declined: 0, would_retire: 0, would_rekey: 0, would_delete_legacy: 0
+   Done. runs: 19, created: 0, updated: 0, unchanged: 15, skipped: 4, failed: 0, blocked: 0, skipped_nights: 2, detached: 1, detach_declined: 0, remint_declined: 0, retired: 0, rekeyed: 0, legacy_deleted: 0
 
 ``retired`` counts an allocation night removed from the calendar for any of
 five reasons (35-REVIEW.md NF-07): (1) a run's linked ``ObservationRecord``
@@ -1084,22 +1084,58 @@ the night on the next reconcile (this is the ONLY one of the five reasons
 that "unlink to restore" sentence applies to); (2) a boundary-affecting
 field changed since the night was last minted -- either a sub-night window
 field (the run's own dawn/dusk or dark-window overrides), or a correction
-to the run's ``site`` (see "Can I correct a run's source?" above) -- so the
-night is deleted and re-created fresh, at the corrected site's real
-sunset/sunrise, rather than edited in place; (3) the night no longer falls
-inside the run's window at all -- a window shrink, or a re-classification
-that moves the run off the per-night allocation branch entirely; (4), after
-this change (35-REVIEW.md NF-01), a leftover night whose companion row was
-deleted outright or had its ``run`` cleared -- previously left on the
-calendar forever with no counter moved, now removed and counted here like
-every other unneeded night; or (5) a one-time provenance audit: a night
-minted before this release, or carried across by the re-key path, whose
-recorded mint inputs are absent or were recorded in a pre-release format is
-resolved once against the computed sun event, and re-minted when the
-stored boundary disagrees by more than one minute. This happens at most
-once per night -- the same night reports ``unchanged`` on every sweep after
-it, because the resolution records a current-format provenance token the
-first time it runs.
+to the run's ``site`` (see "Can I correct a run's source?" above). What a
+site correction does to an already-minted night now depends on whether the
+run's sub-night window is set: a run whose ``night_start_utc``/
+``night_end_utc`` are empty or only half-set has the night deleted and
+re-created fresh, at the corrected site's real sunset/sunrise, exactly as
+this reason has always described; a run with BOTH fields set has its
+boundaries pinned by those fields, so a same-timezone site correction
+changes only the dark-window line in the event's description (refreshed
+automatically on the next sweep -- see the paragraph on correcting a
+site's own definition, below) and nothing is retired for that night; and a
+correction that moves such a run to a site in a different timezone makes
+the whole run fail to reconcile instead -- reported
+``Run pk=N: reconcile failed (...) -- skipping``, with the night's existing
+event left untouched, because a sub-night window pinned to one site's
+night is not a valid window at a site in a different timezone. The remedy
+for that last case is to correct the run's sub-night window fields
+together with its ``site``, not the ``site`` alone; (3) the night no
+longer falls inside the run's window at all -- a window shrink, or a
+re-classification that moves the run off the per-night allocation branch
+entirely; (4), after this change (35-REVIEW.md NF-01), a leftover night
+whose companion row was deleted outright or had its ``run`` cleared --
+previously left on the calendar forever with no counter moved, now removed
+and counted here like every other unneeded night; or (5) a one-time
+provenance audit: a night minted before this release, or carried across by
+the re-key path, whose recorded mint inputs are absent or were recorded in
+a pre-release format is resolved once against the computed sun event, and
+re-minted when the stored boundary disagrees by more than one minute. This
+release repeats that audit a second time, for every night still carrying
+the PREVIOUS release's token format -- for the same reason, and with the
+same once-per-night bound -- and checks one more input the previous audit
+did not: the site's own stored position (latitude, longitude, altitude)
+and timezone, alongside the sub-night window and the site identity it
+already checked. This happens at most once per night -- the same night
+reports ``unchanged`` on every sweep after it, because the resolution
+records a current-format provenance token the first time it runs.
+
+**Correcting a site's own definition also re-mints, separately from
+correcting a run's** ``site``. Editing an ``Observatory`` row's latitude,
+longitude, altitude or timezone in the Django admin -- without touching any
+run's ``site`` field at all -- now re-mints every allocation night already
+projected at that site, on the next sweep, counted under ``retired`` and
+``created`` exactly like any other re-mint. Before this release such an
+edit was invisible to the sweep: a night's boundaries were computed once,
+at mint time, from whatever the site's position was that day, and nothing
+ever compared them against the site's *current* position again -- an
+operator correcting a mis-entered coordinate, for example, would see every
+night at that site keep reporting ``unchanged`` forever, silently wrong by
+up to fifteen hours. One case deliberately does not re-mint: a position
+correction too small to move the computed sunset or sunrise by more than a
+minute is recognised as within tolerance and reported ``unchanged``, the
+same tolerance reason (5) above already applies -- so a small position fix
+(rounding a coordinate, for instance) does not churn the calendar.
 
 ``rekeyed`` counts a night carried across from the old, retired
 ``RUN:{pk}:{date}`` key form into the current ``ALLOC:{pk}:{night}`` form,
@@ -1139,32 +1175,71 @@ note above). ``--dry-run``'s ``would_detach`` reports the same number a
 real sweep would detach -- the count is a pure read, so there is nothing
 stopping the preview from showing it.
 
-``detach_declined`` counts two things the sweep deliberately declined to
-do, because a person had already confirmed the attribution or the night
-otherwise carried real staff-set or observation state -- a human decision
+``detach_declined`` counts declines caused ONLY by a human confirmation --
+``confirmed_by`` on a night's companion row -- because a person's decision
 always outranks an automated sweep, and this counter exists so that fact
 is reported rather than left to look identical to "nothing to release".
+Two causes, both confirmation-caused:
+
 The first is a companion row the sweep did not RELEASE: a
 ``telescope_class``/``site`` correction moved the run out of the
 calendar-event family that row belongs to, but a staff member had already
 confirmed that row's attribution, so it is left alone rather than detached
 back into the attribution queue (see "What happens to an already-reconciled
 run's calendar events when you correct its ``telescope_class`` or ``site``"
-above). The second is a re-mint the sweep declined to PERFORM: an
-allocation night whose boundary would otherwise change (a sub-night window
-edit or a site correction, see ``retired`` above) instead carries a human
-confirmation, a real ``ObservationRecord``/``ObservationGroup`` link, or an
-unverified companion row -- destroying and re-creating that night would
-lose state a delete-and-re-create cannot preserve, so the sweep leaves the
-night exactly as it is and reports the decline here instead.
+above).
+
+The second, new this round: an allocation night the sweep did not DELETE
+when a linked ``ObservationRecord`` would otherwise have retired it (see
+``retired`` reason (1) above) -- because a staff member had already
+confirmed that night's companion row. A confirmed night now survives its
+own retirement instead of being deleted out from under the confirmation.
+The consequence an operator actually sees: the calendar shows BOTH the
+confirmed allocation night and the linked observation's own entry, on the
+same night, until someone clears the confirmation on that night's
+companion row and re-runs the sweep -- clearing it lets the retirement
+proceed on the next sweep, and the duplicate resolves down to the
+observation's entry alone.
 
 For a declined attribution release, there is nothing for an operator to
 do: it is a report that a human decision was respected. For a declined
-re-mint -- the second thing a non-zero ``detach_declined`` can now mean --
-the night keeps a boundary its run no longer declares, and there IS a
-remedy: clear the confirmation or the link on that night's companion row
-in the Django admin and re-run the sweep, or leave it as is and accept the
-stored boundary.
+retirement, there is a remedy if the duplicate is unwanted: clear the
+confirmation on that night's companion row in the Django admin and re-run
+the sweep, or leave it as is and accept the duplicate.
+
+``remint_declined`` counts a night whose boundaries would have changed --
+a re-mint that ``retired`` reason (2) above would otherwise have performed
+-- but which the sweep declined to delete and re-create, for any of three
+causes: a human confirmation (``confirmed_by``) on the night's companion
+row; a real ``ObservationRecord``/``ObservationGroup`` link on that row,
+whether or not it is confirmed; or an unverified companion row --
+``is_verified`` unchecked. This counter is deliberately separate from
+``detach_declined``: a re-mint decline destroys nothing and releases no
+attribution, so counting it there would tell an operator the wrong thing
+happened.
+
+A declined night ALSO counts under ``updated`` or ``unchanged`` on the
+same sweep -- deliberately, not a contradiction: its title, description
+and campaign label are still refreshed on the same sweep, because those
+are not the destructive half of a re-mint; only the boundary rewrite
+(start time, end time, primary key) is declined. This warning repeats on
+every sweep until the night is resolved one way or the other -- that is
+the standing report for a night the sweep is refusing to correct, not a
+fault.
+
+The third cause -- "an unverified companion row" -- comes from the
+``is_verified`` checkbox on ``CalendarEventMeta`` in the Django admin,
+whose label reads ``Whether the telescope label was live-verified against
+the LCO API (unchecking also vetoes an automated re-mint)``. Unchecking it
+permanently prevents the allocation projector from correcting that night's
+boundaries. It does NOT prevent that same night being retired when a
+linked observation places a block on it -- see ``detach_declined`` above
+for what protects a night from that.
+
+The remedy: clear the confirmation or the link, or check ``is_verified``
+to clear the unverified state, on that night's companion row in the
+Django admin and re-run the sweep -- or leave it and accept the stored
+boundary.
 
 **Post-upgrade deploy note.** After upgrading to a release carrying the
 provenance-audit behaviour described under ``retired`` reason (5) above,
@@ -1174,7 +1249,15 @@ regression -- every night minted before this release carries absent or
 pre-release-format mint inputs, and each one is resolved once against the
 real sun-event calculation. The same nights report ``unchanged`` on every
 sweep afterwards, because the audit records a current-format provenance
-token the first time it resolves a night.
+token the first time it resolves a night. This applies again to THIS
+release: every night still carrying the previous release's token format
+resolves once more, now also checking the site's own stored position and
+timezone, and a non-zero ``would_retire`` on nights nobody edited is again
+the expected one-time audit, not a regression. A non-zero
+``remint_declined`` on the same ``--dry-run`` is a different thing to
+read: nights carrying a confirmation, an observation link or an
+unverified companion row that the sweep will not correct on its own --
+see ``remint_declined`` above for the remedy.
 
 A per-run line accompanies each non-zero counter: a skipped-night line on
 stdout (normal, expected convergence, not a failure); a detached line on
