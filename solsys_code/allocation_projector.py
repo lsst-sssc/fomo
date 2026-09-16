@@ -1011,47 +1011,57 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                         run.pk,
                     )
                 totals['remint_declined'] += 1
-                # Load-bearing, not cosmetic: without this, the D-14 convergence step at the
-                # bottom of this function deletes the very night this guard just refused to
-                # delete.
-                active_urls.add(url)
+                # active_urls.add(url) is unnecessary here (IN-05, 35-REVIEW.md): the
+                # unconditional add a few lines above (this branch is only reachable after
+                # it) already covers this url -- a second add here would be exactly the kind
+                # of redundant no-op IN-05 removed.
+            else:
+                # D-13: a sub-night field change never rewrites start_time/end_time in place
+                # -- the night is deleted and re-created fresh, counted as retired + created,
+                # never updated. Both halves are skipped under dry_run (no sun_event() call
+                # either), so a dry-run preview and a real run agree on the same pair of
+                # counters.
+                totals['retired'] += 1
+                totals['created'] += 1
+                if dry_run:
+                    # NF-20/WR-01 (35-REVIEW.md, 35-VERIFICATION.md gap 1): both this branch
+                    # and the create branch below call the SAME two-argument guard. It raises
+                    # only for a set/set span; a half-null span here is left to the real run
+                    # to detect, exactly as it already is on the create branch, since round 2's
+                    # attempt to preview it via a stored-boundary fallback produced a false
+                    # positive (PROBE-P1) and did not fix the original false negative (PROBE-P6).
+                    _raise_if_set_window_inverted(run, night)
+                    continue
+                # CR-03 (35-REVIEW.md): compute BEFORE destroying. _mint_fields() reaches
+                # night_bounds() -> _raise_if_inverted(), so an inverted span raises HERE, with
+                # nothing deleted yet -- the reorder protects against a failure in the one
+                # movable failure point.
+                remint_fields = _mint_fields(run, night)
+                with transaction.atomic():
+                    # CR-03: contain the rest. The wrap protects against a failure in the
+                    # three write steps below, which cannot be moved ahead of the delete -- a
+                    # failure anywhere in this block rolls the delete back, so no night is
+                    # ever left with zero calendar events. Scoped to exactly this one night's
+                    # delete/create pair and nothing wider (prohibition 7): a sweep over many
+                    # runs still commits the runs and nights it has already finished when a
+                    # later one raises.
+                    existing.delete()
+                    event, _action = insert_or_create_calendar_event({'url': url}, fields=remint_fields)
+                    _link_event_to_run(event, run)
+                    # CR-01 (35-REVIEW.md iteration 7, plan 35-19): record what this re-mint's
+                    # boundaries were minted from, so the next sweep's _span_needs_remint()
+                    # can decide a future null-side change astropy-free.
+                    _record_sub_night_provenance(event, _sub_night_provenance_token(run))
                 continue
 
-            # D-13: a sub-night field change never rewrites start_time/end_time in place --
-            # the night is deleted and re-created fresh, counted as retired + created, never
-            # updated. Both halves are skipped under dry_run (no sun_event() call either),
-            # so a dry-run preview and a real run agree on the same pair of counters.
-            totals['retired'] += 1
-            totals['created'] += 1
-            if dry_run:
-                # NF-20/WR-01 (35-REVIEW.md, 35-VERIFICATION.md gap 1): both this branch and
-                # the create branch below call the SAME two-argument guard. It raises only
-                # for a set/set span; a half-null span here is left to the real run to
-                # detect, exactly as it already is on the create branch, since round 2's
-                # attempt to preview it via a stored-boundary fallback produced a false
-                # positive (PROBE-P1) and did not fix the original false negative (PROBE-P6).
-                _raise_if_set_window_inverted(run, night)
-                continue
-            # CR-03 (35-REVIEW.md): compute BEFORE destroying. _mint_fields() reaches
-            # night_bounds() -> _raise_if_inverted(), so an inverted span raises HERE, with
-            # nothing deleted yet -- the reorder protects against a failure in the one
-            # movable failure point.
-            remint_fields = _mint_fields(run, night)
-            with transaction.atomic():
-                # CR-03: contain the rest. The wrap protects against a failure in the three
-                # write steps below, which cannot be moved ahead of the delete -- a failure
-                # anywhere in this block rolls the delete back, so no night is ever left with
-                # zero calendar events. Scoped to exactly this one night's delete/create pair
-                # and nothing wider (prohibition 7): a sweep over many runs still commits the
-                # runs and nights it has already finished when a later one raises.
-                existing.delete()
-                event, _action = insert_or_create_calendar_event({'url': url}, fields=remint_fields)
-                _link_event_to_run(event, run)
-                # CR-01 (35-REVIEW.md iteration 7, plan 35-19): record what this re-mint's
-                # boundaries were minted from, so the next sweep's _span_needs_remint() can
-                # decide a future null-side change astropy-free.
-                _record_sub_night_provenance(event, _sub_night_provenance_token(run))
-            continue
+        # CR-04 (35-REVIEW.md, plan 35-23): a declined re-mint falls through to here instead
+        # of `continue`-ing out of the loop. The decline refuses only the DESTRUCTIVE half
+        # (the delete/create pair and its boundary rewrite, handled above) -- the night still
+        # travels the ordinary update path below, which writes title/description/target_list
+        # and is how a staff mark_cancelled/mark_weather_failure action reaches an allocation
+        # night at all (allocation_night_description()'s own docstring). A declined night
+        # therefore reports remint_declined AND an updated/unchanged, deliberately, because
+        # two things happened to it in the same sweep.
 
         if existing is None:
             # WR-03 (35-REVIEW.md): `preview_calendar_event_action(None, fields)` always
