@@ -23,6 +23,7 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import observation_projector as op
 from solsys_code.allocation_projector import (
+    _DARK_WINDOW_PREFIX,
     _UNRECORDED_PROVENANCE_TOLERANCE,
     _sub_night_provenance_token,
     allocation_events,
@@ -2432,6 +2433,213 @@ class TestObservatoryCorrectionRemints(AllocationProjectorTestBase):
             idempotent_result = reconcile_run(run)
         mock_sun_event.assert_not_called()
         self.assertEqual(idempotent_result.unchanged, 1)
+
+
+class TestSetWindowSiteCorrection(AllocationProjectorTestBase):
+    """WR-05 (35-REVIEW.md iteration 9, plan 35-24): a fully-set sub-night pair pins both
+    boundaries at ``_span_needs_remint()``'s step 2, before the token is ever read -- so an
+    in-place ``Observatory`` correction never re-mints such a run's nights the way
+    `TestObservatoryCorrectionRemints` proves for a null/null run. Before this fix, the
+    boundaries stayed correctly pinned but the event's stored dark-window line kept the
+    PRE-correction site's numbers forever, silently -- covered by no existing test, since
+    every prior site test in this module uses the null/null fixture."""
+
+    def _apply_big_same_timezone_correction(self) -> None:
+        """Corrects the Chilean site's `lat`/`lon`/`altitude` in place to SAAO Sutherland's
+        real coordinates, keeping `America/Santiago` as the `timezone` -- large enough to
+        move `sun_event()` results by more than a rounding error (a sub-thousandth-degree
+        correction can shift a crossing time by a fraction of a second, which
+        `.replace(microsecond=0)` can then round back to an IDENTICAL isoformat string,
+        making a real dark-window change look like no change at all). Leaving `timezone`
+        untouched keeps `_night_span_utc()` -- and therefore a fully-set run's SET-field
+        boundary comparison in `_span_needs_remint()` step 1 -- unaffected by this
+        correction, isolating what these tests exercise from WR-05's separate
+        cross-timezone case (`test_a_set_window_moved_across_timezones_has_a_pinned_outcome`
+        below)."""
+        site = Observatory.objects.get(pk=self.chilean_site.pk)
+        site.lat = self.saao_site.lat
+        site.lon = self.saao_site.lon
+        site.altitude = self.saao_site.altitude
+        site.save()
+
+    def test_same_timezone_correction_on_a_set_window_run_refreshes_the_dark_window_line(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before, end_before = event_before.start_time, event_before.end_time
+        token_before = event_before.telescope_label_meta.minted_sub_night_window
+
+        self._apply_big_same_timezone_correction()
+        run = CampaignRun.objects.get(pk=run.pk)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+
+        corrected_site = Observatory.objects.get(pk=self.chilean_site.pk)
+        expected_dark_start, expected_dark_end = sun_event(corrected_site, night, kind='dark')
+        expected_dark_start_iso = (
+            expected_dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+        )
+        expected_dark_end_iso = (
+            expected_dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+        )
+        expected_line = f'{_DARK_WINDOW_PREFIX}{expected_dark_start_iso} to {expected_dark_end_iso}'
+        self.assertEqual(event_after.description.split('\n', 1)[0], expected_line)
+        token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertEqual(token_after, _sub_night_provenance_token(run))
+        self.assertNotEqual(token_after, token_before)
+
+    def test_idempotent_reconcile_after_the_refresh_makes_zero_sun_event_calls(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        self._apply_big_same_timezone_correction()
+        run = CampaignRun.objects.get(pk=run.pk)
+        reconcile_run(run)
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 1)
+        self.assertEqual(result.updated, 0)
+
+    def test_dry_run_parity_and_zero_astropy_cost_for_the_correction(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        self._apply_big_same_timezone_correction()
+        run = CampaignRun.objects.get(pk=run.pk)
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            dry_result = reconcile_run(run, dry_run=True)
+        mock_sun_event.assert_not_called()
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.unchanged, 0)
+
+        real_result = reconcile_run(run)
+        self.assertEqual(real_result.updated, dry_result.updated)
+        self.assertEqual(real_result.unchanged, dry_result.unchanged)
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
+
+    def test_preview_may_over_report_updated_by_one_on_a_site_correction(self):
+        """Deliberate accepted divergence, bounded to one count on exactly this
+        transition: when a site correction's position happens to produce an identical
+        dark window (here, a SWAP to a second `Observatory` row with byte-identical
+        position and timezone -- `site_id` differs so `_site_provenance_differs()` is
+        True, but the corrected `sun_event(kind='dark')` result is unchanged), the
+        preview cannot know the real write will be a no-op without paying the astropy
+        call it must not pay -- so it reports `updated` while the real run reports
+        `unchanged`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        twin_site = Observatory.objects.create(
+            obscode='8TW',
+            name='ESO, La Silla (twin fixture)',
+            short_name='NTT-twin',
+            lat=self.chilean_site.lat,
+            lon=self.chilean_site.lon,
+            altitude=self.chilean_site.altitude,
+            timezone=self.chilean_site.timezone,
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run.site = twin_site
+        run.site_raw = '8TW'
+        run.save(update_fields=['site', 'site_raw'])
+        run = CampaignRun.objects.get(pk=run.pk)
+
+        dry_result = reconcile_run(run, dry_run=True)
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.unchanged, 0)
+
+        real_result = reconcile_run(run)
+        self.assertEqual(real_result.unchanged, 1)
+        self.assertEqual(real_result.updated, 0)
+
+    def test_null_null_and_half_null_runs_never_take_the_refresh_path(self):
+        """Both shapes are decided by the token comparison alone (re-mint, here, since the
+        corrected position is far beyond the one-minute tolerance) -- neither ever reaches
+        the plain-update path's dark-window-refresh exception, because
+        `_span_needs_remint()` re-mints them itself before the plain-update path is ever
+        reached for this night in the same sweep. Uses the same non-timezone-crossing
+        correction as the set/set tests above -- WR-05's cross-timezone shape is this
+        class's own dedicated case below, not this one."""
+        night = date(2026, 7, 9)
+        run_null_null = self._make_run(window_start=night, window_end=night)
+        run_half_null = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=None
+        )
+        reconcile_run(run_null_null)
+        reconcile_run(run_half_null)
+
+        self._apply_big_same_timezone_correction()
+        run_null_null = CampaignRun.objects.get(pk=run_null_null.pk)
+        run_half_null = CampaignRun.objects.get(pk=run_half_null.pk)
+
+        result_nn = reconcile_run(run_null_null)
+        self.assertEqual(result_nn.retired, 1)
+        self.assertEqual(result_nn.created, 1)
+        self.assertEqual(result_nn.updated, 0)
+
+        result_hn = reconcile_run(run_half_null)
+        self.assertEqual(result_hn.retired, 1)
+        self.assertEqual(result_hn.created, 1)
+        self.assertEqual(result_hn.updated, 0)
+
+    def test_a_set_window_moved_across_timezones_has_a_pinned_outcome(self):
+        """Cross-timezone set/set case (35-REVIEW.md WR-05): moving a fully-set sub-night
+        window from La Silla (`America/Santiago`) to Siding Spring (`Australia/Sydney`)
+        resolves the same 23:00/05:00 UTC time-of-day fields against a DIFFERENT
+        observing-night UTC span. For this fixture the resolved span INVERTS -- both
+        boundaries resolve onto the same UTC date, with the resolved end before the
+        resolved start -- matching the review's own hand-trace, run and pinned here
+        rather than assumed.
+
+        `night_bounds()`'s inversion guard therefore raises, from inside `_mint_fields()`,
+        called BEFORE `existing.delete()` in the re-mint branch (plan 35-20's CR-03
+        compute-before-destroy ordering) -- so the failed reconcile leaves the night's
+        existing event intact rather than destroyed.
+
+        Operator remedy, stated in `_span_needs_remint()`'s own step-2 docstring
+        paragraph: a sub-night window pinned to one site's night is not portable to
+        another site's timezone, so `night_start_utc`/`night_end_utc` must be corrected
+        together with the site."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.pk, pk_before)
 
 
 class TestProvenanceTokenFormat(AllocationProjectorTestBase):
