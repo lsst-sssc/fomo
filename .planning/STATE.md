@@ -5,11 +5,11 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: "Completed 35-25-PLAN.md (gap-closure round 6: paired docs for CR-04/CR-05/WR-05/WR-06/WR-08 and the escalated decision)"
-last_updated: "2026-09-16T18:58:28.739Z"
+stopped_at: Phase 35 gap-closure round 6 executed (35-23..35-25); verifier human_needed (UAT tests 5-6), code review iteration 10 CR-01 open
+last_updated: "2026-09-16T19:20:53.538Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 execution started
-state_head: 6f2f29d9abbf1553085a7444608a10a9485fc9d3
+state_head: cd30d1ed68fc141d4c0ee24d86ce74d22dff9f31
 progress:
   total_phases: 5
   completed_phases: 34
@@ -437,9 +437,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-16T18:58:28.664Z
-Stopped at: Completed 35-25-PLAN.md (gap-closure round 6: paired docs for CR-04/CR-05/WR-05/WR-06/WR-08 and the escalated decision)
-Resume file: None
+Last session: 2026-09-16T19:20:53.453Z
+Stopped at: Phase 35 gap-closure round 6 executed (35-23..35-25); verifier human_needed (UAT tests 5-6), code review iteration 10 CR-01 open
+Resume file: .planning/phases/35-allocation-layer-classical-cutover/35-UAT.md
 
 ## Operator Next Steps
 
