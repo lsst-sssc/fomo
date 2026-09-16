@@ -16,7 +16,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 from tom_calendar.models import CalendarEvent
-from tom_observations.models import ObservationRecord
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
@@ -1738,6 +1738,160 @@ class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
         self.assertEqual(
             event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
         )
+
+    def test_staff_state_is_verified_false_declines_the_remint(self):
+        """Probe 9 (35-REVIEW.md): `PROBE9 new meta observation_record= None is_verified=
+        True` was the destroyed row's replacement, before this fix. `is_verified` is the
+        production-reachable half of this companion-row state -- the one field neither
+        admin surface lists in `readonly_fields`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        CalendarEventMeta.objects.filter(event=event_before).update(is_verified=False)
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.detach_declined, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertFalse(CalendarEventMeta.objects.get(event=event_after).is_verified)
+
+    def test_staff_state_observation_record_link_declines_the_remint(self):
+        """Probe 9's other sibling: a companion row carrying an `observation_record` link
+        declines the re-mint too."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'obs-owner-{uuid4().hex[:8]}')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility='LCO',
+            observation_id=f'obs-{uuid4().hex[:8]}',
+            status='COMPLETED',
+            parameters={'proposal': 'TEST'},
+        )
+        CalendarEventMeta.objects.filter(event=event_before).update(observation_record=record)
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.detach_declined, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event_after).observation_record_id, record.pk)
+
+    def test_staff_state_observation_group_link_declines_the_remint(self):
+        """Probe 9's third sibling: a companion row carrying an `observation_group` link
+        declines the re-mint too."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        group = ObservationGroup.objects.create(name='remint-guard-group')
+        CalendarEventMeta.objects.filter(event=event_before).update(observation_group=group)
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.detach_declined, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event_after).observation_group_id, group.pk)
+
+    def test_dry_run_parity_for_a_declined_night(self):
+        """Decision parity between a dry-run preview and the real pass -- the property this
+        phase has broken four times -- must hold for a declined re-mint too: the same
+        counter triple, and a completely untouched event and companion row."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='dry-run-parity-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.detach_declined, 1)
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.created, 0)
+        event_after_dry_run = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry_run.pk, pk_before)
+        self.assertEqual(event_after_dry_run.start_time, start_before)
+        self.assertEqual(event_after_dry_run.end_time, end_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event_after_dry_run).confirmed_by_id, staff_user.pk)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.detach_declined, dry_result.detach_declined)
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
+
+    def test_confirmed_night_with_unrecorded_provenance_and_stale_boundary_is_declined(self):
+        """The 35-19 unrecorded-provenance branch (`_span_needs_remint()`'s legacy path)
+        and this guard interact correctly: a confirmed night whose provenance was never
+        recorded, and whose stored boundary sits far outside the one-minute tolerance,
+        reaches `_span_needs_remint()`'s legacy branch, returns True (genuinely stale) --
+        and is then DECLINED by this guard rather than destroyed."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='unrecorded-provenance-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now(), minted_sub_night_window=None
+        )
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.detach_declined, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
 
 
 class TestRemintAtomicity(AllocationProjectorTestBase):
