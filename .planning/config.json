@@ -48,7 +48,9 @@
     "security_block_on": "high",
     "_auto_chain_active": false,
     "use_worktrees": true,
-    "ui_review": true
+    "ui_review": true,
+    "test_command": "LABELS=$(ls solsys_code/tests/test_*.py solsys_code/solsys_code_observatory/tests/test_*.py | grep -v \"tests/test_views\\.py$\" | sed \"s|/|.|g; s|\\.py\\$||\" | tr \"\\n\" \" \"); python manage.py test $LABELS && python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex solsys_code.tests.test_views.TestJPLSBDBQuery",
+    "test_gate_timeout": 1500
   },
   "ship": {
     "pr_body_sections": [
