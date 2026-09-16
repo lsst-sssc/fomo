@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 24/25 plans executed — 22 executed, 3 pending (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans executed 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6; 1 round-4 BLOCKER-only gap-closure plan executed 2026-09-15 from the fourth `gaps_found` pass + 35-REVIEW.md iteration 7 CR-01; 3 round-5 gap-closure plans executed 2026-09-15 from 35-REVIEW.md iteration 8's three criticals; 3 round-6 gap-closure plans added 2026-09-16 from 35-REVIEW.md iteration 9's two criticals plus the round-5 verifier escalation the user decided to fix — 22 executed, 3 pending)
+**Plans:** 25/25 plans executed — 22 executed, 3 pending (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans executed 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6; 1 round-4 BLOCKER-only gap-closure plan executed 2026-09-15 from the fourth `gaps_found` pass + 35-REVIEW.md iteration 7 CR-01; 3 round-5 gap-closure plans executed 2026-09-15 from 35-REVIEW.md iteration 8's three criticals; 3 round-6 gap-closure plans added 2026-09-16 from 35-REVIEW.md iteration 9's two criticals plus the round-5 verifier escalation the user decided to fix — 22 executed, 3 pending)
 
 Plans:
 **Wave 1**
@@ -319,7 +319,7 @@ Plans:
 
 - [x] 35-23-PLAN.md — CR-04 + CR-05 + WR-06 + IN-05: decline only the destructive half of a re-mint so a declined night still gets its label refresh, guard the retirement branch's own allocation-night delete, and split `detach_declined` into two counters so each operator message is true (wave 1, tracer)
 - [x] 35-24-PLAN.md — The escalated site-correction decision + WR-05 + WR-07 + WR-08: the provenance token carries the site's position as a fingerprint (`v3`, column widened to 128, no data migration), a fingerprint-only difference resolves rather than re-mints, the fully-set sub-night case gets its dark-window line refreshed, and the declined-night cost bound is qualified and pinned (wave 2)
-- [ ] 35-25-PLAN.md — The round's paired docs for all four behaviour changes: seven runbook passages (the `remint_declined` counter, a three-case `retired` reason (2), a site-definition-correction paragraph, the narrowed `detach_declined`, the `is_verified` sentence and an extended deploy note) plus `reconcile_campaign_runs_demo.ipynb` re-executed with four new demos (wave 3)
+- [x] 35-25-PLAN.md — The round's paired docs for all four behaviour changes: seven runbook passages (the `remint_declined` counter, a three-case `retired` reason (2), a site-definition-correction paragraph, the narrowed `detach_declined`, the `is_verified` sentence and an extended deploy note) plus `reconcile_campaign_runs_demo.ipynb` re-executed with four new demos (wave 3)
 
 ### Phase 36: Unattended Operation
 
@@ -396,7 +396,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 24/25 | In Progress|  |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | In Progress|  |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 

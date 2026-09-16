@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: "Completed 35-24-PLAN.md (gap-closure: escalated decision, WR-05, WR-07, WR-08)"
-last_updated: "2026-09-16T18:32:42.231Z"
+stopped_at: "Completed 35-25-PLAN.md (gap-closure round 6: paired docs for CR-04/CR-05/WR-05/WR-06/WR-08 and the escalated decision)"
+last_updated: "2026-09-16T18:58:28.739Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 execution started
-state_head: e8ee1cecab72a2e96bd768942d048c2519dd9810
+state_head: 6f2f29d9abbf1553085a7444608a10a9485fc9d3
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 43
-  completed_plans: 42
-  percent: 98
+  completed_plans: 43
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 3 of 25
+Plan: 4 of 25
 Status: Ready to execute
 Last activity: 2026-09-16 — Phase 35 execution started
 
@@ -213,6 +213,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P22 | ~30min | 2 tasks | 2 files |
 | Phase 35 P23 | 85min | 3 tasks | 6 files |
 | Phase 35 P24 | 75min | 3 tasks | 4 files |
+| Phase 35 P25 | 90min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -333,6 +334,9 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-24: WR-05 closed -- a fully-set sub-night pair never re-mints on a site correction (step 2 short-circuit), so the plain-update path now refreshes only the dark-window line, bounded to one sun_event(kind='dark') call per night per correction and never in --dry-run.
 - [Phase 35]: 35-24: WR-07 qualified rather than fixed -- a declined-and-unrecorded night resolves once PER SWEEP (not once ever); WR-01's dry-run repetition stays separately open. WR-08 closed on the model and _remint_decline_reason(); the runbook half is plan 35-25's.
 - [Phase 35]: 35-24: the escalated decision (35-VERIFICATION.md HVR#1) closed via a v3 token carrying a site-position fingerprint (site_id + SHA-256 lat/lon/altitude/timezone digest) alongside site_id -- an in-place Observatory correction now re-mints instead of reading unchanged forever.
+- [Phase 35]: 35-25: extended the existing declined-re-mint notebook cell to also demonstrate CR-04's title-refresh property (same fixture, same save() call), rather than adding a duplicate cell pair
+- [Phase 35]: 35-25: seeded dedicated Observatory/CampaignRun rows for both the CR-05 retirement-guard demo and the escalated-decision (in-place site-definition correction) demo, to avoid conflating multiple corrections' before/after state on shared fixtures
+- [Phase 35]: 35-25 closes gap-closure round 6: the runbook's seven-passage counter-section rewrite and a re-executed reconcile_campaign_runs_demo.ipynb now describe and prove all four of this round's behaviour changes (CR-04, CR-05, WR-06 from plan 35-23; WR-05, WR-08 and the escalated decision from plan 35-24), discharging CLAUDE.md's paired-docs rule at round granularity
 
 ### Pending Todos
 
@@ -433,8 +437,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-16T18:32:23.442Z
-Stopped at: Completed 35-24-PLAN.md (gap-closure: escalated decision, WR-05, WR-07, WR-08)
+Last session: 2026-09-16T18:58:28.664Z
+Stopped at: Completed 35-25-PLAN.md (gap-closure round 6: paired docs for CR-04/CR-05/WR-05/WR-06/WR-08 and the escalated decision)
 Resume file: None
 
 ## Operator Next Steps
