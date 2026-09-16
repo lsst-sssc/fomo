@@ -6,6 +6,7 @@ ALLOC-03 (the observation handoff) and the D-09/D-10 dispatch seam in
 `CampaignReconcilerTestBase` in `test_campaign_reconciler.py`.
 """
 
+import inspect
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import patch
@@ -21,7 +22,12 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import observation_projector as op
-from solsys_code.allocation_projector import allocation_events, night_bounds
+from solsys_code.allocation_projector import (
+    _UNRECORDED_PROVENANCE_TOLERANCE,
+    _sub_night_provenance_token,
+    allocation_events,
+    night_bounds,
+)
 from solsys_code.campaign_reconciler import event_description, owned_events, reconcile_run
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -1604,7 +1610,14 @@ class TestUnrecordedProvenanceNight(AllocationProjectorTestBase):
         self.assertEqual(event_after.pk, pk_before)
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
-        self.assertEqual(event_after.telescope_label_meta.minted_sub_night_window, 'none|none')
+        # CR-02 (35-REVIEW.md iteration 8, plan 35-21) Rule 1 deviation: the legacy
+        # resolution branch now records a CURRENT-format token (version + site + sub-night
+        # pair) rather than the pre-CR-02 sub-night-pair-only literal `'none|none'` this
+        # assertion hardcoded. Asserting against the live `_sub_night_provenance_token(run)`
+        # instead of a hardcoded literal is what the codebase already does elsewhere for
+        # exactly this reason (e.g. `night_bounds()` comparisons) -- the two can never drift
+        # apart again, whatever the token format becomes next.
+        self.assertEqual(event_after.telescope_label_meta.minted_sub_night_window, _sub_night_provenance_token(run))
 
         with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
             reconcile_run(run)
@@ -2008,3 +2021,235 @@ class TestSiteChangeRemints(AllocationProjectorTestBase):
         recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
         self.assertTrue(recorded_token_after.startswith('v2|'))
         self.assertNotEqual(recorded_token_after, recorded_token_before)
+
+
+class TestProvenanceTokenFormat(AllocationProjectorTestBase):
+    """Pins CR-02's format contract (35-REVIEW.md iteration 8, plan 35-21, and IN-02's
+    widening/bound): three groups of cases, each named for what it pins. Group 1 --
+    `NULL`, `''` and a pre-release token all read as unrecorded and take the identical
+    bounded resolution branch. Group 2 -- the tolerance boundary, pinned on both sides, so a
+    later change from `>` to `>=` cannot pass silently. Group 3 -- the widened column is
+    wide enough for the worst-case token, proven against the model field's own declared
+    `max_length` rather than assumed, because SQLite does not enforce `max_length` and a
+    regression here would surface only on the PostgreSQL deployment CLAUDE.md names as the
+    production target (35-REVIEW.md IN-02)."""
+
+    def _clear_provenance(self, event: CalendarEvent) -> None:
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=None)
+
+    # -- Group 1: every empty-ish provenance value reads as unrecorded -----------------
+
+    def test_null_token_reads_as_unrecorded_and_resolves_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=None)
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v2|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_empty_string_token_reads_as_unrecorded_and_resolves_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window='')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v2|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_pre_release_token_reads_as_unrecorded_and_resolves_once(self):
+        """The literal form 35-19 wrote: two sub-night sides joined by `|`, no version
+        marker -- exactly what an existing row minted before CR-02 shipped carries."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window='none|none')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v2|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    # -- Group 2: the tolerance boundary, both sides ------------------------------------
+
+    def _displaced_start(self, run: CampaignRun, night, displacement: timedelta):
+        """Mint a correct night, then directly displace the stored `start_time` by
+        `displacement` and clear provenance -- simulating a legacy night whose stored
+        boundary disagrees with the true sun event by exactly `displacement`."""
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        expected_start = expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        displaced_start = expected_start + displacement
+        CalendarEvent.objects.filter(pk=event.pk).update(start_time=displaced_start)
+        self._clear_provenance(event)
+        return event.pk, expected_start, displaced_start
+
+    def test_a_boundary_exactly_equal_to_the_sun_event_resolves_as_correct(self):
+        """The zero-displacement control: an exact match must never re-mint."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        pk_before, expected_start, displaced_start = self._displaced_start(run, night, timedelta(0))
+        self.assertEqual(expected_start, displaced_start)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, expected_start)
+
+    def test_a_boundary_exactly_at_the_tolerance_resolves_as_correct(self):
+        """The comparison is strictly greater-than: a boundary sitting exactly at
+        `_UNRECORDED_PROVENANCE_TOLERANCE` must still resolve as correct, not re-mint. A
+        later change from `>` to `>=` would flip this test, which is the point of pinning
+        it -- that change would otherwise pass silently."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        pk_before, _expected_start, displaced_start = self._displaced_start(
+            run, night, _UNRECORDED_PROVENANCE_TOLERANCE
+        )
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, displaced_start)
+
+    def test_a_boundary_one_microsecond_beyond_the_tolerance_remints(self):
+        """One microsecond past the tolerance must re-mint -- pinning the other side of the
+        same boundary the previous test pins, so both directions of a `>`-to-`>=` regression
+        are caught."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        pk_before, expected_start, _displaced_start = self._displaced_start(
+            run, night, _UNRECORDED_PROVENANCE_TOLERANCE + timedelta(microseconds=1)
+        )
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, expected_start)
+
+    # -- Group 3: the column is wide enough, proven not assumed -------------------------
+
+    def test_worst_case_token_fits_within_the_declared_max_length(self):
+        """Builds the worst-case token directly -- a microsecond-valued sub-night pair and
+        a many-digit `site_id` -- without saving anything, since
+        `_sub_night_provenance_token()` is pure and reads only `run.site_id`,
+        `run.night_start_utc` and `run.night_end_utc`. Asserts against
+        `CalendarEventMeta._meta.get_field('minted_sub_night_window').max_length`, read off
+        the model field rather than hardcoded, so this assertion and the schema cannot drift
+        apart."""
+        worst_case_run = CampaignRun(
+            night_start_utc=time(23, 59, 59, 999999),
+            night_end_utc=time(0, 0, 0, 999999),
+        )
+        worst_case_run.site_id = 999999999
+
+        token = _sub_night_provenance_token(worst_case_run)
+
+        max_length = CalendarEventMeta._meta.get_field('minted_sub_night_window').max_length
+        self.assertLessEqual(len(token), max_length)
+
+
+class TestMintInputInvariant(AllocationProjectorTestBase):
+    """The assumption-delta invariant test (`<assumption_delta_decision>`, plan 35-21): the
+    recorded token must carry every input `_mint_fields()`'s boundary computation reads. As
+    of today that set is `night_start_utc`, `night_end_utc`, `site`, and the `night` the
+    event's own key already carries -- CR-02 (35-REVIEW.md iteration 8) promoted the
+    recorded fact from "the sub-night pair" to this full identity.
+
+    Rename trigger, recorded so it is not rediscovered: a THIRD boundary input entering
+    `_mint_fields()`'s boundary computation -- for example a per-run dark-window override or
+    a site-elevation correction feeding `sun_event()`. At that point rename the column
+    (still `minted_sub_night_window` today for historical reasons) rather than widening the
+    token a second time under a name that names one of three inputs.
+
+    Stated honestly as a limitation, not overclaimed: this test cannot detect a NEW input
+    nobody wrote a case for -- it only makes an existing omission visible to the next
+    person editing `_mint_fields()`. One case per recorded mint input today: the sub-night
+    pair and the site, walked here together as one named invariant rather than left implicit
+    across the two unrelated classes (`TestClearedSubNightFieldRemints`,
+    `TestSiteChangeRemints`) that each separately pin one of them."""
+
+    def test_changing_the_sub_night_pair_remints(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = time(23, 0)
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+
+    def test_changing_the_site_remints(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+
+    def test_the_token_functions_source_mentions_every_current_mint_input(self):
+        """A deliberately weak tripwire, not a proof -- see the class docstring: this only
+        checks the token function's SOURCE TEXT names the three FK/field inputs it must
+        carry, so a future edit that adds a fourth boundary input to `_mint_fields()`
+        without extending the token has a named test sitting next to the function it
+        changed."""
+        source = inspect.getsource(_sub_night_provenance_token)
+        self.assertIn('run.site_id', source)
+        self.assertIn('run.night_start_utc', source)
+        self.assertIn('run.night_end_utc', source)
