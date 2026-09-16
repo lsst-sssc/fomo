@@ -48,3 +48,16 @@ class CompareUtilsTests(SimpleTestCase):
             # With rounding to 6 decimals, frames should match under strict check
             res_round = compare_ades_with_csv(df, csv, float_decimals=6, rtol=0, atol=0)
             self.assertTrue(res_round['match'])
+
+    def test_string_columns_survive_csv_round_trip(self):
+        # The MPC ADES API returns every field as a string, so a CSV round-trip
+        # must not re-infer numeric-looking columns as floats and report a
+        # spurious mismatch ('11.46450' vs 11.4645, or None vs NaN).
+        df = pd.DataFrame({'dec': ['12.17347', '11.46450'], 'mag': ['19.8', None]})
+        with tempfile.TemporaryDirectory() as td:
+            csv = os.path.join(td, 'ades.csv')
+            df.to_csv(csv, index=False)
+
+            res = compare_ades_with_csv(df, csv)
+            self.assertTrue(res['match'], res.get('message'))
+            self.assertEqual(res['hash_ades'], res['hash_disk'])

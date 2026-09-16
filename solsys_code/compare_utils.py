@@ -41,11 +41,22 @@ def compare_ades_with_csv(
     - Column order and index are aligned to `ades_df` by default.
     - Use `rtol`/`atol` to control floating-point tolerance.
     """
-    disk_df = pd.read_csv(csv_path, index_col=index_col)
+    # The MPC ADES API returns every field as a string, so `ades_df` is all object
+    # dtype. Left to infer, `read_csv` would turn those back into float64 and the
+    # comparison would pit the string '12.17347' against the float 12.17347.
+    str_cols = [c for c in ades_df.columns if ades_df[c].dtype == object]
+    disk_df = pd.read_csv(csv_path, index_col=index_col, dtype=dict.fromkeys(str_cols, str))
 
     # Work on copies so we don't mutate caller data
     left = ades_df.copy()
     right = disk_df.copy()
+
+    # An empty CSV field reads back as NaN where the source frame holds None;
+    # pandas will stop treating those as equal in a future release.
+    for c in str_cols:
+        left[c] = left[c].where(left[c].notna(), None)
+        if c in right.columns:
+            right[c] = right[c].where(right[c].notna(), None)
 
     if align_columns:
         # Reindex columns to match `ades_df` order (missing columns become NaN)
