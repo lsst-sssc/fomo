@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
-current_phase_name: allocation-layer-classical-cutover
+current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: Completed 35-19-PLAN.md
-last_updated: "2026-09-16T06:06:28.842Z"
-last_activity: 2026-09-15
+stopped_at: Completed 35-20-PLAN.md
+last_updated: "2026-09-16T13:52:33.652Z"
+last_activity: 2026-09-16
 last_activity_desc: Phase 35 execution started
-state_head: 8ee77c3dc17ff3d2ced82a00f66a7330e8051dfd
+state_head: e000ae6c897d55cde060f04189b4e8493abd40e8
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 40
-  completed_plans: 37
-  percent: 93
+  completed_plans: 38
+  percent: 95
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (allocation-layer-classical-cutover) — READY TO EXECUTE
-Plan: 11 of 11
+Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
+Plan: 2 of 22
 Status: Ready to execute
-Last activity: 2026-09-15 — Completed 35-08-PLAN.md (NF-19 BLOCKER + NF-25/IN-01/IN-02 closed)
+Last activity: 2026-09-16 — Phase 35 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -208,6 +208,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P17 | 35min | 2 tasks | 4 files |
 | Phase 35 P18 | 35min | 3 tasks | 3 files |
 | Phase 35 P19 | 18min | 3 tasks | 6 files |
+| Phase 35 P20 | 65min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -317,6 +318,7 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: [Phase 35]: 35-18: narrowed the runbook's loader claim to the existing-run arm and added the brand-new-line's limitation, extended both duplicate_identity definitions with the second (database-claimant) cause, added a cutover 'Re-run gotcha' note, and regenerated both notebooks by re-execution against plans 35-16/35-17's fixes -- closing the third and intended-final gap-closure round for Phase 35.
 - [Phase 35]: [Phase 35]: 35-19: implemented the design_rationale's provenance-recording fix for CR-01 (minted_sub_night_window on CalendarEventMeta) instead of the review's naive per-sweep sun_event() call, which would have broken TestNoSunEventRecompute's D-13 astropy-budget pin.
 - [Phase 35]: [Phase 35]: 35-19: Rule 1 deviation -- rebuilt test_cutover_classical_allocations.py's TestCutoverSequenceContract convertible-group fixture with real sun_event()-derived boundaries; the shared round-hour convention sat outside CR-01's one-minute tolerance and the fix correctly re-minted it as a genuinely-stale legacy night.
+- [Phase 35]: [Phase 35]: 35-20: closed CR-01/CR-03 (35-REVIEW.md iteration 8) via _remint_decline_reason() (shared _clearable_declined_and_unattributed() rule plus a re-mint-local staff-state check on observation_record/observation_group/is_verified) and a compute-before-destroy + scoped transaction.atomic() reorder in the re-mint branch, per design_rationale's decline-not-preserve, no-foreign-arm design rather than the review's literal fix snippet.
 
 ### Pending Todos
 
@@ -417,8 +419,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-15T19:58:45.420Z
-Stopped at: Completed 35-19-PLAN.md
+Last session: 2026-09-16T13:52:26.533Z
+Stopped at: Completed 35-20-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
