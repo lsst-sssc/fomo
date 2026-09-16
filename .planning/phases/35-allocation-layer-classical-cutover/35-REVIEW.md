@@ -1,74 +1,80 @@
 ---
 phase: 35-allocation-layer-classical-cutover
-reviewed: 2026-09-15T21:40:00Z
+reviewed: 2026-09-16T16:30:00Z
 depth: deep
-iteration: 8
-diff_base: b9383b58c0ec2b80be991e18b90ca879724e641c
+iteration: 9
+diff_base: 61f0df04f275912a2ec28d84fd72270b872ba237
 files_reviewed: 6
 files_reviewed_list:
-  - solsys_code/admin.py
   - solsys_code/allocation_projector.py
-  - solsys_code/migrations/0019_calendareventmeta_minted_sub_night_window.py
   - solsys_code/models.py
+  - solsys_code/migrations/0020_alter_calendareventmeta_minted_sub_night_window.py
   - solsys_code/tests/test_allocation_projector.py
-  - solsys_code/tests/test_cutover_classical_allocations.py
+  - docs/runbooks/telescope_runs_calendar.rst
+  - docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb
 findings:
-  critical: 3
-  warning: 4
+  critical: 2
+  warning: 8
   info: 4
-  total: 11
+  total: 14
 status: issues_found
 ---
 
-# Phase 35: Code Review Report (iteration 8 — fourth gap-closure round)
+# Phase 35: Code Review Report (iteration 9 — fifth gap-closure round)
 
-**Reviewed:** 2026-09-15T21:40:00Z
+**Reviewed:** 2026-09-16T16:30:00Z
 **Depth:** deep
 **Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-**Iteration 7's CR-01 is genuinely closed.** Every claim in `35-19-SUMMARY.md` was
-re-verified against the real source and against a real Django test database, and all of them
-hold:
+**All three of iteration 8's criticals are genuinely closed**, verified line-by-line against
+the current source rather than against the SUMMARY claims:
 
-| Claim checked | Verdict |
+| Iteration-8 finding | Verdict |
 |---|---|
-| All three probe shapes (A both-cleared, B half-null's remaining field cleared, C one-of-two cleared) re-mint | **TRUE.** Reproduced independently, plus the **mirror of shape C** the tests do not cover (clearing `night_end_utc` instead of `night_start_utc`): `retired=1, created=1, unchanged=0`, new pk, token refreshed to `23:00:00\|none`, `start_time` preserved at the still-set boundary, `end_time` = the real `sun_event()` sunrise. |
-| `TestNoSunEventRecompute` exists unedited and still passes | **TRUE.** `git diff b9383b5..HEAD -- solsys_code/tests/test_allocation_projector.py \| grep -c '^-[^-]'` → **0 deletions**, purely additive. All three of its tests green. |
-| `minted_sub_night_window` is admin-readonly on both surfaces | **TRUE.** `CalendarEventMetaAdmin.readonly_fields` (`admin.py:335-341`) and `CalendarEventMetaInline.readonly_fields` (`admin.py:119-125`). No other `ModelForm` binds it. |
-| The unrecorded-provenance backfill is bounded to once-per-night-ever | **TRUE in real mode** (second reconcile makes 0 `sun_event()` calls), **FALSE under `--dry-run`** — see WR-01. |
-| The token is refreshed correctly on an unrelated re-mint, so a later genuine null-clear is still detected | **TRUE.** `23:00:00\|05:00:00` → window change → `22:00:00\|05:00:00` → clear → detected → `none\|05:00:00`, `start_time` = the real sunset. |
-| The `test_cutover_classical_allocations.py` Rule-1 deviation is legitimate | **Legitimate in mechanism, unverifiable in premise** — see WR-04. |
-| 212/212 across five modules, both ruff hooks, `makemigrations --check` clean | **TRUE.** Re-ran all three: 212 tests OK (113 s); `ruff` and `ruff-format` Passed; "No changes detected". |
+| **CR-01** (re-mint delete had no human-confirmation guard) | **CLOSED.** `_remint_decline_reason()` (`allocation_projector.py:598-649`) runs at `:987`, *before* either counter moves and before the `dry_run` short-circuit, and is a pure read (`_clearable_declined_and_unattributed()` + a companion-row staff-state check), so dry-run and real-run parity holds. Probe 8/probe 9's shapes are covered by seven tests. The deliberate divergences the plan recorded (no foreign-ownership arm; decline rather than preserve) both check out: `_may_write(existing, run)` at `:883` provably routes a foreign-owned night to `blocked` before `:987` is reached. |
+| **CR-02** (token omitted the site) | **CLOSED for every shape that reaches the token.** `_sub_night_provenance_token()` (`:443-446`) now emits `v2\|{site_id}\|{start}\|{end}`; `_span_needs_remint()` `:566` is a version-prefix test, so `None`, `''` and the pre-release `'none\|none'` form all correctly read as unrecorded and re-resolve once through the bounded legacy branch — no data migration, D-15 respected. Migration 0020 widens the column 32→64 and matches `models.py:130-132` exactly. Probe 1 (La Silla → Siding Spring) now re-mints. **But the token is never consulted at all for a run with BOTH sub-night fields set** — see WR-05. |
+| **CR-03** (delete before the failure point) | **CLOSED, both halves.** `_mint_fields()` is computed at `:1033`, before `existing.delete()` at `:1041`; the delete/create/link/record group is wrapped in `transaction.atomic()` at `:1034`, scoped to one night. Probe 6's shape and a mid-block `RuntimeError` each have their own test. There is still no outer transaction in `reconcile_run()` — correct, and consistent with the "a sweep still commits the nights it has already finished" rationale. |
 
-**But this round opened three new defects of its own, and the review scope has been too
-narrow for seven iterations to see one of them.** The provenance design correctly records
-*which sub-night pair* a night was minted from — and nothing else. The boundaries are a
-function of **(sub-night pair, site, night)**, so a site correction now reads as "nothing
-changed" forever (CR-02). Separately, the re-mint delete path — which this round *widens* to
-cover three new transition shapes plus every legacy night whose stored boundary drifts more
-than a minute — is the one delete path in this module that never received the
-human-confirmation guard CR-03/CR-04 added everywhere else (CR-01), and it deletes before it
-can fail (CR-03).
+Also closed: **IN-02** (column widened to 64, with a worst-case-token width test read off
+the model field rather than hardcoded) and **IN-04** (CLAUDE.md's pairing map now maps
+`allocation_projector.py` → `reconcile_campaign_runs_demo.ipynb`, and the notebook carries
+two new real, executed demos for CR-01 and CR-02). **WR-03** and **WR-04** are *partially*
+closed and are carried forward below with only their residue.
+
+**This round opened two new critical defects of its own, both in the same blind spot.** The
+guard 35-20 added is correct about *not destroying* the night, but it also stops the night
+being *refreshed* — a declined night's `title`/`description`/`target_list` are frozen
+forever, so a `mark_cancelled` never reaches it (CR-04). And after seven iterations of
+auditing delete paths one at a time, the one `ALLOC:`-event delete that still has **no**
+UAT-2026-09-09 Option B guard is the retirement branch's own `existing.delete()` at `:940`
+— the guard sitting eight lines above it protects only the *legacy* `RUN:` event, not the
+allocation night itself (CR-05). Iteration 8 asserted that branch was already guarded; it
+is not.
 
 ### Verification method
 
-- Re-read every file in scope in full, plus the call graph they depend on:
-  `campaign_reconciler._may_write()` / `_link_event_to_run()` /
-  `_clearable_declined_and_unattributed()`, `campaign_utils.UNLINK_CLEARED_FIELDS` /
-  `unlink_event_from_run()`, `campaign_views._resolve_site()` and the approve branch,
-  `management/commands/repair_stale_campaign_run_sites.py`,
-  `docs/runbooks/telescope_runs_calendar.rst`.
-- Wrote a throwaway probe module against `AllocationProjectorTestBase` (real migrated test
-  DB, real `Observatory` rows, real `sun_event()` calls), ran nine probes, then **deleted the
-  probe file** — `git status --short` confirms no source file was added or modified by this
-  review.
-- Re-ran the full five-module regression surface (212 tests, OK), both ruff hooks (Passed),
-  and `makemigrations --check --dry-run` (no drift).
-- Deferred items WR-01/WR-02/WR-03 from iteration 7 are recorded as `user_deferred:` in
-  `35-VERIFICATION.md` and are **deliberately not re-raised** here.
+- Re-read `allocation_projector.py` in full (1290 lines) plus every cross-module symbol it
+  depends on: `campaign_reconciler._may_write()`, `_clearable_and_declined()`,
+  `_clearable_declined_and_unattributed()`, `reconcile_run()`'s dispatch,
+  `management/commands/reconcile_campaign_runs.py`'s per-run loop and message block, and
+  `campaign_views._resolve_site()` / `_message_reconcile_side_effects()` /
+  `CalendarEventMetaAdmin.save_model()` / `get_readonly_fields()`.
+- Re-ran iteration 8's probes as traces against the new code: probe 1 (site change), probes
+  8/9 (confirmed + staff-state re-mint), probe 6 (inverted re-mint), probe 2/3 (dry-run cost
+  and dry-run raise).
+- Re-derived `_time_of_day_to_datetime()`'s candidate selection by hand for the Chile→Sydney
+  set/set case to establish exactly which site corrections step 1 catches and which it does
+  not (WR-05).
+- Checked the new tests for coverage holes by fixture shape: every site-change test and the
+  notebook's site-correction demo use `_make_run()`'s default **null/null** sub-night pair.
+- Read the notebook's stored outputs (real executed output, `execution_count` 1-20, no
+  placeholder cells) and the full runbook diff.
+- No file other than this REVIEW.md was written; no test suite was run (per instructions).
+- Iteration-7 deferrals recorded as `user_deferred:` in `35-VERIFICATION.md` are not
+  re-raised.
 
 ## Structural Findings (fallow)
 
@@ -78,421 +84,493 @@ No structural pre-pass was supplied with this review request.
 
 ## Critical Issues
 
-### CR-01: the re-mint delete path is the only delete path in this module with no human-confirmation guard — a re-mint silently destroys `confirmed_by`/`confirmed_at` and the `observation_record` link, and this round widens what reaches it
+### CR-04: a declined re-mint also declines the *non-destructive* refresh — the night's title, description and campaign are frozen forever, so `mark_cancelled` never reaches it
 
-**File:** `solsys_code/allocation_projector.py:863-886` (specifically `:879`)
+**File:** `solsys_code/allocation_projector.py:987-1012` (specifically the `continue` at
+`:1012`)
 
-**Issue:** Every other delete/detach path in this module applies the UAT-2026-09-09 "Option B
-— human outranks machine" rule via `_clearable_declined_and_unattributed()`:
+**Issue:** The new decline branch does not merely skip the delete/create pair — it
+`continue`s out of the per-night loop entirely, past the plain-update path at `:1077-1100`
+that writes `title`, `description` (with the preserved dark-window line) and `target_list`.
+Those three fields are not destructive rewrites and have nothing to do with the boundary
+change the guard is refusing; they are the mechanism by which a staff action reaches an
+allocation night at all. `allocation_night_description()`'s own docstring (`:151-169`) states
+this explicitly:
 
-- the retired branch (`:802-819`, added as CR-03 in an earlier iteration),
-- the final convergence step (`:952-969`, added as CR-04),
-- the legacy-takeover branch (`:841-848`, via `_may_write()`).
+> "reused deliberately so a staff ``mark_cancelled``/``mark_weather_failure`` action reaches
+> allocation nights the same way it reaches container events."
 
-The re-mint branch does not. `_span_needs_remint()` returns True and line 879 calls
-`existing.delete()` unconditionally. `CalendarEventMeta.event` is
-`OneToOneField(primary_key=True, on_delete=CASCADE)`, so the companion row goes with it —
-including `confirmed_by`, `confirmed_at`, `observation_record`, `observation_group` and
-`is_verified`. `_may_write()` does **not** cover this: a row confirmed to *this* run passes
-`_may_write()` (`meta.run_id == run.pk`), which is exactly the shape CR-03/CR-04 exist to
-protect.
+That property is now broken for any declined night. And the decline is not transient:
+nothing on this path records provenance, so `_span_needs_remint()` keeps returning True on
+every subsequent sweep, and the night is declined — and therefore skipped — again, forever.
 
-Reproduced against a real test DB (probe 8):
+Trace (all four steps are ordinary staff actions):
 
-```
-PROBE8 meta before: {'run_id': 1, 'confirmed_by_id': 2}
-PROBE8 result= ReconcileResult(created=1, ..., retired=1, ...)
-PROBE8 old event still exists? False
-PROBE8 old meta still exists? False
-PROBE8 new meta confirmed_by= None confirmed_at= None
-```
+1. Staff confirms an `ALLOC:` night's attribution (reachable via
+   `CalendarEventMetaAdmin.save_model()`, `admin.py:373+`, which stamps `confirmed_by` on a
+   run-link transition for any companion row), **or** sets `is_verified=False` on it (not in
+   either surface's `readonly_fields`).
+2. An operator corrects the run's `site`, or edits a sub-night window field →
+   `_span_needs_remint()` returns True.
+3. `_remint_decline_reason()` returns `'confirmed'`/`'staff_state'` → `detach_declined += 1`,
+   `continue`.
+4. The run is later marked CANCELLED. `allocation_night_title()` would now return
+   `'[CANCELLED] NTT EFOSC2'` — but the night is declined again at step 3 and the title is
+   never written. The calendar shows a cancelled run's night as an ordinary observing night,
+   indefinitely, and the sweep reports `created: 0, updated: 0, unchanged: 0` for it (the
+   notebook's own cell-37 output shows exactly that counter triple).
 
-and probe 9 (same run, `observation_record` + `is_verified=False` on the companion row):
+This is the same defect class iteration 7's CR-01 and iteration 8's CR-02 were rated
+Critical for — admin-reachable, silent, permanent stale calendar data — reintroduced one
+field over.
 
-```
-PROBE9 new meta observation_record= None is_verified= True
-```
-
-Both were staff facts. Both were destroyed by an automated sweep, with no warning log, no
-`detach_declined` counter, and `retired=1 / created=1` reported as ordinary work.
-
-This is pre-existing code, but **this round materially widens its reach**, which is why it
-now blocks: before 35-19 only a *changed SET* sub-night field could re-mint; after 35-19 the
-three cleared-to-null shapes re-mint too, **and** the new unrecorded-provenance branch
-(`:505-531`) re-mints any legacy night whose stored boundary sits more than a minute from the
-computed sun event — on the first sweep after deploy that is every existing `ALLOC:` night in
-the database, since migration 0019 leaves them all `NULL` (see WR-04).
-
-**Fix:** apply the same guard the retired branch already applies, before deleting:
+**Fix:** decline the destructive half only; fall through to the ordinary update path instead
+of `continue`ing. Replace the `continue` at `:1012` with a flag that skips the re-mint block
+and lets execution reach `:1077`:
 
 ```python
-if existing is not None and _span_needs_remint(run, night, existing, dry_run=dry_run):
-    deletable_ids, confirmed_declined = _clearable_declined_and_unattributed(
-        run, CalendarEvent.objects.filter(pk=existing.pk)
-    )
-    if not deletable_ids:
-        if confirmed_declined:
+decline_reason = _remint_decline_reason(run, existing)
+if decline_reason is not None:
+    ...                                   # existing logging
+    totals['detach_declined'] += 1
+    active_urls.add(url)
+    remint_declined = True                # do NOT continue
+else:
+    remint_declined = False
+
+if not remint_declined:
+    totals['retired'] += 1
+    ...                                   # the whole existing re-mint block
+    continue
+# falls through to the plain-update path: title/description/target_list only,
+# start_time/end_time untouched -- exactly what the decline promised to preserve.
+```
+
+Note the counter consequence to decide deliberately: with the fall-through, a declined night
+reports `detach_declined: 1` **and** `updated: 1`/`unchanged: 1`. That is more honest than
+today's "counted nowhere but `detach_declined`", but it must be stated in the runbook's
+counter section and pinned by a test (`test_declined_night_still_receives_a_cancelled_title`).
+
+---
+
+### CR-05: the retirement branch deletes the allocation night itself with no human-confirmation guard — the guard directly above it protects only the legacy `RUN:` event
+
+**File:** `solsys_code/allocation_projector.py:889-944` (specifically `:938-940`)
+
+**Issue:** Iteration 8's CR-01 listed "the retired branch (`:802-819`, added as CR-03 in an
+earlier iteration)" among the paths that already apply the UAT-2026-09-09 Option B rule.
+Re-reading the branch line by line shows that is false. The guard block at `:899-937`
+operates exclusively on `legacy_event` (the `RUN:{pk}:{night}` row) — its own comment says so
+("the legacy RUN:{pk}:{night} event this retirement would also delete gets the SAME two
+guards"). The allocation night itself is deleted unconditionally four lines later:
+
+```python
+if not dry_run:
+    if existing is not None:
+        existing.delete()          # <-- no _clearable_declined_and_unattributed() anywhere
+    if legacy_deletable:
+        legacy_event.delete()      # <-- guarded
+```
+
+The only gate `existing` passed is `_may_write(existing, run)` at `:883`, and `_may_write()`
+returns True for `meta.run_id == run.pk` **regardless of `confirmed_by`** — which is precisely
+the shape CR-03/CR-04 and this round's CR-01 exist to protect. `CalendarEventMeta.event` is
+`OneToOneField(primary_key=True, on_delete=CASCADE)` (`models.py:59-65`), so the delete takes
+`confirmed_by`, `confirmed_at`, `observation_record`, `observation_group` and `is_verified`
+with it, with no warning log, no `detach_declined`, and `retired: 1` reported as ordinary
+work.
+
+Reachability is the same two-step as CR-04's, and it is *easier* than the re-mint shape
+because it needs no boundary edit at all:
+
+1. Staff confirms the `ALLOC:` night's attribution on the standalone admin page
+   (`CalendarEventMetaAdmin.save_model()` stamps `confirmed_by`/`confirmed_at`).
+2. Anyone links an `ObservationRecord` with a placed/observed block on that night — which
+   also fires `receiver_on_run_observation_save()` (`:1159`) immediately, so no sweep is
+   needed. `night in retired` → the confirmed row is destroyed.
+
+The module is internally inconsistent about this exact decision: the D-14 convergence step
+(`:1114-1131`) declines a confirmed delete for a **window shrink** — a night equally
+"genuinely going away" — and has two dedicated tests
+(`TestFinalConvergenceGuard.test_window_shrink_never_deletes_a_night_human_confirmed_to_this_run`).
+The retirement branch has one test, `TestRetirePathLegacyEventGuard`, and it asserts only
+about `legacy_event`. No test anywhere confirms an `ALLOC:` night and then retires it.
+
+**Fix:** apply the same two-way split the re-mint branch just received, to `existing` itself:
+
+```python
+if night in retired:
+    retired_urls.add(url)
+    ...                                    # existing legacy_event guard block, unchanged
+    existing_deletable = True
+    if existing is not None:
+        deletable_ids, confirmed_declined = _clearable_declined_and_unattributed(
+            run, CalendarEvent.objects.filter(pk=existing.pk)
+        )
+        if existing.pk not in deletable_ids:
             logger.warning(
-                'Allocation re-mint declined: night pk=%s is human-confirmed to run '
-                'pk=%s -- an automated re-mint never destroys it.',
-                existing.pk,
-                run.pk,
+                'Allocation retire declined: night pk=%s is human-confirmed to run pk=%s '
+                '-- an automated retirement never destroys it.', existing.pk, run.pk,
             )
             totals['detach_declined'] += 1
-        active_urls.add(url)
-        continue
-    totals['retired'] += 1
-    totals['created'] += 1
-    ...
+            existing_deletable = False
+            active_urls.add(url)           # keep D-14 convergence off it
+    if not dry_run:
+        if existing is not None and existing_deletable:
+            existing.delete()
+        if legacy_deletable:
+            legacy_event.delete()
+    if existing_deletable:
+        totals['retired'] += 1
+    continue
 ```
 
-(If a confirmed night genuinely must be re-minted, the alternative is to preserve the
-companion row across the delete/create rather than to skip — but silently discarding a human
-stamp is not an option either way.)
-
----
-
-### CR-02: the provenance token omits the site, so a site correction on an already-projected run is now permanently invisible — the same silent-stale-calendar defect class as iteration 7's CR-01
-
-**File:** `solsys_code/allocation_projector.py:382-402` (`_sub_night_provenance_token`),
-`:496-503` (the decision that consumes it)
-
-**Issue:** An allocation night's boundaries are a function of three inputs —
-`(run.night_start_utc, run.night_end_utc)`, `run.site`, and `night` —
-because `_mint_fields()` computes them via `sun_event(run.site, night, kind='sun')`
-(`:545`). The token records only the first. So once provenance is recorded, changing
-`run.site` produces no comparison that can detect it: both SET-field comparisons are skipped
-(null/null), step 2 is skipped, and step 3 finds `'none|none' == 'none|none'` → `False`,
-astropy-free, forever.
-
-Reproduced against a real test DB (probe 1), moving a run from La Silla (`America/Santiago`)
-to Siding Spring (`Australia/Sydney`) after one reconcile:
-
-```
-PROBE1 token= none|none
-PROBE1 chile start/end= 2026-07-09 22:06:35+00:00 2026-07-10 11:29:46+00:00
-PROBE1 sun_event calls after site change = 0
-PROBE1 result = ReconcileResult(created=0, updated=0, unchanged=1, ..., retired=0, ...)
-PROBE1 after start/end= 2026-07-09 22:06:35+00:00 2026-07-10 11:29:46+00:00
-PROBE1 TRUE Siding Spring sunset/sunrise= 2026-07-09 07:20:39+00:00 2026-07-09 20:57:12+00:00
-PROBE1 same pk? True
-```
-
-A ~15-hour error, reported as `unchanged`, permanently. Probe 1b proves the code *can* detect
-it — the same site change on a night whose provenance is **not** recorded goes through the
-new `:505-531` branch and correctly reports `retired=1, created=1`. It is the recorded token
-that masks it.
-
-This is reachable by two ordinary staff actions, not a contrived one:
-
-1. `CampaignRunAdmin` (`admin.py:149-176`) does **not** list `site` in `readonly_fields` —
-   only `approval_status` and (for web rows) `source`. A staff member correcting a
-   mis-resolved site in the admin lands here directly.
-2. `campaign_views._resolve_site()` (`campaign_views.py:651-694`) rewrites `run.site` on an
-   already-**APPROVED** run whenever the current site is a tier-3 placeholder, then calls
-   `reconcile_run(run)` at `:733`. A CSV-imported run approved with a placeholder site has
-   already had its nights projected against the placeholder's coordinates by the approve
-   branch's own `reconcile_run(run)` (`campaign_views.py:569`); the later real resolution now
-   leaves those placeholder-derived boundaries in place and reports `unchanged`.
-
-Iteration 7's CR-01 was raised for exactly this signature — "admin-reachable, silent,
-permanent stale data" — and this round shipped a fix that re-creates it one input over.
-
-**Fix:** make the token carry every input the mint depended on, and treat an old-format token
-as unrecorded so existing rows re-resolve once through the `:505-531` branch:
-
-```python
-_PROVENANCE_TOKEN_VERSION = 'v2'
-
-def _sub_night_provenance_token(run: CampaignRun) -> str:
-    start_token = run.night_start_utc.isoformat() if run.night_start_utc is not None else 'none'
-    end_token = run.night_end_utc.isoformat() if run.night_end_utc is not None else 'none'
-    return f'{_PROVENANCE_TOKEN_VERSION}|{run.site_id}|{start_token}|{end_token}'
-```
-
-and in `_span_needs_remint()`:
-
-```python
-if recorded_token is not None and recorded_token.startswith(f'{_PROVENANCE_TOKEN_VERSION}|'):
-    return recorded_token != _sub_night_provenance_token(run)
-```
-
-`models.CalendarEventMeta.minted_sub_night_window` is `max_length=32`, which the widened
-token overflows — bump it (a schema-only `AlterField`, same shape as migration 0019) and add
-a test pinning the worst-case token length. Update the field's own docstring
-(`models.py:38-47`) and `_sub_night_provenance_token`'s, both of which currently say the
-column records the sub-night pair alone.
-
----
-
-### CR-03: the real-run re-mint deletes the night *before* `_mint_fields()` can raise, so an inverted-window edit destroys the event and then fails — no transaction anywhere on this path
-
-**File:** `solsys_code/allocation_projector.py:879-880`
-
-**Issue:**
-
-```python
-existing.delete()
-event, _action = insert_or_create_calendar_event({'url': url}, fields=_mint_fields(run, night))
-```
-
-`_mint_fields()` calls `night_bounds()` (`:551`), which calls `_raise_if_inverted()` and
-raises `ValueError` for an inverted span (the CR-06 guard). The delete has already committed
-by then. There is **no** `transaction.atomic` in `allocation_projector.py`,
-`campaign_reconciler.py` or `management/commands/reconcile_campaign_runs.py`, and
-`ATOMIC_REQUESTS` is not set in `src/fomo/settings.py` — so this is a real, committed delete
-in production, not a rolled-back one.
-
-Reproduced against a real test DB (probe 6), editing an already-minted night's sub-night pair
-to an inverted pair:
-
-```
-PROBE6 exists before = True
-PROBE6 RAISED ValueError: Computed an inverted allocation-night span for run pk=1
-  night=2026-07-09: start=2026-07-09T23:30:00+00:00 >= end=2026-07-09T23:00:00+00:00.
-PROBE6 exists after = False
-```
-
-The night — and, per CR-01, its companion row's entire audit history — is gone, and the
-caller gets an exception instead of the event. `_raise_if_set_window_inverted()`'s dry-run
-guard does not protect this: it only fires if the operator happens to run `--dry-run` first,
-and for a **half-null** inverted pair the dry run is silent by design (iteration 7's WR-01,
-user-deferred), so the real run destroys the event with no prior warning at all. Both signal
-receivers (`:1034`, `:1115`) swallow the exception and log only `type(exc).__name__`, so a
-`CampaignRunObservation` save can reach this and leave no diagnosable trace.
-
-**Fix:** compute before destroying, and wrap the pair so a later failure cannot leave a hole:
-
-```python
-from django.db import transaction
-...
-fields = _mint_fields(run, night)       # may raise -- nothing has been deleted yet
-with transaction.atomic():
-    existing.delete()
-    event, _action = insert_or_create_calendar_event({'url': url}, fields=fields)
-    _link_event_to_run(event, run)
-    _record_sub_night_provenance(event, _sub_night_provenance_token(run))
-```
-
-Add a test asserting the event survives when `_mint_fields()` raises.
+Add `TestRetirePathAllocationEventGuard.test_retiring_a_night_never_deletes_a_human_confirmed_alloc_event`
+(confirm the `ALLOC:` companion row, then `_link_record()` a placed block on that night;
+assert the event and the stamp both survive, `retired == 0`, `detach_declined == 1`), plus a
+dry-run parity case. Decide and document whether `is_verified=False`/an
+`observation_record` link should also decline here (`_remint_decline_reason()`'s rule 2) or
+whether only `confirmed_by` applies — the re-mint branch and this branch answering that
+question differently is defensible, but it has to be stated, not left to the reader to infer
+from two different call sites.
 
 ## Warnings
 
-### WR-01: `--dry-run` now pays one `sun_event()` call per unrecorded night on *every* invocation, and the branch's own comment says the opposite
+### WR-01 (carried forward from iteration 8, unaddressed): `--dry-run` still pays one `sun_event()` call per unrecorded night on every invocation, and the branch comment still says the opposite
 
-**File:** `solsys_code/allocation_projector.py:867` (the comment), `:507` + `:529-530` (the
-behaviour), `:472-473` (the docstring's cost bound)
+**File:** `solsys_code/allocation_projector.py:1014-1017` (the comment), `:571` + `:593-594`
+(the behaviour), `:533-534` (the docstring's cost bound)
 
-**Issue:** The re-mint branch's inline comment reads:
+**Issue:** Verbatim unchanged this round. The comment still reads "Both halves are skipped
+under dry_run (no `sun_event()` call either), so a dry-run preview and a real run agree on
+the same pair of counters", while `_span_needs_remint(..., dry_run=True)` reaches `:571` and
+calls `sun_event()` for every unrecorded night, and `:593` deliberately skips the recording —
+so the next dry run pays the same cost again. The docstring's "at most one
+`sun_event(kind='sun')` call per unrecorded night, **once ever**" (`:533-534`) is still
+unqualified and still holds only in real mode. Now materially larger than in iteration 8: the
+version-prefix test (CR-02's fix) makes **every** pre-release token unrecorded too, so the
+first post-upgrade `--dry-run` pays this for every existing `ALLOC:` night, and pays it again
+on every repeat preview.
 
-> "Both halves are skipped under dry_run (no `sun_event()` call either), so a dry-run preview
-> and a real run agree on the same pair of counters."
-
-That is now false. `_span_needs_remint(..., dry_run=True)` reaches `:507` and calls
-`sun_event()` for every unrecorded night, and `:529` deliberately skips the recording — so
-nothing is ever learned and the next dry run pays the same cost again. The docstring's stated
-cost bound ("at most one `sun_event(kind='sun')` call per unrecorded night, **once ever**",
-`:472-473`) holds only in real mode.
-
-Reproduced (probe 2), five-night window, provenance cleared:
-
-```
-PROBE2 dry-run #1 sun_event calls = 5
-PROBE2 dry-run #2 sun_event calls = 5
-PROBE2 rows still unrecorded after 2 dry runs = 5
-```
-
-The skip-recording-under-dry-run choice is defensible (a preview must not write). The stale
-comment and the unqualified cost bound are not — they are the exact kind of
-docstring-diverged-from-code that this phase's iteration-7 CR-01 was found underneath.
-
-**Fix:** correct the comment at `:865-868` to say the re-mint *write* is skipped under
-`dry_run` while the unrecorded-provenance *resolution* still runs, and qualify the `:472-473`
-cost bound with "in real mode; a `--dry-run` preview repeats the call because it may not
-record what it proves". Optionally add a test pinning the per-dry-run call count so the claim
-cannot drift again.
+**Fix:** as in iteration 8 — correct the `:1014-1017` comment to say the re-mint *write* is
+skipped under `dry_run` while the unrecorded-provenance *resolution* still runs, qualify the
+`:533-534` bound with "in real mode; a `--dry-run` preview repeats the call because it may
+not record what it proves", and pin the per-dry-run call count with a test.
 
 ---
 
-### WR-02: a read-only `--dry-run` preview can now raise `sun_event()`'s `ValueError`, partially reintroducing the failure mode iteration 6's WR-03 closed
+### WR-02 (carried forward from iteration 8, unaddressed — with one correction to its original impact claim): a read-only `--dry-run` preview can still raise `sun_event()`'s `ValueError`
 
-**File:** `solsys_code/allocation_projector.py:507`; conflicting rationale at `:888-894`
+**File:** `solsys_code/allocation_projector.py:571`; conflicting rationale at `:1051-1071`
 
-**Issue:** The create branch carries a comment, written for WR-03, explaining why
-`_mint_fields()` must not be called under `dry_run`:
+**Issue:** Unchanged. The create branch still carries the WR-03 comment explaining why
+`_mint_fields()` must not be called under `dry_run` ("...could raise `sun_event()`'s own
+`ValueError` (e.g. a blank `Observatory.timezone`) on what the module's own docstring
+documents as a read-only preview"), while `:571` does exactly that on the legacy branch. The
+module contradicts itself in two comments 480 lines apart.
 
-> "...and could raise `sun_event()`'s own `ValueError` (e.g. a blank `Observatory.timezone`)
-> on what the module's own docstring documents as a read-only preview."
+**Correction to iteration 8's own text, made while re-verifying it:** WR-02 claimed "one bad
+`Observatory.timezone` now aborts the whole preview sweep for every run after it". That is
+**wrong** — `reconcile_campaign_runs.py:62-68` wraps each `reconcile_run()` call in a per-run
+`try/except Exception` that logs, writes `Run pk=N: reconcile failed (...) -- skipping` and
+increments `failed_count`. The blast radius is one run per bad site, not the sweep. The
+finding stands (a preview that used to complete now fails, and the staff `_resolve_site()`
+path at `campaign_views.py:724-733` swallows it into a generic "use Resolve to retry"
+message that can never succeed), but at reduced severity.
 
-The new `:507` call reintroduces exactly that on a different branch. Reproduced (probe 3):
-one already-minted night, provenance cleared, `Observatory.timezone` blanked:
+**Fix:** as in iteration 8 — either state the trade-off at `:571` and amend the `:1051-1071`
+comment, or degrade a preview to "cannot decide, report `unchanged`" on `ValueError` when
+`dry_run` is set.
 
-```
-PROBE3 dry run RAISED: ValueError ZoneInfo keys must be normalized relative paths, got:
-```
+---
 
-Before this round the same preview completed cleanly. `reconcile_campaign_runs` has no
-per-run `try/except` around this, so one bad `Observatory.timezone` now aborts the whole
-preview sweep for every run after it.
+### WR-03 (carried forward from iteration 8, partially closed): the `retired` enumeration and deploy note landed; the `rekeyed` paragraph's stability promise did not
 
-**Fix:** either state the trade-off explicitly at `:507` (and amend the `:888-894` comment so
-the module stops contradicting itself), or wrap the resolution so a preview degrades to
-"cannot decide, report `unchanged`" rather than raising:
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1104-1108`
+
+**Issue:** Plan 35-22 closed most of this: `retired` now enumerates five reasons
+(`:1079-1102`), the `detach_declined` paragraph describes both meanings (`:1142-1167`), and
+the post-upgrade deploy note WR-04(b) asked for is present (`:1169-1178`). Not closed: the
+`rekeyed` paragraph still tells operators
+
+> "``rekeyed`` counts a night carried across from the old, retired ``RUN:{pk}:{date}`` key
+> form into the current ``ALLOC:{pk}:{night}`` form, in place -- same primary key, same
+> start/end time, just re-keyed."
+
+The re-key path (`:967-979`) deliberately does **not** record provenance, so on the *next*
+sweep that same night enters `_span_needs_remint()`'s legacy branch (`:569-595`) and is
+re-minted — new primary key, new boundaries — whenever its carried-over boundary sits more
+than a minute from the computed sun event. The promise is true of the re-key itself and false
+one sweep later, which is exactly when an operator checks.
+
+**Fix:** append to that paragraph: *"The 'same primary key, same start/end time' guarantee
+covers the re-key itself. A re-keyed night carries no mint provenance, so the next sweep
+resolves it once under ``retired`` reason (5) and may re-mint it at the computed sun
+event — see the deploy note below."*
+
+---
+
+### WR-04 (carried forward from iteration 8, partially closed): the deploy note landed; the unverifiable premise and the odd-one-out fixture convention did not
+
+**File:** `solsys_code/allocation_projector.py:67-76` (`_UNRECORDED_PROVENANCE_TOLERANCE`),
+`solsys_code/tests/test_cutover_classical_allocations.py:434-454`
+
+**Issue:** Part (b) is done — the runbook's post-upgrade deploy note (`:1169-1178`) now tells
+operators to run `--dry-run` first and reads a non-zero `would_retire` as the one-time audit.
+Parts (a) and (c) are untouched: the constant's comment (`:67-76`) is byte-identical and
+still names no retired writer and no audit query an operator could run to check the premise
+before the sweep, and `_make_three_night_group()`'s round-hour convention is still the
+odd one out relative to the one test that was rebuilt around real `sun_event()`-derived
+boundaries. The premise remains uncheckable from the tree (`grep -rn 'sun_event'
+solsys_code/management/commands/` still returns nothing).
+
+**Fix:** as in iteration 8 — (a) name the retired writer and the release it belonged to in
+the constant's comment, or give the operator a one-off audit query; (c) either propagate the
+realistic boundaries into `_make_three_night_group()` or comment there why the round-hour
+convention is still acceptable for the ~30 tests that never run a sweep.
+
+---
+
+### WR-05: "a site correction re-mints" is false for a run with both sub-night fields set — step 2 returns before the token is ever read, and every test and the notebook demo use the null/null shape
+
+**File:** `solsys_code/allocation_projector.py:557-558`; claims at
+`docs/runbooks/telescope_runs_calendar.rst:1084-1090`, `35-21-PLAN.md:24`,
+`solsys_code/tests/test_allocation_projector.py:1997-2023` and `:2230-2244`
+
+**Issue:** `_span_needs_remint()` short-circuits before the provenance comparison whenever
+both sub-night fields are set:
 
 ```python
-try:
-    sunset, sunrise = sun_event(run.site, night, kind='sun')
-except ValueError:
-    if dry_run:
-        logger.warning(
-            'Allocation dry-run could not resolve unrecorded provenance for run pk=%s '
-            'night=%s (sun_event failed); previewing as unchanged.', run.pk, night,
-        )
-        return False
-    raise
+if run.night_start_utc is not None and run.night_end_utc is not None:
+    return False          # <-- the token, and therefore the site, is never consulted
 ```
 
+So CR-02's widened token governs only the null/null and half-null shapes. For a fully-set
+run, a site correction produces one of two outcomes, neither of them the documented one:
+
+- **Same timezone** (e.g. one Chilean site to another): `_night_span_utc()` is unchanged,
+  both step-1 comparisons match, `return False`. No re-mint, reported `unchanged`. The
+  operator-set boundaries are legitimately unchanged — but the event's **description keeps
+  the old site's `Dark window (-15 deg, UTC): ...` line forever**, because the plain-update
+  path reuses it verbatim via `preserved_dark_window_line()` (`:1078`). That line is the one
+  site-derived field on the update path, and nothing ever refreshes it.
+- **Different timezone** (the documented La Silla → Siding Spring case): I traced
+  `_time_of_day_to_datetime()` by hand for 23:00/05:00 moved from `America/Santiago` to
+  `Australia/Sydney` on 2026-07-09 — the end comparison flips (stored `07-10T05:00Z` vs.
+  newly resolved `07-09T05:00Z`), so step 1 returns True and the branch re-mints, but
+  `night_bounds()` then resolves `start=07-09T23:00Z >= end=07-09T05:00Z` and
+  `_raise_if_inverted()` raises. The run is reported `failed` by the command, and
+  `campaign_views._resolve_site()` (`:724-733`) catches it into "use Resolve to retry" —
+  a retry that can never succeed, with `site_needs_review` left set.
+
+Meanwhile the runbook now states the opposite as fact ("a correction to the run's ``site``
+... so the night is deleted and re-created fresh, at the corrected site's real
+sunset/sunrise"), and 35-21's own success criterion claims "re-mints **every one of its
+nights**". The gap is invisible to the test suite because `_make_run()` defaults
+`night_start_utc`/`night_end_utc` to null, and **both** site tests
+(`TestSiteChangeRemints`, `TestMintInputInvariant.test_changing_the_site_remints`) and the
+notebook's site-correction demo (cell 35, on `classical_run`) use that default. A classical
+run with a fixed `1130-0530` window — the very thing these fields exist for — is the untested
+shape.
+
+**Fix:** pick one and make the docs match:
+1. Refresh the dark-window line on the update path when the token's site component differs
+   (costs one `sun_event(kind='dark')` call on exactly that transition, not on an idempotent
+   sweep, so D-13 and `TestNoSunEventRecompute` are unaffected); or
+2. Let a site change re-mint even for a set/set run by moving the `:557-558` short-circuit
+   *after* the version/token comparison; or
+3. Document the limitation honestly in both the runbook and
+   `_span_needs_remint()`'s docstring step 2 ("a fully-set sub-night pair pins both
+   boundaries, so a site correction changes only the dark-window line, which is not
+   refreshed").
+In all three cases, add a set/set fixture to `TestSiteChangeRemints`, and pin the
+cross-timezone inverted-span outcome so it is a decision rather than a surprise.
+
 ---
 
-### WR-03: the operator runbook's `retired` enumeration is now wrong — this round adds a fifth reason and `docs/` was deliberately left untouched
+### WR-06: `detach_declined`'s two operator-facing messages still say "left attributed -- someone had already confirmed them", which is false for the new `staff_state` decline
 
-**File:** `docs/runbooks/telescope_runs_calendar.rst:1078-1091`
+**File:** `solsys_code/management/commands/reconcile_campaign_runs.py:126-131`;
+`solsys_code/campaign_views.py:467-472`
 
-**Issue:** The runbook tells operators, in the section that interprets the sweep's printed
-counters:
+**Issue:** 35-20 routed a second, unrelated meaning into `detach_declined` (a re-mint the
+sweep declined to perform, possibly for `is_verified=False` or an `observation_record` link
+with no human confirmation anywhere). The runbook (`:1142-1167`) and the notebook (cell 31)
+were both updated to describe both meanings. The two surfaces an operator actually reads were
+not:
 
-> "``retired`` counts an allocation night removed from the calendar for any of **four**
-> reasons (35-REVIEW.md NF-07): (1) ... (2) a sub-night window field ... changed since the
-> night was last minted ... (3) the night no longer falls inside the run's window ... or (4)
-> ... a leftover night whose companion row was deleted outright or had its ``run`` cleared"
+```
+Run pk=7: 1 superseded entry left attributed -- a person confirmed them, and an
+automated sweep never clears a human confirmation
+```
 
-This round adds a fifth, which none of the four cover: *a night whose mint provenance was
-never recorded and whose stored boundary disagrees with the freshly computed sun event by
-more than one minute*. An operator seeing `retired: 37` on the first post-deploy sweep will
-look for a window shrink or a sub-night edit that never happened. The `rekeyed` paragraph
-(`:1094-1098`) is also now misleading — it promises "same primary key, same start/end time",
-which holds for the re-key itself but not for the *next* sweep, when the just-re-keyed night
-(provenance deliberately not recorded on that path) may be re-minted under the new rule.
+```python
+messages.info(request, f'{result.detach_declined} superseded entries left attributed '
+                       '-- someone had already confirmed them.')
+```
 
-`35-19-SUMMARY.md` records `git status --short -- docs/ solsys_code/management/` as clean as
-an *achievement*. Under CLAUDE.md's paired-docs rule this is the opposite: the rule is
-directory-scoped ("any page under `docs/runbooks/` whose documented behavior the change
-affects"), the page is wired into the toctree at `docs/index.rst:24`, and the rule explicitly
-names the code-reviewer as a subagent it binds.
+For a `'staff_state'` decline both clauses are false: nothing was "left attributed" (no
+attribution was at stake) and nobody confirmed anything. For a `'confirmed'` re-mint decline
+the first clause is still wrong — a boundary correction was skipped, not an attribution
+retained. Worse, the runbook now tells the operator there IS a remedy for a declined re-mint
+("clear the confirmation or the link ... and re-run the sweep"), while the message tells them
+a human decision was respected and there is nothing to do. This is the same defect NF-16 was
+raised for one counter over ("'blocked's message reads 'owned by someone else' — false twice
+over for this shape").
 
-**Fix:** change "four reasons" to five and add the new one, e.g.: *"(5) a night minted before
-this release (or carried across by the re-key path) whose stored boundary disagrees with the
-computed sun event by more than one minute — a one-time audit that happens at most once per
-night; the same night reports `unchanged` on every sweep after it."* Add a matching note to
-the `rekeyed` paragraph, and a short deploy note (see WR-04).
+**Fix:** widen both messages to name both causes without claiming either, e.g. *"N calendar
+decision(s) declined -- a person's confirmation, an observation link, or an unverified row
+outranks this automated sweep; see the runbook's ``detach_declined`` section"*. If the two
+meanings need to stay distinguishable to an operator, split the counter instead
+(`detach_declined` / `remint_declined`) — which also removes CR-04's counter ambiguity.
 
 ---
 
-### WR-04: the one-minute tolerance silently rewrites existing calendar boundaries on the first sweep after deploy, on a premise that cannot be verified from the current tree
+### WR-07: a declined night with unrecorded provenance re-computes `sun_event()` on every sweep, forever — the documented "once ever" cost bound and D-13's astropy-free idempotent sweep no longer hold in real mode either
 
-**File:** `solsys_code/allocation_projector.py:66-75` (`_UNRECORDED_PROVENANCE_TOLERANCE`),
-`:505-531`; `solsys_code/tests/test_cutover_classical_allocations.py:434-454`
+**File:** `solsys_code/allocation_projector.py:571`, `:579-595`, `:987-1012`; docstring bound
+at `:533-534`
 
-**Issue:** Migration 0019 is a bare `AddField(null=True)`, so **every** existing `ALLOC:`
-event in production has unrecorded provenance. The first sweep after deploy therefore audits
-each one against a live `sun_event()` and re-mints (delete + create, per CR-01 without any
-human-confirmation guard, per CR-03 with the delete preceding the failure point) any whose
-boundary is more than 60 s out.
+**Issue:** `_span_needs_remint()` only records provenance on the **within-tolerance** path
+(`:593-594`). A night that resolves *stale* returns True at `:592` without recording — and
+with CR-01's new guard, a stale night carrying staff state is now **declined** instead of
+re-minted, so it never gets a fresh token from the re-mint path either. The result is a
+permanent state in which every single sweep:
 
-The plan's own Rule-1 deviation is direct evidence that real fixtures fall outside that
-tolerance: `TestCutoverSequenceContract.test_cutover_then_sweep_reaches_the_pinned_end_state`
-had to be rebuilt because `_make_three_night_group()`'s 23:00/09:00 boundaries sit ~53
-minutes from the true La Silla sun event and were re-minted by the new branch. The
-justification given — *"The real pre-cutover `load_telescope_runs` writer always computed
-`sun_event()`-derived boundaries, so the round-hour convention never represented a genuine
-legacy night"* — is a claim about a **writer that no longer exists in this repository**:
-`grep -rn 'sun_event' solsys_code/management/commands/` returns nothing, and the current
-`load_telescope_runs.py` delegates boundaries to `reconcile_run()` entirely. Nobody can check
-that premise from the tree, and ~30 other tests in the same file still use the round-hour
-convention the deviation calls unrealistic — the shared helper was left as the odd one out
-rather than the deviation being propagated or the convention justified.
+- calls `sun_event(run.site, night, kind='sun')` (real astropy work, in real mode, on an
+  otherwise idempotent sweep — the thing D-13 and `TestNoSunEventRecompute` exist to prevent),
+- emits an `Allocation unrecorded-provenance night ...` warning,
+- emits an `Allocation re-mint declined ...` warning,
+- and reports `detach_declined: 1`.
 
-The deviation itself is mechanically fine (scoped to the one test that runs a sweep, uses
-real `sun_event()`-derived boundaries, does not weaken an assertion). The problem is that it
-is the *only* place this behaviour change is recorded, and it is recorded as a test-fixture
-detail rather than as a production-data consequence.
+The docstring's stated bound — "at most one `sun_event(kind='sun')` call per unrecorded
+night, once ever" — is now false in real mode, not only under `--dry-run` (WR-01). On a
+first post-upgrade sweep every legacy night is unrecorded, so any of them carrying a
+confirmation or `is_verified=False` joins this permanent loop.
 
-**Fix:** (a) state the premise where it can be challenged — a module-level comment naming the
-retired writer and the release it belonged to, or a one-off audit query an operator can run
-before the sweep; (b) add the deploy note to the runbook alongside WR-03's fix ("run
-`reconcile_campaign_runs --dry-run` first after upgrading; a non-zero `would_retire` on nights
-you did not edit is the one-time provenance audit"); (c) either propagate the realistic
-boundaries into `_make_three_night_group()` or add a comment there explaining why the
-round-hour convention is still acceptable for the ~30 tests that never run a sweep.
+**Fix:** qualify the `:533-534` bound to name both escapes (a dry run, and a night whose
+re-mint is declined), and consider recording the *resolved* token on the declined path so
+the night stops being re-resolved — but only together with CR-04's fall-through, since
+recording provenance on a night whose boundaries were NOT re-minted would re-create exactly
+the false-provenance claim round 2 was reverted for. The safe version is a separate
+"resolution attempted, declined" marker, or simply accepting the cost and saying so.
+
+---
+
+### WR-08: `is_verified` is now a load-bearing veto on automated re-mints, but the model docstring still documents it as a vestigial field with no current writer or reader
+
+**File:** `solsys_code/models.py:22-31` and `:69-71`;
+`solsys_code/allocation_projector.py:647`
+
+**Issue:** `_remint_decline_reason()` gives `is_verified=False` a new, permanent, production
+consequence: an allocation night with that flag can never be corrected by an automated
+sweep again (see WR-07 for what that costs). `models.py`'s WR-06 paragraph — the place a
+reader goes to find out what the field means — still says the opposite:
+
+> "as of Phase 34, no writer in this codebase sets ``is_verified=False`` any more ... it is
+> not currently reachable by re-running any sweep or receiver. The two ``calendar.html``
+> template branches keyed on ``is_verified == False`` are consequently unreachable..."
+
+Two concrete consequences of overloading it rather than adding an explicit field:
+(a) a *historical* `is_verified=False` row (the docstring says such rows exist from before
+Phase 34) silently acquires veto power it was never given deliberately; (b) `is_verified` is
+the one companion-row field **not** in either admin surface's `readonly_fields`, so any staff
+user can freeze a night against automated correction from a checkbox labelled "Whether the
+telescope label was live-verified against the LCO API" — with no hint at that surface that
+this is what they are doing.
+
+**Fix:** at minimum, extend the WR-06 paragraph and the field's `verbose_name`/help text to
+state the second meaning, and say so in the runbook's `detach_declined` section (which
+currently says "an unverified companion row" without explaining where that comes from).
+Better: give the re-mint veto its own explicit concept rather than borrowing a field
+documented as meaningless, or drop the `is_verified` arm and keep only the two link fields
+plus `confirmed_by`.
 
 ## Info
 
-### IN-01: `null=True` on a `CharField` makes `''` a third, undecidable state
+### IN-01 (carried forward from iteration 8, mitigated but not fixed): `null=True` + `blank=True` on a `CharField` still leaves `''` as a third state
 
-**File:** `solsys_code/models.py:117-119`
+**File:** `solsys_code/models.py:130-132`,
+`solsys_code/migrations/0020_alter_calendareventmeta_minted_sub_night_window.py:16`
 
-`minted_sub_night_window` is `CharField(max_length=32, null=True, blank=True)`. The design
-depends on exactly two states (`NULL` = not recorded, a token = recorded), but Django's own
-convention is that a blank `CharField` stores `''`, and `blank=True` means any future
-`ModelForm` that binds this field will write `''`, not `None`. `recorded_token is not None`
-(`:502`) would then be True and `'' != token` would re-mint the night once on every sweep
-until it self-heals. Safe today only because both admin surfaces list it in
-`readonly_fields` — which is a policy, not a constraint.
+The field is still `CharField(max_length=64, null=True, blank=True)`. CR-02's version-prefix
+test materially **defuses** the consequence iteration 8 described: `''.startswith('v2|')` is
+False, so an empty string now reads as unrecorded, resolves once through the legacy branch and
+self-heals by recording a real token — and
+`test_empty_string_token_reads_as_unrecorded_and_resolves_once` pins exactly that. The
+three-state ambiguity itself remains (`NULL`, `''`, token), for a field no form is allowed to
+bind.
 
-**Fix:** drop `blank=True` (nothing needs to submit it), or normalise on read:
-`recorded_token = existing.telescope_label_meta.minted_sub_night_window or None`.
-
----
-
-### IN-02: `max_length=32` leaves exactly one character of headroom, untested
-
-**File:** `solsys_code/models.py:117-119`, `solsys_code/migrations/0019_...py:16`
-
-The worst-case token is two microsecond-precision `time.isoformat()` values plus a separator:
-`'23:00:00.123456|05:00:00.123456'` = 31 characters. SQLite does not enforce `max_length`, so
-a regression here would surface only on the PostgreSQL deployment CLAUDE.md names as the
-production target. No test pins the bound.
-
-**Fix:** use a round `max_length=64` and add
-`self.assertLessEqual(len(_sub_night_provenance_token(run)), 32)` for a microsecond-valued
-run. (CR-02's fix requires a widening anyway.)
+**Fix:** drop `blank=True` (nothing needs to submit it) in a follow-up schema-only migration,
+or leave it and note in the field comment that `''` is treated identically to `NULL` by
+design.
 
 ---
 
-### IN-03: the provenance write creates a companion row where the model documents "no row at all" as a meaningful state
+### IN-03 (carried forward from iteration 8, unaddressed): the class docstring still says "no row at all means verified by documented default" without noting the projector materialises rows purely to record provenance
 
-**File:** `solsys_code/allocation_projector.py:405-420`
+**File:** `solsys_code/models.py:12-57` (the sentence at `:16-18`),
+`solsys_code/allocation_projector.py:449-464`
 
-`_record_sub_night_provenance()` uses `update_or_create(event=event, ...)`, so on the
-unrecorded-provenance branch it will create a `CalendarEventMeta` row for an event that had
-none. Verified harmless today (probe 7 — the new row lands with `run=None`,
-`is_verified=True`, and both `_may_write()` and `_clearable_declined_and_unattributed()`
-treat "no row" and "row with `run IS NULL`" identically), but
-`CalendarEventMeta`'s class docstring still says *"no row at all means 'verified' by
-documented default"*, and this is now a second writer that silently converts shape (a) into
-shape (b).
+`_record_sub_night_provenance()` still uses `update_or_create(event=event, ...)`, and
+`_span_needs_remint()`'s legacy branch (`:593-594`) now calls it for any night whose
+provenance reads as unrecorded — which, after CR-02's version test, includes every
+pre-release row in the database. So the "no row at all" shape is converted to "row with
+`run IS NULL`" on the first post-upgrade sweep, at scale. Verified harmless (`_may_write()`
+and `_clearable_declined_and_unattributed()` treat the two shapes identically), but the
+class docstring was extensively rewritten this round for CR-02 and still does not mention it.
 
-**Fix:** one sentence in the class docstring noting the allocation projector may materialise
-a row solely to record provenance.
-
----
-
-### IN-04: `allocation_projector.py` has no paired demo notebook, so a behaviour change of this size reached no executed documentation
-
-**File:** `CLAUDE.md` (notebook pairing map), `docs/notebooks/pre_executed/`
-
-The pairing map lists `campaign_reconciler.py` → `reconcile_campaign_runs_demo.ipynb` but has
-no entry for `allocation_projector.py`, even though it now owns the entire per-night
-projection and this round added a database column and a new re-mint rule to it. The runbook
-clause (WR-03) is directory-scoped and does apply; the notebook clause does not, purely
-because the map was never extended.
-
-**Fix:** extend the map — `solsys_code/allocation_projector.py` →
-`reconcile_campaign_runs_demo.ipynb` is the natural home, since that notebook already drives
-`reconcile_run()`, which dispatches into this module.
+**Fix:** one sentence in the class docstring: "the allocation projector may materialise a row
+solely to record `minted_sub_night_window`, so the absence of a row is not evidence that no
+projection has touched the event."
 
 ---
 
-_Reviewed: 2026-09-15T21:40:00Z_
+### IN-05: `active_urls.add(url)` in the decline branch is a no-op, under a comment asserting it is load-bearing
+
+**File:** `solsys_code/allocation_projector.py:1008-1011`
+
+```python
+# Load-bearing, not cosmetic: without this, the D-14 convergence step at the
+# bottom of this function deletes the very night this guard just refused to
+# delete.
+active_urls.add(url)
+```
+
+`active_urls.add(url)` already ran at `:946`, unconditionally, for every night that is not
+retired — and the decline branch is only reachable from `:981`, well past it. The set add is a
+no-op and the rationale is false as written. It is harmless today, but a comment that claims
+a line is protecting against deletion is exactly the kind of statement a later refactor
+trusts instead of re-deriving. (If CR-05's fix adds the same call to the *retired* branch,
+that one genuinely will be load-bearing — which makes the distinction worth getting right
+now.)
+
+**Fix:** delete the line and the comment, or keep the line as a deliberate belt-and-braces
+and reword the comment to "redundant with `:946`; kept so this branch does not depend on a
+distant caller's bookkeeping".
+
+---
+
+### IN-06: two of `_remint_decline_reason()`'s three staff-state arms are unreachable for `ALLOC:` nights outside a test
+
+**File:** `solsys_code/allocation_projector.py:647`;
+`solsys_code/tests/test_allocation_projector.py:1782-1841`
+
+`observation_record` and `observation_group` are admin-readonly on both surfaces
+(`admin.py:335-341`, `:119-125`) and are written only by the observation projector, which
+owns facility-url events, never `ALLOC:`-keyed ones — `_sync_observation_attribution()`
+(`:721-788`) is explicitly scoped out of this namespace. So on an allocation night those two
+fields can only be set by a direct ORM `.update()`, which is exactly how both tests reach
+them. The plan calls this "covered for the same reason at no extra cost", which is fair; it
+is recorded here only so a future reader does not mistake two passing tests for evidence that
+the production path exercises those arms.
+
+**Fix:** none required. Optionally note in the docstring's rule 2 that the two link arms are
+defensive, and `is_verified` is the only production-reachable one (which the docstring
+already half-says).
+
+---
+
+_Reviewed: 2026-09-16T16:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
