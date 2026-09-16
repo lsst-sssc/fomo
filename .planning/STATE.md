@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 35
-current_phase_name: Allocation Layer & Classical Cutover
+current_phase_name: allocation-layer-classical-cutover
 status: executing
 stopped_at: Completed 35-22-PLAN.md
-last_updated: "2026-09-16T15:09:26.510Z"
+last_updated: "2026-09-16T16:39:48.632Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 execution started
-state_head: 3ad0797c3d729fe98a8785d53e8ef6872ed4edc0
+state_head: 8fb77320f2f9c7987a030a0c15b17e67b8c7fb6a
 progress:
   total_phases: 5
   completed_phases: 34
-  total_plans: 40
+  total_plans: 43
   completed_plans: 40
-  percent: 100
+  percent: 93
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 
 ## Current Position
 
-Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
+Phase: 35 (allocation-layer-classical-cutover) — READY TO EXECUTE
 Plan: 4 of 22
 Status: Ready to execute
 Last activity: 2026-09-16 — Phase 35 execution started
