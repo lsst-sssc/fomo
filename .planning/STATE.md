@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 35
 current_phase_name: Allocation Layer & Classical Cutover
 status: executing
-stopped_at: "Completed 35-23-PLAN.md (gap-closure: CR-04, CR-05, WR-06, IN-05)"
-last_updated: "2026-09-16T17:49:56.666Z"
+stopped_at: "Completed 35-24-PLAN.md (gap-closure: escalated decision, WR-05, WR-07, WR-08)"
+last_updated: "2026-09-16T18:32:42.231Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 execution started
-state_head: 776bf229ca7c3cd168c230cf814cb23f4840546f
+state_head: e8ee1cecab72a2e96bd768942d048c2519dd9810
 progress:
   total_phases: 5
   completed_phases: 34
   total_plans: 43
-  completed_plans: 41
-  percent: 95
+  completed_plans: 42
+  percent: 98
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
 ## Current Position
 
 Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 2 of 25
+Plan: 3 of 25
 Status: Ready to execute
 Last activity: 2026-09-16 — Phase 35 execution started
 
@@ -212,6 +212,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P21 | 41min | 2 tasks | 4 files |
 | Phase 35 P22 | ~30min | 2 tasks | 2 files |
 | Phase 35 P23 | 85min | 3 tasks | 6 files |
+| Phase 35 P24 | 75min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -329,6 +330,9 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-23: CR-04 closed via a two-way split on the re-mint decline -- falls through to the plain-update path instead of continue-ing, so a declined night still receives its ordinary title/description/target_list refresh. — The decline must refuse only the destructive half (boundary rewrite); the update path is how a staff mark_cancelled action reaches an allocation night at all.
 - [Phase 35]: 35-23: CR-05 closed by applying _clearable_declined_and_unattributed() directly to the retirement branch's own existing.delete(), proven on both the sweep and the no-sweep receiver path; deliberately does NOT reuse _remint_decline_reason() -- only confirmed_by declines a retirement, never is_verified=False or an observation link. — The re-mint branch destroys a row it intends to re-create and owes its contents a decision; the retirement branch removes a night genuinely superseded by the linked observation, so extending the veto there would leave a permanent duplicate night.
 - [Phase 35]: 35-23: WR-06 closed by splitting detach_declined into detach_declined (confirmed_by-only legacy/allocation retire declines) and remint_declined (a separate re-mint decline, three causes), keeping detach_declined's existing message byte-identical. — One counter carrying two meanings made both printed operator messages false for one of them; splitting also removes CR-04's counter ambiguity.
+- [Phase 35]: 35-24: WR-05 closed -- a fully-set sub-night pair never re-mints on a site correction (step 2 short-circuit), so the plain-update path now refreshes only the dark-window line, bounded to one sun_event(kind='dark') call per night per correction and never in --dry-run.
+- [Phase 35]: 35-24: WR-07 qualified rather than fixed -- a declined-and-unrecorded night resolves once PER SWEEP (not once ever); WR-01's dry-run repetition stays separately open. WR-08 closed on the model and _remint_decline_reason(); the runbook half is plan 35-25's.
+- [Phase 35]: 35-24: the escalated decision (35-VERIFICATION.md HVR#1) closed via a v3 token carrying a site-position fingerprint (site_id + SHA-256 lat/lon/altitude/timezone digest) alongside site_id -- an in-place Observatory correction now re-mints instead of reading unchanged forever.
 
 ### Pending Todos
 
@@ -429,8 +433,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-16T17:49:56.589Z
-Stopped at: Completed 35-23-PLAN.md (gap-closure: CR-04, CR-05, WR-06, IN-05)
+Last session: 2026-09-16T18:32:23.442Z
+Stopped at: Completed 35-24-PLAN.md (gap-closure: escalated decision, WR-05, WR-07, WR-08)
 Resume file: None
 
 ## Operator Next Steps
