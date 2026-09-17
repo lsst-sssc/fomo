@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -351,7 +351,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 36-05-PLAN.md — Paired docs: the runbook's unattended-operation section, the demo notebook's watched-proposal cells, and the CLAUDE.md map
+- [x] 36-05-PLAN.md — Paired docs: the runbook's unattended-operation section, the demo notebook's watched-proposal cells, and the CLAUDE.md map
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
@@ -412,7 +412,7 @@ Plans:
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
-| 36. Unattended Operation | v2.4 | 4/5 | In Progress|  |
+| 36. Unattended Operation | v2.4 | 5/5 | In Progress|  |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

@@ -4,18 +4,18 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
-status: executing
-stopped_at: Completed 36-04-PLAN.md
-last_updated: "2026-09-17T16:33:13.329Z"
+status: verifying
+stopped_at: Completed 36-05-PLAN.md
+last_updated: "2026-09-17T16:52:19.378Z"
 last_activity: 2026-09-17
 last_activity_desc: Phase 36 execution started
-state_head: e42ec751b24538e04faf2aeec8b2877a192a586f
+state_head: 0f1f31adc89f4dc4eb748340e1647faf41cf00db
 progress:
   total_phases: 5
   completed_phases: 35
   total_plans: 48
-  completed_plans: 47
-  percent: 98
+  completed_plans: 48
+  percent: 100
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 
 Phase: 36 (Unattended Operation) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-17 — Phase 36 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -219,6 +219,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36 P02 | 21min | 3 tasks | 7 files |
 | Phase 36 P03 | 25min | 3 tasks | 2 files |
 | Phase 36 P04 | 18min | 3 tasks | 3 files |
+| Phase 36 P05 | 33min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -356,6 +357,8 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: [Phase 36]: 36-02: a per-row sweep failure is logged at logger.debug() with type(exc).__name__ only, never str(exc) -- keeps SCHED-10/D-17 credential-safety intact in the debug log too.
 - [Phase 36]: 36-03: step functions never call call_command()/django.core.management.call_command -- each step imports and calls the underlying module function directly, verified by a source-count probe plus a negative test patching call_command at its own definition site.
 - [Phase 36]: check_unattended's check_email() returns two CheckResults (EMAIL_BACKEND, staff_recipients), keeping the six-callable verify probe stable across Task 2's cron_line()/--send-test-email additions — Plan text describes check_email() as 'hard, two results'; cron_line() and _send_test_email() are deliberately non-check helpers outside the six named check_ functions
+- [Phase 36]: 36-05: added a previously-missing backfill_lco_observations cheat-sheet row rather than blocking on the plan's 'update' framing — No such row existed at all; the command was already fully documented elsewhere, so adding the row closed a pre-existing gap rather than introducing new scope.
+- [Phase 36]: 36-05: the runbook's locking guarantee for run_unattended is stated narrowly and verified against unattended.py's command_lock() call sites -- two ticks (incl. --step <name>) never overlap, but a direct manage.py invocation of the underlying sweep command is not locked against a tick — Cross-checked directly against source and step docstrings rather than assuming the discretion note's original aspiration held, so the runbook does not promise a guarantee the code does not provide.
 
 ### Pending Todos
 
@@ -460,8 +463,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-17T16:33:04.714Z
-Stopped at: Completed 36-04-PLAN.md
+Last session: 2026-09-17T16:52:19.299Z
+Stopped at: Completed 36-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
