@@ -30,8 +30,8 @@ from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code import notifications, unattended
 from solsys_code import observation_projector as op
-from solsys_code import unattended
 from solsys_code.models import CampaignRun, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
 
@@ -270,6 +270,29 @@ class TestNotification(UnattendedTestBase):
             with self.assertRaises(SystemExit):
                 call_command('run_unattended')
         self.assertEqual(len(mail.outbox), 1)
+
+
+class TestNotifyStaffReturnValue(UnattendedTestBase):
+    """IN-07 (36-REVIEW.md): ``notify_staff()`` must return whether ``send_mail()``
+    actually sent a message, not just whether a recipient existed and nothing raised --
+    ``unattended._send_notification()``'s docstring promises exactly that stronger
+    claim, and WR-02's whole suppression decision rests on it being true."""
+
+    def setUp(self):
+        super().setUp()
+        User.objects.create_user(username='staff-with-email', email='staff@example.org', is_staff=True)
+
+    def test_returns_true_when_a_message_is_actually_sent(self):
+        self.assertTrue(notifications.notify_staff('subject', 'body'))
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_returns_false_when_send_mail_reports_zero_sent(self):
+        with patch('solsys_code.notifications.send_mail', return_value=0):
+            self.assertFalse(notifications.notify_staff('subject', 'body'))
+
+    def test_returns_false_when_fail_silently_suppresses_a_raised_exception(self):
+        with patch('solsys_code.notifications.send_mail', side_effect=RuntimeError('smtp outage')):
+            self.assertFalse(notifications.notify_staff('subject', 'body', fail_silently=True))
 
 
 class TestHeartbeat(UnattendedTestBase):

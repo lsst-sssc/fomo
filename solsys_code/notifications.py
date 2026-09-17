@@ -61,9 +61,13 @@ def notify_staff(subject: str, message: str, *, fail_silently: bool = False) -> 
             site -- a mail outage must never break a submission.
 
     Returns:
-        bool: True if there was at least one recipient (an attempt was made, whether or
-            not it succeeded), False if there were no recipients (not an error, and
-            never attempted).
+        bool: True only when at least one message was actually sent -- ``send_mail()``'s
+            own return value (the number of messages sent), not merely whether a
+            recipient existed or the call raised nothing (IN-07, 36-REVIEW.md: this
+            function's own docstring and ``unattended._send_notification()``'s docstring
+            must agree on what "sent" means). False when there were no recipients (not
+            an error, never attempted) or when ``fail_silently=True`` suppressed a raised
+            exception (nothing was actually delivered).
 
     Raises:
         Exception: whatever ``send_mail()`` raised, only when ``fail_silently`` is
@@ -77,7 +81,7 @@ def notify_staff(subject: str, message: str, *, fail_silently: bool = False) -> 
     if not recipients:
         return False
     try:
-        send_mail(
+        sent = send_mail(
             subject=subject,
             message=message,
             from_email=None,
@@ -87,4 +91,5 @@ def notify_staff(subject: str, message: str, *, fail_silently: bool = False) -> 
     except Exception:
         if not fail_silently:
             raise
-    return True
+        return False
+    return bool(sent)
