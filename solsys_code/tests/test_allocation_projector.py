@@ -676,6 +676,214 @@ class TestRetirePathAllocationEventGuard(AllocationProjectorTestBase):
         self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
 
 
+class TestDeclinedRetirementStillUpdatesLabels(AllocationProjectorTestBase):
+    """35-REVIEW.md iteration 10, CR-01: the twin of `TestDeclinedRemintStillUpdatesLabels`
+    for the retirement branch above. `TestRetirePathAllocationEventGuard`'s CR-05 guard keeps
+    a human-confirmed `ALLOC:` night alive when its retirement is declined, but the decline
+    refuses only the DELETE, never the label refresh -- which is how a staff
+    `mark_cancelled`/`mark_weather_failure` action reaches an allocation night at all
+    (`allocation_night_description()`'s own docstring). This path records no provenance and
+    pays no `sun_event()` call, deliberately: it neither mints nor re-mints, so it has proved
+    nothing about the stored boundaries."""
+
+    def test_declined_retirement_still_receives_a_cancelled_title(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before = event_before.start_time
+        end_before = event_before.end_time
+        description_line_before = event_before.description.split('\n', 1)[0]
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        result = reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.title, allocation_night_title(run))
+        self.assertTrue(event_after.title.startswith('[CANCELLED]'))
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(event_after.description.split('\n', 1)[0], description_line_before)
+        self.assertEqual(result.detach_declined, 1)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.remint_declined, 0)
+
+    def test_declined_retirement_refresh_reaches_the_night_through_the_receiver_alone(self):
+        """The review's trace steps 2-3, with NO explicit sweep: `run_status` is set to
+        `CANCELLED` and saved BEFORE the record is linked, so the receiver alone -- fired by
+        creating the `CampaignRunObservation` link -- must decide the retirement AND refresh
+        the labels in the same call."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before = event_before.start_time
+        end_before = event_before.end_time
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=pk_before).exists())
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertTrue(event_after.title.startswith('[CANCELLED]'))
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        declined_records = [r for r in log_ctx.records if 'retire declined' in r.getMessage()]
+        self.assertEqual(len(declined_records), 1)
+
+    def test_declined_retirement_confirmation_stamp_survives_the_refresh(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        reconcile_run(run)
+
+        meta_after = CalendarEventMeta.objects.get(event_id=pk_before)
+        self.assertEqual(meta_after.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta_after.confirmed_at)
+        self.assertEqual(meta_after.run_id, run.pk)
+
+    def test_declined_retirement_reports_detach_declined_alongside_updated_then_unchanged(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        first_result = reconcile_run(run)
+
+        self.assertEqual(first_result.detach_declined, 1)
+        self.assertEqual(first_result.updated, 1)
+        self.assertEqual(first_result.unchanged, 0)
+
+        second_result = reconcile_run(run)
+
+        self.assertEqual(second_result.detach_declined, 1)
+        self.assertEqual(second_result.unchanged, 1)
+        self.assertEqual(second_result.updated, 0)
+        self.assertEqual(second_result.retired, 0)
+
+    def test_declined_retirement_dry_run_parity_for_the_counter_pair(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before = event_before.start_time
+        end_before = event_before.end_time
+        title_before = event_before.title
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.detach_declined, 1)
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.created, 0)
+        event_after_dry = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry.pk, pk_before)
+        self.assertEqual(event_after_dry.start_time, start_before)
+        self.assertEqual(event_after_dry.end_time, end_before)
+        self.assertEqual(event_after_dry.title, title_before)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.detach_declined, dry_result.detach_declined)
+        self.assertEqual(real_result.updated, dry_result.updated)
+
+    def test_declined_retirement_refresh_never_calls_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.updated, 1)
+
+    def test_unconfirmed_retirement_still_deletes_and_counts_retired(self):
+        """The control case: no confirmation stamp, so the fall-through never engages -- the
+        deletable path must still delete the night and count `retired`, pinning that the
+        fall-through did not weaken it."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_pk = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.updated, 0)
+
+
 class TestTakeoverBlockedCountedOnce(AllocationProjectorTestBase):
     """35-REVIEW.md NF-22: a foreign-attributed legacy `RUN:{pk}:{night}` event reached on
     the TAKEOVER path (no `ALLOC:` event exists for the night yet) must be counted once,

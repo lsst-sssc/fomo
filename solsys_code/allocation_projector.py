@@ -1011,6 +1011,75 @@ def _sync_observation_attribution(run: CampaignRun, *, dry_run: bool) -> int:
     return blocked
 
 
+def _label_fields(run: CampaignRun, dark_line: str | None) -> dict[str, Any]:
+    """The single builder of the three non-destructive label fields every update path in
+    this module writes: ``title``, ``description`` and ``target_list``. Every call site that
+    means "refresh this night's labels" -- the retirement decline, the plain-update preview
+    and the plain-update write -- builds its fields through this one function, so the three
+    cannot drift apart on what "refreshing the labels" means (CR-01, 35-REVIEW.md iteration
+    10).
+
+    Args:
+        run: the ``CampaignRun`` whose labels are being built.
+        dark_line: the preserved or freshly-computed dark-window line to prepend to the
+            description, or ``None`` when there is none to prepend.
+
+    Returns:
+        dict[str, Any]: ``{'title': ..., 'description': ..., 'target_list': ...}``.
+    """
+    return {
+        'title': allocation_night_title(run),
+        'description': allocation_night_description(run, dark_line),
+        'target_list': run.campaign,
+    }
+
+
+def _refresh_labels(
+    run: CampaignRun,
+    existing: CalendarEvent,
+    url: str,
+    dark_line: str | None,
+    *,
+    dry_run: bool,
+) -> tuple[str, CalendarEvent | None]:
+    """Refresh a surviving night's ``title``/``description``/``target_list`` via
+    :func:`_label_fields`, and re-link it to ``run`` -- the one write both the retirement
+    decline and the plain-update path share (CR-01, 35-REVIEW.md iteration 10).
+
+    Contract -- what this helper never does, deliberately: it never writes
+    ``start_time``/``end_time``; it never changes the primary key (``existing`` is updated in
+    place, never replaced); it never touches ``confirmed_by``/``confirmed_at``/``is_verified``
+    (the only write past the three label fields is :func:`_link_event_to_run`'s own single
+    ``run`` field write); and it never calls ``sun_event()`` or
+    ``_record_sub_night_provenance()`` -- the caller owns both of those decisions, since only
+    the caller knows whether this sweep proved anything about the stored boundaries.
+
+    Note: under ``dry_run`` this returns
+    ``preview_calendar_event_action(existing, fields)``, which omits the ``url`` term that
+    :func:`~solsys_code.calendar_utils.update_calendar_event_key_and_fields` compares -- exact
+    rather than approximate here, because both call sites below pass the same ``url``
+    ``existing`` was fetched by, so the omitted term is equal on both sides regardless.
+
+    Args:
+        run: the ``CampaignRun`` whose night this is.
+        existing: the surviving ``CalendarEvent`` row to refresh. Never ``None``.
+        url: the url ``existing`` was fetched by -- unchanged by this call.
+        dark_line: the dark-window line to pass through to :func:`_label_fields`.
+        dry_run: when True, preview only -- write nothing.
+
+    Returns:
+        tuple[str, CalendarEvent | None]: the reconciler action (``'updated'`` or
+        ``'unchanged'`` -- never ``'created'``, since ``existing`` is never ``None``) and, in
+        real mode, the refreshed event; ``None`` under ``dry_run``, since nothing was written.
+    """
+    fields = _label_fields(run, dark_line)
+    if dry_run:
+        return preview_calendar_event_action(existing, fields), None
+    event, action = update_calendar_event_key_and_fields(existing, url, fields)
+    _link_event_to_run(event, run)
+    return action, event
+
+
 def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[ReconcileResult, set[str], set[str]]:
     """Project (or refresh) every night in ``[run.window_start, run.window_end]`` inclusive
     into its own ``ALLOC:{run.pk}:{night}`` sunset->sunrise ``CalendarEvent``, retiring a
@@ -1206,10 +1275,36 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             # deletable -- never when its delete was declined.
             if existing_deletable:
                 totals['retired'] += 1
-            # No active_urls.add(url) here (IN-05, 35-REVIEW.md): retired_urls.add(url) at
-            # the top of this branch already excludes this url from the D-14 convergence
-            # step at the bottom of this function -- adding it to active_urls too would be a
-            # second no-op of exactly the kind IN-05 removed.
+                # No active_urls.add(url) here (IN-05, 35-REVIEW.md): retired_urls.add(url)
+                # at the top of this branch already excludes this url from the D-14
+                # convergence step at the bottom of this function -- adding it to
+                # active_urls too would be a second no-op of exactly the kind IN-05
+                # removed. CR-01 (35-REVIEW.md iteration 10) adds the second reason:
+                # adding this url to active_urls would also make a superseded night read
+                # as live in the RUN:-namespace convergence, and retired_urls already
+                # excludes it from the D-14 step -- so both convergence steps stay
+                # correct without the add, whether the night was deleted or declined.
+                continue
+
+            # CR-01 (35-REVIEW.md iteration 10): the declined night SURVIVES its own
+            # retirement, so it must keep receiving the three label fields -- the same
+            # two-way split CR-04 gave the re-mint decline one branch over, for the same
+            # reason: the decline refuses only the destructive half. `existing_deletable`
+            # is True whenever `existing is None`, so reaching this line proves `existing`
+            # is a surviving row and no extra null check is needed.
+            #
+            # This path deliberately does NOT call `_record_sub_night_provenance()`: it
+            # neither mints nor re-mints and makes no `sun_event()` call, so it has proved
+            # nothing about the stored boundaries -- recording the run's current token
+            # here would claim a fact this write never established. WR-01 (35-REVIEW.md
+            # iteration 10) raises that same class of false claim against the re-mint
+            # decline's own write further down (the plain-update path's provenance
+            # write); WR-01 is deferred by the owner (UAT 2026-09-16) and left untouched
+            # by this change. `preserved_dark_window_line(existing)` keeps the stored
+            # dark-window line verbatim, so D-13's "no `sun_event()` on an existing
+            # night" still holds on this path.
+            action, _event = _refresh_labels(run, existing, url, preserved_dark_window_line(existing), dry_run=dry_run)
+            totals[action] += 1
             continue
 
         active_urls.add(url)
@@ -1396,11 +1491,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                 dark_line = f'{_DARK_WINDOW_PREFIX}{dark_start_iso} to {dark_end_iso}'
             else:
                 dark_line = preserved_dark_window_line(existing)
-            fields = {
-                'title': allocation_night_title(run),
-                'description': allocation_night_description(run, dark_line),
-                'target_list': run.campaign,
-            }
+            fields = _label_fields(run, dark_line)
 
         if dry_run:
             if existing is not None and refresh_dark_window:
@@ -1432,8 +1523,10 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
             # sweep just proved.
             _record_sub_night_provenance(event, _sub_night_provenance_token(run))
         else:
-            event, action = update_calendar_event_key_and_fields(existing, url, fields)
-            _link_event_to_run(event, run)
+            # `dry_run` is necessarily False at this line -- the preview block above already
+            # returned. Passed through anyway for one-writer consistency with the retirement
+            # decline's own call to the same helper (CR-01, 35-REVIEW.md iteration 10).
+            action, event = _refresh_labels(run, existing, url, dark_line, dry_run=dry_run)
             if refresh_dark_window:
                 # T-35-24-02: the plain-update path's one exception to "provenance is
                 # recorded on the create path only" -- see the comment on the create
