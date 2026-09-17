@@ -67,6 +67,6 @@ jobs:
     - name: Install Playwright chromium
       run: |
         playwright install --with-deps chromium
-    - name: Run Playwright functional tests and Scout/Rubin ToO tests
+    - name: Run Playwright functional tests, Scout/Rubin ToO tests and ephemeris tests
       run: |
-        python manage.py test solsys_code.tests.test_bootstrap5_rendering solsys_code.tests.test_scout_views solsys_code.tests.test_rubin_too
+        python manage.py test solsys_code.tests.test_bootstrap5_rendering solsys_code.tests.test_scout_views solsys_code.tests.test_rubin_too solsys_code.tests.test_views solsys_code.tests.test_ephem_utils
