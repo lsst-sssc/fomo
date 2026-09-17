@@ -289,7 +289,7 @@ def _send_notification(decision: str, results: list[StepResult]) -> None:
     subject, body = _build_notification_body(decision, results)
     try:
         notifications.notify_staff(subject, body, fail_silently=False)
-    except Exception as exc:  # noqa: BLE001 -- send_mail() is a network-ish call, D-17
+    except Exception as exc:  # noqa: BLE001 -- mail sending is a network-ish call, D-17
         logger.error('failed to send unattended notification: %s', type(exc).__name__)
 
 

@@ -22,8 +22,6 @@ from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib import messages
-from django.contrib.auth.models import User
-from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Case, CharField, Count, EmailField, F, Value, When
@@ -39,6 +37,7 @@ from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 
+from solsys_code import notifications
 from solsys_code.solsys_code_observatory.models import Observatory
 
 from . import campaign_attribution
@@ -328,20 +327,19 @@ class CampaignRunSubmissionView(FormView):
         """Email every staff user with an email on file that a submission is pending (SUBMIT-05).
 
         Body/subject intentionally carry no PII (D-04) -- a bare ping plus the approval-queue
-        link, nothing about the submitter, telescope, or campaign.
+        link, nothing about the submitter, telescope, or campaign. Delegates to the shared,
+        request-free ``notifications.notify_staff()`` helper (Phase 36, D-11) so this call
+        site and the unattended runner's own failure-notification call site can never drift
+        apart on the recipient rule or the no-PII body -- only the base URL and the
+        outage-tolerance differ between the two.
         """
-        recipients = list(User.objects.filter(is_staff=True).exclude(email='').values_list('email', flat=True))
-        if not recipients:
-            return  # no staff with an email on file -- nothing to notify, not an error
         # WR-03: campaigns:approval_queue is wired up by campaign_urls.py/src/fomo/urls.py in
         # this same shipped changeset, so reverse() always succeeds here -- no NoReverseMatch
         # fallback needed.
-        queue_url = self.request.build_absolute_uri(reverse('campaigns:approval_queue'))
-        send_mail(
+        queue_url = notifications.absolute_url(reverse('campaigns:approval_queue'))
+        notifications.notify_staff(
             subject='FOMO: new campaign run submission pending review',
             message=f'A new run submission is pending review: {queue_url}',
-            from_email=None,
-            recipient_list=recipients,
             fail_silently=True,  # Pitfall 6: a mail outage must never break the submission
         )
 

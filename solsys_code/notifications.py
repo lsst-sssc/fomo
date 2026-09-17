@@ -56,17 +56,30 @@ def notify_staff(subject: str, message: str, *, fail_silently: bool = False) -> 
             site -- a mail outage must never break a submission.
 
     Returns:
-        bool: True if an email was sent (there was at least one recipient), False if
-            there were no recipients (not an error).
+        bool: True if there was at least one recipient (an attempt was made, whether or
+            not it succeeded), False if there were no recipients (not an error, and
+            never attempted).
+
+    Raises:
+        Exception: whatever ``send_mail()`` raised, only when ``fail_silently`` is
+            False. ``fail_silently`` is handled by this function's own try/except
+            rather than delegated to ``send_mail()``'s own parameter of the same name,
+            so behavior is identical regardless of which layer (this function,
+            ``send_mail()`` itself, or the configured email backend) a caller mocks or
+            a real outage occurs at.
     """
     recipients = staff_recipients()
     if not recipients:
         return False
-    send_mail(
-        subject=subject,
-        message=message,
-        from_email=None,
-        recipient_list=recipients,
-        fail_silently=fail_silently,
-    )
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=None,
+            recipient_list=recipients,
+            fail_silently=False,
+        )
+    except Exception:
+        if not fail_silently:
+            raise
     return True
