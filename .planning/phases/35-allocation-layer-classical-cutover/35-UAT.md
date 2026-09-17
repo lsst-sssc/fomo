@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 35-allocation-layer-classical-cutover
 source: [35-VERIFICATION.md]
 started: 2026-09-13T09:30:00Z
-updated: 2026-09-16T20:20:00Z
+updated: 2026-09-16T21:05:00Z
 ---
 
 ## Current Test
@@ -69,6 +69,15 @@ blocked: 0
   reason: "User reported: fix in round 6"
   severity: major
   test: 4
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "Already closed in code before diagnosis: round-6 plans 35-23/35-24 (up to 0bc1ccd) added the v3 position-fingerprinted token and a fall-through in _span_needs_remint() that recomputes the night boundaries and re-mints only when they differ from the stored ones by more than _UNRECORDED_PROVENANCE_TOLERANCE (1 minute) -- the owner's >1 min threshold is already in place. Debugger's probe at HEAD 5b0f431 on the round-5 fixture: ReconcileResult(created=1, retired=1) with boundaries 2026-07-09 07:20:39 -> 20:57:12 (= corrected site's sun events) plus a warning; a few-metre tweak (~1 s drift) reports unchanged=1 with no churn; a confirmed companion row is declined under remint_declined with two warnings per sweep (the owner-accepted 'human outranks machine' rule re-affirmed by UAT Test 6). The round-5 reproduction no longer reproduces. Remaining delta is message accuracy only: the step-4 staleness warning at allocation_projector.py:739-750 hard-codes 'unrecorded-provenance night' for a branch that is also reached by fully-recorded, repositioned nights, so an operator who corrected a site position is pointed at the runbook's legacy-audit reason instead of the site-correction paragraph. Already recorded as advisory #1 / an Anti-Pattern row in 35-VERIFICATION.md."
+  artifacts:
+    - path: "solsys_code/allocation_projector.py"
+      issue: "lines 739-750: warning text says 'unrecorded-provenance night' on both entry paths of the step-4 boundary comparison; the trusted-token-but-repositioned path deserves its own wording (e.g. 'site position changed')"
+    - path: "solsys_code/allocation_projector.py"
+      issue: "line 77: _UNRECORDED_PROVENANCE_TOLERANCE now serves two callers; name too narrow (cosmetic)"
+  missing:
+    - "Branch the step-4 warning text on which entry path reached it (a token_trusted-and-fingerprint-differed flag is already in scope) so a site-position correction is described as such"
+    - "If planned: regenerate docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb (cell 22 prints the old wording) and touch the runbook's retired reason (5) / site-definition paragraphs only if operator-visible wording changes"
+  debug_session: ".planning/debug/observatory-edit-leaves-nights-stale.md"
+  regression_guards: "solsys_code/tests/test_allocation_projector.py: test_in_place_observatory_correction_remints_to_the_corrected_positions_sun_event (:2387), test_changing_the_sites_position_in_place_remints (:3021), test_a_boundary_exactly_at_the_tolerance_resolves_as_correct (:2888), test_a_boundary_one_microsecond_beyond_the_tolerance_remints (:2905)"
   notes: "Owner decision (UAT 2026-09-16): fix in round 6 alongside 35-REVIEW.md iteration-9 CR-04/CR-05. Owner's use case, verbatim: 'someone might create an Observatory with a rough position in a hurry with runs associated with it and the Observatory position could be refined later which would be worth a re-sweep and reproject with new times if the positions changed enough to make >1 minute differences'. Design constraint from that: the re-mint must trigger only when the recomputed night boundaries differ from the projected ones by more than 1 minute -- a sub-minute drift from a trivial coordinate tweak must NOT churn every night at the site. Verifier reproduction: ReconcileResult(created=0, updated=0, unchanged=1, retired=0) with boundaries 2026-07-09 22:06:35+00:00 -> 2026-07-10 11:29:46+00:00 while the corrected site's true sunset/sunrise are 2026-07-09 07:20:39 / 20:57:12 (~15 h stale). Token `v2|1|none|none` unchanged before/after because it carries `site_id`, not the site's coordinates."
