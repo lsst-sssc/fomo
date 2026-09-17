@@ -129,7 +129,18 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   `project_observation_calendar_demo.ipynb`;
   `solsys_code/management/commands/sync_gemini_observation_calendar.py` ->
   `sync_gemini_observation_calendar_demo.ipynb`;
-  `solsys_code/management/commands/backfill_lco_observations.py -> backfill_lco_observations_demo.ipynb`;
+  `solsys_code/management/commands/backfill_lco_observations.py -> backfill_lco_observations_demo.ipynb`
+  (the admin-editable watched-proposal contract — bare invocation, `last_run_at`/
+  `last_run_summary`, per-proposal failure isolation — is covered by that same notebook,
+  not a second one);
+  `solsys_code/unattended.py`, `solsys_code/notifications.py`,
+  `solsys_code/management/commands/run_unattended.py` and
+  `solsys_code/management/commands/check_unattended.py` -> the runbook's
+  `How do I run everything unattended?` section
+  (`docs/runbooks/telescope_runs_calendar.rst`), **not** a notebook — a runner demo could
+  only execute with the portal, the mail backend and the heartbeat all mocked at once, which
+  would demonstrate the mocking rather than the runner, and 36-CONTEXT.md's discretion note
+  sanctions the runbook section as the paired doc in exactly that case;
   `solsys_code/campaign_reconciler.py`,
   `solsys_code/management/commands/reconcile_campaign_runs.py` and
   `solsys_code/allocation_projector.py` ->

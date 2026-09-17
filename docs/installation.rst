@@ -148,3 +148,6 @@ above -- before running the command again.
 For a task-oriented walkthrough of the specific commands and staff actions
 that keep the telescope runs calendar and campaign coordination up to date,
 see the Telescope Runs Calendar Operator Runbook.
+
+Most of these commands can also be run on a schedule with no operator
+action at all -- see :ref:`unattended-operation` for how to set that up.
