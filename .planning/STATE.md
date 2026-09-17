@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
 status: executing
-stopped_at: Completed 36-01-PLAN.md
-last_updated: "2026-09-17T15:23:15.393Z"
+stopped_at: Completed 36-02-PLAN.md
+last_updated: "2026-09-17T15:46:42.139Z"
 last_activity: 2026-09-17
 last_activity_desc: Phase 36 execution started
-state_head: dd53789f6d260ac7153770efef210d451ead6c0e
+state_head: d726aa432621d1854c4c124a39072dc66edd215b
 progress:
   total_phases: 5
   completed_phases: 35
   total_plans: 48
-  completed_plans: 44
-  percent: 92
+  completed_plans: 45
+  percent: 94
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 ## Current Position
 
 Phase: 36 (Unattended Operation) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-09-17 — Phase 36 execution started
 
@@ -216,6 +216,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P24 | 75min | 3 tasks | 4 files |
 | Phase 35 P25 | 90min | 2 tasks | 2 files |
 | Phase 36 P01 | 24min | 3 tasks | 8 files |
+| Phase 36 P02 | 21min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -348,6 +349,9 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 35 UAT]: UAT Test 5 recorded as `pass` with the deferral text as its resolution rather than `skipped`, because `gsd_run phase uat-passed` counts a skipped test as a blocker even when the workflow's own deferred-follow-up rule produced it.
 - [Phase 36]: 36-01: notifications.notify_staff() implements its own fail_silently try/except around send_mail() rather than delegating to send_mail()'s own parameter, so the outage-tolerance contract is identical regardless of which layer fails or is mocked. — Discovered while writing Task 3's mail-outage test -- patching send_mail() directly bypasses Django's internal per-backend fail_silently handling.
 - [Phase 36]: 36-01: unattended.py never calls django.urls.reverse() -- a management-command-only process has not yet loaded the URL conf, and reverse() would trigger a full resolution that imports solsys_code.views via calendar_urls.py, reintroducing the ~1.6 GB SPICE-kernel import on every cron tick. — The failure email's admin/calendar links use notifications.absolute_url() with hardcoded paths instead of reverse()'d ones.
+- [Phase 36]: [Phase 36]: 36-02: sweep_proposal() accepts created_after/created_before as raw ISO-8601 strings (parsed internally), not pre-parsed datetimes -- keeps the extracted function self-contained and Command.handle() reduced to CLI-only concerns (username resolution).
+- [Phase 36]: [Phase 36]: 36-02: the watched-path's zero-rows/aggregate messages are written directly via self.stdout.write() with handle() returning None, avoiding BaseCommand.execute() double-printing the return value.
+- [Phase 36]: [Phase 36]: 36-02: a per-row sweep failure is logged at logger.debug() with type(exc).__name__ only, never str(exc) -- keeps SCHED-10/D-17 credential-safety intact in the debug log too.
 
 ### Pending Todos
 
@@ -452,8 +456,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-17T15:23:15.316Z
-Stopped at: Completed 36-01-PLAN.md
+Last session: 2026-09-17T15:46:42.063Z
+Stopped at: Completed 36-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

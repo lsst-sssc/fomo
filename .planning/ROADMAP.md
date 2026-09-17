@@ -336,13 +336,13 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 1/5 plans executed
+**Plans**: 2/5 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 36-01-PLAN.md — Tracer: one end-to-end unattended tick (runner, heartbeat, failure email, crontab template, shared mail helper)
-- [ ] 36-02-PLAN.md — `WatchedProposal` model/admin and the watched-list discovery restructure of `backfill_lco_observations`
+- [x] 36-02-PLAN.md — `WatchedProposal` model/admin and the watched-list discovery restructure of `backfill_lco_observations`
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -412,7 +412,7 @@ Plans:
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
-| 36. Unattended Operation | v2.4 | 1/5 | In Progress|  |
+| 36. Unattended Operation | v2.4 | 2/5 | In Progress|  |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
