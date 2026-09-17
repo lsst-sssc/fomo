@@ -654,7 +654,7 @@ class TestProjectSweepStep(UnattendedTestBase):
 class TestDiscoveryStep(UnattendedTestBase):
     """Task 2 (36-CONTEXT.md D-07..D-09): the watched-proposal discovery step."""
 
-    @patch('solsys_code.unattended.sweep_proposal')
+    @patch('solsys_code.management.commands.backfill_lco_observations.sweep_proposal')
     def test_sweeps_every_active_row(self, mock_sweep_proposal):
         WatchedProposal.objects.create(proposal_code='AAA-2026-001')
         WatchedProposal.objects.create(proposal_code='BBB-2026-002')
@@ -669,7 +669,7 @@ class TestDiscoveryStep(UnattendedTestBase):
         )
         self.assertFalse(result.failed)
 
-    @patch('solsys_code.unattended.sweep_proposal')
+    @patch('solsys_code.management.commands.backfill_lco_observations.sweep_proposal')
     def test_empty_list_is_healthy(self, mock_sweep_proposal):
         result = unattended.step_discovery(dry_run=False)
 
@@ -677,7 +677,7 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertIn('0 watched proposals', result.summary)
         mock_sweep_proposal.assert_not_called()
 
-    @patch('solsys_code.unattended.sweep_proposal')
+    @patch('solsys_code.management.commands.backfill_lco_observations.sweep_proposal')
     def test_one_failing_row_does_not_stop_the_others(self, mock_sweep_proposal):
         WatchedProposal.objects.create(proposal_code='AAA-2026-001')
         WatchedProposal.objects.create(proposal_code='BBB-2026-002')
@@ -691,7 +691,7 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertEqual(row_b.last_run_summary, 'requestgroups seen: 1')
         self.assertTrue(result.failed)
 
-    @patch('solsys_code.unattended.sweep_proposal')
+    @patch('solsys_code.management.commands.backfill_lco_observations.sweep_proposal')
     def test_failing_row_names_the_proposal_in_the_summary(self, mock_sweep_proposal):
         WatchedProposal.objects.create(proposal_code='AAA-2026-001')
         mock_sweep_proposal.side_effect = requests.exceptions.HTTPError('boom')
@@ -700,7 +700,7 @@ class TestDiscoveryStep(UnattendedTestBase):
 
         self.assertIn('AAA-2026-001', result.summary)
 
-    @patch('solsys_code.unattended.sweep_proposal')
+    @patch('solsys_code.management.commands.backfill_lco_observations.sweep_proposal')
     def test_dry_run_writes_no_bookkeeping(self, mock_sweep_proposal):
         row = WatchedProposal.objects.create(proposal_code='AAA-2026-001')
         mock_sweep_proposal.return_value = 'would sweep'
@@ -835,7 +835,7 @@ class TestCredentialHygiene(UnattendedTestBase):
         row_b = WatchedProposal.objects.create(proposal_code='BBB-2026-002')
         error_message = f'portal error key={_FAKE_LCO_API_KEY} url={_FAKE_HEARTBEAT_PING_URL}'
         with patch(
-            'solsys_code.unattended.sweep_proposal',
+            'solsys_code.management.commands.backfill_lco_observations.sweep_proposal',
             side_effect=[ImproperCredentialsException(error_message), 'requestgroups seen: 1'],
         ):
             log_output, stdout_value, stderr_value = self._run_tick_capturing()

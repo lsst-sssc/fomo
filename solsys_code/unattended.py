@@ -30,14 +30,13 @@ from typing import Any
 
 import requests
 from django.conf import settings
-from django.utils import timezone
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 
 from solsys_code import notifications
 from solsys_code.campaign_reconciler import reconcile_run
-from solsys_code.management.commands.backfill_lco_observations import sweep_proposal, watched_rows
+from solsys_code.management.commands.backfill_lco_observations import sweep_watched_rows
 from solsys_code.management.commands.project_observation_calendar import resolve_observed_site
 from solsys_code.models import CampaignRun
 from solsys_code.observation_projector import PROJECTED_FACILITIES, project_queryset
@@ -318,42 +317,20 @@ def step_discovery(dry_run: bool) -> StepResult:
             When the per-step lock is contended, returns a non-failing ``StepResult``
             noting the skip instead.
     """
+    # IN-13 (36-REVIEW.md): the query/sweep/bookkeeping/failure-isolation loop itself
+    # lives in sweep_watched_rows() -- shared with backfill_lco_observations.Command's
+    # own bare-invocation path -- so this step only needs its own StepResult reporting
+    # from the counts that helper returns. IN-02 (36-REVIEW.md, still open): stdout/
+    # stderr are not passed through here, so sweep_proposal()'s own per-request skip
+    # reasons still sink into its default io.StringIO() and never reach this summary.
     try:
         with command_lock('backfill_lco_observations'):
-            rows = list(watched_rows())
-            if not rows:
+            rows_swept, failed_count, failed_codes = sweep_watched_rows(dry_run=dry_run)
+            if not rows_swept:
                 logger.info('0 watched proposals, nothing to discover')
                 return StepResult(name='discovery', failed=False, summary='0 watched proposals, nothing to discover')
 
-            failed_count = 0
-            failed_codes: list[str] = []
-            for row in rows:
-                try:
-                    summary = sweep_proposal(
-                        row.proposal_code,
-                        target_list_name=row.target_list_name or None,
-                        user=row.attributed_to,
-                        dry_run=dry_run,
-                    )
-                except Exception as exc:  # noqa: BLE001 -- portal/facility call, D-17's first bucket
-                    # D-17: a portal exception's message can embed request/response
-                    # content, so only the class name ever reaches the row or the log.
-                    summary = f'failed: {type(exc).__name__}'
-                    logger.debug(
-                        'sweep_proposal() failed for proposal_code=%r: %s', row.proposal_code, type(exc).__name__
-                    )
-                    failed_count += 1
-                    failed_codes.append(row.proposal_code)
-
-                # D-09: bookkeeping is written whether the sweep succeeded or failed, so
-                # the admin's last_run_at/last_run_summary are never stale for a row that
-                # was actually swept -- but a dry run writes nothing at all.
-                if not dry_run:
-                    row.last_run_at = timezone.now()
-                    row.last_run_summary = summary
-                    row.save(update_fields=['last_run_at', 'last_run_summary'])
-
-            overall_summary = f'swept: {len(rows)}, failed: {failed_count}'
+            overall_summary = f'swept: {rows_swept}, failed: {failed_count}'
             if failed_codes:
                 overall_summary += f' ({", ".join(failed_codes)})'
             return StepResult(name='discovery', failed=failed_count > 0, summary=overall_summary)

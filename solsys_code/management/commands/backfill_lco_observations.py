@@ -694,6 +694,69 @@ def watched_rows():
     return WatchedProposal.objects.filter(is_active=True).select_related('attributed_to')
 
 
+def sweep_watched_rows(
+    *, dry_run: bool, stdout: io.StringIO | None = None, stderr: io.StringIO | None = None
+) -> tuple[int, int, list[str]]:
+    """Sweep every active ``WatchedProposal`` row through ``sweep_proposal()`` (D-07..D-09).
+
+    IN-13 (36-REVIEW.md): the single source of the watched-list sweep loop -- ``Command.
+    handle()``'s bare-invocation path and ``unattended.step_discovery()`` were two
+    near-identical copies of this same query/sweep/bookkeeping/failure-isolation logic,
+    with CR-02's own `--proposal`-only guard living in only one of them (correct today
+    only because the runner bypasses the CLI). Each caller does its own terminal
+    reporting (a `StepResult` vs. a `CommandError`) from the counts this returns.
+
+    Args:
+        dry_run: report what would change without writing any ``WatchedProposal``
+            bookkeeping when True.
+        stdout: forwarded to ``sweep_proposal()``, unused (``None``) by the runner, which
+            has no stdout of its own to write progress lines to.
+        stderr: forwarded to ``sweep_proposal()``, and used to report the class name of
+            any per-row failure (D-17) when supplied.
+
+    Returns:
+        tuple[int, int, list[str]]: ``(rows_swept, failed_count, failed_codes)``.
+            ``rows_swept`` is 0 for a legitimately empty watch list (D-08, not a
+            failure). A per-row failure is caught and recorded on that row's own
+            ``last_run_summary`` (class name only, D-17) without stopping the remaining
+            rows (D-09).
+    """
+    rows = list(watched_rows())
+    failed_count = 0
+    failed_codes: list[str] = []
+    for row in rows:
+        try:
+            summary = sweep_proposal(
+                row.proposal_code,
+                target_list_name=row.target_list_name or None,
+                user=row.attributed_to,
+                dry_run=dry_run,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        except Exception as exc:  # noqa: BLE001 -- the only catch point, D-09
+            # D-17: a portal/facility/network exception's message can embed request or
+            # response content, so only the class name ever reaches the row, stderr, or
+            # the log -- never str(exc).
+            summary = f'failed: {type(exc).__name__}'
+            logger.debug('sweep_proposal() failed for proposal_code=%r: %s', row.proposal_code, type(exc).__name__)
+            if stderr is not None:
+                stderr.write(f'Proposal {row.proposal_code!r}: {summary}')
+            failed_count += 1
+            failed_codes.append(row.proposal_code)
+
+        # D-06/D-09: bookkeeping is written either way (success or failure) so the
+        # admin's last_run_at/last_run_summary columns are never stale for a row that
+        # was actually swept -- but a dry run writes nothing at all (D-07's own
+        # dry-run contract: report, never persist).
+        if not dry_run:
+            row.last_run_at = timezone.now()
+            row.last_run_summary = summary
+            row.save(update_fields=['last_run_at', 'last_run_summary'])
+
+    return len(rows), failed_count, failed_codes
+
+
 class Command(BaseCommand):
     """Backfill ObservationRecords, non-sidereal Targets, and ObservationGroups for LCO
     RequestGroups, campaign-agnostic and safe to re-run.
@@ -856,8 +919,14 @@ class Command(BaseCommand):
                 stderr=self.stderr,
             )
 
-        rows = list(watched_rows())
-        if not rows:
+        # IN-13 (36-REVIEW.md): the query/sweep/bookkeeping/failure-isolation loop itself
+        # lives in sweep_watched_rows() -- shared with unattended.step_discovery() -- so
+        # this method only needs its own terminal reporting (a written summary line and a
+        # CommandError) from the counts that helper returns.
+        rows_swept, failed_count, failed_codes = sweep_watched_rows(
+            dry_run=dry_run, stdout=self.stdout, stderr=self.stderr
+        )
+        if not rows_swept:
             # D-08: a legitimately empty watch list is a healthy, quiet no-op -- not a
             # failure -- so this is INFO, not a warning/error, and the command still exits 0.
             message = '0 watched proposals, nothing to discover'
@@ -865,38 +934,7 @@ class Command(BaseCommand):
             self.stdout.write(message)
             return None
 
-        failed_count = 0
-        failed_codes: list[str] = []
-        for row in rows:
-            try:
-                summary = sweep_proposal(
-                    row.proposal_code,
-                    target_list_name=row.target_list_name or None,
-                    user=row.attributed_to,
-                    dry_run=dry_run,
-                    stdout=self.stdout,
-                    stderr=self.stderr,
-                )
-            except Exception as exc:  # noqa: BLE001 -- the only catch point, D-09
-                # D-17: a portal/facility/network exception's message can embed request or
-                # response content, so only the class name ever reaches the row, stderr, or
-                # the log -- never str(exc).
-                summary = f'failed: {type(exc).__name__}'
-                logger.debug('sweep_proposal() failed for proposal_code=%r: %s', row.proposal_code, type(exc).__name__)
-                self.stderr.write(f'Proposal {row.proposal_code!r}: {summary}')
-                failed_count += 1
-                failed_codes.append(row.proposal_code)
-
-            # D-06/D-09: bookkeeping is written either way (success or failure) so the
-            # admin's last_run_at/last_run_summary columns are never stale for a row that
-            # was actually swept -- but a dry run writes nothing at all (D-07's own
-            # dry-run contract: report, never persist).
-            if not dry_run:
-                row.last_run_at = timezone.now()
-                row.last_run_summary = summary
-                row.save(update_fields=['last_run_at', 'last_run_summary'])
-
-        self.stdout.write(f'Swept {len(rows)} watched proposal(s), failed: {failed_count}')
+        self.stdout.write(f'Swept {rows_swept} watched proposal(s), failed: {failed_count}')
 
         if failed_count:
             # CommandError is FOMO's own exception (D-17's second bucket): its message may
