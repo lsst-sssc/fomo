@@ -220,10 +220,16 @@ class TestCronLine(CheckUnattendedTestBase):
         self.assertNotIn('/path/to/checkout/manage.py', line)
 
     def test_line_matches_the_committed_template_shape(self):
+        # IN-08 (36-REVIEW.md): guard against a host with no `flock` on PATH -- `shutil.
+        # which('flock')` would then return None, and the un-guarded f-string built an
+        # assertion for the literal 'None -n -E 99', which can never match `cron_line()`'s
+        # `/usr/bin/flock` fallback and fails the test for a reason unrelated to what it
+        # actually checks.
+        flock_path = shutil.which('flock') or '/usr/bin/flock'
         line = cron_line()
         for element in (
             '*/15 * * * *',
-            f'{shutil.which("flock")} -n -E 99',
+            f'{flock_path} -n -E 99',
             'run_unattended.cron.lock',
             'run_unattended',
             '2>&1',
@@ -234,6 +240,24 @@ class TestCronLine(CheckUnattendedTestBase):
         ):
             self.assertIn(element, line)
         self.assertIn('>>', line)
+
+    def test_line_matches_the_committed_template_token_for_token(self):
+        # IN-08 (36-REVIEW.md): the previous version of this test's name promised
+        # agreement with deploy/cron/fomo.crontab.example but never actually read it,
+        # comparing only a hand-maintained fragment list instead -- drift between the two
+        # is exactly what CR-01/WR-01/WR-09 were about. Read the committed file's own
+        # `*/15` line and compare option tokens, ignoring the two host-specific
+        # placeholder paths this test doesn't resolve.
+        template_path = Path(__file__).resolve().parents[2] / 'deploy' / 'cron' / 'fomo.crontab.example'
+        template_line = next(
+            stripped_line
+            for raw_line in template_path.read_text().splitlines()
+            if (stripped_line := raw_line.strip()).startswith('*/15')
+        )
+        line = cron_line()
+        for token in ('-n', '-E 99', '.cron.lock', '>>', '2>&1', 'rc=$?', '[ $rc -eq 99 ]', 'lock held', 'exit $rc'):
+            self.assertIn(token, template_line, f'{token!r} missing from the committed template line')
+            self.assertIn(token, line, f'{token!r} missing from cron_line()')
 
     def test_line_ends_with_an_explicit_exit_of_the_captured_status(self):
         # WR-09 (36-REVIEW.md): the skip-tail's own `[ ... ] && echo ...` must not be the
