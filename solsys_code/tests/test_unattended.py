@@ -10,6 +10,7 @@ matching ``test_reconcile_campaign_runs.py``'s own convention.
 
 import contextlib
 import fcntl
+import json
 import tempfile
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -327,6 +328,46 @@ class TestLocking(UnattendedTestBase):
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
         self.assertEqual(len(mail.outbox), 0)
+
+
+class TestStateFileRobustness(UnattendedTestBase):
+    """WR-03 (36-REVIEW.md): the suppression-state file must be fail-safe -- a
+    malformed file must never raise out of ``load_state()``, and a state-handling
+    failure must never stop the tick's own END banner or exit-code heartbeat ping."""
+
+    def _write_state_file(self, content: str) -> None:
+        state_path = Path(self.tmp_dir.name) / 'unattended-state.json'
+        state_path.write_text(content)
+
+    def test_non_dict_state_file_is_treated_as_no_prior_failure(self):
+        self._write_state_file('[1, 2]')
+        self.assertEqual(unattended.load_state(), {'failing_steps': [], 'notified_at': None})
+
+    def test_malformed_notified_at_is_treated_as_no_prior_notification(self):
+        self._write_state_file(json.dumps({'failing_steps': ['reconcile'], 'notified_at': 'not-a-date'}))
+        state = unattended.load_state()
+        self.assertEqual(state['failing_steps'], ['reconcile'])
+        self.assertIsNone(state['notified_at'])
+
+    def test_naive_notified_at_is_assumed_utc(self):
+        self._write_state_file(json.dumps({'failing_steps': ['reconcile'], 'notified_at': '2026-01-01T00:00:00'}))
+        state = unattended.load_state()
+        self.assertIsNotNone(state['notified_at'].tzinfo)
+
+    def test_state_handling_failure_never_blocks_the_end_banner_or_heartbeat(self):
+        self._make_campaign_run()
+        with (
+            patch('solsys_code.unattended.save_state', side_effect=OSError('disk full')),
+            patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError('boom')),
+            self.assertLogs('solsys_code.unattended', level='INFO') as captured,
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                call_command('run_unattended')
+        self.assertEqual(cm.exception.code, 1)
+        joined = '\n'.join(captured.output)
+        self.assertIn('=== FOMO unattended run END', joined)
+        urls = [call.args[0] for call in self.mock_requests_get.call_args_list]
+        self.assertTrue(any(url.endswith('/1') for url in urls))
 
 
 class TestStatusRefreshStep(UnattendedTestBase):

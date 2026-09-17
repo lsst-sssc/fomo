@@ -355,9 +355,12 @@ def load_state() -> dict:
     """Read the D-11 suppression-state file.
 
     Returns:
-        dict: ``{'failing_steps': [...], 'notified_at': <ISO-8601 str> | None}``. A
-            missing or unparseable file is treated as "no prior failure" -- never an
-            exception out of ``run_tick()``.
+        dict: ``{'failing_steps': [...], 'notified_at': <tz-aware datetime> | None}``.
+            A missing file, an unparseable one, one whose top level is not a dict/list
+            (WR-03, 36-REVIEW.md), or a ``notified_at`` that is not a valid ISO-8601
+            string is treated as "no prior failure" -- never an exception out of
+            ``run_tick()``. A naive ``notified_at`` (no tzinfo) is assumed UTC, so
+            ``decide_notification()`` can always subtract it from an aware ``now``.
     """
     state_path = Path(settings.FOMO_STATE_DIR) / _STATE_FILENAME
     try:
@@ -365,9 +368,24 @@ def load_state() -> dict:
             data = json.load(fh)
     except (OSError, ValueError):
         return {'failing_steps': [], 'notified_at': None}
+    if not isinstance(data, dict):
+        return {'failing_steps': [], 'notified_at': None}
+
+    failing_steps = data.get('failing_steps')
+    if not isinstance(failing_steps, list):
+        failing_steps = []
+
+    raw_notified_at = data.get('notified_at')
+    try:
+        notified_at = datetime.fromisoformat(raw_notified_at) if raw_notified_at else None
+    except (TypeError, ValueError):
+        notified_at = None
+    if notified_at is not None and notified_at.tzinfo is None:
+        notified_at = notified_at.replace(tzinfo=dt_timezone.utc)
+
     return {
-        'failing_steps': sorted(data.get('failing_steps') or []),
-        'notified_at': data.get('notified_at'),
+        'failing_steps': sorted(failing_steps),
+        'notified_at': notified_at,
     }
 
 
@@ -395,7 +413,10 @@ def decide_notification(previous_state: dict, failing_steps: list[str], now: dat
     """Implement D-11's mail-once-per-newly-failing-set rule.
 
     Args:
-        previous_state: the dict ``load_state()`` returned before this tick ran.
+        previous_state: the dict ``load_state()`` returned before this tick ran --
+            ``notified_at`` is already a parsed, tz-aware ``datetime`` (or None), never
+            a raw string (WR-03, 36-REVIEW.md: ``load_state()`` owns all of that
+            parsing so a malformed state file can never raise from in here).
         failing_steps: step names failing on this tick (any order).
         now: the current time (an explicit parameter, not ``datetime.now()``, so tests
             can inject it).
@@ -408,8 +429,7 @@ def decide_notification(previous_state: dict, failing_steps: list[str], now: dat
     """
     previous_failing = sorted(previous_state.get('failing_steps') or [])
     failing_steps = sorted(failing_steps)
-    notified_at_raw = previous_state.get('notified_at')
-    notified_at = datetime.fromisoformat(notified_at_raw) if notified_at_raw else None
+    notified_at = previous_state.get('notified_at')
 
     if failing_steps:
         if failing_steps != previous_failing:
@@ -525,18 +545,27 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
 
             if not quiet:
                 failing_steps = sorted(result.name for result in results if result.failed)
-                previous_state = load_state()
-                decision = decide_notification(previous_state, failing_steps, now)
-                # WR-02 (36-REVIEW.md): only record the notification as sent when it was
-                # actually attempted *and* delivered -- otherwise a down SMTP relay (or
-                # every staff email cleared) on the first failing tick would record
-                # notified_at anyway, suppressing all further mail for the same failing
-                # set for 24 hours, and again for each reminder window while it persists.
-                sent = _send_notification(decision, results) if decision is not None else False
-                if sent and decision in ('failure', 'reminder'):
-                    save_state(failing_steps, now)
-                elif sent and decision == 'recovered':
-                    save_state([], None)
+                # WR-03 (36-REVIEW.md): isolate the whole notification/state block --
+                # load_state()'s own docstring promised this never raises, but an
+                # unwritable/full FOMO_STATE_DIR on save_state() (or any other surprise
+                # here) must still not stop the END banner or the exit-code heartbeat
+                # ping below from running, the same discipline every other failure path
+                # in this module already follows.
+                try:
+                    previous_state = load_state()
+                    decision = decide_notification(previous_state, failing_steps, now)
+                    # WR-02 (36-REVIEW.md): only record the notification as sent when it
+                    # was actually attempted *and* delivered -- otherwise a down SMTP
+                    # relay (or every staff email cleared) on the first failing tick
+                    # would record notified_at anyway, suppressing all further mail for
+                    # the same failing set for 24 hours, and again per reminder window.
+                    sent = _send_notification(decision, results) if decision is not None else False
+                    if sent and decision in ('failure', 'reminder'):
+                        save_state(failing_steps, now)
+                    elif sent and decision == 'recovered':
+                        save_state([], None)
+                except Exception as exc:  # noqa: BLE001 -- D-11/D-17, see comment above
+                    logger.error('unattended notification/state handling raised: %s', type(exc).__name__)
                 ping_heartbeat(str(exit_code))
 
             _write_banner('END', now, exit_code=exit_code)
