@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
 status: executing
-stopped_at: Completed 36-02-PLAN.md
-last_updated: "2026-09-17T15:46:42.139Z"
+stopped_at: Completed 36-03-PLAN.md
+last_updated: "2026-09-17T16:13:15.194Z"
 last_activity: 2026-09-17
 last_activity_desc: Phase 36 execution started
-state_head: d726aa432621d1854c4c124a39072dc66edd215b
+state_head: 50baea9bb5417a76c108c60b8bc0fab1fea9afc5
 progress:
   total_phases: 5
   completed_phases: 35
   total_plans: 48
-  completed_plans: 45
-  percent: 94
+  completed_plans: 46
+  percent: 96
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 ## Current Position
 
 Phase: 36 (Unattended Operation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-09-17 — Phase 36 execution started
 
@@ -217,6 +217,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P25 | 90min | 2 tasks | 2 files |
 | Phase 36 P01 | 24min | 3 tasks | 8 files |
 | Phase 36 P02 | 21min | 3 tasks | 7 files |
+| Phase 36 P03 | 25min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -352,6 +353,7 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: [Phase 36]: 36-02: sweep_proposal() accepts created_after/created_before as raw ISO-8601 strings (parsed internally), not pre-parsed datetimes -- keeps the extracted function self-contained and Command.handle() reduced to CLI-only concerns (username resolution).
 - [Phase 36]: [Phase 36]: 36-02: the watched-path's zero-rows/aggregate messages are written directly via self.stdout.write() with handle() returning None, avoiding BaseCommand.execute() double-printing the return value.
 - [Phase 36]: [Phase 36]: 36-02: a per-row sweep failure is logged at logger.debug() with type(exc).__name__ only, never str(exc) -- keeps SCHED-10/D-17 credential-safety intact in the debug log too.
+- [Phase 36]: 36-03: step functions never call call_command()/django.core.management.call_command -- each step imports and calls the underlying module function directly, verified by a source-count probe plus a negative test patching call_command at its own definition site.
 
 ### Pending Todos
 
@@ -456,8 +458,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-17T15:46:42.063Z
-Stopped at: Completed 36-02-PLAN.md
+Last session: 2026-09-17T16:13:15.125Z
+Stopped at: Completed 36-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
