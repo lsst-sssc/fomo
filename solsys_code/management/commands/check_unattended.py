@@ -3,18 +3,20 @@
 Answers "is this host ready to run FOMO unattended, and what exactly do I paste into the
 crontab?" in one run. This command is read-only by construction (D-05, T-36-16): it
 creates no directory, writes no file (beyond an optional test email, see
-``--send-test-email``), and changes no row. A missing hard prerequisite -- no ``flock``,
-an unwritable lock or log directory, the console email backend, or no staff user with an
-email -- makes the command exit non-zero, naming every failed hard check in one
+``--send-test-email``), and changes no row. A missing hard prerequisite -- no ``flock``
+(or one too old to support ``-E``, WR-11, 36-REVIEW.md), an unwritable lock, log, or
+state directory (WR-15, 36-REVIEW.md), the console email backend, or no staff user with
+an email -- makes the command exit non-zero, naming every failed hard check in one
 ``CommandError`` so a fresh-host operator sees the whole list of problems in one run. An
 unset heartbeat URL, a ``FOMO_BASE_URL`` left at its localhost dev default (WR-07,
 36-REVIEW.md), and an empty watched-proposal list are warnings only (D-08, D-12): the
 tick still runs, and mail still sends, without either.
 
 SCHED-10/D-15: every check reports a NAME plus a set/unset status or a count. The only
-values ever interpolated into this command's output are filesystem paths and
-``sys.executable`` (see ``cron_line()``) -- never a credential, a URL, or any other
-setting value.
+values ever interpolated into this command's output are filesystem paths,
+``sys.executable`` (see ``cron_line()``), and filesystem ownership/permission metadata
+(IN-09, 36-REVIEW.md: ``_check_directory_writable()``'s ``os.geteuid()``, owner uid, and
+octal mode) -- never a credential, a URL, or any other setting value.
 """
 
 import os
@@ -345,7 +347,8 @@ class Command(BaseCommand):
 
     Read-only: creates no directory, writes no file, and changes no row -- it reports,
     the operator acts. Exits non-zero only when a hard prerequisite is missing; an unset
-    heartbeat URL and an empty watched-proposal list are warnings (D-08, D-12).
+    heartbeat URL, a ``FOMO_BASE_URL`` left at its localhost dev default (WR-07,
+    36-REVIEW.md), and an empty watched-proposal list are warnings (D-08, D-12).
     """
 
     help = (
