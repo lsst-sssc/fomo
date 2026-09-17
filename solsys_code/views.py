@@ -2,18 +2,11 @@ import json
 import logging
 import re
 import urllib.parse
-from collections import defaultdict
-from csv import writer
 from datetime import timezone
-from io import StringIO
 from math import ceil
 from typing import Any
 
-import erfa
-import numpy as np
-import pandas as pd
 import requests
-import spiceypy as spice
 from astropy import units as u
 from astropy.table import QTable
 from astropy.time import Time, TimeDelta
@@ -23,28 +16,11 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.generic import FormView, View
-from sorcha.ephemeris.simulation_driver import EphemerisGeometryParameters, get_vec
-from sorcha.ephemeris.simulation_geometry import (
-    barycentricObservatoryRates,
-    integrate_light_time,
-)
 from tom_targets.models import Target
 
 from solsys_code.solsys_code_observatory.models import Observatory
 
-from .ephem_utils import (
-    AU_KM,
-    PI_OVER_2,
-    SEC_PER_DAY,
-    add_magnitude,
-    add_sky_motion,
-    build_apco_context,
-    calculate_rates_and_geometry,
-    convert_target_to_layup,
-    ephem,
-    generate_assist_simulations,
-    observatories,
-)
+from .ephem_utils import compute_ephemeris
 from .forms import EphemerisForm
 
 
@@ -232,138 +208,9 @@ class Ephemeris(View):
             step_size *= unit
         n_steps = (end_time - start_time) / step_size
         ts = TimeSeries(time_start=start_time, time_delta=step_size, n_samples=ceil(n_steps) + 1)
-        # Generate a list of JD_TDB times
-        times = ts.time.tdb.jd
 
-        data = convert_target_to_layup(target)
+        predictions = compute_ephemeris(target, observatory, ts.time)
 
-        # Assemble stuff needed for sorcha's version of `integrate_light_time`
-        sim, ex = generate_assist_simulations(ephem, data)
-
-        output = StringIO()
-        in_memory_csv = writer(output)
-
-        column_names = (
-            'ObjID',
-            'epoch_UTC',
-            'fieldMJD_TAI',
-            'fieldJD_TDB',
-            'Range_LTC_au',
-            'RangeRate_LTC_au_s',
-            'Helio_LTC_au',
-            'HelioRate_LTC_au',
-            'RA_deg',
-            'RARateCosDec_deg_day',
-            'Dec_deg',
-            'DecRate_deg_day',
-            'Obj_Sun_x_LTC_au',
-            'Obj_Sun_y_LTC_au',
-            'Obj_Sun_z_LTC_au',
-            'Obj_Sun_vx_LTC_au_s',
-            'Obj_Sun_vy_LTC_au_s',
-            'Obj_Sun_vz_LTC_au_s',
-            'Obs_Sun_x_au',
-            'Obs_Sun_y_au',
-            'Obs_Sun_z_au',
-            'Obs_Sun_vx_au_s',
-            'Obs_Sun_vy_au_s',
-            'Obs_Sun_vz_au_s',
-            'phase_deg',
-            'Obs_Az_deg',
-            'Obs_Alt_deg',
-            'Obs_HA_deg',
-        )
-        column_types = defaultdict(ObjID=str, FieldID=str).setdefault(float)  # type: ignore
-        in_memory_csv.writerow(column_names)
-
-        # Make equivalent `pointings_df`
-        pointings_df = pd.DataFrame()
-        pointings_df['epoch_UTC'] = ts.time
-        pointings_df['fieldJD_TDB'] = times
-        pointings_df['observationMidpointMJD_TAI'] = ts.time.tai.mjd
-        # et_sun = spice.str2et(f'jd {epoch_tdb.jd} tdb')
-        # sun_posvel, sun_ltt = spice.spkezr('SUN', et_sun, 'J2000', 'NONE', 'SSB')
-        # # Convert from km and km/s to AU and AU/day
-        # sun_posvel /= AU_KM
-        # sun_posvel[3:6] *= SEC_PER_DAY
-
-        # Create ET for SPICE
-        et = (pointings_df['fieldJD_TDB'] - spice.j2000()) * SEC_PER_DAY
-
-        # create empty arrays for observatory position and velocity to be filled in
-        r_obs = np.empty((len(pointings_df), 3))
-        v_obs = np.empty((len(pointings_df), 3))
-
-        # SSB->observatory position and velocity vectors
-        for idx, et_i in enumerate(et):
-            r_obs[idx], v_obs[idx] = barycentricObservatoryRates(et_i, obscode, observatories=observatories)
-
-        r_obs /= AU_KM  # convert to au
-        v_obs *= SEC_PER_DAY / AU_KM  # convert to au/day
-
-        pointings_df['r_obs_x'] = r_obs[:, 0]
-        pointings_df['r_obs_y'] = r_obs[:, 1]
-        pointings_df['r_obs_z'] = r_obs[:, 2]
-        pointings_df['v_obs_x'] = v_obs[:, 0]
-        pointings_df['v_obs_y'] = v_obs[:, 1]
-        pointings_df['v_obs_z'] = v_obs[:, 2]
-
-        # create empty arrays for sun position and velocity to be filled in
-        r_sun = np.empty((len(pointings_df), 3))
-        v_sun = np.empty((len(pointings_df), 3))
-        time_offsets = pointings_df['fieldJD_TDB'] - ephem.jd_ref
-        for idx, time_offset_i in enumerate(time_offsets):
-            sun = ephem.get_particle('Sun', time_offset_i)
-            r_sun[idx] = np.array((sun.x, sun.y, sun.z))
-            v_sun[idx] = np.array((sun.vx, sun.vy, sun.vz))
-
-        pointings_df['r_sun_x'] = r_sun[:, 0]
-        pointings_df['r_sun_y'] = r_sun[:, 1]
-        pointings_df['r_sun_z'] = r_sun[:, 2]
-        pointings_df['v_sun_x'] = v_sun[:, 0]
-        pointings_df['v_sun_y'] = v_sun[:, 1]
-        pointings_df['v_sun_z'] = v_sun[:, 2]
-
-        # Generate ephemeris
-        for _, pointing in pointings_df.iterrows():
-            mjd_tai = float(pointing['observationMidpointMJD_TAI'])
-            r_obs = get_vec(pointing, 'r_obs')
-            ephem_geom_params = EphemerisGeometryParameters()
-            ephem_geom_params.obj_id = target.name
-            ephem_geom_params.mjd_tai = mjd_tai
-            (
-                ephem_geom_params.rho,
-                ephem_geom_params.rho_mag,
-                ltt,
-                ephem_geom_params.r_ast,
-                ephem_geom_params.v_ast,
-            ) = integrate_light_time(sim, ex, pointing['fieldJD_TDB'] - ephem.jd_ref, r_obs, lt0=0.01)
-            ephem_geom_params.rho_hat = ephem_geom_params.rho / ephem_geom_params.rho_mag
-
-            out_tuple = calculate_rates_and_geometry(pointing, ephem_geom_params)
-            # Transform from ICRS RA, Dec -> observed Alt, Az, HA
-            # Assemble astrometric context
-            astrom = build_apco_context(pointing, observatory)
-            # Transform to CIRS (can easily transform further to apparent RA, Dec if needed)
-            cirs_ra, cirs_dec = erfa.atciqz(np.radians(out_tuple[8]), np.radians(out_tuple[10]), astrom)
-            # Transform from CIRS->observed
-            obs_az, obs_zd, obs_ha, obs_dec, obs_ra = erfa.atioq(cirs_ra, cirs_dec, astrom)
-            # Convert zenith distance to altitude (in degrees)
-            obs_alt = np.degrees(PI_OVER_2 - obs_zd)
-            out_tuple = out_tuple + (np.degrees(obs_az), obs_alt, np.degrees(obs_ha))
-
-            in_memory_csv.writerow(out_tuple)
-        output.seek(0)
-        predictions = pd.read_csv(output, dtype=column_types)
-        # Add magnitude column
-        H = target.abs_mag or 22.0
-        G = target.slope or 0.15
-        comet = False
-        if target.scheme == 'MPC_COMET':
-            comet = True
-        predictions = add_magnitude(predictions, H, G, comet)
-        # Add sky motion rate column
-        predictions = add_sky_motion(predictions)
         ephem_lines = []
         for _, e in predictions.iterrows():
             ephem_line = [
