@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
 status: executing
-stopped_at: Phase 36 context gathered
-last_updated: "2026-09-17T05:23:42.380Z"
-last_activity: 2026-09-16
-last_activity_desc: Phase 35 complete, transitioned to Phase 36
-state_head: 0aa4ca8dc37b4136976454c2d281a1cf7097c629
+stopped_at: Completed 36-01-PLAN.md
+last_updated: "2026-09-17T15:23:15.393Z"
+last_activity: 2026-09-17
+last_activity_desc: Phase 36 execution started
+state_head: dd53789f6d260ac7153770efef210d451ead6c0e
 progress:
   total_phases: 5
   completed_phases: 35
   total_plans: 48
-  completed_plans: 43
-  percent: 90
+  completed_plans: 44
+  percent: 92
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 
 ## Current Position
 
-Phase: 36 (Unattended Operation) — READY TO EXECUTE
-Plan: Not started
+Phase: 36 (Unattended Operation) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-09-16 - Completed quick task 260916-o6n: Fix 35-REVIEW.md iteration 10 CR-01 (declined retirement now receives the ordinary label refresh); Phase 35 complete, transitioned to Phase 36
+Last activity: 2026-09-17 — Phase 36 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -215,6 +215,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 35 P23 | 85min | 3 tasks | 6 files |
 | Phase 35 P24 | 75min | 3 tasks | 4 files |
 | Phase 35 P25 | 90min | 2 tasks | 2 files |
+| Phase 36 P01 | 24min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -345,6 +346,8 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 35 UAT]: the declined-re-mint provenance-token seam (a declined re-mint records the run's current token onto a night whose `start_time` is still the pre-edit value; `allocation_projector.py:1441`, 35-REVIEW.md iteration 10 WR-01) deferred as a follow-up — reachable only by a sub-night edit and an in-place `Observatory` correction landing in the same sweep, no observable consequence.
 - [Phase 35 UAT]: CR-05's narrowing of Success Criterion 3 / ALLOC-03 accepted as written — a night whose companion row a person has confirmed is never deleted on link (`detach_declined`, warning, runbook remedy); no rewording of the criterion requested.
 - [Phase 35 UAT]: UAT Test 5 recorded as `pass` with the deferral text as its resolution rather than `skipped`, because `gsd_run phase uat-passed` counts a skipped test as a blocker even when the workflow's own deferred-follow-up rule produced it.
+- [Phase 36]: 36-01: notifications.notify_staff() implements its own fail_silently try/except around send_mail() rather than delegating to send_mail()'s own parameter, so the outage-tolerance contract is identical regardless of which layer fails or is mocked. — Discovered while writing Task 3's mail-outage test -- patching send_mail() directly bypasses Django's internal per-backend fail_silently handling.
+- [Phase 36]: 36-01: unattended.py never calls django.urls.reverse() -- a management-command-only process has not yet loaded the URL conf, and reverse() would trigger a full resolution that imports solsys_code.views via calendar_urls.py, reintroducing the ~1.6 GB SPICE-kernel import on every cron tick. — The failure email's admin/calendar links use notifications.absolute_url() with hardcoded paths instead of reverse()'d ones.
 
 ### Pending Todos
 
@@ -449,9 +452,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-17T04:24:53.617Z
-Stopped at: Phase 36 context gathered
-Resume file: .planning/phases/36-unattended-operation/36-CONTEXT.md
+Last session: 2026-09-17T15:23:15.316Z
+Stopped at: Completed 36-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
