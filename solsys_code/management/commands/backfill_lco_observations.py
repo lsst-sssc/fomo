@@ -27,6 +27,8 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.base_models import REQUIRED_NON_SIDEREAL_FIELDS, REQUIRED_NON_SIDEREAL_FIELDS_PER_SCHEME
 from tom_targets.models import Target, TargetList
 
+from solsys_code.models import WatchedProposal
+
 logger = logging.getLogger(__name__)
 
 # Portal wire key -> TOM Target field name, the inverse of OCSFacility._build_target_fields'
@@ -678,6 +680,20 @@ def sweep_proposal(
     return summary
 
 
+def watched_rows():
+    """Return every active `WatchedProposal` row, ready for the bare-invocation sweep.
+
+    Ordering is `proposal_code` ascending -- inherited from `WatchedProposal.Meta.ordering`
+    (36-CONTEXT.md D-06), not restated here, so a future change to that ordering needs no
+    matching edit in this function.
+
+    Returns:
+        QuerySet[WatchedProposal]: every row with `is_active=True`, with `attributed_to`
+            pre-fetched (each row's sweep reads it).
+    """
+    return WatchedProposal.objects.filter(is_active=True).select_related('attributed_to')
+
+
 class Command(BaseCommand):
     """Backfill ObservationRecords, non-sidereal Targets, and ObservationGroups for LCO
     RequestGroups, campaign-agnostic and safe to re-run.
@@ -706,6 +722,15 @@ class Command(BaseCommand):
     first run and reused on every re-run; --target-list NAME overrides the derived name. A
     skipped request contributes nothing to the list. A dry run reports which list it would
     create or reuse and how many targets it would add, without creating the list at all.
+
+    36-CONTEXT.md D-07: --proposal is now optional. Given, this behaves exactly as before --
+    a one-off manual sweep of that single code, which does not have to be a WatchedProposal
+    row and writes no WatchedProposal bookkeeping. Omitted (the invocation the unattended
+    runner uses), the command instead sweeps every active WatchedProposal row in
+    proposal_code order, applying that row's target_list_name/attributed_to overrides,
+    isolating a portal or data error to that row alone (D-09), and recording
+    last_run_at/last_run_summary on every row it swept. An empty watched list is a quiet,
+    zero-exit no-op (D-08).
     """
 
     help = 'Backfill ObservationRecords, non-sidereal Targets and ObservationGroups from LCO RequestGroups'
@@ -714,8 +739,13 @@ class Command(BaseCommand):
         """Parse command line arguments."""
         parser.add_argument(
             '--proposal',
-            required=True,
-            help='LCO proposal code to filter RequestGroups by (exact match).',
+            required=False,
+            default=None,
+            help=(
+                'LCO proposal code to filter RequestGroups by (exact match). Omit to sweep every '
+                'active WatchedProposal row instead (36-CONTEXT.md D-07); the named code need not '
+                'be a WatchedProposal row.'
+            ),
         )
         parser.add_argument(
             '--created-after',
@@ -744,12 +774,20 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
-        """Resolve CLI-only arguments and delegate the sweep itself to sweep_proposal().
+        """Resolve CLI-only arguments, then either sweep the single --proposal override or
+        every active WatchedProposal row (D-07).
 
         Returns:
-            str | None: a one-line summary of the counts described in the class docstring.
+            str | None: a one-line summary for the override path (unchanged from Task 2);
+                None for the watched path, which writes its own summary lines directly so
+                BaseCommand.execute()'s auto-write of a return value never duplicates them.
+
+        Raises:
+            CommandError: --username names an unknown user; --created-after/--created-before
+                (override path only) is not a valid ISO-8601 timestamp/date; or (watched
+                path) one or more watched proposals failed, naming the failing code(s).
         """
-        proposal = options['proposal']
+        proposal = options.get('proposal')
         dry_run = options['dry_run']
 
         user = None
@@ -759,13 +797,65 @@ class Command(BaseCommand):
             except get_user_model().DoesNotExist as exc:
                 raise CommandError(f'Invalid username: {options["username"]!r}') from exc
 
-        return sweep_proposal(
-            proposal,
-            target_list_name=options.get('target_list'),
-            user=user,
-            created_after=options.get('created_after'),
-            created_before=options.get('created_before'),
-            dry_run=dry_run,
-            stdout=self.stdout,
-            stderr=self.stderr,
-        )
+        if proposal:
+            # The override path: unchanged from Task 2. The named code does not have to be
+            # a WatchedProposal row, and no WatchedProposal bookkeeping is written here.
+            return sweep_proposal(
+                proposal,
+                target_list_name=options.get('target_list'),
+                user=user,
+                created_after=options.get('created_after'),
+                created_before=options.get('created_before'),
+                dry_run=dry_run,
+                stdout=self.stdout,
+                stderr=self.stderr,
+            )
+
+        rows = list(watched_rows())
+        if not rows:
+            # D-08: a legitimately empty watch list is a healthy, quiet no-op -- not a
+            # failure -- so this is INFO, not a warning/error, and the command still exits 0.
+            message = '0 watched proposals, nothing to discover'
+            logger.info(message)
+            self.stdout.write(message)
+            return None
+
+        failed_count = 0
+        failed_codes: list[str] = []
+        for row in rows:
+            try:
+                summary = sweep_proposal(
+                    row.proposal_code,
+                    target_list_name=row.target_list_name or None,
+                    user=row.attributed_to,
+                    dry_run=dry_run,
+                    stdout=self.stdout,
+                    stderr=self.stderr,
+                )
+            except Exception as exc:  # noqa: BLE001 -- the only catch point, D-09
+                # D-17: a portal/facility/network exception's message can embed request or
+                # response content, so only the class name ever reaches the row, stderr, or
+                # the log -- never str(exc).
+                summary = f'failed: {type(exc).__name__}'
+                logger.debug('sweep_proposal() failed for proposal_code=%r: %s', row.proposal_code, type(exc).__name__)
+                self.stderr.write(f'Proposal {row.proposal_code!r}: {summary}')
+                failed_count += 1
+                failed_codes.append(row.proposal_code)
+
+            # D-06/D-09: bookkeeping is written either way (success or failure) so the
+            # admin's last_run_at/last_run_summary columns are never stale for a row that
+            # was actually swept -- but a dry run writes nothing at all (D-07's own
+            # dry-run contract: report, never persist).
+            if not dry_run:
+                row.last_run_at = timezone.now()
+                row.last_run_summary = summary
+                row.save(update_fields=['last_run_at', 'last_run_summary'])
+
+        self.stdout.write(f'Swept {len(rows)} watched proposal(s), failed: {failed_count}')
+
+        if failed_count:
+            # CommandError is FOMO's own exception (D-17's second bucket): its message may
+            # name the failing proposal codes, since that string never embeds a portal
+            # response body or header.
+            raise CommandError(f'{failed_count} watched proposal(s) failed: {", ".join(failed_codes)}')
+        return None
