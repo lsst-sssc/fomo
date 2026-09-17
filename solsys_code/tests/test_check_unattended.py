@@ -8,6 +8,7 @@ the ``--send-test-email`` flag (``TestTestEmail``), and SCHED-10/D-15 credential
 
 import io
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -172,7 +173,7 @@ class TestCronLine(CheckUnattendedTestBase):
         line = cron_line()
         for element in (
             '*/15 * * * *',
-            '/usr/bin/flock -n',
+            f'{shutil.which("flock")} -n',
             'run_unattended.cron.lock',
             'run_unattended',
             '2>&1',
@@ -180,6 +181,18 @@ class TestCronLine(CheckUnattendedTestBase):
         ):
             self.assertIn(element, line)
         self.assertIn('>>', line)
+
+    def test_flock_path_is_resolved_not_hardcoded(self):
+        # WR-05 (36-REVIEW.md): cron_line() must print the same resolved `flock` path
+        # check_flock() already verified is on PATH -- not a hardcoded '/usr/bin/flock'
+        # that can be wrong on a non-merged-/usr layout, a venv-provided util-linux, or
+        # a container image that only has it in /bin.
+        with patch(
+            'solsys_code.management.commands.check_unattended.shutil.which', return_value='/opt/util-linux/flock'
+        ):
+            line = cron_line()
+        self.assertIn('/opt/util-linux/flock -n', line)
+        self.assertNotIn('/usr/bin/flock', line)
 
     def test_cron_lock_differs_from_the_runner_internal_lock(self):
         # CR-01 (36-REVIEW.md): the cron guard and `command_lock('run_unattended')`'s own

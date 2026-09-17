@@ -159,8 +159,9 @@ def cron_line() -> str:
 
     Returns:
         str: the cron line. The only interpolated values are ``sys.executable``, the
-            resolved `manage.py` path, and the two `FOMO_LOCK_DIR`/`FOMO_LOG_FILE`
-            paths -- never a setting value that is not itself a filesystem path.
+            resolved `manage.py` path, the resolved ``flock`` path, and the two
+            `FOMO_LOCK_DIR`/`FOMO_LOG_FILE` paths -- never a setting value that is not
+            itself a filesystem path.
     """
     python_path = sys.executable
     manage_py_path = Path(settings.BASE_DIR).parent / 'manage.py'
@@ -170,8 +171,13 @@ def cron_line() -> str:
     # own child just took, self-deadlocking every scheduled tick (CR-01, 36-REVIEW.md).
     lock_file = Path(settings.FOMO_LOCK_DIR) / 'run_unattended.cron.lock'
     log_file = settings.FOMO_LOG_FILE
+    # WR-05 (36-REVIEW.md): resolve the real `flock` path the same way check_flock()
+    # already verified it -- the committed template's hardcoded '/usr/bin/flock' is
+    # only a placeholder for a host with a non-merged-/usr layout, a venv-provided
+    # util-linux, or a container image that keeps it in /bin only.
+    flock_path = shutil.which('flock') or '/usr/bin/flock'
     return (
-        f'*/15 * * * * /usr/bin/flock -n {lock_file} {python_path} {manage_py_path} run_unattended '
+        f'*/15 * * * * {flock_path} -n {lock_file} {python_path} {manage_py_path} run_unattended '
         f'>> {log_file} 2>&1 || echo "$(date -Is) run_unattended skipped: lock held" >> {log_file}'
     )
 
