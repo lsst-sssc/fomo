@@ -18,6 +18,7 @@ setting value.
 
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -147,6 +148,58 @@ def check_heartbeat() -> CheckResult:
     )
 
 
+def cron_line() -> str:
+    """Return the exact cron line an operator should install, with real resolved values
+    substituted for `deploy/cron/fomo.crontab.example`'s placeholders (D-05).
+
+    Carries the same seven elements as the committed template -- the `*/15` schedule,
+    the `/usr/bin/flock -n` guard, the lock file path, the `run_unattended` command
+    name, the `>> ... 2>&1` redirect, and the `lock held` skip tail -- so an operator
+    who follows either route ends up with the same behavior (T-36-15).
+
+    Returns:
+        str: the cron line. The only interpolated values are ``sys.executable``, the
+            resolved `manage.py` path, and the two `FOMO_LOCK_DIR`/`FOMO_LOG_FILE`
+            paths -- never a setting value that is not itself a filesystem path.
+    """
+    python_path = sys.executable
+    manage_py_path = Path(settings.BASE_DIR).parent / 'manage.py'
+    lock_file = Path(settings.FOMO_LOCK_DIR) / 'run_unattended.lock'
+    log_file = settings.FOMO_LOG_FILE
+    return (
+        f'*/15 * * * * /usr/bin/flock -n {lock_file} {python_path} {manage_py_path} run_unattended '
+        f'>> {log_file} 2>&1 || echo "$(date -Is) run_unattended skipped: lock held" >> {log_file}'
+    )
+
+
+def _send_test_email() -> CheckResult:
+    """Send one test email through the configured backend to the staff-with-an-email
+    recipient list `notifications.notify_staff()` uses -- the same recipient rule the
+    failure notice relies on -- so an operator can prove the mail layer works during
+    setup instead of waiting for a real failure.
+
+    Returns:
+        CheckResult: treated as hard -- no recipients, or a raised send, is a failure.
+            The caught exception is reported by class name only (D-17): a relay
+            error's message can embed the mail host credentials.
+    """
+    manage_py_path = Path(settings.BASE_DIR).parent / 'manage.py'
+    subject = 'FOMO check_unattended test email'
+    body = f'This is a test email sent by `python manage.py check_unattended --send-test-email` from {manage_py_path}.'
+    try:
+        sent = notifications.notify_staff(subject, body, fail_silently=False)
+    except Exception as exc:  # noqa: BLE001 -- a mail send, D-17's first bucket
+        return CheckResult(name='send_test_email', ok=False, hard=True, detail=f'send failed: {type(exc).__name__}')
+    if not sent:
+        return CheckResult(
+            name='send_test_email',
+            ok=False,
+            hard=True,
+            detail='no staff recipient has an email on file -- nothing was sent',
+        )
+    return CheckResult(name='send_test_email', ok=True, hard=True, detail='sent one test email to staff recipients')
+
+
 def check_watched_proposals() -> CheckResult:
     """Soft check: at least one active ``WatchedProposal`` row exists (D-08)."""
     count = WatchedProposal.objects.filter(is_active=True).count()
@@ -171,15 +224,23 @@ class Command(BaseCommand):
     help = (
         'Report whether this host is ready to run FOMO unattended -- flock, the lock and '
         'log directories, the email backend and staff recipients, the heartbeat URL, and '
-        'the watched-proposal list -- in one run. Read-only: reports, does not fix.'
+        'the watched-proposal list -- in one run, and print the cron line to install. '
+        'Read-only: reports, does not fix. --send-test-email additionally sends one test '
+        'email through the configured backend.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Parse command line arguments. No argument is required."""
+        """Parse command line arguments."""
+        parser.add_argument(
+            '--send-test-email',
+            action='store_true',
+            help='Send one test email through the configured backend to the staff recipient list.',
+        )
         # No return statement — BaseCommand.add_arguments() returns None
 
     def handle(self, *args: Any, **options: Any) -> str | None:
-        """Run every check in order, report each result, and fail on any hard failure.
+        """Run every check in order, report each result, print the cron line, and fail
+        on any hard failure.
 
         Returns:
             str | None: a one-line summary of counts when every hard check passes.
@@ -194,6 +255,8 @@ class Command(BaseCommand):
         results.extend(check_email())
         results.append(check_heartbeat())
         results.append(check_watched_proposals())
+        if options.get('send_test_email'):
+            results.append(_send_test_email())
 
         for result in results:
             if result.ok:
@@ -206,6 +269,12 @@ class Command(BaseCommand):
             self.stdout.write(line)
             if status != 'ok':
                 self.stderr.write(line)
+
+        # Printed even when a hard check failed -- an operator fixing prerequisites
+        # still wants to see the target state (D-05).
+        self.stdout.write('')
+        self.stdout.write('Cron line to install (both host directories above must exist first):')
+        self.stdout.write(cron_line())
 
         failed_hard = [result for result in results if result.hard and not result.ok]
         if failed_hard:

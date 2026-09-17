@@ -9,14 +9,18 @@ the ``--send-test-email`` flag (``TestTestEmail``), and SCHED-10/D-15 credential
 import io
 import os
 import stat
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from django.conf import settings as django_settings
 from django.contrib.auth.models import User
+from django.core import mail
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
+from solsys_code.management.commands.check_unattended import cron_line
 from solsys_code.models import WatchedProposal
 
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST-CHECK-UNATTENDED'
@@ -153,3 +157,98 @@ class TestWarningChecks(CheckUnattendedTestBase):
         combined = stdout_capture.getvalue() + stderr_capture.getvalue()
         self.assertIn('FOMO_HEARTBEAT_URL', combined)
         self.assertIn('staff_recipients', combined)
+
+
+class TestCronLine(CheckUnattendedTestBase):
+    def test_line_has_real_paths(self):
+        line = cron_line()
+        self.assertIn(sys.executable, line)
+        manage_py_path = str(Path(django_settings.BASE_DIR).parent / 'manage.py')
+        self.assertIn(manage_py_path, line)
+        self.assertNotIn('/path/to/venv/bin/python', line)
+        self.assertNotIn('/path/to/checkout/manage.py', line)
+
+    def test_line_matches_the_committed_template_shape(self):
+        line = cron_line()
+        for element in (
+            '*/15 * * * *',
+            '/usr/bin/flock -n',
+            'run_unattended.lock',
+            'run_unattended',
+            '2>&1',
+            'lock held',
+        ):
+            self.assertIn(element, line)
+        self.assertIn('>>', line)
+
+    def test_line_carries_no_setting_value(self):
+        with override_settings(FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL):
+            original_lco_api_key = django_settings.FACILITIES['LCO'].get('api_key')
+            django_settings.FACILITIES['LCO']['api_key'] = _FAKE_LCO_API_KEY
+            try:
+                stdout, _stderr = _run()
+            finally:
+                django_settings.FACILITIES['LCO']['api_key'] = original_lco_api_key
+        with override_settings(EMAIL_HOST_PASSWORD=_FAKE_MAIL_PASSWORD):
+            line = cron_line()
+        self.assertNotIn(_FAKE_HEARTBEAT_URL, line)
+        self.assertNotIn(_FAKE_MAIL_PASSWORD, line)
+        self.assertNotIn(_FAKE_LCO_API_KEY, line)
+        self.assertNotIn(_FAKE_HEARTBEAT_URL, stdout)
+        self.assertNotIn(_FAKE_LCO_API_KEY, stdout)
+
+
+class TestTestEmail(CheckUnattendedTestBase):
+    def test_send_test_email_sends_one_message(self):
+        _run('--send-test-email')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.staff_user.email, mail.outbox[0].to)
+        self.assertIn('FOMO', mail.outbox[0].subject)
+        self.assertIn('test', mail.outbox[0].subject.lower())
+
+    def test_send_test_email_without_recipients_fails(self):
+        self.staff_user.delete()
+        with self.assertRaises(CommandError) as ctx:
+            _run('--send-test-email')
+        self.assertIn('send_test_email', str(ctx.exception))
+
+    def test_flag_absent_sends_nothing(self):
+        _run()
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class TestNoValueLeakage(CheckUnattendedTestBase):
+    def _seed_fake_values(self):
+        original_lco_api_key = django_settings.FACILITIES['LCO'].get('api_key')
+        django_settings.FACILITIES['LCO']['api_key'] = _FAKE_LCO_API_KEY
+
+        def _restore():
+            django_settings.FACILITIES['LCO']['api_key'] = original_lco_api_key
+
+        self.addCleanup(_restore)
+
+        settings_override = override_settings(
+            FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL,
+            EMAIL_HOST_PASSWORD=_FAKE_MAIL_PASSWORD,
+        )
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+
+    def _assert_no_leak(self, *outputs: str) -> None:
+        for output in outputs:
+            for secret in (_FAKE_HEARTBEAT_URL, _FAKE_MAIL_PASSWORD, _FAKE_LCO_API_KEY):
+                self.assertNotIn(secret, output)
+
+    def test_output_never_contains_a_seeded_value(self):
+        self._seed_fake_values()
+
+        # All-passing configuration.
+        stdout, stderr = _run()
+        self._assert_no_leak(stdout, stderr)
+
+        # Hard-failing configuration.
+        self.staff_user.delete()
+        stdout_capture, stderr_capture = io.StringIO(), io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command('check_unattended', stdout=stdout_capture, stderr=stderr_capture)
+        self._assert_no_leak(stdout_capture.getvalue(), stderr_capture.getvalue(), str(ctx.exception))
