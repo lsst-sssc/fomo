@@ -19,6 +19,7 @@ setting value.
 
 import os
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,16 +53,36 @@ class CheckResult:
 
 
 def check_flock() -> CheckResult:
-    """Hard check: the ``flock`` binary the crontab template depends on is on ``PATH``."""
+    """Hard check: the ``flock`` binary is on ``PATH`` and supports ``-E`` -- the
+    option the crontab template's skip-detection scheme depends on.
+
+    WR-11 (36-REVIEW.md): ``-E``/``--conflict-exit-code`` was added in util-linux 2.27
+    (2015); an older ``flock`` (e.g. RHEL/CentOS 7's 2.23, a still-live deployment
+    target) rejects the unknown option and exits before ``run_unattended`` ever
+    starts -- every tick becomes a silent no-op, the CR-01 failure class reproduced
+    through a different door. Checking only ``shutil.which()`` would pass on such a
+    host and hand the operator a cron line that never runs.
+    """
     path = shutil.which('flock')
-    if path is not None:
-        return CheckResult(name='flock', ok=True, hard=True, detail=f'found at {path}')
-    return CheckResult(
-        name='flock',
-        ok=False,
-        hard=True,
-        detail='not found on PATH -- install the util-linux package, which provides it',
-    )
+    if path is None:
+        return CheckResult(
+            name='flock',
+            ok=False,
+            hard=True,
+            detail='not found on PATH -- install the util-linux package, which provides it',
+        )
+    probe = subprocess.run([path, '--help'], capture_output=True, text=True, check=False)  # noqa: S603
+    if '--conflict-exit-code' not in (probe.stdout + probe.stderr):
+        return CheckResult(
+            name='flock',
+            ok=False,
+            hard=True,
+            detail=(
+                f'{path} does not support -E/--conflict-exit-code (util-linux < 2.27) -- '
+                'the cron line below needs it to distinguish a skipped tick from a failed one'
+            ),
+        )
+    return CheckResult(name='flock', ok=True, hard=True, detail=f'found at {path}, supports -E')
 
 
 def _owner_mode(path: Path) -> str:

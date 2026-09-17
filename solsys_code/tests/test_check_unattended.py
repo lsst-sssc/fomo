@@ -120,6 +120,18 @@ class TestHardChecks(CheckUnattendedTestBase):
         self.assertIn('[ok] EMAIL_BACKEND', stdout)
         self.assertIn('[ok] staff_recipients', stdout)
 
+    def test_flock_without_conflict_exit_code_support_fails(self):
+        # WR-11 (36-REVIEW.md): an older flock (util-linux < 2.27) has no -E option --
+        # the cron line's whole skip-detection scheme silently no-ops on such a host, so
+        # this must be a hard failure, not just a PATH lookup.
+        with patch(
+            'solsys_code.management.commands.check_unattended.subprocess.run',
+            return_value=type('Probe', (), {'stdout': 'Usage: flock [options] ...', 'stderr': ''})(),
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('flock', str(ctx.exception))
+
     def test_command_writes_nothing(self):
         lock_path = Path(self.lock_dir.name) / 'does-not-exist-yet'
         log_path = Path(self.log_dir.name) / 'does-not-exist-yet'
