@@ -376,10 +376,13 @@ def load_state() -> dict:
     Returns:
         dict: ``{'failing_steps': [...], 'notified_at': <tz-aware datetime> | None}``.
             A missing file, an unparseable one, one whose top level is not a dict/list
-            (WR-03, 36-REVIEW.md), or a ``notified_at`` that is not a valid ISO-8601
-            string is treated as "no prior failure" -- never an exception out of
-            ``run_tick()``. A naive ``notified_at`` (no tzinfo) is assumed UTC, so
-            ``decide_notification()`` can always subtract it from an aware ``now``.
+            (WR-03, 36-REVIEW.md), a ``failing_steps`` whose elements are not all
+            strings (WR-10, 36-REVIEW.md -- non-string elements are dropped rather
+            than raising when the remaining list is later sorted), or a
+            ``notified_at`` that is not a valid ISO-8601 string is treated as "no
+            prior failure" -- never an exception out of ``run_tick()``. A naive
+            ``notified_at`` (no tzinfo) is assumed UTC, so ``decide_notification()``
+            can always subtract it from an aware ``now``.
     """
     state_path = Path(settings.FOMO_STATE_DIR) / _STATE_FILENAME
     try:
@@ -393,6 +396,12 @@ def load_state() -> dict:
     failing_steps = data.get('failing_steps')
     if not isinstance(failing_steps, list):
         failing_steps = []
+    # WR-10 (36-REVIEW.md): a hand-edited or foreign-written state file can carry a
+    # 'failing_steps' list with mixed element types (e.g. `[1, "a"]`) -- sorted() below
+    # would then raise TypeError comparing str to int/bool, which is exactly the
+    # exception this function's own docstring promises never to raise. Drop anything
+    # that is not a step name instead of failing the whole tick's notification path.
+    failing_steps = [step for step in failing_steps if isinstance(step, str)]
 
     raw_notified_at = data.get('notified_at')
     try:

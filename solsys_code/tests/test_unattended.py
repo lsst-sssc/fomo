@@ -380,6 +380,18 @@ class TestStateFileRobustness(UnattendedTestBase):
         state = unattended.load_state()
         self.assertIsNotNone(state['notified_at'].tzinfo)
 
+    def test_mixed_type_failing_steps_are_coerced_not_raised(self):
+        # WR-10 (36-REVIEW.md): a hand-edited or foreign-written state file can carry a
+        # 'failing_steps' list with non-string elements -- sorted() must never be asked
+        # to compare a str to an int/bool, which raised TypeError before this fix and
+        # skipped save_state() for the rest of the tick's life (every subsequent tick
+        # repeated the same crash and never repaired the file).
+        self._write_state_file(json.dumps({'failing_steps': [1, 'a'], 'notified_at': None}))
+        self.assertEqual(unattended.load_state(), {'failing_steps': ['a'], 'notified_at': None})
+
+        self._write_state_file(json.dumps({'failing_steps': [True, 'a']}))
+        self.assertEqual(unattended.load_state(), {'failing_steps': ['a'], 'notified_at': None})
+
     def test_state_handling_failure_never_blocks_the_end_banner_or_heartbeat(self):
         self._make_campaign_run()
         with (
