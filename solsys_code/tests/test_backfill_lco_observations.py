@@ -7,6 +7,8 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.management.commands.backfill_lco_observations import sweep_proposal
+
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
 # for every fixture request unless a test deliberately builds an incomplete one.
 _DEFAULT_ELEMENTS = {
@@ -1016,3 +1018,75 @@ class TestBackfillLcoObservations(TestCase):
                 stdout=io.StringIO(),
                 stderr=io.StringIO(),
             )
+
+
+class TestSweepProposalFunction(TestCase):
+    """Task 2 (36-RESEARCH.md Open Question 2, resolution): sweep_proposal() called
+    directly -- no management command involved -- returns a summary string
+    byte-identical to the one handle() returned before the extraction, for both the
+    dry-run and the real pass."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+
+    def setUp(self):
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        self.mock_get_observation_status = patcher.start()
+        self.mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+        self.addCleanup(patcher.stop)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_direct_call_returns_the_same_summary_as_handle_for_a_real_pass(self, mock_make_request):
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        summary = sweep_proposal('LCO2026A-003')
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.target, self.existing_target)
+        expected = _expected_summary(
+            dry_run=False,
+            requestgroups_seen=1,
+            created=1,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
+        )
+        self.assertEqual(summary, expected)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_direct_call_returns_the_same_summary_as_handle_for_a_dry_run(self, mock_make_request):
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        summary = sweep_proposal('LCO2026A-003', dry_run=True)
+
+        self.assertFalse(ObservationRecord.objects.exists())
+        expected = _expected_summary(
+            dry_run=True,
+            requestgroups_seen=1,
+            created=1,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
+        )
+        self.assertEqual(summary, expected)
