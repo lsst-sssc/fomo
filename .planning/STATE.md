@@ -6,10 +6,10 @@ current_phase: 36
 current_phase_name: Unattended Operation
 status: planning
 stopped_at: Phase 35 complete, ready to plan Phase 36
-last_updated: "2026-09-17T00:19:33.800Z"
+last_updated: "2026-09-17T00:58:26.875Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 complete, transitioned to Phase 36
-state_head: bf862124d06b954ecd085931be6551f8d4817310
+state_head: c26cb97e0cb18fffdd90e0638367610a4fb3599b
 progress:
   total_phases: 5
   completed_phases: 35
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 Phase: 36 — Unattended Operation
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-09-16 — Phase 35 complete, transitioned to Phase 36
+Last activity: 2026-09-16 - Completed quick task 260916-o6n: Fix 35-REVIEW.md iteration 10 CR-01 (declined retirement now receives the ordinary label refresh); Phase 35 complete, transitioned to Phase 36
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -385,7 +385,7 @@ None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 
 
 Carried forward from Phase 35 (completed 2026-09-16) — none blocks Phase 36 planning:
 
-- **[Quick task — owner decision 2026-09-16, in progress]** `35-REVIEW.md` iteration 10 **CR-01** (critical, open): the retirement decline plan 35-23 added (CR-05) keeps a human-confirmed `ALLOC:` night alive but the branch still ends in an unconditional `continue` at `allocation_projector.py:1213`, so the surviving night never receives its title/description/target_list refresh again — `mark_cancelled` never reaches a confirmed retired night, permanently, under no counter. Fix per the review: give the retirement decline the same fall-through the re-mint decline got (hoist the label refresh at `:1399-1442` into a `_refresh_labels()` helper), add `test_declined_retirement_still_receives_a_cancelled_title` + a dry-run parity case mirroring `TestDeclinedRemintStillUpdatesLabels`, state the counter pair in the runbook's `detach_declined` section, and re-execute `reconcile_campaign_runs_demo.ipynb` (paired-docs rule).
+- **[Resolved 2026-09-16 — quick task `260916-o6n`]** `35-REVIEW.md` iteration 10 **CR-01** (critical): the retirement decline plan 35-23 added (CR-05) kept a human-confirmed `ALLOC:` night alive but ended in an unconditional `continue`, so the surviving night never received its title/description/target_list refresh — `mark_cancelled` never reached it. Fixed in `3a38858`/`c26cb97`: the decline now falls through to a shared `_refresh_labels()` (fields built once by `_label_fields()`, used by the decline branch, the dry-run preview and the real write), records no provenance token and makes no `sun_event()` call on that path, reuses `updated`/`unchanged` (no new counter; `ReconcileResult` unchanged); `TestDeclinedRetirementStillUpdatesLabels` (7 tests incl. receiver path, dry-run parity and a non-vacuous no-`sun_event` pin); runbook `detach_declined` section states the counter pair; notebook cell 20 demonstrates the `[CANCELLED]` refresh with executed output.
 - **[Follow-up — deferred at UAT 2026-09-16]** `35-REVIEW.md` iteration 10 **WR-01** / `35-UAT.md` Test 5: a declined re-mint whose site also moved records the run's *current* provenance token onto a night whose `start_time` is still the pre-edit value (`_record_sub_night_provenance()` call at `allocation_projector.py:1441`; the comment at `:1362-1368` is false on that path). Reachable only when a sub-night edit and an in-place `Observatory` correction land in the same sweep; no observable consequence. Guard the call on "the re-mint was not declined" when next in that code.
 - **[Advisory — `35-VERIFICATION.md` advisory #1, `35-REVIEW.md` iteration 10 WR-04]** the step-4 staleness warning at `allocation_projector.py:739-750` says "unrecorded-provenance night" on both entry paths of the boundary comparison, so an operator who just corrected a site position is pointed at the runbook's legacy-audit reason (5) instead of the site-definition-correction paragraph. Branch the wording on the entry path (a `token_trusted`-and-fingerprint-differed flag is already in scope); `_UNRECORDED_PROVENANCE_TOLERANCE` is now too narrow a name for its two callers. Notebook cell 22 prints the old wording.
 - **[Review residue, `35-REVIEW.md` iteration 10]** WR-02 (the `v2`→`v3` token bump cannot re-audit a fully-set sub-night run, so WR-05's dark-window refresh is unreachable for nights that already exist), WR-03 (`project_allocation()` docstring still states the D-13 absolute), WR-05 (two over-broad runbook claims), WR-06 (no notebook cell for the fully-set dark-window refresh), WR-07 (`load_telescope_runs` night summary omits both decline counters), and the carried-forward WR-08..WR-11 / IN-01 / IN-03 (each with a one-line disposition in `35-23-PLAN.md`'s `<review_dispositions>` ledger). Triage when the CR-01 quick task is in the same code.
@@ -410,6 +410,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260913-rmd | Fix 35-REVIEW.md NF-03: resolve sub-night boundaries against the site's own UTC night span (three bands) instead of the sign of its UTC offset | 2026-09-13 | 09104f5 | complete | [260913-rmd-fix-35-review-md-nf-03-replace-the-sign-](./quick/260913-rmd-fix-35-review-md-nf-03-replace-the-sign-/) |
 | 260913-ti3 | Fix 35-REVIEW.md NF-02: hoist the cutover per-event preconditions so --dry-run and the real pass agree on every check, count and exit status; add the window_mismatch reason | 2026-09-13 | bc15c4d | complete | [260913-ti3-fix-35-review-md-nf-02-hoist-the-cutover](./quick/260913-ti3-fix-35-review-md-nf-02-hoist-the-cutover/) |
 | 260913-ti1 | Fix 35-REVIEW.md NF-01/NF-06/NF-09 (+NF-07 docs): one total-partition helper makes writable-but-unattributed events deletable at all four stale-event paths; _may_write now agrees with writable_allocation_events; declined legacy event counted once | 2026-09-13 | a0834b3 | complete | [260913-ti1-fix-35-review-md-nf-01-nf-06-nf-09-make-](./quick/260913-ti1-fix-35-review-md-nf-01-nf-06-nf-09-make-/) |
+| 260916-o6n | Fix 35-REVIEW.md iteration 10 CR-01: a declined (human-confirmed) allocation-night retirement now falls through to a shared _refresh_labels() so mark_cancelled reaches it; 7 tests, runbook detach_declined counter pair, reconciler notebook re-executed | 2026-09-17 | c26cb97 | — | [260916-o6n-fix-35-review-md-iteration-10-cr-01-give](./quick/260916-o6n-fix-35-review-md-iteration-10-cr-01-give/) |
 
 ## Deferred Items
 
@@ -449,11 +450,11 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-09-17T00:25:00Z
-Stopped at: Phase 35 complete (UAT 6/6, verification passed, Nyquist validated, transitioned 2026-09-16), ready to plan Phase 36
+Stopped at: Phase 35 complete (UAT 6/6, verification passed, Nyquist validated, transitioned 2026-09-16) and 35-REVIEW.md CR-01 closed by quick task 260916-o6n; ready to plan Phase 36
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 35 complete (2026-09-16). First, the owner-chosen quick task for `35-REVIEW.md` iteration 10 CR-01 (see Blockers/Concerns) — it touches `allocation_projector.py`, its tests, the runbook's `detach_declined` section and `reconcile_campaign_runs_demo.ipynb`.
-- Then start Phase 36 "Unattended Operation" with `/gsd-discuss-phase 36` — no phase directory or CONTEXT.md exists yet. Its inputs are in place: the projector sweep (`project_observation_calendar`), the discovery backfill (`backfill_lco_observations`) and the reconciler (`reconcile_campaign_runs`) all exist as zero-required-argument commands; Phase 31 settled cron + `flock -n` on the real host; `DISCOVER-01` replaces `backfill_lco_observations`' `--proposal` arguments with an admin-editable watched-proposal list. Paired docs: `backfill_lco_observations_demo.ipynb` and a new unattended-operation runbook section.
+- Phase 35 complete (2026-09-16); the owner-chosen quick task `260916-o6n` for `35-REVIEW.md` iteration 10 CR-01 landed the same day (`3a38858`, `c26cb97`), so no critical review finding is open against Phase 35.
+- Start Phase 36 "Unattended Operation" with `/gsd-discuss-phase 36` — no phase directory or CONTEXT.md exists yet. Its inputs are in place: the projector sweep (`project_observation_calendar`), the discovery backfill (`backfill_lco_observations`) and the reconciler (`reconcile_campaign_runs`) all exist as zero-required-argument commands; Phase 31 settled cron + `flock -n` on the real host; `DISCOVER-01` replaces `backfill_lco_observations`' `--proposal` arguments with an admin-editable watched-proposal list. Paired docs: `backfill_lco_observations_demo.ipynb` and a new unattended-operation runbook section.
 - `.planning/REQUIREMENTS.md`: `phase.complete` flagged 5 REQ-IDs present in the body but missing from the Traceability table (UPSTREAM-01, ESO-10, ESO-11, SUBMIT-06, SUBMIT-07 — all deferred/out-of-milestone items); add them manually when next editing that file.
