@@ -1,0 +1,35 @@
+# FOMO unattended operation -- crontab fragment (Phase 36, SCHED-08, D-01/D-04/D-18).
+#
+# Copy this fragment into the FOMO service account's crontab (`crontab -e`) and replace
+# BOTH placeholder paths below with the real absolute paths on this host:
+#   /path/to/venv/bin/python      -- the virtualenv's python interpreter
+#   /path/to/checkout/manage.py   -- this checkout's manage.py
+#
+# This file is committed to git -- it must NEVER gain a real secret, a real host path, or
+# any other host-specific value. `python manage.py check_unattended` (a later plan in this
+# phase) prints this same line with the real resolved interpreter and manage.py paths
+# already filled in, so you do not have to hand-edit the placeholders from scratch.
+#
+# The environment the cron daemon must supply (by NAME only -- never a value here, D-15):
+#   FOMO_HEARTBEAT_URL  -- a healthchecks.io-compatible ping URL (optional; unset disables
+#                          the heartbeat layer, D-12)
+#   FOMO_BASE_URL       -- used to build the admin/calendar links in a failure email
+# The LCO/SOAR API key and the mail (EMAIL_HOST_*) credentials belong in
+# `fomo/local_settings.py` on this host, never in this file and never in the process
+# argument vector, where a local `ps aux` would expose them (threat T-36-02).
+#
+# The schedule: every 15 minutes (D-04), guarded by a non-blocking flock so a slow tick
+# never overlaps the next one. `flock -n` fails immediately (rather than queuing) if the
+# lock is already held, so a permanently stuck tick would otherwise look like a healthy
+# no-op -- the `|| echo ... skipped` tail below leaves a visible trail in the log for
+# exactly that case, and the runner's own heartbeat grace period (D-12) is the structural
+# backstop if this log line is never checked.
+*/15 * * * * /usr/bin/flock -n /var/lock/fomo/run_unattended.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1 || echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log
+
+# Before installing this line on a fresh host, create the two directories the schedule
+# above assumes exist and are writable by the cron user:
+#   /var/lock/fomo
+#   /var/log/fomo
+# See the "How do I run everything unattended?" runbook section
+# (docs/runbooks/telescope_runs_calendar.rst) for the full setup walkthrough, and
+# deploy/logrotate/fomo.example (a later plan in this phase) for rotating the log file.
