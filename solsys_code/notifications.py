@@ -37,9 +37,14 @@ def absolute_url(path: str) -> str:
             ``solsys_code.unattended``'s module docstring for why).
 
     Returns:
-        str: the absolute URL.
+        str: the absolute URL. Falls back to the documented ``http://localhost:8000``
+            default (WR-07, 36-REVIEW.md) if ``settings.FOMO_BASE_URL`` is ``None`` (a
+            ``local_settings.py`` deriving it from an unset environment variable) rather
+            than raising ``AttributeError`` from ``None.rstrip()`` -- a caller building a
+            notification link must never crash the notification itself over this.
     """
-    return f"{settings.FOMO_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
+    base_url = settings.FOMO_BASE_URL or 'http://localhost:8000'
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
 
 def notify_staff(subject: str, message: str, *, fail_silently: bool = False) -> bool:

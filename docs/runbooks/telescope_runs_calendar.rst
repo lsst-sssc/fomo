@@ -1467,11 +1467,15 @@ Setting it up on a fresh host
    It reports every prerequisite in one pass -- whether ``flock`` is on
    ``PATH``, whether the lock and log directories exist and are writable,
    whether the email backend can actually deliver and at least one staff
-   user has an email on file, whether ``FOMO_HEARTBEAT_URL`` is set, and
+   user has an email on file, whether ``FOMO_HEARTBEAT_URL`` is set,
+   whether ``FOMO_BASE_URL`` has been changed from its localhost dev
+   default (WR-07, 36-REVIEW.md -- left at the default, every emailed
+   admin/calendar/approval-queue link is unusable off this host), and
    whether at least one ``WatchedProposal`` row is active -- and exits
    non-zero only when a hard prerequisite (flock, the directories, or
-   email) is missing; an unset heartbeat URL and an empty watched-proposal
-   list are warnings, not failures (the tick still runs without either).
+   email) is missing; an unset heartbeat URL, a default base URL, and an
+   empty watched-proposal list are warnings, not failures (the tick still
+   runs, and mail still sends, without any of the three).
    It also prints the exact cron line to install, with the real resolved
    Python interpreter and ``manage.py`` paths already filled in -- printed
    even when a hard check failed, so an operator fixing prerequisites

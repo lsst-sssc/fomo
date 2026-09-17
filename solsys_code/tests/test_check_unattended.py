@@ -169,6 +169,23 @@ class TestWarningChecks(CheckUnattendedTestBase):
         self.assertIn('FOMO_HEARTBEAT_URL', combined)
         self.assertIn('staff_recipients', combined)
 
+    def test_localhost_default_base_url_is_a_warning(self):
+        # WR-07 (36-REVIEW.md): FOMO_BASE_URL left at its localhost dev default makes
+        # every emailed link (failure notice, campaign approval-queue notice) unusable
+        # off this host -- nothing else checks it, so this preflight must.
+        with override_settings(FOMO_BASE_URL='http://localhost:8000'):
+            stdout, _stderr = _run()
+        self.assertIn('[WARN] FOMO_BASE_URL', stdout)
+
+        with override_settings(FOMO_BASE_URL='https://fomo.example.org'):
+            stdout, _stderr = _run()
+        self.assertIn('[ok] FOMO_BASE_URL', stdout)
+
+    def test_unset_base_url_is_a_warning(self):
+        with override_settings(FOMO_BASE_URL=None):
+            stdout, _stderr = _run()
+        self.assertIn('[WARN] FOMO_BASE_URL', stdout)
+
 
 class TestCronLine(CheckUnattendedTestBase):
     def test_line_has_real_paths(self):

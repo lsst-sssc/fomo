@@ -7,8 +7,9 @@ creates no directory, writes no file (beyond an optional test email, see
 an unwritable lock or log directory, the console email backend, or no staff user with an
 email -- makes the command exit non-zero, naming every failed hard check in one
 ``CommandError`` so a fresh-host operator sees the whole list of problems in one run. An
-unset heartbeat URL and an empty watched-proposal list are warnings only (D-08, D-12):
-the tick still runs without either.
+unset heartbeat URL, a ``FOMO_BASE_URL`` left at its localhost dev default (WR-07,
+36-REVIEW.md), and an empty watched-proposal list are warnings only (D-08, D-12): the
+tick still runs, and mail still sends, without either.
 
 SCHED-10/D-15: every check reports a NAME plus a set/unset status or a count. The only
 values ever interpolated into this command's output are filesystem paths and
@@ -184,6 +185,32 @@ def check_heartbeat() -> CheckResult:
     )
 
 
+def check_base_url() -> CheckResult:
+    """Soft check: ``settings.FOMO_BASE_URL`` has been changed from its localhost dev
+    default (WR-07, 36-REVIEW.md).
+
+    ``notifications.absolute_url()`` -- used by both the unattended failure email
+    (Admin/Calendar links) and the campaign submission notice (the approval-queue link)
+    -- joins whatever this setting is with a path. Left at the ``http://localhost:8000``
+    default on any real deployment, every one of those links is unusable off this host,
+    and nothing else catches it: this preflight is the only place that checks
+    ``FOMO_BASE_URL`` at all. A warning, not a hard failure (D-08/D-12's own
+    precedent) -- the tick still runs and the mail still sends, just with a dead link.
+    """
+    is_default = (settings.FOMO_BASE_URL or '').rstrip('/') in ('', 'http://localhost:8000')
+    if is_default:
+        return CheckResult(
+            name='FOMO_BASE_URL',
+            ok=False,
+            hard=False,
+            detail=(
+                'FOMO_BASE_URL: unset or still the localhost dev default -- emailed links '
+                'will not work off this host'
+            ),
+        )
+    return CheckResult(name='FOMO_BASE_URL', ok=True, hard=False, detail='FOMO_BASE_URL: set')
+
+
 def cron_line() -> str:
     """Return the exact cron line an operator should install, with real resolved values
     substituted for `deploy/cron/fomo.crontab.example`'s placeholders (D-05).
@@ -279,10 +306,10 @@ class Command(BaseCommand):
 
     help = (
         'Report whether this host is ready to run FOMO unattended -- flock, the lock and '
-        'log directories, the email backend and staff recipients, the heartbeat URL, and '
-        'the watched-proposal list -- in one run, and print the cron line to install. '
-        'Read-only: reports, does not fix. --send-test-email additionally sends one test '
-        'email through the configured backend.'
+        'log directories, the email backend and staff recipients, the heartbeat URL, the '
+        'base URL used to build emailed links, and the watched-proposal list -- in one '
+        'run, and print the cron line to install. Read-only: reports, does not fix. '
+        '--send-test-email additionally sends one test email through the configured backend.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -310,6 +337,7 @@ class Command(BaseCommand):
         results.append(check_log_dir())
         results.extend(check_email())
         results.append(check_heartbeat())
+        results.append(check_base_url())
         results.append(check_watched_proposals())
         if options.get('send_test_email'):
             results.append(_send_test_email())
