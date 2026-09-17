@@ -330,6 +330,32 @@ class TestLocking(UnattendedTestBase):
         self.assertEqual(len(mail.outbox), 0)
 
 
+class TestEndBannerTimestamp(UnattendedTestBase):
+    """WR-04 (36-REVIEW.md): the END banner must report a freshly-sampled time, not the
+    tick's START time -- otherwise no tick's duration is ever readable in the log."""
+
+    def test_end_banner_timestamp_differs_from_start_banner_timestamp(self):
+        self._make_campaign_run()
+        start_time = datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt_timezone.utc)
+        end_time = datetime(2026, 1, 1, 0, 15, 0, tzinfo=dt_timezone.utc)
+
+        class _FakeDateTime(datetime):
+            _values = iter([start_time, end_time])
+
+            @classmethod
+            def now(cls, tz=None):
+                return next(cls._values)
+
+        with patch('solsys_code.unattended.datetime', _FakeDateTime):
+            with self.assertLogs('solsys_code.unattended', level='INFO') as captured:
+                call_command('run_unattended')
+
+        joined = '\n'.join(captured.output)
+        self.assertIn(f'START {start_time.isoformat()}', joined)
+        self.assertIn(f'END {end_time.isoformat()}', joined)
+        self.assertNotIn(f'END {start_time.isoformat()}', joined)
+
+
 class TestStateFileRobustness(UnattendedTestBase):
     """WR-03 (36-REVIEW.md): the suppression-state file must be fail-safe -- a
     malformed file must never raise out of ``load_state()``, and a state-handling

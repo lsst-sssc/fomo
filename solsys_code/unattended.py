@@ -542,6 +542,12 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
                 logger.info('step %s: %s | %s', name, 'FAILED' if result.failed else 'ok', result.summary)
 
             exit_code = 1 if any(result.failed for result in results) else 0
+            # WR-04 (36-REVIEW.md): sample a fresh timestamp now that every step has
+            # actually run, rather than reusing the START-of-tick `now` -- otherwise the
+            # END banner always carries the identical timestamp as its own START line
+            # (so no tick's duration is ever readable from the log), and a long tick's
+            # reminder timing drifts by the tick's own duration.
+            end_time = datetime.now(dt_timezone.utc)
 
             if not quiet:
                 failing_steps = sorted(result.name for result in results if result.failed)
@@ -553,7 +559,7 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
                 # in this module already follows.
                 try:
                     previous_state = load_state()
-                    decision = decide_notification(previous_state, failing_steps, now)
+                    decision = decide_notification(previous_state, failing_steps, end_time)
                     # WR-02 (36-REVIEW.md): only record the notification as sent when it
                     # was actually attempted *and* delivered -- otherwise a down SMTP
                     # relay (or every staff email cleared) on the first failing tick
@@ -561,14 +567,14 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
                     # the same failing set for 24 hours, and again per reminder window.
                     sent = _send_notification(decision, results) if decision is not None else False
                     if sent and decision in ('failure', 'reminder'):
-                        save_state(failing_steps, now)
+                        save_state(failing_steps, end_time)
                     elif sent and decision == 'recovered':
                         save_state([], None)
                 except Exception as exc:  # noqa: BLE001 -- D-11/D-17, see comment above
                     logger.error('unattended notification/state handling raised: %s', type(exc).__name__)
                 ping_heartbeat(str(exit_code))
 
-            _write_banner('END', now, exit_code=exit_code)
+            _write_banner('END', end_time, exit_code=exit_code)
             return TickResult(exit_code=exit_code, results=tuple(results))
     except LockContended:
         sys.stderr.write('run_unattended: lock held -- skipping this tick\n')
