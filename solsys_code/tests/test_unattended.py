@@ -269,6 +269,104 @@ class TestLocking(UnattendedTestBase):
         self.assertEqual(len(mail.outbox), 0)
 
 
+class TestStatusRefreshStep(UnattendedTestBase):
+    """Task 1 (D-03): the FOMO-owned LCO/SOAR status refresh step."""
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_calls_both_facilities_with_fresh_instances(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = []
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        unattended.step_status_refresh(dry_run=False)
+
+        mock_lco_cls.assert_called_once_with()
+        mock_soar_cls.assert_called_once_with()
+        mock_lco_cls.return_value.update_all_observation_statuses.assert_called_once_with()
+        mock_soar_cls.return_value.update_all_observation_statuses.assert_called_once_with()
+        self.assertIsNot(mock_lco_cls.return_value, mock_soar_cls.return_value)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_clean_refresh_is_not_a_failure(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = []
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertFalse(result.failed)
+        self.assertIn('LCO: failed 0', result.summary)
+        self.assertIn('SOAR: failed 0', result.summary)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_non_empty_failure_list_is_a_step_failure(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', 'boom')]
+        mock_lco_cls.return_value.update_observation_status.return_value = None
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertTrue(result.failed)
+        self.assertIn('LCO: failed 1', result.summary)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_failure_is_reported_by_class_name_not_message(self, mock_lco_cls, mock_soar_cls):
+        fake_key = 'FAKE-API-KEY-CREDHYG-STATUS-1'
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = [
+            ('obs-1', f'portal error key={fake_key}')
+        ]
+        mock_lco_cls.return_value.update_observation_status.side_effect = requests.exceptions.HTTPError(
+            f'portal error key={fake_key}'
+        )
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        with self.assertLogs('solsys_code.unattended', level='WARNING') as captured:
+            result = unattended.step_status_refresh(dry_run=False)
+
+        joined = '\n'.join(captured.output)
+        self.assertIn('obs-1', joined)
+        self.assertIn('HTTPError', joined)
+        self.assertNotIn(fake_key, joined)
+        self.assertTrue(result.failed)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_transient_failure_still_counts(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', 'boom')]
+        mock_lco_cls.return_value.update_observation_status.return_value = None
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        with self.assertLogs('solsys_code.unattended', level='WARNING') as captured:
+            result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertTrue(result.failed)
+        self.assertIn('LCO: failed 1', result.summary)
+        joined = '\n'.join(captured.output)
+        self.assertIn('no exception on re-check', joined)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_facility_exception_is_isolated_per_facility(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.side_effect = RuntimeError('lco down')
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        mock_soar_cls.return_value.update_all_observation_statuses.assert_called_once_with()
+        self.assertTrue(result.failed)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_dry_run_makes_no_facility_call(self, mock_lco_cls, mock_soar_cls):
+        result = unattended.step_status_refresh(dry_run=True)
+
+        mock_lco_cls.assert_not_called()
+        mock_soar_cls.assert_not_called()
+        self.assertFalse(result.failed)
+
+
 class TestCredentialHygiene(UnattendedTestBase):
     """SCHED-10/D-16/D-17: no seeded credential leaks into any output surface."""
 

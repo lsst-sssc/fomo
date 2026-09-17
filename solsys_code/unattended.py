@@ -26,9 +26,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from pathlib import Path
+from typing import Any
 
 import requests
 from django.conf import settings
+from tom_observations.facilities.lco import LCOFacility
+from tom_observations.facilities.soar import SOARFacility
 
 from solsys_code import notifications
 from solsys_code.campaign_reconciler import reconcile_run
@@ -165,9 +168,79 @@ def step_reconcile(dry_run: bool) -> StepResult:
         return StepResult(name='reconcile', failed=False, summary='skipped -- lock held')
 
 
+def _refresh_one_facility(facility: Any) -> tuple[int, list[str]]:
+    """Refresh every non-terminal ObservationRecord for one facility instance (D-03).
+
+    Args:
+        facility: an already-constructed ``LCOFacility``/``SOARFacility`` instance -- one
+            per call, never shared across facilities or reused between ticks (Phase 34
+            D-10).
+
+    Returns:
+        tuple[int, list[str]]: ``(failed_record_count, class_names)``. ``class_names``
+            holds the distinct exception class name observed while re-checking each
+            failed observation id -- a transient failure (the re-check succeeds) still
+            counts toward ``failed_record_count`` but contributes no class name.
+    """
+    try:
+        failed_records = facility.update_all_observation_statuses()
+    except Exception as exc:  # noqa: BLE001 -- a portal call, D-17's first bucket
+        logger.warning('status refresh raised for %s: %s', type(facility).__name__, type(exc).__name__)
+        return 1, [type(exc).__name__]
+
+    class_names: list[str] = []
+    for observation_id, _message in failed_records:
+        # The message half is discarded immediately, before any logging or string
+        # building -- it can embed portal request/response content (SCHED-10, Pitfall 2).
+        try:
+            facility.update_observation_status(observation_id)
+        except Exception as exc:  # noqa: BLE001 -- a portal call, D-17's first bucket
+            logger.warning('observation_id=%s %s', observation_id, type(exc).__name__)
+            class_names.append(type(exc).__name__)
+        else:
+            logger.warning('observation_id=%s no exception on re-check', observation_id)
+    return len(failed_records), class_names
+
+
+def step_status_refresh(dry_run: bool) -> StepResult:
+    """Refresh every LCO/SOAR ``ObservationRecord``'s status via TOM's own facility classes
+    (D-03), replacing the stock ``updatestatus`` command's always-zero exit.
+
+    A dry run returns immediately without instantiating either facility -- a status
+    refresh is a portal read that mutates ``ObservationRecord`` rows through the Phase 34
+    ``post_save`` receiver, so there is no meaningful read-only variant of it.
+
+    Args:
+        dry_run: report a no-op summary without calling either facility when True.
+
+    Returns:
+        StepResult: ``failed`` is True if either facility reported at least one failed
+            record (or raised outright). When the per-step lock is contended, returns a
+            non-failing ``StepResult`` noting the skip instead -- defence in depth behind
+            the runner-level lock (see 36-01-PLAN.md's
+            ``<decisions_this_plan_records>``).
+    """
+    if dry_run:
+        return StepResult(name='status_refresh', failed=False, summary='skipped (dry run)')
+
+    try:
+        with command_lock('status_refresh'):
+            lco_failed, lco_classes = _refresh_one_facility(LCOFacility())
+            soar_failed, soar_classes = _refresh_one_facility(SOARFacility())
+            total_failed = lco_failed + soar_failed
+            classes: list[str] = []
+            for name in (*lco_classes, *soar_classes):
+                if name not in classes:
+                    classes.append(name)
+            summary = f'LCO: failed {lco_failed} | SOAR: failed {soar_failed} | classes: {", ".join(classes)}'
+            return StepResult(name='status_refresh', failed=total_failed > 0, summary=summary)
+    except LockContended:
+        return StepResult(name='status_refresh', failed=False, summary='skipped -- lock held')
+
+
 # D-01/D-04: the single source of the step order. Plan 03 prepends the other three steps
 # in their D-01 order; nothing else may re-declare this tuple.
-STEPS = (('reconcile', step_reconcile),)
+STEPS = (('status_refresh', step_status_refresh), ('reconcile', step_reconcile))
 
 
 def load_state() -> dict:
