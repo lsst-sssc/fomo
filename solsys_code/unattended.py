@@ -196,7 +196,7 @@ def step_reconcile(dry_run: bool) -> StepResult:
         return StepResult(name='reconcile', failed=False, summary='skipped -- lock held')
 
 
-def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int]:
+def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int, str | None]:
     """Refresh every non-terminal ObservationRecord for one facility instance (D-03).
 
     Args:
@@ -205,19 +205,25 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int]:
             D-10).
 
     Returns:
-        tuple[int, list[str], int]: ``(failed_record_count, class_names,
-            omitted_recheck_count)``. ``class_names`` holds the distinct exception class
-            name observed while re-checking each of the first ``_MAX_STATUS_RECHECKS``
-            failed observation ids (WR-08, 36-REVIEW.md) -- a transient failure (the
-            re-check succeeds) still counts toward ``failed_record_count`` but
-            contributes no class name. ``omitted_recheck_count`` is how many of the
-            failed records past that cap were never individually re-checked at all.
+        tuple[int, list[str], int, str | None]: ``(failed_record_count, class_names,
+            omitted_recheck_count, outage_class_name)``. ``class_names`` holds the
+            distinct exception class name observed while re-checking each of the first
+            ``_MAX_STATUS_RECHECKS`` failed observation ids (WR-08, 36-REVIEW.md) -- a
+            transient failure (the re-check succeeds) still counts toward
+            ``failed_record_count`` but contributes no class name. ``omitted_recheck_count``
+            is how many of the failed records past that cap were never individually
+            re-checked at all. ``outage_class_name`` is None for an ordinary per-record
+            failure count; it is the raised exception's class name, and
+            ``failed_record_count`` is 0, when ``update_all_observation_statuses()``
+            itself raised -- IN-05 (36-REVIEW.md): the true affected-record count is
+            unknown in that case, so this must never be conflated with "exactly one
+            record failed" (the previous behavior: returning a placeholder 1).
     """
     try:
         failed_records = facility.update_all_observation_statuses()
     except Exception as exc:  # noqa: BLE001 -- a portal call, D-17's first bucket
         logger.warning('status refresh raised for %s: %s', type(facility).__name__, type(exc).__name__)
-        return 1, [type(exc).__name__], 0
+        return 0, [], 0, type(exc).__name__
 
     class_names: list[str] = []
     recheck_targets = failed_records[:_MAX_STATUS_RECHECKS]
@@ -232,7 +238,7 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int]:
         else:
             logger.warning('observation_id=%s no exception on re-check', observation_id)
     omitted = len(failed_records) - len(recheck_targets)
-    return len(failed_records), class_names, omitted
+    return len(failed_records), class_names, omitted, None
 
 
 def step_status_refresh(dry_run: bool) -> StepResult:
@@ -258,22 +264,39 @@ def step_status_refresh(dry_run: bool) -> StepResult:
 
     try:
         with command_lock('status_refresh'):
-            lco_failed, lco_classes, lco_omitted = _refresh_one_facility(LCOFacility())
-            soar_failed, soar_classes, soar_omitted = _refresh_one_facility(SOARFacility())
+            lco_failed, lco_classes, lco_omitted, lco_outage = _refresh_one_facility(LCOFacility())
+            soar_failed, soar_classes, soar_omitted, soar_outage = _refresh_one_facility(SOARFacility())
             total_failed = lco_failed + soar_failed
             total_omitted = lco_omitted + soar_omitted
             classes: list[str] = []
             for name in (*lco_classes, *soar_classes):
                 if name not in classes:
                     classes.append(name)
-            summary = f'LCO: failed {lco_failed} | SOAR: failed {soar_failed} | classes: {", ".join(classes)}'
+
+            # IN-05 (36-REVIEW.md): a whole-facility outage (update_all_observation_
+            # statuses() itself raised) must read as "outage" with its exception class
+            # name, never as "failed 1" -- the true affected-record count is unknown, and
+            # reusing the per-record failure count there understated a systemic outage as
+            # a single failing record.
+            lco_part = f'LCO: outage ({lco_outage})' if lco_outage else f'LCO: failed {lco_failed}'
+            soar_part = f'SOAR: outage ({soar_outage})' if soar_outage else f'SOAR: failed {soar_failed}'
+            summary_parts = [lco_part, soar_part]
+            # IN-05 (36-REVIEW.md): only append the classes segment when there is
+            # something to show -- an empty 'classes: ' fragment (reachable whenever
+            # every re-checked record's failure turned out transient, which the
+            # WR-08 recheck cap makes more likely on a large outage) read as a dangling,
+            # broken field rather than "nothing to report here".
+            if classes:
+                summary_parts.append(f'classes: {", ".join(classes)}')
             if total_omitted:
                 # WR-08 (36-REVIEW.md): name how many failed records past the
                 # _MAX_STATUS_RECHECKS cap were never individually re-checked, so the
                 # failure email/log line does not silently imply every failure was
                 # inspected.
-                summary += f' | recheck capped: {total_omitted} omitted'
-            return StepResult(name='status_refresh', failed=total_failed > 0, summary=summary)
+                summary_parts.append(f'recheck capped: {total_omitted} omitted')
+            summary = ' | '.join(summary_parts)
+            failed = total_failed > 0 or bool(lco_outage) or bool(soar_outage)
+            return StepResult(name='status_refresh', failed=failed, summary=summary)
     except LockContended:
         return StepResult(name='status_refresh', failed=False, summary='skipped -- lock held')
 

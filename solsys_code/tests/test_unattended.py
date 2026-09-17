@@ -625,6 +625,33 @@ class TestStatusRefreshStep(UnattendedTestBase):
 
         self.assertNotIn('recheck capped', result.summary)
 
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_whole_facility_outage_reads_as_outage_not_failed_one(self, mock_lco_cls, mock_soar_cls):
+        # IN-05 (36-REVIEW.md): a whole-facility outage (update_all_observation_statuses()
+        # itself raised) must never read as "failed 1" -- the true affected-record count
+        # is unknown, and that phrasing understates a systemic outage as a single record.
+        mock_lco_cls.return_value.update_all_observation_statuses.side_effect = RuntimeError('lco down')
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertTrue(result.failed)
+        self.assertIn('LCO: outage (RuntimeError)', result.summary)
+        self.assertNotIn('LCO: failed 1', result.summary)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_clean_refresh_summary_has_no_dangling_classes_fragment(self, mock_lco_cls, mock_soar_cls):
+        # IN-05 (36-REVIEW.md): an empty classes list must omit the whole 'classes: '
+        # segment rather than leaving a dangling, content-free fragment in the summary.
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = []
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertNotIn('classes:', result.summary)
+
 
 class TestProjectSweepStep(UnattendedTestBase):
     """Task 2: the projector sweep step, reproducing project_observation_calendar's own
