@@ -47,6 +47,13 @@ logger = logging.getLogger(__name__)
 _HEARTBEAT_TIMEOUT_SECONDS = 10
 _REMINDER_INTERVAL = timedelta(hours=24)
 _STATE_FILENAME = 'unattended-state.json'
+# WR-08 (36-REVIEW.md): during a whole-facility outage, every non-terminal record fails
+# update_all_observation_statuses(), and _refresh_one_facility() re-checks each one
+# individually purely to name the exception class -- uncapped, that is 2N portal
+# requests on a 15-minute schedule, with no cap, no backoff, and no per-tick time
+# budget. A handful of re-checks is enough to identify the failure mode; the rest add
+# nothing but portal load and tick duration.
+_MAX_STATUS_RECHECKS = 20
 
 
 @dataclass
@@ -173,7 +180,7 @@ def step_reconcile(dry_run: bool) -> StepResult:
         return StepResult(name='reconcile', failed=False, summary='skipped -- lock held')
 
 
-def _refresh_one_facility(facility: Any) -> tuple[int, list[str]]:
+def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int]:
     """Refresh every non-terminal ObservationRecord for one facility instance (D-03).
 
     Args:
@@ -182,19 +189,23 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str]]:
             D-10).
 
     Returns:
-        tuple[int, list[str]]: ``(failed_record_count, class_names)``. ``class_names``
-            holds the distinct exception class name observed while re-checking each
-            failed observation id -- a transient failure (the re-check succeeds) still
-            counts toward ``failed_record_count`` but contributes no class name.
+        tuple[int, list[str], int]: ``(failed_record_count, class_names,
+            omitted_recheck_count)``. ``class_names`` holds the distinct exception class
+            name observed while re-checking each of the first ``_MAX_STATUS_RECHECKS``
+            failed observation ids (WR-08, 36-REVIEW.md) -- a transient failure (the
+            re-check succeeds) still counts toward ``failed_record_count`` but
+            contributes no class name. ``omitted_recheck_count`` is how many of the
+            failed records past that cap were never individually re-checked at all.
     """
     try:
         failed_records = facility.update_all_observation_statuses()
     except Exception as exc:  # noqa: BLE001 -- a portal call, D-17's first bucket
         logger.warning('status refresh raised for %s: %s', type(facility).__name__, type(exc).__name__)
-        return 1, [type(exc).__name__]
+        return 1, [type(exc).__name__], 0
 
     class_names: list[str] = []
-    for observation_id, _message in failed_records:
+    recheck_targets = failed_records[:_MAX_STATUS_RECHECKS]
+    for observation_id, _message in recheck_targets:
         # The message half is discarded immediately, before any logging or string
         # building -- it can embed portal request/response content (SCHED-10, Pitfall 2).
         try:
@@ -204,7 +215,8 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str]]:
             class_names.append(type(exc).__name__)
         else:
             logger.warning('observation_id=%s no exception on re-check', observation_id)
-    return len(failed_records), class_names
+    omitted = len(failed_records) - len(recheck_targets)
+    return len(failed_records), class_names, omitted
 
 
 def step_status_refresh(dry_run: bool) -> StepResult:
@@ -230,14 +242,21 @@ def step_status_refresh(dry_run: bool) -> StepResult:
 
     try:
         with command_lock('status_refresh'):
-            lco_failed, lco_classes = _refresh_one_facility(LCOFacility())
-            soar_failed, soar_classes = _refresh_one_facility(SOARFacility())
+            lco_failed, lco_classes, lco_omitted = _refresh_one_facility(LCOFacility())
+            soar_failed, soar_classes, soar_omitted = _refresh_one_facility(SOARFacility())
             total_failed = lco_failed + soar_failed
+            total_omitted = lco_omitted + soar_omitted
             classes: list[str] = []
             for name in (*lco_classes, *soar_classes):
                 if name not in classes:
                     classes.append(name)
             summary = f'LCO: failed {lco_failed} | SOAR: failed {soar_failed} | classes: {", ".join(classes)}'
+            if total_omitted:
+                # WR-08 (36-REVIEW.md): name how many failed records past the
+                # _MAX_STATUS_RECHECKS cap were never individually re-checked, so the
+                # failure email/log line does not silently imply every failure was
+                # inspected.
+                summary += f' | recheck capped: {total_omitted} omitted'
             return StepResult(name='status_refresh', failed=total_failed > 0, summary=summary)
     except LockContended:
         return StepResult(name='status_refresh', failed=False, summary='skipped -- lock held')

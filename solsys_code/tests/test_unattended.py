@@ -493,6 +493,37 @@ class TestStatusRefreshStep(UnattendedTestBase):
         mock_soar_cls.assert_not_called()
         self.assertFalse(result.failed)
 
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_whole_facility_outage_caps_the_recheck_calls(self, mock_lco_cls, mock_soar_cls):
+        # WR-08 (36-REVIEW.md): a whole-facility outage fails every non-terminal record,
+        # so the re-check must be capped -- not one portal call per failed record with
+        # no bound, no backoff, and no per-tick time budget.
+        many_failures = [(f'obs-{i}', 'boom') for i in range(unattended._MAX_STATUS_RECHECKS + 5)]
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = many_failures
+        mock_lco_cls.return_value.update_observation_status.return_value = None
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertEqual(
+            mock_lco_cls.return_value.update_observation_status.call_count, unattended._MAX_STATUS_RECHECKS
+        )
+        self.assertTrue(result.failed)
+        self.assertIn(f'LCO: failed {len(many_failures)}', result.summary)
+        self.assertIn('recheck capped: 5 omitted', result.summary)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_under_cap_failure_count_omits_the_capped_note(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', 'boom')]
+        mock_lco_cls.return_value.update_observation_status.return_value = None
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertNotIn('recheck capped', result.summary)
+
 
 class TestProjectSweepStep(UnattendedTestBase):
     """Task 2: the projector sweep step, reproducing project_observation_calendar's own
