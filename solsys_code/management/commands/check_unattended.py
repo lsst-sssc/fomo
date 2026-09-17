@@ -153,6 +153,21 @@ def check_log_dir() -> CheckResult:
     return _check_directory_writable('FOMO_LOG_FILE', Path(settings.FOMO_LOG_FILE).parent)
 
 
+def check_state_dir() -> CheckResult:
+    """Hard check: ``settings.FOMO_STATE_DIR`` -- where ``save_state()`` persists the
+    D-11 suppression state.
+
+    WR-15 (36-REVIEW.md): an unwritable ``FOMO_STATE_DIR`` makes every tick send the
+    same failure email again, forever -- ``load_state()`` falls back to "no prior
+    failure" (WR-03), ``decide_notification()`` therefore decides ``'failure'`` on
+    every tick, and ``save_state()``'s own raised ``OSError`` is caught and logged but
+    never recorded, so the identical email goes out again next tick. Catching an
+    unwritable state directory here, the same way ``check_lock_dir()`` catches an
+    unwritable lock directory, lets an operator fix it before that loop starts.
+    """
+    return _check_directory_writable('FOMO_STATE_DIR', Path(settings.FOMO_STATE_DIR))
+
+
 def check_email() -> list[CheckResult]:
     """Hard checks (two): the email backend can actually deliver, and there is at least
     one staff recipient on file (D-13).
@@ -364,6 +379,7 @@ class Command(BaseCommand):
         results.append(check_flock())
         results.append(check_lock_dir())
         results.append(check_log_dir())
+        results.append(check_state_dir())
         results.extend(check_email())
         results.append(check_heartbeat())
         results.append(check_base_url())

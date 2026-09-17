@@ -1,6 +1,6 @@
 """Tests for `check_unattended` (Phase 36 Plan 04).
 
-Covers the six prerequisite checks, their aggregation into a single pass/fail run
+Covers the eight prerequisite checks, their aggregation into a single pass/fail run
 (``TestHardChecks``/``TestWarningChecks``), the printed cron line (``TestCronLine``),
 the ``--send-test-email`` flag (``TestTestEmail``), and SCHED-10/D-15 credential-hygiene
 (``TestNoValueLeakage``). No ``Target`` fixture is used anywhere in this module.
@@ -117,8 +117,19 @@ class TestHardChecks(CheckUnattendedTestBase):
         self.assertIn('[ok] flock', stdout)
         self.assertIn('[ok] FOMO_LOCK_DIR', stdout)
         self.assertIn('[ok] FOMO_LOG_FILE', stdout)
+        self.assertIn('[ok] FOMO_STATE_DIR', stdout)
         self.assertIn('[ok] EMAIL_BACKEND', stdout)
         self.assertIn('[ok] staff_recipients', stdout)
+
+    def test_unwritable_state_dir_fails(self):
+        # WR-15 (36-REVIEW.md): an unwritable FOMO_STATE_DIR must be caught here, before
+        # it turns into the every-15-minutes duplicate-failure-email loop an unpersistable
+        # state file causes at runtime.
+        readonly_parent = self._make_unwritable_parent()
+        with override_settings(FOMO_STATE_DIR=str(readonly_parent / 'substate')):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('FOMO_STATE_DIR', str(ctx.exception))
 
     def test_flock_without_conflict_exit_code_support_fails(self):
         # WR-11 (36-REVIEW.md): an older flock (util-linux < 2.27) has no -E option --
