@@ -13,7 +13,12 @@
 # The environment the cron daemon must supply (by NAME only -- never a value here, D-15):
 #   FOMO_HEARTBEAT_URL  -- a healthchecks.io-compatible ping URL (optional; unset disables
 #                          the heartbeat layer, D-12)
-#   FOMO_BASE_URL       -- used to build the admin/calendar links in a failure email
+#   FOMO_BASE_URL       -- used to build the admin/calendar links in a failure email. WR-13
+#                          (36-REVIEW.md): the campaign-submission approval-queue link is
+#                          built inside the WEB process (gunicorn/uWSGI), not this cron
+#                          process, so FOMO_BASE_URL must be set in BOTH environments --
+#                          or, simpler, set once in this host's local_settings.py so every
+#                          process picks up the same value.
 # The LCO/SOAR API key and the mail (EMAIL_HOST_*) credentials belong in
 # `fomo/local_settings.py` on this host, never in this file and never in the process
 # argument vector, where a local `ps aux` would expose them (threat T-36-02).

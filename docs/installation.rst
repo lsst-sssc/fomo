@@ -107,6 +107,15 @@ Several lines of debugging output should appear. You should then be able to poin
 
 Log in as the admin user you created earlier using the `Login` button in the top right corner of the menu bar.
 
+.. note::
+   For a real deployment (not just ``runserver`` on localhost), set ``FOMO_BASE_URL``
+   to this host's real externally-reachable URL -- ideally once, in this host's
+   ``local_settings.py``, so both the web server process and any cron-scheduled
+   management commands (see :ref:`unattended-operation`) pick up the same value.
+   ``FOMO_BASE_URL`` is what FOMO uses to build absolute admin/calendar/approval-queue
+   links in emailed notices; left at its ``http://localhost:8000`` default, every such
+   link is unusable off this host (WR-13, 36-REVIEW.md).
+
 You can import new Targets into FOMO by clicking on Targets->Targets in the menu bar. This will bring you to the Target overview page (which is blank at the minute). Click Create Targets->Catalog Search and select the desired service from the options. Solar System targets can be imported from:
 
 * JPL

@@ -1453,10 +1453,19 @@ Setting it up on a fresh host
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
    the crontab line, never in an environment variable, and never committed
    to git.
-3. Export ``FOMO_HEARTBEAT_URL`` and ``FOMO_BASE_URL`` in the environment
-   the cron daemon sees (for example via ``/etc/environment``, or a
-   wrapper script the crontab line sources) -- never as a literal value in
-   any committed file.
+3. Export ``FOMO_HEARTBEAT_URL`` in the environment the cron daemon sees
+   (for example via ``/etc/environment``, or a wrapper script the crontab
+   line sources) -- never as a literal value in any committed file.
+   Export ``FOMO_BASE_URL`` in **both** the cron environment and the web
+   server's (gunicorn/uWSGI) environment (WR-13, 36-REVIEW.md): the
+   campaign-submission approval-queue link is built inside the web
+   process, which reads this setting at its own settings-import time, not
+   the cron process's. Simplest: set ``FOMO_BASE_URL`` once in this host's
+   ``local_settings.py`` instead of an environment variable, so every
+   process -- cron and web -- picks up the same value. A deployment that
+   exports it for cron only gets a green preflight and unusable
+   ``http://localhost:8000/...`` links in every emailed notice the web
+   process builds.
 4. Run the preflight check **as the account that will actually run
    unattended** (the cron user), not as root:
 
