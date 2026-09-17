@@ -24,7 +24,14 @@
 # no-op -- the `|| echo ... skipped` tail below leaves a visible trail in the log for
 # exactly that case, and the runner's own heartbeat grace period (D-12) is the structural
 # backstop if this log line is never checked.
-*/15 * * * * /usr/bin/flock -n /var/lock/fomo/run_unattended.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1 || echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log
+#
+# The lock file here (`run_unattended.cron.lock`) is deliberately NOT the same file
+# `run_unattended` itself locks internally (`run_unattended.lock`, via `command_lock()`
+# in unattended.py) -- `flock(2)` locks are per open file description, so a child
+# process's own attempt to lock the same path its parent's `flock -n` already holds
+# would be denied by its own parent, silently turning every scheduled tick into a no-op
+# (CR-01, 36-REVIEW.md). Keep these two lock file names distinct.
+*/15 * * * * /usr/bin/flock -n /var/lock/fomo/run_unattended.cron.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1 || echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log
 
 # Before installing this line on a fresh host, create the two directories the schedule
 # above assumes exist and are writable by the cron user:

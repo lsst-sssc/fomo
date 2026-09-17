@@ -173,13 +173,23 @@ class TestCronLine(CheckUnattendedTestBase):
         for element in (
             '*/15 * * * *',
             '/usr/bin/flock -n',
-            'run_unattended.lock',
+            'run_unattended.cron.lock',
             'run_unattended',
             '2>&1',
             'lock held',
         ):
             self.assertIn(element, line)
         self.assertIn('>>', line)
+
+    def test_cron_lock_differs_from_the_runner_internal_lock(self):
+        # CR-01 (36-REVIEW.md): the cron guard and `command_lock('run_unattended')`'s own
+        # lock file must never be the same path -- `flock(2)` locks are per open file
+        # description, so a shared name would deny the child's own lock attempt and
+        # silently no-op every scheduled tick.
+        line = cron_line()
+        runner_internal_lock = str(Path(django_settings.FOMO_LOCK_DIR) / 'run_unattended.lock')
+        self.assertNotIn(runner_internal_lock, line)
+        self.assertIn(str(Path(django_settings.FOMO_LOCK_DIR) / 'run_unattended.cron.lock'), line)
 
     def test_line_carries_no_setting_value(self):
         with override_settings(FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL):

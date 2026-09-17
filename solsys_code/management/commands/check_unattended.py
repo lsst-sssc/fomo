@@ -164,7 +164,11 @@ def cron_line() -> str:
     """
     python_path = sys.executable
     manage_py_path = Path(settings.BASE_DIR).parent / 'manage.py'
-    lock_file = Path(settings.FOMO_LOCK_DIR) / 'run_unattended.lock'
+    # NOT 'run_unattended.lock' -- that is the name `command_lock('run_unattended')`
+    # locks from inside the process (unattended.py). `flock(2)` locks are per open file
+    # description, so a cron guard sharing that filename would be denied by the lock its
+    # own child just took, self-deadlocking every scheduled tick (CR-01, 36-REVIEW.md).
+    lock_file = Path(settings.FOMO_LOCK_DIR) / 'run_unattended.cron.lock'
     log_file = settings.FOMO_LOG_FILE
     return (
         f'*/15 * * * * /usr/bin/flock -n {lock_file} {python_path} {manage_py_path} run_unattended '
