@@ -461,17 +461,26 @@ def _build_notification_body(decision: str, results: list[StepResult]) -> tuple[
     return subject, '\n'.join(lines)
 
 
-def _send_notification(decision: str, results: list[StepResult]) -> None:
+def _send_notification(decision: str, results: list[StepResult]) -> bool:
     """Build and send the D-14 notification email for a non-None decision.
 
     Never raises (D-11/D-17): a mail outage is logged by exception class name only and
     swallowed, so it can never fail the tick.
+
+    Returns:
+        bool: True only when the mail was actually attempted *and* delivered --
+            ``notifications.notify_staff()`` returns False when there is no staff
+            recipient at all, and a raised send is caught and also reported as False
+            (WR-02, 36-REVIEW.md). The caller must not record the notification as sent
+            unless this is True, or a mail outage on the first failing tick would
+            suppress every subsequent notification for the same failing set.
     """
     subject, body = _build_notification_body(decision, results)
     try:
-        notifications.notify_staff(subject, body, fail_silently=False)
+        return notifications.notify_staff(subject, body, fail_silently=False)
     except Exception as exc:  # noqa: BLE001 -- mail sending is a network-ish call, D-17
         logger.error('failed to send unattended notification: %s', type(exc).__name__)
+        return False
 
 
 def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
@@ -518,11 +527,15 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
                 failing_steps = sorted(result.name for result in results if result.failed)
                 previous_state = load_state()
                 decision = decide_notification(previous_state, failing_steps, now)
-                if decision is not None:
-                    _send_notification(decision, results)
-                if decision in ('failure', 'reminder'):
+                # WR-02 (36-REVIEW.md): only record the notification as sent when it was
+                # actually attempted *and* delivered -- otherwise a down SMTP relay (or
+                # every staff email cleared) on the first failing tick would record
+                # notified_at anyway, suppressing all further mail for the same failing
+                # set for 24 hours, and again for each reminder window while it persists.
+                sent = _send_notification(decision, results) if decision is not None else False
+                if sent and decision in ('failure', 'reminder'):
                     save_state(failing_steps, now)
-                elif decision == 'recovered':
+                elif sent and decision == 'recovered':
                     save_state([], None)
                 ping_heartbeat(str(exit_code))
 

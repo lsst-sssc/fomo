@@ -247,6 +247,29 @@ class TestNotification(UnattendedTestBase):
         self.assertNotIn('hunter2', stdout.getvalue())
         self.assertNotIn('hunter2', stderr.getvalue())
 
+    def test_failed_send_does_not_save_state(self):
+        # WR-02 (36-REVIEW.md): a failed/unsent notification must never be recorded as
+        # "staff were notified" -- otherwise a down mail relay on the first failing tick
+        # suppresses every subsequent notification for the same failing set for 24 hours.
+        self._make_campaign_run()
+        with patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError('boom')):
+            with patch(
+                'solsys_code.notifications.send_mail',
+                side_effect=SMTPAuthenticationError(535, b'user=svc pass=hunter2'),
+            ):
+                with self.assertRaises(SystemExit):
+                    call_command('run_unattended')
+            self.assertEqual(len(mail.outbox), 0)
+            state = unattended.load_state()
+            self.assertEqual(state['failing_steps'], [])
+            self.assertIsNone(state['notified_at'])
+
+            # A later tick, with mail working again, must still mail staff -- the failed
+            # send above must not have suppressed it.
+            with self.assertRaises(SystemExit):
+                call_command('run_unattended')
+        self.assertEqual(len(mail.outbox), 1)
+
 
 class TestHeartbeat(UnattendedTestBase):
     """D-12: one whole-tick heartbeat, /start then /<exit-code>."""
