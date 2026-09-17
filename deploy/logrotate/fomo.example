@@ -5,7 +5,8 @@
 # somewhere other than the default. The path here must match the log destination
 # `deploy/cron/fomo.crontab.example` redirects into and `settings.FOMO_LOG_FILE`
 # defaults to; `python manage.py check_unattended` verifies that directory is writable
-# by the user the runner will actually run as.
+# by the account you run this check as -- run it as the cron account, not as root, or
+# the result only tells you root can write there (WR-06, 36-REVIEW.md).
 #
 # This file is committed to git -- it must NEVER gain a real host path beyond the
 # placeholder below, a real credential, or any other host-specific value.

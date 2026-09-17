@@ -63,19 +63,55 @@ def check_flock() -> CheckResult:
     )
 
 
+def _owner_mode(path: Path) -> str:
+    """Render a path's owner uid and permission mode for a CheckResult's detail text."""
+    info = path.stat()
+    return f'owner uid {info.st_uid}, mode {oct(info.st_mode & 0o777)}'
+
+
 def _check_directory_writable(name: str, path: Path) -> CheckResult:
     """Shared read-only writability probe for the lock and log directories.
 
     Never creates ``path`` -- reports what would need to exist and who would need to
     create it (D-05: the operator acts, not this command).
+
+    WR-06 (36-REVIEW.md): ``os.access(path, os.W_OK)`` answers "can *this* process's
+    uid write here" -- not the cron account's, and is effectively unconditional for
+    uid 0. Report the resolved owner uid and mode alongside the verdict, and say
+    explicitly whose write access was tested, so an operator running this preflight as
+    root (a natural thing to do while creating the directories) does not mistake an
+    ``[ok]`` tested as root for one tested as the unprivileged cron account.
     """
     if path.exists():
+        detail_suffix = f' ({_owner_mode(path)})'
         if os.access(path, os.W_OK):
-            return CheckResult(name=name, ok=True, hard=True, detail=f'{path} exists and is writable')
-        return CheckResult(name=name, ok=False, hard=True, detail=f'{path} exists but is not writable')
+            return CheckResult(
+                name=name,
+                ok=True,
+                hard=True,
+                detail=(
+                    f'{path} writable by uid {os.geteuid()}{detail_suffix} -- run this check as the '
+                    'account that will actually run unattended to verify it too'
+                ),
+            )
+        return CheckResult(
+            name=name,
+            ok=False,
+            hard=True,
+            detail=f'{path} exists but is not writable by uid {os.geteuid()}{detail_suffix}',
+        )
     parent = path.parent
     if parent.exists() and os.access(parent, os.W_OK):
-        return CheckResult(name=name, ok=True, hard=True, detail=f'{path} does not exist yet, but {parent} is writable')
+        return CheckResult(
+            name=name,
+            ok=True,
+            hard=True,
+            detail=(
+                f'{path} does not exist yet, but {parent} is writable by uid {os.geteuid()} '
+                f'({_owner_mode(parent)}) -- run this check as the account that will actually run '
+                'unattended to verify it too'
+            ),
+        )
     return CheckResult(
         name=name,
         ok=False,

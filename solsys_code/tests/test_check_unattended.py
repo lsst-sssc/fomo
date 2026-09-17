@@ -131,6 +131,16 @@ class TestHardChecks(CheckUnattendedTestBase):
             self.assertFalse(log_path.exists())
         self.assertEqual(WatchedProposal.objects.count(), 0)
 
+    def test_writable_result_names_the_uid_that_was_actually_tested(self):
+        # WR-06 (36-REVIEW.md): os.access() only answers "can *this* process's uid
+        # write here" -- report the resolved owner/mode alongside the verdict, and say
+        # explicitly whose write access was tested, so an operator running the
+        # preflight as root does not mistake that [ok] for one tested as the cron
+        # account.
+        stdout, _stderr = _run()
+        self.assertIn(f'writable by uid {os.geteuid()}', stdout)
+        self.assertIn('run this check as the account that will actually run unattended', stdout)
+
 
 class TestWarningChecks(CheckUnattendedTestBase):
     def test_unset_heartbeat_is_a_warning(self):

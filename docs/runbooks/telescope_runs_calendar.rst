@@ -1457,7 +1457,8 @@ Setting it up on a fresh host
    the cron daemon sees (for example via ``/etc/environment``, or a
    wrapper script the crontab line sources) -- never as a literal value in
    any committed file.
-4. Run the preflight check:
+4. Run the preflight check **as the account that will actually run
+   unattended** (the cron user), not as root:
 
    .. code-block:: console
 
@@ -1474,7 +1475,12 @@ Setting it up on a fresh host
    It also prints the exact cron line to install, with the real resolved
    Python interpreter and ``manage.py`` paths already filled in -- printed
    even when a hard check failed, so an operator fixing prerequisites
-   still sees the target state.
+   still sees the target state. **The directory checks only test the uid
+   that ran the command** (WR-06, 36-REVIEW.md): each ``[ok]`` names the
+   uid, owner, and mode it actually tested, so running this as root while
+   the cron account is unprivileged will print an ``[ok]`` that does not
+   mean the cron account can write there -- run it as the cron account to
+   get a result that does.
 5. Fix whatever it reports, re-running ``check_unattended`` until every
    hard check passes.
 6. Copy the printed cron line into the crontab (``crontab -e`` for the
