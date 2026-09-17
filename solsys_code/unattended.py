@@ -20,9 +20,11 @@ import fcntl
 import io
 import json
 import logging
+import os
 import sys
+import tempfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -430,6 +432,13 @@ def save_state(failing_steps: list[str], notified_at: datetime | None) -> None:
             writing).
         notified_at: when the notification for this state was sent, or None (the
             recovered/no-prior-failure state).
+
+    IN-03 (36-REVIEW.md): writes atomically -- a fresh temp file in the same directory,
+    then ``os.replace()`` -- so a process kill mid-write (the same OOM/SIGKILL class
+    WR-14 already documents for the lock file) can never leave a torn/partial JSON file
+    for the next tick's ``load_state()`` to find. Sets an explicit ``0o600`` mode rather
+    than relying on the process umask, since ``FOMO_STATE_DIR`` defaults to
+    ``FOMO_LOCK_DIR``, a directory other processes may also write into.
     """
     state_dir = Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR)
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -438,8 +447,17 @@ def save_state(failing_steps: list[str], notified_at: datetime | None) -> None:
         'failing_steps': sorted(failing_steps),
         'notified_at': notified_at.isoformat() if notified_at else None,
     }
-    with state_path.open('w') as fh:
-        json.dump(payload, fh)
+    fd, tmp_path_str = tempfile.mkstemp(dir=state_dir, prefix=f'.{_STATE_FILENAME}.', suffix='.tmp')
+    tmp_path = Path(tmp_path_str)
+    try:
+        with os.fdopen(fd, 'w') as fh:
+            json.dump(payload, fh)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, state_path)
+    except BaseException:
+        with suppress(OSError):
+            tmp_path.unlink()
+        raise
 
 
 def decide_notification(previous_state: dict, failing_steps: list[str], now: datetime) -> str | None:

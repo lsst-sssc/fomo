@@ -11,6 +11,7 @@ matching ``test_reconcile_campaign_runs.py``'s own convention.
 import contextlib
 import fcntl
 import json
+import stat
 import tempfile
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -443,6 +444,28 @@ class TestStateFileRobustness(UnattendedTestBase):
         self.assertIn('=== FOMO unattended run END', joined)
         urls = [call.args[0] for call in self.mock_requests_get.call_args_list]
         self.assertTrue(any(url.endswith('/1') for url in urls))
+
+
+class TestStateFileAtomicWrite(UnattendedTestBase):
+    """IN-03 (36-REVIEW.md): the state file must be written atomically (temp file + a
+    rename), with an explicit mode rather than relying on the process umask."""
+
+    def test_written_file_has_explicit_0o600_mode(self):
+        unattended.save_state(['reconcile'], None)
+        state_path = Path(self.tmp_dir.name) / 'unattended-state.json'
+        self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+
+    def test_no_leftover_temp_file_after_a_successful_write(self):
+        unattended.save_state(['reconcile'], None)
+        leftover_temp_files = [p for p in Path(self.tmp_dir.name).iterdir() if p.name.endswith('.tmp')]
+        self.assertEqual(leftover_temp_files, [])
+
+    def test_content_round_trips_through_the_atomic_write(self):
+        now = datetime.now(dt_timezone.utc)
+        unattended.save_state(['reconcile', 'discovery'], now)
+        state = unattended.load_state()
+        self.assertEqual(state['failing_steps'], ['discovery', 'reconcile'])
+        self.assertEqual(state['notified_at'], now)
 
 
 class TestNoneSettingGuards(UnattendedTestBase):
