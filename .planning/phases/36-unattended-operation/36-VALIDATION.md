@@ -3,10 +3,11 @@ phase: "36"
 slug: "unattended-operation"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-09-16"
+validated: "2026-09-17"
 ---
 
 # Phase 36 — Validation Strategy
@@ -40,28 +41,28 @@ created: "2026-09-16"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 36-01-01 | 01 | 1 | SCHED-08 | T-36-13 | Runner orchestration: one aggregate exit code, step-failure isolation, fixed registry order, empty-database tick healthy (D-02) | unit | `python manage.py test solsys_code.tests.test_unattended.TestRunUnattended` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-01-01 | 01 | 1 | SCHED-08 | T-36-13 | Two `run_unattended` invocations never overlap — the runner takes its own `fcntl.flock` on the same file cron's `flock -n` guards, and each step takes a named per-command lock as defence in depth; skip-and-log when contended, never queue. The shipped sweep commands do not take these locks in this phase (36-01-PLAN.md `<decisions_this_plan_records>`) | unit | `python manage.py test solsys_code.tests.test_unattended.TestLocking` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-01-01 | 01 | 1 | SCHED-09 | T-36-11 | Failed step triggers exactly one email; suppressed while the same failing set persists; 24-hour reminder; one "recovered" email (D-11, D-14) | unit | `python manage.py test solsys_code.tests.test_unattended.TestNotification` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-01-01 | 01 | 1 | SCHED-09 | T-36-03 | Heartbeat pings `/start` then `/<exit-code>`; ping failure never fails the tick; unset URL skips pinging (D-12) | unit | `python manage.py test solsys_code.tests.test_unattended.TestHeartbeat` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-01-02 | 01 | 1 | SCHED-08 | T-36-02 | The committed crontab template carries the `flock -n` guard, the log redirect, the skip-visible tail and no credential (D-01, D-15, D-18) | source assertion | `python -c "src=open('deploy/cron/fomo.crontab.example').read();print('*/15 * * * *' in src, '/usr/bin/flock -n' in src, 'lock held' in src)"` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-01-03 | 01 | 1 | SCHED-09 | T-36-01 | The submission notice and the runner share one request-free mail sender; a mail outage never breaks a submission (D-11) | unit (regression) | `python manage.py test solsys_code.tests.test_campaign_submission` | ✅ (extend) | ⬜ pending |
-| 36-02-01 | 02 | 1 | DISCOVER-01 | T-36-07, T-36-08 | `WatchedProposal` model + migration + admin (`list_editable` on `is_active`, filter, read-only bookkeeping, unique + stripped code) (D-06) | unit | `python manage.py test solsys_code.tests.test_watched_proposal solsys_code.tests.test_admin` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-02-01 | 02 | 1 | DISCOVER-01 | — | The committed migration matches the model definition and applies cleanly | migration check | `python manage.py makemigrations --check --dry-run && python manage.py migrate` | ✅ (existing tree) | ⬜ pending |
-| 36-02-02 | 02 | 1 | DISCOVER-01 | — | `sweep_proposal()` extraction is behavior-preserving — the 30 existing tests pass unmodified | unit (regression) | `python manage.py test solsys_code.tests.test_backfill_lco_observations` | ✅ (existing 1018-line file) | ⬜ pending |
-| 36-02-03 | 02 | 1 | DISCOVER-01 | T-36-06, T-36-09 | Bare invocation sweeps every active row in code order; per-row failure isolation; `last_run_at`/`last_run_summary` written; failure summary carries a class name only (D-07, D-09) | unit | `python manage.py test solsys_code.tests.test_backfill_lco_observations.TestWatchedListSweep solsys_code.tests.test_backfill_lco_observations.TestPerProposalIsolation` | ❌ W0 (new classes, existing file) | ⬜ pending |
-| 36-02-03 | 02 | 1 | DISCOVER-01 | — | Empty watched list is a quiet no-op: exit 0, one INFO line, no portal call (D-08) | unit | `python manage.py test solsys_code.tests.test_backfill_lco_observations.TestEmptyWatchedList` | ❌ W0 (new class, existing file) | ⬜ pending |
-| 36-02-03 | 02 | 1 | DISCOVER-01 | — | `--proposal` override still works for a proposal that is not a watched row | unit (regression) | `python manage.py test solsys_code.tests.test_backfill_lco_observations` | ✅ | ⬜ pending |
-| 36-03-01 | 03 | 2 | SCHED-08, SCHED-10 | T-36-01 | Status refresh: fresh `LCOFacility()`/`SOARFacility()` per facility, non-empty failure list = step failure, class name re-derived, portal message never logged (D-03) | unit | `python manage.py test solsys_code.tests.test_unattended.TestStatusRefreshStep` | ❌ W0 (new class, file from 36-01-01) | ⬜ pending |
-| 36-03-02 | 03 | 2 | SCHED-08 | T-36-12 | All four steps run in D-01's fixed order even when an early step fails; projector sweep and discovery each call their module function, never `call_command()` | unit | `python manage.py test solsys_code.tests.test_unattended.TestProjectSweepStep solsys_code.tests.test_unattended.TestDiscoveryStep` | ❌ W0 (new classes, file from 36-01-01) | ⬜ pending |
-| 36-03-02 | 03 | 2 | SCHED-08 | — | Expected data-shape outcomes (`unchanged`, `skipped`, `detach_declined`, `remint_declined`) never make a tick non-zero and never mail (D-10) | unit | `python manage.py test solsys_code.tests.test_unattended.TestRunUnattended` | ❌ W0 (new case, file from 36-01-01) | ⬜ pending |
-| 36-03-03 | 03 | 2 | SCHED-10 | T-36-01, T-36-10, T-36-11 | No credential value in any log line / email body / stdout / stderr across all six forced failure paths (D-16, D-17) | unit (regression) | `python manage.py test solsys_code.tests.test_unattended.TestCredentialHygiene` | ❌ W0 (expanded, file from 36-01-01) | ⬜ pending |
-| 36-04-01 | 04 | 2 | SCHED-08 | T-36-16 | `check_unattended` reports every prerequisite in one run; hard failures exit non-zero; heartbeat-unset and empty-list are warnings; the command writes nothing (D-05, D-08, D-12, D-13) | unit | `python manage.py test solsys_code.tests.test_check_unattended.TestHardChecks solsys_code.tests.test_check_unattended.TestWarningChecks` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-04-02 | 04 | 2 | SCHED-08, SCHED-10 | T-36-04, T-36-15 | The printed cron line carries real resolved paths and matches the committed template's shape; the command never prints a setting value; `--send-test-email` proves the mail layer | unit | `python manage.py test solsys_code.tests.test_check_unattended.TestCronLine solsys_code.tests.test_check_unattended.TestTestEmail solsys_code.tests.test_check_unattended.TestNoValueLeakage` | ❌ W0 (created by 36-04-01) | ⬜ pending |
-| 36-04-03 | 04 | 2 | SCHED-08 | — | The committed logrotate example rotates the one log file daily, keeps 14, and uses `copytruncate` (D-18) | source assertion | `python -c "src=open('deploy/logrotate/fomo.example').read();print('daily' in src, 'rotate 14' in src, 'copytruncate' in src)"` | ❌ W0 (created by this task) | ⬜ pending |
-| 36-05-01 | 05 | 3 | SCHED-08, SCHED-09, SCHED-10 | T-36-04 | The runbook's unattended-operation section builds cleanly and covers setup, the two failure signals, and the "nothing has appeared" checklist (SC 5) | docs build + source assertion | `pre-commit run sphinx-build --all-files` | ✅ (extend) | ⬜ pending |
-| 36-05-02 | 05 | 3 | DISCOVER-01 | T-36-17, T-36-18 | The demo notebook shows the watched-proposal contract with committed executed output, makes no live network call, and leaves no rows behind | notebook execution + source assertion | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` | ✅ (extend) | ⬜ pending |
-| 36-05-03 | 05 | 3 | SCHED-08 | T-36-19 | `CLAUDE.md`'s paired-docs map records every module this phase adds and why the runner's paired doc is a runbook section | source assertion | `python -c "src=open('CLAUDE.md').read();i=src.index('Paired docs are part of the deliverable');j=src.index('## Project', i);print('unattended.py' in src[i:j], 'notifications.py' in src[i:j])"` | ✅ (extend) | ⬜ pending |
+| 36-01-01 | 01 | 1 | SCHED-08 | T-36-13 | Runner orchestration: one aggregate exit code, step-failure isolation, fixed registry order, empty-database tick healthy (D-02) | unit | `python manage.py test solsys_code.tests.test_unattended.TestRunUnattended` | ❌ W0 (created by this task) | ✅ green |
+| 36-01-01 | 01 | 1 | SCHED-08 | T-36-13 | Two `run_unattended` invocations never overlap — the runner takes its own `fcntl.flock` on the same file cron's `flock -n` guards, and each step takes a named per-command lock as defence in depth; skip-and-log when contended, never queue. The shipped sweep commands do not take these locks in this phase (36-01-PLAN.md `<decisions_this_plan_records>`) | unit | `python manage.py test solsys_code.tests.test_unattended.TestLocking` | ❌ W0 (created by this task) | ✅ green |
+| 36-01-01 | 01 | 1 | SCHED-09 | T-36-11 | Failed step triggers exactly one email; suppressed while the same failing set persists; 24-hour reminder; one "recovered" email (D-11, D-14) | unit | `python manage.py test solsys_code.tests.test_unattended.TestNotification` | ❌ W0 (created by this task) | ✅ green |
+| 36-01-01 | 01 | 1 | SCHED-09 | T-36-03 | Heartbeat pings `/start` then `/<exit-code>`; ping failure never fails the tick; unset URL skips pinging (D-12) | unit | `python manage.py test solsys_code.tests.test_unattended.TestHeartbeat` | ❌ W0 (created by this task) | ✅ green |
+| 36-01-02 | 01 | 1 | SCHED-08 | T-36-02 | The committed crontab template carries the `flock -n` guard, the log redirect, the skip-visible tail and no credential (D-01, D-15, D-18) | source assertion | `python -c "src=open('deploy/cron/fomo.crontab.example').read();print('*/15 * * * *' in src, '/usr/bin/flock -n' in src, 'lock held' in src)"` | ❌ W0 (created by this task) | ✅ green |
+| 36-01-03 | 01 | 1 | SCHED-09 | T-36-01 | The submission notice and the runner share one request-free mail sender; a mail outage never breaks a submission (D-11) | unit (regression) | `python manage.py test solsys_code.tests.test_campaign_submission` | ✅ (extend) | ✅ green |
+| 36-02-01 | 02 | 1 | DISCOVER-01 | T-36-07, T-36-08 | `WatchedProposal` model + migration + admin (`list_editable` on `is_active`, filter, read-only bookkeeping, unique + stripped code) (D-06) | unit | `python manage.py test solsys_code.tests.test_watched_proposal solsys_code.tests.test_admin` | ❌ W0 (created by this task) | ✅ green |
+| 36-02-01 | 02 | 1 | DISCOVER-01 | — | The committed migration matches the model definition and applies cleanly | migration check | `python manage.py makemigrations --check --dry-run && python manage.py migrate` | ✅ (existing tree) | ✅ green |
+| 36-02-02 | 02 | 1 | DISCOVER-01 | — | `sweep_proposal()` extraction is behavior-preserving — the 30 existing tests pass unmodified | unit (regression) | `python manage.py test solsys_code.tests.test_backfill_lco_observations` | ✅ (existing 1018-line file) | ✅ green |
+| 36-02-03 | 02 | 1 | DISCOVER-01 | T-36-06, T-36-09 | Bare invocation sweeps every active row in code order; per-row failure isolation; `last_run_at`/`last_run_summary` written; failure summary carries a class name only (D-07, D-09) | unit | `python manage.py test solsys_code.tests.test_backfill_lco_observations.TestWatchedListSweep solsys_code.tests.test_backfill_lco_observations.TestPerProposalIsolation` | ❌ W0 (new classes, existing file) | ✅ green |
+| 36-02-03 | 02 | 1 | DISCOVER-01 | — | Empty watched list is a quiet no-op: exit 0, one INFO line, no portal call (D-08) | unit | `python manage.py test solsys_code.tests.test_backfill_lco_observations.TestEmptyWatchedList` | ❌ W0 (new class, existing file) | ✅ green |
+| 36-02-03 | 02 | 1 | DISCOVER-01 | — | `--proposal` override still works for a proposal that is not a watched row | unit (regression) | `python manage.py test solsys_code.tests.test_backfill_lco_observations` | ✅ | ✅ green |
+| 36-03-01 | 03 | 2 | SCHED-08, SCHED-10 | T-36-01 | Status refresh: fresh `LCOFacility()`/`SOARFacility()` per facility, non-empty failure list = step failure, class name re-derived, portal message never logged (D-03) | unit | `python manage.py test solsys_code.tests.test_unattended.TestStatusRefreshStep` | ❌ W0 (new class, file from 36-01-01) | ✅ green |
+| 36-03-02 | 03 | 2 | SCHED-08 | T-36-12 | All four steps run in D-01's fixed order even when an early step fails; projector sweep and discovery each call their module function, never `call_command()` | unit | `python manage.py test solsys_code.tests.test_unattended.TestProjectSweepStep solsys_code.tests.test_unattended.TestDiscoveryStep` | ❌ W0 (new classes, file from 36-01-01) | ✅ green |
+| 36-03-02 | 03 | 2 | SCHED-08 | — | Expected data-shape outcomes (`unchanged`, `skipped`, `detach_declined`, `remint_declined`) never make a tick non-zero and never mail (D-10) | unit | `python manage.py test solsys_code.tests.test_unattended.TestRunUnattended` | ❌ W0 (new case, file from 36-01-01) | ✅ green |
+| 36-03-03 | 03 | 2 | SCHED-10 | T-36-01, T-36-10, T-36-11 | No credential value in any log line / email body / stdout / stderr across all six forced failure paths (D-16, D-17) | unit (regression) | `python manage.py test solsys_code.tests.test_unattended.TestCredentialHygiene` | ❌ W0 (expanded, file from 36-01-01) | ✅ green |
+| 36-04-01 | 04 | 2 | SCHED-08 | T-36-16 | `check_unattended` reports every prerequisite in one run; hard failures exit non-zero; heartbeat-unset and empty-list are warnings; the command writes nothing (D-05, D-08, D-12, D-13) | unit | `python manage.py test solsys_code.tests.test_check_unattended.TestHardChecks solsys_code.tests.test_check_unattended.TestWarningChecks` | ❌ W0 (created by this task) | ✅ green |
+| 36-04-02 | 04 | 2 | SCHED-08, SCHED-10 | T-36-04, T-36-15 | The printed cron line carries real resolved paths and matches the committed template's shape; the command never prints a setting value; `--send-test-email` proves the mail layer | unit | `python manage.py test solsys_code.tests.test_check_unattended.TestCronLine solsys_code.tests.test_check_unattended.TestTestEmail solsys_code.tests.test_check_unattended.TestNoValueLeakage` | ❌ W0 (created by 36-04-01) | ✅ green |
+| 36-04-03 | 04 | 2 | SCHED-08 | — | The committed logrotate example rotates the one log file daily, keeps 14, and uses `copytruncate` (D-18) | source assertion | `python -c "src=open('deploy/logrotate/fomo.example').read();print('daily' in src, 'rotate 14' in src, 'copytruncate' in src)"` | ❌ W0 (created by this task) | ✅ green |
+| 36-05-01 | 05 | 3 | SCHED-08, SCHED-09, SCHED-10 | T-36-04 | The runbook's unattended-operation section builds cleanly and covers setup, the two failure signals, and the "nothing has appeared" checklist (SC 5) | docs build + source assertion | `pre-commit run sphinx-build --all-files` | ✅ (extend) | ✅ green |
+| 36-05-02 | 05 | 3 | DISCOVER-01 | T-36-17, T-36-18 | The demo notebook shows the watched-proposal contract with committed executed output, makes no live network call, and leaves no rows behind | notebook execution + source assertion | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` | ✅ (extend) | ✅ green |
+| 36-05-03 | 05 | 3 | SCHED-08 | T-36-19 | `CLAUDE.md`'s paired-docs map records every module this phase adds and why the runner's paired doc is a runbook section | source assertion | `python -c "src=open('CLAUDE.md').read();i=src.index('Paired docs are part of the deliverable');j=src.index('## Project', i);print('unattended.py' in src[i:j], 'notifications.py' in src[i:j])"` | ✅ (extend) | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -76,13 +77,13 @@ it, as the first thing that task does (each of those tasks carries `tdd="true"` 
 block listing the tests to write before the implementation). The owning task is named against each
 item below.
 
-- [ ] `solsys_code/tests/test_unattended.py` — created by **36-01-01** (runner orchestration, notification, heartbeat, locking, first credential-hygiene case); extended by **36-03-01**, **36-03-02**, **36-03-03**
-- [ ] `solsys_code/tests/test_check_unattended.py` — created by **36-04-01**; extended by **36-04-02**
-- [ ] `solsys_code/tests/test_watched_proposal.py` — created by **36-02-01**
-- [ ] Extension of `solsys_code/tests/test_backfill_lco_observations.py` — **36-02-02** (`TestSweepProposalFunction`) and **36-02-03** (`TestWatchedListSweep`, `TestPerProposalIsolation`, `TestEmptyWatchedList`); the 30 pre-existing tests must pass unmodified throughout
-- [ ] Extension of `solsys_code/tests/test_admin.py` — **36-02-01** (`WatchedProposalAdmin` `list_editable` / `list_filter` / changelist render)
-- [ ] Extension of `solsys_code/tests/test_campaign_submission.py` — **36-01-03** (the shared mail helper's regression cases)
-- [ ] No new test framework install needed — `python manage.py test` already covers everything this phase needs
+- [x] `solsys_code/tests/test_unattended.py` — created by **36-01-01** (runner orchestration, notification, heartbeat, locking, first credential-hygiene case); extended by **36-03-01**, **36-03-02**, **36-03-03**
+- [x] `solsys_code/tests/test_check_unattended.py` — created by **36-04-01**; extended by **36-04-02**
+- [x] `solsys_code/tests/test_watched_proposal.py` — created by **36-02-01**
+- [x] Extension of `solsys_code/tests/test_backfill_lco_observations.py` — **36-02-02** (`TestSweepProposalFunction`) and **36-02-03** (`TestWatchedListSweep`, `TestPerProposalIsolation`, `TestEmptyWatchedList`); the 30 pre-existing tests must pass unmodified throughout
+- [x] Extension of `solsys_code/tests/test_admin.py` — **36-02-01** (`WatchedProposalAdmin` `list_editable` / `list_filter` / changelist render)
+- [x] Extension of `solsys_code/tests/test_campaign_submission.py` — **36-01-03** (the shared mail helper's regression cases)
+- [x] No new test framework install needed — `python manage.py test` already covers everything this phase needs
 
 ---
 
@@ -98,11 +99,30 @@ item below.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 120s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 120s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved — validate-phase audit 2026-09-17 (post-execution, all 5 plans summarized)
+
+---
+
+## Validation Audit 2026-09-17
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+Evidence: all 23 automated rows' named test classes exist on disk and the full `solsys_code` +
+`solsys_code_observatory` suite (1418 tests, excluding the known-segfaulting `test_views.TestEphemeris`,
+plus the 40 safe `test_views` cases) ran green after each of the three execution waves; the crontab,
+logrotate and `CLAUDE.md` source assertions print `True`; `makemigrations --check --dry-run` reports no
+changes; `pre-commit run sphinx-build --all-files` passes; `backfill_lco_observations_demo.ipynb` was
+re-executed in place by plan 36-05 with committed output. The three Manual-Only rows remain manual by
+design (real-host crontab, external heartbeat service, live-settings inspection) and are carried into
+`/gsd-verify-work 36`.
