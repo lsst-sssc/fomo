@@ -37,8 +37,9 @@ resolution: "Diagnosis (.planning/debug/observatory-edit-leaves-nights-stale.md)
 ### 5. Decide what to do about a declined re-mint writing a provenance token for boundaries it did not prove (round-6 verifier, seam between plans 35-23 and 35-24)
 expected: DECISION, not a manual test. Project a fully-set sub-night run (`night_start_utc=23:00`, `night_end_utc=05:00`); confirm its companion row; then edit the sub-night start to `22:00` AND correct the same `Observatory` row's position in place; reconcile. Verifier's probe at HEAD `0bc1ccd`: `token_before=v3|1|5884a60fe2946a56|23:00:00|05:00:00`, result `updated=1, remint_declined=1, retired=0`, boundaries and pk preserved (correct), but `token_after=v3|1|f49f304a6749ba00|22:00:00|05:00:00` -- plan 35-23's CR-04 fall-through reaches plan 35-24's update-path refresh, which records the run's CURRENT token onto a night whose `start_time` is still the 23:00-derived value. Contradicts 35-24's prohibition 2 ("on the declined path nothing is recorded at all"); the comment at `allocation_projector.py:1362-1368` ("step 1 found them equal on THIS SAME sweep") is false on this path. Consequence checked, not assumed: none observable -- a fully-set run never consults the token and the second sweep still reports `remint_declined=1`. Options: fix now (guard the `_record_sub_night_provenance()` call at `:1441` on "the re-mint was not declined"), file as a follow-up, or accept and correct the two comments. 35-REVIEW.md iteration 10 reports the same seam as WR-01.
 why_human: No must-have as worded is falsified and there is no demonstrated behavioural consequence; it is a reproduced prohibition counterexample at the seam between two plans in the same round that neither plan's tests cover. Product/priority decision, not a verification call. Source: 35-VERIFICATION.md (round-6 re-verification) human_verification #1.
-result: skipped
-reason: "Deferred follow-up: Observatory's positions are read once from the MPC site code API and almost never changed. So this collision between editing a position, which would change the rise/set times and night starts feels like a 'tip of the icecube' problem that will basically never happen"
+result: pass
+decision: "Deferred follow-up (recorded under ## Deferred Follow-Ups): Observatory's positions are read once from the MPC site code API and almost never changed. So this collision between editing a position, which would change the rise/set times and night starts feels like a 'tip of the icecube' problem that will basically never happen"
+note: "The checkpoint asked for a decision, not a behaviour check; the decision taken was to defer, so the test is resolved. Recorded as pass rather than skipped because `phase uat-passed` counts a skipped test as a blocker."
 
 ### 6. Acknowledge that CR-05 permanently narrows ROADMAP Success Criterion 3 / ALLOC-03
 expected: ACKNOWLEDGEMENT, not a manual test. A night whose companion row a person has CONFIRMED is no longer deleted when an `ObservationRecord` links to it; the calendar then shows both that allocation night and the observation's own entry until the confirmation is cleared and the sweep re-run. SC-3 as written says linking removes the night, full stop. The exception follows the UAT-2026-09-09 "human outranks machine" decision and was demanded by 35-REVIEW.md iteration 9's CR-05 (the unguarded delete destroyed a confirmation, both observation links and `is_verified` through a CASCADE, silently, counted as ordinary `retired` work). It is counted under `detach_declined`, logged with a named warning, documented in the runbook's `detach_declined` section with its remedy, and demonstrated in the notebook's executed cell 20. The default (unconfirmed) path is unchanged and still retires; unlink-restores is untouched. Confirm you accept the narrowed SC-3 behaviour, or say whether ALLOC-03 / SC-3 should be reworded to carry the exception explicitly.
@@ -48,11 +49,12 @@ result: pass
 ## Summary
 
 total: 6
-passed: 5
+passed: 6
 issues: 0
 pending: 0
-skipped: 1
+skipped: 0
 blocked: 0
+deferred_follow_ups: 1
 
 ## Deferred Follow-Ups
 

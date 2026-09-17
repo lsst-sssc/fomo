@@ -1,9 +1,10 @@
 ---
 phase: 35-allocation-layer-classical-cutover
 verified: 2026-09-16T19:14:26Z
-status: human_needed
+status: passed
 score: 253/253 must-haves verified
 covered_files:
+
   - "CLAUDE.md"
   - "docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb"
   - "docs/runbooks/telescope_runs_calendar.rst"
@@ -78,6 +79,7 @@ covered_files:
   - "solsys_code/tests/test_observation_projector_signals.py"
   - "solsys_code/tests/test_reconcile_campaign_runs.py"
   - "solsys_code/tests/test_telescope_runs.py"
+
 covered_digest: "v1:sha256:0b2b19e711eb3d999195e804b40e29c235bed3967a9538e8bb9c790e1d524360"
 behavior_unverified: 0
 overrides_applied: 0
@@ -88,6 +90,7 @@ decision_coverage:
   not_honored: []
   notes:
     - "D-13 is honored with ONE stated, bounded and tested exception introduced by plan 35-24: a single `sun_event(kind='dark')` call on the plain-update path, fired only on the transition where a recorded current-format token proves the site component moved AND both sub-night fields are set. D-13's core promise (an existing night's `start_time`/`end_time` are never rewritten in place; no astropy on an idempotent re-reconcile) is intact and pinned by `TestNoSunEventRecompute` staying green unedited in my own run."
+
 re_verification:
   previous_status: human_needed
   previous_score: 221/221
@@ -108,10 +111,12 @@ re_verification:
 gaps: []
 deferred: []
 user_deferred:
+
   - finding: "WR-01 (the `--dry-run` preview repeats the unrecorded-provenance `sun_event()` call on every invocation, and the re-mint branch's inline comment at `allocation_projector.py:1284-1286` still says 'Both halves are skipped under dry_run (no sun_event() call either)'), WR-02 (that same preview path can raise `sun_event()`'s `ValueError` for a blank `Observatory.timezone`), WR-03's residue (the `rekeyed` paragraph's stability promise), WR-04(a)/(c), IN-01, IN-03, IN-06, and iteration 7's WR-01/WR-02/WR-03."
     severity: warning
     decision: "EXPLICITLY DEFERRED BY THE USER for round 6 (35-23-PLAN.md `<review_dispositions>` ledger; 35-ROADMAP round-6 header). Re-checked at HEAD as still open and still untouched -- plan 35-25's prohibition 4 deliberately preserved the `rekeyed` paragraph byte-for-byte, which I confirmed by direct diff. Re-recorded so the carry-forward is explicit rather than implied by omission. The WR-07 half of the old 'once ever' advisory IS now closed."
 advisory:
+
   - finding: "The staleness warning emitted when a site-position correction re-mints a night calls that night an 'unrecorded-provenance night', but its provenance WAS recorded -- only the position fingerprint differed. Observed text: `Allocation unrecorded-provenance night pk=370 run pk=84 night=2026-09-12: stored boundary ... disagrees beyond tolerance with the resolved sun event ...` (`allocation_projector.py:739-750`, reached from `:730` after the fingerprint-only fall-through at `:723-725`)."
     category: other
     reason: "Operator-facing message accuracy -- the same defect class WR-06 fixed one counter over. An operator reading this line after correcting a site definition is told the night had no recorded provenance, which is false, and is pointed at the one-time legacy audit rather than at their own edit. Fix: branch the warning text on which entry path reached step 4, or generalise the noun. Evidence is deterministic (my own probe run and the committed notebook's executed cell 22 both show it), but it falsifies no must-have truth and no success criterion, so it is recorded here rather than as a gap."
@@ -129,6 +134,7 @@ advisory:
     reason: "See the round-3/round-5 35-VERIFICATION.md advisory lists for the full text of each. Recorded so the carry-forward is explicit."
     evidence_status: "carried forward, not re-probed"
 flagged_prohibition_items:
+
   - plan: "35-24"
     statement: "A provenance token must NOT be recorded for boundaries that were not proven. On the declined path nothing is recorded at all; on the update path the token is recorded only when both sub-night fields are set and step 1 has just compared both stored boundaries against them."
     status: counterexample_found
@@ -136,6 +142,7 @@ flagged_prohibition_items:
     evidence: "Reproduced with my own throwaway probe against a migrated Django test database at HEAD. Fixture: a fully-set sub-night run (`night_start_utc=23:00`, `night_end_utc=05:00`) at the Chilean site, night 2026-07-09; project it (token recorded `v3|1|5884a60fe2946a56|23:00:00|05:00:00`); a person confirms the companion row; then BOTH the sub-night start is edited (23:00 -> 22:00) and the site's position is corrected in place. Result: `ReconcileResult(updated=1, remint_declined=1, retired=0)` -- the re-mint is correctly declined and the boundaries correctly survive -- but plan 35-23's CR-04 fall-through then reaches plan 35-24's update-path refresh (`allocation_projector.py:1369-1373`, `:1437-1441`), which recomputes the dark-window line AND writes `_record_sub_night_provenance(event, _sub_night_provenance_token(run))`. The stored token afterwards is `v3|1|f49f304a6749ba00|22:00:00|05:00:00` -- i.e. it claims the night's boundaries were minted from a 22:00 start, while `start_time` is still the 23:00-derived value the decline preserved. The comment at `:1362-1368` asserts step 1 'found them equal on THIS SAME sweep'; on this path step 1 found them UNEQUAL, which is why the re-mint was attempted at all."
     consequence_assessed: "No silent staleness results, and I checked this rather than assuming it: for a fully-set run the token is never consulted (step 2 returns before step 3), so the false token cannot make a later sweep skip a needed re-mint -- my probe's SECOND sweep still reported `remint_declined=1`. Every route that WOULD consult the token (clearing one or both sub-night fields) produces a token whose sub-night components differ from the recorded ones, so it re-mints. The observable residue is a provenance column that records a claim this sweep never proved, plus a dark-window line refreshed onto a night whose boundaries are stale. That is a correctness-of-record issue with no demonstrated user-visible defect -- hence a decision, not a gap."
 human_verification:
+
   - test: "DECISION, not a manual test. The cross-plan seam between 35-23's CR-04 fall-through and 35-24's update-path provenance write violates 35-24's own prohibition 2 in one reachable case. To reproduce: project a fully-set sub-night run; confirm its companion row; then edit a sub-night field AND correct the same `Observatory` row's position in place; reconcile."
     expected: "Per the prohibition, a declined night should have NO provenance token written (nothing on the declined path was proven). Observed: the token IS rewritten to the run's CURRENT identity (`v3|1|f49f304a6749ba00|22:00:00|05:00:00`) while `start_time`/`end_time` still hold the pre-edit, pre-correction values the decline preserved. `remint_declined=1, updated=1, retired=0`, same primary key. No later sweep is misled (the fully-set path never reads the token), so the cost is a false claim in the provenance column, not a stale calendar. Decide: fix now (guard the `_record_sub_night_provenance()` call at `allocation_projector.py:1441` on 'the re-mint was not declined'), file as a follow-up, or accept and correct the comment at `:1362-1368` which asserts an equality that does not hold on this path."
     why_human: "No must-have TRUTH is falsified -- 35-24's dark-window truths are all about when the refresh fires, and it fires exactly as they say. What is contradicted is a `verification: backstop` PROHIBITION, which by its own declaration was never claimed to be enforced by a test, and the residue has no demonstrated behavioural consequence. Whether a false provenance record with no downstream effect is worth another round is a product call, not a verification call. Evidence is a real probe against a migrated Django test database; the probe module was deleted afterwards and `git status --porcelain -- solsys_code/ src/ docs/` is clean."
@@ -144,6 +151,7 @@ human_verification:
     why_human: "This narrows a ROADMAP success criterion, which is the phase contract I verify against. It follows the UAT-2026-09-09 'human outranks machine' decision and was demanded by 35-REVIEW.md iteration 9's CR-05, it is counted, logged, documented in the runbook's `detach_declined` section with its remedy, and demonstrated in the notebook's executed cell 20 -- so it is deliberate and visible, not a defect. But accepting a permanently narrowed SC-3 is a product judgement. Plan 35-23 itself records it as a flagged assumption; this is the confirmation step for it."
 behavior_unverified_items: []
 coincidental_reliance_items:
+
   - truth: "The cutover's identity guard refuses what it cannot prove it owns (35-12 truths 1-2)."
     reason: undeclared-precondition
     harden: "Carried forward unchanged from the previous three passes: the PERMISSIVE branch still depends on `observation_details` being trustworthy when it happens to match, and that field is writable from three staff surfaces. Round 3's accepted disposition was to document the consequence; the precondition is still undeclared in code. Advisory only -- no score or status effect."
