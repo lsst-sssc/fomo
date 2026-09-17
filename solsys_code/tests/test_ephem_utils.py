@@ -9,10 +9,9 @@ from django.test import SimpleTestCase, TestCase, tag
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from tom_targets.models import Target
 
-from solsys_code.solsys_code_observatory.models import Observatory
-
 # Import module to test
-from solsys_code.views import add_magnitude, add_sky_motion, build_apco_context, convert_target_to_layup
+from solsys_code.ephem_utils import add_magnitude, add_sky_motion, build_apco_context, convert_target_to_layup
+from solsys_code.solsys_code_observatory.models import Observatory
 
 MJD_TO_JD_CONVERSION = 2400000.5
 JD2000 = 2451545.0  # Reference epoch
