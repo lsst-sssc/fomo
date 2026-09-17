@@ -402,6 +402,25 @@ PLOTLY_THEME = 'plotly_white'
 # EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/DEFAULT_FROM_EMAIL in local_settings.py (below).
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
+# Phase 36 (SCHED-08/09/10, D-15): the unattended runner's own configuration -- every value
+# is environment-sourced, none is ever a CLI argument or embedded in the committed crontab
+# template. Follows the FOMO_DATABASE_PATH single-setting os.getenv() shape above.
+# FOMO_BASE_URL: used to build the admin/calendar links the failure email quotes (D-14).
+FOMO_BASE_URL = os.getenv('FOMO_BASE_URL', 'http://localhost:8000')
+# FOMO_HEARTBEAT_URL: no default -- an unset variable is None, which selects D-12's "off"
+# branch (the runner logs one INFO line per tick and skips pinging).
+FOMO_HEARTBEAT_URL = os.getenv('FOMO_HEARTBEAT_URL')
+# FOMO_LOCK_DIR: directory for the runner's own per-command fcntl locks (same file the
+# crontab template's `flock -n` guards for the runner as a whole).
+FOMO_LOCK_DIR = os.getenv('FOMO_LOCK_DIR', '/var/lock/fomo')
+# FOMO_STATE_DIR: directory for the D-11 suppression-state file. Defaults to FOMO_LOCK_DIR
+# ("the state file next to the lock file").
+FOMO_STATE_DIR = os.getenv('FOMO_STATE_DIR', FOMO_LOCK_DIR)
+# FOMO_LOG_FILE: only ever quoted as a path -- by the failure email (D-14) and by
+# check_unattended (a later plan) -- the runner itself writes to stdout/stderr and cron does
+# the append-redirect (D-18).
+FOMO_LOG_FILE = os.getenv('FOMO_LOG_FILE', '/var/log/fomo/unattended.log')
+
 try:
     from fomo.local_settings import *  # noqa
 except ImportError:
