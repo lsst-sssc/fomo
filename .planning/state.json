@@ -186,7 +186,7 @@
     {
       "number": "35",
       "name": "Allocation Layer & Classical Cutover",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "36",
@@ -201,8 +201,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 35 of 5 · 100% · executing"
+    "label": "Advance to the next step (plan phase 36)",
+    "reason": "Phase 36 of 5 — needs a plan"
   },
-  "updated_at": "2026-09-16T18:57:56.122Z"
+  "updated_at": "2026-09-17T00:19:33.809Z"
 }

@@ -2,37 +2,37 @@
 gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
-current_phase: 35
-current_phase_name: Allocation Layer & Classical Cutover
-status: executing
-stopped_at: Phase 35 gap-closure round 6 executed (35-23..35-25); verifier human_needed (UAT tests 5-6), code review iteration 10 CR-01 open
-last_updated: "2026-09-16T19:20:53.538Z"
+current_phase: 36
+current_phase_name: Unattended Operation
+status: planning
+stopped_at: Phase 35 complete, ready to plan Phase 36
+last_updated: "2026-09-17T00:19:33.800Z"
 last_activity: 2026-09-16
-last_activity_desc: Phase 35 execution started
-state_head: cd30d1ed68fc141d4c0ee24d86ce74d22dff9f31
+last_activity_desc: Phase 35 complete, transitioned to Phase 36
+state_head: bf862124d06b954ecd085931be6551f8d4817310
 progress:
   total_phases: 5
-  completed_phases: 34
+  completed_phases: 35
   total_plans: 43
   completed_plans: 43
-  percent: 100
+  percent: 90
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-12 — after Phase 34 complete)
+See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Phase 35 — Allocation Layer & Classical Cutover
+**Current focus:** Phase 36 — Unattended Operation
 
 ## Current Position
 
-Phase: 35 (Allocation Layer & Classical Cutover) — EXECUTING
-Plan: 4 of 25
-Status: Ready to execute
-Last activity: 2026-09-16 — Phase 35 execution started
+Phase: 36 — Unattended Operation
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-16 — Phase 35 complete, transitioned to Phase 36
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -133,6 +133,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 31 | 6 | - | - |
 | 33 | 11 | - | - |
 | 34 | 7 | - | - |
+| 35 | 25 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
@@ -338,6 +339,13 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 - [Phase 35]: 35-25: seeded dedicated Observatory/CampaignRun rows for both the CR-05 retirement-guard demo and the escalated-decision (in-place site-definition correction) demo, to avoid conflating multiple corrections' before/after state on shared fixtures
 - [Phase 35]: 35-25 closes gap-closure round 6: the runbook's seven-passage counter-section rewrite and a re-executed reconcile_campaign_runs_demo.ipynb now describe and prove all four of this round's behaviour changes (CR-04, CR-05, WR-06 from plan 35-23; WR-05, WR-08 and the escalated decision from plan 35-24), discharging CLAUDE.md's paired-docs rule at round granularity
 
+Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions):
+
+- [Phase 35 UAT]: G-35-4 (in-place `Observatory` position/timezone correction must re-mint projected nights, with a >1 minute boundary-difference threshold so a trivial coordinate tweak never churns the calendar) — owner said "fix in round 6"; diagnosis (`.planning/debug/observatory-edit-leaves-nights-stale.md`) showed plans 35-23/35-24 had already shipped exactly that, threshold included (`_UNRECORDED_PROVENANCE_TOLERANCE`, `allocation_projector.py:77`); closed as already satisfied, no round 7.
+- [Phase 35 UAT]: the declined-re-mint provenance-token seam (a declined re-mint records the run's current token onto a night whose `start_time` is still the pre-edit value; `allocation_projector.py:1441`, 35-REVIEW.md iteration 10 WR-01) deferred as a follow-up — reachable only by a sub-night edit and an in-place `Observatory` correction landing in the same sweep, no observable consequence.
+- [Phase 35 UAT]: CR-05's narrowing of Success Criterion 3 / ALLOC-03 accepted as written — a night whose companion row a person has confirmed is never deleted on link (`detach_declined`, warning, runbook remedy); no rewording of the criterion requested.
+- [Phase 35 UAT]: UAT Test 5 recorded as `pass` with the deferral text as its resolution rather than `skipped`, because `gsd_run phase uat-passed` counts a skipped test as a blocker even when the workflow's own deferred-follow-up rule produced it.
+
 ### Pending Todos
 
 - `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename
@@ -375,13 +383,16 @@ Phase 34 decisions (2026-09-12; full rows in PROJECT.md Key Decisions):
 
 None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 phases, 33 plans, 24/24 requirements). One non-blocking follow-up carried into the next milestone: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
-Carried forward from Phase 34 (completed 2026-09-12) — none blocks Phase 35 planning:
+Carried forward from Phase 35 (completed 2026-09-16) — none blocks Phase 36 planning:
 
-- **[Phase 35 or a quick task — operational]** `src/fomo_db.sqlite3` still holds 14 LCO events (KEY2026B-004 records 4378021-025, 4378038-040, 4378042-045, 4378323, 4378331) that went stale under the pre-34-05 receiver; `updatestatus` never re-saves terminal records (F-34-1), so they stay stale until the un-routed notebook re-execution or one `python manage.py project_observation_calendar` run. Do that re-execution un-routed (it rewrites the SCHED-06 baseline JSON by design) and commit it — the paired-docs step still owed from `34-UAT.md`.
+- **[Quick task — owner decision 2026-09-16, in progress]** `35-REVIEW.md` iteration 10 **CR-01** (critical, open): the retirement decline plan 35-23 added (CR-05) keeps a human-confirmed `ALLOC:` night alive but the branch still ends in an unconditional `continue` at `allocation_projector.py:1213`, so the surviving night never receives its title/description/target_list refresh again — `mark_cancelled` never reaches a confirmed retired night, permanently, under no counter. Fix per the review: give the retirement decline the same fall-through the re-mint decline got (hoist the label refresh at `:1399-1442` into a `_refresh_labels()` helper), add `test_declined_retirement_still_receives_a_cancelled_title` + a dry-run parity case mirroring `TestDeclinedRemintStillUpdatesLabels`, state the counter pair in the runbook's `detach_declined` section, and re-execute `reconcile_campaign_runs_demo.ipynb` (paired-docs rule).
+- **[Follow-up — deferred at UAT 2026-09-16]** `35-REVIEW.md` iteration 10 **WR-01** / `35-UAT.md` Test 5: a declined re-mint whose site also moved records the run's *current* provenance token onto a night whose `start_time` is still the pre-edit value (`_record_sub_night_provenance()` call at `allocation_projector.py:1441`; the comment at `:1362-1368` is false on that path). Reachable only when a sub-night edit and an in-place `Observatory` correction land in the same sweep; no observable consequence. Guard the call on "the re-mint was not declined" when next in that code.
+- **[Advisory — `35-VERIFICATION.md` advisory #1, `35-REVIEW.md` iteration 10 WR-04]** the step-4 staleness warning at `allocation_projector.py:739-750` says "unrecorded-provenance night" on both entry paths of the boundary comparison, so an operator who just corrected a site position is pointed at the runbook's legacy-audit reason (5) instead of the site-definition-correction paragraph. Branch the wording on the entry path (a `token_trusted`-and-fingerprint-differed flag is already in scope); `_UNRECORDED_PROVENANCE_TOLERANCE` is now too narrow a name for its two callers. Notebook cell 22 prints the old wording.
+- **[Review residue, `35-REVIEW.md` iteration 10]** WR-02 (the `v2`→`v3` token bump cannot re-audit a fully-set sub-night run, so WR-05's dark-window refresh is unreachable for nights that already exist), WR-03 (`project_allocation()` docstring still states the D-13 absolute), WR-05 (two over-broad runbook claims), WR-06 (no notebook cell for the fully-set dark-window refresh), WR-07 (`load_telescope_runs` night summary omits both decline counters), and the carried-forward WR-08..WR-11 / IN-01 / IN-03 (each with a one-line disposition in `35-23-PLAN.md`'s `<review_dispositions>` ledger). Triage when the CR-01 quick task is in the same code.
 - **[Phase 37]** Two UAT-deferred behaviour ideas for the status/vocabulary work: failed or aborted records should keep their last scheduled / partly executed window (expired ones keep the original window, as today); `--dry-run` should show `site_lookups` as not attempted (e.g. `n/a (dry run)`) rather than `0`.
-- **[Phase 35]** Leftover `RUN:{pk}:{date}` duplicates on a night after the reconciler's detach (WR-09: the `CalendarEvent` row survives by design) are Phase 35 SC 5's responsibility.
 - **[Phase 37 or later]** `campaign_decoration()`'s `#run-{pk}` anchor only lands on the campaign table's first page (>25 runs — 33-06 WR-08); pinned as a tested limitation rather than fixed, because computing the page would add a per-event query.
-- Resolved in Phase 34 (removed from this list): the `CalendarEventMeta.observation_group` reverse-manager ordering concern (34-03 orders members by window start then pk, with a shuffled-insertion test) and PROJ-04's shared-title-stem clause (34-03).
+- **[Bookkeeping]** `.planning/REQUIREMENTS.md`: `phase.complete` again flagged 5 REQ-IDs present in the body but missing from the Traceability table (UPSTREAM-01, ESO-10, ESO-11, SUBMIT-06, SUBMIT-07 — all deferred/out-of-milestone); add them when next editing that file.
+- Resolved in Phase 35 (removed from this list): the 14 stale LCO events / un-routed projector-notebook re-execution owed from `34-UAT.md` (discharged by 35-11 on 2026-09-15, `sched06-baseline.json` rewritten, database already converged by the F-34-1 sweep), and the leftover `RUN:{pk}:{date}` duplicates after a detach (SC 5 verified — 56 → 0 on the real database, 48 rekeyed + 8 legacy_deleted).
 
 Phase 31's scheduling-track host-facts gap (previously listed here) is resolved: the spike got real answers from the operator (cron + `flock -n`, confirmed present) — see SCHED-07 in PROJECT.md Key Decisions.
 
@@ -437,12 +448,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-16T19:20:53.453Z
-Stopped at: Phase 35 gap-closure round 6 executed (35-23..35-25); verifier human_needed (UAT tests 5-6), code review iteration 10 CR-01 open
-Resume file: .planning/phases/35-allocation-layer-classical-cutover/35-UAT.md
+Last session: 2026-09-17T00:25:00Z
+Stopped at: Phase 35 complete (UAT 6/6, verification passed, Nyquist validated, transitioned 2026-09-16), ready to plan Phase 36
+Resume file: None
 
 ## Operator Next Steps
 
-- Phase 34 complete (2026-09-12). Start Phase 35 "Allocation Layer & Classical Cutover" with `/gsd-discuss-phase 35` — no CONTEXT.md exists yet for it. Its inputs are in place: observation events exist to hand over to (PROJ-01..06), the `post_save` receiver and sweep are live (TRIG-01..03), and Phase 31's SCHEMA-03 finding (facility-specific classical `source_identifier`) applies to ALLOC-04/05.
-- Before or alongside Phase 35: re-execute `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` **un-routed** (no `FOMO_DATABASE_PATH`) and commit it with the rewritten `sched06-baseline.json` — this is the SCHED-06 paired-docs step still owed from `34-UAT.md`, and its sweeps repair the 14 legacy stale events (F-34-1). Read its first sweep line per record: `updated: 16` (14 legacy + 2 site tokens) is expected there.
+- Phase 35 complete (2026-09-16). First, the owner-chosen quick task for `35-REVIEW.md` iteration 10 CR-01 (see Blockers/Concerns) — it touches `allocation_projector.py`, its tests, the runbook's `detach_declined` section and `reconcile_campaign_runs_demo.ipynb`.
+- Then start Phase 36 "Unattended Operation" with `/gsd-discuss-phase 36` — no phase directory or CONTEXT.md exists yet. Its inputs are in place: the projector sweep (`project_observation_calendar`), the discovery backfill (`backfill_lco_observations`) and the reconciler (`reconcile_campaign_runs`) all exist as zero-required-argument commands; Phase 31 settled cron + `flock -n` on the real host; `DISCOVER-01` replaces `backfill_lco_observations`' `--proposal` arguments with an admin-editable watched-proposal list. Paired docs: `backfill_lco_observations_demo.ipynb` and a new unattended-operation runbook section.
 - `.planning/REQUIREMENTS.md`: `phase.complete` flagged 5 REQ-IDs present in the body but missing from the Traceability table (UPSTREAM-01, ESO-10, ESO-11, SUBMIT-06, SUBMIT-07 — all deferred/out-of-milestone items); add them manually when next editing that file.

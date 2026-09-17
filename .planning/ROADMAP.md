@@ -132,7 +132,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 - [x] **Phase 33: Series Identity & Reconciler Inversion** - Give `CalendarEventMeta` the real link fields the base layer needs, and turn the campaign reconciler from an owner into an annotator, so the two layers can run side by side without stealing each other's events (completed 2026-09-10)
 - [x] **Phase 34: The Observation Projector & Trigger** - Every LCO/SOAR observation record draws and keeps current its own calendar event on every save, with a sweep as the backstop, and the old LCO sync command is retired in its favour (completed 2026-09-12)
-- [ ] **Phase 35: Allocation Layer & Classical Cutover** - An allocation projects its own sunset→sunrise intent nights and hands each night over when a real observation links to it; `load_telescope_runs` writes allocations instead of calendar events
+- [x] **Phase 35: Allocation Layer & Classical Cutover** - An allocation projects its own sunset→sunrise intent nights and hands each night over when a real observation links to it; `load_telescope_runs` writes allocations instead of calendar events (completed 2026-09-16)
 - [ ] **Phase 36: Unattended Operation** - The sweep, the discovery backfill and the reconciler run on the real host on a schedule against an admin-editable watched-proposal list, with failures visible and no credential logged
 - [ ] **Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps** - One status vocabulary, an ongoing public tally of what each run and campaign actually got, unused awarded nights that look unused, and coverage gaps that count every observation
 
@@ -260,7 +260,7 @@ Plans:
   4. Importing a classical schedule file with `load_telescope_runs` produces the same per-night calendar it produced before — but by way of an allocation record, not a direct event write — and re-running the import changes nothing
   5. After the stated cutover step runs, an operator looking at the calendar sees one event per night: no duplicate and no orphan left behind from the old `load_telescope_runs` events or the reconciler's `RUN:{pk}:{date}` events
 
-**Plans:** 25/25 plans executed — 22 executed, 3 pending (7/7 original executed across 5 waves; 4 gap-closure plans executed 2026-09-15 from 35-VERIFICATION.md `gaps_found` + 35-REVIEW.md iteration 4; 4 further gap-closure plans executed 2026-09-15 from the second `gaps_found` pass + 35-REVIEW.md iteration 5; 3 round-3 gap-closure plans executed 2026-09-15 from the third `gaps_found` pass + 35-REVIEW.md iteration 6; 1 round-4 BLOCKER-only gap-closure plan executed 2026-09-15 from the fourth `gaps_found` pass + 35-REVIEW.md iteration 7 CR-01; 3 round-5 gap-closure plans executed 2026-09-15 from 35-REVIEW.md iteration 8's three criticals; 3 round-6 gap-closure plans added 2026-09-16 from 35-REVIEW.md iteration 9's two criticals plus the round-5 verifier escalation the user decided to fix — 22 executed, 3 pending)
+**Plans:** 25/25 plans complete
 
 Plans:
 **Wave 1**
@@ -396,7 +396,7 @@ Plans:
 | 32. Adapter Consolidation | v2.3 | 0/4 | Superseded (32-01 Tasks 1–2 kept) | - |
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
-| 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | In Progress|  |
+| 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 0/TBD | Not started | - |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
