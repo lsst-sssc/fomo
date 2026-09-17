@@ -365,6 +365,26 @@ situation is an easy mistake.
   duplicate a membership. A skipped request contributes nothing to the
   list. There is no way to opt out of the collection.
 
+**--proposal is now optional.** Given, this behaves exactly as documented
+above -- a one-off manual sweep of that single code, which does not have
+to be an admin-editable watched proposal (see below). Omitted, the command
+instead sweeps every active **Watched proposal** row (Django admin ->
+Solsys code -> Watched proposals) in proposal-code order, applying each
+row's own ``TargetList`` name override and attributed-to user, and this is
+the invocation the unattended runner uses -- see
+:ref:`unattended-operation` below for the schedule this runs on and the
+two failure signals if it stops working. An empty watched list is a quiet
+no-op: the command logs one line, writes nothing, and exits 0. Each
+watched proposal is swept in its own try block: a portal or data error on
+one is caught, recorded on that row's own ``Last run summary`` (naming the
+exception's class only, never its message), and counted, while every
+other row still runs; the command exits non-zero at the end and names the
+failing proposal code(s) only if at least one row failed.
+
+.. code-block:: console
+
+   >> python3 manage.py backfill_lco_observations
+
 **Date filtering instead of a name prefix.** ``--created-after`` and
 ``--created-before`` (ISO-8601 timestamps or bare dates) restrict the
 backfill to ``RequestGroup``\\ s created in that window -- sent to the
@@ -1387,6 +1407,181 @@ the approval queue -- ``reconcile_campaign_runs`` is for sweeping every run
 at once (for example, after a bulk site repair) or backfilling a gap found
 later, not for routine day-to-day use.
 
+.. _unattended-operation:
+
+How do I run everything unattended?
+------------------------------------------
+
+``run_unattended`` is the one FOMO-owned management command a
+``flock``-guarded cron line invokes on a fixed schedule. Once it is set up
+on a host, none of the sweep commands documented above need to be run by
+hand for routine operation -- the runner calls their underlying logic
+directly, in one process, every tick.
+
+What runs, and when
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Every 15 minutes (``*/15 * * * *``), ``run_unattended`` runs four steps, in
+this fixed order, in one process:
+
+1. **status_refresh** -- the FOMO-owned LCO/SOAR observation-status
+   refresh, replacing TOM's stock ``updatestatus`` command. It never
+   touches Gemini or ESO, which have no facility read-back to refresh.
+2. **project_sweep** -- the observation projector's backstop sweep (the
+   same logic ``project_observation_calendar`` runs), including the
+   one-time observed-telescope lookup for a newly observed record.
+3. **discovery** -- ``backfill_lco_observations`` run with no arguments,
+   sweeping every active ``WatchedProposal`` row (see "Adding a proposal
+   to watch" below).
+4. **reconcile** -- the campaign reconciler sweep, the same logic
+   ``reconcile_campaign_runs`` runs.
+
+A step that fails never stops the later ones: every tick runs all four
+steps, records each one's own outcome, and exits non-zero at the end only
+if at least one step failed.
+
+Setting it up on a fresh host
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Create the two directories the schedule below assumes exist and are
+   writable by the account cron runs as::
+
+      /var/lock/fomo
+      /var/log/fomo
+
+2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
+   the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
+   the crontab line, never in an environment variable, and never committed
+   to git.
+3. Export ``FOMO_HEARTBEAT_URL`` and ``FOMO_BASE_URL`` in the environment
+   the cron daemon sees (for example via ``/etc/environment``, or a
+   wrapper script the crontab line sources) -- never as a literal value in
+   any committed file.
+4. Run the preflight check:
+
+   .. code-block:: console
+
+      >> python3 manage.py check_unattended
+
+   It reports every prerequisite in one pass -- whether ``flock`` is on
+   ``PATH``, whether the lock and log directories exist and are writable,
+   whether the email backend can actually deliver and at least one staff
+   user has an email on file, whether ``FOMO_HEARTBEAT_URL`` is set, and
+   whether at least one ``WatchedProposal`` row is active -- and exits
+   non-zero only when a hard prerequisite (flock, the directories, or
+   email) is missing; an unset heartbeat URL and an empty watched-proposal
+   list are warnings, not failures (the tick still runs without either).
+   It also prints the exact cron line to install, with the real resolved
+   Python interpreter and ``manage.py`` paths already filled in -- printed
+   even when a hard check failed, so an operator fixing prerequisites
+   still sees the target state.
+5. Fix whatever it reports, re-running ``check_unattended`` until every
+   hard check passes.
+6. Copy the printed cron line into the crontab (``crontab -e`` for the
+   account that should run it) -- or start from `deploy/cron/fomo.crontab.example`
+   and replace its two placeholder paths by hand; either route produces
+   the same line.
+7. Drop `deploy/logrotate/fomo.example` into ``/etc/logrotate.d/fomo`` (or
+   wherever this host's logrotate scans) so the log file rotates daily and
+   keeps a fortnight instead of growing forever.
+
+Adding a proposal to watch
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Go to **Django admin -> Solsys code -> Watched proposals**, add a row with
+the LCO/SOAR proposal code, and leave **Active** checked. That is the
+whole of what widening discovery requires -- no redeploy, and no
+command-line argument. **TargetList name override** and **Attribute
+records to** are optional per-row overrides (they default to the same
+``<code>_targets`` naming and unattributed records the sibling
+command-line ``--target-list``/``--username`` flags already produce).
+Unchecking **Active** narrows discovery just as immediately, and the row's
+history (``Last run at``/``Last run summary``) is kept for reference.
+
+The two failure signals
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Email.** Every staff user with an email on file receives a message,
+subject ``FOMO unattended run failed: <step name(s)>``, listing each
+failed step's own summary/counter line, the log file path, and links to
+the admin and the calendar -- never a traceback, a request URL, or portal
+response text. It arrives once for a newly-failing tick, then is
+suppressed while the same set of steps keeps failing, with one reminder
+every 24 hours for as long as it does. A single
+``FOMO unattended run recovered`` message arrives once, the next time a
+tick succeeds.
+
+**Heartbeat.** Before the first step of every tick, the runner pings
+``<FOMO_HEARTBEAT_URL>/start``; after the last step it pings
+``<FOMO_HEARTBEAT_URL>/<exit-code>`` (``0`` on success, the tick's own
+non-zero code otherwise). This catches a tick that never ran or hung, not
+only one that failed outright -- either kind never reaches the
+``/<exit-code>`` ping. Point ``FOMO_HEARTBEAT_URL`` at any
+healthchecks-compatible endpoint (hosted or self-hosted) and configure one
+check per schedule, with a grace period a little above one 15-minute
+interval -- about 20 minutes is recommended, so one occasional slow tick
+does not page anyone.
+
+When nothing has appeared
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Work through these in order:
+
+1. **The admin's Watched Proposals list.** Is there an active row at all?
+   An empty list is a healthy, quiet no-op (see "Adding a proposal to
+   watch" above) -- start here before assuming anything is broken. If a
+   row exists, its **Last run summary** column shows what its most recent
+   sweep reported, success or failure.
+2. **The log file** (``settings.FOMO_LOG_FILE``, ``/var/log/fomo/unattended.log``
+   by default). Every tick writes a START/per-step/END banner with a
+   timestamp, so a single tick is readable in isolation even without the
+   heartbeat dashboard open.
+3. **The heartbeat dashboard's last ping.** A missing or stale ping (older
+   than the configured grace period) means the tick itself never ran or
+   never finished -- check the log file next for why.
+4. **A repeated "lock held" line in the log.** ``flock -n`` fails
+   immediately rather than queuing, so a permanently contended lock leaves
+   this line on every tick instead of looking like a healthy no-op::
+
+      2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
+
+   One occurrence is normal (an overrunning tick colliding with the next
+   scheduled one); several in a row means a previous tick is stuck and
+   needs investigating.
+
+Running it by hand
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: console
+
+   >> python3 manage.py run_unattended --dry-run
+   >> python3 manage.py run_unattended --step reconcile
+
+Both invocations are for debugging: neither pings the heartbeat nor mails
+staff, so an operator can run either without paging anyone.
+``--step <name>`` accepts ``status_refresh``, ``project_sweep``,
+``discovery``, or ``reconcile``.
+
+**What the locking does and does not cover.** The cron line's own
+``flock -n`` and the runner's own lock together mean two ticks never
+overlap -- and neither does a hand-started ``run_unattended``, including
+``run_unattended --step <name>``, which takes the exact same lock. But
+running one of the underlying sweep commands directly --
+``backfill_lco_observations``, ``project_observation_calendar``,
+``reconcile_campaign_runs``, or TOM's own ``updatestatus`` -- is **not**
+locked against a tick in this release, so a direct run of one of those
+commands can coincide with a tick doing the same work. When that matters,
+use ``run_unattended --step <name>`` instead -- it is the exclusive route
+guaranteed never to overlap a tick. The three FOMO sweep commands are
+idempotent and isolate failures per item, so a coincidental overlap is
+untidy (both processes doing the same work at once) rather than dangerous
+-- but that is not the same guarantee as being locked against a tick, and
+this paragraph does not claim it is. The per-step lock files each step
+also takes internally are defence in depth behind the runner's own lock
+and a reserved name for a possible future caller, not a mechanism that
+protects a hand-run ``manage.py`` invocation of the underlying command
+today.
+
 .. _campaign-run-block-manual-only:
 
 Why doesn't the calendar pop-up show an "Attributed campaign run" block?
@@ -1525,6 +1720,11 @@ Command cheat-sheet
      - ``--proposal <code>``, ``--name-prefix <str>`` (both required); ``--campaign <name>``,
        ``--username <user>``, ``--create-missing-targets``, ``--dry-run`` (optional)
      - Backfill ObservationRecords for LCO RequestGroups submitted outside FOMO.
+   * - ``backfill_lco_observations``
+     - ``--proposal <code>`` (optional -- omit to sweep every active Watched proposal
+       row), ``--created-after``/``--created-before``, ``--username <user>``,
+       ``--target-list <name>``, ``--dry-run`` (all optional)
+     - Campaign-agnostic backfill; bare invocation sweeps the admin-editable watched-proposal list (the discovery step of :ref:`unattended-operation`).
    * - ``sync_gemini_observation_calendar``
      - (none)
      - Sync every Gemini ToO ObservationRecord to CalendarEvents.
@@ -1540,6 +1740,12 @@ Command cheat-sheet
    * - ``cutover_classical_allocations``
      - ``--dry-run`` (optional)
      - One-time cutover: converts legacy blank-url classical CalendarEvents into CampaignRuns plus ALLOC:-keyed events.
+   * - ``run_unattended``
+     - ``--dry-run``, ``--step <name>`` (both optional)
+     - The unattended runner: status refresh, projector sweep, discovery, and reconcile in one cron-scheduled tick. See :ref:`unattended-operation`.
+   * - ``check_unattended``
+     - ``--send-test-email`` (optional)
+     - Read-only preflight for the unattended path; prints the exact cron line to install. See :ref:`unattended-operation`.
 
 Troubleshooting
 ------------------
@@ -1750,6 +1956,69 @@ non-blank ``telescope_class`` is never overwritten by a re-import, even when
 the row's own cell derives a genuinely different, non-blank class -- see the
 paragraph on ``telescope_class_preserved`` in the re-import gotcha note
 above.
+
+The tick reports success but nothing new has appeared on the calendar
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** the discovery step's watched-proposal list (Django admin ->
+Solsys code -> Watched proposals) is empty, or every row is inactive.
+This is the expected, healthy quiet no-op D-08 describes -- an empty list
+sweeps nothing and reports no failure -- not a broken discovery step.
+
+**Fix:** add an active row for the proposal code you expect to see
+discovered (see "Adding a proposal to watch" in
+:ref:`unattended-operation` above); nothing else needs restarting.
+
+Repeated "lock held" lines in the unattended log
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** ``flock -n`` fails immediately rather than queuing, so every
+tick that finds the lock already held writes a skip line instead of
+running::
+
+   2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
+
+A single occurrence is normal -- one tick overran its own 15-minute
+window and collided with the next scheduled one. Several occurrences in a
+row mean a previous tick is genuinely stuck (for example, blocked on a
+slow portal response) and never released the lock.
+
+**Fix:** find and investigate the stuck process (or, if it has genuinely
+died without releasing the lock file, remove the stale lock file under
+``FOMO_LOCK_DIR``) before assuming discovery or reconciliation is broken.
+The heartbeat's grace period (see "The two failure signals" in
+:ref:`unattended-operation` above) is the structural backstop for exactly
+this case -- a permanently contended lock eventually alerts there too.
+
+A failure email arrived once, then went quiet while the problem continued
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** this is the D-11 suppression rule working as designed, not a
+lost alert. The runner mails staff once for a newly-failing set of steps,
+then suppresses repeat mail while the exact same set keeps failing, with
+one reminder every 24 hours for as long as it does. A ``FOMO unattended
+run recovered`` message arrives once, the next time a tick succeeds.
+
+**Fix:** nothing to fix in the mail path itself -- check the log file or
+the admin's ``Watched proposals``/``last_run_summary`` for the failure
+that is still ongoing. If a *different* step starts failing while the
+first is still failing, that is reported as a new failing set and mails
+immediately, without waiting for the 24-hour reminder interval.
+
+The heartbeat alerts even though the log shows a healthy tick
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** the heartbeat ping itself failed (a network blip, or the
+healthchecks-compatible endpoint being briefly unreachable) -- by design,
+a ping failure is logged and never fails the tick, so the log's own
+START/step/END banner can show every step succeeding on the very tick the
+heartbeat service never heard from.
+
+**Fix:** this is a false alarm about the tick's own health, but a real
+signal that the heartbeat path itself needs checking -- confirm
+``FOMO_HEARTBEAT_URL`` is still correct and the endpoint is reachable from
+this host. If the log confirms the tick ran cleanly, there is nothing to
+fix on the FOMO side.
 
 See also
 -----------
