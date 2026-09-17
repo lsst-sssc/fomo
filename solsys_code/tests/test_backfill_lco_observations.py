@@ -1,6 +1,8 @@
 import io
 from unittest.mock import MagicMock, patch
 
+import requests
+from django.contrib.auth.models import User
 from django.core.management import CommandError, call_command
 from django.test import TestCase
 from tom_observations.models import ObservationGroup, ObservationRecord
@@ -8,6 +10,7 @@ from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.management.commands.backfill_lco_observations import sweep_proposal
+from solsys_code.models import WatchedProposal
 
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
 # for every fixture request unless a test deliberately builds an incomplete one.
@@ -1019,6 +1022,16 @@ class TestBackfillLcoObservations(TestCase):
                 stderr=io.StringIO(),
             )
 
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_proposal_override_works_without_a_watched_proposal_row(self, mock_make_request):
+        """D-07: the --proposal override never requires the named code to be watched."""
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertTrue(ObservationRecord.objects.filter(facility='LCO', observation_id='10').exists())
+        self.assertFalse(WatchedProposal.objects.exists())
+
 
 class TestSweepProposalFunction(TestCase):
     """Task 2 (36-RESEARCH.md Open Question 2, resolution): sweep_proposal() called
@@ -1090,3 +1103,229 @@ class TestSweepProposalFunction(TestCase):
             targets_added=1,
         )
         self.assertEqual(summary, expected)
+
+
+def _watched_side_effect(*proposal_to_group_kwargs):
+    """Build a make_request side_effect routing each proposal's query to its own page.
+
+    Args:
+        *proposal_to_group_kwargs: any number of (proposal_code, request_group_kwargs)
+            pairs; request_group_kwargs is passed to _request_group() (id/name/requests).
+
+    Returns:
+        Callable: a make_request(method, url, **kwargs) side_effect. Raises AssertionError
+            for a URL that names none of the given proposal codes -- a test-authoring bug,
+            never a real portal response, so it must never be silently swallowed.
+    """
+    by_code = dict(proposal_to_group_kwargs)
+
+    def side_effect(method, url, **kwargs):
+        for code, group_kwargs in by_code.items():
+            if f'proposal={code}' in url:
+                return _page_response([_request_group(proposal=code, **group_kwargs)])
+        raise AssertionError(f'unexpected proposal queried: {url}')
+
+    return side_effect
+
+
+class TestWatchedListSweep(TestCase):
+    """Task 3 (36-CONTEXT.md D-06/D-07): a bare invocation sweeps every active
+    WatchedProposal row, applying each row's overrides, in proposal_code order."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+
+    def setUp(self):
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        self.mock_get_observation_status = patcher.start()
+        self.mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+        self.addCleanup(patcher.stop)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_bare_invocation_sweeps_every_active_row(self, mock_make_request):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+        WatchedProposal.objects.create(proposal_code='CCC-2026-003', is_active=False)
+        mock_make_request.side_effect = _watched_side_effect(
+            ('AAA-2026-001', {'group_id': 1, 'name': 'A run', 'requests': [_request(10)]}),
+            ('BBB-2026-002', {'group_id': 2, 'name': 'B run', 'requests': [_request(20)]}),
+        )
+
+        call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_make_request.call_count, 2)
+        queried_urls = [call.args[1] for call in mock_make_request.call_args_list]
+        self.assertTrue(any('proposal=AAA-2026-001' in url for url in queried_urls))
+        self.assertTrue(any('proposal=BBB-2026-002' in url for url in queried_urls))
+        self.assertFalse(any('proposal=CCC-2026-003' in url for url in queried_urls))
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_row_overrides_are_applied(self, mock_make_request):
+        user = User.objects.create_user(username='attributee-watched')
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001', target_list_name='custom_list', attributed_to=user)
+        WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+        mock_make_request.side_effect = _watched_side_effect(
+            ('AAA-2026-001', {'group_id': 1, 'name': 'A run', 'requests': [_request(10)]}),
+            ('BBB-2026-002', {'group_id': 2, 'name': 'B run', 'requests': [_request(20)]}),
+        )
+
+        call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertTrue(TargetList.objects.filter(name='custom_list').exists())
+        record_a = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record_a.user, user)
+
+        self.assertTrue(TargetList.objects.filter(name='BBB-2026-002_targets').exists())
+        record_b = ObservationRecord.objects.get(facility='LCO', observation_id='20')
+        self.assertIsNone(record_b.user)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_bookkeeping_written_per_row(self, mock_make_request):
+        row_a = WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        row_b = WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+        mock_make_request.side_effect = _watched_side_effect(
+            ('AAA-2026-001', {'group_id': 1, 'name': 'A run', 'requests': [_request(10)]}),
+            ('BBB-2026-002', {'group_id': 2, 'name': 'B run', 'requests': [_request(20)]}),
+        )
+
+        call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        row_a.refresh_from_db()
+        row_b.refresh_from_db()
+        self.assertIsNotNone(row_a.last_run_at)
+        self.assertIsNotNone(row_b.last_run_at)
+        counters = {
+            'dry_run': False,
+            'requestgroups_seen': 1,
+            'created': 1,
+            'updated': 0,
+            'unchanged': 0,
+            'skipped': 0,
+            'targets': 0,
+            'groups_created': 0,
+            'groups_reused': 0,
+            'embedded_blocks': 0,
+            'fallback_lookups_needed': 1,
+            'block_lookups_failed': 0,
+            'list_reused': False,
+            'targets_added': 1,
+        }
+        self.assertEqual(row_a.last_run_summary, _expected_summary(list_name='AAA-2026-001_targets', **counters))
+        self.assertEqual(row_b.last_run_summary, _expected_summary(list_name='BBB-2026-002_targets', **counters))
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_rows_are_swept_in_code_order(self, mock_make_request):
+        # Insertion order is the reverse of alphabetical order.
+        WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        mock_make_request.side_effect = _watched_side_effect(
+            ('AAA-2026-001', {'group_id': 1, 'name': 'A run', 'requests': []}),
+            ('BBB-2026-002', {'group_id': 2, 'name': 'B run', 'requests': []}),
+        )
+
+        call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        queried_urls = [call.args[1] for call in mock_make_request.call_args_list]
+        self.assertEqual(len(queried_urls), 2)
+        self.assertIn('proposal=AAA-2026-001', queried_urls[0])
+        self.assertIn('proposal=BBB-2026-002', queried_urls[1])
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_override_and_watched_row_produce_the_same_summary(self, mock_make_request):
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        stdout = io.StringIO()
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=stdout, stderr=io.StringIO())
+        override_summary = stdout.getvalue().strip()
+
+        # Reset the writes from the override run so the watched-path sweep below starts
+        # from the same clean state over the identical mocked portal payload.
+        ObservationRecord.objects.all().delete()
+        TargetList.objects.all().delete()
+
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003')
+        call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        row = WatchedProposal.objects.get(proposal_code='LCO2026A-003')
+        self.assertEqual(row.last_run_summary, override_summary)
+
+
+class TestPerProposalIsolation(TestCase):
+    """Task 3 (36-CONTEXT.md D-09): a portal or data error on one watched proposal is
+    caught, recorded on that row, and never stops the rest of the sweep."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+
+    def setUp(self):
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        self.mock_get_observation_status = patcher.start()
+        self.mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+        self.addCleanup(patcher.stop)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_portal_error_on_one_row_does_not_stop_the_others(self, mock_make_request):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+
+        def side_effect(method, url, **kwargs):
+            if 'proposal=AAA-2026-001' in url:
+                raise requests.exceptions.HTTPError('boom')
+            if 'proposal=BBB-2026-002' in url:
+                return _page_response([_request_group(2, 'B run', proposal='BBB-2026-002', requests=[_request(20)])])
+            raise AssertionError(f'unexpected proposal queried: {url}')
+
+        mock_make_request.side_effect = side_effect
+
+        with self.assertRaises(CommandError):
+            call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertTrue(ObservationRecord.objects.filter(facility='LCO', observation_id='20').exists())
+        row_a = WatchedProposal.objects.get(proposal_code='AAA-2026-001')
+        self.assertTrue(row_a.last_run_summary.startswith('failed:'))
+        self.assertIn('HTTPError', row_a.last_run_summary)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_failure_summary_carries_no_exception_message(self, mock_make_request):
+        fake_key = 'sk-FAKE-API-KEY-jz8f0q2x9v'
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+
+        def side_effect(method, url, **kwargs):
+            raise requests.exceptions.HTTPError(f'401 Unauthorized: token={fake_key}')
+
+        mock_make_request.side_effect = side_effect
+
+        stderr = io.StringIO()
+        with self.assertLogs('solsys_code.management.commands.backfill_lco_observations', level='DEBUG') as captured:
+            with self.assertRaises(CommandError):
+                call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=stderr)
+
+        row = WatchedProposal.objects.get(proposal_code='AAA-2026-001')
+        self.assertNotIn(fake_key, row.last_run_summary)
+        self.assertNotIn(fake_key, stderr.getvalue())
+        self.assertFalse(any(fake_key in message for message in captured.output))
+
+
+class TestEmptyWatchedList(TestCase):
+    """Task 3 (36-CONTEXT.md D-08): zero active WatchedProposal rows is a quiet no-op."""
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_no_active_rows_is_a_quiet_no_op(self, mock_make_request):
+        stdout = io.StringIO()
+
+        call_command('backfill_lco_observations', stdout=stdout, stderr=io.StringIO())
+
+        mock_make_request.assert_not_called()
+        self.assertFalse(TargetList.objects.exists())
+        self.assertFalse(ObservationRecord.objects.exists())
+        self.assertEqual(stdout.getvalue().count('0 watched proposals, nothing to discover'), 1)
