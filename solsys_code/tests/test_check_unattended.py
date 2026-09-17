@@ -204,11 +204,22 @@ class TestCronLine(CheckUnattendedTestBase):
             'run_unattended.cron.lock',
             'run_unattended',
             '2>&1',
-            '[ $? -eq 99 ]',
+            'rc=$?',
+            '[ $rc -eq 99 ]',
             'lock held',
+            'exit $rc',
         ):
             self.assertIn(element, line)
         self.assertIn('>>', line)
+
+    def test_line_ends_with_an_explicit_exit_of_the_captured_status(self):
+        # WR-09 (36-REVIEW.md): the skip-tail's own `[ ... ] && echo ...` must not be the
+        # line's last command -- that made the *tail's* exit status (1 unless it actually
+        # fired) the line's reported status, inverting cron's view of a healthy tick (1)
+        # vs. a skipped one (0). The line must capture flock's status into `$rc` and end
+        # with an explicit `exit $rc` so cron always sees `run_unattended`'s own status.
+        line = cron_line()
+        self.assertTrue(line.rstrip().endswith('exit $rc'), line)
 
     def test_skip_tail_is_gated_on_exit_code_99_not_any_failure(self):
         # WR-01 (36-REVIEW.md): the skip tail must be gated on flock's own -E 99 exit

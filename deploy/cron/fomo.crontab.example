@@ -35,7 +35,13 @@
 # process's own attempt to lock the same path its parent's `flock -n` already holds
 # would be denied by its own parent, silently turning every scheduled tick into a no-op
 # (CR-01, 36-REVIEW.md). Keep these two lock file names distinct.
-*/15 * * * * /usr/bin/flock -n -E 99 /var/lock/fomo/run_unattended.cron.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1; [ $? -eq 99 ] && echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log
+#
+# WR-09 (36-REVIEW.md): the line captures flock's own exit code into `$rc` right away and
+# ends with an explicit `exit $rc`, so the line's own reported status is always
+# `run_unattended`'s (0 healthy, 1 failing, 99 lock held) -- the earlier `[ $? -eq 99 ] &&
+# echo ...` tail was the line's *last* command, so cron saw the tail's own exit status
+# (1 unless the tail actually fired) instead of the tick's.
+*/15 * * * * /usr/bin/flock -n -E 99 /var/lock/fomo/run_unattended.cron.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1; rc=$?; [ $rc -eq 99 ] && echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log; exit $rc
 
 # Before installing this line on a fresh host, create the two directories the schedule
 # above assumes exist and are writable by the cron user:
