@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
 status: planning
-stopped_at: Phase 35 complete, ready to plan Phase 36
-last_updated: "2026-09-17T00:58:26.875Z"
+stopped_at: Phase 36 context gathered
+last_updated: "2026-09-17T04:24:53.692Z"
 last_activity: 2026-09-16
 last_activity_desc: Phase 35 complete, transitioned to Phase 36
-state_head: c26cb97e0cb18fffdd90e0638367610a4fb3599b
+state_head: 447a4b87daefb841483533d002536284370e6405
 progress:
   total_phases: 5
   completed_phases: 35
   total_plans: 43
   completed_plans: 43
-  percent: 90
+  percent: 100
 ---
 
 # Project State
@@ -449,9 +449,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-17T00:25:00Z
-Stopped at: Phase 35 complete (UAT 6/6, verification passed, Nyquist validated, transitioned 2026-09-16) and 35-REVIEW.md CR-01 closed by quick task 260916-o6n; ready to plan Phase 36
-Resume file: None
+Last session: 2026-09-17T04:24:53.617Z
+Stopped at: Phase 36 context gathered
+Resume file: .planning/phases/36-unattended-operation/36-CONTEXT.md
 
 ## Operator Next Steps
 
