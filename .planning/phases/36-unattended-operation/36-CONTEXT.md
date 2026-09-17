@@ -130,7 +130,7 @@ sibling `backfill_lco_observation_records`; Phase 37's status vocabulary, tallie
   reminder while it does (interval is the planner's), and sends one "cleared" email when a tick
   succeeds after a failure. The existing submission notice switches to the extracted helper (still
   `fail_silently=True` semantics there — a mail outage must not break a submission).
-- **D-12: One whole-tick heartbeat: `/start` then `/<exit-code>`.** Before the first step the
+- **D-12: One whole-tick heartbeat, `/start` then `/<exit-code>`.** Before the first step the
   runner pings `<URL>/start`; after the last it pings `<URL>/<exit-code>` (0 on success, the
   runner's non-zero code otherwise), so a never-invoked tick (no start within the grace period), a
   hung tick, and a failed tick all alert on the receiving service. The URL comes from one
