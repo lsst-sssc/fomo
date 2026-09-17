@@ -806,6 +806,35 @@ class Command(BaseCommand):
         proposal = options.get('proposal')
         dry_run = options['dry_run']
 
+        # CR-02 (36-REVIEW.md): the watched-list sweep takes its overrides from each
+        # WatchedProposal row and has no window argument at all, so --created-after/
+        # --created-before/--username/--target-list are silently discarded on this path
+        # -- argparse accepts them, but they never reach sweep_proposal(). Fail closed
+        # instead of letting an operator believe a window/attribution override applied
+        # to a full-history sweep of every watched proposal.
+        #
+        # IN-12 (36-REVIEW.md): checked before --username is resolved to a User below (a
+        # DB query that raises its own, less useful CommandError on an unknown name), and
+        # against "was the flag supplied at all" (`is not None`), not truthiness -- a
+        # flag given as an empty string (e.g. --target-list '') was still supplied and
+        # must still trip this guard.
+        if not proposal:
+            ignored = [
+                flag
+                for flag, key in (
+                    ('--created-after', 'created_after'),
+                    ('--created-before', 'created_before'),
+                    ('--username', 'username'),
+                    ('--target-list', 'target_list'),
+                )
+                if options.get(key) is not None
+            ]
+            if ignored:
+                raise CommandError(
+                    f'{", ".join(ignored)} require --proposal; the watched-list sweep takes its '
+                    'overrides from each WatchedProposal row.'
+                )
+
         user = None
         if options.get('username'):
             try:
@@ -825,28 +854,6 @@ class Command(BaseCommand):
                 dry_run=dry_run,
                 stdout=self.stdout,
                 stderr=self.stderr,
-            )
-
-        # CR-02 (36-REVIEW.md): the watched-list sweep takes its overrides from each
-        # WatchedProposal row and has no window argument at all, so --created-after/
-        # --created-before/--username/--target-list are silently discarded on this path
-        # -- argparse accepts them, but they never reach sweep_proposal(). Fail closed
-        # instead of letting an operator believe a window/attribution override applied
-        # to a full-history sweep of every watched proposal.
-        ignored = [
-            flag
-            for flag, key in (
-                ('--created-after', 'created_after'),
-                ('--created-before', 'created_before'),
-                ('--username', 'username'),
-                ('--target-list', 'target_list'),
-            )
-            if options.get(key)
-        ]
-        if ignored:
-            raise CommandError(
-                f'{", ".join(ignored)} require --proposal; the watched-list sweep takes its '
-                'overrides from each WatchedProposal row.'
             )
 
         rows = list(watched_rows())

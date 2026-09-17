@@ -1401,3 +1401,38 @@ class TestBareInvocationRejectsProposalOnlyFlags(TestCase):
         call_command('backfill_lco_observations', '--dry-run', stdout=io.StringIO(), stderr=io.StringIO())
 
         mock_make_request.assert_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_unknown_username_without_proposal_reports_the_proposal_guard_not_invalid_username(self, mock_make_request):
+        # IN-12 (36-REVIEW.md): the --proposal-only guard must run before --username is
+        # resolved to a User -- otherwise an unknown username on the bare invocation
+        # reports the less useful "Invalid username" error instead of the guard that
+        # actually explains why the command is rejecting the invocation.
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                'backfill_lco_observations',
+                '--username=ghost-user-that-does-not-exist',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertIn('--username', str(ctx.exception))
+        self.assertIn('--proposal', str(ctx.exception))
+        self.assertNotIn('Invalid username', str(ctx.exception))
+        mock_make_request.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_empty_string_target_list_without_proposal_still_raises(self, mock_make_request):
+        # IN-12 (36-REVIEW.md): the guard must test "was the flag supplied at all"
+        # (options.get(key) is not None), not truthiness -- an empty-string flag was
+        # still supplied and must still trip the guard.
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                'backfill_lco_observations',
+                '--target-list=',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertIn('--target-list', str(ctx.exception))
+        mock_make_request.assert_not_called()
