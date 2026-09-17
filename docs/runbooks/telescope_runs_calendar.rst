@@ -1972,23 +1972,31 @@ discovered (see "Adding a proposal to watch" in
 Repeated "lock held" lines in the unattended log
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**Cause:** ``flock -n`` fails immediately rather than queuing, so every
-tick that finds the lock already held writes a skip line instead of
-running::
+**Cause:** ``flock -n -E 99`` fails immediately rather than queuing, so
+every tick that finds the cron guard's own lock
+(``FOMO_LOCK_DIR/run_unattended.cron.lock``) already held exits 99 and
+the crontab line's tail writes a skip line instead of running::
 
    2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
 
-A single occurrence is normal -- one tick overran its own 15-minute
-window and collided with the next scheduled one. Several occurrences in a
-row mean a previous tick is genuinely stuck (for example, blocked on a
-slow portal response) and never released the lock.
+This line means the tick genuinely did not run at all -- it is gated on
+flock's dedicated exit code 99, so a tick that ran and then *failed*
+(``run_unattended`` exits 1) is never mislabeled as "lock held" here; look
+for that tick's own START/END banner in the log instead. A single "lock
+held" occurrence is normal -- one tick overran its own 15-minute window
+and collided with the next scheduled one. Several occurrences in a row
+mean a previous tick is genuinely stuck (for example, blocked on a slow
+portal response) and never released the lock.
 
 **Fix:** find and investigate the stuck process (or, if it has genuinely
-died without releasing the lock file, remove the stale lock file under
-``FOMO_LOCK_DIR``) before assuming discovery or reconciliation is broken.
-The heartbeat's grace period (see "The two failure signals" in
-:ref:`unattended-operation` above) is the structural backstop for exactly
-this case -- a permanently contended lock eventually alerts there too.
+died without releasing the lock file, remove the stale
+``run_unattended.cron.lock`` file under ``FOMO_LOCK_DIR`` -- not
+``run_unattended.lock``, which is the runner's own internal lock and is
+released automatically when the process exits) before assuming discovery
+or reconciliation is broken. The heartbeat's grace period (see "The two
+failure signals" in :ref:`unattended-operation` above) is the structural
+backstop for exactly this case -- a permanently contended lock eventually
+alerts there too.
 
 A failure email arrived once, then went quiet while the problem continued
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

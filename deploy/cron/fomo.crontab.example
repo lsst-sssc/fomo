@@ -19,11 +19,15 @@
 # argument vector, where a local `ps aux` would expose them (threat T-36-02).
 #
 # The schedule: every 15 minutes (D-04), guarded by a non-blocking flock so a slow tick
-# never overlaps the next one. `flock -n` fails immediately (rather than queuing) if the
-# lock is already held, so a permanently stuck tick would otherwise look like a healthy
-# no-op -- the `|| echo ... skipped` tail below leaves a visible trail in the log for
-# exactly that case, and the runner's own heartbeat grace period (D-12) is the structural
-# backstop if this log line is never checked.
+# never overlaps the next one. `flock -n -E 99` fails immediately (rather than queuing)
+# with exit code 99 if the lock is already held, so a permanently stuck tick would
+# otherwise look like a healthy no-op -- the `[ $? -eq 99 ] && echo ... skipped` tail
+# below leaves a visible trail in the log for exactly that case, and the runner's own
+# heartbeat grace period (D-12) is the structural backstop if this log line is never
+# checked. WR-01 (36-REVIEW.md): the tail is gated on flock's own dedicated exit code
+# 99, not on "any non-zero exit" -- `run_unattended` itself exits 1 whenever a step
+# failed, and a plain `||` tail would mislabel that failing-but-genuinely-ran tick as
+# "lock held" in the log.
 #
 # The lock file here (`run_unattended.cron.lock`) is deliberately NOT the same file
 # `run_unattended` itself locks internally (`run_unattended.lock`, via `command_lock()`
@@ -31,7 +35,7 @@
 # process's own attempt to lock the same path its parent's `flock -n` already holds
 # would be denied by its own parent, silently turning every scheduled tick into a no-op
 # (CR-01, 36-REVIEW.md). Keep these two lock file names distinct.
-*/15 * * * * /usr/bin/flock -n /var/lock/fomo/run_unattended.cron.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1 || echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log
+*/15 * * * * /usr/bin/flock -n -E 99 /var/lock/fomo/run_unattended.cron.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1; [ $? -eq 99 ] && echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log
 
 # Before installing this line on a fresh host, create the two directories the schedule
 # above assumes exist and are writable by the cron user:

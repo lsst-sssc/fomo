@@ -152,10 +152,15 @@ def cron_line() -> str:
     """Return the exact cron line an operator should install, with real resolved values
     substituted for `deploy/cron/fomo.crontab.example`'s placeholders (D-05).
 
-    Carries the same seven elements as the committed template -- the `*/15` schedule,
-    the `/usr/bin/flock -n` guard, the lock file path, the `run_unattended` command
-    name, the `>> ... 2>&1` redirect, and the `lock held` skip tail -- so an operator
-    who follows either route ends up with the same behavior (T-36-15).
+    Carries the same elements as the committed template -- the `*/15` schedule, the
+    `flock -n -E 99` guard, the lock file path, the `run_unattended` command name, the
+    `>> ... 2>&1` redirect, and the `lock held` skip tail gated on exit code 99 -- so an
+    operator who follows either route ends up with the same behavior (T-36-15).
+
+    WR-01 (36-REVIEW.md): the skip tail is gated on flock's own `-E 99` exit code, not
+    on "any non-zero exit", so a tick that actually ran and failed is never mislabeled
+    as a skipped one -- `run_unattended` exits 1 on a step failure, which is a disjoint
+    code from flock's contention signal.
 
     Returns:
         str: the cron line. The only interpolated values are ``sys.executable``, the
@@ -176,9 +181,14 @@ def cron_line() -> str:
     # only a placeholder for a host with a non-merged-/usr layout, a venv-provided
     # util-linux, or a container image that keeps it in /bin only.
     flock_path = shutil.which('flock') or '/usr/bin/flock'
+    # WR-01 (36-REVIEW.md): `-E 99` makes flock exit 99 specifically on lock contention,
+    # so the skip tail can be gated on that one code instead of "any non-zero exit" --
+    # `run_unattended` itself exits 1 on a step failure, and a bare `||` tail would
+    # therefore mislabel a failing (but genuinely run) tick as "lock held" in the log.
     return (
-        f'*/15 * * * * {flock_path} -n {lock_file} {python_path} {manage_py_path} run_unattended '
-        f'>> {log_file} 2>&1 || echo "$(date -Is) run_unattended skipped: lock held" >> {log_file}'
+        f'*/15 * * * * {flock_path} -n -E 99 {lock_file} {python_path} {manage_py_path} run_unattended '
+        f'>> {log_file} 2>&1; '
+        f'[ $? -eq 99 ] && echo "$(date -Is) run_unattended skipped: lock held" >> {log_file}'
     )
 
 

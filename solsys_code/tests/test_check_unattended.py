@@ -173,14 +173,24 @@ class TestCronLine(CheckUnattendedTestBase):
         line = cron_line()
         for element in (
             '*/15 * * * *',
-            f'{shutil.which("flock")} -n',
+            f'{shutil.which("flock")} -n -E 99',
             'run_unattended.cron.lock',
             'run_unattended',
             '2>&1',
+            '[ $? -eq 99 ]',
             'lock held',
         ):
             self.assertIn(element, line)
         self.assertIn('>>', line)
+
+    def test_skip_tail_is_gated_on_exit_code_99_not_any_failure(self):
+        # WR-01 (36-REVIEW.md): the skip tail must be gated on flock's own -E 99 exit
+        # code, never on a bare '||' that would also fire on run_unattended's own exit 1
+        # (a step failure) -- that would mislabel a failing-but-genuinely-ran tick as
+        # "lock held" in the log.
+        line = cron_line()
+        self.assertNotIn('|| echo', line)
+        self.assertIn('-E 99', line)
 
     def test_flock_path_is_resolved_not_hardcoded(self):
         # WR-05 (36-REVIEW.md): cron_line() must print the same resolved `flock` path
