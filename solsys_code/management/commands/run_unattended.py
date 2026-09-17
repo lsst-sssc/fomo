@@ -17,10 +17,11 @@ from solsys_code import unattended
 
 
 class Command(BaseCommand):
-    """Run one unattended tick: reconcile every CampaignRun's calendar projection (and,
-    from later plans in this phase, refresh LCO/SOAR observation statuses, sweep the
-    observation projector, and discover newly-scheduled observations for every watched
-    proposal) -- bracketed by a heartbeat ping and a deduplicated failure email.
+    """Run one unattended tick: reconcile every CampaignRun's calendar projection, refresh
+    LCO/SOAR observation statuses, sweep the observation projector, and discover
+    newly-scheduled observations for every watched proposal (IN-04, 36-REVIEW.md: all
+    four steps have shipped) -- bracketed by a heartbeat ping and a deduplicated failure
+    email.
     """
 
     help = (
