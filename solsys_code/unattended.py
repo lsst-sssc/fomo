@@ -145,7 +145,13 @@ def ping_heartbeat(suffix: str) -> None:
         logger.info('FOMO_HEARTBEAT_URL is not set -- skipping heartbeat ping')
         return
     try:
-        requests.get(f'{url.rstrip("/")}/{suffix}', timeout=_HEARTBEAT_TIMEOUT_SECONDS)
+        response = requests.get(f'{url.rstrip("/")}/{suffix}', timeout=_HEARTBEAT_TIMEOUT_SECONDS)
+        # IN-01 (36-REVIEW.md): requests.get() does not raise on a non-2xx response by
+        # itself -- an expired/rotated healthchecks.io URL returning 404, or a rate-limit
+        # 429, was silently treated as a delivered ping. raise_for_status() turns a 4xx/
+        # 5xx into an HTTPError, a requests.exceptions.RequestException subclass, so it
+        # is caught by the same except clause below.
+        response.raise_for_status()
     except requests.exceptions.RequestException as exc:
         logger.warning('heartbeat ping failed: %s', type(exc).__name__)
 

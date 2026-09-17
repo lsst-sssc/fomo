@@ -329,6 +329,20 @@ class TestHeartbeat(UnattendedTestBase):
             call_command('run_unattended')  # must not raise
         self.mock_requests_get.assert_not_called()
 
+    def test_non_2xx_response_is_logged_as_a_failed_ping(self):
+        # IN-01 (36-REVIEW.md): requests.get() does not raise on its own for a non-2xx
+        # response -- an expired/rotated healthchecks.io URL (404) or a rate limit (429)
+        # was silently treated as a delivered ping. raise_for_status() must catch it.
+        self._make_campaign_run()
+        response = requests.Response()
+        response.status_code = 404
+        self.mock_requests_get.return_value = response
+        with self.assertLogs('solsys_code.unattended', level='INFO') as captured:
+            call_command('run_unattended')  # must not raise
+        joined = '\n'.join(captured.output)
+        self.assertIn('heartbeat ping failed', joined)
+        self.assertIn('HTTPError', joined)
+
 
 class TestLocking(UnattendedTestBase):
     """One lock per command (run_unattended, and reconcile_campaign_runs underneath it)."""
