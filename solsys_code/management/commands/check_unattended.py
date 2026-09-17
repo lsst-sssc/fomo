@@ -33,6 +33,15 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from solsys_code import notifications
 from solsys_code.models import WatchedProposal
 
+# IN-14 (36-REVIEW.md): mirror settings.py's own os.getenv(..., <default>) defaults for
+# FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
+# from an unset environment variable with no default of its own yields None, and
+# Path(None) raises TypeError (the same WR-07 hazard FOMO_BASE_URL already guards
+# against). These are a last-resort fallback for that misconfiguration, not a
+# substitute for settings.py's own defaults.
+_DEFAULT_LOCK_DIR = '/var/lock/fomo'
+_DEFAULT_LOG_FILE = '/var/log/fomo/unattended.log'
+
 
 @dataclass
 class CheckResult:
@@ -88,8 +97,18 @@ def check_flock() -> CheckResult:
 
 
 def _owner_mode(path: Path) -> str:
-    """Render a path's owner uid and permission mode for a CheckResult's detail text."""
-    info = path.stat()
+    """Render a path's owner uid and permission mode for a CheckResult's detail text.
+
+    IN-14 (36-REVIEW.md): ``_check_directory_writable()`` only calls this after its own
+    ``path.exists()`` check, but that is not atomic with the ``stat()`` here -- a
+    concurrent delete (or an ``EACCES`` on a parent directory) between the two can still
+    raise. This is a read-only preflight report, not the unattended tick itself, so an
+    unavailable stat should degrade to a reported detail, never an uncaught traceback.
+    """
+    try:
+        info = path.stat()
+    except OSError:
+        return 'owner/mode unavailable'
     return f'owner uid {info.st_uid}, mode {oct(info.st_mode & 0o777)}'
 
 
@@ -146,13 +165,13 @@ def _check_directory_writable(name: str, path: Path) -> CheckResult:
 
 def check_lock_dir() -> CheckResult:
     """Hard check: ``settings.FOMO_LOCK_DIR`` -- the directory ``command_lock()`` locks in."""
-    return _check_directory_writable('FOMO_LOCK_DIR', Path(settings.FOMO_LOCK_DIR))
+    return _check_directory_writable('FOMO_LOCK_DIR', Path(settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR))
 
 
 def check_log_dir() -> CheckResult:
     """Hard check: the parent directory of ``settings.FOMO_LOG_FILE`` -- where the cron
     template's redirect appends."""
-    return _check_directory_writable('FOMO_LOG_FILE', Path(settings.FOMO_LOG_FILE).parent)
+    return _check_directory_writable('FOMO_LOG_FILE', Path(settings.FOMO_LOG_FILE or _DEFAULT_LOG_FILE).parent)
 
 
 def check_state_dir() -> CheckResult:
@@ -167,7 +186,9 @@ def check_state_dir() -> CheckResult:
     unwritable state directory here, the same way ``check_lock_dir()`` catches an
     unwritable lock directory, lets an operator fix it before that loop starts.
     """
-    return _check_directory_writable('FOMO_STATE_DIR', Path(settings.FOMO_STATE_DIR))
+    return _check_directory_writable(
+        'FOMO_STATE_DIR', Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR)
+    )
 
 
 def check_email() -> list[CheckResult]:
@@ -282,8 +303,8 @@ def cron_line() -> str:
     # locks from inside the process (unattended.py). `flock(2)` locks are per open file
     # description, so a cron guard sharing that filename would be denied by the lock its
     # own child just took, self-deadlocking every scheduled tick (CR-01, 36-REVIEW.md).
-    lock_file = Path(settings.FOMO_LOCK_DIR) / 'run_unattended.cron.lock'
-    log_file = settings.FOMO_LOG_FILE
+    lock_file = Path(settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR) / 'run_unattended.cron.lock'
+    log_file = settings.FOMO_LOG_FILE or _DEFAULT_LOG_FILE
     # WR-05 (36-REVIEW.md): resolve the real `flock` path the same way check_flock()
     # already verified it -- the committed template's hardcoded '/usr/bin/flock' is
     # only a placeholder for a host with a non-merged-/usr layout, a venv-provided

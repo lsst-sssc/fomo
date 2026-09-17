@@ -21,7 +21,7 @@ from django.core import mail
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
-from solsys_code.management.commands.check_unattended import cron_line
+from solsys_code.management.commands.check_unattended import _owner_mode, cron_line
 from solsys_code.models import WatchedProposal
 
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST-CHECK-UNATTENDED'
@@ -163,6 +163,35 @@ class TestHardChecks(CheckUnattendedTestBase):
         stdout, _stderr = _run()
         self.assertIn(f'writable by uid {os.geteuid()}', stdout)
         self.assertIn('run this check as the account that will actually run unattended', stdout)
+
+    def test_none_lock_dir_falls_back_to_the_documented_default_instead_of_raising(self):
+        # IN-14 (36-REVIEW.md): a local_settings.py deriving FOMO_LOCK_DIR from an unset
+        # environment variable with no default of its own yields None, and Path(None)
+        # would raise TypeError from inside check_lock_dir() and cron_line() before this
+        # fix -- an uncaught traceback out of a read-only reporting command, not the
+        # reported failure a bad prerequisite should produce.
+        fallback_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(fallback_dir.cleanup)
+        with (
+            override_settings(FOMO_LOCK_DIR=None),
+            patch('solsys_code.management.commands.check_unattended._DEFAULT_LOCK_DIR', fallback_dir.name),
+        ):
+            stdout, _stderr = _run()  # must not raise TypeError
+        self.assertIn('[ok] FOMO_LOCK_DIR', stdout)
+        self.assertIn(fallback_dir.name, stdout)
+
+
+class TestOwnerModeRobustness(TestCase):
+    """IN-14 (36-REVIEW.md): `_owner_mode()`'s `stat()` call is not atomic with its
+    caller's own `path.exists()` check -- a concurrent delete or an `EACCES` on a parent
+    directory between the two must degrade to a reported detail, never an uncaught
+    traceback out of this read-only preflight."""
+
+    def test_stat_oserror_reports_unavailable_instead_of_raising(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir)
+            with patch.object(Path, 'stat', side_effect=OSError('stat failed')):
+                self.assertEqual(_owner_mode(path), 'owner/mode unavailable')
 
 
 class TestWarningChecks(CheckUnattendedTestBase):

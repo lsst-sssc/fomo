@@ -431,6 +431,35 @@ class TestStateFileRobustness(UnattendedTestBase):
         self.assertTrue(any(url.endswith('/1') for url in urls))
 
 
+class TestNoneSettingGuards(UnattendedTestBase):
+    """IN-14 (36-REVIEW.md): a local_settings.py deriving FOMO_LOCK_DIR/FOMO_STATE_DIR
+    from an unset environment variable with no default of its own yields None -- the same
+    WR-07 hazard FOMO_BASE_URL already guards against -- and Path(None) must never raise
+    out of the very first thing run_tick() does."""
+
+    def test_none_lock_dir_falls_back_to_the_documented_default(self):
+        # Patch the fallback constant itself to a writable temp dir rather than letting
+        # the real /var/lock/fomo default fire -- this test only needs to prove
+        # Path(None) never raises, not that this sandbox can write to a real system path.
+        fallback_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(fallback_dir.cleanup)
+        with (
+            override_settings(FOMO_LOCK_DIR=None),
+            patch('solsys_code.unattended._DEFAULT_LOCK_DIR', fallback_dir.name),
+        ):
+            with unattended.command_lock('none-lock-dir-guard-test'):
+                pass  # must not raise TypeError from Path(None)
+
+    def test_none_state_dir_falls_back_to_lock_dir(self):
+        with override_settings(FOMO_STATE_DIR=None):
+            # Must not raise -- falls back to FOMO_LOCK_DIR (still the writable temp dir
+            # UnattendedTestBase sets up), not the hardcoded /var/lock/fomo default.
+            self.assertEqual(unattended.load_state(), {'failing_steps': [], 'notified_at': None})
+            unattended.save_state(['reconcile'], None)
+            state_path = Path(self.tmp_dir.name) / 'unattended-state.json'
+            self.assertTrue(state_path.exists())
+
+
 class TestStatusRefreshStep(UnattendedTestBase):
     """Task 1 (D-03): the FOMO-owned LCO/SOAR status refresh step."""
 

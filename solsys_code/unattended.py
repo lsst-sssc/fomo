@@ -46,6 +46,14 @@ logger = logging.getLogger(__name__)
 _HEARTBEAT_TIMEOUT_SECONDS = 10
 _REMINDER_INTERVAL = timedelta(hours=24)
 _STATE_FILENAME = 'unattended-state.json'
+# IN-14 (36-REVIEW.md): mirrors settings.py's own os.getenv(..., <default>) defaults for
+# FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
+# from an unset environment variable with no default of its own yields None (exactly the
+# WR-07 hazard FOMO_BASE_URL already guards against), and Path(None) raises TypeError
+# from the very first thing run_tick() does. These are a last-resort fallback for that
+# misconfiguration, not a substitute for settings.py's own defaults.
+_DEFAULT_LOCK_DIR = '/var/lock/fomo'
+_DEFAULT_LOG_FILE = '/var/log/fomo/unattended.log'
 # WR-08 (36-REVIEW.md): during a whole-facility outage, every non-terminal record fails
 # update_all_observation_statuses(), and _refresh_one_facility() re-checks each one
 # individually purely to name the exception class -- uncapped, that is 2N portal
@@ -107,7 +115,7 @@ def command_lock(name: str) -> Iterator[None]:
     Raises:
         LockContended: the lock is already held by another process.
     """
-    lock_dir = Path(settings.FOMO_LOCK_DIR)
+    lock_dir = Path(settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR)
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / f'{name}.lock'
     with lock_path.open('a+') as fh:
@@ -361,7 +369,7 @@ def load_state() -> dict:
             ``notified_at`` (no tzinfo) is assumed UTC, so ``decide_notification()``
             can always subtract it from an aware ``now``.
     """
-    state_path = Path(settings.FOMO_STATE_DIR) / _STATE_FILENAME
+    state_path = Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR) / _STATE_FILENAME
     try:
         with state_path.open() as fh:
             data = json.load(fh)
@@ -403,7 +411,7 @@ def save_state(failing_steps: list[str], notified_at: datetime | None) -> None:
         notified_at: when the notification for this state was sent, or None (the
             recovered/no-prior-failure state).
     """
-    state_dir = Path(settings.FOMO_STATE_DIR)
+    state_dir = Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR)
     state_dir.mkdir(parents=True, exist_ok=True)
     state_path = state_dir / _STATE_FILENAME
     payload = {
@@ -479,7 +487,7 @@ def _build_notification_body(decision: str, results: list[StepResult]) -> tuple[
         lines = ['The following unattended step(s) failed:', '']
         lines.extend(f'- {result.name}: {result.summary}' for result in failing)
     lines.append('')
-    lines.append(f'Log file: {settings.FOMO_LOG_FILE}')
+    lines.append(f'Log file: {settings.FOMO_LOG_FILE or _DEFAULT_LOG_FILE}')
     # Hardcoded, not reverse()'d -- see this module's docstring.
     lines.append(f'Admin: {notifications.absolute_url("/admin/")}')
     lines.append(f'Calendar: {notifications.absolute_url("/calendar/")}')
