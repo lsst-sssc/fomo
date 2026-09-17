@@ -750,17 +750,27 @@ class Command(BaseCommand):
         parser.add_argument(
             '--created-after',
             required=False,
-            help='Only backfill RequestGroups created on/after this ISO-8601 timestamp/date.',
+            help=(
+                'Only backfill RequestGroups created on/after this ISO-8601 timestamp/date. '
+                'Requires --proposal (CR-02, 36-REVIEW.md): the watched-list sweep has no window '
+                'argument and takes its overrides from each WatchedProposal row.'
+            ),
         )
         parser.add_argument(
             '--created-before',
             required=False,
-            help='Only backfill RequestGroups created on/before this ISO-8601 timestamp/date.',
+            help=(
+                'Only backfill RequestGroups created on/before this ISO-8601 timestamp/date. '
+                'Requires --proposal -- see --created-after.'
+            ),
         )
         parser.add_argument(
             '--username',
             required=False,
-            help='Attribute created/updated ObservationRecords to this username (default: unattributed).',
+            help=(
+                'Attribute created/updated ObservationRecords to this username (default: unattributed). '
+                'Requires --proposal -- see --created-after.'
+            ),
         )
         parser.add_argument(
             '--dry-run',
@@ -770,7 +780,10 @@ class Command(BaseCommand):
         parser.add_argument(
             '--target-list',
             required=False,
-            help='Override the derived "<proposal>_targets" name for the TargetList the sweep collects into.',
+            help=(
+                'Override the derived "<proposal>_targets" name for the TargetList the sweep collects '
+                'into. Requires --proposal -- see --created-after.'
+            ),
         )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
@@ -784,8 +797,11 @@ class Command(BaseCommand):
 
         Raises:
             CommandError: --username names an unknown user; --created-after/--created-before
-                (override path only) is not a valid ISO-8601 timestamp/date; or (watched
-                path) one or more watched proposals failed, naming the failing code(s).
+                (override path only) is not a valid ISO-8601 timestamp/date; --proposal is
+                omitted while --created-after/--created-before/--username/--target-list is
+                given (CR-02, 36-REVIEW.md -- the watched-list sweep has no window argument
+                and would otherwise silently discard it); or (watched path) one or more
+                watched proposals failed, naming the failing code(s).
         """
         proposal = options.get('proposal')
         dry_run = options['dry_run']
@@ -809,6 +825,28 @@ class Command(BaseCommand):
                 dry_run=dry_run,
                 stdout=self.stdout,
                 stderr=self.stderr,
+            )
+
+        # CR-02 (36-REVIEW.md): the watched-list sweep takes its overrides from each
+        # WatchedProposal row and has no window argument at all, so --created-after/
+        # --created-before/--username/--target-list are silently discarded on this path
+        # -- argparse accepts them, but they never reach sweep_proposal(). Fail closed
+        # instead of letting an operator believe a window/attribution override applied
+        # to a full-history sweep of every watched proposal.
+        ignored = [
+            flag
+            for flag, key in (
+                ('--created-after', 'created_after'),
+                ('--created-before', 'created_before'),
+                ('--username', 'username'),
+                ('--target-list', 'target_list'),
+            )
+            if options.get(key)
+        ]
+        if ignored:
+            raise CommandError(
+                f'{", ".join(ignored)} require --proposal; the watched-list sweep takes its '
+                'overrides from each WatchedProposal row.'
             )
 
         rows = list(watched_rows())

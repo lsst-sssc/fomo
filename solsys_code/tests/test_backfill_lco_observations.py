@@ -1329,3 +1329,75 @@ class TestEmptyWatchedList(TestCase):
         self.assertFalse(TargetList.objects.exists())
         self.assertFalse(ObservationRecord.objects.exists())
         self.assertEqual(stdout.getvalue().count('0 watched proposals, nothing to discover'), 1)
+
+
+class TestBareInvocationRejectsProposalOnlyFlags(TestCase):
+    """CR-02 (36-REVIEW.md): --created-after/--created-before/--username/--target-list
+    were silently discarded on the bare (no --proposal) invocation, running a
+    full-history sweep of every watched proposal with no error and no mention in the
+    summary. Fail closed instead: each flag requires --proposal.
+    """
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_created_after_without_proposal_raises_command_error(self, mock_make_request):
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                'backfill_lco_observations',
+                '--created-after=2026-01-01T00:00:00',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertIn('--created-after', str(ctx.exception))
+        self.assertIn('--proposal', str(ctx.exception))
+        mock_make_request.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_created_before_without_proposal_raises_command_error(self, mock_make_request):
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                'backfill_lco_observations',
+                '--created-before=2026-12-31T00:00:00',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertIn('--created-before', str(ctx.exception))
+        mock_make_request.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_username_without_proposal_raises_command_error(self, mock_make_request):
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+        User.objects.create_user(username='someone')
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                'backfill_lco_observations',
+                '--username=someone',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertIn('--username', str(ctx.exception))
+        mock_make_request.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_target_list_without_proposal_raises_command_error(self, mock_make_request):
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                'backfill_lco_observations',
+                '--target-list=override_targets',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertIn('--target-list', str(ctx.exception))
+        mock_make_request.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_bare_invocation_with_no_proposal_only_flags_still_sweeps(self, mock_make_request):
+        """The fix must not touch the legitimate bare invocation the unattended runner uses."""
+        mock_make_request.return_value = _page_response([])
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+
+        call_command('backfill_lco_observations', '--dry-run', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_make_request.assert_called()
