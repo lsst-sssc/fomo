@@ -1563,15 +1563,21 @@ Work through these in order:
 3. **The heartbeat dashboard's last ping.** A missing or stale ping (older
    than the configured grace period) means the tick itself never ran or
    never finished -- check the log file next for why.
-4. **A repeated "lock held" line in the log.** ``flock -n`` fails
-   immediately rather than queuing, so a permanently contended lock leaves
-   this line on every tick instead of looking like a healthy no-op::
+4. **A repeated "lock held" line in the log.** ``flock -n -E 99`` fails
+   immediately rather than queuing, so a permanently contended cron lock
+   (``FOMO_LOCK_DIR/run_unattended.cron.lock``) leaves this line on every
+   tick instead of looking like a healthy no-op::
 
       2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
 
-   One occurrence is normal (an overrunning tick colliding with the next
-   scheduled one); several in a row means a previous tick is stuck and
-   needs investigating.
+   Do not confuse this with the runner's own internal-lock message,
+   ``run_unattended: lock held -- skipping this tick`` -- both can appear
+   in the same log with the phrase "lock held", but only the cron guard's
+   line above (with the ``run_unattended skipped:`` prefix and a leading
+   timestamp) is what this checklist item means. One occurrence is normal
+   (an overrunning tick colliding with the next scheduled one); several in
+   a row means a previous tick is stuck and needs investigating -- see
+   "Repeated 'lock held' lines in the unattended log" below.
 
 Running it by hand
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -1587,8 +1593,9 @@ staff, so an operator can run either without paging anyone.
 ``discovery``, or ``reconcile``.
 
 **What the locking does and does not cover.** The cron line's own
-``flock -n`` and the runner's own lock together mean two ticks never
-overlap -- and neither does a hand-started ``run_unattended``, including
+``flock -n -E 99`` (against ``run_unattended.cron.lock``) and the
+runner's own internal lock (``run_unattended.lock``) together mean two
+ticks never overlap -- and neither does a hand-started ``run_unattended``, including
 ``run_unattended --step <name>``, which takes the exact same lock. But
 running one of the underlying sweep commands directly --
 ``backfill_lco_observations``, ``project_observation_calendar``,
