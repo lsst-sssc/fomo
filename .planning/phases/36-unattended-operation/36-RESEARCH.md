@@ -595,17 +595,23 @@ existing, direct-invocation form.
 **If this table is empty:** N/A — three low-risk assumptions logged above; nothing here touches a
 compliance, retention, or security-standard claim, and nothing contradicts a verified finding.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **How does the runner recover a class name for a status-refresh failure, given `update_all_observation_statuses()` only returns `str(e)`?**
+Both questions below were open at research time and were closed at planning time. Each
+recommendation was adopted verbatim by the named plan and task; neither is an outstanding
+decision for the executor.
+
+1. **(RESOLVED — adopted by `36-03-PLAN.md` Task 1)** **How does the runner recover a class name for a status-refresh failure, given `update_all_observation_statuses()` only returns `str(e)`?**
    - What we know: the stock method's return shape is fixed (`[VERIFIED: tom_observations/facility.py:567-579]`) and cannot be changed without patching a third-party library.
    - What's unclear: whether the planner wants the runner to re-derive the exception by calling `update_observation_status()` per failed id directly (extra portal calls, real exception object) or accept an opaque per-record failure count with no class name for this one step only.
    - Recommendation: re-derive per failed id — the extra calls are bounded by `len(failed_records)`, which is already small (excludes terminal-state records), and it keeps this step's logging discipline consistent with the other three steps (class-name-only, never the message).
+   - **Resolution:** adopted as recommended. `36-03-PLAN.md` Task 1's action discards the message half of each returned tuple before any string building and re-calls `update_observation_status()` per failed id purely to name the exception class; the re-check never changes the failed count. `TestStatusRefreshStep.test_failure_is_reported_by_class_name_not_message` and `test_transient_failure_still_counts` lock both halves of that behavior.
 
-2. **Where does `WatchedProposal` live relative to `CampaignRun` in `models.py`, and does `backfill_lco_observations`'s existing single-proposal code path get restructured in place or split into a new shared function the runner also calls?**
+2. **(RESOLVED — adopted by `36-02-PLAN.md` Task 1 for placement and Task 2 for the extraction)** **Where does `WatchedProposal` live relative to `CampaignRun` in `models.py`, and does `backfill_lco_observations`'s existing single-proposal code path get restructured in place or split into a new shared function the runner also calls?**
    - What we know: `models.py` has no existing "configuration list" model to pattern-match against; `CampaignRunAdmin` (`solsys_code/admin.py:142-176`) is the closest existing admin-registration example (`list_display`, `list_filter`, no `list_editable` example exists yet in this codebase, though it is standard Django).
    - What's unclear: exact placement (near `CampaignRun` vs. at the end of the file) and whether the per-proposal sweep becomes a new top-level function in `backfill_lco_observations.py` that both the bare-invocation loop and the `--proposal` override call, or whether the existing `handle()` body is inlined into a loop.
    - Recommendation: extract the existing per-proposal request-group loop (currently the bulk of `handle()`, lines ~526-677) into a function taking `(facility, proposal, target_list_override, user)` and returning `(summary: dict, exception: Exception | None)`, called once per watched row and once for a `--proposal` override — this is a refactor of existing logic, not new logic, and keeps the 30 existing tests passing since the wire format each request-group produces is unchanged.
+   - **Resolution:** adopted as recommended, with the return type narrowed. Placement: `36-02-PLAN.md` Task 1 puts `WatchedProposal` at the end of `models.py` after `ObservationRecordDismissal`, because it is a configuration list rather than part of the campaign/calendar object graph. Extraction: `36-02-PLAN.md` Task 2 creates the module-level `sweep_proposal(proposal, *, target_list_name, user, created_after, created_before, dry_run, stdout, stderr) -> str`, returning the command's existing one-line summary rather than a `(summary, exception)` pair — the caller's own `try/except` supplies the exception half (`36-02-PLAN.md` Task 3, `36-03-PLAN.md` Task 2), so the failure path is one mechanism instead of two. The 30 pre-existing tests pass unmodified, which is Task 2's proof the extraction is faithful.
 
 ## Environment Availability
 
