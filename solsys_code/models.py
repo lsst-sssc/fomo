@@ -735,3 +735,53 @@ class ObservationRecordDismissal(models.Model):
     # means nothing.
     def __str__(self):
         return f'dismissed {self.observation_record} for {self.run}'
+
+
+class WatchedProposal(models.Model):
+    """Admin-editable replacement for ``backfill_lco_observations``'s per-invocation
+    ``--proposal`` argument (36-CONTEXT.md D-06).
+
+    Unattended discovery of robotically scheduled LCO/SOAR observations (DISCOVER-01)
+    sweeps every active row here instead of needing an operator to type a proposal code
+    each time a run is invoked -- adding or deactivating a row from the admin is the whole
+    of what widening or narrowing discovery requires, with no redeploy. ``proposal_code`` is
+    placed here rather than beside ``CampaignRun`` because this is a configuration list, not
+    part of the campaign/calendar object graph.
+
+    ``last_run_at``/``last_run_summary`` are bookkeeping the sweep writes after every tick
+    (D-09) -- never hand-typed by an operator, which is why the admin registration makes
+    them ``readonly_fields``. There is deliberately no ``created_after`` bound (discovery
+    always considers the whole proposal, as the runbook documents today) and no
+    ``facility`` field (LCO and SOAR share one portal and one proposal namespace).
+    """
+
+    proposal_code = models.CharField(max_length=100, unique=True, verbose_name='Proposal code')
+    is_active = models.BooleanField(default=True, verbose_name='Active')
+    target_list_name = models.CharField(max_length=200, blank=True, default='', verbose_name='TargetList name override')
+    attributed_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='watched_proposals',
+        verbose_name='Attribute records to',
+    )
+    last_run_at = models.DateTimeField(null=True, blank=True, verbose_name='Last swept at')
+    last_run_summary = models.TextField(blank=True, default='', verbose_name='Last sweep summary')
+
+    class Meta:  # noqa: D106
+        ordering = ['proposal_code']
+
+    def save(self, *args, **kwargs):
+        """Strip `proposal_code` before every save.
+
+        A pasted code with a trailing space would otherwise create a second row that looks
+        identical to an existing one in the admin changelist but queries the portal as a
+        different string -- this keeps `unique=True` an effective guarantee, not just a
+        cosmetic one.
+        """
+        self.proposal_code = (self.proposal_code or '').strip()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.proposal_code} ({"active" if self.is_active else "inactive"})'

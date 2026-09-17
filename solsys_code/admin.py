@@ -3,7 +3,7 @@ from django.forms.models import BaseInlineFormSet
 from django.utils import timezone
 from tom_targets.models import Target
 
-from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation, WatchedProposal
 
 
 class CalendarEventMetaInlineFormSet(BaseInlineFormSet):
@@ -460,6 +460,21 @@ class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
         return obj.event.start_time
 
 
+class WatchedProposalAdmin(admin.ModelAdmin):  # noqa: D101
+    """D-06: `is_active` is both listed and editable directly from the changelist -- an
+    operator toggling discovery on/off for a proposal is the whole point of this model, and
+    should not require opening the change form. `last_run_at`/`last_run_summary` are
+    read-only here because they are sweep-written bookkeeping (D-09), never hand-typed.
+    """
+
+    list_display = ['proposal_code', 'is_active', 'last_run_at', 'last_run_summary']
+    list_filter = ['is_active']
+    list_editable = ['is_active']
+    readonly_fields = ['last_run_at', 'last_run_summary']
+    search_fields = ['proposal_code']
+    ordering = ['proposal_code']
+
+
 class TargetAdmin(admin.ModelAdmin):  # noqa: D101
     list_display = ['name', 'type', 'ra', 'dec']
     list_filter = ['type']
@@ -468,5 +483,6 @@ class TargetAdmin(admin.ModelAdmin):  # noqa: D101
 
 admin.site.register(CampaignRun, CampaignRunAdmin)
 admin.site.register(CalendarEventMeta, CalendarEventMetaAdmin)
+admin.site.register(WatchedProposal, WatchedProposalAdmin)
 admin.site.unregister(Target)
 admin.site.register(Target, TargetAdmin)
