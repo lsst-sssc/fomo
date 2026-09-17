@@ -2013,15 +2013,22 @@ and collided with the next scheduled one. Several occurrences in a row
 mean a previous tick is genuinely stuck (for example, blocked on a slow
 portal response) and never released the lock.
 
-**Fix:** find and investigate the stuck process (or, if it has genuinely
-died without releasing the lock file, remove the stale
-``run_unattended.cron.lock`` file under ``FOMO_LOCK_DIR`` -- not
-``run_unattended.lock``, which is the runner's own internal lock and is
-released automatically when the process exits) before assuming discovery
-or reconciliation is broken. The heartbeat's grace period (see "The two
-failure signals" in :ref:`unattended-operation` above) is the structural
-backstop for exactly this case -- a permanently contended lock eventually
-alerts there too.
+**Fix:** a ``flock`` is always released by the kernel when the holding
+process exits -- including a crash, a ``SIGKILL``, or an OOM kill -- so a
+dead process never leaves a lock held (WR-14, 36-REVIEW.md). Several
+"lock held" lines in a row therefore always mean a tick is *still
+running*, never a stale lock file: find it with ``pgrep -af
+run_unattended`` and investigate why it is stuck (for example, a slow
+portal response) before assuming discovery or reconciliation is broken.
+Deleting ``run_unattended.cron.lock`` while a tick is genuinely live does
+not help -- the next cron invocation just creates a new inode and takes
+its own lock -- and disables the cron guard until the next tick, since
+the runner's own internal lock (``run_unattended.lock``, released
+automatically when its process exits) is the only thing then still
+preventing an overlap. The heartbeat's grace period (see "The two failure
+signals" in :ref:`unattended-operation` above) is the structural backstop
+for exactly this case -- a permanently contended lock eventually alerts
+there too.
 
 A failure email arrived once, then went quiet while the problem continued
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
