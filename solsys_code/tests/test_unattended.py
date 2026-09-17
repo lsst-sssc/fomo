@@ -24,6 +24,7 @@ from django.core import mail
 from django.core.management import call_command
 from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
+from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -555,8 +556,194 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertEqual(row.last_run_summary, '')
 
 
+_FAKE_LCO_API_KEY = 'FAKE-API-KEY-DO-NOT-LOG-a1b2c3'
+_FAKE_MAIL_PASSWORD = 'FAKE-MAIL-PW-d4e5f6'
+_FAKE_HEARTBEAT_PING_URL = 'https://hc.example/FAKE-PING-UUID-g7h8i9'
+
+
 class TestCredentialHygiene(UnattendedTestBase):
-    """SCHED-10/D-16/D-17: no seeded credential leaks into any output surface."""
+    """SCHED-10/D-16/D-17: no seeded credential leaks into any output surface, across
+    every forced failure path on the unattended tick (Task 3)."""
+
+    def setUp(self):
+        super().setUp()
+        from django.conf import settings as django_settings
+
+        self._original_lco_api_key = django_settings.FACILITIES['LCO'].get('api_key')
+        self._original_soar_api_key = django_settings.FACILITIES.get('SOAR', {}).get('api_key')
+        django_settings.FACILITIES['LCO']['api_key'] = _FAKE_LCO_API_KEY
+        if 'SOAR' in django_settings.FACILITIES:
+            django_settings.FACILITIES['SOAR']['api_key'] = _FAKE_LCO_API_KEY
+
+        def _restore_facilities():
+            django_settings.FACILITIES['LCO']['api_key'] = self._original_lco_api_key
+            if 'SOAR' in django_settings.FACILITIES:
+                django_settings.FACILITIES['SOAR']['api_key'] = self._original_soar_api_key
+
+        self.addCleanup(_restore_facilities)
+
+        settings_override = override_settings(
+            EMAIL_HOST_PASSWORD=_FAKE_MAIL_PASSWORD,
+            FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_PING_URL,
+        )
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+
+        self.staff_with_email = User.objects.create_user(
+            username='staff-with-email-credhyg', email='staff-credhyg@example.org', is_staff=True
+        )
+
+    def _assert_no_secrets_leaked(self, log_output: list[str], stdout_value: str, stderr_value: str) -> None:
+        """Assert none of the three seeded literals appear in the log, stdout, stderr, or
+        any sent email's subject/body."""
+        joined_logs = '\n'.join(log_output)
+        for secret in (_FAKE_LCO_API_KEY, _FAKE_MAIL_PASSWORD, _FAKE_HEARTBEAT_PING_URL):
+            self.assertNotIn(secret, joined_logs)
+            self.assertNotIn(secret, stdout_value)
+            self.assertNotIn(secret, stderr_value)
+        for sent in mail.outbox:
+            for secret in (_FAKE_LCO_API_KEY, _FAKE_MAIL_PASSWORD, _FAKE_HEARTBEAT_PING_URL):
+                self.assertNotIn(secret, sent.subject)
+                self.assertNotIn(secret, sent.body)
+
+    def _run_tick_capturing(self) -> tuple[list[str], str, str]:
+        """Run one tick through the real ``run_unattended`` command, capturing the log at
+        the project's own root level (INFO -- src/fomo/settings.py ``LOGGING``), stdout,
+        and stderr. A ``SystemExit`` from a failing tick is expected and swallowed."""
+        stdout = StringIO()
+        stderr = StringIO()
+        with self.assertLogs('solsys_code', level='INFO') as captured:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                with contextlib.suppress(SystemExit):
+                    call_command('run_unattended')
+        return captured.output, stdout.getvalue(), stderr.getvalue()
+
+    def test_status_refresh_portal_error_leaks_nothing(self):
+        error_message = (
+            f'portal error key={_FAKE_LCO_API_KEY} pass={_FAKE_MAIL_PASSWORD} url={_FAKE_HEARTBEAT_PING_URL}'
+        )
+        with (
+            patch('solsys_code.unattended.LCOFacility') as mock_lco_cls,
+            patch('solsys_code.unattended.SOARFacility') as mock_soar_cls,
+        ):
+            mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', error_message)]
+            mock_lco_cls.return_value.update_observation_status.side_effect = requests.exceptions.HTTPError(
+                error_message
+            )
+            mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+            log_output, stdout_value, stderr_value = self._run_tick_capturing()
+
+        self._assert_no_secrets_leaked(log_output, stdout_value, stderr_value)
+
+    def test_project_sweep_site_lookup_error_leaks_nothing(self):
+        self._make_record_for_sweep('sweep-credhyg')
+        error_message = f'site lookup failed key={_FAKE_LCO_API_KEY} url={_FAKE_HEARTBEAT_PING_URL}'
+        with patch(
+            'solsys_code.unattended.resolve_observed_site',
+            side_effect=requests.exceptions.RequestException(error_message),
+        ):
+            log_output, stdout_value, stderr_value = self._run_tick_capturing()
+
+        self._assert_no_secrets_leaked(log_output, stdout_value, stderr_value)
+
+    def _make_record_for_sweep(self, observation_id: str):
+        target = NonSiderealTargetFactory.create()
+        post_save.disconnect(
+            op.receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            return ObservationRecord.objects.create(
+                target=target,
+                facility='LCO',
+                observation_id=observation_id,
+                status='PENDING',
+                parameters={
+                    'proposal': 'TESTPROP',
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': '2026-09-01T00:00:00',
+                    'end': '2026-09-02T00:00:00',
+                },
+            )
+        finally:
+            post_save.connect(
+                op.receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
+    def test_discovery_portal_error_leaks_nothing(self):
+        row_a = WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        row_b = WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+        error_message = f'portal error key={_FAKE_LCO_API_KEY} url={_FAKE_HEARTBEAT_PING_URL}'
+        with patch(
+            'solsys_code.unattended.sweep_proposal',
+            side_effect=[ImproperCredentialsException(error_message), 'requestgroups seen: 1'],
+        ):
+            log_output, stdout_value, stderr_value = self._run_tick_capturing()
+
+        self._assert_no_secrets_leaked(log_output, stdout_value, stderr_value)
+        row_a.refresh_from_db()
+        row_b.refresh_from_db()
+        for secret in (_FAKE_LCO_API_KEY, _FAKE_MAIL_PASSWORD, _FAKE_HEARTBEAT_PING_URL):
+            self.assertNotIn(secret, row_a.last_run_summary)
+            self.assertNotIn(secret, row_b.last_run_summary)
+
+    def test_reconcile_error_leaks_nothing(self):
+        self._make_campaign_run()
+        error_message = f'reconcile error key={_FAKE_LCO_API_KEY} pass={_FAKE_MAIL_PASSWORD}'
+        with patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError(error_message)):
+            log_output, stdout_value, stderr_value = self._run_tick_capturing()
+
+        # D-17's second bucket: reconcile_run() is FOMO's own call, so its message MAY
+        # reach the (DEBUG-only) log -- but DEBUG is below the project's root INFO level
+        # (src/fomo/settings.py LOGGING), so it never reaches this capture, stdout,
+        # stderr, or the email either way. No credential literal appears anywhere here.
+        self._assert_no_secrets_leaked(log_output, stdout_value, stderr_value)
+
+    def test_mail_send_failure_leaks_nothing(self):
+        self._make_campaign_run()
+        stdout = StringIO()
+        stderr = StringIO()
+        with (
+            patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError('boom')),
+            patch(
+                'solsys_code.notifications.send_mail',
+                side_effect=SMTPAuthenticationError(535, f'user=svc pass={_FAKE_MAIL_PASSWORD}'.encode()),
+            ),
+            self.assertLogs('solsys_code', level='INFO') as captured,
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                call_command('run_unattended')
+
+        self.assertEqual(cm.exception.code, 1)
+        self._assert_no_secrets_leaked(captured.output, stdout.getvalue(), stderr.getvalue())
+
+    def test_heartbeat_ping_failure_leaks_nothing(self):
+        self.mock_requests_get.side_effect = requests.exceptions.ConnectionError(_FAKE_HEARTBEAT_PING_URL)
+
+        log_output, stdout_value, stderr_value = self._run_tick_capturing()
+
+        self._assert_no_secrets_leaked(log_output, stdout_value, stderr_value)
+
+    def test_failure_email_body_carries_no_secret_and_no_traceback(self):
+        self._make_campaign_run()
+        with patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError('boom')):
+            self._run_tick_capturing()
+
+        self.assertEqual(len(mail.outbox), 1)
+        body = mail.outbox[0].body
+        from django.conf import settings as django_settings
+
+        self.assertIn(django_settings.FOMO_LOG_FILE, body)
+        self.assertIn('reconcile', body)
+        self.assertNotIn('Traceback', body)
+        for secret in (_FAKE_LCO_API_KEY, _FAKE_MAIL_PASSWORD, _FAKE_HEARTBEAT_PING_URL):
+            self.assertNotIn(secret, body)
 
     def test_no_seeded_secret_in_any_output(self):
         self._make_campaign_run()
