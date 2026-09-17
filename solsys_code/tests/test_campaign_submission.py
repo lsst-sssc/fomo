@@ -7,6 +7,7 @@ CLAUDE.md; no sidereal-target factory is used anywhere in this module) and plain
 """
 
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -248,6 +249,27 @@ class TestStaffNotification(CampaignSubmissionTestBase):
         self.staff_with_email.save()
         self.client.post(self.submit_url(), data=self.minimal_valid_data())
         self.assertEqual(len(mail.outbox), 0)
+
+
+class TestSubmissionMailOutageResilience(CampaignSubmissionTestBase):
+    """36-01-PLAN.md Task 3: the shared ``notifications.notify_staff()`` helper this view
+    now delegates to must keep the pre-rewire outage-tolerant semantics -- a mail failure
+    or an empty recipient list must never break the submission itself.
+    """
+
+    def test_mail_failure_never_breaks_the_submission(self):
+        with patch('solsys_code.notifications.send_mail', side_effect=Exception('smtp outage')):
+            response = self.client.post(self.submit_url(), data=self.minimal_valid_data(obs_date=OBS_DATE.isoformat()))
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertRedirects(response, self.thanks_url())
+
+    def test_no_staff_with_email_still_succeeds(self):
+        self.staff_with_email.email = ''
+        self.staff_with_email.save()
+        response = self.client.post(self.submit_url(), data=self.minimal_valid_data(obs_date=OBS_DATE.isoformat()))
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertRedirects(response, self.thanks_url())
 
 
 class TestSubmissionFormSiteSearchWidget(CampaignSubmissionTestBase):
