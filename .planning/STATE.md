@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
 status: executing
-stopped_at: Completed 36-03-PLAN.md
-last_updated: "2026-09-17T16:13:15.194Z"
+stopped_at: Completed 36-04-PLAN.md
+last_updated: "2026-09-17T16:33:13.329Z"
 last_activity: 2026-09-17
 last_activity_desc: Phase 36 execution started
-state_head: 50baea9bb5417a76c108c60b8bc0fab1fea9afc5
+state_head: e42ec751b24538e04faf2aeec8b2877a192a586f
 progress:
   total_phases: 5
   completed_phases: 35
   total_plans: 48
-  completed_plans: 46
-  percent: 96
+  completed_plans: 47
+  percent: 98
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 ## Current Position
 
 Phase: 36 (Unattended Operation) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-09-17 — Phase 36 execution started
 
@@ -218,6 +218,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36 P01 | 24min | 3 tasks | 8 files |
 | Phase 36 P02 | 21min | 3 tasks | 7 files |
 | Phase 36 P03 | 25min | 3 tasks | 2 files |
+| Phase 36 P04 | 18min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -354,6 +355,7 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: [Phase 36]: 36-02: the watched-path's zero-rows/aggregate messages are written directly via self.stdout.write() with handle() returning None, avoiding BaseCommand.execute() double-printing the return value.
 - [Phase 36]: [Phase 36]: 36-02: a per-row sweep failure is logged at logger.debug() with type(exc).__name__ only, never str(exc) -- keeps SCHED-10/D-17 credential-safety intact in the debug log too.
 - [Phase 36]: 36-03: step functions never call call_command()/django.core.management.call_command -- each step imports and calls the underlying module function directly, verified by a source-count probe plus a negative test patching call_command at its own definition site.
+- [Phase 36]: check_unattended's check_email() returns two CheckResults (EMAIL_BACKEND, staff_recipients), keeping the six-callable verify probe stable across Task 2's cron_line()/--send-test-email additions — Plan text describes check_email() as 'hard, two results'; cron_line() and _send_test_email() are deliberately non-check helpers outside the six named check_ functions
 
 ### Pending Todos
 
@@ -458,8 +460,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-17T16:13:15.125Z
-Stopped at: Completed 36-03-PLAN.md
+Last session: 2026-09-17T16:33:04.714Z
+Stopped at: Completed 36-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
