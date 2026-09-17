@@ -9,6 +9,7 @@ self-contained -- it does not import the sibling's helpers -- so it stays a plau
 standalone contribution back to ``tom_toolkit``.
 """
 
+import io
 import logging
 from datetime import date, datetime
 from datetime import time as dt_time
@@ -410,6 +411,273 @@ def _group_name(request_group: dict[str, Any]) -> str:
     return f'{name}{suffix}'
 
 
+def sweep_proposal(
+    proposal: str,
+    *,
+    target_list_name: str | None = None,
+    user: Any = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
+    dry_run: bool = False,
+    stdout: Any = None,
+    stderr: Any = None,
+) -> str:
+    """Backfill ObservationRecords, non-sidereal Targets and an ObservationGroup for every
+    request/RequestGroup returned for one LCO proposal, and collect every touched Target
+    into a TargetList.
+
+    Extracted from ``Command.handle()`` (36-CONTEXT.md D-07/36-RESEARCH.md Open Question 2)
+    so the sweep for a single proposal is callable directly -- by the bare-invocation
+    watched-list loop (Task 3) and by the unattended runner (36-01/Plan 03) -- without going
+    through ``call_command()``. Constructs its own ``LCOFacility()`` and calls
+    ``facility.set_user(user)`` here so each call gets a fresh instance (Phase 34 D-10: a
+    facility instance is never shared across calls).
+
+    Args:
+        proposal: LCO proposal code to filter RequestGroups by (exact match).
+        target_list_name: override for the derived ``'<proposal>_targets'`` TargetList
+            name; None (the default) keeps the derived name.
+        user: a resolved ``User`` instance to attribute created/updated ObservationRecords
+            to, or None to leave them unattributed. Username-to-User resolution (including
+            the CommandError-on-unknown-username check) is CLI argument validation and
+            stays in ``Command.handle()``.
+        created_after: raw ISO-8601 CLI value; only RequestGroups created on/after this
+            timestamp are backfilled, or None for no lower bound.
+        created_before: raw ISO-8601 CLI value; only RequestGroups created on/before this
+            timestamp are backfilled, or None for no upper bound.
+        dry_run: whether to report what would be created/updated without writing anything.
+        stdout: a file-like sink for progress/summary lines (defaults to a fresh
+            ``io.StringIO()`` so this function is callable with no sink at all).
+        stderr: a file-like sink for skip/failure lines (defaults to a fresh
+            ``io.StringIO()``).
+
+    Returns:
+        str: a one-line summary of the counts described in the ``Command`` class docstring.
+
+    Raises:
+        CommandError: 'created_after'/'created_before' is set but not a valid ISO-8601
+            timestamp/date.
+    """
+    if stdout is None:
+        stdout = io.StringIO()
+    if stderr is None:
+        stderr = io.StringIO()
+
+    parsed_created_after = _parse_created_bound(created_after)
+    parsed_created_before = _parse_created_bound(created_before)
+
+    facility = LCOFacility()
+    facility.set_user(user)
+
+    requestgroups_seen = 0
+    created = 0
+    updated = 0
+    unchanged = 0
+    skipped = 0
+    targets_created = 0
+    groups_created = 0
+    groups_reused = 0
+    block_lookups_failed = 0
+    embedded_blocks = 0
+    fallback_lookups_needed = 0
+    # De-dups the dry-run target counter within this invocation only (see the dry-run
+    # branch below): a real run saves the target on the first request in a group and
+    # matches it on the second, but a dry run never saves anything, so without this set
+    # an unsaved shared target would be counted as newly-missing on every repeat.
+    dry_run_target_names_seen: set[str] = set()
+    # D-01/D-02: every touched Target (matched or newly built), keyed by pk in a real
+    # run and, under --dry-run only, by name for a would-be-new target that was never
+    # saved and so has no pk -- an already-existing target is keyed by pk in both modes
+    # so two portal names fuzzy-matching one Target are collected once, not twice.
+    # Values are the Target instances, so the post-loop TargetList step can .add() them
+    # directly with no extra query. This is a separate container from
+    # dry_run_target_names_seen, which guards a different counter and must not be
+    # perturbed here.
+    collected_targets: dict[Any, Target] = {}
+
+    for request_group in _iter_request_groups(facility, proposal, created_after, created_before):
+        requestgroups_seen += 1
+        if not _within_created_window(request_group, parsed_created_after, parsed_created_before):
+            continue
+
+        requests_in_group = request_group.get('requests', [])
+        processed_in_group: list[Any] = []
+
+        for request in requests_in_group:
+            observation_id_raw = request.get('id')
+            if observation_id_raw is None:
+                skipped += 1
+                stderr.write('Skipping request: payload has no id.')
+                continue
+            observation_id = str(observation_id_raw)
+
+            target_dict = _first_named_target(request)
+            if target_dict is None:
+                skipped += 1
+                stderr.write(f'Skipping request {observation_id}: no configuration with a named target.')
+                continue
+
+            target_name = target_dict.get('name')
+            target = Target.matches.match_fuzzy_name(target_name).first()
+            is_new_target = False
+            if target is None:
+                target, reason = _build_non_sidereal_target(target_dict)
+                if target is None:
+                    skipped += 1
+                    stderr.write(f'Skipping request {observation_id}: {reason}.')
+                    continue
+                is_new_target = True
+
+            parameters = _build_parameters(request_group, request)
+            if parameters is None:
+                skipped += 1
+                stderr.write(f'Skipping request {observation_id}: no configuration with a usable instrument_type.')
+                continue
+
+            status = request.get('state', '')
+            scheduled_start, scheduled_end, lookup_failed, embedded = _resolve_schedule(facility, request, dry_run)
+            # Requests skipped above (no id, no named target, no usable elements/
+            # instrument_type) never reach here, so they are never counted under either
+            # schedule-path counter.
+            if embedded:
+                embedded_blocks += 1
+            else:
+                fallback_lookups_needed += 1
+            if lookup_failed:
+                block_lookups_failed += 1
+                stderr.write(f'Failed to resolve observed block for observation_id={observation_id!r}.')
+            scheduled_start = _parse_datetime_value(scheduled_start)
+            scheduled_end = _parse_datetime_value(scheduled_end)
+
+            if dry_run:
+                existing_record = ObservationRecord.objects.filter(
+                    facility=facility.name, observation_id=observation_id
+                ).first()
+                if existing_record is None:
+                    created += 1
+                    record_verb = 'create'
+                else:
+                    changes = _changed_record_fields(
+                        existing_record,
+                        status,
+                        scheduled_start,
+                        scheduled_end,
+                        parameters,
+                        compare_schedule=embedded,
+                    )
+                    if changes:
+                        updated += 1
+                        record_verb = 'update'
+                    else:
+                        unchanged += 1
+                        record_verb = 'leave unchanged'
+
+                if is_new_target and target_name not in dry_run_target_names_seen:
+                    dry_run_target_names_seen.add(target_name)
+                    targets_created += 1
+                    target_verb = 'create'
+                else:
+                    target_verb = 'reuse'
+
+                # D-01/D-02: keyed by pk when the target already exists (so it is
+                # collected once even if a second portal name fuzzy-matches it later in
+                # the same run), or by name for a would-be-new target with no pk yet.
+                collected_targets[target.pk if target.pk else target_name] = target
+
+                stdout.write(
+                    f'Would {target_verb} target {target_name!r}; '
+                    f'would {record_verb} ObservationRecord '
+                    f'observation_id={observation_id!r} status={status!r}.'
+                )
+                processed_in_group.append(True)
+                continue
+
+            if is_new_target:
+                target.save()
+                targets_created += 1
+
+            # D-01/D-02: every target reaching this line has a pk -- a matched one
+            # already had it, a new one was just saved above.
+            collected_targets[target.pk] = target
+
+            record, record_created = ObservationRecord.objects.get_or_create(
+                facility=facility.name,
+                observation_id=observation_id,
+                defaults={
+                    'target': target,
+                    'user': user,
+                    'status': status,
+                    'parameters': parameters,
+                    'scheduled_start': scheduled_start,
+                    'scheduled_end': scheduled_end,
+                },
+            )
+            if record_created:
+                created += 1
+            else:
+                changes = _changed_record_fields(record, status, scheduled_start, scheduled_end, parameters)
+                if changes:
+                    for field, value in changes.items():
+                        setattr(record, field, value)
+                    record.save()
+                    updated += 1
+                else:
+                    unchanged += 1
+
+            processed_in_group.append(record)
+
+        if len(requests_in_group) > 1 and processed_in_group:
+            group_name = _group_name(request_group)
+            if dry_run:
+                would_reuse = ObservationGroup.objects.filter(name=group_name).exists()
+                if would_reuse:
+                    groups_reused += 1
+                else:
+                    groups_created += 1
+                stdout.write(f'Would {"reuse" if would_reuse else "create"} ObservationGroup {group_name!r}.')
+            else:
+                group, group_was_created = ObservationGroup.objects.get_or_create(name=group_name)
+                group.observation_records.add(*processed_in_group)
+                if group_was_created:
+                    groups_created += 1
+                else:
+                    groups_reused += 1
+
+    list_name = target_list_name or f'{proposal}_targets'
+    targets_added = len(collected_targets)
+    if dry_run:
+        # T-kpy-01: no get_or_create, no .add() -- reads only, so a dry run writes
+        # nothing at all.
+        list_reused = TargetList.objects.filter(name=list_name).exists()
+    else:
+        # D-05: the list is created unconditionally, even when the sweep touched zero
+        # targets, because get_or_create runs before .add() regardless.
+        target_list, list_was_created = TargetList.objects.get_or_create(name=list_name)
+        # The M2M add is set-like, which is what makes a re-run non-duplicating.
+        target_list.targets.add(*collected_targets.values())
+        list_reused = not list_was_created
+
+    if dry_run:
+        list_verb = 'would reuse' if list_reused else 'would create'
+    else:
+        list_verb = 'reused' if list_reused else 'created'
+
+    summary = (
+        f'requestgroups seen: {requestgroups_seen}, '
+        f'{"would create" if dry_run else "created"}: {created}, '
+        f'{"would update" if dry_run else "updated"}: {updated}, '
+        f'unchanged: {unchanged}, skipped: {skipped}, '
+        f'{"targets would create" if dry_run else "targets created"}: {targets_created}, '
+        f'{"groups would create" if dry_run else "groups created"}: {groups_created}, '
+        f'{"groups would reuse" if dry_run else "groups reused"}: {groups_reused}, '
+        f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
+        f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}, '
+        f'target list: {list_verb} {list_name!r}, '
+        f'{"targets would add to list" if dry_run else "targets added to list"}: {targets_added}'
+    )
+    return summary
+
+
 class Command(BaseCommand):
     """Backfill ObservationRecords, non-sidereal Targets, and ObservationGroups for LCO
     RequestGroups, campaign-agnostic and safe to re-run.
@@ -476,16 +744,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
-        """Fetch matching RequestGroups, create/update ObservationRecords for their requests,
-        and collect every touched Target into a TargetList.
+        """Resolve CLI-only arguments and delegate the sweep itself to sweep_proposal().
 
         Returns:
             str | None: a one-line summary of the counts described in the class docstring.
         """
         proposal = options['proposal']
         dry_run = options['dry_run']
-        created_after = _parse_created_bound(options.get('created_after'))
-        created_before = _parse_created_bound(options.get('created_before'))
 
         user = None
         if options.get('username'):
@@ -494,217 +759,13 @@ class Command(BaseCommand):
             except get_user_model().DoesNotExist as exc:
                 raise CommandError(f'Invalid username: {options["username"]!r}') from exc
 
-        facility = LCOFacility()
-        facility.set_user(user)
-
-        requestgroups_seen = 0
-        created = 0
-        updated = 0
-        unchanged = 0
-        skipped = 0
-        targets_created = 0
-        groups_created = 0
-        groups_reused = 0
-        block_lookups_failed = 0
-        embedded_blocks = 0
-        fallback_lookups_needed = 0
-        # De-dups the dry-run target counter within this invocation only (see the dry-run
-        # branch below): a real run saves the target on the first request in a group and
-        # matches it on the second, but a dry run never saves anything, so without this set
-        # an unsaved shared target would be counted as newly-missing on every repeat.
-        dry_run_target_names_seen: set[str] = set()
-        # D-01/D-02: every touched Target (matched or newly built), keyed by pk in a real
-        # run and, under --dry-run only, by name for a would-be-new target that was never
-        # saved and so has no pk -- an already-existing target is keyed by pk in both modes
-        # so two portal names fuzzy-matching one Target are collected once, not twice.
-        # Values are the Target instances, so the post-loop TargetList step can .add() them
-        # directly with no extra query. This is a separate container from
-        # dry_run_target_names_seen, which guards a different counter and must not be
-        # perturbed here.
-        collected_targets: dict[Any, Target] = {}
-
-        for request_group in _iter_request_groups(
-            facility, proposal, options.get('created_after'), options.get('created_before')
-        ):
-            requestgroups_seen += 1
-            if not _within_created_window(request_group, created_after, created_before):
-                continue
-
-            requests_in_group = request_group.get('requests', [])
-            processed_in_group: list[Any] = []
-
-            for request in requests_in_group:
-                observation_id_raw = request.get('id')
-                if observation_id_raw is None:
-                    skipped += 1
-                    self.stderr.write('Skipping request: payload has no id.')
-                    continue
-                observation_id = str(observation_id_raw)
-
-                target_dict = _first_named_target(request)
-                if target_dict is None:
-                    skipped += 1
-                    self.stderr.write(f'Skipping request {observation_id}: no configuration with a named target.')
-                    continue
-
-                target_name = target_dict.get('name')
-                target = Target.matches.match_fuzzy_name(target_name).first()
-                is_new_target = False
-                if target is None:
-                    target, reason = _build_non_sidereal_target(target_dict)
-                    if target is None:
-                        skipped += 1
-                        self.stderr.write(f'Skipping request {observation_id}: {reason}.')
-                        continue
-                    is_new_target = True
-
-                parameters = _build_parameters(request_group, request)
-                if parameters is None:
-                    skipped += 1
-                    self.stderr.write(
-                        f'Skipping request {observation_id}: no configuration with a usable instrument_type.'
-                    )
-                    continue
-
-                status = request.get('state', '')
-                scheduled_start, scheduled_end, lookup_failed, embedded = _resolve_schedule(facility, request, dry_run)
-                # Requests skipped above (no id, no named target, no usable elements/
-                # instrument_type) never reach here, so they are never counted under either
-                # schedule-path counter.
-                if embedded:
-                    embedded_blocks += 1
-                else:
-                    fallback_lookups_needed += 1
-                if lookup_failed:
-                    block_lookups_failed += 1
-                    self.stderr.write(f'Failed to resolve observed block for observation_id={observation_id!r}.')
-                scheduled_start = _parse_datetime_value(scheduled_start)
-                scheduled_end = _parse_datetime_value(scheduled_end)
-
-                if dry_run:
-                    existing_record = ObservationRecord.objects.filter(
-                        facility=facility.name, observation_id=observation_id
-                    ).first()
-                    if existing_record is None:
-                        created += 1
-                        record_verb = 'create'
-                    else:
-                        changes = _changed_record_fields(
-                            existing_record,
-                            status,
-                            scheduled_start,
-                            scheduled_end,
-                            parameters,
-                            compare_schedule=embedded,
-                        )
-                        if changes:
-                            updated += 1
-                            record_verb = 'update'
-                        else:
-                            unchanged += 1
-                            record_verb = 'leave unchanged'
-
-                    if is_new_target and target_name not in dry_run_target_names_seen:
-                        dry_run_target_names_seen.add(target_name)
-                        targets_created += 1
-                        target_verb = 'create'
-                    else:
-                        target_verb = 'reuse'
-
-                    # D-01/D-02: keyed by pk when the target already exists (so it is
-                    # collected once even if a second portal name fuzzy-matches it later in
-                    # the same run), or by name for a would-be-new target with no pk yet.
-                    collected_targets[target.pk if target.pk else target_name] = target
-
-                    self.stdout.write(
-                        f'Would {target_verb} target {target_name!r}; '
-                        f'would {record_verb} ObservationRecord '
-                        f'observation_id={observation_id!r} status={status!r}.'
-                    )
-                    processed_in_group.append(True)
-                    continue
-
-                if is_new_target:
-                    target.save()
-                    targets_created += 1
-
-                # D-01/D-02: every target reaching this line has a pk -- a matched one
-                # already had it, a new one was just saved above.
-                collected_targets[target.pk] = target
-
-                record, record_created = ObservationRecord.objects.get_or_create(
-                    facility=facility.name,
-                    observation_id=observation_id,
-                    defaults={
-                        'target': target,
-                        'user': user,
-                        'status': status,
-                        'parameters': parameters,
-                        'scheduled_start': scheduled_start,
-                        'scheduled_end': scheduled_end,
-                    },
-                )
-                if record_created:
-                    created += 1
-                else:
-                    changes = _changed_record_fields(record, status, scheduled_start, scheduled_end, parameters)
-                    if changes:
-                        for field, value in changes.items():
-                            setattr(record, field, value)
-                        record.save()
-                        updated += 1
-                    else:
-                        unchanged += 1
-
-                processed_in_group.append(record)
-
-            if len(requests_in_group) > 1 and processed_in_group:
-                group_name = _group_name(request_group)
-                if dry_run:
-                    would_reuse = ObservationGroup.objects.filter(name=group_name).exists()
-                    if would_reuse:
-                        groups_reused += 1
-                    else:
-                        groups_created += 1
-                    self.stdout.write(f'Would {"reuse" if would_reuse else "create"} ObservationGroup {group_name!r}.')
-                else:
-                    group, group_was_created = ObservationGroup.objects.get_or_create(name=group_name)
-                    group.observation_records.add(*processed_in_group)
-                    if group_was_created:
-                        groups_created += 1
-                    else:
-                        groups_reused += 1
-
-        list_name = options.get('target_list') or f'{proposal}_targets'
-        targets_added = len(collected_targets)
-        if dry_run:
-            # T-kpy-01: no get_or_create, no .add() -- reads only, so a dry run writes
-            # nothing at all.
-            list_reused = TargetList.objects.filter(name=list_name).exists()
-        else:
-            # D-05: the list is created unconditionally, even when the sweep touched zero
-            # targets, because get_or_create runs before .add() regardless.
-            target_list, list_was_created = TargetList.objects.get_or_create(name=list_name)
-            # The M2M add is set-like, which is what makes a re-run non-duplicating.
-            target_list.targets.add(*collected_targets.values())
-            list_reused = not list_was_created
-
-        if dry_run:
-            list_verb = 'would reuse' if list_reused else 'would create'
-        else:
-            list_verb = 'reused' if list_reused else 'created'
-
-        summary = (
-            f'requestgroups seen: {requestgroups_seen}, '
-            f'{"would create" if dry_run else "created"}: {created}, '
-            f'{"would update" if dry_run else "updated"}: {updated}, '
-            f'unchanged: {unchanged}, skipped: {skipped}, '
-            f'{"targets would create" if dry_run else "targets created"}: {targets_created}, '
-            f'{"groups would create" if dry_run else "groups created"}: {groups_created}, '
-            f'{"groups would reuse" if dry_run else "groups reused"}: {groups_reused}, '
-            f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
-            f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}, '
-            f'target list: {list_verb} {list_name!r}, '
-            f'{"targets would add to list" if dry_run else "targets added to list"}: {targets_added}'
+        return sweep_proposal(
+            proposal,
+            target_list_name=options.get('target_list'),
+            user=user,
+            created_after=options.get('created_after'),
+            created_before=options.get('created_before'),
+            dry_run=dry_run,
+            stdout=self.stdout,
+            stderr=self.stderr,
         )
-        return summary
