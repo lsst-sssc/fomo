@@ -740,6 +740,25 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertIsNone(row.last_run_at)
         self.assertEqual(row.last_run_summary, '')
 
+    @patch('solsys_code.management.commands.backfill_lco_observations.sweep_proposal')
+    def test_per_request_skip_reasons_are_logged_not_discarded(self, mock_sweep_proposal):
+        # IN-02 (36-REVIEW.md): sweep_proposal()'s own per-request skip-reason lines
+        # sink into a throwaway io.StringIO() when this step passes no stdout/stderr --
+        # every such reason was silently discarded. They must now reach the log.
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+
+        def _write_skip_reason(_proposal, **kwargs):
+            kwargs['stderr'].write('Skipping request 123: no configuration with a named target.')
+            return 'requestgroups seen: 1, skipped: 1'
+
+        mock_sweep_proposal.side_effect = _write_skip_reason
+
+        with self.assertLogs('solsys_code.unattended', level='DEBUG') as captured:
+            unattended.step_discovery(dry_run=False)
+
+        joined = '\n'.join(captured.output)
+        self.assertIn('no configuration with a named target', joined)
+
 
 _FAKE_LCO_API_KEY = 'FAKE-API-KEY-DO-NOT-LOG-a1b2c3'
 _FAKE_MAIL_PASSWORD = 'FAKE-MAIL-PW-d4e5f6'

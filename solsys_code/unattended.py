@@ -17,6 +17,7 @@ is given literal paths here for that reason, never a ``reverse()``'d one.
 """
 
 import fcntl
+import io
 import json
 import logging
 import sys
@@ -328,12 +329,25 @@ def step_discovery(dry_run: bool) -> StepResult:
     # IN-13 (36-REVIEW.md): the query/sweep/bookkeeping/failure-isolation loop itself
     # lives in sweep_watched_rows() -- shared with backfill_lco_observations.Command's
     # own bare-invocation path -- so this step only needs its own StepResult reporting
-    # from the counts that helper returns. IN-02 (36-REVIEW.md, still open): stdout/
-    # stderr are not passed through here, so sweep_proposal()'s own per-request skip
-    # reasons still sink into its default io.StringIO() and never reach this summary.
+    # from the counts that helper returns.
     try:
         with command_lock('backfill_lco_observations'):
-            rows_swept, failed_count, failed_codes = sweep_watched_rows(dry_run=dry_run)
+            # IN-02 (36-REVIEW.md): sweep_proposal()'s own per-request skip-reason lines
+            # (missing id/target/instrument_type, a failed block lookup) sink into a
+            # throwaway io.StringIO() when no stdout/stderr is given, and this step gave
+            # neither -- every such reason was discarded, leaving only the bare failed
+            # count in the tick's own summary/log. Capture them here and log at DEBUG:
+            # these are structural skip reasons, never portal response content or a
+            # credential (D-17), so DEBUG is the same discipline this module already
+            # applies to a failed sweep_proposal() call's own exception class name.
+            captured_stdout, captured_stderr = io.StringIO(), io.StringIO()
+            rows_swept, failed_count, failed_codes = sweep_watched_rows(
+                dry_run=dry_run, stdout=captured_stdout, stderr=captured_stderr
+            )
+            for sink_name, sink in (('stdout', captured_stdout), ('stderr', captured_stderr)):
+                captured_text = sink.getvalue()
+                if captured_text:
+                    logger.debug('discovery %s: %s', sink_name, captured_text)
             if not rows_swept:
                 logger.info('0 watched proposals, nothing to discover')
                 return StepResult(name='discovery', failed=False, summary='0 watched proposals, nothing to discover')
