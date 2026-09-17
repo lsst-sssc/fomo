@@ -41,9 +41,10 @@ from solsys_code.admin import (
     CalendarEventMetaInline,
     CampaignRunAdmin,
     CampaignRunObservationInline,
+    WatchedProposalAdmin,
 )
 from solsys_code.campaign_utils import UNLINK_CLEARED_FIELDS
-from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
 
 PII_CONTACT_PERSON = 'Zztestcontact'
@@ -1294,3 +1295,31 @@ class CalendarEventMetaObservationLinksReadOnlyTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.meta.refresh_from_db()
         self.assertIsNone(self.meta.observation_group_id)
+
+
+class WatchedProposalAdminTests(TestCase):
+    """Plan 36-02 Task 1: `WatchedProposal` is registered, staff can toggle `is_active`
+    directly from the changelist, and a superuser can reach and search the changelist."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(username='wpadmin', email='wpadmin@example.test', password='pw')
+        cls.row = WatchedProposal.objects.create(proposal_code='KEY2026B-004')
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_registered_with_admin_site(self) -> None:
+        self.assertIn(WatchedProposal, django_admin.site._registry)
+        self.assertIsInstance(django_admin.site._registry[WatchedProposal], WatchedProposalAdmin)
+
+    def test_is_active_is_listed_editable_and_filterable(self) -> None:
+        model_admin = django_admin.site._registry[WatchedProposal]
+        self.assertIn('is_active', model_admin.list_display)
+        self.assertIn('is_active', model_admin.list_editable)
+        self.assertIn('is_active', model_admin.list_filter)
+
+    def test_changelist_loads_and_shows_seeded_row(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_watchedproposal_changelist'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('KEY2026B-004', response.content.decode())
