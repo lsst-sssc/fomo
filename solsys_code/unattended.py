@@ -30,12 +30,17 @@ from typing import Any
 
 import requests
 from django.conf import settings
+from django.utils import timezone
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.soar import SOARFacility
+from tom_observations.models import ObservationRecord
 
 from solsys_code import notifications
 from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.management.commands.backfill_lco_observations import sweep_proposal, watched_rows
+from solsys_code.management.commands.project_observation_calendar import resolve_observed_site
 from solsys_code.models import CampaignRun
+from solsys_code.observation_projector import PROJECTED_FACILITIES, project_queryset
 
 logger = logging.getLogger(__name__)
 
@@ -238,9 +243,112 @@ def step_status_refresh(dry_run: bool) -> StepResult:
         return StepResult(name='status_refresh', failed=False, summary='skipped -- lock held')
 
 
-# D-01/D-04: the single source of the step order. Plan 03 prepends the other three steps
-# in their D-01 order; nothing else may re-declare this tuple.
-STEPS = (('status_refresh', step_status_refresh), ('reconcile', step_reconcile))
+def step_project_sweep(dry_run: bool) -> StepResult:
+    """Sweep every LCO/SOAR ``ObservationRecord`` through the observation projector.
+
+    Reproduces ``project_observation_calendar.Command.handle()``'s logic directly
+    (D-02) -- unfiltered by proposal or facility, matching 34 D-17's "the runner calls
+    this sweep bare" -- rather than going through the command.
+
+    Args:
+        dry_run: report what would change without writing, and skip the one-time
+            observed-site lookup entirely (D-08's dry-run caveat), when True.
+
+    Returns:
+        StepResult: ``failed`` is True if any row's projection came back
+            ``'unprojectable'``. When the per-step lock is contended, returns a
+            non-failing ``StepResult`` noting the skip instead.
+    """
+    try:
+        with command_lock('project_observation_calendar'):
+            records = ObservationRecord.objects.filter(facility__in=PROJECTED_FACILITIES)
+
+            def hook(record: ObservationRecord, facility: Any) -> dict[str, int] | None:
+                increment, message = resolve_observed_site(record, facility)
+                if message:
+                    # A fixed, generic message naming only the observation_id (D-08) --
+                    # never a caught exception's value.
+                    logger.warning(message)
+                return increment
+
+            result = project_queryset(records, dry_run=dry_run, pre_fields_hook=None if dry_run else hook)
+
+            failed = sum(1 for row in result['rows'] if row['action'] == 'unprojectable')
+            summary = ' | '.join(
+                f'{facility}: created: {c["created"]}, updated: {c["updated"]}, unchanged: {c["unchanged"]}, '
+                f'unprojectable: {c["unprojectable"]}, site_lookups: {c["site_lookups"]}, '
+                f'site_lookup_failed: {c["site_lookup_failed"]}'
+                for facility, c in result['counters'].items()
+            )
+            return StepResult(name='project_sweep', failed=failed > 0, summary=f'failed: {failed} | {summary}')
+    except LockContended:
+        return StepResult(name='project_sweep', failed=False, summary='skipped -- lock held')
+
+
+def step_discovery(dry_run: bool) -> StepResult:
+    """Sweep every active ``WatchedProposal`` row through ``sweep_proposal()`` (D-07..D-09).
+
+    Args:
+        dry_run: report what would change without writing any ``WatchedProposal``
+            bookkeeping when True.
+
+    Returns:
+        StepResult: ``failed`` is True if any row's sweep raised -- the failing
+            proposal code(s) are named in the summary so D-14's failure email can quote
+            them. A zero-row watched list is a healthy tick, never a failure (D-08).
+            When the per-step lock is contended, returns a non-failing ``StepResult``
+            noting the skip instead.
+    """
+    try:
+        with command_lock('backfill_lco_observations'):
+            rows = list(watched_rows())
+            if not rows:
+                logger.info('0 watched proposals, nothing to discover')
+                return StepResult(name='discovery', failed=False, summary='0 watched proposals, nothing to discover')
+
+            failed_count = 0
+            failed_codes: list[str] = []
+            for row in rows:
+                try:
+                    summary = sweep_proposal(
+                        row.proposal_code,
+                        target_list_name=row.target_list_name or None,
+                        user=row.attributed_to,
+                        dry_run=dry_run,
+                    )
+                except Exception as exc:  # noqa: BLE001 -- portal/facility call, D-17's first bucket
+                    # D-17: a portal exception's message can embed request/response
+                    # content, so only the class name ever reaches the row or the log.
+                    summary = f'failed: {type(exc).__name__}'
+                    logger.debug(
+                        'sweep_proposal() failed for proposal_code=%r: %s', row.proposal_code, type(exc).__name__
+                    )
+                    failed_count += 1
+                    failed_codes.append(row.proposal_code)
+
+                # D-09: bookkeeping is written whether the sweep succeeded or failed, so
+                # the admin's last_run_at/last_run_summary are never stale for a row that
+                # was actually swept -- but a dry run writes nothing at all.
+                if not dry_run:
+                    row.last_run_at = timezone.now()
+                    row.last_run_summary = summary
+                    row.save(update_fields=['last_run_at', 'last_run_summary'])
+
+            overall_summary = f'swept: {len(rows)}, failed: {failed_count}'
+            if failed_codes:
+                overall_summary += f' ({", ".join(failed_codes)})'
+            return StepResult(name='discovery', failed=failed_count > 0, summary=overall_summary)
+    except LockContended:
+        return StepResult(name='discovery', failed=False, summary='skipped -- lock held')
+
+
+# D-01/D-04: the single source of the step order. Nothing else may re-declare this tuple.
+STEPS = (
+    ('status_refresh', step_status_refresh),
+    ('project_sweep', step_project_sweep),
+    ('discovery', step_discovery),
+    ('reconcile', step_reconcile),
+)
 
 
 def load_state() -> dict:

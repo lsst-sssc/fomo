@@ -22,11 +22,15 @@ import requests
 from django.contrib.auth.models import User
 from django.core import mail
 from django.core.management import call_command
+from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code import observation_projector as op
 from solsys_code import unattended
-from solsys_code.models import CampaignRun
+from solsys_code.models import CampaignRun, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
 
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST'
@@ -137,6 +141,38 @@ class TestRunUnattended(UnattendedTestBase):
         mock_reconcile.assert_called()
         self.assertEqual(len(mail.outbox), 0)
         self.mock_requests_get.assert_not_called()
+
+    def test_all_four_steps_run_in_order(self):
+        calls = []
+
+        def make_step(name):
+            def step(dry_run):
+                calls.append(name)
+                return unattended.StepResult(name=name, failed=(name == 'status_refresh'), summary='x')
+
+            return step
+
+        fake_steps = tuple(
+            (name, make_step(name)) for name in ('status_refresh', 'project_sweep', 'discovery', 'reconcile')
+        )
+        with patch.object(unattended, 'STEPS', fake_steps):
+            with contextlib.suppress(SystemExit):
+                call_command('run_unattended')
+
+        self.assertEqual(calls, ['status_refresh', 'project_sweep', 'discovery', 'reconcile'])
+
+    def test_expected_data_shape_outcomes_are_not_failures(self):
+        def sweep_step(dry_run):
+            return unattended.StepResult(name='project_sweep', failed=False, summary='LCO: unchanged: 5, skipped: 0')
+
+        def reconcile_step(dry_run):
+            return unattended.StepResult(
+                name='reconcile', failed=False, summary='detach_declined: 2, remint_declined: 1'
+            )
+
+        with patch.object(unattended, 'STEPS', (('project_sweep', sweep_step), ('reconcile', reconcile_step))):
+            call_command('run_unattended')  # must not raise
+        self.assertEqual(len(mail.outbox), 0)
 
 
 class TestNotification(UnattendedTestBase):
@@ -365,6 +401,158 @@ class TestStatusRefreshStep(UnattendedTestBase):
         mock_lco_cls.assert_not_called()
         mock_soar_cls.assert_not_called()
         self.assertFalse(result.failed)
+
+
+class TestProjectSweepStep(UnattendedTestBase):
+    """Task 2: the projector sweep step, reproducing project_observation_calendar's own
+    logic directly rather than going through the management command."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.target = NonSiderealTargetFactory.create()
+
+    def _make_record(self, observation_id: str, facility: str = 'LCO') -> ObservationRecord:
+        """Create an ObservationRecord fixture with the projector's post_save receiver
+        disconnected -- mirroring test_project_observation_calendar.py's own convention --
+        so fixture creation does not itself pre-populate the CalendarEvent this step's
+        sweep is meant to write.
+        """
+        post_save.disconnect(
+            op.receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            return ObservationRecord.objects.create(
+                target=self.target,
+                facility=facility,
+                observation_id=observation_id,
+                status='PENDING',
+                parameters={
+                    'proposal': 'TESTPROP',
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': '2026-09-01T00:00:00',
+                    'end': '2026-09-02T00:00:00',
+                },
+            )
+        finally:
+            post_save.connect(
+                op.receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
+    def test_clean_sweep_is_not_a_failure(self):
+        self._make_record('sweep-clean')
+
+        result = unattended.step_project_sweep(dry_run=False)
+
+        self.assertFalse(result.failed)
+        self.assertIn('LCO', result.summary)
+
+    @patch('solsys_code.unattended.project_queryset')
+    def test_unprojectable_row_is_a_failure(self, mock_project_queryset):
+        mock_project_queryset.return_value = {
+            'counters': {
+                'LCO': {
+                    'created': 0,
+                    'updated': 0,
+                    'unchanged': 0,
+                    'unprojectable': 1,
+                    'site_lookups': 0,
+                    'site_lookup_failed': 0,
+                }
+            },
+            'rows': [
+                {'observation_id': 'obs-x', 'status': 'PENDING', 'stage': 'ValueError', 'action': 'unprojectable'}
+            ],
+        }
+
+        result = unattended.step_project_sweep(dry_run=False)
+
+        self.assertTrue(result.failed)
+        self.assertIn('failed: 1', result.summary)
+
+    @patch('solsys_code.unattended.project_queryset')
+    def test_site_lookup_hook_is_passed_on_a_real_run_and_omitted_on_dry_run(self, mock_project_queryset):
+        mock_project_queryset.return_value = {'counters': {}, 'rows': []}
+
+        unattended.step_project_sweep(dry_run=False)
+        self.assertTrue(callable(mock_project_queryset.call_args.kwargs['pre_fields_hook']))
+
+        mock_project_queryset.reset_mock()
+        unattended.step_project_sweep(dry_run=True)
+        self.assertIsNone(mock_project_queryset.call_args.kwargs['pre_fields_hook'])
+
+    @patch('django.core.management.call_command')
+    def test_step_never_calls_the_management_command(self, mock_call_command):
+        self._make_record('sweep-no-command')
+
+        unattended.step_project_sweep(dry_run=False)
+
+        mock_call_command.assert_not_called()
+
+
+class TestDiscoveryStep(UnattendedTestBase):
+    """Task 2 (36-CONTEXT.md D-07..D-09): the watched-proposal discovery step."""
+
+    @patch('solsys_code.unattended.sweep_proposal')
+    def test_sweeps_every_active_row(self, mock_sweep_proposal):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+        WatchedProposal.objects.create(proposal_code='CCC-2026-003', is_active=False)
+        mock_sweep_proposal.return_value = 'swept ok'
+
+        result = unattended.step_discovery(dry_run=False)
+
+        self.assertEqual(
+            [call.args[0] for call in mock_sweep_proposal.call_args_list],
+            ['AAA-2026-001', 'BBB-2026-002'],
+        )
+        self.assertFalse(result.failed)
+
+    @patch('solsys_code.unattended.sweep_proposal')
+    def test_empty_list_is_healthy(self, mock_sweep_proposal):
+        result = unattended.step_discovery(dry_run=False)
+
+        self.assertFalse(result.failed)
+        self.assertIn('0 watched proposals', result.summary)
+        mock_sweep_proposal.assert_not_called()
+
+    @patch('solsys_code.unattended.sweep_proposal')
+    def test_one_failing_row_does_not_stop_the_others(self, mock_sweep_proposal):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        WatchedProposal.objects.create(proposal_code='BBB-2026-002')
+        mock_sweep_proposal.side_effect = [requests.exceptions.HTTPError('boom'), 'requestgroups seen: 1']
+
+        result = unattended.step_discovery(dry_run=False)
+
+        row_a = WatchedProposal.objects.get(proposal_code='AAA-2026-001')
+        row_b = WatchedProposal.objects.get(proposal_code='BBB-2026-002')
+        self.assertTrue(row_a.last_run_summary.startswith('failed:'))
+        self.assertEqual(row_b.last_run_summary, 'requestgroups seen: 1')
+        self.assertTrue(result.failed)
+
+    @patch('solsys_code.unattended.sweep_proposal')
+    def test_failing_row_names_the_proposal_in_the_summary(self, mock_sweep_proposal):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        mock_sweep_proposal.side_effect = requests.exceptions.HTTPError('boom')
+
+        result = unattended.step_discovery(dry_run=False)
+
+        self.assertIn('AAA-2026-001', result.summary)
+
+    @patch('solsys_code.unattended.sweep_proposal')
+    def test_dry_run_writes_no_bookkeeping(self, mock_sweep_proposal):
+        row = WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        mock_sweep_proposal.return_value = 'would sweep'
+
+        unattended.step_discovery(dry_run=True)
+
+        row.refresh_from_db()
+        self.assertIsNone(row.last_run_at)
+        self.assertEqual(row.last_run_summary, '')
 
 
 class TestCredentialHygiene(UnattendedTestBase):
