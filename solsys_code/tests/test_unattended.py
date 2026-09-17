@@ -145,6 +145,17 @@ class TestRunUnattended(UnattendedTestBase):
         self.assertEqual(len(mail.outbox), 0)
         self.mock_requests_get.assert_not_called()
 
+    def test_unknown_only_step_raises_instead_of_reporting_a_healthy_no_op(self):
+        # IN-06 (36-REVIEW.md): run_unattended's own --step argparse choices already
+        # reject an unknown name from the CLI, but run_tick() is a public function any
+        # other caller can invoke directly -- before this check, an unrecognized
+        # only_step silently matched zero STEPS entries, ran nothing, and returned
+        # exit_code=0: a typo'd step name looked exactly like a healthy tick.
+        with self.assertRaises(ValueError) as ctx:
+            unattended.run_tick(only_step='typo-not-a-real-step')
+        self.assertIn('typo-not-a-real-step', str(ctx.exception))
+        self.mock_requests_get.assert_not_called()
+
     def test_all_four_steps_run_in_order(self):
         calls = []
 

@@ -592,7 +592,19 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
             contended whole-run lock is NOT a failure -- it returns ``exit_code=0``
             with no results and writes a skip line to stderr; the heartbeat's grace
             period (D-12) is the structural backstop for a permanently contended lock.
+
+    Raises:
+        ValueError: ``only_step`` does not match any registered ``STEPS`` name. IN-06
+            (36-REVIEW.md): ``run_unattended``'s own ``--step`` argparse ``choices``
+            already rejects an unknown name from the CLI, but ``run_tick()`` is a public
+            function any other caller can invoke directly with an arbitrary string --
+            before this check, an unrecognized ``only_step`` silently matched zero
+            ``STEPS`` entries, ran nothing, and returned ``exit_code=0``: a typo'd step
+            name looked exactly like a healthy tick.
     """
+    if only_step is not None and only_step not in dict(STEPS):
+        raise ValueError(f'Unknown step {only_step!r} -- must be one of {[name for name, _ in STEPS]!r}')
+
     now = datetime.now(dt_timezone.utc)
     quiet = dry_run or only_step is not None
 
