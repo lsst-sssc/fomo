@@ -1,0 +1,31 @@
+# FOMO unattended operation -- logrotate fragment (Phase 36, SCHED-08, D-18).
+#
+# Copy this fragment to /etc/logrotate.d/fomo (or drop it into whatever directory this
+# host's logrotate scans) and edit the path below if this host's crontab line redirects
+# somewhere other than the default. The path here must match the log destination
+# `deploy/cron/fomo.crontab.example` redirects into and `settings.FOMO_LOG_FILE`
+# defaults to; `python manage.py check_unattended` verifies that directory is writable
+# by the user the runner will actually run as.
+#
+# This file is committed to git -- it must NEVER gain a real host path beyond the
+# placeholder below, a real credential, or any other host-specific value.
+#
+# `su` / ownership directives may be needed depending on which user cron runs as; add
+# them inside the stanza below if this host's log file is not owned by the account
+# running logrotate.
+/var/log/fomo/unattended.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    # copytruncate, not create + a signal: the writer is cron's own `>> ... 2>&1`
+    # redirect, which holds the file descriptor open for the duration of a tick.
+    # Renaming the file out from under that open descriptor (the `create` strategy)
+    # would silently send the rest of that tick's output to the now-rotated-away
+    # inode instead of the fresh file logrotate created -- copytruncate instead
+    # copies the current contents aside and truncates the original file in place,
+    # so the same open descriptor keeps writing to the file cron already has open.
+    copytruncate
+}
