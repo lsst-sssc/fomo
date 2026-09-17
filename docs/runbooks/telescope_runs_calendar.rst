@@ -1207,6 +1207,22 @@ retirement, there is a remedy if the duplicate is unwanted: clear the
 confirmation on that night's companion row in the Django admin and re-run
 the sweep, or leave it as is and accept the duplicate.
 
+A declined retirement ALSO counts under ``updated`` or ``unchanged`` on
+the same sweep -- the same pair the ``remint_declined`` section below
+already states for its own decline, and for the same reason: the night
+survives and only the delete is declined, so its title, description and
+campaign label are still refreshed. This is what keeps a later **Mark
+cancelled** / **Mark weather/technical failure** action reaching a night
+whose retirement was declined, so the entry picks up its ``[CANCELLED]``
+/ ``[WEATHERED]`` prefix on the next sweep instead of sitting on the
+calendar as an ordinary observing night for as long as the confirmation
+stands. The night's primary key, start time, end time and
+``confirmed_by``/``confirmed_at`` stamp are never touched by that
+refresh, and no sun-event calculation is paid for it. The
+declined-retirement warning therefore repeats on every sweep until the
+confirmation is cleared, which is the standing report for a night the
+sweep is refusing to delete, not a fault.
+
 ``remint_declined`` counts a night whose boundaries would have changed --
 a re-mint that ``retired`` reason (2) above would otherwise have performed
 -- but which the sweep declined to delete and re-create, for any of three
