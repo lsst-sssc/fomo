@@ -385,6 +385,11 @@ failing proposal code(s) only if at least one row failed.
 
    >> python3 manage.py backfill_lco_observations
 
+These four flags apply to the single-proposal override only; combined with the bare
+invocation the command now fails with a ``CommandError`` rather than silently
+discarding them, because the watched-list sweep takes its overrides from each
+``WatchedProposal`` row (WR-12, 36-REVIEW.md).
+
 **Date filtering instead of a name prefix.** ``--created-after`` and
 ``--created-before`` (ISO-8601 timestamps or bare dates) restrict the
 backfill to ``RequestGroup``\\ s created in that window -- sent to the
@@ -1742,7 +1747,8 @@ Command cheat-sheet
    * - ``backfill_lco_observations``
      - ``--proposal <code>`` (optional -- omit to sweep every active Watched proposal
        row), ``--created-after``/``--created-before``, ``--username <user>``,
-       ``--target-list <name>``, ``--dry-run`` (all optional)
+       ``--target-list <name>``, ``--dry-run`` (optional; the four non-``--dry-run``
+       flags require ``--proposal``)
      - Campaign-agnostic backfill; bare invocation sweeps the admin-editable watched-proposal list (the discovery step of :ref:`unattended-operation`).
    * - ``sync_gemini_observation_calendar``
      - (none)
