@@ -336,7 +336,14 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 36-01-PLAN.md — Tracer: one end-to-end unattended tick (runner, heartbeat, failure email, crontab template, shared mail helper)
+- [ ] 36-02-PLAN.md — `WatchedProposal` model/admin and the watched-list discovery restructure of `backfill_lco_observations`
+- [ ] 36-03-PLAN.md — The remaining three steps (status refresh, projector sweep, discovery) and the SCHED-10 regression suite
+- [ ] 36-04-PLAN.md — `check_unattended` preflight, the printed cron line, and the logrotate example
+- [ ] 36-05-PLAN.md — Paired docs: the runbook's unattended-operation section, the demo notebook's watched-proposal cells, and the CLAUDE.md map
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
