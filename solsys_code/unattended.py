@@ -545,7 +545,16 @@ def load_state() -> dict:
     try:
         notified_at = datetime.fromisoformat(raw_notified_at) if raw_notified_at else None
     except (TypeError, ValueError):
-        notified_at = None
+        # CR-06 (36-REVIEW.md): an unparseable notified_at makes the whole record
+        # untrustworthy, not just this one field -- keeping failing_steps without it
+        # wedges decide_notification() on "same set, never notified": failing_steps
+        # matches on every later tick, so the 'failure' branch never re-fires, and
+        # notified_at is None so the 24-hour reminder branch never fires either. That
+        # is silent, permanent loss of mail for exactly the failing set this phase
+        # exists to report. Treat the whole record as "no prior failure" instead, which
+        # is what this function's own docstring already promises.
+        logger.warning('unattended state file has an unparseable notified_at -- ignoring the whole record')
+        return {'failing_steps': [], 'notified_at': None}
     if notified_at is not None and notified_at.tzinfo is None:
         notified_at = notified_at.replace(tzinfo=dt_timezone.utc)
 
@@ -669,6 +678,15 @@ def decide_notification(previous_state: dict, failing_steps: list[str], now: dat
             persists and ``_REMINDER_INTERVAL`` has elapsed since the last
             notification), ``'recovered'`` (the set just became empty after a prior
             failure), or ``None`` (nothing to send).
+
+    CR-06 (36-REVIEW.md): belt-and-braces alongside ``load_state()``'s own fix for the
+    same disagreement -- a ``previous_state`` whose ``failing_steps`` matches this tick's
+    but whose ``notified_at`` is ``None`` (any origin: a hand-edited file, an older/newer
+    schema, or a future caller that skips ``load_state()``) must be treated as due for
+    notification *now*, not as "already notified, indefinitely". Without this, that
+    combination reaches neither the ``'failure'`` branch (the sets match) nor the
+    ``'reminder'`` branch (``notified_at is None`` makes the elapsed-time check
+    unreachable), and returns ``None`` forever.
     """
     previous_failing = sorted(previous_state.get('failing_steps') or [])
     failing_steps = sorted(failing_steps)
@@ -677,7 +695,12 @@ def decide_notification(previous_state: dict, failing_steps: list[str], now: dat
     if failing_steps:
         if failing_steps != previous_failing:
             return 'failure'
-        if notified_at is not None and (now - notified_at) >= _REMINDER_INTERVAL:
+        if notified_at is None:
+            # A previously-recorded failure with no recorded send time can never have
+            # actually notified anyone -- treat it as due now rather than silently
+            # never-again (see CR-06 docstring note above).
+            return 'failure'
+        if (now - notified_at) >= _REMINDER_INTERVAL:
             return 'reminder'
         return None
     if previous_failing:

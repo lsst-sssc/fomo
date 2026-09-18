@@ -329,6 +329,36 @@ class TestNotification(UnattendedTestBase):
                 call_command('run_unattended')
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_state_file_with_unparseable_notified_at_still_mails(self):
+        # CR-06 (36-REVIEW.md): a state file with a valid failing_steps but an
+        # unparseable notified_at -- reachable via a hand edit (the runbook's own
+        # troubleshooting section names these files), a truncated/legacy file, or the
+        # CR-05 fallback path -- must not permanently suppress notification for that
+        # failing set. Write exactly such a file directly (bypassing save_state(), which
+        # never itself produces one), then run a tick with the SAME step still failing;
+        # before the fix this reached decide_notification() as "same set, never
+        # notified" and returned None forever, so no mail was ever sent again.
+        state_path = Path(self.tmp_dir.name) / 'unattended-state.json'
+        state_path.write_text(json.dumps({'failing_steps': ['reconcile'], 'notified_at': 'not-a-date'}))
+
+        self._make_campaign_run()
+        with patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError('boom')):
+            with self.assertRaises(SystemExit):
+                call_command('run_unattended')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(mail.outbox[0].subject.startswith('FOMO unattended run failed:'))
+
+    def test_decide_notification_treats_a_none_notified_at_as_due_now(self):
+        # CR-06 (36-REVIEW.md): belt-and-braces unit test for decide_notification()'s own
+        # guard, independent of load_state()'s fix above -- a previous_state with the
+        # SAME failing set as this tick but notified_at=None (however that combination
+        # arose) must be treated as due for notification now, not as "already notified,
+        # indefinitely" (previously unreachable by either the 'failure' branch, since the
+        # sets match, or the 'reminder' branch, since notified_at is None).
+        previous_state = {'failing_steps': ['reconcile'], 'notified_at': None}
+        decision = unattended.decide_notification(previous_state, ['reconcile'], datetime.now(dt_timezone.utc))
+        self.assertEqual(decision, 'failure')
+
 
 class TestNotifyStaffReturnValue(UnattendedTestBase):
     """IN-07 (36-REVIEW.md): ``notify_staff()`` must return whether ``send_mail()``
@@ -465,10 +495,15 @@ class TestStateFileRobustness(UnattendedTestBase):
         self.assertEqual(unattended.load_state(), {'failing_steps': [], 'notified_at': None})
 
     def test_malformed_notified_at_is_treated_as_no_prior_notification(self):
+        # CR-06 (36-REVIEW.md): an unparseable notified_at makes the WHOLE record
+        # untrustworthy, not just this one field. Before this fix, failing_steps was
+        # kept (only notified_at was nulled), which wedged decide_notification() on
+        # "same set, never notified" forever -- no failure mail, and no reminder either,
+        # since the reminder branch also requires a non-None notified_at. This function's
+        # own docstring promises "no prior failure" for the whole record; assert that
+        # promise, not the partial-preservation behavior it previously violated.
         self._write_state_file(json.dumps({'failing_steps': ['reconcile'], 'notified_at': 'not-a-date'}))
-        state = unattended.load_state()
-        self.assertEqual(state['failing_steps'], ['reconcile'])
-        self.assertIsNone(state['notified_at'])
+        self.assertEqual(unattended.load_state(), {'failing_steps': [], 'notified_at': None})
 
     def test_naive_notified_at_is_assumed_utc(self):
         self._write_state_file(json.dumps({'failing_steps': ['reconcile'], 'notified_at': '2026-01-01T00:00:00'}))
