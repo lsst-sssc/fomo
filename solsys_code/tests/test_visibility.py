@@ -5,7 +5,7 @@ import numpy as np
 from astropy import units as u
 from django.test import SimpleTestCase
 
-from solsys_code.visibility import CadenceWindow, cadence_window, visibility_windows
+from solsys_code.visibility import CadenceWindow, airmass_samples, cadence_window, visibility_windows
 
 DAY = timedelta(days=1)
 
@@ -21,6 +21,44 @@ def t(day, hhmm):
 COJ = (t(16, 900), t(16, 1715))
 CPT = (t(16, 1730), t(17, 200))
 LSC = (t(16, 2345), t(17, 800))
+
+
+class TestAirmassSamples(SimpleTestCase):
+    def assertAirmasses(self, actual, expected):
+        self.assertEqual(len(actual), len(expected))
+        for got, want in zip(actual, expected, strict=True):
+            if want is None:
+                self.assertIsNone(got)
+            else:
+                self.assertIsInstance(got, float)
+                self.assertAlmostEqual(got, want, places=3)
+
+    def test_airmass_is_secant_of_zenith_distance(self):
+        self.assertAirmasses(airmass_samples([90.0, 30.0], [-30.0, -30.0]), [1.0, 2.0])
+
+    def test_below_horizon_is_none(self):
+        self.assertAirmasses(airmass_samples([0.0, -5.0], [-30.0, -30.0]), [None, None])
+
+    def test_sun_up_is_none(self):
+        # Sun exactly at the limit is still night; anything above it is rejected
+        self.assertAirmasses(airmass_samples([30.0, 30.0, 30.0], [-18.0, -17.9, 10.0]), [2.0, None, None])
+
+    def test_custom_sun_altitude_limit(self):
+        self.assertAirmasses(airmass_samples([30.0, 30.0], [-15.0, -10.0], sun_alt_limit_deg=-12.0), [2.0, None])
+
+    def test_default_airmass_limit_is_10(self):
+        # airmass 10 corresponds to an altitude of ~5.74 deg
+        self.assertAirmasses(airmass_samples([5.7, 5.8], [-30.0, -30.0]), [None, 9.895])
+
+    def test_airmass_limit(self):
+        self.assertAirmasses(airmass_samples([30.0, 31.0], [-30.0, -30.0], airmass_limit=2.0), [None, 1.942])
+
+    def test_numpy_inputs(self):
+        self.assertAirmasses(airmass_samples(np.array([90.0, -1.0]), np.array([-30.0, -30.0])), [1.0, None])
+
+    def test_length_mismatch_raises(self):
+        with self.assertRaises(ValueError):
+            airmass_samples([30.0], [-30.0, -30.0])
 
 
 class TestVisibilityWindows(SimpleTestCase):

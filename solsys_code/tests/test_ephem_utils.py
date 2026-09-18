@@ -1,4 +1,5 @@
 from collections import namedtuple
+from datetime import datetime
 
 import erfa
 import numpy as np
@@ -10,7 +11,13 @@ from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from tom_targets.models import Target
 
 # Import module to test
-from solsys_code.ephem_utils import add_magnitude, add_sky_motion, build_apco_context, convert_target_to_layup
+from solsys_code.ephem_utils import (
+    add_magnitude,
+    add_sky_motion,
+    build_apco_context,
+    convert_target_to_layup,
+    get_nonsidereal_visibility,
+)
 from solsys_code.solsys_code_observatory.models import Observatory
 
 MJD_TO_JD_CONVERSION = 2400000.5
@@ -301,3 +308,66 @@ class TestBuildAPCOContext(TestCase):
             assert_array_almost_equal(
                 expected_context[field], context[field], decimal=precision, err_msg=f'Failure on field {field}'
             )
+
+
+class TestGetNonsiderealVisibility(TestCase):
+    def setUp(self):
+        self.cpt, created = Observatory.objects.get_or_create(
+            obscode='K93',
+            name='Sutherland-LCO Dome C',
+            lat=-32.380667412,
+            lon=+20.81011,
+            altitude=1808.33,
+        )
+        self.target, created = Target.objects.get_or_create(
+            name='33933',
+            type='NON_SIDEREAL',
+            permissions='PUBLIC',
+            scheme='MPC_MINOR_PLANET',
+            epoch_of_elements=61000.0,
+            mean_anomaly=342.8987983972185,
+            arg_of_perihelion=197.2440098291647,
+            eccentricity=0.21317079351206,
+            lng_asc_node=55.4085914553028,
+            inclination=1.0791909799414,
+            semimajor_axis=2.186745866749343,
+            epoch_of_perihelion=59874.98228566302,
+            perihdist=1.72059551512517,
+            abs_mag=14.89,
+            slope=0.15,
+        )
+        self.start = datetime(2025, 5, 10)
+        self.end = datetime(2025, 5, 11)
+
+    def test_output_shape_matches_sidereal_visibility(self):
+        visibility = get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.start, self.end, 60)
+
+        self.assertEqual(list(visibility.keys()), ['CPT'])
+        times, airmasses = visibility['CPT']
+        self.assertEqual(len(times), 25)
+        self.assertEqual(len(airmasses), 25)
+        self.assertEqual(times[0], self.start)
+        self.assertEqual(times[-1], self.end)
+
+    def test_target_only_visible_in_evening_from_cpt(self):
+        # (33933) sets a few hours after the Sun in May 2025; from K93 it is only above the horizon
+        # after astronomical twilight between 18:00 and 20:00 UTC on 2025-05-10.
+        times, airmasses = get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.start, self.end, 60)['CPT']
+
+        valid = {time.hour: airmass for time, airmass in zip(times, airmasses, strict=True) if airmass is not None}
+        self.assertEqual(sorted(valid), [18, 19, 20])
+        self.assertAlmostEqual(valid[18], 2.02, places=2)
+        self.assertAlmostEqual(valid[19], 2.75, places=2)
+        self.assertAlmostEqual(valid[20], 5.11, places=2)
+
+    def test_airmass_limit(self):
+        times, airmasses = get_nonsidereal_visibility(
+            self.target, {'CPT': self.cpt}, self.start, self.end, 60, airmass_limit=3.0
+        )['CPT']
+
+        valid_hours = [time.hour for time, airmass in zip(times, airmasses, strict=True) if airmass is not None]
+        self.assertEqual(valid_hours, [18, 19])
+
+    def test_end_before_start_raises(self):
+        with self.assertRaises(ValueError):
+            get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.end, self.start, 60)
