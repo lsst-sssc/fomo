@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 5/6 plans executed (36-06 is gap closure for UAT gap G-36-3)
+**Plans**: 6/6 plans executed (36-06 is gap closure for UAT gap G-36-3)
 
 Plans:
 **Wave 1**
@@ -355,7 +355,7 @@ Plans:
 
 **Wave 4** *(gap closure — UAT G-36-3)*
 
-- [ ] 36-06-PLAN.md — Heartbeat guidance names both the check's expected ping interval and its grace time: runbook, crontab template, preflight reminder, and the corrected verification record
+- [x] 36-06-PLAN.md — Heartbeat guidance names both the check's expected ping interval and its grace time: runbook, crontab template, preflight reminder, and the corrected verification record
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
@@ -416,7 +416,7 @@ Plans:
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
-| 36. Unattended Operation | v2.4 | 5/5 | In Progress|  |
+| 36. Unattended Operation | v2.4 | 6/6 | In Progress|  |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
