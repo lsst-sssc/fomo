@@ -95,3 +95,28 @@ Result: window 09:00→08:00, **midpoint 20:30 UTC, ±11.5 h**. Use these as the
 Steps 1 and 3 together (extraction + pure helper with tests). Neither needs the heavy pipeline to
 test, and 1 is the enabler for everything else. Branch off `main` (not `issue29-…`) so the PR stays
 independent of the Scout review; rebase after that merges if needed.
+
+## Status (2026-09-18) and follow-ups
+
+Steps 1–4 are implemented on `feature/visibility-windows`. Deviations from the design above: the
+template tag is `nonsidereal_target_plan` in `solsys_code/templatetags/visibility_extras.py`
+(`src/templatetags/` is not registered with Django), the Plan form carries a checkbox list of all
+six LCO sites (all selected by default), the sampling interval is coarsened for long ranges
+(`sampling_interval`, ≤300 samples per site) and the ASSIST simulation is rebuilt per site (cheap
+compared with the per-sample integration).
+
+To revisit:
+
+- **Fixed colour per site.** Neither TOM's `target_plan`/`observation_plan` nor our figures pin a
+  colour to a site; both take Plotly's colorway in trace order, so colours shift when sites are
+  deselected or greyed out. Add a colour to each `LCO_SITES` entry and use it in `airmass_figure`
+  and `cadence_figure` (plus a fixed colour for the "All sites" row).
+- **Window edges.** `visibility_windows` uses the first/last *valid sample*, so each window is
+  underestimated by up to one interval and a single-sample run draws as a zero-width bar; pad by
+  half an interval at each end if that matters.
+- **Rapidly moving NEOs.** No test exercises a close-approaching object (all ephemeris/visibility
+  tests use (33933), a main-belt asteroid). Add a fixture near a close approach to check that
+  the coarsened sampling interval for long ranges does not miss short windows, and that the
+  per-sample light-time/ASSIST integration behaves through the encounter.
+- **Render time.** A 7-day, six-site plan takes ~11 s; the per-row `build_apco_context` in
+  `compute_ephemeris` is the obvious optimisation target.
