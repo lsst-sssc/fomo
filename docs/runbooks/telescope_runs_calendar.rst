@@ -1540,12 +1540,16 @@ Setting it up on a fresh host
    environment variable, never the remote check's own configuration),
    whether ``FOMO_BASE_URL`` has been changed from its localhost dev
    default (WR-07, 36-REVIEW.md -- left at the default, every emailed
-   admin/calendar/approval-queue link is unusable off this host), and
-   whether at least one ``WatchedProposal`` row is active -- and exits
+   admin/calendar/approval-queue link is unusable off this host), whether
+   the LCO/SOAR portal API key is configured (a warning: the tick's
+   ``status_refresh`` step fails on every non-terminal record for that
+   facility without it), and whether at least one ``WatchedProposal`` row
+   is active -- and exits
    non-zero only when a hard prerequisite (flock, the directories, or
-   email) is missing; an unset heartbeat URL, a default base URL, and an
-   empty watched-proposal list are warnings, not failures (the tick still
-   runs, and mail still sends, without any of the three).
+   email) is missing; an unset heartbeat URL, a default base URL, an
+   unconfigured LCO/SOAR portal API key, and an empty watched-proposal
+   list are warnings, not failures (the tick still runs, and mail still
+   sends, without any of the four).
    It also prints the exact cron line to install, with the real resolved
    Python interpreter and ``manage.py`` paths already filled in -- printed
    even when a hard check failed, so an operator fixing prerequisites

@@ -9,8 +9,9 @@ state directory (WR-15, 36-REVIEW.md), the console email backend, or no staff us
 an email -- makes the command exit non-zero, naming every failed hard check in one
 ``CommandError`` so a fresh-host operator sees the whole list of problems in one run. An
 unset heartbeat URL, a ``FOMO_BASE_URL`` left at its localhost dev default (WR-07,
-36-REVIEW.md), and an empty watched-proposal list are warnings only (D-08, D-12): the
-tick still runs, and mail still sends, without either.
+36-REVIEW.md), an unset LCO/SOAR ``api_key`` (WR-31, 36-REVIEW.md), and an empty
+watched-proposal list are warnings only (D-08, D-12): the tick still runs, and mail
+still sends, without any of them.
 
 SCHED-10/D-15: every check reports a NAME plus a set/unset status or a count. The only
 values ever interpolated into this command's output are filesystem paths,
@@ -29,6 +30,8 @@ from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from tom_observations.facilities.lco import LCOSettings
+from tom_observations.facilities.soar import SOARSettings
 
 from solsys_code import notifications
 from solsys_code.models import WatchedProposal
@@ -358,6 +361,37 @@ def _send_test_email() -> CheckResult:
     return CheckResult(name='send_test_email', ok=True, hard=True, detail='sent one test email to staff recipients')
 
 
+def check_facility_credentials() -> CheckResult:
+    """Soft check: the LCO/SOAR portal API key is configured (WR-31, 36-REVIEW.md).
+
+    The fresh-host runbook's step 2 names this as a prerequisite ("leave the setting out
+    and both facility entries stay empty, so any portal call ... goes out
+    unauthenticated"), but nothing here checked it until now -- the failure is invisible
+    to CI by construction (a checkout with no ``local_settings.py`` never executes the
+    fold) and was previously only discoverable in production, when the tick's own
+    ``status_refresh`` step started failing on live records.
+
+    A warning, not a hard failure (D-08/D-12's own precedent): a host with no LCO/SOAR
+    ``ObservationRecord`` rows ticks fine without either key.
+
+    Never reports the key itself -- only which facility names are missing one (D-15,
+    SCHED-10), the same discipline every other check here follows.
+    """
+    facility_settings = (('LCO', LCOSettings('LCO')), ('SOAR', SOARSettings('SOAR')))
+    missing = [name for name, facility in facility_settings if not facility.get_setting('api_key')]
+    if missing:
+        return CheckResult(
+            name='facility_credentials',
+            ok=False,
+            hard=False,
+            detail=(
+                f'{", ".join(missing)} api_key not set -- the unattended tick\'s status_refresh '
+                'step will fail on every non-terminal record for that facility'
+            ),
+        )
+    return CheckResult(name='facility_credentials', ok=True, hard=False, detail='LCO and SOAR api_key both set')
+
+
 def check_watched_proposals() -> CheckResult:
     """Soft check: at least one active ``WatchedProposal`` row exists (D-08)."""
     count = WatchedProposal.objects.filter(is_active=True).count()
@@ -383,9 +417,10 @@ class Command(BaseCommand):
     help = (
         'Report whether this host is ready to run FOMO unattended -- flock, the lock and '
         'log directories, the email backend and staff recipients, the heartbeat URL, the '
-        'base URL used to build emailed links, and the watched-proposal list -- in one '
-        'run, and print the cron line to install. Read-only: reports, does not fix. '
-        '--send-test-email additionally sends one test email through the configured backend.'
+        'base URL used to build emailed links, the LCO/SOAR portal credentials, and the '
+        'watched-proposal list -- in one run, and print the cron line to install. '
+        'Read-only: reports, does not fix. --send-test-email additionally sends one test '
+        'email through the configured backend.'
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -415,6 +450,7 @@ class Command(BaseCommand):
         results.extend(check_email())
         results.append(check_heartbeat())
         results.append(check_base_url())
+        results.append(check_facility_credentials())
         results.append(check_watched_proposals())
         if options.get('send_test_email'):
             results.append(_send_test_email())

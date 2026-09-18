@@ -238,6 +238,37 @@ class TestWarningChecks(CheckUnattendedTestBase):
             stdout, _stderr = _run()
         self.assertIn('[WARN] FOMO_BASE_URL', stdout)
 
+    def test_missing_facility_credentials_are_a_warning(self):
+        # WR-31 (36-REVIEW.md): the fresh-host runbook names the LCO/SOAR api_key as a
+        # prerequisite, but nothing checked it until this check existed -- a green
+        # preflight followed by status_refresh failing on every non-terminal record.
+        original_lco = django_settings.FACILITIES['LCO'].get('api_key')
+        original_soar = django_settings.FACILITIES['SOAR'].get('api_key')
+        django_settings.FACILITIES['LCO']['api_key'] = ''
+        django_settings.FACILITIES['SOAR']['api_key'] = ''
+        try:
+            stdout, stderr = _run()
+        finally:
+            django_settings.FACILITIES['LCO']['api_key'] = original_lco
+            django_settings.FACILITIES['SOAR']['api_key'] = original_soar
+        self.assertIn('[WARN] facility_credentials', stdout)
+        self.assertIn('LCO', stdout)
+        self.assertIn('SOAR', stdout)
+        self.assertIn('facility_credentials', stderr)
+
+    def test_configured_facility_credentials_are_ok(self):
+        original_lco = django_settings.FACILITIES['LCO'].get('api_key')
+        original_soar = django_settings.FACILITIES['SOAR'].get('api_key')
+        django_settings.FACILITIES['LCO']['api_key'] = _FAKE_LCO_API_KEY
+        django_settings.FACILITIES['SOAR']['api_key'] = _FAKE_LCO_API_KEY
+        try:
+            stdout, _stderr = _run()
+        finally:
+            django_settings.FACILITIES['LCO']['api_key'] = original_lco
+            django_settings.FACILITIES['SOAR']['api_key'] = original_soar
+        self.assertIn('[ok] facility_credentials', stdout)
+        self.assertNotIn(_FAKE_LCO_API_KEY, stdout)
+
     def test_set_heartbeat_reminds_about_the_check_period(self):
         # G-36-3: the runbook once named only the check's grace time, so an operator
         # left the check's own expected ping interval (Period) at its 1-day default
