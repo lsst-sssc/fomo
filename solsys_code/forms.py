@@ -5,6 +5,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Fieldset, Layout, Submit
 from django import forms
 from django.urls import reverse
+from tom_targets.forms import TargetVisibilityForm
 
 from solsys_code.solsys_code_observatory.models import Observatory
 
@@ -75,3 +76,18 @@ class EphemerisForm(forms.Form):
                 HTML(f'<a class="btn btn-outline-primary" href={cancel_url}>Cancel</a>'),
             ),
         )
+
+
+class NonSiderealVisibilityForm(TargetVisibilityForm):
+    """
+    TOM's target visibility form (start/end dates and airmass limit) without its sidereal-only check.
+    """
+
+    def clean(self):
+        """Checks the date range only; skips ``TargetVisibilityForm``'s rejection of non-sidereal targets."""
+        cleaned_data = forms.Form.clean(self)
+        start_time = cleaned_data.get('start_time')
+        end_time = cleaned_data.get('end_time')
+        if start_time and end_time and end_time < start_time:
+            raise forms.ValidationError('Start time must be before end time')
+        return cleaned_data
