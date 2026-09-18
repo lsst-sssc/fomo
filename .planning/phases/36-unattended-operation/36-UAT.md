@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 36-unattended-operation
 source: [36-VERIFICATION.md]
 started: 2026-09-17T17:25:00Z
-updated: 2026-09-18T00:48:39Z
+updated: 2026-09-18T00:55:22Z
 ---
 
 ## Current Test
@@ -60,8 +60,30 @@ blocked: 0
   reason: "User reported: healthchecks.io check set to Grace 20 min per the runbook stayed green 28 minutes after the last ping; it only went Late/Down after the user discovered and set Period to 15 minutes themselves. Runbook (docs/runbooks/telescope_runs_calendar.rst:1544-1547) mentions only the grace period, not the check's Period/schedule, whose default is 1 day."
   severity: major
   test: 3
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "docs/runbooks/telescope_runs_calendar.rst:1543-1547 names only the check's Grace (~20 min) and never its Period (expected interval between pings). healthchecks.io alerts at last_ping + Period + Grace and Period defaults to 1 day, so a check configured as written first alerts ~24 h 20 min after the schedule stops. Upstream: 36-RESEARCH.md covered only the ping API, so D-12 (36-CONTEXT.md:133-143) used 'grace period' to mean total time-to-alert and plan 36-05 transcribed that into vendor-specific guidance where Grace is a narrower knob. The runner mechanism (unattended.py ping_heartbeat) is correct."
+  artifacts:
+    - path: "docs/runbooks/telescope_runs_calendar.rst"
+      issue: "1543-1547 heartbeat setup names Grace only, never Period/schedule (primary)"
+    - path: "docs/runbooks/telescope_runs_calendar.rst"
+      issue: "1563-1565 triage item compares last-ping age to Grace alone; correct bound is Period + Grace"
+    - path: "docs/runbooks/telescope_runs_calendar.rst"
+      issue: "2035-2038 third instance of the conflated 'grace period' phrase"
+    - path: "docs/runbooks/telescope_runs_calendar.rst"
+      issue: "2055-2068 only heartbeat troubleshooting entry covers the opposite symptom; no entry for 'heartbeat never alerted'"
+    - path: "deploy/cron/fomo.crontab.example"
+      issue: "line 31 repeats the Grace-only phrase"
+    - path: "solsys_code/management/commands/check_unattended.py"
+      issue: "235-244 check_heartbeat() reports only set/unset; no Period reminder (optional; test_check_unattended.py:198-221 asserts on the detail strings)"
+    - path: "solsys_code/unattended.py"
+      issue: "91, 593-594 docstrings repeat 'grace period ... is the backstop' (consistency only)"
+  missing:
+    - "Rewrite runbook 1543-1547 to name both knobs and the arithmetic (alert = Period + Grace): Period = 15 min matching the cron interval (or a Cron-type check with */15 * * * *), Grace ~20 min -> Late ~15 min, Down + alert ~35 min; name the 1-day default as the trap; keep wording service-agnostic"
+    - "Keep Grace at ~20 min (it also bounds /start-to-completion time; ticks may overrun a slot) -- do not shrink it to force a 20-minute total"
+    - "Restate time-to-alert as Period + Grace (~35 min) where 'roughly 20 minutes' appears (36-VERIFICATION.md:288, UAT expectation)"
+    - "Fix runbook 1563-1565 to compare last-ping age against Period + Grace"
+    - "Add a troubleshooting entry after 2068 for 'heartbeat never alerted although the schedule stopped' -> Period still at the 1-day default"
+    - "Propagate to deploy/cron/fomo.crontab.example:31; optionally add a Period reminder to check_heartbeat()'s [ok] detail (update test_check_unattended.py)"
+  debug_session: ".planning/debug/heartbeat-runbook-period-gap.md"
 
 ## Operational Findings
 
