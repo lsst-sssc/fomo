@@ -1,14 +1,18 @@
 ---
-status: diagnosed
+status: testing
 phase: 36-unattended-operation
 source: [36-VERIFICATION.md]
 started: 2026-09-18T02:10:00Z
-updated: 2026-09-18T02:50:00Z
+updated: 2026-09-18T12:20:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 3
+name: SC-5 sufficiency read-through from the fresh-host setup steps alone (hold released by G-36-4 closure)
+expected: |
+  A reader who has NOT been taught the heartbeat values out of band works "Setting it up on a fresh host" top-down and reaches a running, monitored schedule without opening source: step 2's flat `LCO_API_KEY = '<your key>'` line imports cleanly (no NameError), the create-and-configure-the-check step gives Period 15 min / Grace ~20 min (or Cron `*/15 * * * *`) and the ping-URL placeholder BEFORE the export step, and `check_unattended` ends green. Administer this BEFORE Test 4, since Test 4 teaches the values this test measures.
+awaiting: user response
 
 ## Tests
 
@@ -23,12 +27,24 @@ expected: Either (a) fix `solsys_code/management/commands/backfill_lco_observati
 result: pass
 decision: "record the acceptance" -- option (b). Recorded in src/fomo/settings.py (comment above LOGGING), 36-REVIEW.md WR-22 disposition, and 36-VERIFICATION.md § Acknowledged Gaps.
 
+### 3. SC-5 sufficiency read-through from the fresh-host setup steps alone (hold released by G-36-4 closure)
+expected: A reader who has NOT been taught the heartbeat values out of band works "Setting it up on a fresh host" top-down and reaches a running, monitored schedule without opening source: step 2's flat `LCO_API_KEY = '<your key>'` line imports cleanly (no NameError), the create-and-configure-the-check step gives Period 15 min / Grace ~20 min (or Cron `*/15 * * * *`) and the ping-URL placeholder BEFORE the export step, and `check_unattended` ends green. Administer this BEFORE Test 4, since Test 4 teaches the values this test measures. (Re-opened by G-36-1; held behind G-36-4; released by plan 36-08 — 36-VERIFICATION.md human item 1.)
+result: [pending]
+
+### 4. Live heartbeat dead-man re-run against a check configured from the fresh-host setup steps alone
+expected: With the check created and configured only from the setup steps (Period 15 min or Cron `*/15 * * * *`, Grace ~20 min), stopping the cron schedule makes the check go late ~15 min after the missed tick and alert ~35 min after the last successful ping, while FOMO itself logs nothing and mails nothing. External-service timer; no automated gate can reach it (36-VERIFICATION.md human item 2, formerly Test 1 of this round / Test 3 of round 1). Run AFTER Test 3.
+result: [pending]
+
+### 5. CR-03 ship decision — credential-bearing docs-build output of `local_settings.py`
+expected: Decide whether the docs build's rendering of `src/fomo/local_settings.py` is fixed (e.g. `autoapi_ignore` in `docs/conf.py`) or explicitly accepted before shipping. The verifier re-confirmed that `_readthedocs/html/autoapi/fomo/local_settings/index.html`, `_readthedocs/html/_modules/fomo/local_settings.html` and `docs/_build/html/autoapi/fomo/local_settings/index.html` each still hold one UUID-shaped string; all three are gitignored build trees, so this is outside SC 4's wording and advisory rather than a gap (36-VERIFICATION.md human item 3; 36-REVIEW.md CR-03, carried open since iteration 4). Plan 36-08 made `local_settings.py` the documented home of a second credential, which widens the exposure.
+result: [pending]
+
 ## Summary
 
-total: 2
+total: 5
 passed: 1
 issues: 1
-pending: 0
+pending: 3
 skipped: 0
 blocked: 0
 
