@@ -238,6 +238,17 @@ class TestWarningChecks(CheckUnattendedTestBase):
             stdout, _stderr = _run()
         self.assertIn('[WARN] FOMO_BASE_URL', stdout)
 
+    def test_set_heartbeat_reminds_about_the_check_period(self):
+        # G-36-3: the runbook once named only the check's grace time, so an operator
+        # left the check's own expected ping interval (Period) at its 1-day default
+        # and never got an alert. This reminder is the last line of defense against
+        # that regenerating -- keep it if this check is ever refactored.
+        with override_settings(FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL):
+            stdout, _stderr = _run()
+        self.assertIn('[ok] heartbeat', stdout)
+        self.assertIn('Period', stdout)
+        self.assertNotIn(_FAKE_HEARTBEAT_URL, stdout)
+
 
 class TestCronLine(CheckUnattendedTestBase):
     def test_line_has_real_paths(self):

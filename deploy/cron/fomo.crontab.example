@@ -28,11 +28,14 @@
 # with exit code 99 if the lock is already held, so a permanently stuck tick would
 # otherwise look like a healthy no-op -- the `[ $? -eq 99 ] && echo ... skipped` tail
 # below leaves a visible trail in the log for exactly that case, and the runner's own
-# heartbeat grace period (D-12) is the structural backstop if this log line is never
-# checked. WR-01 (36-REVIEW.md): the tail is gated on flock's own dedicated exit code
-# 99, not on "any non-zero exit" -- `run_unattended` itself exits 1 whenever a step
-# failed, and a plain `||` tail would mislabel that failing-but-genuinely-ran tick as
-# "lock held" in the log.
+# heartbeat (D-12) is the structural backstop if this log line is never checked --
+# but only if the check at the other end is configured with BOTH its expected ping
+# interval (15 min, matching this schedule; healthchecks.io calls this Period) and
+# its grace time (about 20 min). See the runbook's "How do I run everything
+# unattended?" section for the full setup. WR-01 (36-REVIEW.md): the tail is gated
+# on flock's own dedicated exit code 99, not on "any non-zero exit" --
+# `run_unattended` itself exits 1 whenever a step failed, and a plain `||` tail
+# would mislabel that failing-but-genuinely-ran tick as "lock held" in the log.
 #
 # The lock file here (`run_unattended.cron.lock`) is deliberately NOT the same file
 # `run_unattended` itself locks internally (`run_unattended.lock`, via `command_lock()`

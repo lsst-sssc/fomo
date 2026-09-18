@@ -87,8 +87,8 @@ class TickResult:
     """Outcome of one ``run_tick()`` call.
 
     Attributes:
-        exit_code: 0 on a healthy tick (including a lock-contended skip, D-12's grace
-            period is the backstop for that case), 1 if any step failed.
+        exit_code: 0 on a healthy tick (including a lock-contended skip, the heartbeat
+            (D-12) is the backstop for that case), 1 if any step failed.
         results: the per-step outcomes, in registry order. Empty for a lock-contended
             skip -- no step ran.
     """
@@ -590,8 +590,8 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
     Returns:
         TickResult: ``exit_code`` is 0 on a healthy tick, 1 if any step failed. A
             contended whole-run lock is NOT a failure -- it returns ``exit_code=0``
-            with no results and writes a skip line to stderr; the heartbeat's grace
-            period (D-12) is the structural backstop for a permanently contended lock.
+            with no results and writes a skip line to stderr; the heartbeat (D-12) is
+            the structural backstop for a permanently contended lock.
 
     Raises:
         ValueError: ``only_step`` does not match any registered ``STEPS`` name. IN-06

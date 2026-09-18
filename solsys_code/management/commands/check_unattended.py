@@ -235,7 +235,15 @@ def check_email() -> list[CheckResult]:
 def check_heartbeat() -> CheckResult:
     """Soft check: ``settings.FOMO_HEARTBEAT_URL`` is set (D-12's second visibility layer)."""
     if settings.FOMO_HEARTBEAT_URL:
-        return CheckResult(name='heartbeat', ok=True, hard=False, detail='FOMO_HEARTBEAT_URL: set')
+        return CheckResult(
+            name='heartbeat',
+            ok=True,
+            hard=False,
+            detail=(
+                "FOMO_HEARTBEAT_URL: set -- confirm the check's own expected ping "
+                'interval (Period) is 15 min, not its 1-day default'
+            ),
+        )
     return CheckResult(
         name='heartbeat',
         ok=False,
