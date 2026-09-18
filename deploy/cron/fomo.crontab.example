@@ -1,13 +1,19 @@
 # FOMO unattended operation -- crontab fragment (Phase 36, SCHED-08, D-01/D-04/D-18).
 #
 # Copy this fragment into the FOMO service account's crontab (`crontab -e`) and replace
-# BOTH placeholder paths below with the real absolute paths on this host:
+# the two placeholder paths below with the real absolute paths on this host:
 #   /path/to/venv/bin/python      -- the virtualenv's python interpreter
 #   /path/to/checkout/manage.py   -- this checkout's manage.py
+# Also confirm `flock` really is at /usr/bin/flock on this host (`command -v flock`) --
+# substitute the real path if not (WR-05/WR-27, 36-REVIEW.md) -- and that FOMO_LOCK_DIR
+# and FOMO_LOG_FILE are still their defaults (/var/lock/fomo, /var/log/fomo/unattended.log);
+# `python manage.py check_unattended` resolves all of these for you and prints the
+# ready-to-install line, which is the preferred route (WR-27, 36-REVIEW.md) -- this file
+# is the fallback for a host where that command cannot be run at all.
 #
 # This file is committed to git -- it must NEVER gain a real secret, a real host path, or
-# any other host-specific value. `python manage.py check_unattended` (a later plan in this
-# phase) prints this same line with the real resolved interpreter and manage.py paths
+# any other host-specific value. `python manage.py check_unattended` prints this same line
+# with the real resolved interpreter, `flock`, lock-file, log-file and `manage.py` paths
 # already filled in, so you do not have to hand-edit the placeholders from scratch.
 #
 # The environment the cron daemon must supply (by NAME only -- never a value here, D-15):

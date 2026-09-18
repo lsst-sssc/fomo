@@ -1578,9 +1578,15 @@ Setting it up on a fresh host
 7. Fix whatever it reports, re-running ``check_unattended`` until every
    hard check passes.
 8. Copy the printed cron line into the crontab (``crontab -e`` for the
-   account that should run it) -- or start from `deploy/cron/fomo.crontab.example`
-   and replace its two placeholder paths by hand; either route produces
-   the same line.
+   account that should run it) -- the printed line is authoritative: it
+   carries this host's resolved ``flock``, lock-file and log-file paths
+   as well as the interpreter and ``manage.py``, which
+   `deploy/cron/fomo.crontab.example` can only guess at. Starting from
+   the template and hand-editing its two placeholder paths is the
+   fallback if `check_unattended` cannot run on this host at all --
+   confirm ``flock`` really is at ``/usr/bin/flock`` (``command -v
+   flock``) and that ``FOMO_LOCK_DIR``/``FOMO_LOG_FILE`` are still their
+   defaults before trusting that route to match the printed line.
 9. Drop `deploy/logrotate/fomo.example` into ``/etc/logrotate.d/fomo`` (or
    wherever this host's logrotate scans) so the log file rotates daily and
    keeps a fortnight instead of growing forever. Writing into
