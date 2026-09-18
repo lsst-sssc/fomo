@@ -1458,10 +1458,43 @@ Setting it up on a fresh host
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
    the crontab line, never in an environment variable, and never committed
    to git.
-3. Export ``FOMO_HEARTBEAT_URL`` in the environment the cron daemon sees
+3. Create the heartbeat check. This is a dead-man's switch on a
+   third-party service that alerts when a tick never ran at all or hung
+   partway through -- not only when one failed outright, which is the one
+   failure class FOMO's own error handling cannot report itself. It is
+   optional: leave ``FOMO_HEARTBEAT_URL`` unset in the next step and this
+   layer is simply off, and the schedule still runs and still mails on
+   failure.
+
+   Any healthchecks-compatible service works: healthchecks.io's hosted
+   free tier, or a self-hosted ``healthchecks`` instance (the same
+   open-source Django app) if a third-party dependency for something this
+   load-bearing is unwelcome.
+
+   Create ONE check for this schedule and set both of its settings. Name
+   each concept first, giving healthchecks.io's spelling in parentheses:
+   the expected interval between pings (``Period``) = 15 minutes,
+   matching this cron schedule -- or, as the drift-free alternative, a
+   Cron-type check carrying the same ``*/15 * * * *`` expression the
+   crontab line uses -- and the grace time (``Grace``) = about 20
+   minutes. The service alerts at last ping + expected interval + grace,
+   so with these values a stopped schedule alerts about 35 minutes after
+   the last successful ping (see "The two failure signals" below for why
+   these numbers, why the grace must not be shrunk, and what the
+   interval's default does if it is left alone).
+
+   Finally, copy that check's own ping URL from the service and keep it
+   for the next step, which exports it. On healthchecks.io it has the
+   form ``https://hc-ping.com/<uuid>`` (a self-hosted instance gives the
+   same shape under your own host). The ``<uuid>`` part is the ping
+   token, so this URL is itself a credential and must never go into a
+   committed file (D-15).
+4. Export ``FOMO_HEARTBEAT_URL`` in the environment the cron daemon sees
    (for example via ``/etc/environment``, or a wrapper script the crontab
-   line sources) -- never as a literal value in any committed file.
-   Export ``FOMO_BASE_URL`` in **both** the cron environment and the web
+   line sources) -- never as a literal value in any committed file. This
+   is the ping URL the check in the previous step produced -- export it
+   exactly as copied.
+5. Export ``FOMO_BASE_URL`` in **both** the cron environment and the web
    server's (gunicorn/uWSGI) environment (WR-13, 36-REVIEW.md): the
    campaign-submission approval-queue link is built inside the web
    process, which reads this setting at its own settings-import time, not
@@ -1471,7 +1504,7 @@ Setting it up on a fresh host
    exports it for cron only gets a green preflight and unusable
    ``http://localhost:8000/...`` links in every emailed notice the web
    process builds.
-4. Run the preflight check **as the account that will actually run
+6. Run the preflight check **as the account that will actually run
    unattended** (the cron user), not as root:
 
    .. code-block:: console
@@ -1502,13 +1535,13 @@ Setting it up on a fresh host
    the cron account is unprivileged will print an ``[ok]`` that does not
    mean the cron account can write there -- run it as the cron account to
    get a result that does.
-5. Fix whatever it reports, re-running ``check_unattended`` until every
+7. Fix whatever it reports, re-running ``check_unattended`` until every
    hard check passes.
-6. Copy the printed cron line into the crontab (``crontab -e`` for the
+8. Copy the printed cron line into the crontab (``crontab -e`` for the
    account that should run it) -- or start from `deploy/cron/fomo.crontab.example`
    and replace its two placeholder paths by hand; either route produces
    the same line.
-7. Drop `deploy/logrotate/fomo.example` into ``/etc/logrotate.d/fomo`` (or
+9. Drop `deploy/logrotate/fomo.example` into ``/etc/logrotate.d/fomo`` (or
    wherever this host's logrotate scans) so the log file rotates daily and
    keeps a fortnight instead of growing forever.
 
