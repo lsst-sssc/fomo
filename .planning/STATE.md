@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 Phase: 36 (Unattended Operation) — 8/8 plans complete (gap-closure plan 36-08 closed G-36-4)
 Plan: 8 of 8
 Status: Phase 36 plans complete — pending re-verification
-Last activity: 2026-09-18 — Completed 36-08-PLAN.md (gap closure for G-36-4)
+Last activity: 2026-09-18 — Completed quick task 260918-bn7: Document the WR-17 suppression-state fallback and the WR-16 lock-held exit-code normalization in the unattended runbook section
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -432,6 +432,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260913-ti3 | Fix 35-REVIEW.md NF-02: hoist the cutover per-event preconditions so --dry-run and the real pass agree on every check, count and exit status; add the window_mismatch reason | 2026-09-13 | bc15c4d | complete | [260913-ti3-fix-35-review-md-nf-02-hoist-the-cutover](./quick/260913-ti3-fix-35-review-md-nf-02-hoist-the-cutover/) |
 | 260913-ti1 | Fix 35-REVIEW.md NF-01/NF-06/NF-09 (+NF-07 docs): one total-partition helper makes writable-but-unattributed events deletable at all four stale-event paths; _may_write now agrees with writable_allocation_events; declined legacy event counted once | 2026-09-13 | a0834b3 | complete | [260913-ti1-fix-35-review-md-nf-01-nf-06-nf-09-make-](./quick/260913-ti1-fix-35-review-md-nf-01-nf-06-nf-09-make-/) |
 | 260916-o6n | Fix 35-REVIEW.md iteration 10 CR-01: a declined (human-confirmed) allocation-night retirement now falls through to a shared _refresh_labels() so mark_cancelled reaches it; 7 tests, runbook detach_declined counter pair, reconciler notebook re-executed | 2026-09-17 | c26cb97 | — | [260916-o6n-fix-35-review-md-iteration-10-cr-01-give](./quick/260916-o6n-fix-35-review-md-iteration-10-cr-01-give/) |
+| 260918-bn7 | Document the WR-17 suppression-state fallback and the WR-16 lock-held exit-code normalization in the unattended runbook section | 2026-09-18 | 6ded6b4 | — | [260918-bn7-document-the-wr-17-suppression-state-fal](./quick/260918-bn7-document-the-wr-17-suppression-state-fal/) |
 
 ## Deferred Items
 
