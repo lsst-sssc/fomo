@@ -7,7 +7,7 @@ status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: "2026-09-16"
-validated: "2026-09-17"
+validated: "2026-09-18"
 ---
 
 # Phase 36 — Validation Strategy
@@ -63,6 +63,10 @@ validated: "2026-09-17"
 | 36-05-01 | 05 | 3 | SCHED-08, SCHED-09, SCHED-10 | T-36-04 | The runbook's unattended-operation section builds cleanly and covers setup, the two failure signals, and the "nothing has appeared" checklist (SC 5) | docs build + source assertion | `pre-commit run sphinx-build --all-files` | ✅ (extend) | ✅ green |
 | 36-05-02 | 05 | 3 | DISCOVER-01 | T-36-17, T-36-18 | The demo notebook shows the watched-proposal contract with committed executed output, makes no live network call, and leaves no rows behind | notebook execution + source assertion | `jupyter nbconvert --to notebook --execute --inplace docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` | ✅ (extend) | ✅ green |
 | 36-05-03 | 05 | 3 | SCHED-08 | T-36-19 | `CLAUDE.md`'s paired-docs map records every module this phase adds and why the runner's paired doc is a runbook section | source assertion | `python -c "src=open('CLAUDE.md').read();i=src.index('Paired docs are part of the deliverable');j=src.index('## Project', i);print('unattended.py' in src[i:j], 'notifications.py' in src[i:j])"` | ✅ (extend) | ✅ green |
+| 36-06-01..03 | 06 | 4 (gap G-36-3) | SCHED-08, SCHED-09 | T-36-03 | Heartbeat Period/Grace guidance corrected in the runbook and propagated to the crontab backstop comment, the runner docstrings and the `[ok] heartbeat` preflight line; the runbook still builds clean | unit + docs build | `python manage.py test solsys_code.tests.test_check_unattended.TestWarningChecks && pre-commit run sphinx-build --all-files` | ✅ (extend) | ✅ green |
+| 36-07-01..03 | 07 | 5 (gap G-36-1) | SCHED-08, SCHED-09 | T-36-04 | The fresh-host setup subsection is self-sufficient: ≥9 numbered steps, Period/Grace values, ping-URL placeholder, `*/15` schedule, a cross-reference to "The two failure signals", and the Period line precedes the ping-URL line which precedes the `4. Export` step | source assertion (slice-scoped) | `python3 -c "import re;src=open('docs/runbooks/telescope_runs_calendar.rst').read();s=src[src.index('Setting it up on a fresh host'):src.index('Adding a proposal to watch')];print(all(t in s for t in ['Period','Grace','*/15 * * * *','hc-ping.com/<uuid>','healthchecks.io','The two failure signals']), len(re.findall(r'^\d+\. ',s,re.M))>=9, s.index('Period')<s.index('hc-ping.com/<uuid>')<s.index('4. Export'))"` | ✅ (extend) | ✅ green |
+| 36-08-01..03 | 08 | 6 (gap G-36-4) | SCHED-08, SCHED-10 | T-36-15 | The flat `LCO_API_KEY` local-settings knob folds into both `FACILITIES['LCO']`/`['SOAR']` `api_key` entries, an absent key is a clean no-op, the fold tail leaks no loop variable; the runbook's step 2 names the flat setting and no `FACILITIES[...]` subscript | unit (executes the real settings fold tail) + source assertion | `python manage.py test solsys_code.tests.test_settings_api_key_fold && python3 -c "import re;src=open('docs/runbooks/telescope_runs_calendar.rst').read();s=src[src.index('Setting it up on a fresh host'):src.index('Adding a proposal to watch')];print('LCO_API_KEY' in s, re.search(r'FACILITIES\[',s) is None)"` | ❌ W0 (created by 36-08-01) | ✅ green |
+| 36-09-01..03 | 09 | 7 (gap G-36-5) | SCHED-08, SCHED-10 | T-36-16 | `check_unattended` writes each result line exactly once, to one stream chosen by status, flushing stdout before each stderr write; no escape bytes reach a redirected sink; the runbook's step 6 states the routing and the `2>&1` capture form | unit (single-sink `_run_merged()` fixture) + source assertion | `python manage.py test solsys_code.tests.test_check_unattended.TestResultStreamRouting && python3 -c "src=open('docs/runbooks/telescope_runs_calendar.rst').read();s=src[src.index('Setting it up on a fresh host'):src.index('Adding a proposal to watch')];print(all(t in s for t in ['standard output','standard error','2>&1','check_unattended']))"` | ✅ (extend) | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -83,6 +87,8 @@ item below.
 - [x] Extension of `solsys_code/tests/test_backfill_lco_observations.py` — **36-02-02** (`TestSweepProposalFunction`) and **36-02-03** (`TestWatchedListSweep`, `TestPerProposalIsolation`, `TestEmptyWatchedList`); the 30 pre-existing tests must pass unmodified throughout
 - [x] Extension of `solsys_code/tests/test_admin.py` — **36-02-01** (`WatchedProposalAdmin` `list_editable` / `list_filter` / changelist render)
 - [x] Extension of `solsys_code/tests/test_campaign_submission.py` — **36-01-03** (the shared mail helper's regression cases)
+- [x] `solsys_code/tests/test_settings_api_key_fold.py` — created by **36-08-01** (executes the real `settings.py` fold tail against an injected `local_settings` module)
+- [x] Extension of `solsys_code/tests/test_check_unattended.py` — **36-09-02** (`TestResultStreamRouting` and the single-sink `_run_merged()` fixture; seven presence tests re-pointed at the merged capture)
 - [x] No new test framework install needed — `python manage.py test` already covers everything this phase needs
 
 ---
@@ -126,3 +132,27 @@ changes; `pre-commit run sphinx-build --all-files` passes; `backfill_lco_observa
 re-executed in place by plan 36-05 with committed output. The three Manual-Only rows remain manual by
 design (real-host crontab, external heartbeat service, live-settings inspection) and are carried into
 `/gsd-verify-work 36`.
+
+---
+
+## Validation Audit 2026-09-18
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+Re-audit after the four gap-closure plans (36-06 `G-36-3`, 36-07 `G-36-1`, 36-08 `G-36-4`, 36-09 `G-36-5`)
+and the 36-REVIEW-FIX round landed on top of the 2026-09-17 map. The map gains one row per gap-closure
+plan; none was a coverage gap — each plan already carried a committed test or a reproducible source
+assertion, the rows only record them so the map stays the single place the phase's verification lives.
+Evidence at HEAD `7d1d1ea`: the original 22 test classes named in the map all still exist on disk;
+`test_check_unattended` + `test_unattended` + `test_watched_proposal` ran green (122 tests) and
+`test_settings_api_key_fold` ran green (9 tests); the 36-07 slice gate, the 36-08 flat-setting gate and
+the 36-09 stream-routing prose gate all print `True`. One note on the 36-07 row: its original task-time
+gate also probed for the literal `35 min` inside the fresh-host slice; review fix IN-25 (`4ba6e3a`)
+deliberately moved that alert-window arithmetic out of step 3 into "The two failure signals" (now
+line ~1726, outside the slice), so the committed row asserts the cross-reference to that section
+instead of the moved literal. The three Manual-Only rows were discharged by `/gsd-verify-work 36`
+rounds 1–4 (36-UAT.md: 32 human checks across four rounds, one issue → G-36-5, closed by 36-09).
