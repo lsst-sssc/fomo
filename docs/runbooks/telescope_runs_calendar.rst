@@ -1542,9 +1542,27 @@ non-zero code otherwise). This catches a tick that never ran or hung, not
 only one that failed outright -- either kind never reaches the
 ``/<exit-code>`` ping. Point ``FOMO_HEARTBEAT_URL`` at any
 healthchecks-compatible endpoint (hosted or self-hosted) and configure one
-check per schedule, with a grace period a little above one 15-minute
-interval -- about 20 minutes is recommended, so one occasional slow tick
-does not page anyone.
+check per schedule -- but the check needs two settings, not one. Name the
+concept first: the check's expected interval between pings
+(healthchecks.io calls this ``Period``) and its grace time (``Grace``),
+since other healthchecks-compatible endpoints may spell the same two
+concepts differently. Set the expected interval to 15 minutes, matching
+this cron schedule; the drift-free alternative is a Cron-type check
+carrying the same ``*/15 * * * *`` expression the crontab line uses,
+which pegs lateness to the wall-clock slot instead of to the last ping.
+Keep the grace time at about 20 minutes -- a little over one interval, so
+one occasional slow tick does not page anyone -- and do not shrink it to
+make the total look shorter: because the runner sends a ``/start`` ping,
+the grace time also bounds the maximum allowed gap between that ping and
+the completion ping, so a grace shorter than a slow tick's real runtime
+would page on a healthy-but-slow tick. The service alerts at last ping +
+expected interval + grace: with 15 and 20, a stopped schedule shows the
+check as late about 15 minutes after the missed tick and alerts about 35
+minutes after the last successful ping. Leaving the expected interval
+(``Period``) at its default -- 1 day on healthchecks.io -- means the
+first alert arrives about a day later while the check looks green and
+correctly configured the whole time; the dead-man layer is off with no
+visible sign.
 
 When nothing has appeared
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1561,8 +1579,9 @@ Work through these in order:
    timestamp, so a single tick is readable in isolation even without the
    heartbeat dashboard open.
 3. **The heartbeat dashboard's last ping.** A missing or stale ping (older
-   than the configured grace period) means the tick itself never ran or
-   never finished -- check the log file next for why.
+   than the expected interval plus the grace time -- about 35 minutes
+   with the recommended 15/20 settings) means the tick itself never ran
+   or never finished -- check the log file next for why.
 4. **A repeated "lock held" line in the log.** ``flock -n -E 99`` fails
    immediately rather than queuing, so a permanently contended cron lock
    (``FOMO_LOCK_DIR/run_unattended.cron.lock``) leaves this line on every
@@ -2032,10 +2051,10 @@ not help -- the next cron invocation just creates a new inode and takes
 its own lock -- and disables the cron guard until the next tick, since
 the runner's own internal lock (``run_unattended.lock``, released
 automatically when its process exits) is the only thing then still
-preventing an overlap. The heartbeat's grace period (see "The two failure
-signals" in :ref:`unattended-operation` above) is the structural backstop
-for exactly this case -- a permanently contended lock eventually alerts
-there too.
+preventing an overlap. The heartbeat's alert window (expected interval +
+grace; see "The two failure signals" in :ref:`unattended-operation`
+above) is the structural backstop for exactly this case -- a permanently
+contended lock eventually alerts there too.
 
 A failure email arrived once, then went quiet while the problem continued
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -2066,6 +2085,24 @@ signal that the heartbeat path itself needs checking -- confirm
 ``FOMO_HEARTBEAT_URL`` is still correct and the endpoint is reachable from
 this host. If the log confirms the tick ran cleanly, there is nothing to
 fix on the FOMO side.
+
+The heartbeat never alerted although the schedule stopped
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** the check's expected ping interval (``Period`` on
+healthchecks.io) is still at its default -- 1 day -- rather than the 15
+minutes the schedule runs at. Because the service alerts at last ping +
+expected interval + grace, setting only the grace time leaves the first
+alert about a day out; the check stays green for that whole time, so the
+absence of an alert is not evidence that the tick ran.
+
+**Fix:** set the expected interval (``Period``) to 15 minutes -- or
+switch the check to Cron type with ``*/15 * * * *`` -- and leave the
+grace at about 20 minutes; see "The two failure signals" above. With the
+crontab line disabled you should then see the check go late about 15
+minutes after the missed slot and alert about 35 minutes after the last
+ping. Standing check: compare the interval the check is configured with
+against the 15-minute cron schedule -- they must match.
 
 See also
 -----------
