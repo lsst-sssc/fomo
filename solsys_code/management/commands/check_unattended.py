@@ -299,8 +299,15 @@ def cron_line() -> str:
     command in the line, so *its* exit status -- not flock's -- became the line's status.
     That inverted the reporting: 0 only on the one tick where nothing ran, 1 on both a
     healthy tick and a failing one. The line now captures flock's exit code into `$rc`
-    immediately, uses `$rc` for the skip-tail test, and ends with an explicit `exit $rc`
-    so the line's own status is always `run_unattended`'s (0 healthy, 1 failing, 99 skipped).
+    immediately, uses `$rc` for the skip-tail test, and ends with an explicit `exit $rc`.
+
+    WR-16 (36-REVIEW.md): after WR-09, a lock-held skip made the line exit 99 -- a
+    non-zero status any cron supervisor (syslog, an `OnFailure=` hook, a monitoring
+    wrapper) reads as a failure, even though `run_tick()`'s own docstring is explicit
+    that contention "is NOT a failure -- it returns exit_code=0 ... the heartbeat (D-12)
+    is the structural backstop". The skip tail now normalizes `$rc` back to 0 once the
+    skip line is logged, so the line's own status is always `run_unattended`'s (0
+    healthy, 1 failing) -- never a code `run_unattended` itself cannot produce.
 
     Returns:
         str: the cron line. The only interpolated values are ``sys.executable``, the
@@ -328,7 +335,7 @@ def cron_line() -> str:
     return (
         f'*/15 * * * * {flock_path} -n -E 99 {lock_file} {python_path} {manage_py_path} run_unattended '
         f'>> {log_file} 2>&1; rc=$?; '
-        f'[ $rc -eq 99 ] && echo "$(date -Is) run_unattended skipped: lock held" >> {log_file}; '
+        f'[ $rc -eq 99 ] && {{ echo "$(date -Is) run_unattended skipped: lock held" >> {log_file}; rc=0; }}; '
         f'exit $rc'
     )
 

@@ -55,11 +55,16 @@
 # (CR-01, 36-REVIEW.md). Keep these two lock file names distinct.
 #
 # WR-09 (36-REVIEW.md): the line captures flock's own exit code into `$rc` right away and
-# ends with an explicit `exit $rc`, so the line's own reported status is always
-# `run_unattended`'s (0 healthy, 1 failing, 99 lock held) -- the earlier `[ $? -eq 99 ] &&
-# echo ...` tail was the line's *last* command, so cron saw the tail's own exit status
-# (1 unless the tail actually fired) instead of the tick's.
-*/15 * * * * /usr/bin/flock -n -E 99 /var/lock/fomo/run_unattended.cron.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1; rc=$?; [ $rc -eq 99 ] && echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log; exit $rc
+# ends with an explicit `exit $rc` -- the earlier `[ $? -eq 99 ] && echo ...` tail was the
+# line's *last* command, so cron saw the tail's own exit status (1 unless the tail
+# actually fired) instead of the tick's.
+#
+# WR-16 (36-REVIEW.md): a lock-held skip is normalized back to exit 0 after the skip line
+# is logged (the `rc=0` inside the braces below) -- `run_tick()`'s own contract is that
+# contention is NOT a failure (it returns exit_code=0; the heartbeat, D-12, is the
+# structural backstop), so the line's own reported status is always `run_unattended`'s (0
+# healthy, 1 failing), never the raw flock `-E 99` code.
+*/15 * * * * /usr/bin/flock -n -E 99 /var/lock/fomo/run_unattended.cron.lock /path/to/venv/bin/python /path/to/checkout/manage.py run_unattended >> /var/log/fomo/unattended.log 2>&1; rc=$?; [ $rc -eq 99 ] && { echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log; rc=0; }; exit $rc
 
 # Before installing this line on a fresh host, create the two directories the schedule
 # above assumes exist and are writable by the cron user:

@@ -10,6 +10,7 @@ import io
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -282,6 +283,30 @@ class TestWarningChecks(CheckUnattendedTestBase):
 
 
 class TestCronLine(CheckUnattendedTestBase):
+    def test_lock_held_exit_is_normalized_to_zero(self):
+        # WR-16 (36-REVIEW.md): run_tick()'s own contract is that lock contention is NOT
+        # a failure -- it returns exit_code=0, and the heartbeat (D-12) is the
+        # structural backstop. Before this fix, a lock-held skip made the WHOLE cron
+        # line exit 99, which any supervisor (cron's own syslog line, an OnFailure=
+        # hook, a monitoring wrapper) reads as a failure on a routine tick overlap.
+        # Splices a stub in place of the real `flock ... run_unattended` invocation,
+        # keeping cron_line()'s own skip-tail/exit logic verbatim -- this exercises the
+        # actual shipped tail in a real shell, not a hand-copied re-implementation.
+        # Anchor on ' run_unattended >>' specifically (not the bare command name), which
+        # also appears inside the lock file path (`run_unattended.cron.lock`) and inside
+        # the skip line's own echoed text ("run_unattended skipped: lock held") -- only
+        # the real invocation is immediately followed by ' >>'.
+        line = cron_line()
+        _head, sep, tail = line.partition(' run_unattended >>')
+        self.assertTrue(sep, 'expected exactly one " run_unattended >>" in the cron line')
+        for stub_exit, expected_final_exit in ((0, 0), (1, 1), (99, 0)):
+            with self.subTest(stub_exit=stub_exit):
+                # The stub's extra positional argument ("run_unattended") is harmless --
+                # `sh -c "exit N" $0 ...` ignores it, since "exit N" never references $0.
+                script = f'sh -c "exit {stub_exit}"{sep}{tail}'
+                result = subprocess.run(['sh', '-c', script], check=False)
+                self.assertEqual(result.returncode, expected_final_exit)
+
     def test_line_has_real_paths(self):
         line = cron_line()
         self.assertIn(sys.executable, line)
