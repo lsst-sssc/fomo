@@ -50,11 +50,18 @@ logger = logging.getLogger(__name__)
 
 _HEARTBEAT_TIMEOUT_SECONDS = 10
 _REMINDER_INTERVAL = timedelta(hours=24)
-# D-04/WR-16 (36-REVIEW.md): the cron schedule's own interval -- also the threshold
-# _reap_stale_temp_files() uses, since any of _atomic_write_json()'s temp files still
-# around after a full tick interval can only be a leftover from a killed process, never
-# an in-flight write (a single write is milliseconds of work).
-_CRON_TICK_INTERVAL = timedelta(minutes=15)
+# D-04/WR-16/WR-36 (36-REVIEW.md): the single source for the cron schedule's own
+# interval -- check_unattended.py's cron_line() `*/{_CRON_INTERVAL_MINUTES}` schedule and
+# check_heartbeat() reminder text import this constant rather than redeclaring it, so the
+# "15" the runbook and crontab template also document cannot silently desynchronize
+# between the two modules the way WR-36 found it already had (IN-22 had already applied
+# the same single-owner discipline to _DEFAULT_LOCK_DIR/_DEFAULT_LOG_FILE below, but this
+# module then reintroduced a second, independent copy of the interval itself). Also the
+# threshold _reap_stale_temp_files() uses, since any of _atomic_write_json()'s temp files
+# still around after a full tick interval can only be a leftover from a killed process,
+# never an in-flight write (a single write is milliseconds of work).
+_CRON_INTERVAL_MINUTES = 15
+_CRON_TICK_INTERVAL = timedelta(minutes=_CRON_INTERVAL_MINUTES)
 _STATE_FILENAME = 'unattended-state.json'
 # IN-14 (36-REVIEW.md): mirrors settings.py's own os.getenv(..., <default>) defaults for
 # FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
