@@ -1464,23 +1464,37 @@ Setting it up on a fresh host
    example ``FOMO_STATE_DIR`` fills up or loses write permission for the
    cron account sometime *after* setup, past this section entirely --
    the tick logs an error naming both paths and writes the suppression
-   state to ``fomo-unattended-state.fallback.json`` in the system temp
-   directory (typically ``/tmp``) instead of failing (WR-17,
-   36-REVIEW.md). That fallback location is deliberately outside
-   ``FOMO_STATE_DIR``: that directory is precisely what may have gone
-   bad, and ``run_unattended`` is a fresh process per cron tick with
-   nothing in memory surviving between ticks, so only a file somewhere
-   still writable can carry the suppression decision forward. The next
-   tick then reads whichever of the primary and fallback files was
-   written most recently, so the fallback tick's decision is honored --
-   instead of the next tick deciding "newly failing" all over again and
-   mailing the identical failure notice every 15 minutes for as long as
-   the outage lasts (D-11 failing open). Once a later tick succeeds in
-   writing the primary location again, it deletes the stale fallback by
-   itself, so the runner reverts to reading the primary alone with no
-   operator action needed. Both files are written atomically and with
-   mode 0600, so a state file living in the shared system temp
-   directory is not a new exposure.
+   state to a fallback file in the system temp directory (typically
+   ``/tmp``) instead of failing (WR-17, 36-REVIEW.md). That fallback
+   location is deliberately outside ``FOMO_STATE_DIR``: that directory is
+   precisely what may have gone bad, and ``run_unattended`` is a fresh
+   process per cron tick with nothing in memory surviving between ticks,
+   so only a file somewhere still writable can carry the suppression
+   decision forward. The fallback's filename is scoped to this
+   deployment (a hash of the checkout path) and to the cron account's
+   uid -- ``fomo-unattended-state.<uid>.<deployment-tag>.fallback.json``
+   -- so two FOMO instances on the same host (staging/prod, or a test run
+   beside a live cron deployment) can never collide on the same fallback
+   path (CR-05/WR-33, 36-REVIEW.md). The next tick reads whichever of the
+   primary and fallback files was written most recently, but **only**
+   trusts a fallback file it can verify this account itself wrote --
+   owned by the same uid, a regular file (never a symlink), with no
+   group/other permission bits set (matching the mode every write below
+   sets explicitly). A fallback file that fails that check -- for example
+   one planted or overwritten by a different local account, since the
+   system temp directory remains world-writable regardless of the
+   filename -- is ignored rather than trusted, no matter how new its
+   mtime is. Honoring a fallback tick's decision instead of ignoring it
+   is what stops the next tick from deciding "newly failing" all over
+   again and mailing the identical failure notice every 15 minutes for as
+   long as the outage lasts (D-11 failing open). Once a later tick
+   succeeds in writing the primary location again, it deletes the stale
+   fallback by itself, so the runner reverts to reading the primary alone
+   with no operator action needed. Both files are written atomically and
+   with mode 0600; that mode covers confidentiality only, and it is the
+   uid/regular-file check above -- not the mode alone -- that keeps a
+   state file living in the shared system temp directory from being a
+   silent integrity or availability exposure.
 
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
@@ -2204,12 +2218,13 @@ The log shows the suppression state could not be persisted
 **Cause:** ``FOMO_STATE_DIR`` (default ``FOMO_LOCK_DIR``) became
 unwritable or full sometime after ``check_unattended`` passed, so the
 tick could not write the D-11 suppression-state file to its usual
-location and instead wrote it to ``fomo-unattended-state.fallback.json``
-in the system temp directory (WR-17, 36-REVIEW.md). Nothing is actually
-broken by this: the tick itself is not failed by it, no mail was lost,
-and no duplicate mail was sent -- the suppression decision persisted,
-just somewhere else. The presence of that fallback file in the temp
-directory is itself the signal that the primary directory needs
+location and instead wrote it to a per-deployment, per-uid fallback file
+(``fomo-unattended-state.<uid>.<deployment-tag>.fallback.json``) in the
+system temp directory (WR-17, CR-05/WR-33, 36-REVIEW.md). Nothing is
+actually broken by this: the tick itself is not failed by it, no mail was
+lost, and no duplicate mail was sent -- the suppression decision
+persisted, just somewhere else. The presence of that fallback file in the
+temp directory is itself the signal that the primary directory needs
 attention.
 
 **Fix:** restore the primary directory -- free up space, or restore

@@ -17,10 +17,12 @@ is given literal paths here for that reason, never a ``reverse()``'d one.
 """
 
 import fcntl
+import hashlib
 import io
 import json
 import logging
 import os
+import stat
 import sys
 import tempfile
 from collections.abc import Callable, Iterator
@@ -54,14 +56,6 @@ _REMINDER_INTERVAL = timedelta(hours=24)
 # an in-flight write (a single write is milliseconds of work).
 _CRON_TICK_INTERVAL = timedelta(minutes=15)
 _STATE_FILENAME = 'unattended-state.json'
-# WR-17 (36-REVIEW.md): where save_state() falls back to when FOMO_STATE_DIR is
-# unwritable. `run_unattended` is a fresh process per cron tick (no in-process loop), so
-# a module-level "already notified" flag cannot survive between ticks -- only something
-# written to disk can. tempfile.gettempdir() is deliberately NOT FOMO_STATE_DIR (which is
-# precisely what may have become unwritable): without a location outside it, an
-# unwritable state directory makes every tick reach the identical "newly failing"
-# decision forever, sending one identical failure email per tick (D-11 failing open).
-_FALLBACK_STATE_PATH = Path(tempfile.gettempdir()) / 'fomo-unattended-state.fallback.json'
 # IN-14 (36-REVIEW.md): mirrors settings.py's own os.getenv(..., <default>) defaults for
 # FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
 # from an unset environment variable with no default of its own yields None (exactly the
@@ -429,6 +423,52 @@ def _primary_state_path() -> Path:
     return Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR) / _STATE_FILENAME
 
 
+def _fallback_state_path() -> Path:
+    """Where save_state() falls back to when FOMO_STATE_DIR is unwritable (WR-17,
+    36-REVIEW.md).
+
+    ``run_unattended`` is a fresh process per cron tick (no in-process loop), so a
+    module-level "already notified" flag cannot survive between ticks -- only something
+    written to disk can. ``tempfile.gettempdir()`` is deliberately NOT ``FOMO_STATE_DIR``
+    (which is precisely what may have become unwritable): without a location outside it,
+    an unwritable state directory makes every tick reach the identical "newly failing"
+    decision forever, sending one identical failure email per tick (D-11 failing open).
+
+    CR-05/WR-33 (36-REVIEW.md): a fixed, host-wide filename in a world-writable directory
+    let any local account -- or a second FOMO deployment sharing the same host -- plant or
+    overwrite this file and steer the notification decision. The filename is instead
+    scoped to this deployment (a hash of ``settings.BASE_DIR``, unique per checkout) and
+    to this process's own uid, so two FOMO instances on one host (staging/prod, or a test
+    run beside a live cron deployment) can never collide on the same fallback path. This
+    is a function, not a module-level constant, both so it can react to
+    ``settings.BASE_DIR`` under ``override_settings`` in tests and so tests can patch it
+    to a temp-directory path instead of touching the real system temp directory
+    (WR-34, 36-REVIEW.md).
+    """
+    tag = hashlib.sha256(str(settings.BASE_DIR).encode()).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / f'fomo-unattended-state.{os.geteuid()}.{tag}.fallback.json'
+
+
+def _fallback_is_trustworthy(path: Path) -> bool:
+    """CR-05 (36-REVIEW.md): only trust a fallback state file this process itself could
+    have written.
+
+    The scoped filename from ``_fallback_state_path()`` alone is not enough: the shared
+    system temp directory is still world-writable, so any local account can still create
+    a file at that exact name (or plant a symlink there) before this process does. Check
+    ownership and permissions with ``lstat`` (never follow a planted symlink), and require
+    a regular file owned by this euid with no group/other permission bits -- exactly what
+    ``_atomic_write_json()``'s own ``os.chmod(tmp_path, 0o600)`` produces. Anything else
+    (missing, a symlink, a different owner, or a looser mode) is ignored rather than
+    trusted.
+    """
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid() and not (info.st_mode & 0o077)
+
+
 def _newest_existing_state_path() -> Path | None:
     """Return whichever of the primary/fallback state files was written most recently,
     or None if neither exists (WR-17, 36-REVIEW.md).
@@ -436,13 +476,26 @@ def _newest_existing_state_path() -> Path | None:
     The fallback is only ever newer than the primary while the primary is unwritable --
     the moment a ``save_state()`` succeeds against the primary again, it deletes the
     fallback, so this reverts to reading the primary alone as soon as the outage clears.
+
+    CR-05 (36-REVIEW.md): the fallback candidate is only considered at all when
+    ``_fallback_is_trustworthy()`` says this process itself could have written it -- a
+    fallback file that fails that check (owned by a different local account, a planted
+    symlink, or a looser mode) is never read, no matter how new its mtime is.
     """
     candidates = []
-    for path in (_primary_state_path(), _FALLBACK_STATE_PATH):
+    primary_path = _primary_state_path()
+    try:
+        candidates.append((primary_path.stat().st_mtime, primary_path))
+    except OSError:
+        pass
+
+    fallback_path = _fallback_state_path()
+    if _fallback_is_trustworthy(fallback_path):
         try:
-            candidates.append((path.stat().st_mtime, path))
+            candidates.append((fallback_path.stat().st_mtime, fallback_path))
         except OSError:
-            continue
+            pass
+
     if not candidates:
         return None
     return max(candidates, key=lambda pair: pair[0])[1]
@@ -570,7 +623,7 @@ def save_state(failing_steps: list[str], notified_at: datetime | None) -> None:
     WR-17 (36-REVIEW.md): if the primary location (``FOMO_STATE_DIR``) cannot be
     written -- e.g. it became unwritable or full after setup, past
     ``check_state_dir()``'s one-time preflight -- falls back to
-    ``_FALLBACK_STATE_PATH`` instead of raising. Without this, ``load_state()`` sees
+    ``_fallback_state_path()`` instead of raising. Without this, ``load_state()`` sees
     no persisted failure on the NEXT tick, ``decide_notification()`` reaches "newly
     failing" again, and the tick mails staff the same failure notice every 15 minutes
     for as long as the outage lasts (D-11 failing open). Once a write to the primary
@@ -585,17 +638,18 @@ def save_state(failing_steps: list[str], notified_at: datetime | None) -> None:
     try:
         _atomic_write_json(primary_path, payload)
     except OSError:
+        fallback_path = _fallback_state_path()
         logger.error(
             'could not persist unattended suppression state to %s -- writing to the fallback '
             'location %s instead so a repeat notification for this failing set is still '
             'suppressed (WR-17, 36-REVIEW.md)',
             primary_path,
-            _FALLBACK_STATE_PATH,
+            fallback_path,
         )
-        _atomic_write_json(_FALLBACK_STATE_PATH, payload)
+        _atomic_write_json(fallback_path, payload)
         return
     with suppress(OSError):
-        _FALLBACK_STATE_PATH.unlink()
+        _fallback_state_path().unlink()
 
 
 def decide_notification(previous_state: dict, failing_steps: list[str], now: datetime) -> str | None:

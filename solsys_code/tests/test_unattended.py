@@ -19,6 +19,7 @@ from datetime import timezone as dt_timezone
 from io import StringIO
 from pathlib import Path
 from smtplib import SMTPAuthenticationError
+from unittest import skipIf
 from unittest.mock import patch
 
 import requests
@@ -220,6 +221,7 @@ class TestNotification(UnattendedTestBase):
                 call_command('run_unattended')
         self.assertEqual(len(mail.outbox), 1)
 
+    @skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')
     def test_unwritable_state_dir_after_setup_still_suppresses_repeat_mail(self):
         # WR-17 (36-REVIEW.md): WR-15's fix only covered the SETUP-time preflight
         # (check_state_dir()) -- a state directory that becomes unwritable AFTER setup
@@ -235,10 +237,21 @@ class TestNotification(UnattendedTestBase):
         os.chmod(state_path, stat.S_IRUSR | stat.S_IXUSR)
         self.addCleanup(lambda: os.chmod(state_path, stat.S_IRWXU))
 
-        fallback_path = unattended._FALLBACK_STATE_PATH
-        with contextlib.suppress(FileNotFoundError):
-            fallback_path.unlink()
-        self.addCleanup(lambda: fallback_path.unlink(missing_ok=True))
+        # WR-34 (36-REVIEW.md): the fallback location used to be a module-level constant
+        # resolving to the real, shared /tmp/fomo-unattended-state.fallback.json -- this
+        # test read, wrote and deleted that live path, which would destroy a real
+        # deployment's suppression state if this suite ever ran on a host that also runs
+        # the cron schedule, and would race a concurrent test run or tick on the same
+        # file. CR-05/WR-33 turned the fallback location into a function
+        # (`_fallback_state_path()`) precisely so it can be patched to an isolated
+        # `TemporaryDirectory()` path instead, matching every other filesystem-touching
+        # test in this module.
+        fallback_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(fallback_dir.cleanup)
+        fallback_path = Path(fallback_dir.name) / 'fallback.json'
+        fallback_path_patcher = patch('solsys_code.unattended._fallback_state_path', return_value=fallback_path)
+        fallback_path_patcher.start()
+        self.addCleanup(fallback_path_patcher.stop)
 
         self._make_campaign_run()
         with (

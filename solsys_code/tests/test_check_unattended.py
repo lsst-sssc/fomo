@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import skipIf
 from unittest.mock import patch
 
 from django.conf import settings as django_settings
@@ -155,6 +156,7 @@ class TestHardChecks(CheckUnattendedTestBase):
                 _run()
         self.assertIn('flock', str(ctx.exception))
 
+    @skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')
     def test_unwritable_lock_dir_fails(self):
         readonly_parent = self._make_unwritable_parent()
         with override_settings(FOMO_LOCK_DIR=str(readonly_parent / 'sublock')):
@@ -162,6 +164,7 @@ class TestHardChecks(CheckUnattendedTestBase):
                 _run()
         self.assertIn('FOMO_LOCK_DIR', str(ctx.exception))
 
+    @skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')
     def test_unwritable_log_dir_fails(self):
         readonly_parent = self._make_unwritable_parent()
         with override_settings(FOMO_LOG_FILE=str(readonly_parent / 'sublog' / 'unattended.log')):
@@ -223,6 +226,7 @@ class TestHardChecks(CheckUnattendedTestBase):
         self.assertIn('[ok] EMAIL_BACKEND', stdout)
         self.assertIn('[ok] staff_recipients', stdout)
 
+    @skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')
     def test_unwritable_state_dir_fails(self):
         # WR-15 (36-REVIEW.md): an unwritable FOMO_STATE_DIR must be caught here, before
         # it turns into the every-15-minutes duplicate-failure-email loop an unpersistable
