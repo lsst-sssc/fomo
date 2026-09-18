@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 6/6 plans executed (36-06 is gap closure for UAT gap G-36-3)
+**Plans**: 6/7 plans executed (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1)
 
 Plans:
 **Wave 1**
@@ -356,6 +356,10 @@ Plans:
 **Wave 4** *(gap closure — UAT G-36-3)*
 
 - [x] 36-06-PLAN.md — Heartbeat guidance names both the check's expected ping interval and its grace time: runbook, crontab template, preflight reminder, and the corrected verification record
+
+**Wave 5** *(gap closure — UAT G-36-1)*
+
+- [ ] 36-07-PLAN.md — The fresh-host procedure gains a create-and-configure-the-check step before the export, one step per variable, the service class and ping-URL provenance, the crontab pointer narrowed, and the SC-5 sufficiency read-through re-scripted to run first
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
