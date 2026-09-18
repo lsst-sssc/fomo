@@ -1620,6 +1620,22 @@ Setting it up on a fresh host
    the cron account is unprivileged will print an ``[ok]`` that does not
    mean the cron account can write there -- run it as the cron account to
    get a result that does.
+
+   The passing lines, the blank separator, the cron-line block, and the
+   closing summary all go to standard output; a warning line and a
+   failure line go to standard error instead. Each line is written once,
+   to exactly one stream, so on a terminal -- where the two arrive
+   together -- you see every result exactly once, in the order the checks
+   ran. Redirecting only standard output to a file (a bare ``>``) still
+   captures the passing lines and the cron line, but it silently drops
+   every warning and failure, leaving a preflight log that looks entirely
+   clean while the real problems went somewhere else. Capture the whole
+   report in one file, in check order, with the same ``2>&1`` the
+   committed crontab line already appends with:
+
+   .. code-block:: console
+
+      >> python3 manage.py check_unattended >> preflight.log 2>&1
 7. Fix whatever it reports, re-running ``check_unattended`` until every
    hard check passes.
 8. Copy the printed cron line into the crontab (``crontab -e`` for the
