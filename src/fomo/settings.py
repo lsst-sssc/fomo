@@ -430,8 +430,14 @@ FOMO_LOG_FILE = os.getenv('FOMO_LOG_FILE', '/var/log/fomo/unattended.log')
 
 try:
     from fomo.local_settings import *  # noqa
-except ImportError:
-    pass
+except ImportError as exc:
+    # Only the absence of local_settings.py itself is expected and safe to swallow -- an
+    # ImportError raised INSIDE that module (a typo'd sibling import, a package missing from
+    # this host's venv) must propagate, or the host silently reverts to every dev default
+    # (committed SECRET_KEY, DEBUG=True, console EMAIL_BACKEND, empty facility api_keys) with
+    # no error at all (WR-32, 36-REVIEW.md iteration 5).
+    if exc.name != 'fomo.local_settings':
+        raise
 
 # `from fomo.local_settings import *` executes that module in its own namespace, so it can only
 # ASSIGN new settings -- it cannot mutate ones already built above (FACILITIES['LCO']['api_key']
