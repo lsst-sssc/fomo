@@ -241,6 +241,11 @@ FACILITIES = {
     # so this entry mirrors 'LCO' exactly. It exists so SOARSettings('SOAR') resolves
     # a real 'api_key' key (D-04); 'portal_url' already resolves via LCOSettings'
     # inherited default even without this entry.
+    # IN-31 (36-REVIEW.md iteration 5): if this 'portal_url' is ever repointed away from
+    # observe.lco.global (e.g. a NOIRLab-hosted SOAR portal), remove the
+    # FACILITIES['SOAR']['api_key'] line from the LCO_API_KEY fold at the end of this file --
+    # it copies the LCO portal key, and repointing this URL without removing that line sends
+    # the LCO Observation Portal key to a third-party host.
     'SOAR': {
         'portal_url': 'https://observe.lco.global',
         'api_key': '',

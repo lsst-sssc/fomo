@@ -121,6 +121,21 @@ class TestLiveFacilitiesCarriesBothFoldTargets(SimpleTestCase):
             self.assertIn('api_key', live.FACILITIES[facility])
 
 
+class TestSoarPortalUrlMatchesLcoBeforeKeyIsCopied(SimpleTestCase):
+    """IN-31 (36-REVIEW.md iteration 5): the fold copies the LCO key into the SOAR entry
+    unconditionally, and the only thing that makes that safe is that both facilities point
+    at the same LCO Observation Portal today. Nothing else ties the two together -- if
+    ``FACILITIES['SOAR']['portal_url']`` is ever repointed at a different host (e.g. a
+    NOIRLab-hosted SOAR portal) without also removing the fold's SOAR line, this asserts
+    the drift instead of letting the LCO key be silently sent to the new host."""
+
+    def test_soar_and_lco_portal_urls_still_match(self):
+        self.assertEqual(
+            django_settings.FACILITIES['SOAR']['portal_url'],
+            django_settings.FACILITIES['LCO']['portal_url'],
+        )
+
+
 class TestFoldTailUsesStarImportIntoOwnNamespace(SimpleTestCase):
     """WR-30 (36-REVIEW.md iteration 5): the case this replaces asserted a property of
     Python itself (``exec("d['k'] = 1", {})`` raises ``NameError`` for ANY empty
