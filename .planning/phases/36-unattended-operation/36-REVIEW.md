@@ -1,30 +1,408 @@
 ---
 phase: 36-unattended-operation
-reviewed: 2026-09-17T23:55:00Z
+reviewed: 2026-09-18T00:00:00Z
 depth: deep
-iteration: 3
-files_reviewed: 12
+iteration: 4
+files_reviewed: 2
 files_reviewed_list:
-  - deploy/cron/fomo.crontab.example
-  - docs/installation.rst
-  - docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb
   - docs/runbooks/telescope_runs_calendar.rst
-  - solsys_code/management/commands/backfill_lco_observations.py
-  - solsys_code/management/commands/check_unattended.py
-  - solsys_code/management/commands/run_unattended.py
-  - solsys_code/notifications.py
-  - solsys_code/tests/test_backfill_lco_observations.py
-  - solsys_code/tests/test_check_unattended.py
-  - solsys_code/tests/test_unattended.py
-  - solsys_code/unattended.py
+  - deploy/cron/fomo.crontab.example
 findings:
-  critical: 0
-  warning: 7
-  info: 10
-  total: 17
-carried_forward_open: 1
+  critical: 2
+  warning: 5
+  info: 4
+  total: 11
+carried_forward_open: 3
 status: issues_found
 ---
+
+# Phase 36: Code Review Report (iteration 4 — incremental review of plan 36-07, gap closure G-36-1)
+
+**Reviewed:** 2026-09-18T00:00:00Z
+**Depth:** deep
+**Files Reviewed:** 2 (everything changed since `67e6f68`, the commit iteration 3 was written against — commits `280962b`, `a2f1ee9`, `71cdec2`, `95b08ed`)
+**Status:** issues_found
+
+## Summary
+
+Plan 36-07 adds a "create and configure the heartbeat check" step to the runbook's
+"Setting it up on a fresh host" subsection (renumbering its steps 1–7 to 1–9), adds two
+`sudo` notes, names the LCO/SOAR API-key setting, and re-points the crontab template's
+three cross-references at the new subsection. Both files are documentation; the review
+treated them as an operator *procedure* and executed/verified every claim they make
+against `src/fomo/settings.py`, `solsys_code/management/commands/check_unattended.py`,
+`solsys_code/unattended.py`, `docs/conf.py` and `.pre-commit-config.yaml`.
+
+**The secret-hygiene requirement the review was asked to enforce holds inside the two
+files.** Neither file contains a real ping URL, UUID, API key, host name or host path: the
+runbook's only heartbeat URL is the placeholder `https://hc-ping.com/<uuid>`
+(`:1490`), the template still carries `/path/to/venv/bin/python` and
+`/path/to/checkout/manage.py`, and the template names every environment variable without
+ever giving it a value (D-15). The runbook's new "the `<uuid>` part is the ping token, so
+this URL is itself a credential" sentence (`:1491-1493`) is a genuine improvement.
+
+**But the procedure those two files describe leaks credentials by a route neither file
+warns about, and the leak has already happened in this working tree.** `docs/conf.py`
+sets `autoapi_dirs = ['../src']` with no ignore for `local_settings.py`, so every
+`pre-commit` run renders that file — the exact file setup step 2 tells the operator to put
+the LCO API key and the mail password in, and where this host has also put the real
+heartbeat ping URL — verbatim into generated HTML. See **CR-03**. Both output trees are
+`.gitignore`d, so nothing reached git; the exposure is on-disk and on anything that serves
+those builds.
+
+**The single most damaging defect is the new API-key sentence itself (CR-02): following it
+literally stops Django from starting at all.** `settings.py:436-441` documents, in its own
+comment, that `from fomo.local_settings import *` cannot mutate a dict built above it —
+and the `NameError` it raises is not caught by the `except ImportError` guard. Reproduced
+empirically. The supported name is the flat `LCO_API_KEY`, which is what this host's own
+`local_settings.py` and `.planning/codebase/INTEGRATIONS.md` both use. The same sentence
+also promises a `FACILITIES['SOAR']['api_key']` route that does not exist in any form
+(**WR-23**) — `settings.py` folds `LCO_API_KEY` only.
+
+**The new heartbeat step is substantively right but states the alert arithmetic in a way
+that is wrong for the Cron-type option it offers in the same breath** (**WR-24**), and its
+opening sentence's relative clause attaches to the wrong failure class, asserting the
+opposite of the truth about what FOMO can report itself (**WR-25**).
+
+**On the specific question of duplicated alert-window reasoning:** the *reasoning* is
+correctly delegated ("see 'The two failure signals' below for why these numbers…"), but
+the *values and the formula* are restated, which is where WR-24's inaccuracy entered. The
+15/20/35-minute triple now appears in five places across the two files (**IN-25**).
+
+**RST validity: clean.** A `docutils` parse of the whole runbook at `report_level=1`
+produces no structural message — no enumerated-list, indentation or block-quote warning
+from the renumbered 1–9 list or the new multi-paragraph step 3. Only the expected
+Sphinx-role notices (`:doc:`, `:ref:`) appear. No document references the step numbers
+this change shifted (`grep -niE "step [0-9]"` across `docs/` finds nothing), so the
+renumbering is safe. The template's comment-only edits do not disturb
+`test_check_unattended.py`'s two template-agreement tests, which key off the `*/15` line
+(unchanged) and a token list (all still present).
+
+**Three iteration-3 findings are still open in these two files, and this change edited the
+very lines two of them name** — see **WR-26** (WR-21) and **IN-27** (IN-15/IN-16).
+
+## Narrative Findings (AI reviewer)
+
+## Critical Issues
+
+### CR-02: Setup step 2's new API-key sentence tells the operator to write a line that makes Django refuse to start
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1458-1462`
+**Issue:** The sentence added by `a2f1ee9` reads:
+
+> Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and the LCO/SOAR API
+> key in this host's ``local_settings.py`` … The API key setting is nested:
+> ``FACILITIES['LCO']['api_key']`` and ``FACILITIES['SOAR']['api_key']``.
+
+`local_settings.py` is imported as its own module (`src/fomo/settings.py:431-434`), so
+`FACILITIES` is not in its namespace. Writing `FACILITIES['LCO']['api_key'] = '…'` there
+raises `NameError`, and the guard around the import catches `ImportError` only —
+`settings.py` itself is what `settings.py:436-439` already spells out:
+
+```python
+# `from fomo.local_settings import *` executes that module in its own namespace, so it can only
+# ASSIGN new settings -- it cannot mutate ones already built above (FACILITIES['LCO']['api_key']
+# = ... there raises NameError, which the ImportError guard does not catch). Secrets that belong
+# inside an existing dict therefore arrive as flat names and are folded in here.
+if 'LCO_API_KEY' in globals():
+    FACILITIES['LCO']['api_key'] = LCO_API_KEY  # noqa: F405
+```
+
+Reproduced in isolation (same module shape, same guard):
+
+```
+  File ".../local_settings.py", line 1, in <module>
+    FACILITIES['LCO']['api_key'] = 'abc'
+NameError: name 'FACILITIES' is not defined
+```
+
+The blast radius is the whole deployment, not just the cron path: the settings module
+fails to import, so gunicorn/uWSGI, every `manage.py` command, the `run_unattended` tick
+and `check_unattended` itself all die before running — and the failure email that would
+otherwise report it cannot be sent either. This is also the *only* place in `docs/` that
+documents the API key at all (`grep -rn "api_key\|API key" docs/*.rst` finds nothing
+else), so there is no competing correct instruction; and it contradicts both this host's
+own working `local_settings.py` (which sets `LCO_API_KEY`) and
+`.planning/codebase/INTEGRATIONS.md:12,178,326`.
+**Fix:** name the flat setting the fold actually reads, and say why it is flat:
+
+```rst
+2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and the LCO/SOAR
+   API key in this host's ``local_settings.py`` -- never in the crontab line, never in
+   an environment variable, and never committed to git. The API key goes in as the
+   **flat** name ``LCO_API_KEY = '...'``: ``local_settings.py`` is imported into its own
+   namespace, so assigning into ``FACILITIES[...]`` there raises ``NameError`` and stops
+   Django from starting. ``settings.py`` folds ``LCO_API_KEY`` into
+   ``FACILITIES['LCO']['api_key']`` for you.
+```
+
+(and see **WR-23** for the SOAR half of the same sentence).
+
+### CR-03: The credential home this procedure mandates is rendered verbatim into generated HTML by the project's own docs build — the real ping URL, API key and mail password are in this working tree's build output now
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1458-1462` and `:1488-1498`
+(procedure); root cause `docs/conf.py:62` (`autoapi_dirs = ['../src']`, `autoapi_ignore`
+does not exclude `local_settings.py`); triggered by `.pre-commit-config.yaml:67-89`
+**Issue:** Step 2 puts the LCO API key and the mail credentials in
+`src/fomo/local_settings.py`; step 5 recommends the same file for `FOMO_BASE_URL`; step 4
+tells the operator to export the heartbeat ping URL "exactly as copied" and calls it a
+credential that "must never go into a committed file (D-15)". That assurance is scoped to
+*committed* files, and it is the wrong boundary: `sphinx-autoapi` scans `../src`, and
+`sphinx.ext.viewcode`'s module pages reproduce the source. The `sphinx-build` pre-commit
+hook therefore writes the real values into `_readthedocs/html/` on every commit, and a
+manual build writes them into `docs/_build/html/`. Both are present in this working tree
+right now:
+
+```
+_readthedocs/html/autoapi/fomo/local_settings/index.html
+_readthedocs/html/_modules/fomo/local_settings.html
+_readthedocs/html/_sources/autoapi/fomo/local_settings/index.rst.txt
+docs/_build/html/... (same three)
+```
+
+Those pages render this host's live `FOMO_HEARTBEAT_URL` (a real `hc-ping.com` UUID —
+deliberately not quoted here, since this report is committed), and `local_settings.py`
+also defines `LCO_API_KEY`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`. `_readthedocs/` and
+`docs/_build/` are both `.gitignore`d (`.gitignore:76-77`), so nothing has reached git,
+and ReadTheDocs builds from a checkout with no `local_settings.py`, so the published site
+is unaffected — but any operator who builds and *serves* HTML from a production checkout
+(the only reason to build HTML) publishes the LCO API key, the SMTP password and the ping
+token. Iteration 3's credential-hygiene scan looked at the twelve changed source files
+only, which is why this never surfaced.
+**Fix:** three parts, in order of urgency:
+
+1. Exclude the file from autoapi in `docs/conf.py`:
+   ```python
+   autoapi_ignore = ['*/__main__.py', '*/_version.py', '*/local_settings.py']
+   ```
+2. Treat the ping token currently rendered in `_readthedocs/html/` and
+   `docs/_build/html/` as exposed: delete both trees and rotate the check (create a new
+   check, re-export `FOMO_HEARTBEAT_URL`) if either build was ever served, copied or
+   shared.
+3. Correct the runbook's own boundary claim in step 3/4 — "must never go into a committed
+   file" becomes "must never go into a committed file, and note that `local_settings.py`
+   is rendered into the HTML docs unless `autoapi_ignore` excludes it, so never serve a
+   docs build produced from a configured host".
+
+## Warnings
+
+### WR-23: Step 2 documents a `FACILITIES['SOAR']['api_key']` route that exists nowhere — SOAR cannot be given a key by any supported mechanism
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1461-1462`; cf.
+`src/fomo/settings.py:244-247`, `:440-441`
+**Issue:** Beyond CR-02's `NameError`, the SOAR half of the sentence has no correct form
+at all. `settings.py` folds exactly one flat name — `LCO_API_KEY` — into
+`FACILITIES['LCO']['api_key']`. There is no `SOAR_API_KEY` fold anywhere in the repo
+(`grep -rn "SOAR_API_KEY" --include=*.py` finds only planning prose deciding *not* to add
+one), so `FACILITIES['SOAR']['api_key']` stays `''` no matter what the operator writes in
+`local_settings.py`. An operator following step 2 will believe SOAR is authenticated when
+the unattended `status_refresh` step is in fact calling the portal with an empty key.
+**Fix:** either (a) document reality — one key, `LCO_API_KEY`, and note that SOAR
+authenticates against the same LCO Observation Portal credentials (settings.py:240-243),
+which means `FACILITIES['SOAR']['api_key']` is a separate, currently unfilled slot; or
+(b) close the gap in code by extending the fold, and then document the flat name:
+
+```python
+if 'LCO_API_KEY' in globals():
+    FACILITIES['LCO']['api_key'] = LCO_API_KEY  # noqa: F405
+    FACILITIES['SOAR']['api_key'] = LCO_API_KEY  # SOAR shares LCO portal credentials (D-05)
+```
+
+(b) is the one that makes the runbook's current sentence true; whichever is chosen, the
+runbook must match it.
+
+### WR-24: The new step 3 states the alert arithmetic as if it applied to the Cron-type check it offers in the same sentence, and calls Period+Grace "both of its settings"
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1476-1486`; cf. the authoritative
+paragraph at `:1588-1591`
+**Issue:** Step 3 says "Create ONE check for this schedule and set **both of its
+settings**", then gives Period = 15 min "-- or, as the drift-free alternative, a Cron-type
+check carrying the same ``*/15 * * * *`` expression … -- and the grace time (``Grace``) =
+about 20 minutes. **The service alerts at last ping + expected interval + grace**, so with
+these values a stopped schedule alerts about 35 minutes after the last successful ping."
+The later, authoritative paragraph is explicit that the Cron alternative "pegs lateness to
+the wall-clock slot instead of to the last ping" (`:1590-1591`), i.e. it alerts at
+*next scheduled slot + grace*, and a Cron-type check has no Period field at all — so on
+the very route step 3 recommends as "drift-free", both "both of its settings" and the
+stated formula are wrong. An operator who configures the Cron route and then reasons from
+step 3's arithmetic will mis-predict when (and from what baseline) an alert fires.
+**Fix:** attach the formula to the route it belongs to, and drop "both" when offering a
+one-setting alternative:
+
+```rst
+   Create ONE check for this schedule. Name each concept with healthchecks.io's spelling
+   in parentheses: set the expected interval between pings (``Period``) to 15 minutes,
+   matching this cron schedule, and the grace time (``Grace``) to about 20 minutes. A
+   Simple check of that shape alerts at last ping + interval + grace -- about 35 minutes
+   after the last successful ping. The drift-free alternative is a Cron-type check
+   carrying the same ``*/15 * * * *`` expression the crontab line uses, with the same
+   grace; it has no interval to set and alerts at the missed slot + grace instead. See
+   "The two failure signals" below for why these numbers …
+```
+
+### WR-25: Step 3's opening sentence attributes "the one failure class FOMO's own error handling cannot report itself" to outright failure — the opposite of the truth
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1463-1466`
+**Issue:** The sentence reads:
+
+> This is a dead-man's switch on a third-party service that alerts when a tick never ran
+> at all or hung partway through -- not only when one failed outright, which is the one
+> failure class FOMO's own error handling cannot report itself.
+
+The `which` clause attaches to the nearest noun phrase, "one failed outright" — asserting
+that an outright failure is what FOMO cannot report. The code says the reverse: an
+outright failure is exactly what `run_tick()` reports, via `_send_notification()` and the
+`/<exit-code>` ping (`unattended.py:630-661`); the class FOMO cannot report is the tick
+that never started or hung, because the process that would have mailed never reached the
+mail call. Getting this backwards is not cosmetic — it is the whole justification for
+setting the check up at all, in the step whose job is to convince the operator to do so.
+**Fix:** move the clause to its antecedent:
+
+```rst
+   This is a dead-man's switch on a third-party service: it catches a tick that never ran
+   at all or hung partway through -- the one failure class FOMO's own error handling
+   cannot report itself, because the process that would have mailed never got there. A
+   tick that runs and fails is already covered by the failure email.
+```
+
+### WR-26: WR-21 (iteration 3) is still open, and this change edited the exact sentence it names without closing it
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1451-1456` (step 1, edited by
+`a2f1ee9`) and `:1516-1530` (step 6's enumeration); cf.
+`solsys_code/management/commands/check_unattended.py:66-96`, `:177-191`, `:411-418`
+**Issue:** Iteration 3's WR-21 recorded two drifts: step 1 says "Create the **two**
+directories" while `check_state_dir()` makes `FOMO_STATE_DIR` a third *hard* check, and
+the step-6 enumeration lists neither `FOMO_STATE_DIR` nor `check_flock()`'s `-E`/util-linux
+2.27 probe, and still summarises the hard set as "(flock, the directories, or email)".
+Plan 36-07 rewrote step 1's first sentence (to add the `sudo` note) and renumbered step 4
+to step 6, so both passages were in hand, and both were left stale. `grep -rn
+FOMO_STATE_DIR docs/` still returns nothing. A host that points `FOMO_STATE_DIR` somewhere
+other than its `FOMO_LOCK_DIR` default (`settings.py:423-425`) therefore gets a hard
+preflight failure for a directory the runbook never mentioned.
+**Fix:** as WR-21 specified — in step 1 add "``FOMO_STATE_DIR`` defaults to
+``FOMO_LOCK_DIR``; create it separately only if this host points it elsewhere"; in step
+6's enumeration replace "the lock and log directories" with "the lock, log and
+suppression-state directories" and "whether ``flock`` is on ``PATH``" with "whether
+``flock`` is on ``PATH`` *and* new enough to support ``-E`` (util-linux 2.27+), which the
+cron line's skip detection needs".
+
+### WR-27: Both files claim the two install routes produce the same cron line; the template hardcodes a third host-specific path (`/usr/bin/flock`) that its own header never tells you to replace
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1542-1545` (step 8),
+`deploy/cron/fomo.crontab.example:3-11` and `:56`; cf.
+`solsys_code/management/commands/check_unattended.py:316-320`, `:66-96`
+**Issue:** Step 8 says starting from the template "and replac[ing] its two placeholder
+paths by hand … either route produces the same line", and the template header says
+`check_unattended` "prints this same line with the real resolved interpreter and manage.py
+paths already filled in". Neither is true in general. `cron_line()` substitutes five
+resolved values — interpreter, `manage.py`, **`shutil.which('flock')`**, `FOMO_LOCK_DIR`
+and `FOMO_LOG_FILE` — and its own comment says the template's literal is a placeholder:
+
+```python
+    # WR-05 (36-REVIEW.md): resolve the real `flock` path the same way check_flock()
+    # already verified it -- the committed template's hardcoded '/usr/bin/flock' is
+    # only a placeholder for a host with a non-merged-/usr layout, a venv-provided
+    # util-linux, or a container image that keeps it in /bin only.
+```
+
+The template's header, by contrast, names exactly two placeholders ("replace BOTH
+placeholder paths below") and lists only the interpreter and `manage.py`. On a host whose
+`flock` is not at `/usr/bin/flock`, or that overrides `FOMO_LOCK_DIR`/`FOMO_LOG_FILE`, the
+template route installs a line whose `sh` lookup fails (exit 127 — not 99, so no
+"lock held" line is written either) and every tick is a silent no-op. That is precisely
+the CR-01/WR-11 failure class the phase has already been bitten by twice.
+**Fix:** in the template header, add `/usr/bin/flock` to the list of values to check
+("replace the two placeholder paths, and confirm `flock` really is at `/usr/bin/flock` —
+`command -v flock` — or substitute the real path"); in runbook step 8, replace "either
+route produces the same line" with "the printed line is authoritative: it carries this
+host's resolved `flock`, lock-file and log-file paths as well as the interpreter and
+`manage.py`, which the template can only guess at".
+
+## Info
+
+### IN-25: The 15/20/35-minute alert window is now restated in five places across the two files
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1476-1486` (new), `:1588-1604`
+(authoritative), `:1620-1623`, `:2131-2144`; `deploy/cron/fomo.crontab.example:34-38`
+**Issue:** Plan 36-07 correctly delegates the *reasoning* ("see 'The two failure signals'
+below for why these numbers, why the grace must not be shrunk, and what the interval's
+default does"), but restates the two input values and the derived 35-minute figure in
+full, making five copies in these two files. WR-24 is what that duplication already cost:
+the copy drifted from the original in its treatment of the Cron-type option. All five
+copies presently agree on the numbers themselves.
+**Fix:** in step 3, keep the two values (an operator configuring the check needs them in
+hand) and drop the derived arithmetic sentence, leaving the existing pointer to carry it —
+the arithmetic is the part that has to stay in exactly one place.
+
+### IN-26: "Name each concept first, giving healthchecks.io's spelling in parentheses" is an instruction to the doc's author, not to the operator
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1476-1477` (and the pre-existing
+"Name the concept first:" at `:1584-1585`)
+**Issue:** Both sentences are drafting directives that survived into operator-facing
+prose. An operator reading "Name each concept first" in a numbered setup step reasonably
+wonders what they are meant to name, and where. Every other step in this subsection is a
+plain imperative aimed at the reader.
+**Fix:** delete the directive and keep only its product, e.g. "Set the expected interval
+between pings (healthchecks.io calls this ``Period``) to 15 minutes…".
+
+### IN-27: IN-15 and IN-16 are still open in the template, and the change rewrote one of the two IN-16 sentences while preserving its stale parenthetical
+
+**File:** `deploy/cron/fomo.crontab.example:32-33` (IN-15), `:9-11` and `:62-65` (IN-16)
+**Issue:** (1) IN-15: line 32-33 still describes "the ``[ $? -eq 99 ] && echo ... skipped``
+tail below", while line 56 reads `[ $rc -eq 99 ]` and lines 52-55 correctly describe
+`[ $? -eq 99 ]` as the superseded form — the file still says both. (2) IN-16: line 9-11
+still calls `check_unattended` "(a later plan in this phase)", and line 62-65 — a sentence
+this very change rewrote, in `a2f1ee9` — still calls `deploy/logrotate/fomo.example` "(a
+later plan in this phase)". Both shipped; `deploy/logrotate/fomo.example` is on disk.
+`grep -rn "later plan in this phase"` outside `.planning/` still finds only these two.
+**Fix:** as previously specified — line 32 becomes `` `[ $rc -eq 99 ] && echo ...
+skipped` ``, and both parentheticals are dropped.
+
+### IN-28: Step 8 and step 9 mark the two deploy-file paths with single backticks, which Sphinx renders as italic title references rather than literals
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1543` and `:1546`
+**Issue:** `` `deploy/cron/fomo.crontab.example` `` and `` `deploy/logrotate/fomo.example` ``
+use one backtick. `docs/conf.py` sets no `default_role`, so Sphinx's default
+(`title-reference`) applies and both render italic, unlike every other path in the
+subsection (``` ``/var/lock/fomo`` ```, ``` ``local_settings.py`` ```, ``` ``/etc/logrotate.d/fomo`` ```).
+Pre-existing wording, but both lines were rewritten by this change (the renumbering) and
+step 9's sentence gained text.
+**Fix:** use double backticks on both.
+
+## Security review (explicitly requested scope)
+
+| Check | Result |
+|---|---|
+| Real heartbeat ping URL / UUID in either file | **None.** Only `https://hc-ping.com/<uuid>` (`:1490`) |
+| Real API key, token or password in either file | **None.** Environment variables are named, never valued (`fomo.crontab.example:13-27`) |
+| Real host path or host name in the template | **None.** `/path/to/venv/bin/python`, `/path/to/checkout/manage.py` intact; `/var/lock/fomo`, `/var/log/fomo` are the shipped defaults (`settings.py:422`, `:429`), not host-specific |
+| Secret steered into a process argument vector | **No.** Template `:25-27` still forbids it (T-36-02) |
+| Secret steered into a file the toolchain publishes | **YES — see CR-03** (`local_settings.py` → autoapi/viewcode → `_readthedocs/html/`, `docs/_build/html/`) |
+
+## Previously reported, still open
+
+- **WR-21** (iteration 3) — re-raised as **WR-26** above; the plan-36-07 diff touched both
+  passages and closed neither.
+- **IN-15**, **IN-16** (iteration 3) — re-raised as **IN-27** above; IN-16's second
+  instance sits inside a sentence this change rewrote.
+- **WR-16, WR-17, WR-18, WR-19, WR-20, WR-22, IN-17…IN-24** (iteration 3) — not re-opened
+  by this incremental review; the code files they name are unchanged since `67e6f68`.
+  Their records below remain authoritative, including **WR-22's recorded acceptance**
+  (2026-09-18, 36-UAT.md Test 2).
+
+---
+
+_Reviewed: 2026-09-18T00:00:00Z_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: deep_
+_Iteration: 4 (incremental review of plan 36-07, gap closure G-36-1, against `67e6f68`)_
+
+---
+
+# Retained: iteration 3 report (unchanged, for history)
+
+The full iteration-3 report follows verbatim. Its frontmatter has been removed; the
+frontmatter at the top of this file describes iteration 4.
 
 # Phase 36: Code Review Report (iteration 3 — re-review after the iteration-2 fix pass and the 36-06 gap closure)
 
