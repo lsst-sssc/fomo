@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 5/5 plans executed
+**Plans**: 5/6 plans executed (36-06 is gap closure for UAT gap G-36-3)
 
 Plans:
 **Wave 1**
@@ -352,6 +352,10 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 36-05-PLAN.md — Paired docs: the runbook's unattended-operation section, the demo notebook's watched-proposal cells, and the CLAUDE.md map
+
+**Wave 4** *(gap closure — UAT G-36-3)*
+
+- [ ] 36-06-PLAN.md — Heartbeat guidance names both the check's expected ping interval and its grace time: runbook, crontab template, preflight reminder, and the corrected verification record
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
