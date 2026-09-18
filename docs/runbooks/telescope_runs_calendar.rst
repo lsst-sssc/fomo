@@ -1468,6 +1468,16 @@ Setting it up on a fresh host
    the same LCO Observation Portal. Leave the setting out and both
    facility entries stay empty, so any portal call FOMO makes -- including
    the unattended tick's status refresh -- goes out unauthenticated.
+
+   This host must also override three development defaults in the same
+   file, or it will serve the site with a signing key that is public in
+   this repository: ``SECRET_KEY`` (generate a fresh one --
+   ``python -c "from django.core.management.utils import
+   get_random_secret_key; print(get_random_secret_key())"``),
+   ``DEBUG = False``, and ``ALLOWED_HOSTS`` set to this host's real
+   name(s) -- ``DEBUG = False`` with the committed single-entry
+   ``ALLOWED_HOSTS`` makes every request return 400, so the two must
+   change together.
 3. Create the heartbeat check. This is a dead-man's switch on a
    third-party service that alerts when a tick never ran at all or hung
    partway through -- not only when one failed outright, which is the one
