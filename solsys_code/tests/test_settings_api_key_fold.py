@@ -19,8 +19,8 @@ CLAUDE.md does not arise.
 import importlib
 import sys
 import types
-from os import environ
 
+from django.conf import settings as django_settings
 from django.test import SimpleTestCase, override_settings
 from tom_observations.facilities.soar import SOARSettings
 
@@ -53,14 +53,14 @@ class _FoldExecutionTestCase(SimpleTestCase):
 
         Returns the namespace's ``FACILITIES`` dict for the caller to assert against.
         """
-        settings_module_name = environ['DJANGO_SETTINGS_MODULE']
-        settings_module = importlib.import_module(settings_module_name)
+        settings_module = importlib.import_module(django_settings.SETTINGS_MODULE)
         settings_path = settings_module.__file__
 
         with open(settings_path) as fh:
             source = fh.read()
         anchor_index = source.find(_FOLD_TAIL_ANCHOR)
-        assert anchor_index != -1, f'fold-tail anchor not found in {settings_path}: {_FOLD_TAIL_ANCHOR!r}'
+        if anchor_index == -1:
+            self.fail(f'fold-tail anchor not found in {settings_path}: {_FOLD_TAIL_ANCHOR!r}')
         tail_source = source[anchor_index:]
 
         fake_module = types.ModuleType('fomo.local_settings')
@@ -79,7 +79,7 @@ class _FoldExecutionTestCase(SimpleTestCase):
         self.addCleanup(_restore_module)
 
         namespace = {'FACILITIES': {'LCO': {'api_key': ''}, 'SOAR': {'api_key': ''}}}
-        exec(compile(tail_source, settings_path, 'exec'), namespace)  # noqa: S102 -- executing our own settings source
+        exec(compile(tail_source, settings_path, 'exec'), namespace)  # executing our own settings source
         return namespace['FACILITIES']
 
 
@@ -134,7 +134,7 @@ class TestFoldTailUsesStarImportIntoOwnNamespace(SimpleTestCase):
     attempt raises, rather than letting Django refuse to start)."""
 
     def test_fold_tail_star_imports_and_does_not_use_a_bare_except(self):
-        settings_module = importlib.import_module(environ['DJANGO_SETTINGS_MODULE'])
+        settings_module = importlib.import_module(django_settings.SETTINGS_MODULE)
         settings_path = settings_module.__file__
         with open(settings_path) as fh:
             source = fh.read()
