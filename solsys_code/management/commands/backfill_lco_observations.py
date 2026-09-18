@@ -14,7 +14,7 @@ import logging
 from datetime import date, datetime
 from datetime import time as dt_time
 from datetime import timezone as dt_timezone
-from typing import Any
+from typing import Any, TextIO
 from urllib.parse import urlencode, urljoin
 
 from django.contrib.auth import get_user_model
@@ -695,7 +695,7 @@ def watched_rows():
 
 
 def sweep_watched_rows(
-    *, dry_run: bool, stdout: io.StringIO | None = None, stderr: io.StringIO | None = None
+    *, dry_run: bool, stdout: TextIO | None = None, stderr: TextIO | None = None
 ) -> tuple[int, int, list[str]]:
     """Sweep every active ``WatchedProposal`` row through ``sweep_proposal()`` (D-07..D-09).
 
@@ -709,8 +709,11 @@ def sweep_watched_rows(
     Args:
         dry_run: report what would change without writing any ``WatchedProposal``
             bookkeeping when True.
-        stdout: forwarded to ``sweep_proposal()``, unused (``None``) by the runner, which
-            has no stdout of its own to write progress lines to.
+        stdout: forwarded to ``sweep_proposal()``. ``Command.handle()``'s bare-invocation
+            path passes ``self.stdout`` (a Django ``OutputWrapper``); ``unattended.
+            step_discovery()`` passes a throwaway ``io.StringIO()`` it captures and logs
+            (IN-02, 36-REVIEW.md), since the runner has no terminal of its own to write
+            progress lines to.
         stderr: forwarded to ``sweep_proposal()``, and used to report the class name of
             any per-row failure (D-17) when supplied.
 
