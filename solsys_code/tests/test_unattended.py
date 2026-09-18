@@ -511,6 +511,27 @@ class TestStateFileAtomicWrite(UnattendedTestBase):
         self.assertEqual(state['failing_steps'], ['discovery', 'reconcile'])
         self.assertEqual(state['notified_at'], now)
 
+    def test_stale_temp_file_from_a_killed_write_is_reaped(self):
+        # IN-21 (36-REVIEW.md): a SIGKILL/OOM kill between mkstemp() and os.replace()
+        # leaves a `.<filename>.<random>.tmp` file behind forever, since load_state()
+        # only ever reads the exact target filename -- nothing else ever cleaned these
+        # up. A file older than one cron tick interval can only be such a leftover
+        # (a single write is milliseconds of work), so the next write reaps it.
+        state_dir = Path(self.tmp_dir.name)
+        stale_tmp = state_dir / '.unattended-state.json.stale123.tmp'
+        stale_tmp.write_text('{}')
+        stale_age = unattended._CRON_TICK_INTERVAL + timedelta(minutes=1)
+        stale_mtime = (datetime.now(dt_timezone.utc) - stale_age).timestamp()
+        os.utime(stale_tmp, (stale_mtime, stale_mtime))
+
+        fresh_tmp = state_dir / '.unattended-state.json.fresh456.tmp'
+        fresh_tmp.write_text('{}')
+
+        unattended.save_state(['reconcile'], None)
+
+        self.assertFalse(stale_tmp.exists(), 'stale temp file older than one tick interval should be reaped')
+        self.assertTrue(fresh_tmp.exists(), 'a temp file younger than one tick interval must not be touched')
+
 
 class TestNoneSettingGuards(UnattendedTestBase):
     """IN-14 (36-REVIEW.md): a local_settings.py deriving FOMO_LOCK_DIR/FOMO_STATE_DIR

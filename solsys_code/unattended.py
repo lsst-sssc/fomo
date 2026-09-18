@@ -48,6 +48,11 @@ logger = logging.getLogger(__name__)
 
 _HEARTBEAT_TIMEOUT_SECONDS = 10
 _REMINDER_INTERVAL = timedelta(hours=24)
+# D-04/WR-16 (36-REVIEW.md): the cron schedule's own interval -- also the threshold
+# _reap_stale_temp_files() uses, since any of _atomic_write_json()'s temp files still
+# around after a full tick interval can only be a leftover from a killed process, never
+# an in-flight write (a single write is milliseconds of work).
+_CRON_TICK_INTERVAL = timedelta(minutes=15)
 _STATE_FILENAME = 'unattended-state.json'
 # WR-17 (36-REVIEW.md): where save_state() falls back to when FOMO_STATE_DIR is
 # unwritable. `run_unattended` is a fresh process per cron tick (no in-process loop), so
@@ -497,6 +502,29 @@ def load_state() -> dict:
     }
 
 
+def _reap_stale_temp_files(directory: Path, filename: str) -> None:
+    """Remove any of ``_atomic_write_json()``'s own temp files older than one tick
+    interval (WR-16/D-04: 15 minutes), from a previous write this process (or a prior
+    one) never got to clean up.
+
+    IN-21 (36-REVIEW.md): a ``SIGKILL``/OOM kill between ``mkstemp()`` and
+    ``os.replace()`` -- the same failure class this function's own except clause
+    already handles for a raised exception -- leaves a ``.<filename>.<random>.tmp``
+    file behind forever, since ``load_state()`` only ever reads the exact target
+    filename. On a host that OOM-kills ticks, the directory (often a small tmpfs, since
+    it defaults to ``FOMO_LOCK_DIR``) accumulates one file per occurrence with nothing
+    to clean them. Best-effort only: a listing or stat failure here must never block the
+    write that follows.
+    """
+    threshold_seconds = _CRON_TICK_INTERVAL.total_seconds()
+    now = datetime.now(dt_timezone.utc).timestamp()
+    with suppress(OSError):
+        for candidate in directory.glob(f'.{filename}.*.tmp'):
+            with suppress(OSError):
+                if now - candidate.stat().st_mtime > threshold_seconds:
+                    candidate.unlink()
+
+
 def _atomic_write_json(path: Path, payload: dict) -> None:
     """Write ``payload`` to ``path`` atomically: a fresh temp file in the same
     directory, then ``os.replace()``.
@@ -508,11 +536,15 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
     exclusively owned by this process (``FOMO_STATE_DIR`` defaults to
     ``FOMO_LOCK_DIR``; the fallback path is the shared system temp directory).
 
+    IN-21 (36-REVIEW.md): reaps this function's own leftover temp files from an earlier
+    kill (see ``_reap_stale_temp_files()``) before creating a new one.
+
     Raises:
         OSError: the directory or temp file could not be created or written -- the
             caller decides what "could not persist state" means for it.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    _reap_stale_temp_files(path.parent, path.name)
     fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp')
     tmp_path = Path(tmp_path_str)
     try:
