@@ -169,3 +169,107 @@ class TestSoarAccessorReadsFoldTarget(SimpleTestCase):
     def test_soar_settings_get_setting_reads_facilities_soar_api_key(self):
         with override_settings(FACILITIES={'SOAR': {'api_key': _FAKE_LCO_API_KEY}}):
             self.assertEqual(SOARSettings('SOAR').get_setting('api_key'), _FAKE_LCO_API_KEY)
+
+
+class _MissingModuleFinder:
+    """A ``sys.meta_path`` finder that raises a caller-supplied exception for exactly
+    one dotted module name (WR-38, 36-REVIEW.md).
+
+    Raising directly from ``find_spec()`` propagates that exact exception -- including
+    its ``.name`` attribute -- straight through the import machinery, unmodified. This
+    lets a test force ``from fomo.local_settings import *`` down either branch of the
+    fold tail's ``except ImportError as exc: if exc.name != 'fomo.local_settings': raise``
+    guard on demand, independent of whether a real ``local_settings.py`` exists on this
+    checkout's disk (it does, here: ``src/fomo/local_settings.py``).
+    """
+
+    def __init__(self, blocked_fullname, exc_factory):
+        self._blocked_fullname = blocked_fullname
+        self._exc_factory = exc_factory
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname == self._blocked_fullname:
+            raise self._exc_factory()
+        return None  # defer to the normal finders for every other import
+
+
+class TestImportGuardHandlesMissingLocalSettingsModule(_FoldExecutionTestCase):
+    """WR-38 (36-REVIEW.md): the fold tail's own import guard (WR-32, 36-REVIEW.md
+    iteration 5) --
+
+    .. code-block:: python
+
+        except ImportError as exc:
+            if exc.name != 'fomo.local_settings':
+                raise
+
+    -- was executed by no test. ``_FoldExecutionTestCase._run_fold()`` always injects a
+    working synthetic ``fomo.local_settings`` module into ``sys.modules``, so the
+    ``except`` branch is dead in every case above; and this checkout's own real
+    ``src/fomo/local_settings.py`` means even the ordinary settings import at test
+    startup takes the success path. This is the same regression model WR-29 (36-REVIEW.md
+    iteration 5) found: a settings change that kept every test green while a configured
+    host failed at import.
+
+    These two cases force each half of the guard's condition via ``_MissingModuleFinder``,
+    with no real local settings module involved in either: (a) the module itself is
+    "missing" -- must be swallowed, ``FACILITIES`` untouched; (b) some OTHER import inside
+    ``fomo.local_settings`` is missing -- must propagate out of the exec.
+    """
+
+    def _run_fold_with_missing_module(self, exc_factory):
+        """Execute the live settings module's fold tail with ``fomo.local_settings``
+        forced through ``exc_factory()`` instead of a real or synthetic module.
+
+        Mirrors ``_FoldExecutionTestCase._run_fold()``'s anchor-slicing (see that
+        method's docstring), but removes any cached ``fomo.local_settings`` entry from
+        ``sys.modules`` (restored via ``addCleanup``) and installs a
+        ``_MissingModuleFinder`` at the front of ``sys.meta_path`` (removed via
+        ``addCleanup``) instead of injecting a synthetic module.
+        """
+        settings_module = importlib.import_module(django_settings.SETTINGS_MODULE)
+        settings_path = settings_module.__file__
+
+        with open(settings_path) as fh:
+            source = fh.read()
+        anchor_index = source.find(_FOLD_TAIL_ANCHOR)
+        if anchor_index == -1:
+            self.fail(f'fold-tail anchor not found in {settings_path}: {_FOLD_TAIL_ANCHOR!r}')
+        tail_source = source[anchor_index:]
+
+        previous_module = sys.modules.pop('fomo.local_settings', None)
+
+        def _restore_module():
+            if previous_module is None:
+                sys.modules.pop('fomo.local_settings', None)
+            else:
+                sys.modules['fomo.local_settings'] = previous_module
+
+        self.addCleanup(_restore_module)
+
+        finder = _MissingModuleFinder('fomo.local_settings', exc_factory)
+        sys.meta_path.insert(0, finder)
+        self.addCleanup(lambda: sys.meta_path.remove(finder))
+
+        namespace = {'FACILITIES': {'LCO': {'api_key': ''}, 'SOAR': {'api_key': ''}}}
+        exec(compile(tail_source, settings_path, 'exec'), namespace)  # executing our own settings source
+        return namespace['FACILITIES']
+
+    def test_local_settings_itself_missing_is_swallowed(self):
+        facilities = self._run_fold_with_missing_module(
+            lambda: ModuleNotFoundError("No module named 'fomo.local_settings'", name='fomo.local_settings')
+        )
+        self.assertEqual(facilities['LCO']['api_key'], '')
+        self.assertEqual(facilities['SOAR']['api_key'], '')
+
+    def test_import_error_inside_local_settings_propagates(self):
+        # An ImportError raised INSIDE fomo.local_settings (e.g. a sibling import
+        # missing from this host's venv) has a DIFFERENT .name than
+        # 'fomo.local_settings' -- must propagate, or a configured host would silently
+        # revert to every dev default (committed SECRET_KEY, DEBUG=True, console
+        # EMAIL_BACKEND, empty facility api_keys) with no error at all.
+        with self.assertRaises(ModuleNotFoundError) as ctx:
+            self._run_fold_with_missing_module(
+                lambda: ModuleNotFoundError("No module named 'some_missing_dependency'", name='some_missing_dependency')
+            )
+        self.assertEqual(ctx.exception.name, 'some_missing_dependency')
