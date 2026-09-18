@@ -1495,17 +1495,18 @@ Setting it up on a fresh host
    open-source Django app) if a third-party dependency for something this
    load-bearing is unwelcome.
 
-   Create ONE check for this schedule and set both of its settings. Name
-   each concept first, giving healthchecks.io's spelling in parentheses:
-   the expected interval between pings (``Period``) = 15 minutes,
-   matching this cron schedule -- or, as the drift-free alternative, a
-   Cron-type check carrying the same ``*/15 * * * *`` expression the
-   crontab line uses -- and the grace time (``Grace``) = about 20
-   minutes. The service alerts at last ping + expected interval + grace,
-   so with these values a stopped schedule alerts about 35 minutes after
-   the last successful ping (see "The two failure signals" below for why
-   these numbers, why the grace must not be shrunk, and what the
-   interval's default does if it is left alone).
+   Create ONE check for this schedule. Name each concept first, giving
+   healthchecks.io's spelling in parentheses: the expected interval
+   between pings (``Period``) = 15 minutes, matching this cron
+   schedule, and the grace time (``Grace``) = about 20 minutes. A
+   Simple check of that shape alerts at last ping + interval + grace --
+   about 35 minutes after the last successful ping. The drift-free
+   alternative is a Cron-type check carrying the same
+   ``*/15 * * * *`` expression the crontab line uses, with the same
+   grace; it has no interval to set and alerts at the missed slot +
+   grace instead (see "The two failure signals" below for why these
+   numbers, why the grace must not be shrunk, and what the interval's
+   default does if it is left alone).
 
    Finally, copy that check's own ping URL from the service and keep it
    for the next step, which exports it. On healthchecks.io it has the
