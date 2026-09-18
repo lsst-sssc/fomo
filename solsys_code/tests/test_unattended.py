@@ -853,6 +853,14 @@ class TestDiscoveryStep(UnattendedTestBase):
         # IN-02 (36-REVIEW.md): sweep_proposal()'s own per-request skip-reason lines
         # sink into a throwaway io.StringIO() when this step passes no stdout/stderr --
         # every such reason was silently discarded. They must now reach the log.
+        #
+        # WR-18 (36-REVIEW.md): asserted at INFO, not DEBUG -- this project's own
+        # LOGGING config pins the root logger to INFO, so a record logged at DEBUG is
+        # filtered out before it ever reaches the crontab's redirected unattended.log.
+        # Asserting only that logger.debug() was CALLED (the previous version of this
+        # test) passed even though the fix's stated outcome -- "they must now reach the
+        # log" -- was not actually achieved in production. A future downgrade back to
+        # DEBUG must fail this test.
         WatchedProposal.objects.create(proposal_code='AAA-2026-001')
 
         def _write_skip_reason(_proposal, **kwargs):
@@ -861,7 +869,7 @@ class TestDiscoveryStep(UnattendedTestBase):
 
         mock_sweep_proposal.side_effect = _write_skip_reason
 
-        with self.assertLogs('solsys_code.unattended', level='DEBUG') as captured:
+        with self.assertLogs('solsys_code.unattended', level='INFO') as captured:
             unattended.step_discovery(dry_run=False)
 
         joined = '\n'.join(captured.output)
