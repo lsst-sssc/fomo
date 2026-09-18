@@ -1,440 +1,598 @@
 ---
 phase: 36-unattended-operation
-reviewed: 2026-09-17T21:05:00Z
+reviewed: 2026-09-17T23:55:00Z
 depth: deep
-iteration: 2
+iteration: 3
 files_reviewed: 12
 files_reviewed_list:
   - deploy/cron/fomo.crontab.example
-  - deploy/logrotate/fomo.example
+  - docs/installation.rst
   - docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb
   - docs/runbooks/telescope_runs_calendar.rst
   - solsys_code/management/commands/backfill_lco_observations.py
   - solsys_code/management/commands/check_unattended.py
+  - solsys_code/management/commands/run_unattended.py
   - solsys_code/notifications.py
   - solsys_code/tests/test_backfill_lco_observations.py
-  - solsys_code/tests/test_campaign_submission.py
   - solsys_code/tests/test_check_unattended.py
   - solsys_code/tests/test_unattended.py
   - solsys_code/unattended.py
 findings:
   critical: 0
   warning: 7
-  info: 8
-  total: 15
-carried_forward_open: 6
+  info: 10
+  total: 17
+carried_forward_open: 1
 status: issues_found
 ---
 
-# Phase 36: Code Review Report (iteration 2 — re-review after the fix pass)
+# Phase 36: Code Review Report (iteration 3 — re-review after the iteration-2 fix pass and the 36-06 gap closure)
 
-**Reviewed:** 2026-09-17T21:05:00Z
+**Reviewed:** 2026-09-17T23:55:00Z
 **Depth:** deep
-**Files Reviewed:** 12 (everything changed since `337b1e9`, the commit the first review was written against)
+**Files Reviewed:** 12 (everything changed since `fe719d6d`, the commit iteration 2 was written against)
 **Status:** issues_found
 
 ## Summary
 
-This is an incremental re-review of the ten fixes recorded in `36-REVIEW-FIX.md`
-(CR-01, CR-02, WR-01..WR-08), plus an adversarial pass over everything those fixes
-touched. **All ten prior findings are genuinely fixed** — I verified the two critical ones
-against the real code path rather than against the fix report's prose:
+This is an incremental re-review of the 21 fixes recorded in `36-REVIEW-FIX.md`
+(iteration 2) plus gap-closure plan 36-06 (`12c51c6`, `f075a7f`, `1f3bbac`), which
+corrected the heartbeat alert-window guidance.
 
-- **CR-01 (self-deadlocking cron line) is empirically resolved.** Running the real
-  `command_lock('run_unattended')` under `flock -n -E 99 <FOMO_LOCK_DIR>/run_unattended.cron.lock`
-  now acquires the internal lock (`RESULT: internal lock ACQUIRED -- tick would run`), while
-  the same probe under the *old* shared filename still reproduces `LockContended`. The two
-  names are distinct in `cron_line()` (`check_unattended.py:240`), in the committed template
-  (`fomo.crontab.example:38`), and in the runbook, and `test_cron_lock_differs_from_the_runner_internal_lock`
-  pins the difference.
-- **CR-02 is resolved** by a fail-closed `CommandError` in `handle()`
-  (`backfill_lco_observations.py:836-850`) with five new tests, and the paired demo notebook
-  carries a note.
-- All 146 tests in the four affected modules pass (`test_unattended`, `test_check_unattended`,
-  `test_campaign_submission`, `test_backfill_lco_observations`), and
-  `pre-commit run ruff`/`ruff-format` are clean on every changed Python file.
+**Verification of the prior 21 fixes.** All were checked against the real code rather than
+against the fix report's prose. Twenty are genuinely and completely fixed. The two I
+re-derived empirically:
 
-What the fix pass did **not** get right is concentrated in two places: the cron line's exit
-status, which the WR-01 fix inverted, and the state file, where WR-03's "never raises"
-contract is still not true.
+- **WR-09 (inverted cron-line exit status) is fixed.** Running the committed line's exact
+  shape in a real `sh` now yields `0` on a healthy tick, `1` on a failing tick, and `99`
+  on a contended one — the inversion is gone. But the *semantics* of the new third case
+  contradict the runner's own documented contract; see **WR-16**.
+- **WR-10 (`load_state()` raising on a mixed-type `failing_steps`) is fixed** by the
+  `isinstance(step, str)` filter at `unattended.py:434`, which sits before the `sorted()`
+  at `:445`.
 
-**Two findings are regressions or residuals of the fixes themselves, and should be treated
-as the priority:**
+**One prior finding is only partially fixed and is carried forward.** WR-15's own
+recommended remedies were "(a) suppress further mail when the state cannot be persisted"
+**or** "(b) add a `check_state_dir()` preflight", with the review explicitly noting that
+"(a) is the one that survives a directory that becomes unwritable after setup". The fix
+pass implemented (b) only, and `36-REVIEW-FIX.md` records WR-15 as fixed. The runtime
+email-storm loop is unchanged — see **WR-17**.
 
-- **WR-09** — the new `[ $? -eq 99 ] && echo ...` tail makes the crontab line exit **1 on a
-  healthy tick, 1 on a failing tick, and 0 on the one case where nothing ran**. Verified in a
-  real `sh`. The cron line's own status is now precisely inverted.
-- **WR-10** — `load_state()` still raises `TypeError` on a state file whose `failing_steps`
-  mixes types (verified: `{"failing_steps": [1, "a"]}` → `TypeError: '<' not supported
-  between instances of 'str' and 'int'`). The new outer `try/except` keeps the tick alive,
-  but `save_state()` is never reached, so the file is never repaired and **every failure
-  email is silently suppressed forever** from that point on.
+**The 36-06 gap closure is substantively correct.** The runbook's rewritten "Heartbeat."
+paragraph now names both knobs, states the alert arithmetic, explains why the grace time
+also bounds the `/start`→completion gap (accurate for healthchecks.io's start-signal
+semantics), and adds a dedicated troubleshooting entry. Its propagation into
+`check_unattended.py` is thinner than into the docs (see **IN-20**), and the runbook's
+own description of what the preflight reports was not refreshed for the two *other*
+checks the fix pass added (see **WR-21**).
 
-No security defects were found in the changed code. Credential hygiene (D-15/D-17/SCHED-10)
-holds throughout: `check_base_url()` never echoes the URL value, `cron_line()` interpolates
-only paths/uids, and every caught exception is still reported by class name only.
+**Credential hygiene (D-15/D-17/SCHED-10) mostly holds.** A scan of all twelve files for
+`hc-ping`, healthchecks-shaped URLs, and bare UUIDs finds nothing; every fixture literal is
+an obvious `example`/`FAKE-` placeholder; `check_heartbeat()` still prints set/unset only
+and the new test pins `assertNotIn(_FAKE_HEARTBEAT_URL, stdout)`; the regenerated notebook
+carries no absolute host path and no worktree path. `check_unattended` prints set/unset
+only, never a value, so D-15 is satisfied. The one hole is **WR-22**: two `logger.debug()`
+call sites interpolate a raw `str(exc)` from a portal call, which D-17 forbids — latent
+only because the shipped `LOGGING` config drops `DEBUG`. No injection, path-traversal, or
+deserialization defect was found. `ruff`'s 120-column limit is respected in every changed
+Python file.
+
+**Where the remaining defects cluster.** Four of the seven warnings are consequences of the
+fix pass itself: a contract contradiction the WR-09 fix introduced (WR-16), the half-fix
+of WR-15 (WR-17), an IN-02 fix whose output the project's own `LOGGING` config discards
+(WR-18), and a `subprocess` call the WR-11 fix added without the error handling the same
+commit gave `_owner_mode()` (WR-20). The remaining three are pre-existing gaps the earlier
+iterations did not catch (WR-19, WR-21, WR-22). **WR-18 and WR-22 must be fixed together**:
+WR-18's obvious remedy (raise the verbosity of the unattended log) is exactly what would
+activate WR-22's leak.
 
 ## Narrative Findings (AI reviewer)
 
-### Verification of the prior ten fixes
+### Verification of the prior 21 fixes
 
 | Prior finding | Verdict | Evidence |
 |---|---|---|
-| CR-01 self-deadlocking cron lock | **Fixed** | Live `flock`/`command_lock()` probe; `check_unattended.py:240`, `fomo.crontab.example:38`, `test_check_unattended.py:236-242` |
-| CR-02 silently-ignored `--proposal`-only flags | **Fixed** | `backfill_lco_observations.py:836-850`; 5 new tests |
-| WR-01 `\|\|` tail mislabels failures | **Fixed** (but see WR-09) | `-E 99` + `[ $? -eq 99 ]` verified in `sh` |
-| WR-02 unsent mail recorded as notified | **Fixed** (see IN-07 for a docstring overstatement) | `unattended.py:503-522`, `:587-591` |
-| WR-03 state file not fail-safe | **Partly fixed** — see **WR-10**, **WR-15** | `unattended.py:373-408`, `:579-593` |
-| WR-04 END banner reuses START time | **Fixed** | `unattended.py:569`, `:596` |
-| WR-05 hardcoded `/usr/bin/flock` | **Fixed** | `check_unattended.py:246` |
-| WR-06 writability preflight claim | **Fixed** (reporting-only remedy, doc corrected) | `check_unattended.py:73-121`, `fomo.example:6-9` |
-| WR-07 localhost base URL in links | **Fixed** (see **WR-13** for the remaining hole) | `check_unattended.py:188-211`, `notifications.py:46` |
-| WR-08 uncapped status re-check | **Fixed** | `unattended.py:56`, `:207`, `:218`, `:254-259` |
+| WR-09 inverted cron-line exit status | **Fixed** (but see **WR-16**) | Live `sh` probe: healthy `0`, failing `1`, contended `99`; `check_unattended.py:325-330`, `fomo.crontab.example:52`, `test_check_unattended.py` `test_line_ends_with_an_explicit_exit_of_the_captured_status` |
+| WR-10 `load_state()` raises on mixed types | **Fixed** | `unattended.py:434` filters before `sorted()` at `:445`; `test_mixed_type_failing_steps_are_coerced_not_raised` |
+| WR-11 `check_flock()` didn't prove `-E` | **Fixed** (but see **WR-20**) | `check_unattended.py:85-95` |
+| WR-12 runbook flag docs | **Fixed** | `telescope_runs_calendar.rst:388-391`, `:1779-1780` |
+| WR-13 `FOMO_BASE_URL` scoped to cron only | **Fixed** | `telescope_runs_calendar.rst:1463-1473`, `fomo.crontab.example:16-21`, `docs/installation.rst:110-117` |
+| WR-14 unreachable stale-lock remedy | **Fixed** | `telescope_runs_calendar.rst:2045-2057` |
+| WR-15 unwritable `FOMO_STATE_DIR` mail storm | **Partly fixed** — see **WR-17** | `check_unattended.py:177-191` adds the setup-time check; `unattended.py:646-660` is unchanged |
+| IN-01 heartbeat ignored HTTP status | **Fixed** | `unattended.py:156` `raise_for_status()` |
+| IN-02 skip reasons discarded | **Partly fixed** — see **WR-18** | `unattended.py:374-381` captures them, but at `DEBUG` |
+| IN-03 non-atomic state write | **Fixed** | `unattended.py:473-483`; mkstemp + `chmod 0o600` + `os.replace` |
+| IN-04 stale `run_unattended` docstring | **Fixed** | `run_unattended.py:20-25` (but see **IN-16** for two siblings missed) |
+| IN-05 outage read as "failed 1" / dangling `classes:` | **Fixed** | `unattended.py:226`, `:281-290` |
+| IN-06 unknown `only_step` silent no-op | **Fixed** | `unattended.py:605-606` |
+| IN-07 `notify_staff()` discarded `send_mail()`'s result | **Fixed** | `notifications.py:84-95` |
+| IN-08 cron-line shape test | **Fixed** | `test_check_unattended.py:263`, new token-for-token test |
+| IN-09 stale `check_unattended` docstrings | **Fixed** | `check_unattended.py:15-19`, `:376-381`, `test_check_unattended.py:3` |
+| IN-10 stale runbook `flock -n` passages | **Fixed** | `telescope_runs_calendar.rst:1587-1600` |
+| IN-11 notebook prose-only | **Fixed** | Cell 18 is a real executed cell (`execution_count` 1..12 is sequential across all 12 code cells, so the notebook was genuinely re-run) |
+| IN-12 guard ordering/truthiness | **Fixed** | `backfill_lco_observations.py:879-899` (`is not None`, above username resolution) |
+| IN-13 duplicated watched-proposal loop | **Fixed** | `backfill_lco_observations.py:697-769`, both callers |
+| IN-14 `None` path settings, `_owner_mode()` | **Fixed** | `unattended.py:121`, `:417`, `:466`, `:551`; `check_unattended.py:108-112` |
 
 ## Warnings
 
-### WR-09: The new cron line's exit status is inverted — 0 only when nothing ran, 1 on both success and failure
+### WR-16: The cron line now reports a benign lock-contended skip as exit 99 — a failure to any supervisor — and both the docstring and the crontab comment misattribute that code to `run_unattended`
 
-**File:** `deploy/cron/fomo.crontab.example:38`, `solsys_code/management/commands/check_unattended.py:251-255`
-**Issue:** The WR-01 fix replaced `... || echo ...` with `...; [ $? -eq 99 ] && echo ...`.
-The `[ ... ] && echo ...` list is now the *last* command in the crontab line, so its status
-is the line's status. Verified in a real `sh`:
-
-```
-$ sh -c "flock -n -E 99 $D/l true      >> $D/log 2>&1; [ \$? -eq 99 ] && echo skip >> $D/log"; echo $?
-1                       # healthy tick  -> line exits 1
-$ sh -c "flock -n -E 99 $D/l sh -c 'exit 1' >> $D/log 2>&1; [ \$? -eq 99 ] && echo skip >> $D/log"; echo $?
-1                       # failing tick  -> line exits 1
-$ sh -c "flock -n -E 99 $D/l true      >> $D/log 2>&1; [ \$? -eq 99 ] && echo skip >> $D/log"; echo $?   # lock held
-0                       # skipped tick  -> line exits 0
-```
-
-So the only outcome that reports *success* to cron is the one where zero steps ran, and a
-healthy tick is indistinguishable from a failed one. Anything that reads the cron job's
-status — `cron`'s own syslog `CMD exit status`, a systemd timer if this is ever migrated, a
-wrapper script, an `OnFailure=` hook, or a `run-parts`-style harness — now gets exactly the
-wrong answer. The pre-fix `||` form at least returned 0 on a healthy tick. Neither the
-crontab template's comment block (`:20-30`) nor the runbook mentions that the line's status
-is no longer the tick's status, so the next person to wire monitoring onto it will be misled
-in the same direction CR-01 misled the operator.
-**Fix:** capture and re-emit `run_unattended`'s own status, in `cron_line()` and in the
-committed template together:
+**File:** `solsys_code/management/commands/check_unattended.py:295-300` and `:325-330`,
+`deploy/cron/fomo.crontab.example:47-52`; cf. `solsys_code/unattended.py:88-91`, `:590-594`,
+`:665-668`
+**Issue:** The WR-09 fix ends the line with `exit $rc`. Verified in a real `sh` against a
+real `flock`:
 
 ```
-*/15 * * * * /usr/bin/flock -n -E 99 /var/lock/fomo/run_unattended.cron.lock <python> <manage.py> run_unattended >> /var/log/fomo/unattended.log 2>&1; rc=$?; [ $rc -eq 99 ] && echo "$(date -Is) run_unattended skipped: lock held" >> /var/log/fomo/unattended.log; exit $rc
+healthy tick   -> exit=0
+failing tick   -> exit=1
+lock contended -> exit=99
 ```
 
-and add a `TestCronLine` case asserting the line ends with an explicit `exit $rc` (or
-equivalent) rather than with a bare `[ ... ] && ...`.
+That is correct for the first two cases and fixes the inversion. The third case is a new
+contract violation. `run_tick()`'s own docstring is explicit that contention is *not* a
+failure — "A contended whole-run lock is NOT a failure -- it returns ``exit_code=0`` with
+no results ... the heartbeat (D-12) is the structural backstop" (`unattended.py:590-594`),
+and `TickResult.exit_code` documents "0 on a healthy tick (including a lock-contended
+skip)" (`:88-91`). The cron line now overrides that decision from the outside: any
+supervisor reading the line's status — cron's own syslog `CMD exit status`, a systemd
+timer if this is migrated, an `OnFailure=` hook, a `run-parts` harness, or a monitoring
+wrapper — sees a **non-zero status on a routine tick overlap**, which the runbook itself
+calls normal ("One occurrence is normal (an overrunning tick colliding with the next
+scheduled one)", `telescope_runs_calendar.rst:1600`). The previous iteration's WR-09
+complained that a healthy tick was indistinguishable from a failing one; this iteration's
+line makes a *healthy skip* indistinguishable from a failing tick.
 
-### WR-10: `load_state()` still raises, and a corrupt state file silently disables every failure email forever
+Both prose claims about the new line are also wrong in the same direction:
 
-**File:** `solsys_code/unattended.py:393-408` (specifically `:406`), `:579-593`
-**Issue:** WR-03's fix added `isinstance(data, dict)` and `isinstance(failing_steps, list)`
-guards but never validates the list's *elements*, and `sorted(failing_steps)` at `:406` sits
-outside any `try`. Executed against the real function with a temporary `FOMO_STATE_DIR`:
+- `check_unattended.py:299-300`: "the line's own status is always `run_unattended`'s (0
+  healthy, 1 failing, 99 skipped)". `run_unattended` never exits 99 — it exits **0** on
+  contention. 99 is `flock`'s own `-E` code and is a status `run_unattended` cannot
+  produce.
+- `fomo.crontab.example:48-49`: the same sentence, same error.
+
+**Fix:** decide which contract wins and make all three surfaces agree. The runner's own
+contract (contention is benign, the heartbeat is the backstop) is the one the whole phase
+is built on, so normalize the skip to 0 after the log line is written, in `cron_line()`
+and the committed template together:
 
 ```
-'{"failing_steps": [1, "a"], "notified_at": null}' RAISED TypeError '<' not supported between instances of 'str' and 'int'
-'{"failing_steps": [true, "a"]}'                   RAISED TypeError '<' not supported between instances of 'str' and 'bool'
-'{"failing_steps": {"a": 1}}'                      -> {'failing_steps': [], 'notified_at': None}   # ok
-'null'                                             -> {'failing_steps': [], 'notified_at': None}   # ok
+*/15 * * * * <flock> -n -E 99 <lock> <python> <manage.py> run_unattended >> <log> 2>&1; rc=$?; \
+  [ $rc -eq 99 ] && { echo "$(date -Is) run_unattended skipped: lock held" >> <log>; rc=0; }; exit $rc
 ```
 
-`load_state()`'s own docstring (`:379-382`) still promises "A missing file, an unparseable
-one, one whose top level is not a dict/list ... is treated as 'no prior failure' -- never an
-exception out of `run_tick()`". It is not true. The new outer `try/except` at `:579-593`
-does keep the tick alive — but that is exactly what makes this dangerous: the exception is
-raised on the **first** statement of the block, so `decide_notification()`,
-`_send_notification()` and `save_state()` are all skipped. `save_state()` is the only writer
-of that file, so the corrupt content is never overwritten, and the condition repeats on
-every tick forever. Net effect: D-11/SCHED-09's primary alert channel is permanently and
-silently off, leaving only one `logger.error('unattended notification/state handling raised:
-TypeError')` line per tick in a log nobody reads until something already looks wrong.
-`FOMO_STATE_DIR` defaults to `FOMO_LOCK_DIR` (`settings.py:418`), a directory the preflight
-checks only for writability, so a hand-edit or a foreign writer is the realistic trigger —
-the same trigger WR-03 itself cited.
-**Fix:** coerce the elements and make the function total, as its docstring already claims:
+and correct both prose claims to "the line's own status is `run_unattended`'s (0 healthy,
+1 failing); a lock-held skip is normalized to 0 after the skip line is logged, matching
+`run_tick()`'s own decision that contention is not a failure". If the project instead
+*wants* 99 surfaced, say so explicitly in both places ("99 means the tick was skipped —
+benign in isolation, investigate only if repeated") and update `run_tick()`'s docstring to
+note the divergence. Either way, add a `TestCronLine` case pinning whichever choice is made.
+
+### WR-17: WR-15's runtime email storm is still open — only the setup-time preflight was added
+
+**File:** `solsys_code/unattended.py:646-660`, `solsys_code/management/commands/check_unattended.py:177-191`
+**Issue:** `36-REVIEW-FIX.md` records WR-15 as fixed, citing the new `check_state_dir()`.
+That closes the *setup-time* case only. WR-15's own text named two remedies and said which
+one mattered: "(a) is the one that survives a directory that becomes unwritable after
+setup." (a) was not implemented, and the runtime path is byte-for-byte unchanged. Traced
+against the current code with a state directory that becomes unwritable or full **after**
+the preflight passed (a full `/var/lock` tmpfs is the realistic trigger; `FOMO_STATE_DIR`
+defaults to `FOMO_LOCK_DIR`, `settings.py:418`):
+
+1. `load_state()` (`:647`) → its `except (OSError, ValueError)` at `:421` returns
+   `{'failing_steps': [], 'notified_at': None}`.
+2. `decide_notification()` (`:648`) sees an empty previous set and a non-empty current one
+   → `'failure'`.
+3. `_send_notification()` (`:654`) **sends**.
+4. `save_state()` (`:656`) raises `OSError` → caught at `:659`, logged as one
+   `unattended notification/state handling raised: OSError` line.
+5. Nothing records that staff were told, so step 2 reaches the identical conclusion on the
+   next tick.
+
+At the D-04 15-minute cadence that is 96 identical emails per staff address per day, for
+as long as one step keeps failing — D-11's suppression rule failing open in the most
+visible possible way, and the exact scenario `check_state_dir()`'s own docstring describes
+("makes every tick send the same failure email again, forever") without preventing it once
+the host is past setup.
+**Fix:** implement remedy (a) alongside the preflight — a process-lifetime fallback so an
+unpersistable state cannot re-notify:
 
 ```python
-    failing_steps = data.get('failing_steps')
-    if not isinstance(failing_steps, list):
-        failing_steps = []
-    failing_steps = [step for step in failing_steps if isinstance(step, str)]
+_state_write_failed = False  # module-level, reset per process
+
+
+def _persist(failing_steps, when):
+    global _state_write_failed
+    try:
+        save_state(failing_steps, when)
+    except OSError:
+        _state_write_failed = True
+        logger.error(
+            'could not persist unattended suppression state to %s -- further notifications '
+            'for this failing set are suppressed for this process',
+            Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR) / _STATE_FILENAME,
+        )
 ```
 
-and add a `TestStateFileRobustness` case for `{"failing_steps": [1, "a"]}` asserting
-`load_state()` returns a clean default instead of raising. Consider also having the
-`except Exception` handler at `:592` call `save_state([], None)` so a corrupt file
-self-heals on the next tick rather than wedging the notification path permanently.
+and skip `_send_notification()` when `_state_write_failed` is set and the decision is
+`'failure'`/`'reminder'`. Add a `TestStateFileRobustness` case patching `save_state` to
+raise `OSError` across two consecutive `run_tick()` calls and asserting
+`len(mail.outbox) == 1`, not 2. Either way, un-mark WR-15 in `36-REVIEW-FIX.md`.
 
-### WR-11: `check_flock()` verifies the binary exists but not the `-E` option the new cron line depends on
+### WR-18: IN-02's "skip reasons are no longer discarded" fix logs at `DEBUG`, which this project's own `LOGGING` config drops — the reasons are still discarded in production
 
-**File:** `solsys_code/management/commands/check_unattended.py:54-64`, `:252`
-**Issue:** `cron_line()` now emits `flock -n -E 99`, and the whole WR-01 skip-detection
-scheme depends on that flag. `-E/--conflict-exit-code` was added in util-linux 2.27 (2015);
-`check_flock()` only calls `shutil.which('flock')` and reports `[ok] flock: found at <path>`.
-On a host with an older util-linux (RHEL/CentOS 7 ships 2.23, still a live deployment
-target), the preflight passes, the operator installs the printed line, and **every tick is a
-no-op** — `flock` rejects the unknown option and exits before ever starting Python, while
-`[ $? -eq 99 ]` is false so no skip line is written either. This is the CR-01 failure class
-reproduced through a different door; it is only less severe because `flock: invalid option
--- 'E'` does land in the redirected log. WR-05's fix makes this *more* likely to bite, since
-`cron_line()` will now happily emit a resolved path to a venv- or container-provided
-`flock` of unknown vintage.
-**Fix:** make the check prove the option, not just the binary:
+**File:** `solsys_code/unattended.py:374-381`; cf. `src/fomo/settings.py:193-202`,
+`solsys_code/tests/test_unattended.py` `test_per_request_skip_reasons_are_logged_not_discarded`
+**Issue:** The IN-02 fix captures `sweep_proposal()`'s per-request skip lines into
+`io.StringIO()` sinks and re-emits them with `logger.debug('discovery %s: %s', ...)`
+(`:381`). The project ships exactly one logging configuration, and its root logger is
+pinned to `INFO`:
 
 ```python
-def check_flock() -> CheckResult:
-    path = shutil.which('flock')
-    if path is None:
-        return CheckResult(name='flock', ok=False, hard=True, detail='not found on PATH -- install util-linux')
+LOGGING = {
+    ...
+    'loggers': {'': {'handlers': ['console'], 'level': 'INFO'}},
+}
+```
+
+`solsys_code.unattended` declares no logger of its own in that config, so it inherits the
+root level. Every one of those `DEBUG` records is therefore filtered out before it reaches
+the `StreamHandler` whose stderr the crontab line redirects into
+`/var/log/fomo/unattended.log`. Net effect on a real deployment: identical to before the
+fix — the operator still sees only the bare `swept: N, failed: M` summary, and the skip
+reasons are still gone. The new test passes only because
+`self.assertLogs('solsys_code.unattended', level='DEBUG')` temporarily installs its own
+handler at `DEBUG`, which is exactly the condition that does not hold at runtime; it
+therefore verifies that `logger.debug()` was *called*, not that IN-02's stated outcome
+("They must now reach the log") is achieved.
+**Fix:** promote this one re-emission to `INFO`, which is the level the same function
+already uses for its sibling operator-facing line at `:383` (`'0 watched proposals,
+nothing to discover'`), and which is what the redirected log actually captures:
+
+```python
+                if captured_text:
+                    logger.info('discovery %s: %s', sink_name, captured_text)
+```
+
+Skip reasons are structural (`Skipping request <id>: no configuration with a named
+target.`), not credentials, so `INFO` is consistent with D-17 — see IN-18 for the wording.
+Then assert the level in the test (`assertLogs(..., level='INFO')`) so a future downgrade
+back to `DEBUG` fails. **Do not implement this by lowering the global log level to `DEBUG`
+instead** — that would activate **WR-22**.
+
+### WR-19: `check_email()`'s backend check rejects only the console backend, so `dummy`, `locmem` and `filebased` pass a check whose own docstring promises "the email backend can actually deliver"
+
+**File:** `solsys_code/management/commands/check_unattended.py:194-217`
+**Issue:** The check is a single equality test:
+
+```python
+    is_console = backend == 'django.core.mail.backends.console.EmailBackend'
+```
+
+Django ships four other non-delivering backends. `django.core.mail.backends.dummy.EmailBackend`
+is the canonical "turn email off" idiom and is a realistic production setting on a host
+where someone wanted to silence mail temporarily; `locmem` is what a half-finished
+`local_settings.py` copied from a test config carries; `filebased` writes to a directory
+nobody reads. All three pass this hard check and are reported `[ok] EMAIL_BACKEND` with
+their own dotted path as the detail, and `--send-test-email` also "succeeds" against all
+three (`dummy.EmailBackend.send_messages()` returns `len(email_messages)`, so
+`notify_staff()` returns True and `_send_test_email()` reports
+`sent one test email to staff recipients`). The operator then installs the crontab line
+believing D-11's primary alert channel is proven, and no failure notice will ever arrive.
+This is a strictly worse outcome than the console backend the check does catch, because
+`--send-test-email` actively confirms it.
+**Fix:** reject the whole non-delivering set by name rather than one member of it:
+
+```python
+_NON_DELIVERING_BACKENDS = {
+    'django.core.mail.backends.console.EmailBackend',
+    'django.core.mail.backends.dummy.EmailBackend',
+    'django.core.mail.backends.locmem.EmailBackend',
+    'django.core.mail.backends.filebased.EmailBackend',
+}
+...
+    is_non_delivering = backend in _NON_DELIVERING_BACKENDS
+```
+
+with a detail naming which one and why it cannot deliver, and add one test per backend.
+(A custom third-party backend still passes, which is the right default — the check can
+only prove a *known* non-deliverer.)
+
+### WR-20: The `check_flock()` probe the WR-11 fix added can hang or traceback the whole read-only preflight — the exact hardening the same commit gave `_owner_mode()`
+
+**File:** `solsys_code/management/commands/check_unattended.py:85`
+**Issue:**
+
+```python
     probe = subprocess.run([path, '--help'], capture_output=True, text=True, check=False)  # noqa: S603
-    if '--conflict-exit-code' not in (probe.stdout + probe.stderr):
+```
+
+has neither a `timeout=` nor a `try/except OSError`. `shutil.which()` returning a path is
+an `os.access(..., X_OK)` test, not a guarantee the `execve` will succeed: a dangling
+symlink target, a `noexec` mount, an `ENOEXEC` wrapper script with a bad shebang, an
+`ETXTBSY`, or a plain TOCTOU delete between the `which()` at `:77` and the `run()` at
+`:85` all raise `OSError`/`PermissionError` out of `check_flock()`. Because `check_flock()`
+is the **first** entry in `Command.handle()`'s list (`:411`), that exception aborts the
+whole command: the operator loses the other seven check results *and* the printed cron
+line, and gets a traceback out of a command whose module docstring opens with "This
+command is read-only by construction" and whose whole purpose (`:8-10`) is "naming every
+failed hard check in one `CommandError` so a fresh-host operator sees the whole list of
+problems in one run". Separately, with no `timeout=` a `flock` binary on a stalled NFS
+mount hangs the preflight indefinitely. The same commit range explicitly hardened
+`_owner_mode()`'s `stat()` against precisely this class ("an unavailable stat should
+degrade to a reported detail, never an uncaught traceback", `:105-106`); the new
+`subprocess.run()` did not get the same treatment.
+**Fix:**
+
+```python
+    try:
+        probe = subprocess.run([path, '--help'], capture_output=True, text=True, check=False, timeout=5)  # noqa: S603
+    except (OSError, subprocess.TimeoutExpired) as exc:
         return CheckResult(
             name='flock',
             ok=False,
             hard=True,
-            detail=f'{path} does not support -E/--conflict-exit-code (util-linux < 2.27) -- '
-            'the cron line below needs it to distinguish a skipped tick from a failed one',
+            detail=f'{path} could not be executed to verify -E support: {type(exc).__name__}',
         )
-    return CheckResult(name='flock', ok=True, hard=True, detail=f'found at {path}, supports -E')
 ```
 
-### WR-12: The runbook still documents `backfill_lco_observations`'s window/attribution flags as freely optional, which CR-02's fix made untrue
+(reporting the class name only, matching D-17), and add a test patching `subprocess.run`
+with `side_effect=OSError` that asserts a `CommandError` naming `flock` rather than an
+`OSError` escaping.
 
-**File:** `docs/runbooks/telescope_runs_calendar.rst:384-402` and `:1733-1736`; cf.
-`solsys_code/management/commands/backfill_lco_observations.py:836-850`
-**Issue:** CR-02's fix changed the command's CLI contract — `--created-after`,
-`--created-before`, `--username` and `--target-list` now raise `CommandError` when
-`--proposal` is omitted. The fixer updated the four `--help` strings, the `handle()`
-docstring and the paired notebook, but not the runbook, which is the page an operator
-actually reads:
+### WR-21: The runbook's description of what `check_unattended` reports was not updated for the two hard checks the same fix pass added
 
-- `:384-386` shows the bare invocation `python3 manage.py backfill_lco_observations` and then
-  `:388-402` immediately describes `--created-after`/`--created-before`, `--username <user>`
-  and `--target-list <NAME>` with no mention that any of them now requires `--proposal`.
-- The command cheat-sheet row at `:1733-1736` reads "``--proposal <code>`` (optional -- omit
-  to sweep every active Watched proposal row), ``--created-after``/``--created-before``,
-  ``--username <user>``, ``--target-list <name>``, ``--dry-run`` (**all optional**)" —
-  which now describes four combinations that abort with an error.
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1449-1454` and `:1480-1496`; cf.
+`solsys_code/management/commands/check_unattended.py:66-96`, `:177-191`, `:411-418`
+**Issue:** The iteration-2 fixes added two hard checks — `FOMO_STATE_DIR` writability
+(WR-15) and `flock -E` support (WR-11) — taking the total from six to eight. The
+`check_unattended` module docstring and the test module docstring were updated (IN-09);
+the runbook, which is the page an operator actually follows, was not:
 
-CLAUDE.md makes any `docs/runbooks/` page whose documented behavior a change affects part of
-the deliverable, not follow-up polish; this is the same class of miss the file records for
-quick task `260726-kdp`.
-**Fix:** add one sentence after `:386` ("These four flags apply to the single-proposal
-override only; combined with the bare invocation the command now fails with a
-``CommandError`` rather than silently discarding them, because the watched-list sweep takes
-its overrides from each ``WatchedProposal`` row"), and change the cheat-sheet row's "(all
-optional)" to "(optional; the four non-``--dry-run`` flags require ``--proposal``)".
+- Step 4's enumeration (`:1480-1496`) still lists exactly the old set: "whether ``flock``
+  is on ``PATH``, whether the lock and log directories exist and are writable, whether the
+  email backend can actually deliver and at least one staff user has an email on file,
+  whether ``FOMO_HEARTBEAT_URL`` is set ..., whether ``FOMO_BASE_URL`` has been changed
+  ..., and whether at least one ``WatchedProposal`` row is active". Neither the state
+  directory nor the `-E` probe appears, and the closing sentence still says the hard set is
+  "(flock, the directories, or email)" without naming which directories.
+- Setup step 1 (`:1449-1454`) still says "Create the **two** directories the schedule below
+  assumes exist", listing `/var/lock/fomo` and `/var/log/fomo`. `FOMO_STATE_DIR` is a
+  separately settable path (`settings.py:418`) that merely *defaults* to `FOMO_LOCK_DIR`; a
+  host that points it elsewhere now gets a hard preflight failure for a directory the
+  runbook never told the operator to create, and `grep -n FOMO_STATE_DIR docs/runbooks/`
+  returns nothing at all.
 
-### WR-13: `FOMO_BASE_URL` is now required by the *web* process too, but is documented and preflighted only for cron
+CLAUDE.md makes any `docs/runbooks/` page whose documented behavior a change affects part
+of the deliverable, not follow-up polish — the same rule WR-12 was raised under, and the
+same rule quick task `260726-kdp` is recorded as breaching.
+**Fix:** in step 4's enumeration, replace "whether the lock and log directories exist and
+are writable" with "whether the lock, log and suppression-state directories exist and are
+writable" and "whether ``flock`` is on ``PATH``" with "whether ``flock`` is on ``PATH``
+*and* new enough to support ``-E`` (util-linux 2.27+), which the cron line's skip
+detection needs"; in step 1, add a sentence that `FOMO_STATE_DIR` defaults to
+`FOMO_LOCK_DIR` and only needs creating separately if it has been pointed elsewhere.
 
-**File:** `docs/runbooks/telescope_runs_calendar.rst:1456-1458`,
-`deploy/cron/fomo.crontab.example:16`, `solsys_code/management/commands/check_unattended.py:188-211`,
-`solsys_code/campaign_views.py:338`
-**Issue:** WR-07's fix added `check_base_url()` and a `None` guard, which is right as far as
-it goes — but it leaves the deployment instruction wrong. The campaign-submission approval
-queue link (`campaign_views._notify_staff` → `notifications.absolute_url()`) is built inside
-the **WSGI/web** process, which reads its own environment at settings-import time
-(`settings.py:409`). Every place the setting is documented scopes it to cron only: the
-runbook's step 3 says "Export ``FOMO_HEARTBEAT_URL`` and ``FOMO_BASE_URL`` in the environment
-**the cron daemon sees**", and the crontab template lists it under "The environment the cron
-daemon must supply". `grep -rn FOMO_BASE_URL docs/ deploy/` finds no mention anywhere that
-the web process needs it, and `docs/installation.rst` does not mention it at all. Worse,
-WR-06's fix now tells the operator to run `check_unattended` **as the cron account** — so
-the one check that would catch a default base URL is deliberately run in the process whose
-environment is least likely to match the web server's. A deployment that exports
-`FOMO_BASE_URL` for cron and not for gunicorn gets a green preflight and unusable
-`http://localhost:8000/campaigns/...` links in every SUBMIT-05 notice.
-**Fix:** reword runbook step 3 to "``FOMO_HEARTBEAT_URL`` in the cron environment;
-``FOMO_BASE_URL`` in **both** the cron environment and the web server's (gunicorn/uWSGI)
-environment — or, simpler, set it once in this host's ``local_settings.py`` so every process
-picks it up", mirror the note in `deploy/cron/fomo.crontab.example:16`, and add it to
-`docs/installation.rst`'s settings list.
+### WR-22: Two `logger.debug()` sites interpolate a raw portal-exception message, which D-17 forbids — latent only because the shipped config drops `DEBUG`
 
-### WR-14: The runbook's "remove the stale lock file" remedy describes a condition that cannot occur
+**File:** `solsys_code/management/commands/backfill_lco_observations.py:349`,
+`solsys_code/unattended.py:191`; cf. `solsys_code/tests/test_unattended.py`
+`TestCredentialHygiene`
+**Issue:** The phase's D-17 discipline is "only the exception's class name ever reaches the
+row, stderr, or the log — never `str(exc)`", and it is honoured at every `warning`/`error`
+site in `unattended.py` (`:158`, `:225`, `:236`, `:576`, `:625`, `:660`) and in
+`sweep_watched_rows()` (`backfill_lco_observations.py:742`). Two `DEBUG` sites break it:
 
-**File:** `docs/runbooks/telescope_runs_calendar.rst:2000-2008`
-**Issue:** The rewritten troubleshooting section now says: "if it has genuinely died without
-releasing the lock file, remove the stale ``run_unattended.cron.lock`` file under
-``FOMO_LOCK_DIR``". `flock(2)` locks are released by the kernel when the holding file
-descriptor is closed, which happens unconditionally on process exit — including `SIGKILL`,
-an OOM kill, and a crash. A dead process therefore *never* leaves a held lock, so the
-documented condition is unreachable and the remedy can only ever be applied while a tick is
-genuinely still running. Doing so unlinks the file the live `flock` holds; the next cron
-invocation creates a *new* inode and takes its lock, so the cron guard is defeated (the
-runner's own internal `run_unattended.lock` is what actually still prevents two overlapping
-ticks — the cron guard silently stops contributing). CR-01 was in large part a finding about
-the runbook teaching a wrong diagnosis; this paragraph, rewritten by the CR-01/WR-01 fix,
-teaches another one.
-**Fix:** replace the parenthetical with the truth — "a `flock` is always released when the
-holding process exits, so a repeated skip line always means a tick is *still running*; find
-it with `pgrep -af run_unattended` and investigate why it is stuck. Deleting the lock file
-does not help and, while a tick is live, disables the cron guard until the next tick." Keep
-the heartbeat-grace-period sentence as-is.
+```python
+# backfill_lco_observations.py:346-349 -- the exception is from a live portal call
+    try:
+        result = facility.get_observation_status(observation_id)
+    except Exception as exc:
+        logger.debug(f'Observed-block lookup failed for observation_id={observation_id!r}: {exc}')
 
-### WR-15: An unwritable `FOMO_STATE_DIR` now mails every staff user every 15 minutes, indefinitely
+# unattended.py:188-191 -- `except Exception`, so not necessarily FOMO's own exception class
+                except Exception as exc:  # noqa: BLE001 -- FOMO's own reconcile_run(), D-17's
+                    logger.debug('reconcile_run() raised for run pk=%s: %s', run.pk, exc)
+```
 
-**File:** `solsys_code/unattended.py:579-593`, `:411-428`
-**Issue:** WR-03's fix correctly stopped a `save_state()` failure from killing the END banner
-and the exit-code ping — but it left the ordering that makes the failure self-amplifying.
-With `FOMO_STATE_DIR` unwritable or full, each tick: `load_state()` returns the default (the
-`OSError` is caught at `:388`) → `decide_notification()` sees an empty previous set and a
-non-empty current one → `'failure'` → `_send_notification()` **sends** → `save_state()`
-raises → the new handler logs `OSError` and moves on. Nothing records that staff were told,
-so the identical email goes out on the next tick, and the next: 96 messages per staff address
-per day for as long as one step keeps failing, which is the D-11 suppression rule failing
-open in the most visible possible way. `check_unattended` checks `FOMO_LOCK_DIR` and the log
-directory but never `FOMO_STATE_DIR` (`check_unattended.py:334-341`), even though it defaults
-to `FOMO_LOCK_DIR` and can be pointed elsewhere.
-**Fix:** two cheap mitigations, either of which closes it: (a) make persistence failure
-suppress further mail by treating an unpersistable state as "already notified" for the
-remainder of the process and logging one `logger.error` naming the state path; or (b) add a
-`check_state_dir()` hard check to the preflight mirroring `check_lock_dir()`, so the
-condition is caught at setup. (a) is the one that survives a directory that becomes
-unwritable after setup.
+`facility.get_observation_status()` is an authenticated LCO Observation Portal call. This
+codebase's own credential-hygiene test models exactly what such an exception's message can
+carry — `TestCredentialHygiene` constructs
+`ImproperCredentialsException(f'portal error key={_FAKE_LCO_API_KEY} url={_FAKE_HEARTBEAT_PING_URL}')`
+— so `str(exc)` here can put the LCO API key and a heartbeat ping URL into
+`/var/log/fomo/unattended.log`, a file `deploy/logrotate/fomo.example` keeps on disk and
+that an operator is told to read first when triaging. Today this is inert because
+`settings.LOGGING` pins the root logger to `INFO`; it becomes live the moment anyone sets
+`DEBUG` to chase a problem — which is the natural response to WR-18, and which the runbook
+does not warn against. The second site's `# noqa` comment claims the exception is "FOMO's
+own `reconcile_run()`, D-17's second bucket", but the `except` clause is bare `Exception`,
+so anything `reconcile_run()` propagates (including a `requests` error from deeper in the
+call chain) is logged with its full message.
+**Fix:** use the class name at both sites, matching every other call site in the phase:
+
+```python
+        logger.debug('Observed-block lookup failed for observation_id=%r: %s', observation_id, type(exc).__name__)
+...
+                    logger.debug('reconcile_run() raised for run pk=%s: %s', run.pk, type(exc).__name__)
+```
+
+and extend `TestCredentialHygiene` with a case that runs a tick under
+`self.assertLogs(level='DEBUG')` and asserts the fake key and ping URL appear nowhere in
+the captured output — the current suite only captures at the default level, which is why
+this survived two review iterations.
 
 ## Info
 
-### IN-07: `_send_notification()` documents "attempted *and* delivered", but `notify_staff()` discards `send_mail()`'s result
+### IN-15: The crontab template's own comment contradicts the command line directly below it
 
-**File:** `solsys_code/unattended.py:510-515`, `solsys_code/notifications.py:79-90`
-**Issue:** `notify_staff()` calls `send_mail(...)` and ignores its return value (the number
-of messages actually sent), returning `True` purely because the recipient list was non-empty
-and nothing raised. Its own docstring is honest about this ("True if there was at least one
-recipient (an attempt was made, whether or not it succeeded)"), but `_send_notification()`'s
-docstring promotes it to "True only when the mail was actually attempted *and* delivered",
-and WR-02's whole suppression decision now rests on that stronger claim. With
-`fail_silently=False` the gap is small in practice (Django's backends raise rather than
-return 0), but the two docstrings should not disagree about the same boolean.
-**Fix:** `return bool(send_mail(...))` in `notify_staff()` (keeping the `fail_silently`
-semantics), or soften `_send_notification()`'s docstring to "attempted without raising".
+**File:** `deploy/cron/fomo.crontab.example:29`
+**Issue:** Line 29 still describes "the ``[ $? -eq 99 ] && echo ... skipped`` tail below",
+but line 52 was rewritten by the WR-09 fix and now reads `[ $rc -eq 99 ]`. The WR-09
+explanation block at `:47-51` correctly describes `[ $? -eq 99 ]` as the *earlier* form, so
+the file now says both that `$?` is what the line uses and that `$?` is what the line no
+longer uses.
+**Fix:** change `:29` to `` `[ $rc -eq 99 ] && echo ... skipped` ``.
 
-### IN-08: The cron-line "committed template shape" test no longer pins the committed template, and breaks on a host without `flock`
+### IN-16: Two stale "a later plan in this phase" references survive in the committed crontab template
 
-**File:** `solsys_code/tests/test_check_unattended.py:196-210`
-**Issue:** `test_line_matches_the_committed_template_shape` now asserts
-`f'{shutil.which("flock")} -n -E 99'`. On a host with no `flock`, `shutil.which` returns
-`None` and the assertion becomes the literal `'None -n -E 99'`, which can never match
-`cron_line()`'s `/usr/bin/flock` fallback — the test fails for a reason unrelated to what it
-checks. Separately, the test's name promises agreement with
-`deploy/cron/fomo.crontab.example`, but it compares against a hand-maintained list of
-fragments and never reads the committed file, which still hardcodes `/usr/bin/flock`
-(`:38`). Drift between the two is exactly what CR-01/WR-01 were about.
-**Fix:** guard with `flock_path = shutil.which('flock') or '/usr/bin/flock'`, and have the
-test read `deploy/cron/fomo.crontab.example`'s `*/15` line and compare the option set
-(`-n`, `-E 99`, `.cron.lock`, `>>`, `[ $? -eq 99 ]`) token by token.
+**File:** `deploy/cron/fomo.crontab.example:9-11` and `:60`
+**Issue:** `:9-11` describes `python manage.py check_unattended` as "(a later plan in this
+phase)" and `:60` describes `deploy/logrotate/fomo.example` as "(a later plan in this
+phase)". Both shipped — `deploy/logrotate/fomo.example` exists on disk and was reviewed in
+iteration 2. This is the same defect IN-04 raised and the fix pass corrected in
+`run_unattended.py`; the sweep stopped at the Python file and missed the two instances in
+the operator-facing template. `grep -rn "later plan in this phase"` outside `.planning/`
+finds only these.
+**Fix:** drop both parentheticals.
 
-### IN-09: `check_unattended`'s docstrings drifted from the code the fixes added
+### IN-17: `sweep_watched_rows()`'s docstring and type hints were invalidated by the IN-02 fix that landed two commits later
 
-**File:** `solsys_code/management/commands/check_unattended.py:13-17`, `:300-305`;
-`solsys_code/tests/test_check_unattended.py:3`
-**Issue:** Three stale statements, all introduced by the WR-06/WR-07 fixes:
-(1) the module docstring's "The only values ever interpolated into this command's output are
-filesystem paths and ``sys.executable``" is no longer true — `_check_directory_writable()`
-now interpolates `os.geteuid()`, the owner uid and the octal mode; (2) the `Command` class
-docstring still says "an unset heartbeat URL and an empty watched-proposal list are warnings",
-omitting the new `FOMO_BASE_URL` warning that the module docstring and `help` string both
-list; (3) the test module docstring says "the six prerequisite checks" — there are now seven.
-**Fix:** extend (1) to "paths, `sys.executable`, and filesystem ownership/permission
-metadata", add `FOMO_BASE_URL` to (2), and change "six" to "seven" in (3).
+**File:** `solsys_code/management/commands/backfill_lco_observations.py:697-714`, `:926-928`
+**Issue:** Two drifts, both introduced by the ordering of the fix commits (`3ac974d`
+IN-13, then `cf5c7f4` IN-02):
+(1) `:712-713` says "``stdout``: forwarded to ``sweep_proposal()``, **unused (``None``) by
+the runner**, which has no stdout of its own to write progress lines to". The runner now
+passes a live `io.StringIO()` (`unattended.py:374-377`) precisely so it is *not* unused.
+(2) the signature annotates `stdout: io.StringIO | None` / `stderr: io.StringIO | None`,
+but `Command.handle()` passes `self.stdout`/`self.stderr`, which are Django
+`OutputWrapper` instances, not `io.StringIO` — so the annotation is wrong for one of the
+two callers it was extracted to serve.
+**Fix:** reword (1) to describe the runner's capture-and-log use, and widen (2) to
+`typing.TextIO | None` (matching `sweep_proposal()`'s own `Any` parameters at `:424-425`).
 
-### IN-10: Two runbook passages still describe the pre-fix `flock -n` cron guard
+### IN-18: The IN-02 comment's D-17 justification overstates what the captured sinks contain
 
-**File:** `docs/runbooks/telescope_runs_calendar.rst:1552-1562`, `:1575-1578`
-**Issue:** The troubleshooting section at `:1985-2008` was updated to `flock -n -E 99` and
-`run_unattended.cron.lock`, but the "When nothing has appeared" checklist item 4 (`:1552`)
-and the "What the locking does and does not cover" paragraph (`:1576`) still say plain
-``flock -n`` and never name which of the two lock files they mean. An operator following the
-checklist reaches the *un*updated description first. The same passage also cannot help the
-reader distinguish the cron tail's `... run_unattended skipped: lock held` from the runner's
-own internal-lock message `run_unattended: lock held -- skipping this tick`
-(`unattended.py:599-600`), which lands in the same log with the same phrase but at exit 0.
-**Fix:** propagate `-E 99` / `run_unattended.cron.lock` into both passages and add one
-sentence distinguishing the two "lock held" strings by their prefix.
+**File:** `solsys_code/unattended.py:366-373`
+**Issue:** The comment asserts the captured text holds skip reasons that are "never portal
+response content or a credential (D-17)". The credential half is right; the portal half is
+not. `sweep_proposal()` writes portal-derived values to both sinks:
+`stderr.write(f'Skipping request {observation_id}: ...')` (`backfill_lco_observations.py:519`,
+`:529`, `:536`, `:550`) carries request ids from the payload, and the dry-run
+`stdout.write(...)` at `:589-593` carries `target_name` and `status` straight from the
+RequestGroup JSON. None of that is a credential and none is PII, so the *decision* to log
+it is fine — but the stated reason is not the true one, and a future reader relying on
+"never portal response content" to widen what gets logged would be relying on something
+false.
+**Fix:** reword to "these are structural skip reasons carrying only portal identifiers
+(request/observation ids, target names, states) — never a credential and never a raw
+response body, request URL, or caught exception's message (D-17)".
 
-### IN-11: The paired notebook got prose only — no executed cell exercising CR-02's new `CommandError`
+### IN-19: The `--proposal` guard's message is ungrammatical for the single-flag case, and that wording is now committed in the notebook's executed output
 
-**File:** `docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` (bare-invocation
-markdown cell)
-**Issue:** CLAUDE.md's paired-docs rule asks for cells or prose "exercising the new behavior
-**with real executed output**". The fix added a markdown note and explicitly skipped
-re-execution. The notebook therefore still demonstrates only the happy path; a reader cannot
-see what the rejection actually looks like, and nothing in the committed outputs would catch a
-future regression that silently dropped the guard.
-**Fix:** add one short cell that calls
-`call_command('backfill_lco_observations', '--created-after=2026-01-01')` inside a
-`try/except CommandError` and prints the message, then regenerate with
-`jupyter nbconvert --to notebook --execute --inplace`.
+**File:** `solsys_code/management/commands/backfill_lco_observations.py:896-899`;
+`docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` (cell 18 output)
+**Issue:** `f'{", ".join(ignored)} require --proposal; ...'` uses the plural verb
+unconditionally. The single-flag case — by far the common one, and the only one the
+notebook and the two new tests exercise — reads
+`--created-after require --proposal; the watched-list sweep takes its overrides from each
+WatchedProposal row.` That exact string is now baked into the notebook's committed output
+and is what an operator sees.
+**Fix:**
 
-### IN-12: The `--proposal`-only guard runs after username resolution and uses truthiness
+```python
+                verb = 'requires' if len(ignored) == 1 else 'require'
+                raise CommandError(
+                    f'{", ".join(ignored)} {verb} --proposal; the watched-list sweep takes its '
+                    'overrides from each WatchedProposal row.'
+                )
+```
 
-**File:** `solsys_code/management/commands/backfill_lco_observations.py:809-814`, `:836-845`
-**Issue:** Two small rough edges in CR-02's otherwise-correct guard. (1) `--username` is
-resolved to a `User` (a DB query, and a `CommandError` on an unknown name) at `:810-814`,
-*before* the `ignored` check at `:846`, so
-`backfill_lco_observations --username ghost` reports `Invalid username: 'ghost'` rather than
-the more useful "``--username`` requires ``--proposal``". (2) the guard tests
-`options.get(key)` for truthiness, so `--target-list ''` or `--created-after ''` — flags that
-*were* given — slip past it. Neither causes harm today (an empty string is falsy everywhere
-downstream), but the guard's intent is "the flag was supplied", which is `is not None`.
-**Fix:** move the `ignored` block above the username resolution, and switch the predicate to
-`options.get(key) is not None`.
+and regenerate the notebook (`jupyter nbconvert --to notebook --execute --inplace`) so the
+committed output matches.
 
-### IN-13: `step_discovery()` duplicates `Command.handle()`'s watched-proposal loop, and CR-02's guard exists in only one of them
+### IN-20: The 36-06 heartbeat guidance reached the runbook and the crontab with both knobs, but the preflight with only one
 
-**File:** `solsys_code/unattended.py:307-361`, `solsys_code/management/commands/backfill_lco_observations.py:852-899`
-**Issue:** The two blocks are near-identical: same `watched_rows()` query, same per-row
-`sweep_proposal()` call with the same four keyword arguments, same broad `except Exception`
-recording `f'failed: {type(exc).__name__}'`, same `last_run_at`/`last_run_summary` write
-under the same `if not dry_run` guard, same failed-code accumulation. Only the terminal
-reporting differs (a `StepResult` vs. a `CommandError`). Every prior fix to this behavior has
-had to be reasoned about twice, and CR-02's new contract now lives in exactly one copy. This
-is correct today only because the runner bypasses the CLI, which is subtle enough to be worth
-removing.
-**Fix:** extract a `sweep_watched_rows(*, dry_run, stdout=None, stderr=None) -> tuple[int, list[str]]`
-helper in `backfill_lco_observations.py` and have both callers use it, leaving each with only
-its own result translation.
+**File:** `solsys_code/management/commands/check_unattended.py:242-246`;
+`solsys_code/tests/test_check_unattended.py` `test_set_heartbeat_reminds_about_the_check_period`;
+cf. `deploy/cron/fomo.crontab.example:31-35`, `docs/runbooks/telescope_runs_calendar.rst:1548-1569`
+**Issue:** 36-06's stated purpose was "correct heartbeat guidance with **both** alert-window
+knobs". The runbook and the crontab template both name the expected ping interval
+(`Period`, 15 min) *and* the grace time (`Grace`, ~20 min). The `[ok] heartbeat` detail —
+the one surface the operator actually executes, and the only one that fires at setup time —
+names only `Period`, and the new test pins only `assertIn('Period', stdout)`, so a future
+edit that drops the grace half entirely would still pass. An operator who follows the
+preflight's reminder alone sets `Period=15` and leaves healthchecks.io's 1-hour default
+grace, producing a 75-minute alert window instead of the documented ~35. Separately, the
+literal `15 min` in this string is now a third hardcoded copy of the schedule constant
+(alongside `cron_line()`'s `*/15` and the template's), with nothing tying them together.
+**Fix:** extend the detail to "confirm the check's own expected ping interval (Period) is
+15 min, not its 1-day default, and its grace time is about 20 min", assert both substrings
+in the test, and derive the "15" from the same source `cron_line()`'s `*/15` uses (a
+module constant) so the three cannot drift.
 
-### IN-14: `FOMO_BASE_URL` is now `None`-guarded but the three sibling path settings are not, and `_owner_mode()` can raise
+### IN-21: `save_state()`'s temp files leak on a process kill, and nothing ever reaps them
 
-**File:** `solsys_code/notifications.py:46`, `solsys_code/unattended.py:111`, `:384`, `:420`,
-`:496`; `solsys_code/management/commands/check_unattended.py:67-70`
-**Issue:** WR-07's fix established that a `local_settings.py` deriving a FOMO setting from an
-unset environment variable yields `None` and must not crash the caller. The same hazard
-applies unguarded to `FOMO_LOCK_DIR` (`Path(None)` → `TypeError` inside `command_lock()`,
-i.e. the very first thing `run_tick()` does), `FOMO_STATE_DIR`, and `FOMO_LOG_FILE`
-(interpolated into the failure-email body at `unattended.py:496` and `Path(...)`-ed at
-`check_unattended.py:132`). Separately, `_owner_mode()` calls `path.stat()` after
-`path.exists()` with no `try`, so an `EACCES`/`ENOENT` race turns the whole read-only
-preflight into an uncaught traceback instead of a reported check.
-**Fix:** either guard the three path settings the same way (`or '<documented default>'`) or
-drop the `FOMO_BASE_URL` guard and validate all four once at settings load; wrap
-`_owner_mode()`'s `stat()` in `try/except OSError` returning `'owner/mode unavailable'`.
+**File:** `solsys_code/unattended.py:473-483`
+**Issue:** The IN-03 fix's `except BaseException: tmp_path.unlink()` covers the exception
+path only. A `SIGKILL`/OOM kill between `mkstemp()` (`:473`) and `os.replace()` (`:479`) —
+the same failure class the fix's own docstring cites for the lock file — leaves a
+`.unattended-state.json.<random>.tmp` file in `FOMO_STATE_DIR` forever. `load_state()`
+reads only the exact `_STATE_FILENAME`, so there is no correctness impact, but on a host
+that OOM-kills ticks the directory (which defaults to `/var/lock/fomo`, often a small
+tmpfs) accumulates one file per occurrence with nothing to clean them.
+**Fix:** at the top of `save_state()`, unlink any `.{_STATE_FILENAME}.*.tmp` older than a
+tick interval, or note the leak in the docstring so an operator knows the files are safe
+to delete.
 
-### Previously reported, still open (out of the fix pass's `critical_warning` scope)
+### IN-22: `_DEFAULT_LOCK_DIR`/`_DEFAULT_LOG_FILE` now exist in three places
 
-`36-REVIEW-FIX.md` correctly records that IN-01..IN-06 were not touched. All six were
-re-checked against the current code and all six still apply unchanged:
+**File:** `solsys_code/unattended.py:58-59`,
+`solsys_code/management/commands/check_unattended.py:42-43`, `src/fomo/settings.py:415`, `:422`
+**Issue:** The IN-14 fix duplicated the same two literals into both modules, each with a
+near-identical comment saying it "mirrors settings.py's own `os.getenv(..., <default>)`
+defaults". Nothing enforces the mirroring, so a change to `settings.py`'s defaults now
+silently desynchronizes two fallback paths whose entire purpose is to match it.
+**Fix:** export them once — e.g. `solsys_code/unattended.py` as the single owner, imported
+by `check_unattended.py` — or add one test asserting
+`unattended._DEFAULT_LOCK_DIR == check_unattended._DEFAULT_LOCK_DIR` and that both match
+`settings.py`'s literal.
 
-- **IN-01** heartbeat ping ignores the HTTP status code — `unattended.py:140`.
-- **IN-02** unattended discovery discards every per-request skip reason — `unattended.py:332-337`
-  (no `stdout`/`stderr` passed, so `sweep_proposal()`'s default `io.StringIO()` sinks swallow them).
-- **IN-03** suppression-state file written non-atomically and with the process umask —
-  `unattended.py:427-428`.
-- **IN-04** `run_unattended`'s command docstring still says "from later plans in this phase" —
-  `run_unattended.py:20-24`; all four steps shipped, and `--help` shows this to operators.
-- **IN-05** a whole-facility outage reports "failed 1", and a clean run still emits the
-  dangling fragment `classes: ` — `unattended.py:204`, `:253`. The WR-08 fix made the first
-  half slightly worse: with the re-check capped, `classes` can now be empty even on a large
-  outage, so the summary reads `classes:  | recheck capped: 80 omitted`.
-- **IN-06** `run_tick(only_step='typo')` runs nothing and reports a healthy tick —
-  `unattended.py:551`.
+### IN-23: `cron_line()` bakes a `PATH`-resolved binary into a line destined for a service crontab, and the new template test fails opaquely if the template's schedule line is renamed
+
+**File:** `solsys_code/management/commands/check_unattended.py:320`;
+`solsys_code/tests/test_check_unattended.py` `test_line_matches_the_committed_template_token_for_token`
+**Issue:** Two small ones.
+(1) WR-05's `shutil.which('flock')` resolves against the *preflight process's* `PATH` and
+the result is printed for the operator to paste into a persistent, scheduled command. An
+operator with a stale or user-writable directory early in `PATH` (a conda/venv `bin`, a
+`~/bin`) can end up installing a non-system `flock` into a service crontab — a
+low-likelihood but persistent outcome, and one the committed template's hardcoded
+`/usr/bin/flock` did not have. A one-line sanity note ("resolved outside the usual system
+directories — confirm this is the `flock` you want in a crontab") would keep WR-05's
+benefit without the silent case.
+(2) the new test's `next(...)` has no default, so if the template's `*/15` line is ever
+reformatted or the file moved, the test fails with a bare `StopIteration` instead of an
+assertion naming the problem; and `Path(__file__).resolve().parents[2]` assumes an editable
+checkout layout.
+**Fix:** (1) compare `flock_path` against a small allow-list of system directories and add
+a note to the detail when it falls outside; (2) `next(..., None)` plus
+`self.assertIsNotNone(template_line, f'no */15 line in {template_path}')`.
+
+### IN-24: The regenerated notebook is the only pre-executed notebook with no `kernelspec` metadata
+
+**File:** `docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` (top-level
+`metadata`)
+**Issue:** All seven other notebooks under `docs/notebooks/pre_executed/` carry
+`metadata.kernelspec` = `python3`; this one carries `language_info` only. Verified
+**pre-existing** — the same metadata was already missing at `fe719d6d`, so the IN-11
+regeneration preserved rather than caused it. Flagged because the file is in scope and
+because nbsphinx and JupyterLab both use `kernelspec` to pick an interpreter if the
+notebook is ever re-executed by a reader or by a future `--execute` build.
+**Fix:** add the standard block on the next regeneration:
+
+```json
+  "kernelspec": {"display_name": "Python 3 (ipykernel)", "language": "python", "name": "python3"}
+```
+
+### Previously reported, still open
+
+- **WR-15** (iteration 2) — recorded as fixed in `36-REVIEW-FIX.md`, but only remedy (b)
+  was applied. Carried forward as **WR-17** above.
 
 ---
 
-_Reviewed: 2026-09-17T21:05:00Z_
+_Reviewed: 2026-09-17T23:55:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
-_Iteration: 2 (re-review of the `36-REVIEW-FIX.md` fix pass)_
+_Iteration: 3 (re-review of the `36-REVIEW-FIX.md` fix pass and the 36-06 gap closure)_
