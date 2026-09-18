@@ -1483,12 +1483,13 @@ Setting it up on a fresh host
    ``ALLOWED_HOSTS`` makes every request return 400, so the two must
    change together.
 3. Create the heartbeat check. This is a dead-man's switch on a
-   third-party service that alerts when a tick never ran at all or hung
-   partway through -- not only when one failed outright, which is the one
-   failure class FOMO's own error handling cannot report itself. It is
-   optional: leave ``FOMO_HEARTBEAT_URL`` unset in the next step and this
-   layer is simply off, and the schedule still runs and still mails on
-   failure.
+   third-party service: it catches a tick that never ran at all or hung
+   partway through -- the one failure class FOMO's own error handling
+   cannot report itself, because the process that would have mailed
+   never got there. A tick that runs and fails is already covered by
+   the failure email. It is optional: leave ``FOMO_HEARTBEAT_URL``
+   unset in the next step and this layer is simply off, and the
+   schedule still runs and still mails on failure.
 
    Any healthchecks-compatible service works: healthchecks.io's hosted
    free tier, or a self-hosted ``healthchecks`` instance (the same
