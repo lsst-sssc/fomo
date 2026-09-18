@@ -37,7 +37,7 @@ classes and `make_request` that this phase's unattended path either uses or deli
 | `update_all_observation_statuses()` — per-record status refresh (SOAR) | INTEGRATE | D-03, step 1 |
 | `update_observation_status(observation_id)` — single-record refresh | INTEGRATE | D-03's class-name re-derivation (RESEARCH.md Open Question 1) |
 | `GET /api/requestgroups/` paging (proposal discovery) | INTEGRATE | D-07, step 3 — existing `_iter_request_groups()`, now driven by `WatchedProposal` |
-| Observed-block lookup (embedded `observations` block / `resolve_placement_block()` fallback) | INTEGRATE | step 2's site-lookup hook, reused unchanged from `project_observation_calendar` |
+| Observed-block lookup (`observations` block / `resolve_placement_block()`) | INTEGRATE | step 2's site-lookup hook, reused unchanged from `project_observation_calendar` |
 | `get_observation_url()` — event key namespace | INTEGRATE | reused unchanged by the projector (spike 002 requirement) |
 | `submit_observation()` / `cancel_observation()` | OPT-OUT | the unattended path is read-only by design — FOMO never submits or cancels an observation from cron; nothing in SCHED-08/09/10 or DISCOVER-01 asks for it |
 | `GET /api/proposals/` (portal-side proposal/allocation listing) | OPT-OUT | not needed for SC 2 — the watched list is operator-maintained in the admin (D-06); auto-discovering proposals from the portal is a different feature |
