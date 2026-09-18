@@ -60,7 +60,14 @@ add_module_names = False
 
 autoapi_type = 'python'
 autoapi_dirs = ['../src']
-autoapi_ignore = ['*/__main__.py', '*/_version.py']
+# CR-03 (36-REVIEW.md): 'local_settings.py' is the documented home of every credential
+# this project's unattended path needs (LCO/SOAR api_key, EMAIL_HOST_PASSWORD,
+# FOMO_HEARTBEAT_URL) -- autoapi (and viewcode) render source verbatim into generated
+# HTML, so without this exclusion every configured host's real secrets end up in
+# _readthedocs/html/ and docs/_build/html/ on every sphinx-build. ReadTheDocs itself
+# builds from a checkout with no local_settings.py, so its published site was never
+# affected -- but a build run and served from a configured host was.
+autoapi_ignore = ['*/__main__.py', '*/_version.py', '*/local_settings.py']
 autoapi_add_toc_tree_entry = False
 autoapi_member_order = 'bysource'
 

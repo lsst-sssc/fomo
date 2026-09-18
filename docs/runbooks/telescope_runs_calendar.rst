@@ -1512,7 +1512,13 @@ Setting it up on a fresh host
    form ``https://hc-ping.com/<uuid>`` (a self-hosted instance gives the
    same shape under your own host). The ``<uuid>`` part is the ping
    token, so this URL is itself a credential and must never go into a
-   committed file (D-15).
+   committed file (D-15). It also must never go into ``local_settings.py``
+   on a host that then serves a docs build: Sphinx autoapi/viewcode render
+   source verbatim into HTML, and although ``docs/conf.py`` now excludes
+   ``local_settings.py`` from that scan (CR-03, 36-REVIEW.md), never build
+   and serve HTML docs from a configured production checkout regardless --
+   ``_readthedocs/html/`` and ``docs/_build/html/`` are both ``.gitignore``d,
+   so nothing reaches git, but anything served from either tree is public.
 4. Export ``FOMO_HEARTBEAT_URL`` in the environment the cron daemon sees
    (for example via ``/etc/environment``, or a wrapper script the crontab
    line sources) -- never as a literal value in any committed file. This
