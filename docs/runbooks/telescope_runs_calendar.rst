@@ -1455,6 +1455,11 @@ Setting it up on a fresh host
       /var/lock/fomo
       /var/log/fomo
 
+   ``FOMO_STATE_DIR`` (the D-11 suppression-state file's directory)
+   defaults to ``FOMO_LOCK_DIR``, so no third directory is needed unless
+   this host points ``FOMO_STATE_DIR`` somewhere else -- create that
+   directory separately, with the same ownership, if it does.
+
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
    the crontab line, never in an environment variable, and never committed
@@ -1541,8 +1546,10 @@ Setting it up on a fresh host
       >> python3 manage.py check_unattended
 
    It reports every prerequisite in one pass -- whether ``flock`` is on
-   ``PATH``, whether the lock and log directories exist and are writable,
-   whether the email backend can actually deliver and at least one staff
+   ``PATH`` *and* new enough to support ``-E`` (util-linux 2.27+, which
+   the cron line's skip detection needs), whether the lock, log and
+   suppression-state directories exist and are writable, whether the
+   email backend can actually deliver and at least one staff
    user has an email on file, whether ``FOMO_HEARTBEAT_URL`` is set (and
    reminds you that the check at the other end still needs its own
    expected ping interval set -- the preflight can only see this host's
