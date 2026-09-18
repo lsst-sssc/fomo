@@ -1459,15 +1459,17 @@ Setting it up on a fresh host
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
    the crontab line, never in an environment variable, and never committed
    to git. Write the API key as a flat, top-level assignment --
-   ``LCO_API_KEY = '<your key>'`` -- because this module is imported
-   into its own namespace, so it can only ASSIGN new settings: reaching
-   into a setting already built above it raises ``NameError``, which the
-   import guard does not catch, and Django then refuses to start at all.
-   ``src/fomo/settings.py`` folds that one key into both the LCO facility
-   entry and the SOAR facility entry, because SOAR authenticates against
-   the same LCO Observation Portal. Leave the setting out and both
-   facility entries stay empty, so any portal call FOMO makes -- including
-   the unattended tick's status refresh -- goes out unauthenticated.
+   ``LCO_API_KEY = '<your key>'`` -- because ``settings.py`` imports
+   ``local_settings.py`` into a namespace of its own, near the end of
+   the file: names you set there become settings, but anything you try
+   to reach *into* -- a dictionary ``settings.py`` already built -- is
+   not visible, and the attempt raises ``NameError`` before Django
+   finishes starting. ``src/fomo/settings.py`` folds that one key into
+   both the LCO facility entry and the SOAR facility entry, because
+   SOAR authenticates against the same LCO Observation Portal. Leave
+   the setting out and both facility entries stay empty, so any portal
+   call FOMO makes -- including the unattended tick's status refresh --
+   goes out unauthenticated.
 
    This host must also override three development defaults in the same
    file, or it will serve the site with a signing key that is public in
