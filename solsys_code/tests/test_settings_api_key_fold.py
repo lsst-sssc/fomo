@@ -2,13 +2,31 @@
 08, gap G-36-4).
 
 These tests execute the REAL fold tail of the live settings module -- not a
-re-implementation of it -- against a synthetic ``fomo.local_settings`` module injected
-into ``sys.modules``, so a future edit that drops the SOAR line fails this test instead
-of passing a source-token grep. They pin four behaviors: the flat ``LCO_API_KEY``
-setting reaches both the LCO and the SOAR facility ``api_key`` entries; an absent
-setting is a clean no-op; the bracketed dict-subscript form the old runbook wrongly
-documented raises ``NameError``; and the SOAR accessor the unattended status-refresh
-step reaches through ``SOARFacility`` reads the entry the fold fills.
+re-implementation of it -- against either a synthetic ``fomo.local_settings`` module
+injected into ``sys.modules`` (``_FoldExecutionTestCase``) or a ``sys.meta_path`` finder
+that forces the import to fail on demand (``_MissingModuleFinder``), so a future edit to
+the fold tail fails one of these tests instead of passing a source-token grep. Seven test
+classes (IN-33, 36-REVIEW.md):
+
+- ``TestFlatKeyReachesBothFacilities``: the flat ``LCO_API_KEY`` setting reaches both the
+  LCO and the SOAR facility ``api_key`` entries.
+- ``TestAbsentKeyIsCleanNoop``: an absent setting is a clean no-op.
+- ``TestLiveFacilitiesCarriesBothFoldTargets``: the live, already-imported settings
+  object actually carries both fold targets (``FACILITIES['LCO']``/``['SOAR']``), which
+  the synthetic namespace the other cases execute into cannot itself detect (WR-29,
+  36-REVIEW.md iteration 5).
+- ``TestSoarPortalUrlMatchesLcoBeforeKeyIsCopied``: the SOAR and LCO portal URLs still
+  match, the one thing that makes copying the LCO key into the SOAR entry safe (IN-31,
+  36-REVIEW.md iteration 5).
+- ``TestFoldTailUsesStarImportIntoOwnNamespace``: the fold tail imports
+  ``fomo.local_settings`` with ``from ... import *`` into its own namespace (so a local
+  settings module can only ASSIGN new names, never mutate ``FACILITIES`` above it), and
+  does not use a bare ``except:`` that would also swallow that ``NameError``.
+- ``TestSoarAccessorReadsFoldTarget``: the SOAR accessor the unattended status-refresh
+  step reaches through ``SOARFacility`` reads the entry the fold fills.
+- ``TestImportGuardHandlesMissingLocalSettingsModule``: the ``except ImportError as exc:
+  if exc.name != 'fomo.local_settings': raise`` guard swallows the module's own absence
+  and propagates any other import failure inside it (WR-38, 36-REVIEW.md).
 
 Uses ``django.test.SimpleTestCase`` -- no database row is touched anywhere in this
 module, so ``TestCase``'s transaction machinery would only cost time. No ``Target``
