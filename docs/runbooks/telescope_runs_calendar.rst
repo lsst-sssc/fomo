@@ -1499,15 +1499,12 @@ Setting it up on a fresh host
    Create ONE check for this schedule. Set the expected interval
    between pings (healthchecks.io calls this ``Period``) to 15
    minutes, matching this cron schedule, and the grace time
-   (``Grace``) to about 20 minutes. A Simple check of that shape
-   alerts at last ping + interval + grace -- about 35 minutes after
-   the last successful ping. The drift-free alternative is a
+   (``Grace``) to about 20 minutes. The drift-free alternative is a
    Cron-type check carrying the same ``*/15 * * * *`` expression the
-   crontab line uses, with the same grace; it has no interval to set
-   and alerts at the missed slot + grace instead (see "The two
-   failure signals" below for why these numbers, why the grace must
-   not be shrunk, and what the interval's default does if it is left
-   alone).
+   crontab line uses, with the same grace; it has no interval to set.
+   See "The two failure signals" below for how each check type alerts,
+   why these numbers, why the grace must not be shrunk, and what the
+   interval's default does if it is left alone.
 
    Finally, copy that check's own ping URL from the service and keep it
    for the next step, which exports it. On healthchecks.io it has the
