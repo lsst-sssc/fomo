@@ -1467,9 +1467,11 @@ Setting it up on a fresh host
    finishes starting. ``src/fomo/settings.py`` folds that one key into
    both the LCO facility entry and the SOAR facility entry, because
    SOAR authenticates against the same LCO Observation Portal. Leave
-   the setting out and both facility entries stay empty, so any portal
-   call FOMO makes -- including the unattended tick's status refresh --
-   goes out unauthenticated.
+   the setting out and both the LCO and SOAR facility entries stay
+   empty, and the tick's ``status_refresh`` step then fails on every
+   non-terminal LCO/SOAR record -- a failure email every 15 minutes.
+   (Gemini and ESO have their own credentials; this key does not reach
+   them.)
 
    This host must also override three development defaults in the same
    file, or it will serve the site with a signing key that is public in
