@@ -15,6 +15,16 @@ from astropy import units as u
 
 Interval = tuple[datetime, datetime]
 
+# LCO site code -> (site name, MPC code of one dome at that site); inter-dome differences are negligible
+LCO_SITES = {
+    'lsc': ('Cerro Tololo', 'W85'),
+    'cpt': ('Sutherland', 'K91'),
+    'coj': ('Siding Spring', 'Q63'),
+    'tfn': ('Tenerife', 'Z31'),
+    'elp': ('McDonald', 'V38'),
+    'ogg': ('Haleakala', 'T04'),
+}
+
 
 class CadenceWindow(NamedTuple):
     """

@@ -12,7 +12,12 @@ from django.urls import reverse
 from tom_targets.models import Target
 
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.templatetags.visibility_extras import airmass_figure, cadence_figure, window_summary
+from solsys_code.templatetags.visibility_extras import (
+    airmass_figure,
+    cadence_figure,
+    sampling_interval,
+    window_summary,
+)
 from solsys_code.views import JPLSBDBQuery, split_number_unit_regex
 from solsys_code.visibility import CadenceWindow
 
@@ -175,6 +180,21 @@ class TestNonsiderealTargetPlan(TestCase):
             {'W85', 'K91', 'Q63'},
         )
 
+    def test_site_selection(self):
+        response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&airmass=3&sites=cpt')
+        content = response.content.decode()
+
+        self.assertIn('id="cadence-window"', content)
+        self.assertTrue(Observatory.objects.filter(obscode='K91').exists())
+        self.assertFalse(Observatory.objects.filter(obscode__in=['W85', 'Q63']).exists())
+
+    def test_unknown_site_shows_form_error(self):
+        response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&sites=xxx')
+        content = response.content.decode()
+
+        self.assertIn('not one of the available choices', content)
+        self.assertNotIn('id="nonsidereal-airmass"', content)
+
     def test_not_observable(self):
         response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&airmass=1.0')
         content = response.content.decode()
@@ -207,6 +227,13 @@ class TestVisibilityFigures(SimpleTestCase):
         self.assertEqual(list(fig.data[1].y), [None, None, 2.0, 1.8])
         self.assertEqual(fig.layout.yaxis.autorange, 'reversed')
 
+    def test_airmass_figure_greys_out_sites_with_no_visibility(self):
+        visibility = {'COJ': (self.times, [None] * 4), 'OGG': (self.times, [None, 1.3, 1.1, None])}
+
+        fig = airmass_figure(visibility)
+
+        self.assertEqual([(trace.name, trace.visible) for trace in fig.data], [('COJ', 'legendonly'), ('OGG', True)])
+
     def test_cadence_figure_bars_and_midpoint(self):
         windows = {'COJ': [(self.t0, self.t0 + self.hour)], 'CPT': [(self.t0 + 2 * self.hour, self.t0 + 3 * self.hour)]}
         window = CadenceWindow(
@@ -232,6 +259,13 @@ class TestVisibilityFigures(SimpleTestCase):
         )
         self.assertEqual(fig.layout.shapes[0].x0, window.midpoint)
         self.assertEqual(fig.layout.xaxis.type, 'date')
+
+    def test_sampling_interval(self):
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=1)), 15)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=3)), 15)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=7)), 35)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=30)), 145)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=1), minimum=10), 10)
 
     def test_window_summary(self):
         window = CadenceWindow(
