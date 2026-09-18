@@ -444,6 +444,13 @@ except ImportError as exc:
 # = ... there raises NameError, which the ImportError guard does not catch). Secrets that belong
 # inside an existing dict therefore arrive as flat names and are folded in here.
 if 'LCO_API_KEY' in globals():
-    FACILITIES['LCO']['api_key'] = LCO_API_KEY  # noqa: F405
-    # SOAR authenticates against the same LCO Observation Portal (see the FACILITIES['SOAR'] entry above).
-    FACILITIES['SOAR']['api_key'] = LCO_API_KEY  # noqa: F405
+    # The presence guard above covers only the source name -- a local_settings.py that
+    # replaces FACILITIES wholesale (the one thing it is documented to be able to do) can
+    # legally omit 'SOAR', which is a FOMO-local addition, not part of a stock TOM
+    # FACILITIES block. setdefault() makes the destination as tolerant as the source guard,
+    # so a missing 'SOAR' key can no longer crash settings import with an uncaught KeyError
+    # (WR-28, 36-REVIEW.md iteration 5). SOAR authenticates against the same LCO Observation
+    # Portal (see the FACILITIES['SOAR'] entry above) -- if that ever changes, remove the
+    # 'SOAR' entry from this loop (see IN-31, 36-REVIEW.md iteration 5).
+    for _facility in ('LCO', 'SOAR'):
+        FACILITIES.setdefault(_facility, {})['api_key'] = LCO_API_KEY  # noqa: F405
