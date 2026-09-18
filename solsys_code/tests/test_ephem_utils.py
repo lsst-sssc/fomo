@@ -1,10 +1,12 @@
 from collections import namedtuple
 from datetime import datetime
+from pathlib import Path
 
 import erfa
 import numpy as np
 import pandas as pd
 from astropy import units as u
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from django.test import SimpleTestCase, TestCase, tag
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
@@ -15,10 +17,12 @@ from solsys_code.ephem_utils import (
     add_magnitude,
     add_sky_motion,
     build_apco_context,
+    compute_ephemeris,
     convert_target_to_layup,
     get_nonsidereal_visibility,
 )
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.visibility import visibility_windows
 
 MJD_TO_JD_CONVERSION = 2400000.5
 JD2000 = 2451545.0  # Reference epoch
@@ -371,3 +375,71 @@ class TestGetNonsiderealVisibility(TestCase):
     def test_end_before_start_raises(self):
         with self.assertRaises(ValueError):
             get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.end, self.start, 60)
+
+
+class TestCloseApproach2025FA22(TestCase):
+    """
+    2025 FA22 passed 0.0056 au from the Earth on 2025-09-18 07:43 TDB, arriving from the daytime sky
+    (31 deg from the Sun two days before) and moving at up to 2.6 arcsec/s at closest approach. The
+    reference is a JPL Horizons geocentric ephemeris (``data/2025FA22_horizons_geocentric.csv``) from the
+    same orbit solution as the elements below.
+    """
+
+    def setUp(self):
+        # Horizons osculating heliocentric ecliptic elements at 2025-09-01 00:00 TDB (solution of 2026-05-08)
+        self.target, created = Target.objects.get_or_create(
+            name='2025 FA22',
+            type='NON_SIDEREAL',
+            permissions='PUBLIC',
+            scheme='MPC_MINOR_PLANET',
+            epoch_of_elements=60919.0,
+            perihdist=0.8818643632074030,
+            eccentricity=0.4150181985939446,
+            inclination=7.547632751977779,
+            lng_asc_node=356.5000374812164,
+            arg_of_perihelion=304.9125910339715,
+            epoch_of_perihelion=60894.453130597249,
+            semimajor_axis=1.507507346532430,
+            mean_anomaly=13.07106667639207,
+            abs_mag=21.59,
+            slope=0.15,
+        )
+        self.geocentre, created = Observatory.objects.get_or_create(
+            obscode='500', name='Geocentric', lat=0.0, lon=0.0, altitude=0.0
+        )
+        self.horizons = pd.read_csv(Path(__file__).parent / 'data' / '2025FA22_horizons_geocentric.csv', comment='#')
+
+    def test_geocentric_ephemeris_matches_horizons_through_close_approach(self):
+        times = Time([datetime.strptime(date, '%Y-%b-%d %H:%M:%S.%f') for date in self.horizons['date_tt']], scale='tt')
+
+        predictions = compute_ephemeris(self.target, self.geocentre, times)
+
+        predicted = SkyCoord(predictions['RA_deg'], predictions['Dec_deg'], unit='deg')
+        expected = SkyCoord(self.horizons['ra_deg'], self.horizons['dec_deg'], unit='deg')
+        self.assertLess(predicted.separation(expected).arcsec.max(), 0.05)
+        assert_array_almost_equal(predictions['Range_LTC_au'], self.horizons['delta_au'], decimal=8)
+        assert_array_almost_equal(predictions['phase_deg'], self.horizons['phase_deg'], decimal=1)
+        # Closest approach is the 2025-09-18 07:42:59 row
+        self.assertEqual(predictions['Range_LTC_au'].idxmin(), 9)
+
+    def test_visibility_switches_on_after_close_approach(self):
+        lsc, created = Observatory.objects.get_or_create(
+            obscode='W85', name='Cerro Tololo-LCO', lat=-30.167, lon=-70.805, altitude=2198.0
+        )
+        ogg, created = Observatory.objects.get_or_create(
+            obscode='T04', name='Haleakala-LCO', lat=20.707, lon=-156.258, altitude=3055.0
+        )
+
+        visibility = get_nonsidereal_visibility(
+            self.target, {'LSC': lsc, 'OGG': ogg}, datetime(2025, 9, 16), datetime(2025, 9, 20), 15, airmass_limit=2.5
+        )
+
+        # Two days before closest approach the target is 31 deg from the Sun: nothing from either hemisphere
+        for site, (times, airmasses) in visibility.items():
+            self.assertTrue(
+                all(airmass is None for time, airmass in zip(times, airmasses, strict=True) if time.day == 16), site
+            )
+        # The night after closest approach it is well placed from both hemispheres
+        windows = visibility_windows(visibility)
+        self.assertEqual(windows['LSC'][-1], (datetime(2025, 9, 19, 5, 30), datetime(2025, 9, 19, 9, 15)))
+        self.assertEqual(windows['OGG'][-1], (datetime(2025, 9, 19, 9, 0), datetime(2025, 9, 19, 14, 45)))
