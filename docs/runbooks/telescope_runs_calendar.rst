@@ -1449,7 +1449,8 @@ Setting it up on a fresh host
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 1. Create the two directories the schedule below assumes exist and are
-   writable by the account cron runs as::
+   writable by the account cron runs as (creating them under ``/var`` and
+   handing ownership to that account typically needs ``sudo``)::
 
       /var/lock/fomo
       /var/log/fomo
@@ -1457,7 +1458,8 @@ Setting it up on a fresh host
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
    the crontab line, never in an environment variable, and never committed
-   to git.
+   to git. The API key setting is nested: ``FACILITIES['LCO']['api_key']``
+   and ``FACILITIES['SOAR']['api_key']``.
 3. Create the heartbeat check. This is a dead-man's switch on a
    third-party service that alerts when a tick never ran at all or hung
    partway through -- not only when one failed outright, which is the one
@@ -1543,7 +1545,8 @@ Setting it up on a fresh host
    the same line.
 9. Drop `deploy/logrotate/fomo.example` into ``/etc/logrotate.d/fomo`` (or
    wherever this host's logrotate scans) so the log file rotates daily and
-   keeps a fortnight instead of growing forever.
+   keeps a fortnight instead of growing forever. Writing into
+   ``/etc/logrotate.d/`` typically needs ``sudo`` too.
 
 Adding a proposal to watch
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

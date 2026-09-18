@@ -11,8 +11,11 @@
 # already filled in, so you do not have to hand-edit the placeholders from scratch.
 #
 # The environment the cron daemon must supply (by NAME only -- never a value here, D-15):
-#   FOMO_HEARTBEAT_URL  -- a healthchecks.io-compatible ping URL (optional; unset disables
-#                          the heartbeat layer, D-12)
+#   FOMO_HEARTBEAT_URL  -- the ping URL of a check you create on a healthchecks-compatible
+#                          service (optional; unset disables the heartbeat layer, D-12). See
+#                          the "Setting it up on a fresh host" subsection of the "How do I
+#                          run everything unattended?" runbook section for how to create the
+#                          check and where its ping URL comes from.
 #   FOMO_BASE_URL       -- used to build the admin/calendar links in a failure email. WR-13
 #                          (36-REVIEW.md): the campaign-submission approval-queue link is
 #                          built inside the WEB process (gunicorn/uWSGI), not this cron
@@ -31,8 +34,9 @@
 # heartbeat (D-12) is the structural backstop if this log line is never checked --
 # but only if the check at the other end is configured with BOTH its expected ping
 # interval (15 min, matching this schedule; healthchecks.io calls this Period) and
-# its grace time (about 20 min). See the runbook's "How do I run everything
-# unattended?" section for the full setup. WR-01 (36-REVIEW.md): the tail is gated
+# its grace time (about 20 min). See the runbook's "Setting it up on a fresh host"
+# subsection (under "How do I run everything unattended?") for the full setup.
+# WR-01 (36-REVIEW.md): the tail is gated
 # on flock's own dedicated exit code 99, not on "any non-zero exit" --
 # `run_unattended` itself exits 1 whenever a step failed, and a plain `||` tail
 # would mislabel that failing-but-genuinely-ran tick as "lock held" in the log.
@@ -55,6 +59,7 @@
 # above assumes exist and are writable by the cron user:
 #   /var/lock/fomo
 #   /var/log/fomo
-# See the "How do I run everything unattended?" runbook section
-# (docs/runbooks/telescope_runs_calendar.rst) for the full setup walkthrough, and
-# deploy/logrotate/fomo.example (a later plan in this phase) for rotating the log file.
+# See the "Setting it up on a fresh host" subsection of the "How do I run everything
+# unattended?" runbook section (docs/runbooks/telescope_runs_calendar.rst) for the full
+# setup walkthrough, and deploy/logrotate/fomo.example (a later plan in this phase) for
+# rotating the log file.
