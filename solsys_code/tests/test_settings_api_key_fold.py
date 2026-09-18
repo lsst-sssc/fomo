@@ -103,6 +103,24 @@ class TestAbsentKeyIsCleanNoop(_FoldExecutionTestCase):
         self.assertEqual(facilities['SOAR']['api_key'], '')
 
 
+class TestLiveFacilitiesCarriesBothFoldTargets(SimpleTestCase):
+    """The namespace ``_run_fold()`` executes into is *seeded* with both facility entries
+    (see ``_FoldExecutionTestCase._run_fold``), so it cannot detect the one prerequisite
+    the fold actually requires: that ``FACILITIES['SOAR']`` exists in the real settings
+    module at all (``src/fomo/settings.py``, the entry above the fold tail). Deleting that
+    entry left every test above green while a configured host raised ``KeyError: 'SOAR'``
+    at import (WR-29, 36-REVIEW.md iteration 5). This case asserts against the live,
+    already-imported settings object instead of the synthetic namespace, so it fails if
+    that entry -- or the LCO entry the fold has always required -- is ever removed."""
+
+    def test_live_facilities_has_both_entries_the_fold_writes_into(self):
+        from django.conf import settings as live
+
+        for facility in ('LCO', 'SOAR'):
+            self.assertIn(facility, live.FACILITIES)
+            self.assertIn('api_key', live.FACILITIES[facility])
+
+
 class TestBracketedDictSubscriptRaisesNameError(SimpleTestCase):
     """The instruction the OLD runbook gave -- reaching into a settings dict already
     built above the import guard -- is fatal. Pins G-36-4's failure mode as an
