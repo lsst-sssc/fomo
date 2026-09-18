@@ -1,20 +1,487 @@
 ---
 phase: 36-unattended-operation
-reviewed: 2026-09-18T00:00:00Z
+reviewed: 2026-09-18T12:00:00Z
 depth: deep
-iteration: 4
-files_reviewed: 2
+iteration: 5
+files_reviewed: 3
 files_reviewed_list:
   - docs/runbooks/telescope_runs_calendar.rst
-  - deploy/cron/fomo.crontab.example
+  - solsys_code/tests/test_settings_api_key_fold.py
+  - src/fomo/settings.py
 findings:
-  critical: 2
+  critical: 1
   warning: 5
   info: 4
-  total: 11
-carried_forward_open: 3
+  total: 10
+carried_forward_open: 22
 status: issues_found
 ---
+
+# Phase 36: Code Review Report (iteration 5 — incremental review of plan 36-08, gap closure G-36-4)
+
+**Reviewed:** 2026-09-18T12:00:00Z
+**Depth:** deep
+**Files Reviewed:** 3 (everything changed since `a3e5556`, the commit iteration 4 was written against — commits `62d4d78` and `39312f4`; `96701a3` and `c04e245` are planning artifacts and out of scope)
+**Status:** issues_found
+
+## Summary
+
+Plan 36-08 closes G-36-4 in two commits: `62d4d78` adds one line to the settings fold
+(`src/fomo/settings.py:442-443`) plus a new 126-line test module, and `39312f4` rewrites
+the fresh-host procedure's step 2 (`docs/runbooks/telescope_runs_calendar.rst:1458-1470`).
+The whole source diff is **+127 / -2 lines**. Everything below was checked by execution,
+not by reading the plan's prose.
+
+**Both findings the plan claims to close are genuinely closed.**
+
+- **CR-02 (iteration 4) — CLOSED.** The `FACILITIES['LCO']['api_key']` instruction is gone
+  from the runbook *entirely*: `grep -n FACILITIES docs/runbooks/telescope_runs_calendar.rst`
+  now returns nothing, so there is no copy-pasteable nested key path left anywhere on the
+  page. The replacement names the flat `LCO_API_KEY` with a bracketed placeholder
+  (`'<your key>'`), and its mechanism sentence is a faithful paraphrase of
+  `settings.py:436-439`. An operator following the new step 2 literally gets a working
+  host instead of a settings module that refuses to import.
+- **WR-23 (iteration 4) — CLOSED, by remedy (b), and the code half verifies end to end.**
+  `settings.py:443` now folds the same flat name into `FACILITIES['SOAR']['api_key']`, and
+  that is demonstrably the key the consumer reads: `OCSSettings.get_setting()` resolves
+  `settings.FACILITIES.get('SOAR', default_settings).get('api_key', …)`
+  (`tom_observations/facilities/ocs.py:98-99`), and `step_status_refresh()` really does
+  instantiate `SOARFacility()` alongside `LCOFacility()`
+  (`solsys_code/unattended.py:267-268`). Without the `FACILITIES['SOAR']` entry the
+  accessor silently falls back to `LCOSettings.default_settings`, whose `api_key` is `''` —
+  so the entry plus the fold are both load-bearing, and both are present.
+
+**The new test really does execute the live settings tail, and it does not leak state.**
+It reads `settings_module.__file__`, slices from the `try:\n    from fomo.local_settings
+import *` anchor to EOF, and `exec`s that slice — so deleting `settings.py:443` fails
+`test_flat_key_fills_lco_and_soar`, and moving the fold above the import guard fails it
+too. I probed the two leak vectors that matter rather than assuming: a star-import of an
+injected submodule does **not** rebind the parent package's attribute (verified in this
+interpreter), so `addCleanup`'s `sys.modules` restore is complete; and the cold case (no
+`fomo.local_settings` in `sys.modules` at all, i.e. a CI host with no local settings file)
+resolves against the injected module correctly, so the module is portable and never reads
+the real file on disk. `django.conf.settings` is untouched — the fold executes into a
+throwaway `dict`, and the one `override_settings` use is properly scoped. All four tests
+pass (`python manage.py test solsys_code.tests.test_settings_api_key_fold`, 4 tests, 0.003 s,
+no database). `pre-commit run ruff` and `ruff-format` on both changed Python files: clean.
+
+**But the test buys less assurance than its own docstring claims, in two specific ways
+(WR-29, WR-30), and the fold it protects has an unguarded destination path (WR-28).** The
+namespace the test `exec`s into is *seeded* with `{'LCO': {…}, 'SOAR': {…}}`, so the real
+`FACILITIES['SOAR']` entry at `settings.py:244-247` — which the new fold line now requires
+to exist — is the one thing the test cannot see. Delete that entry and the test still
+passes, while a configured host dies at settings import with `KeyError: 'SOAR'`
+(reproduced). The asymmetry is what makes it worth fixing: the guard is `if 'LCO_API_KEY'
+in globals()`, so CI (no key) never executes the subscript and never notices, while
+production (key set) crashes on every process start.
+
+**RST and gate status: clean.** A `docutils` parse of the whole page at `report_level=1`
+produces no structural message (only three "hyperlink target not referenced" INFOs, all
+pre-existing) — the rewritten step 2 keeps the enumerated list, the three-space
+continuation indent and the ~70-column wrap intact. Plan 36-07's slice gate still holds in
+full: every presence clause (`Period`, `Grace`, `*/15 * * * *`, `hc-ping.com/<uuid>`,
+`healthchecks.io`, `The two failure signals`, `35 min`, a `^9. ` step) passes, and the
+order clause still passes with room to spare — `Period` at slice line 39 and the ping-URL
+placeholder at slice line 51 both precede the export anchor at slice line 55 (step 2 grew
+by 8 lines, which moved all three anchors down together). The canonical-paragraph
+exclusion and the UUID negative-grep also still pass. I deliberately did **not** run the
+gate's `pre-commit run sphinx-build --all-files` clause: it writes into the working tree,
+and per **CR-03** (still open) that build is what renders `local_settings.py` — including
+this host's real credentials — into HTML.
+
+**Credential hygiene inside the three files: clean for the change, with one pre-existing
+exception.** No UUID-shaped, key-shaped or token-shaped literal appears in the diff; the
+runbook shows only `'<your key>'`, and the test's literal is
+`'fake-portal-key-test-settings-api-key-fold'` — obviously non-credential and asserted only
+by equality, never printed. The exception is not in the diff but is in a reviewed file: the
+committed `SECRET_KEY` and `DEBUG = True` at `settings.py:25,28`, which the fresh-host
+procedure this change edits never tells the operator to override — see **CR-04**.
+
+**Scope fence respected.** Plan 36-08 touched nothing outside G-36-4, exactly as it said it
+would; none of iteration 4's other open findings are re-opened or regressed by it, and all
+are carried forward below by ID. The CLAUDE.md paired-docs rule is satisfied: the changed
+behavior's documented surface is `docs/runbooks/telescope_runs_calendar.rst` and it was
+updated in the same plan; no module in the notebook pairing map was touched.
+
+## Narrative Findings (AI reviewer)
+
+## Critical Issues
+
+### CR-04: The fresh-host procedure stands up a gunicorn/uWSGI host on a `SECRET_KEY` that is published in this git repository, with `DEBUG = True` — step 2 enumerates what goes in `local_settings.py` and omits every one of them
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1458-1470` (step 2, rewritten by
+`39312f4`); cf. `src/fomo/settings.py:25`, `:28`, `:30-32`, and
+`docs/runbooks/telescope_runs_calendar.rst:1507-1509`
+**Issue:** Step 2 is the only place in the entire published doc set that enumerates what a
+real host must put in `local_settings.py`. `grep -rniE 'secret_key|allowed_hosts' docs/`
+returns **nothing** — `docs/installation.rst` never mentions them either (its one "For a
+real deployment" note, `:110-118`, covers `FOMO_BASE_URL` only). The list step 2 gives is
+`EMAIL_BACKEND`, `EMAIL_HOST_*`, and now `LCO_API_KEY`. It stops there.
+
+That this is a production host, serving the web app, is the runbook's own claim: step 5
+tells the operator to export `FOMO_BASE_URL` "in **both** the cron environment and the web
+server's (gunicorn/uWSGI) environment" because "the campaign-submission approval-queue link
+is built inside the web process" (`:1507-1510`). So an operator who follows this page
+end-to-end runs a public Django site with:
+
+```python
+SECRET_KEY = '1c1nvy&amp;t@z+wq16gbfag8_-t&amp;e#mppk4h=syp*i*fs^hi&amp;7ihi'   # settings.py:25 — in git
+DEBUG = True                                                                 # settings.py:28
+ALLOWED_HOSTS = ['tlister-thinkmate.lco.gtn']                                # settings.py:30-32
+```
+
+A `SECRET_KEY` anyone can read in the public repository is a signing-key compromise, not a
+style issue: it forges session cookies (`django.contrib.sessions` signed cookies and the
+session-id-independent `_auth_user_hash`), password-reset tokens, and any
+`signing.dumps()` payload — i.e. staff-account takeover on the very accounts this phase
+mails failure notices to and which approve campaigns. `DEBUG = True` adds full traceback
+and settings disclosure on any unhandled exception. Neither is detected by
+`check_unattended` (see WR-31), so the operator gets a green preflight.
+
+I am recording this as a BLOCKER on the procedure, not as a regression: the omission
+pre-dates `39312f4`, and `CLAUDE.md` legitimately calls the two values dev defaults whose
+"production overrides belong in a `local_settings.py`". The defect is that the one step
+which tells an operator what to put in `local_settings.py` — the step this change opened up
+and expanded — still does not say so, and no other document does either. It should not
+ship in that state.
+**Fix:** add the three settings to the step that already exists, and note the
+`ALLOWED_HOSTS` coupling (turning `DEBUG` off without it makes every request 400):
+
+```rst
+2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
+   the LCO/SOAR API key in this host's ``local_settings.py`` ...
+
+   This host must also override three development defaults in the same file, or it
+   will serve the site with a signing key that is public in this repository:
+   ``SECRET_KEY`` (generate a fresh one -- ``python -c "from django.core.management.utils
+   import get_random_secret_key; print(get_random_secret_key())"``), ``DEBUG = False``,
+   and ``ALLOWED_HOSTS`` set to this host's real names -- ``DEBUG = False`` with the
+   committed single-entry ``ALLOWED_HOSTS`` makes every request return 400, so the two
+   must change together.
+```
+
+## Warnings
+
+### WR-28: The new fold line guards its source name but not its destination path — a `FACILITIES` override that omits `SOAR` now kills settings import with an uncaught `KeyError`
+
+**File:** `src/fomo/settings.py:440-443`
+**Issue:** The fold is
+
+```python
+if 'LCO_API_KEY' in globals():
+    FACILITIES['LCO']['api_key'] = LCO_API_KEY
+    FACILITIES['SOAR']['api_key'] = LCO_API_KEY   # new
+```
+
+The presence guard covers only the *source* name. `FACILITIES` at this point is whatever
+survived the star import three lines above: `local_settings.py` can legally assign a whole
+new `FACILITIES` dict (that is precisely the one thing it *can* do, per the comment at
+`:436-439`), and a TOM deployment's stock `FACILITIES` block carries `LCO` and `GEM` — not
+`SOAR`, which is a FOMO-local addition (`:240-247`). Reproduced against the real tail
+source with a `local_settings` that sets `LCO_API_KEY` and a `FACILITIES` of
+`{'LCO': …, 'GEM': …}`:
+
+```
+RAISED KeyError 'SOAR'
+```
+
+Nothing catches it — the `except ImportError` guard is already closed by then — so the
+settings module fails to import and gunicorn, every `manage.py` command, the
+`run_unattended` tick, `check_unattended` and the failure mail all die at start-up. That is
+the exact blast radius iteration 4's CR-02 described, arriving by a different door. The
+pre-existing `['LCO']` subscript has the same shape, but `LCO` is the one key any
+`FACILITIES` override is overwhelmingly likely to keep; `SOAR` is not. Not a BLOCKER only
+because it takes a second, undocumented operator action to trigger and fails loudly with a
+traceback that names the line.
+**Fix:** make the destination as tolerant as the source guard, in one line each:
+
+```python
+if 'LCO_API_KEY' in globals():
+    # SOAR authenticates against the same LCO Observation Portal (see the FACILITIES['SOAR'] entry above).
+    for _facility in ('LCO', 'SOAR'):
+        FACILITIES.setdefault(_facility, {})['api_key'] = LCO_API_KEY  # noqa: F405
+```
+
+(or `if 'SOAR' in FACILITIES:` if silently skipping is preferred to creating the entry —
+but then say so in the comment, because a silently skipped SOAR fold is WR-23 all over
+again).
+
+### WR-29: The test seeds its own `FACILITIES`, so the one prerequisite the new fold line added — the `FACILITIES['SOAR']` entry — is exactly what it cannot detect, and CI structurally cannot either
+
+**File:** `solsys_code/tests/test_settings_api_key_fold.py:81-83`; cf.
+`src/fomo/settings.py:244-247`
+**Issue:** `_run_fold()` executes the real tail source, but into
+
+```python
+namespace = {'FACILITIES': {'LCO': {'api_key': ''}, 'SOAR': {'api_key': ''}}}
+```
+
+so the `FACILITIES` the fold mutates is synthetic. Delete `settings.py:244-247` (the real
+`SOAR` entry, whose own comment says it exists only so `SOARSettings('SOAR')` resolves a
+real `api_key`) and all four tests still pass — while every configured host raises
+`KeyError: 'SOAR'` at import (WR-28). The module docstring's promise, "a future edit that
+drops the SOAR line fails this test instead of passing a source-token grep", is true for
+`:443` and false for `:244-247`, which is the half a future editor is more likely to prune
+as "unused duplication of LCO".
+
+The failure mode is also invisible to CI by construction: the fold is behind `if
+'LCO_API_KEY' in globals()`, and a CI checkout has no `local_settings.py`, so the subscript
+is never executed there. The only environment that can notice is production, at start-up.
+**Fix:** assert against the live settings object, not only against the synthetic namespace —
+two lines in a new case:
+
+```python
+class TestLiveFacilitiesCarriesBothFoldTargets(SimpleTestCase):
+    def test_live_facilities_has_both_entries_the_fold_writes_into(self):
+        from django.conf import settings as live
+
+        for facility in ('LCO', 'SOAR'):
+            self.assertIn(facility, live.FACILITIES)
+            self.assertIn('api_key', live.FACILITIES[facility])
+```
+
+### WR-30: `TestBracketedDictSubscriptRaisesNameError` asserts a property of Python, not a property of this codebase — it cannot fail if the behavior it claims to pin regresses
+
+**File:** `solsys_code/tests/test_settings_api_key_fold.py:106-115`
+**Issue:** The case is
+
+```python
+with self.assertRaises(NameError):
+    exec("FACILITIES['LCO']['api_key'] = 'placeholder'", {})
+```
+
+Nothing in that statement touches FOMO. It executes a string literal in an empty dict and
+observes that Python raises `NameError` for an unbound name — which is true of every
+Python program ever written. Its docstring nevertheless claims it "pins G-36-4's failure
+mode as an executable case so the class of defect it belongs to cannot return silently."
+It cannot: change `settings.py:431-434` to `exec(open(path).read(), globals())` (a real and
+tempting "fix" for the flat-name awkwardness), and the nested form would start working, the
+runbook's `NameError` explanation would become false — and this test would still pass,
+green. A test that cannot fail for any change to the system under test is not a regression
+guard; here it is worse than absent, because the docstring invites a future maintainer to
+trust it.
+**Fix:** exercise the real import path — write a throwaway module *file* containing the
+nested assignment, put its directory on `sys.path` under the `fomo` package name, and
+assert the live tail raises. If that is judged too heavy, the honest cheap version is to
+pin the mechanism the claim actually rests on: assert that the tail slice contains
+`from fomo.local_settings import *` and that its guard catches `ImportError` only, and
+rewrite the docstring to say the case documents Python's scoping rule rather than pinning
+FOMO's behavior.
+
+### WR-31: The new prerequisite is one the preflight cannot check, while step 6 promises it "reports every prerequisite in one pass" and step 7 says to iterate until it is green
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1524-1547` (step 6), `:1548-1549`
+(step 7), `:1468-1470` (step 2's consequence sentence); cf.
+`solsys_code/management/commands/check_unattended.py` (checks: `check_flock`,
+`check_lock_dir`, `check_log_dir`, `check_state_dir`, `check_email`, `check_heartbeat`,
+`check_base_url`, `check_watched_proposals` — no facility-credential check)
+**Issue:** Step 2 now ends: "Leave the setting out and both facility entries stay empty, so
+any portal call FOMO makes -- including the unattended tick's status refresh -- goes out
+unauthenticated." Step 6, four steps later, says `check_unattended` "reports every
+prerequisite in one pass", and step 7 says "Fix whatever it reports, re-running
+``check_unattended`` until every hard check passes." An operator who skipped or fat-fingered
+step 2 therefore gets a fully green preflight and a printed cron line, and only discovers
+the problem when `status_refresh` starts failing on live records. The check is a one-liner
+away: TOM already ships `OCSSettings.get_unconfigured_settings()`
+(`tom_observations/facilities/ocs.py:101-105`), which returns the blank required keys for a
+facility — exactly the shape `check_unattended`'s other checks use.
+
+This is the second time in this phase that step 6's enumeration has been found to describe a
+preflight that has moved on (see WR-26, still open, for `FOMO_STATE_DIR` and the `flock -E`
+probe). Both should be fixed in the same pass.
+**Fix:** add a soft check and name it in step 6's enumeration:
+
+```python
+def check_facility_credentials() -> CheckResult:
+    """LCO/SOAR portal credentials -- a warning, not a hard failure: a host with no
+    LCO/SOAR ObservationRecords ticks fine without them."""
+    missing = [f for f in ('LCO', 'SOAR') if not SOARSettings(f).get_setting('api_key')]
+    ...
+```
+
+and, in step 6, extend the list with "whether the LCO/SOAR portal API key is configured
+(a warning: the tick's `status_refresh` step fails on every non-terminal record without
+it)". Never print the value — set/unset only, as `check_heartbeat()` already does (D-15).
+
+### WR-32: `except ImportError: pass` swallows import failures raised *inside* `local_settings.py`, silently reverting a configured host to every dev default the new step 2 just told the operator to override
+
+**File:** `src/fomo/settings.py:431-434`
+**Issue:**
+
+```python
+try:
+    from fomo.local_settings import *  # noqa
+except ImportError:
+    pass
+```
+
+The guard's intent is "the file may not exist", but its reach is "any `ImportError` or
+`ModuleNotFoundError` raised anywhere while executing that module". A `local_settings.py`
+that does `from fomo.secrets import LCO_API_KEY` (typo, un-deployed sibling file, a package
+missing from this host's venv) is discarded **whole and silently**: the host then runs with
+`DEBUG = True`, the committed `SECRET_KEY`, `EMAIL_BACKEND` still pointed at the console
+backend (so every failure email this phase exists to send is written to cron's stdout and
+lost), and both facility `api_key` entries empty. `check_unattended`'s `check_email()` would
+catch the console backend — but only if the operator runs it again after the breakage, and
+step 7 is a setup-time step. Pre-existing, and `CLAUDE.md` does describe the import as
+"fallback: no error on missing"; but this change is what makes `local_settings.py` the
+documented home of a second credential, which raises the cost of losing it silently.
+**Fix:** catch only the absence of that one module, and let anything else propagate:
+
+```python
+try:
+    from fomo.local_settings import *  # noqa
+except ImportError as exc:
+    if exc.name != 'fomo.local_settings':
+        raise
+```
+
+## Info
+
+### IN-29: Step 2's consequence sentence over-generalizes to facilities the key cannot reach, and describes the mechanism rather than the symptom the operator will see
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1468-1470`
+**Issue:** "Leave the setting out and both facility entries stay empty, so **any portal
+call FOMO makes** -- including the unattended tick's status refresh -- goes out
+unauthenticated." Two inaccuracies. (1) "any portal call" is wrong for GEM and ESO, which
+have their own credentials (`settings.py:248-265` — `FACILITIES['GEM']['api_key']` is a
+nested `{'GS': …, 'GN': …}` dict with no flat fold and no documentation anywhere, i.e. the
+same G-36-4 trap, still open for Gemini); the page's own "What runs, and when" section is
+careful about this, saying the tick "never touches Gemini or ESO" (`:1433-1434`). (2)
+"goes out unauthenticated" is the mechanism; the symptom is that
+`update_all_observation_statuses()` gets a 4xx and raises `ImproperCredentialsException`,
+which `_refresh_one_facility()` converts into an outage result
+(`solsys_code/unattended.py:222-226`) — so the operator sees `status_refresh` fail and a
+failure email every 15 minutes, which is what they will actually be debugging.
+**Fix:** "…both the LCO and SOAR facility entries stay empty, and the tick's
+``status_refresh`` step then fails on every non-terminal LCO/SOAR record — a failure email
+every 15 minutes. (Gemini and ESO have their own credentials; this key does not reach
+them.)"
+
+### IN-30: Step 2's new explanation uses three terms an operator has not been given
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1462-1466`
+**Issue:** "because **this module** is imported into its own namespace, so it can only
+**ASSIGN** new settings: reaching into a setting already built **above it** raises
+``NameError``, which **the import guard** does not catch". The reader has never been told
+there is an import guard, "above it" is meaningful only if you know where
+`local_settings.py` is imported from, "this module" can plausibly be read as
+`src/fomo/settings.py` (named two sentences later), and the shouted `ASSIGN` is carried
+over from the source comment at `:436-437`, where its audience is a developer reading code.
+Everything factual is correct; it is the register that slipped.
+**Fix:** "…because ``settings.py`` imports ``local_settings.py`` into a namespace of its
+own, near the end of the file: names you set there become settings, but anything you try to
+reach *into* -- a dictionary settings.py already built -- is not visible, and the attempt
+raises ``NameError`` before Django finishes starting."
+
+### IN-31: The fold copies the LCO key into the SOAR entry unconditionally, while the premise that makes that safe lives only in a comment nothing re-checks
+
+**File:** `src/fomo/settings.py:240-247`, `:442-443`
+**Issue:** Both the entry's comment and the fold's comment assert that SOAR authenticates
+against the same LCO Observation Portal, which is true today because
+`FACILITIES['SOAR']['portal_url']` is literally `https://observe.lco.global` (`:245`).
+Nothing ties the two together: an editor who later repoints that `portal_url` at a
+NOIRLab-hosted SOAR portal (the obvious future edit, and the comment sits four lines above
+it) silently starts sending the LCO Observation Portal key to a third-party host, with no
+test and no comment at the edit site to stop them. Low likelihood, but the blast radius is a
+credential disclosure to a new party.
+**Fix:** put the warning where the edit will happen — extend the `:240-243` comment with
+"if this `portal_url` is ever repointed away from `observe.lco.global`, remove the
+`FACILITIES['SOAR']['api_key']` line in the fold at the end of this file: it copies the LCO
+portal key" — and add the coupling as an assertion in the new test module.
+
+### IN-32: Three small hygiene items in the new test module
+
+**File:** `solsys_code/tests/test_settings_api_key_fold.py:56`, `:63`, `:82`, `:115`
+**Issue:** (1) `:56` reads `environ['DJANGO_SETTINGS_MODULE']` directly; Django's own
+`django.conf.settings.SETTINGS_MODULE` is the supported accessor and is correct even under a
+runner that configures settings without the environment variable — as written the module
+raises `KeyError` rather than skipping. (2) `:63` uses a bare `assert` for the anchor
+check, which `python -O` strips; the slice then becomes the file's last character and
+`test_flat_key_fills_lco_and_soar` fails with an opaque `'' != 'fake-portal-key-…'` instead
+of "anchor not found". `self.fail(...)` or `assertNotEqual` is immune. (3) `:82` and `:115`
+carry `# noqa: S102`, but `S` (flake8-bandit) is not in this project's `select` list
+(`pyproject.toml:87-109`) and `RUF100` is not enabled either, so both directives are inert
+noise that reads as if a real rule were being suppressed.
+**Fix:** `settings.SETTINGS_MODULE`; `self.fail(f'fold-tail anchor not found in {settings_path}')`
+inside an `if anchor_index == -1:`; and drop the two `noqa` codes, keeping the explanatory
+half of the comment.
+
+## Security review (explicitly requested scope)
+
+| Check | Result |
+|---|---|
+| Credential-shaped literal anywhere in the three files' diff | **None.** Runbook shows `'<your key>'` only; test literal is `'fake-portal-key-test-settings-api-key-fold'`, never printed |
+| Real UUID / ping token in the runbook | **None** (`! grep -qiE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-'` passes on the whole page) |
+| Copy-pasteable nested `FACILITIES[...]` key path in the runbook | **None** — `grep -n FACILITIES` on the page returns nothing (CR-02 closed) |
+| Secret steered into a process argument vector or an env var | **No.** Step 2 still says "never in the crontab line, never in an environment variable" |
+| New credential written to a wider surface by the fold | **No.** `FACILITIES['SOAR']['portal_url']` is the same LCO host (see IN-31 for the forward-looking caveat) |
+| Test leaking the operator's real `local_settings.py` | **No.** Injection resolves from `sys.modules`; verified the parent package attribute is not rebound and the cold case works. The real file is never opened |
+| Secret steered into a file the toolchain publishes | **YES — CR-03 still open**, and this change increases traffic on that path by making `local_settings.py` the documented home of a second credential |
+| Committed signing key used by the documented production procedure | **YES — CR-04 (new)** |
+
+## Status of every finding carried into this iteration
+
+**Closed by plan 36-08 (2):**
+
+- **CR-02** — CLOSED. No `FACILITIES` token remains on the runbook page; flat `LCO_API_KEY`
+  with a bracketed placeholder, mechanism correctly stated.
+- **WR-23** — CLOSED via remedy (b). `settings.py:443` folds the key into the SOAR entry;
+  consumer path verified through `OCSSettings.get_setting()` and `step_status_refresh()`.
+  See WR-28/WR-29 for the robustness and coverage caveats on the closure.
+
+**Still open from iteration 4 (9) — plan 36-08's scope fence deliberately excluded all of
+them; none is a regression:**
+
+- **CR-03** — still open, unremediated and unchanged: `docs/conf.py:63` `autoapi_ignore` is
+  still `['*/__main__.py', '*/_version.py']`, and
+  `_readthedocs/html/autoapi/fomo/local_settings/`,
+  `_readthedocs/html/_modules/fomo/local_settings.html` and the `docs/_build/html/`
+  equivalents are all still present in this working tree (confirmed by directory listing
+  only — not opened). Aggravated in kind by this change, which makes `local_settings.py`
+  the documented home of the LCO/SOAR key.
+- **WR-24** — still open. Step 3 still reads "Create ONE check for this schedule and set
+  both of its settings" with the Period/Grace arithmetic attached to a sentence that offers
+  the Cron-type alternative (`:1484-1494`).
+- **WR-25** — still open, verbatim: "not only when one failed outright, which is the one
+  failure class FOMO's own error handling cannot report itself" (`:1473-1474`).
+- **WR-26** — still open. Step 6's enumeration still says "the lock and log directories" and
+  "(flock, the directories, or email)"; `grep -rn FOMO_STATE_DIR docs/` still returns
+  nothing. Now compounded by WR-31.
+- **WR-27** — still open. Step 8 still says "either route produces the same line"
+  (`:1550-1552`).
+- **IN-25** — still open; the change added no sixth copy of the 15/20/35 triple.
+- **IN-26** — still open, verbatim at `:1484-1486` ("Name each concept first, giving
+  healthchecks.io's spelling in parentheses").
+- **IN-27** — still open; `deploy/cron/fomo.crontab.example` is unchanged since `a3e5556`.
+- **IN-28** — still open; `` `deploy/cron/fomo.crontab.example` `` (`:1551`) and
+  `` `deploy/logrotate/fomo.example` `` (`:1554`) are still single-backticked.
+
+**Still open from iteration 3 (13), in source files unchanged since `a3e5556` and not
+re-examined by this incremental pass:** WR-16, WR-17, WR-18, WR-19, WR-20, IN-17, IN-18,
+IN-19, IN-20, IN-21, IN-22, IN-23, IN-24. Their iteration-3 records below remain
+authoritative. **WR-22 is excluded from the open count** — it carries a recorded acceptance
+(2026-09-18, 36-UAT.md Test 2), on the standing condition that `LOGGING`'s root level stays
+at `INFO`; `settings.py:200-209` still has `'level': 'INFO'`, so the condition holds. IN-15
+and IN-16 are excluded as duplicates of IN-27.
+
+`carried_forward_open: 22` = 9 (iteration 4) + 13 (iteration 3).
+
+---
+
+_Reviewed: 2026-09-18T12:00:00Z_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: deep_
+_Iteration: 5 (incremental review of plan 36-08, gap closure G-36-4, against `a3e5556`)_
+
+---
+
+# Retained: iteration 4 report (unchanged, for history)
+
+The full iteration-4 report follows verbatim, including the iteration-3 report it in turn
+retained. Its frontmatter has been removed; the frontmatter at the top of this file
+describes iteration 5.
+
 
 # Phase 36: Code Review Report (iteration 4 — incremental review of plan 36-07, gap closure G-36-1)
 
