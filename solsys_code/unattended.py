@@ -397,8 +397,14 @@ def step_discovery(dry_run: bool) -> StepResult:
             )
             for sink_name, sink in (('stdout', captured_stdout), ('stderr', captured_stderr)):
                 captured_text = sink.getvalue()
-                if captured_text:
-                    logger.info('discovery %s: %s', sink_name, captured_text)
+                # IN-38 (36-REVIEW.md): one log record per line, not the whole captured
+                # buffer as a single multi-line record -- a --dry-run preview writes one
+                # "Would create/reuse ..." line per portal request, so a large proposal
+                # previously produced one enormous log line that no line-oriented tool
+                # (grep, logrotate's size accounting, journald's field limits) handles
+                # gracefully.
+                for line in captured_text.splitlines():
+                    logger.info('discovery %s: %s', sink_name, line)
             if not rows_swept:
                 logger.info('0 watched proposals, nothing to discover')
                 return StepResult(name='discovery', failed=False, summary='0 watched proposals, nothing to discover')

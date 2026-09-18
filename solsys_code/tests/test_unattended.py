@@ -944,6 +944,29 @@ class TestDiscoveryStep(UnattendedTestBase):
         joined = '\n'.join(captured.output)
         self.assertIn('no configuration with a named target', joined)
 
+    @patch('solsys_code.management.commands.backfill_lco_observations.sweep_proposal')
+    def test_multiline_sweep_output_is_logged_as_one_record_per_line(self, mock_sweep_proposal):
+        # IN-38 (36-REVIEW.md): the captured sweep buffer was previously logged as ONE
+        # multi-line INFO record -- a --dry-run preview writes one "Would create/reuse
+        # ..." line per portal request, so a large proposal produced one enormous log
+        # line that no line-oriented tool (grep, logrotate's size accounting, journald's
+        # field limits) handles gracefully. Each line must instead be its own record.
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+
+        def _write_two_lines(_proposal, **kwargs):
+            kwargs['stdout'].write('Would create observation for obs-1.\nWould reuse observation for obs-2.\n')
+            return 'requestgroups seen: 1, would create: 1, would reuse: 1'
+
+        mock_sweep_proposal.side_effect = _write_two_lines
+
+        with self.assertLogs('solsys_code.unattended', level='INFO') as captured:
+            unattended.step_discovery(dry_run=True)
+
+        discovery_records = [record for record in captured.output if 'discovery stdout' in record]
+        self.assertEqual(len(discovery_records), 2, discovery_records)
+        self.assertTrue(any('obs-1' in record for record in discovery_records))
+        self.assertTrue(any('obs-2' in record for record in discovery_records))
+
 
 _FAKE_LCO_API_KEY = 'FAKE-API-KEY-DO-NOT-LOG-a1b2c3'
 _FAKE_MAIL_PASSWORD = 'FAKE-MAIL-PW-d4e5f6'
