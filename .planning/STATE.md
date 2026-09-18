@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
 status: executing
-stopped_at: Completed 36-08-PLAN.md (gap closure for G-36-4)
-last_updated: "2026-09-18T12:10:40.668Z"
+stopped_at: Completed 36-09-PLAN.md (gap closure for G-36-5)
+last_updated: "2026-09-18T20:22:18.675Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 36 execution started
-state_head: 96701a36796035888bf897a2fe7132507914406f
+state_head: be955cf59521ebf7e75f18a9381ee701bdf26308
 progress:
   total_phases: 5
   completed_phases: 35
-  total_plans: 51
-  completed_plans: 51
+  total_plans: 52
+  completed_plans: 52
   percent: 100
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 
 ## Current Position
 
-Phase: 36 (Unattended Operation) — 8/8 plans complete (gap-closure plan 36-08 closed G-36-4)
-Plan: 8 of 8
-Status: Phase 36 plans complete — pending re-verification
-Last activity: 2026-09-18 — Completed quick task 260918-bn7: Document the WR-17 suppression-state fallback and the WR-16 lock-held exit-code normalization in the unattended runbook section
+Phase: 36 (Unattended Operation) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-09-18 — Phase 36 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -223,6 +223,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36-unattended-operation P06 | 30min | 3 tasks | 6 files |
 | Phase 36 P07 | 25 min | 3 tasks | 3 files |
 | Phase 36 P08 | ~15min | 3 tasks | 4 files |
+| Phase 36 P09 | 42min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -366,6 +367,7 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: [Phase 36-07]: Moved the stale Test 6 runbook-sufficiency entry out of re_verification.human_items_closed_by_uat into human_items_still_open with a RE-OPENED-by-G-36-1 marker — Makes 'no longer closed' unambiguous by list membership rather than relying on a reader noticing an appended marker string.
 - [Phase 36]: [Phase 36-07]: Kept the SC5/truth-35 evidence cells' base verdict as VERIFIED with a parenthetical human-item qualifier, matching the exact form SC3 already uses, instead of downgrading the marker — The structural half (9 numbered steps, correct order) is genuinely machine-verified; only sufficiency-at-point-of-use is a human item.
 - [Phase 36]: Promoted the single flat LCO_API_KEY setting to feed both the LCO and SOAR facility entries rather than adding a second SOAR_API_KEY (36-08). — One credential authenticates against the same LCO Observation Portal for both facilities; a second name would let the two drift.
+- [Phase 36]: workflow.tdd_mode is false; RED for Task 2 verified manually per 36-01..36-04 precedent — gsd tdd-red-evidence's TAP parser targets node --test output with no Python/Django adapter
 
 ### Pending Todos
 
@@ -471,8 +473,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-18T12:10:40.342Z
-Stopped at: Completed 36-08-PLAN.md (gap closure for G-36-4)
+Last session: 2026-09-18T20:22:18.586Z
+Stopped at: Completed 36-09-PLAN.md (gap closure for G-36-5)
 Resume file: None
 
 ## Operator Next Steps

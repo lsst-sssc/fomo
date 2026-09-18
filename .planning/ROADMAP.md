@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 9 plans (8/9 executed) (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1; 36-08 added 2026-09-18 as gap-closure wave 6 for verification gap G-36-4, the fresh-host API-key step 36-07 itself introduced; 36-09 added 2026-09-18 as gap-closure wave 7 for UAT gap G-36-5, the preflight printing every non-`ok` line twice when both streams share one destination)
+**Plans**: 9/9 plans executed (8/9 executed) (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1; 36-08 added 2026-09-18 as gap-closure wave 6 for verification gap G-36-4, the fresh-host API-key step 36-07 itself introduced; 36-09 added 2026-09-18 as gap-closure wave 7 for UAT gap G-36-5, the preflight printing every non-`ok` line twice when both streams share one destination)
 
 Plans:
 **Wave 1**
@@ -367,7 +367,7 @@ Plans:
 
 **Wave 7** *(gap closure — UAT G-36-5)*
 
-- [ ] 36-09-PLAN.md — `check_unattended` writes each result line once, to one stream (passing to standard output, warnings and failures to standard error, with an ordering flush), the test module gains a merged-sink helper so this defect class is reachable at all, the runbook's preflight step states the routing and the redirect to use, and the operator's own API-key wording is committed with its typos fixed
+- [x] 36-09-PLAN.md — `check_unattended` writes each result line once, to one stream (passing to standard output, warnings and failures to standard error, with an ordering flush), the test module gains a merged-sink helper so this defect class is reachable at all, the runbook's preflight step states the routing and the redirect to use, and the operator's own API-key wording is committed with its typos fixed
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
@@ -428,7 +428,7 @@ Plans:
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
-| 36. Unattended Operation | v2.4 | 8/8 | In Progress|  |
+| 36. Unattended Operation | v2.4 | 9/9 | In Progress|  |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
