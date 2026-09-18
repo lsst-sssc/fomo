@@ -896,8 +896,9 @@ class Command(BaseCommand):
                 if options.get(key) is not None
             ]
             if ignored:
+                verb = 'requires' if len(ignored) == 1 else 'require'
                 raise CommandError(
-                    f'{", ".join(ignored)} require --proposal; the watched-list sweep takes its '
+                    f'{", ".join(ignored)} {verb} --proposal; the watched-list sweep takes its '
                     'overrides from each WatchedProposal row.'
                 )
 

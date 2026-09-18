@@ -1350,6 +1350,26 @@ class TestBareInvocationRejectsProposalOnlyFlags(TestCase):
             )
         self.assertIn('--created-after', str(ctx.exception))
         self.assertIn('--proposal', str(ctx.exception))
+        # IN-19 (36-REVIEW.md): the message used the plural verb unconditionally,
+        # reading "--created-after require --proposal" for the single-flag case --
+        # by far the common one, and the one the paired notebook exercises.
+        self.assertIn('--created-after requires --proposal', str(ctx.exception))
+        mock_make_request.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_multiple_proposal_only_flags_use_the_plural_verb(self, mock_make_request):
+        # IN-19 (36-REVIEW.md): two or more ignored flags is the one case where "require"
+        # is grammatically correct -- pin it so the singular/plural branch is exercised.
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003', is_active=True)
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                'backfill_lco_observations',
+                '--created-after=2026-01-01T00:00:00',
+                '--username=someuser',
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertIn('--created-after, --username require --proposal', str(ctx.exception))
         mock_make_request.assert_not_called()
 
     @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
