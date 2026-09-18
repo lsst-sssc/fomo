@@ -88,6 +88,37 @@ def _run(*args, **kwargs):
     return stdout.getvalue(), stderr.getvalue()
 
 
+def _run_merged(*args, **kwargs):
+    """Call `check_unattended` with a single `io.StringIO` bound as both `stdout=`
+    and `stderr=`, returning its captured text.
+
+    G-36-5: this models a terminal, and it models the crontab template's own
+    append-with-merge redirect (``>> ... 2>&1``) -- the condition in which
+    standard output and standard error are one destination, so a command that
+    writes one string to both sinks renders it twice. `_run()` above hands the
+    command two SEPARATE sinks, so that merge never happens there, which is why
+    the regression this helper exists to catch was invisible to the suite before
+    this task.
+
+    Callers that expect a ``CommandError`` cannot use this helper -- once the call
+    raises, the ``io.StringIO`` it would have returned is unreachable. Build the
+    shared sink inline instead, with the same one-line, same-name form this
+    helper uses (``stdout=merged, stderr=merged``), and read ``merged.getvalue()``
+    after the raise.
+    """
+    merged = io.StringIO()
+    call_command('check_unattended', *args, stdout=merged, stderr=merged, **kwargs)
+    return merged.getvalue()
+
+
+def _result_lines(capture: str) -> list[str]:
+    """Return, in order, every line of `capture` whose first token is a bracketed
+    status word (``[ok]``, ``[WARN]``, or ``[FAIL]``) -- the lines the emission
+    loop in `Command.handle()` writes, as distinct from the blank separator, the
+    cron-line block, and the closing summary."""
+    return [line for line in capture.splitlines() if line.startswith(('[ok] ', '[WARN] ', '[FAIL] '))]
+
+
 class CheckUnattendedTestBase(TestCase):
     """Shared fixture: writable temp lock/log directories and a staff user with an
     email, so every hard check passes unless a test deliberately breaks one."""
@@ -154,10 +185,14 @@ class TestHardChecks(CheckUnattendedTestBase):
         # process's own PATH -- a stale or user-writable directory early in PATH (a
         # conda/venv bin, a ~/bin) could resolve a non-system flock that then gets
         # pasted into a persistent, scheduled crontab entry. WR-35 (36-REVIEW.md): the
-        # note must render as [WARN] and reach stderr -- an [ok] line (the previous
-        # behavior) is invisible to both a "grep FAIL/WARN" scan and anything watching
-        # stderr, exactly the workflow this note exists to catch. Still advisory only
-        # (it works and supports -E): the command must not exit non-zero for it.
+        # note must render as [WARN] and reach an operator watching standard error --
+        # an [ok] line (the previous behavior) is invisible to both a "grep FAIL/WARN"
+        # scan and anything watching standard error, exactly the workflow this note
+        # exists to catch. Still advisory only (it works and supports -E): the command
+        # must not exit non-zero for it. The routing contract itself -- that a WARN
+        # line reaches standard error and not standard output -- is pinned once, by
+        # TestResultStreamRouting.test_warning_and_passing_lines_route_to_separate_streams
+        # below, so this test asserts presence against the merged capture only.
         fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
         with (
             patch(
@@ -166,10 +201,9 @@ class TestHardChecks(CheckUnattendedTestBase):
             ),
             patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
         ):
-            stdout, stderr = _run()
-        self.assertIn('[WARN] flock', stdout)
-        self.assertIn('outside the usual system directories', stdout)
-        self.assertIn('[WARN] flock', stderr)
+            merged = _run_merged()
+        self.assertIn('[WARN] flock', merged)
+        self.assertIn('outside the usual system directories', merged)
 
     def test_flock_in_usr_bin_gets_no_sanity_note(self):
         with patch(
@@ -218,10 +252,9 @@ class TestHardChecks(CheckUnattendedTestBase):
                 ),
                 patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
             ):
-                stdout, stderr = _run()
-            self.assertIn('[WARN] flock', stdout)
-            self.assertIn(f'resolves to {real_target.resolve()}', stdout)
-            self.assertIn('[WARN] flock', stderr)
+                merged = _run_merged()
+            self.assertIn('[WARN] flock', merged)
+            self.assertIn(f'resolves to {real_target.resolve()}', merged)
 
     def test_flock_probe_timing_out_fails_cleanly(self):
         # WR-20 (36-REVIEW.md): a flock binary on a stalled NFS mount could otherwise
@@ -395,19 +428,18 @@ class TestOwnerModeRobustness(TestCase):
 class TestWarningChecks(CheckUnattendedTestBase):
     def test_unset_heartbeat_is_a_warning(self):
         with override_settings(FOMO_HEARTBEAT_URL=None):
-            stdout, stderr = _run()
-        self.assertIn('FOMO_HEARTBEAT_URL', stdout)
-        self.assertIn('[WARN]', stdout)
-        self.assertIn('FOMO_HEARTBEAT_URL', stderr)
+            merged = _run_merged()
+        self.assertIn('FOMO_HEARTBEAT_URL', merged)
+        self.assertIn('[WARN]', merged)
 
     def test_empty_watched_list_is_a_warning(self):
-        stdout, _stderr = _run()
-        self.assertIn('[WARN] watched_proposals', stdout)
+        merged = _run_merged()
+        self.assertIn('[WARN] watched_proposals', merged)
 
         WatchedProposal.objects.create(proposal_code='KEY2026B-004', is_active=True)
-        stdout, _stderr = _run()
-        self.assertNotIn('[WARN] watched_proposals', stdout)
-        self.assertIn('[ok] watched_proposals', stdout)
+        merged = _run_merged()
+        self.assertNotIn('[WARN] watched_proposals', merged)
+        self.assertIn('[ok] watched_proposals', merged)
 
     def test_warnings_do_not_mask_a_hard_failure(self):
         self.staff_user.delete()
@@ -424,17 +456,17 @@ class TestWarningChecks(CheckUnattendedTestBase):
         # every emailed link (failure notice, campaign approval-queue notice) unusable
         # off this host -- nothing else checks it, so this preflight must.
         with override_settings(FOMO_BASE_URL='http://localhost:8000'):
-            stdout, _stderr = _run()
-        self.assertIn('[WARN] FOMO_BASE_URL', stdout)
+            merged = _run_merged()
+        self.assertIn('[WARN] FOMO_BASE_URL', merged)
 
         with override_settings(FOMO_BASE_URL='https://fomo.example.org'):
-            stdout, _stderr = _run()
-        self.assertIn('[ok] FOMO_BASE_URL', stdout)
+            merged = _run_merged()
+        self.assertIn('[ok] FOMO_BASE_URL', merged)
 
     def test_unset_base_url_is_a_warning(self):
         with override_settings(FOMO_BASE_URL=None):
-            stdout, _stderr = _run()
-        self.assertIn('[WARN] FOMO_BASE_URL', stdout)
+            merged = _run_merged()
+        self.assertIn('[WARN] FOMO_BASE_URL', merged)
 
     def test_missing_facility_credentials_are_a_warning(self):
         # WR-31 (36-REVIEW.md): the fresh-host runbook names the LCO/SOAR api_key as a
@@ -445,14 +477,13 @@ class TestWarningChecks(CheckUnattendedTestBase):
         django_settings.FACILITIES['LCO']['api_key'] = ''
         django_settings.FACILITIES['SOAR']['api_key'] = ''
         try:
-            stdout, stderr = _run()
+            merged = _run_merged()
         finally:
             django_settings.FACILITIES['LCO']['api_key'] = original_lco
             django_settings.FACILITIES['SOAR']['api_key'] = original_soar
-        self.assertIn('[WARN] facility_credentials', stdout)
-        self.assertIn('LCO', stdout)
-        self.assertIn('SOAR', stdout)
-        self.assertIn('facility_credentials', stderr)
+        self.assertIn('[WARN] facility_credentials', merged)
+        self.assertIn('LCO', merged)
+        self.assertIn('SOAR', merged)
 
     def test_configured_facility_credentials_are_ok(self):
         original_lco = django_settings.FACILITIES['LCO'].get('api_key')
@@ -483,6 +514,67 @@ class TestWarningChecks(CheckUnattendedTestBase):
         self.assertIn('Period', stdout)
         self.assertIn('Grace', stdout)
         self.assertNotIn(_FAKE_HEARTBEAT_URL, stdout)
+
+
+class TestResultStreamRouting(CheckUnattendedTestBase):
+    """G-36-5, UAT round 3 Test 1: `Command.handle()`'s emission loop wrote every
+    non-`ok` result line unconditionally to `self.stdout` and then again to
+    `self.stderr`, so on a terminal -- or under any `2>&1` -- the two sinks are one
+    destination and the line renders twice, the second copy red. The operator hit
+    this with exactly one non-`ok` check (`watched_proposals`, D-08's empty-list
+    warning). `_run()` above hands the command two SEPARATE `io.StringIO` sinks, so
+    that merge never happened in the suite either -- this class is what makes the
+    defect class visible to a test at all."""
+
+    def test_watched_proposals_warning_appears_exactly_once_in_merged_capture(self):
+        # The exact reproduction: base fixture (no active WatchedProposal rows),
+        # one merged sink modeling a terminal or `2>&1`. Before this task's fix,
+        # this warning line rendered twice in the same capture.
+        merged = _run_merged()
+        result_lines = _result_lines(merged)
+        watched_proposals_warnings = [line for line in result_lines if line.startswith('[WARN] watched_proposals')]
+        self.assertEqual(len(watched_proposals_warnings), 1)
+        self.assertEqual(len(result_lines), len(set(result_lines)))
+
+    def test_multiple_non_ok_results_produce_no_duplicate_lines(self):
+        # A harder boundary than the single-warning case above: force a hard
+        # failure (delete the only staff user with an email) alongside two
+        # warnings (heartbeat unset, watched list empty by fixture default), so
+        # at least three non-`ok` lines are produced in one run. A helper cannot
+        # return a capture once the call raises, so the shared sink is built
+        # inline here, with the same one-line, same-name form `_run_merged` uses.
+        self.staff_user.delete()
+        merged = io.StringIO()
+        with override_settings(FOMO_HEARTBEAT_URL=None), self.assertRaises(CommandError):
+            call_command('check_unattended', stdout=merged, stderr=merged)
+        capture = merged.getvalue()
+        result_lines = _result_lines(capture)
+        non_ok_lines = [line for line in result_lines if not line.startswith('[ok]')]
+        self.assertGreaterEqual(len(non_ok_lines), 3)
+        self.assertEqual(len(result_lines), len(set(result_lines)))
+        staff_recipients_lines = [line for line in result_lines if line.startswith('[FAIL] staff_recipients')]
+        self.assertEqual(len(staff_recipients_lines), 1)
+
+    def test_merged_capture_has_no_escape_bytes(self):
+        # Django's OutputWrapper.write() applies a style argument unconditionally,
+        # bypassing the terminal check its own default styling is gated on -- so
+        # passing one here would push ANSI escape bytes into a redirected cron
+        # log. GREEN today and after: this pins the prohibition against ever
+        # passing that argument.
+        merged = _run_merged()
+        self.assertNotIn('\x1b', merged)
+
+    def test_warning_and_passing_lines_route_to_separate_streams(self):
+        # The routing contract itself, stated once here so a future routing
+        # change fails this one test instead of quietly emptying every presence
+        # test above that now asserts against the merged capture.
+        stdout, stderr = _run()
+        self.assertIn('[WARN] watched_proposals', stderr)
+        self.assertNotIn('[WARN] watched_proposals', stdout)
+        self.assertIn('[ok] flock', stdout)
+        self.assertNotIn('[ok] flock', stderr)
+        self.assertIn('Cron line to install', stdout)
+        self.assertNotIn('Cron line to install', stderr)
 
 
 class TestCronLine(CheckUnattendedTestBase):

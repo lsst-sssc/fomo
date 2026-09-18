@@ -612,8 +612,18 @@ class Command(BaseCommand):
             else:
                 status = 'WARN'
             line = f'[{status}] {result.name}: {result.detail}'
-            self.stdout.write(line)
-            if status != 'ok':
+            # G-36-5: each line goes to exactly ONE stream, chosen by status -- never
+            # both. On a terminal, or under any `2>&1`, standard output and standard
+            # error are one destination, so writing a line to both rendered it twice.
+            if status == 'ok':
+                self.stdout.write(line)
+            else:
+                # Flush standard output first: when both streams land in one file
+                # (a terminal, or the crontab template's `>> ... 2>&1`), the passing
+                # lines are block-buffered while this write is line-buffered, so
+                # without the flush a failure can surface in the log ahead of the
+                # passing lines that preceded it.
+                self.stdout.flush()
                 self.stderr.write(line)
 
         # Printed even when a hard check failed -- an operator fixing prerequisites
