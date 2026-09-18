@@ -85,7 +85,23 @@ def check_flock() -> CheckResult:
             hard=True,
             detail='not found on PATH -- install the util-linux package, which provides it',
         )
-    probe = subprocess.run([path, '--help'], capture_output=True, text=True, check=False)  # noqa: S603
+    # WR-20 (36-REVIEW.md): shutil.which() returning a path is only an os.access(X_OK)
+    # test, not a guarantee the execve will succeed -- a dangling symlink target, a
+    # noexec mount, a bad-shebang wrapper script, or a plain TOCTOU delete between the
+    # which() above and this run() can all raise OSError/PermissionError. Because this
+    # is the FIRST check in Command.handle()'s list, an uncaught exception here would
+    # abort the whole command and lose every other check's result and the printed cron
+    # line -- exactly what this module's own docstring says a read-only preflight must
+    # never do. A timeout guards the same class of failure on a stalled NFS mount.
+    try:
+        probe = subprocess.run([path, '--help'], capture_output=True, text=True, check=False, timeout=5)  # noqa: S603
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return CheckResult(
+            name='flock',
+            ok=False,
+            hard=True,
+            detail=f'{path} could not be executed to verify -E support: {type(exc).__name__}',
+        )
     if '--conflict-exit-code' not in (probe.stdout + probe.stderr):
         return CheckResult(
             name='flock',

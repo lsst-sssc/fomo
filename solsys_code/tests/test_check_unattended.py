@@ -105,6 +105,29 @@ class TestHardChecks(CheckUnattendedTestBase):
                 _run()
         self.assertIn('flock', str(ctx.exception))
 
+    def test_flock_probe_raising_oserror_fails_cleanly(self):
+        # WR-20 (36-REVIEW.md): a dangling symlink target, a noexec mount, or a
+        # TOCTOU delete between shutil.which() and subprocess.run() can raise OSError
+        # out of the -E probe. Because check_flock() is the first check run, an
+        # uncaught OSError here would abort the whole command -- losing every other
+        # check's result and the printed cron line -- instead of degrading to a
+        # reported detail, which is what this read-only preflight must always do.
+        with patch('solsys_code.management.commands.check_unattended.subprocess.run', side_effect=OSError('boom')):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('flock', str(ctx.exception))
+
+    def test_flock_probe_timing_out_fails_cleanly(self):
+        # WR-20 (36-REVIEW.md): a flock binary on a stalled NFS mount could otherwise
+        # hang the preflight indefinitely.
+        with patch(
+            'solsys_code.management.commands.check_unattended.subprocess.run',
+            side_effect=subprocess.TimeoutExpired(cmd=['flock', '--help'], timeout=5),
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('flock', str(ctx.exception))
+
     def test_unwritable_lock_dir_fails(self):
         readonly_parent = self._make_unwritable_parent()
         with override_settings(FOMO_LOCK_DIR=str(readonly_parent / 'sublock')):
