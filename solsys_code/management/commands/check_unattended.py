@@ -35,15 +35,20 @@ from tom_observations.facilities.soar import SOARSettings
 
 from solsys_code import notifications
 from solsys_code.models import WatchedProposal
+from solsys_code.unattended import _DEFAULT_LOCK_DIR, _DEFAULT_LOG_FILE
 
-# IN-14 (36-REVIEW.md): mirror settings.py's own os.getenv(..., <default>) defaults for
+# IN-14 (36-REVIEW.md): mirrors settings.py's own os.getenv(..., <default>) defaults for
 # FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
 # from an unset environment variable with no default of its own yields None, and
 # Path(None) raises TypeError (the same WR-07 hazard FOMO_BASE_URL already guards
 # against). These are a last-resort fallback for that misconfiguration, not a
 # substitute for settings.py's own defaults.
-_DEFAULT_LOCK_DIR = '/var/lock/fomo'
-_DEFAULT_LOG_FILE = '/var/log/fomo/unattended.log'
+#
+# IN-22 (36-REVIEW.md): imported from unattended.py above rather than redefined here --
+# the IN-14 fix had duplicated the same two literals into both modules with nothing
+# enforcing they stayed in sync, so a future change to settings.py's own defaults could
+# silently desynchronize one of the two fallback paths whose entire purpose is to match
+# it. unattended.py is the single owner.
 # IN-20/D-04 (36-REVIEW.md): the single source for the schedule's own interval -- both
 # cron_line()'s `*/{_CRON_INTERVAL_MINUTES}` schedule and check_heartbeat()'s reminder
 # text read this constant, so the "15" the runbook and crontab template also document
