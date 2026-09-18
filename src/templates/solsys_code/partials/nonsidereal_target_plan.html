@@ -1,0 +1,20 @@
+{% load django_bootstrap5 %}
+<div id="plan-panel">
+  <form action="{% url 'targets:detail' target.id %}" method="GET" class="form">
+    {% bootstrap_form form %}
+    {% bootstrap_button "Plan" button_type="submit" button_class="btn btn-primary" value="Plan" %}
+  </form>
+  {% if message %}
+  <div class="alert alert-warning mt-2">{{ message }}</div>
+  {% endif %}
+  {% if airmass_graph %}
+  <div id="nonsidereal-airmass">{{ airmass_graph|safe }}</div>
+  {% endif %}
+  {% if window_summary %}
+  <div id="cadence-window">
+    <h5>Cadence window (folded to 24 h)</h5>
+    <p>{{ window_summary }}</p>
+    {{ window_graph|safe }}
+  </div>
+  {% endif %}
+</div>
