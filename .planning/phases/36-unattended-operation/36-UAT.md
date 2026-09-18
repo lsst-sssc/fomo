@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 36-unattended-operation
 source: [36-01-SUMMARY.md, 36-02-SUMMARY.md, 36-03-SUMMARY.md, 36-04-SUMMARY.md, 36-05-SUMMARY.md, 36-06-SUMMARY.md, 36-07-SUMMARY.md, 36-08-SUMMARY.md]
 started: 2026-09-18T16:38:33Z
-updated: 2026-09-18T18:02:01Z
+updated: 2026-09-18T18:07:54Z
 ---
 
 ## Current Test
@@ -208,7 +208,19 @@ blocked: 0
   reason: "User reported: the no active WatchedProposal prints twice, once uncolored and once in red"
   severity: minor
   test: 1
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "solsys_code/management/commands/check_unattended.py:614-617 -- Command.handle() builds one line per CheckResult and writes the identical string to BOTH self.stdout and (when status != 'ok') self.stderr. On a terminal or under 2>&1 the two sinks are one destination, so every non-ok line renders twice; Django's BaseCommand sets stderr.style_func = style.ERROR, which is why the second copy is red. Specified by 36-04-PLAN.md:182 (warnings and failures also to stderr) and present since the command's first commit fc2e2bc; NOT a regression from the iteration-5/6 review fixes (WR-35 only added a second line that can double). Tests are structurally blind: _run() passes two separate StringIO sinks and three assertions pin the dual-write as expected."
+  artifacts:
+    - path: "solsys_code/management/commands/check_unattended.py"
+      issue: ":614-617 unconditional dual-write of one line to two sinks (the defect)"
+    - path: "solsys_code/tests/test_check_unattended.py"
+      issue: ":86-88 _run() uses two separate StringIO sinks so a merge never happens; :170-172, :222-224, :400-401 assert the WARN line in BOTH stdout and stderr, encoding the bug as the expectation"
+    - path: "docs/runbooks/telescope_runs_calendar.rst"
+      issue: "paired runbook section 'How do I run everything unattended?' -- any change to which stream warnings go to (and the 2>&1 crontab redirect interaction) must be reflected there"
+  missing:
+    - "Route each result line to exactly one stream (ok -> stdout; WARN/FAIL -> stderr only, matching every other command in solsys_code/management/commands/), or an equivalent single-emission design"
+    - "Regression test passing the SAME StringIO as stdout= and stderr= (simulating a tty / 2>&1 merge) asserting the WARN line occurs exactly once, plus a hard-failure case with several non-ok lines"
+    - "Revise the three presence assertions that currently pin the dual-write"
+    - "Runbook: note which stream warnings/failures go to; keep the crontab-template 2>&1 interaction consistent"
+  debug_session: ".planning/debug/check-unattended-duplicate-watched-proposals-warning.md"
 
 _Round 3 (restarted 2026-09-18). Rounds 1-2 -- 6 + 5 tests, gaps G-36-3 (closed by plan 36-06), G-36-1 (closed by plan 36-07) and G-36-4 (closed by plan 36-08), the WR-22 acceptance and the CR-03 decision (closed by fix e2ed553) -- are preserved in this file's git history at 21dc3f8._
