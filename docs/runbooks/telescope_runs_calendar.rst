@@ -1594,8 +1594,9 @@ Setting it up on a fresh host
    email backend can actually deliver and at least one staff
    user has an email on file, whether ``FOMO_HEARTBEAT_URL`` is set (and
    reminds you that the check at the other end still needs its own
-   expected ping interval set -- the preflight can only see this host's
-   environment variable, never the remote check's own configuration),
+   expected ping interval *and* grace time set -- the preflight can only
+   see this host's environment variable, never the remote check's own
+   configuration),
    whether ``FOMO_BASE_URL`` has been changed from its localhost dev
    default (WR-07, 36-REVIEW.md -- left at the default, every emailed
    admin/calendar/approval-queue link is unusable off this host), whether
