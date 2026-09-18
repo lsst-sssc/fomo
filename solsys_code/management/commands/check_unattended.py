@@ -70,10 +70,14 @@ from solsys_code.models import WatchedProposal
 # found it had again (this module's own `_CRON_INTERVAL_MINUTES = 15` and unattended.py's
 # independent `_CRON_TICK_INTERVAL = timedelta(minutes=15)`).
 _RECOMMENDED_HEARTBEAT_GRACE_MINUTES = 20
-# IN-23 (36-REVIEW.md): the allow-list check_flock()'s success detail compares a
+# IN-23/IN-36 (36-REVIEW.md): the allow-list check_flock()'s success detail compares a
 # resolved `flock` path against, before printing it for an operator to paste into a
-# persistent crontab entry.
-_SYSTEM_BINARY_DIRECTORIES = ('/usr/bin', '/bin', '/usr/sbin', '/sbin')
+# persistent crontab entry. Includes /usr/local/bin and /usr/local/sbin (IN-36,
+# 36-REVIEW.md): both are standard system locations on many hosts -- notably the default
+# install prefix for a source-built util-linux -- so a legitimate
+# /usr/local/bin/flock previously produced this note as noise, training operators to
+# ignore it.
+_SYSTEM_BINARY_DIRECTORIES = ('/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/usr/local/sbin')
 
 
 @dataclass
@@ -148,7 +152,13 @@ def check_flock() -> CheckResult:
     # stale or user-writable directory early in PATH (a conda/venv bin, a ~/bin) could
     # end up installing a non-system flock into a service crontab -- low-likelihood,
     # but a silent one the committed template's hardcoded /usr/bin/flock never had.
-    if not any(path.startswith(f'{system_dir}/') for system_dir in _SYSTEM_BINARY_DIRECTORIES):
+    #
+    # IN-36 (36-REVIEW.md): compare the RESOLVED path (symlinks followed), not
+    # shutil.which()'s raw result -- otherwise a symlink at, say, /usr/bin/flock
+    # pointing into a user-writable directory passed this check silently, while the
+    # actual binary that would run lived outside every directory this check trusts.
+    resolved_path = str(Path(path).resolve())
+    if not any(resolved_path.startswith(f'{system_dir}/') for system_dir in _SYSTEM_BINARY_DIRECTORIES):
         # WR-35 (36-REVIEW.md): ok=True here rendered as '[ok] flock: ...' and, because
         # Command.handle() only mirrors a non-'ok' status line to stderr, the one signal
         # this branch exists to raise was invisible to both a plain "grep FAIL/WARN" scan
@@ -157,14 +167,15 @@ def check_flock() -> CheckResult:
         # renders it as '[WARN] flock: ...' (advisory, does not fail the command) and
         # mirrors it to stderr, matching every other advisory result in this command
         # (heartbeat, FOMO_BASE_URL, facility_credentials, watched_proposals).
+        resolved_suffix = f' (resolves to {resolved_path})' if resolved_path != path else ''
         return CheckResult(
             name='flock',
             ok=False,
             hard=False,
             detail=(
-                f'found at {path}, supports -E -- resolved outside the usual system '
-                'directories (/usr/bin, /bin, /usr/sbin, /sbin) -- confirm this is the '
-                'flock you want a service crontab to run'
+                f'found at {path}{resolved_suffix}, supports -E -- resolved outside the usual '
+                'system directories (/usr/bin, /bin, /usr/sbin, /sbin, /usr/local/bin, '
+                '/usr/local/sbin) -- confirm this is the flock you want a service crontab to run'
             ),
         )
     return CheckResult(name='flock', ok=True, hard=True, detail=f'found at {path}, supports -E')

@@ -174,6 +174,49 @@ class TestHardChecks(CheckUnattendedTestBase):
         flock_line = next(line for line in stdout.splitlines() if line.startswith('[ok] flock'))
         self.assertNotIn('outside the usual system directories', flock_line)
 
+    def test_flock_in_usr_local_bin_gets_no_sanity_note(self):
+        # IN-36 (36-REVIEW.md): /usr/local/bin is a standard system location on many
+        # hosts (notably the default install prefix for a source-built util-linux) --
+        # previously missing from the allow-list, so a legitimate
+        # /usr/local/bin/flock produced this note as noise.
+        fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
+        with (
+            patch(
+                'solsys_code.management.commands.check_unattended.shutil.which',
+                return_value='/usr/local/bin/flock',
+            ),
+            patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
+        ):
+            stdout, _stderr = _run()
+        flock_line = next(line for line in stdout.splitlines() if line.startswith('[ok] flock'))
+        self.assertNotIn('outside the usual system directories', flock_line)
+
+    def test_flock_symlink_resolving_outside_system_directories_gets_a_sanity_note(self):
+        # IN-36 (36-REVIEW.md): the check previously compared shutil.which()'s raw,
+        # unresolved result -- a symlink AT a nominally-trusted path that points OUTSIDE
+        # every system directory passed silently, even though the actual binary a
+        # cron-installed line would execute lives elsewhere. Uses a REAL symlink (not a
+        # mocked Path.resolve()) so the test exercises actual filesystem resolution.
+        with tempfile.TemporaryDirectory() as untrusted_dir, tempfile.TemporaryDirectory() as target_dir:
+            real_target = Path(target_dir) / 'flock'
+            real_target.write_text('#!/bin/sh\n')
+            real_target.chmod(0o755)
+            symlink_path = Path(untrusted_dir) / 'flock'
+            symlink_path.symlink_to(real_target)
+
+            fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
+            with (
+                patch(
+                    'solsys_code.management.commands.check_unattended.shutil.which',
+                    return_value=str(symlink_path),
+                ),
+                patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
+            ):
+                stdout, stderr = _run()
+            self.assertIn('[WARN] flock', stdout)
+            self.assertIn(f'resolves to {real_target.resolve()}', stdout)
+            self.assertIn('[WARN] flock', stderr)
+
     def test_flock_probe_timing_out_fails_cleanly(self):
         # WR-20 (36-REVIEW.md): a flock binary on a stalled NFS mount could otherwise
         # hang the preflight indefinitely.
