@@ -349,10 +349,16 @@ class TestWarningChecks(CheckUnattendedTestBase):
         # left the check's own expected ping interval (Period) at its 1-day default
         # and never got an alert. This reminder is the last line of defense against
         # that regenerating -- keep it if this check is ever refactored.
+        #
+        # IN-20 (36-REVIEW.md): also asserts Grace, not Period alone -- the detail
+        # previously reminded about only one of the two knobs the runbook and crontab
+        # template both document, so an operator following the preflight's reminder
+        # alone left Grace at healthchecks.io's 1-hour default.
         with override_settings(FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL):
             stdout, _stderr = _run()
         self.assertIn('[ok] heartbeat', stdout)
         self.assertIn('Period', stdout)
+        self.assertIn('Grace', stdout)
         self.assertNotIn(_FAKE_HEARTBEAT_URL, stdout)
 
 

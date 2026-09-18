@@ -44,6 +44,13 @@ from solsys_code.models import WatchedProposal
 # substitute for settings.py's own defaults.
 _DEFAULT_LOCK_DIR = '/var/lock/fomo'
 _DEFAULT_LOG_FILE = '/var/log/fomo/unattended.log'
+# IN-20/D-04 (36-REVIEW.md): the single source for the schedule's own interval -- both
+# cron_line()'s `*/{_CRON_INTERVAL_MINUTES}` schedule and check_heartbeat()'s reminder
+# text read this constant, so the "15" the runbook and crontab template also document
+# cannot drift between the three copies the way IN-20 found it already had (the
+# preflight's reminder named Period only, never Grace).
+_CRON_INTERVAL_MINUTES = 15
+_RECOMMENDED_HEARTBEAT_GRACE_MINUTES = 20
 
 
 @dataclass
@@ -268,15 +275,23 @@ def check_email() -> list[CheckResult]:
 
 
 def check_heartbeat() -> CheckResult:
-    """Soft check: ``settings.FOMO_HEARTBEAT_URL`` is set (D-12's second visibility layer)."""
+    """Soft check: ``settings.FOMO_HEARTBEAT_URL`` is set (D-12's second visibility layer).
+
+    IN-20 (36-REVIEW.md): the ``[ok]`` detail previously named only the check's expected
+    ping interval (``Period``), never its grace time. The runbook and crontab template
+    both name both knobs; an operator who followed the preflight's reminder alone left
+    ``Grace`` at healthchecks.io's default (1 hour), producing a much longer alert
+    window than the documented ~35 minutes -- one knob fixed, the other silently wrong.
+    """
     if settings.FOMO_HEARTBEAT_URL:
         return CheckResult(
             name='heartbeat',
             ok=True,
             hard=False,
             detail=(
-                "FOMO_HEARTBEAT_URL: set -- confirm the check's own expected ping "
-                'interval (Period) is 15 min, not its 1-day default'
+                "FOMO_HEARTBEAT_URL: set -- confirm the check's own expected ping interval "
+                f'(Period) is {_CRON_INTERVAL_MINUTES} min, not its 1-day default, and its grace '
+                f'time (Grace) is about {_RECOMMENDED_HEARTBEAT_GRACE_MINUTES} min'
             ),
         )
     return CheckResult(
@@ -365,8 +380,8 @@ def cron_line() -> str:
     # `run_unattended` itself exits 1 on a step failure, and a bare `||` tail would
     # therefore mislabel a failing (but genuinely run) tick as "lock held" in the log.
     return (
-        f'*/15 * * * * {flock_path} -n -E 99 {lock_file} {python_path} {manage_py_path} run_unattended '
-        f'>> {log_file} 2>&1; rc=$?; '
+        f'*/{_CRON_INTERVAL_MINUTES} * * * * {flock_path} -n -E 99 {lock_file} {python_path} {manage_py_path} '
+        f'run_unattended >> {log_file} 2>&1; rc=$?; '
         f'[ $rc -eq 99 ] && {{ echo "$(date -Is) run_unattended skipped: lock held" >> {log_file}; rc=0; }}; '
         f'exit $rc'
     )
