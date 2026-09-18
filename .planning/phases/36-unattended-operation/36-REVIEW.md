@@ -421,6 +421,12 @@ and extend `TestCredentialHygiene` with a case that runs a tick under
 `self.assertLogs(level='DEBUG')` and asserts the fake key and ping URL appear nowhere in
 the captured output — the current suite only captures at the default level, which is why
 this survived two review iterations.
+**Disposition (2026-09-18, 36-UAT.md Test 2):** **accepted, not fixed.** The developer recorded
+an explicit acceptance that the class-name-only discipline holds only while `settings.LOGGING`
+keeps the root logger at `INFO`. The constraint is documented at the point an operator would
+change it — a comment directly above `LOGGING` in `src/fomo/settings.py` naming both sites and
+the required fix — and in `36-VERIFICATION.md` § Acknowledged Gaps. If the level is ever raised,
+WR-22 and WR-18 must be fixed together before the change ships.
 
 ## Info
 

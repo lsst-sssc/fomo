@@ -190,6 +190,13 @@ STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 MEDIA_ROOT = os.path.join(BASE_DIR, 'data')
 MEDIA_URL = '/data/'
 
+# The root logger's INFO level is load-bearing for the unattended path's credential hygiene
+# (Phase 36, SC 4 / D-17): two DEBUG-level sites format a raw exception message from a portal
+# call (backfill_lco_observations.py `_resolve_schedule`, unattended.py `step_reconcile`), which
+# can carry an API key or the heartbeat ping URL. Accepted as-is on 2026-09-18 (36-UAT.md Test 2,
+# 36-REVIEW.md WR-22) on the condition that this level stays at INFO. Before raising it to DEBUG
+# -- in local_settings.py or here -- change both sites to log `type(exc).__name__` only and add
+# the assertLogs(level='DEBUG') hygiene test WR-22 describes.
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

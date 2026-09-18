@@ -350,6 +350,18 @@ The phase is held at `human_needed` for two items. The first is unavoidable: G-3
 
 Everything else was re-proven on the current code, not carried over on trust: the runner was executed end-to-end against the real developer database, the overlap guarantee was re-demonstrated cross-process with the same `flock(1)` binary the crontab invokes, `check_unattended` was run live on the now-provisioned host and exited 0 with every hard check green and a correct cron line, 157 phase tests were re-run green, and the Sphinx and ruff gates were re-run by this verification rather than quoted from the SUMMARY.
 
+### Acknowledged Gaps
+
+- **Plan 36-01 truth 10 / 36-REVIEW.md WR-22 — accepted, not fixed (2026-09-18, 36-UAT.md Test 2).**
+  Two `DEBUG`-level sites format `str(exc)` on the unattended path
+  (`solsys_code/management/commands/backfill_lco_observations.py:349`, `solsys_code/unattended.py:191`).
+  Under the shipped `settings.LOGGING` (root logger `INFO`) neither line is emitted, so SC 4 holds and no
+  credential-bearing log line is produced. The developer recorded an explicit acceptance on the condition
+  that the root logger stays at `INFO`; the constraint and the required fix (log `type(exc).__name__` only,
+  plus an `assertLogs(level='DEBUG')` credential-hygiene test) are documented in a comment directly above
+  `LOGGING` in `src/fomo/settings.py`, where an operator raising the level would see it. Truth 10 remains
+  recorded as UNCERTAIN above for traceability; it does not block phase completion.
+
 ---
 
 _Verified: 2026-09-18T02:05:00Z_
