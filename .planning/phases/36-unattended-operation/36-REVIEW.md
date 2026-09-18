@@ -2,460 +2,323 @@
 phase: 36-unattended-operation
 reviewed: 2026-09-18T00:00:00Z
 depth: deep
-iteration: 6
-diff_base: 0f3d10e078c16cb738c8779b2c5592200b2fef61
-files_reviewed: 12
+iteration: 7
+diff_base: 8f9b045498eba33d32b09513697612e5de123051
+files_reviewed: 8
 files_reviewed_list:
-  - deploy/cron/fomo.crontab.example
-  - docs/conf.py
-  - docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb
   - docs/runbooks/telescope_runs_calendar.rst
-  - solsys_code/management/commands/backfill_lco_observations.py
+  - solsys_code/constants.py
   - solsys_code/management/commands/check_unattended.py
-  - solsys_code/tests/test_backfill_lco_observations.py
   - solsys_code/tests/test_check_unattended.py
   - solsys_code/tests/test_settings_api_key_fold.py
   - solsys_code/tests/test_unattended.py
   - solsys_code/unattended.py
   - src/fomo/settings.py
 findings:
-  critical: 2
+  critical: 0
   warning: 6
-  info: 8
-  total: 16
+  info: 6
+  total: 12
 status: issues_found
 ---
 
-# Phase 36: Code Review Report (iteration 6)
+# Phase 36: Code Review Report (iteration 7)
 
 **Reviewed:** 2026-09-18
 **Depth:** deep
-**Files Reviewed:** 12
+**Files Reviewed:** 8
 **Status:** issues_found
 
 ## Summary
 
-This is an incremental, adversarial review of the iteration-5 fix commits (CR-03, CR-04,
-WR-16..WR-32, IN-17..IN-32) plus the two WR-16/WR-17 runbook commits, scoped to the diff
-against `0f3d10e`.
+Incremental, adversarial review of everything since `8f9b045`: plan 36-09's G-36-5 gap
+closure (one result line, one stream, with a stdout flush before each stderr write) plus
+the iteration-6 fix commits (CR-05, CR-06, WR-33..WR-38, IN-33..IN-40).
 
-**Verification of the iteration-5 fixes.** Each claimed fix was traced in the current
-source, not taken from the fix report:
+**Verification of the iteration-6 fixes.** Every claimed fix was traced in the current
+source and, where possible, exercised — not taken from the fix report:
 
-- CR-03 (`docs/conf.py`) — `autoapi_ignore` now carries `*/local_settings.py`; `autoapi_dirs`
-  is `['../src']` and `sphinx.ext.viewcode` only renders modules autoapi documents, so the
-  exclusion does close the path. Confirmed `src/fomo/local_settings.py` exists on this
-  checkout (gitignored), so the exposure was real here.
-- WR-16 (cron line) — `cron_line()` and `deploy/cron/fomo.crontab.example` both carry
-  `[ $rc -eq 99 ] && { echo ...; rc=0; }; exit $rc`; the new shell-level test proves
-  0/1/99 → 0/1/0. Fix is correct (but see WR-37 for the drift guard gap).
-- WR-18 (discovery log level) — `logger.info` confirmed, and `settings.LOGGING` does pin the
-  root logger to `INFO`, so the stated rationale holds.
-- WR-19 (email backends), WR-20 (flock probe), WR-28/WR-32 (settings guards), WR-31
-  (facility credentials), IN-19 (singular/plural verb), IN-20/IN-22/IN-23 — all present and
-  behaving as described. `ImportError.name` for a missing `fomo.local_settings` was verified
-  empirically to be `'fomo.local_settings'`, so the WR-32 guard does not break a stock dev
-  checkout.
-- Quality gates: `pre-commit run ruff --all-files` and `ruff-format --all-files` both pass;
-  `python manage.py test solsys_code.tests.test_unattended solsys_code.tests.test_check_unattended
-  solsys_code.tests.test_settings_api_key_fold solsys_code.tests.test_backfill_lco_observations`
-  → 160 tests, OK.
-- Paired docs: the `backfill_lco_observations.py` message change is reflected in a freshly
-  re-executed `backfill_lco_observations_demo.ipynb` (the `--created-after requires --proposal`
-  output cell changed); the runbook's "How do I run everything unattended?" section was
-  extended for WR-16, WR-17, WR-31, CR-03 and the heartbeat knobs. The paired-docs rule is
-  satisfied for this iteration, with the inaccuracies noted in CR-05 and IN-39.
+- **CR-05 / WR-33 / WR-34** — `unattended.py:435-478`: the fallback state path is now a
+  function returning `fomo-unattended-state.<euid>.<sha256(BASE_DIR)[:12]>.fallback.json`,
+  and `_newest_existing_state_path()` only considers it when `_fallback_is_trustworthy()`
+  passes (`lstat`, regular file, owner == euid, no group/other bits — exactly what
+  `_atomic_write_json()`'s `chmod 0o600` produces). The symlink-planting and
+  foreign-owner paths are genuinely closed; `test_unattended.py` now patches
+  `_fallback_state_path` to a `TemporaryDirectory()` instead of mutating the real `/tmp`
+  file. One residual is filed as IN-44.
+- **CR-06** — `load_state()` (`unattended.py:553-566`) now discards the whole record on an
+  unparseable `notified_at` and logs a warning; `decide_notification()`
+  (`unattended.py:707-711`) independently treats "same failing set, `notified_at is None`"
+  as `'failure'`. Both halves are covered by new tests, and the old
+  partial-preservation assertion was correctly inverted rather than deleted.
+- **WR-35** — the non-system-`flock` note is now `ok=False, hard=False`, so it renders as
+  `[WARN]` and reaches stderr. Correct in code; the operator doc was not updated to match
+  (WR-42).
+- **WR-36 / IN-34** — `solsys_code/constants.py` is a real leaf module (no project-local
+  imports); `grep` confirms both `unattended.py` and `check_unattended.py` import the three
+  literals from it and that `check_unattended.py` no longer imports `unattended.py` at all,
+  so the read-only preflight no longer drags in the runner graph.
+- **WR-37** — the 0/1/99 shell matrix now runs against the committed
+  `deploy/cron/fomo.crontab.example` line as well as `cron_line()`'s output, and `rc=0`
+  and `; }` are compared tokens.
+- **WR-38** — `_MissingModuleFinder` forces both halves of the
+  `except ImportError as exc: if exc.name != 'fomo.local_settings': raise` guard; both
+  branches are now executed.
+- **IN-33, IN-35, IN-36, IN-38, IN-39, IN-40** — all present and behaving as described
+  (module docstring now lists exactly the 8 public test classes that exist; `issubclass()`
+  resolution catches a locmem subclass; `/usr/local/bin`+`/usr/local/sbin` added and the
+  path is `resolve()`d; the discovery sweep logs one record per line; the runbook names
+  both heartbeat knobs; the template-parity test derives its prefix from the constant).
+- **IN-37** — `del _facility` is present in `settings.py:463`. The regression guard added
+  for it does not actually guard (WR-44).
+- **G-36-5 itself** — reproduced end to end. `python manage.py check_unattended >> log 2>&1`
+  on this host emits each `[ok]`/`[WARN]`/`[FAIL]` line exactly once, in check order, with
+  no interleaving: the duplicate warning line the operator reported is gone, and Django
+  5.2's `OutputWrapper.flush()` really does delegate to the wrapped stream (it is defined
+  explicitly, not inherited as an `IOBase` no-op), so the flush is not a no-op.
+- **Quality gates** — `pre-commit run ruff --all-files` and `ruff-format --all-files` both
+  pass. `python manage.py test solsys_code.tests.test_check_unattended
+  solsys_code.tests.test_settings_api_key_fold` → 57 tests OK;
+  `python manage.py test solsys_code.tests.test_unattended` → 68 tests OK.
+  `sphinx-build` produces no new warning for the changed runbook hunks (one pre-existing
+  one is filed as IN-43).
 
-**Key concerns.** The WR-17 fix — the highest-consequence change in this iteration — solved
-the "re-mail every 15 minutes" failure by moving the suppression state into a fixed,
-predictable filename in the shared system temp directory and by having `load_state()` trust
-whichever of the two files has the newest mtime. That trades a noisy failure mode for a
-silent one: the runner's alerting state is now readable, creatable and (via `utime`)
-rank-controllable by any local account on the host, and by any second FOMO deployment or
-test run sharing the same `/tmp`. Separately, `load_state()` and `decide_notification()`
-disagree about what a state file with an unparseable `notified_at` means, and the disagreement
-resolves to "never mail again for this failing set" — the exact outcome this phase exists to
-prevent.
-
-## Critical Issues
-
-### CR-05: WR-17's fallback state file is a predictable, world-writable path whose mtime alone decides which suppression state the runner trusts
-
-**File:** `solsys_code/unattended.py:64` (`_FALLBACK_STATE_PATH`), `solsys_code/unattended.py:432-448`
-(`_newest_existing_state_path`), `solsys_code/unattended.py:561-598` (`save_state`);
-`docs/runbooks/telescope_runs_calendar.rst:1458-1483`
-
-**Issue:** `_FALLBACK_STATE_PATH` is `Path(tempfile.gettempdir()) / 'fomo-unattended-state.fallback.json'`
-— a constant, guessable name in a directory that on every normal Linux host is mode `1777`
-(world-writable, sticky). `load_state()` now calls `_newest_existing_state_path()`, which picks
-whichever of the primary and fallback files has the larger `st_mtime` and reads it
-unconditionally — there is no ownership check, no `S_ISREG`/`S_ISLNK` check, and no "only
-consult the fallback while the primary is actually unwritable" condition. Verified on this
-host: `unattended._FALLBACK_STATE_PATH` resolves to `/tmp/fomo-unattended-state.fallback.json`.
-
-Consequences, in order of severity:
-
-1. **Local tampering with the alerting state (integrity).** Any unprivileged local account —
-   a threat actor this phase's own threat model already admits (T-36-02 reasons about a local
-   `ps aux`) — can create that file before FOMO does and then set an arbitrary (e.g.
-   far-future) mtime with `os.utime`, guaranteeing it always outranks the real state file.
-   Writing `{"failing_steps": ["status_refresh","project_sweep","discovery","reconcile"],
-   "notified_at": "2099-01-01T00:00:00+00:00"}` silences the failure mail for that set forever
-   (`decide_notification()` sees an unchanged set, and `now - notified_at` is negative so the
-   24-hour reminder never fires). Writing JSON garbage instead flips it the other way: every
-   tick reads "no prior failure", decides `'failure'`, and mails staff every 15 minutes — an
-   email-amplification vector. The runner cannot self-heal either: `/tmp`'s sticky bit forbids
-   renaming over or unlinking another user's file, so both `_atomic_write_json()`'s
-   `os.replace()` and `save_state()`'s `_FALLBACK_STATE_PATH.unlink()` fail with `EPERM`, and
-   the unlink failure is swallowed by `with suppress(OSError)`.
-2. **Tmp reapers.** `systemd-tmpfiles` ships a default `d /tmp 1777 root root 10d` rule; an
-   outage lasting longer than the age threshold silently loses the state, re-arming the exact
-   D-11 failing-open loop WR-17 was written to stop.
-3. **The runbook overstates the safety of this.** The new paragraph ends "Both files are
-   written atomically and with mode 0600, so a state file living in the shared system temp
-   directory is not a new exposure." `0600` only addresses *confidentiality* of a file this
-   process created; it says nothing about another user creating that name first, or about
-   mtime being the sole arbiter. As written, an operator reading the runbook has no reason to
-   check `/tmp` at all.
-
-**Fix:** stop trusting a shared-directory path by name alone. Minimum viable fix — make the
-fallback per-deployment and per-uid, and validate it before reading:
-
-```python
-import hashlib, os, stat
-
-def _fallback_state_path() -> Path:
-    # One fallback per (deployment, uid) instead of one per host, so two FOMO instances
-    # (staging/prod, or a test run beside a live cron) can never read each other's state.
-    tag = hashlib.sha256(str(settings.BASE_DIR).encode()).hexdigest()[:12]
-    return Path(tempfile.gettempdir()) / f'fomo-unattended-state.{os.geteuid()}.{tag}.fallback.json'
-
-
-def _fallback_is_trustworthy(path: Path) -> bool:
-    try:
-        info = path.lstat()                       # lstat: never follow a planted symlink
-    except OSError:
-        return False
-    return stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid() and not (info.st_mode & 0o077)
-```
-
-and have `_newest_existing_state_path()` skip any fallback that fails
-`_fallback_is_trustworthy()`. Better still, prefer a directory this process owns
-(`Path(settings.FOMO_LOCK_DIR).parent`, `~/.cache/fomo/`, or `$XDG_RUNTIME_DIR`) over
-`tempfile.gettempdir()`. Then correct the runbook paragraph: say the fallback is
-uid-scoped and validated, and that a fallback file the runner does not own is ignored rather
-than trusted.
-
-### CR-06: a state file with a valid `failing_steps` but an unparseable `notified_at` permanently suppresses both the failure mail and the 24-hour reminder
-
-**File:** `solsys_code/unattended.py:451-502` (`load_state`), `solsys_code/unattended.py:601-631`
-(`decide_notification`)
-
-**Issue:** `load_state()`'s docstring promises that "a `notified_at` that is not a valid
-ISO-8601 string is treated as 'no prior failure'". The code does not do that — it nulls
-`notified_at` only, and still returns the parsed `failing_steps`:
-
-```python
-try:
-    notified_at = datetime.fromisoformat(raw_notified_at) if raw_notified_at else None
-except (TypeError, ValueError):
-    notified_at = None
-...
-return {'failing_steps': sorted(failing_steps), 'notified_at': notified_at}
-```
-
-`decide_notification()` then reaches:
-
-```python
-if failing_steps:
-    if failing_steps != previous_failing:
-        return 'failure'
-    if notified_at is not None and (now - notified_at) >= _REMINDER_INTERVAL:
-        return 'reminder'
-    return None
-```
-
-With `previous_failing == failing_steps` and `notified_at is None`, the reminder branch is
-unreachable and the function returns `None` — *forever*, for as long as that failing set
-persists. No failure email, no reminder, and (because `save_state()` is only called when a
-notification was actually sent) nothing ever rewrites the offending file. Reproduced directly
-against the module:
-
-```
->>> load_state()                       # file: {"failing_steps": ["reconcile"], "notified_at": "not-a-date"}
-{'failing_steps': ['reconcile'], 'notified_at': None}
->>> decide_notification({'failing_steps': ['reconcile'], 'notified_at': None}, ['reconcile'], now)
-None
-```
-
-`run_tick()` never produces such a file itself (it always passes a real `end_time` alongside a
-non-empty set), but it is reachable by: the CR-05 fallback path (any local account, or a
-second deployment, can write one); a hand edit — the runbook's new troubleshooting section
-now points operators at these files by name; a truncated/legacy file written by an older or
-newer version of this module; and the `{"failing_steps": [...]}`-only model that
-`load_state()`'s own `data.get('notified_at')` explicitly tolerates. The impact is the total
-loss of the phase's primary deliverable (staff learn about a failing unattended pipeline),
-with no log line saying so.
-
-**Fix:** make the two functions agree, and fail *loud* rather than silent. Either honour the
-docstring in `load_state()`:
-
-```python
-    raw_notified_at = data.get('notified_at')
-    try:
-        notified_at = datetime.fromisoformat(raw_notified_at) if raw_notified_at else None
-    except (TypeError, ValueError):
-        # An unparseable timestamp makes the whole record untrustworthy: keeping
-        # failing_steps without it wedges decide_notification() on "same set, never
-        # notified" -- no mail, and no reminder either. Treat it as no prior failure.
-        logger.warning('unattended state file has an unparseable notified_at -- ignoring the whole record')
-        return {'failing_steps': [], 'notified_at': None}
-```
-
-or, belt-and-braces, close the hole in `decide_notification()` too:
-
-```python
-    if failing_steps:
-        if failing_steps != previous_failing:
-            return 'failure'
-        if notified_at is None:
-            return 'failure'          # previously-recorded failure with no send time: treat as due now
-        if (now - notified_at) >= _REMINDER_INTERVAL:
-            return 'reminder'
-        return None
-```
-
-Add a test for each half — a state file with a bad `notified_at` must still mail, and a
-future-dated `notified_at` must not suppress indefinitely.
+**Key concerns for this iteration.** The G-36-5 fix is correct for the loop it covers but
+its ordering guarantee stops at the loop: on the failure path — the one the runbook's new
+capture recipe is written for — the cron-line block still lands *after* the `CommandError`
+in the merged log, reproduced below (WR-39). Separately, the IN-35 rewrite of the email
+backend check left its import-failure branch reporting `[ok]` for a backend that cannot be
+imported at all, which is the one misconfiguration whose runtime symptom is silently
+swallowed by `_send_notification()` (WR-40), and made `issubclass()` reachable with a
+non-class (WR-41) — the same "a read-only preflight must never abort" failure class WR-20
+was filed about. Finally, three of this iteration's new regression guards cannot fail in
+the environment that runs them (WR-43, WR-44, IN-41): they are green by construction in
+CI, so the behaviors they claim to pin are still unpinned.
 
 ## Warnings
 
-### WR-33: the fallback state path has no per-deployment discriminator, so two FOMO instances on one host silently share one suppression state
+### WR-39: the G-36-5 ordering fix stops at the loop — on the failure path the cron-line block still lands after the `CommandError` in a merged log
 
-**File:** `solsys_code/unattended.py:64`
+**File:** `solsys_code/management/commands/check_unattended.py:616-638`
+**Issue:** the new `self.stdout.flush()` (line 626) only orders stdout against the *result
+lines* written inside the loop. The trailing stdout block — the blank separator, the
+`Cron line to install...` header and `cron_line()` itself (lines 631-633) — is never
+flushed before `raise CommandError(...)` (line 638). When stdout is a file (the crontab
+template's `>> ... 2>&1`, and the runbook's own newly documented
+`>> preflight.log 2>&1` recipe) it is block-buffered and only flushed at interpreter exit,
+while Django's `run_from_argv` writes the `CommandError` to the line-buffered stderr
+immediately. Reproduced on this host with
+`FOMO_LOCK_DIR=/proc/nonexistent/sub python manage.py check_unattended > log 2>&1`:
 
-**Issue:** `_FALLBACK_STATE_PATH` is a module-level constant derived only from
-`tempfile.gettempdir()`. Two checkouts on the same host — the common staging + production
-pairing, or a developer checkout beside a live cron deployment — resolve to the identical
-path even though their `FOMO_STATE_DIR`s are different. If either one's primary state
-directory goes bad, `load_state()` in *both* processes may read that file (whenever it is the
-newer of the two), so one deployment's failing-step set can suppress or trigger the other's
-staff mail. Nothing in the code or the runbook flags this.
+```
+[WARN] watched_proposals: no active WatchedProposal rows -- ...
+CommandError: check_unattended: 2 hard check(s) failed: FOMO_LOCK_DIR, FOMO_STATE_DIR
 
-**Fix:** as in CR-05 — fold `settings.BASE_DIR` (or `FOMO_STATE_DIR`) and `os.geteuid()` into
-the filename, and make it a function rather than an import-time constant so `override_settings`
-can move it in tests.
-
-### WR-34: the new WR-17 test reads, writes and deletes the real `/tmp` fallback path instead of an isolated one
-
-**File:** `solsys_code/tests/test_unattended.py:223-253`
-(`test_unwritable_state_dir_after_setup_still_suppresses_repeat_mail`)
-
-**Issue:** the test takes `fallback_path = unattended._FALLBACK_STATE_PATH` — the real
-`/tmp/fomo-unattended-state.fallback.json` — unlinks it up front, lets the runner write to it,
-and unlinks it again in cleanup. Every other filesystem-touching test in this module and in
-`test_check_unattended.py` works inside a `TemporaryDirectory()`; this one does not. Running
-`python manage.py test` on a host that also runs the cron schedule therefore destroys that
-host's live suppression state (whose only purpose is to stop a failure email storm), and two
-concurrent test runs — or a test run concurrent with a real tick — race on the same file. The
-test also loses its own premise when run as root (`chmod 0500` does not stop uid 0 writing),
-where it fails on `assertTrue(fallback_path.exists())` for a reason unrelated to the behavior
-under test.
-
-**Fix:** make the fallback location injectable (`unattended._fallback_state_path()` reading a
-setting, or simply `patch.object(unattended, '_FALLBACK_STATE_PATH', Path(tmp.name) / 'fb.json')`)
-and point this test at a `TemporaryDirectory()`. Add
-`@skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')` to this test
-and to `_make_unwritable_parent`'s users.
-
-### WR-35: `check_flock()`'s IN-23 "confirm this is the flock you want" result is reported as `[ok]` and never reaches stderr, so the warning is invisible
-
-**File:** `solsys_code/management/commands/check_unattended.py:137-147`, consumed at
-`check_unattended.py:538-548`; pinned by `solsys_code/tests/test_check_unattended.py:118-134`
-
-**Issue:** the new branch returns `CheckResult(..., ok=True, hard=True, detail='... resolved
-outside the usual system directories ... confirm this is the flock you want a service crontab
-to run')`. `Command.handle()` maps `ok=True` to the literal status `ok` and only mirrors
-non-`ok` lines to stderr:
-
-```python
-line = f'[{status}] {result.name}: {result.detail}'
-self.stdout.write(line)
-if status != 'ok':
-    self.stderr.write(line)
+Cron line to install (both host directories above must exist first):
+*/15 * * * * /usr/bin/flock -n -E 99 ...
 ```
 
-So the one signal IN-23 exists to raise is printed as `[ok] flock: ...` in the middle of a
-clean run, is absent from stderr, and is missed by any operator or wrapper that greps for
-`FAIL`/`WARN` or watches stderr — which is precisely the "operator pastes the printed line
-into a persistent crontab" workflow the finding was about. `hard=True` alongside `ok=True` is
-also inert (`hard` is only consulted when `ok` is false). The new test asserts `[ok] flock`,
-which locks the ineffective behavior in.
-
-**Fix:** return `ok=False, hard=False` so it renders as `[WARN] flock: ...` and is echoed to
-stderr — matching how every other advisory result in this command (`heartbeat`,
-`FOMO_BASE_URL`, `facility_credentials`, `watched_proposals`) is surfaced — and update the
-test to assert `[WARN] flock` plus its presence in stderr.
-
-### WR-36: the 15-minute tick interval was re-duplicated in the same iteration that introduced the single-owner rule for shared constants
-
-**File:** `solsys_code/unattended.py:55` (`_CRON_TICK_INTERVAL = timedelta(minutes=15)`) and
-`solsys_code/management/commands/check_unattended.py:57` (`_CRON_INTERVAL_MINUTES = 15`)
-
-**Issue:** IN-22's fix moved `_DEFAULT_LOCK_DIR`/`_DEFAULT_LOG_FILE` into `unattended.py` and
-had `check_unattended.py` import them, explicitly because "a future change ... could silently
-desynchronize" duplicated literals, and IN-20's comment declares `_CRON_INTERVAL_MINUTES` "the
-single source for the schedule's own interval". The same iteration then added a *second*
-independent copy of that same interval in `unattended.py`, in a module `check_unattended.py`
-already imports — so nothing stops `*/10` in the cron line from coexisting with a 15-minute
-temp-file reap threshold, and the reap comment's justification ("a full tick interval") would
-silently become false.
-
-**Fix:** keep one owner. Either define `_CRON_INTERVAL_MINUTES = 15` in `unattended.py` next
-to `_DEFAULT_LOCK_DIR` and derive `_CRON_TICK_INTERVAL = timedelta(minutes=_CRON_INTERVAL_MINUTES)`
-there, with `check_unattended.py` importing the minutes constant the same way it already
-imports the two path defaults; or import `_CRON_TICK_INTERVAL` into `check_unattended.py` and
-use `int(_CRON_TICK_INTERVAL.total_seconds() // 60)`.
-
-### WR-37: the cron-line/template drift guard does not cover the `rc=0` normalization that WR-16 just added
-
-**File:** `solsys_code/tests/test_check_unattended.py:447-471`
-(`test_line_matches_the_committed_template_token_for_token`), and
-`test_check_unattended.py:431-445`
-
-**Issue:** the parity test's token list is `('-n', '-E 99', '.cron.lock', '>>', '2>&1',
-'rc=$?', '[ $rc -eq 99 ]', 'lock held', 'exit $rc')` — it contains neither `rc=0` nor the
-`{ ... ; }` grouping that makes WR-16's normalization work. The committed template could lose
-`rc=0` (reverting to the "a routine tick overlap looks like a failure" behavior WR-16 fixed)
-and every test would still pass. The companion shell-level test,
-`test_lock_held_exit_is_normalized_to_zero`, splices a stub into `cron_line()`'s output only —
-it never executes the committed template line — so the template half of the fix has no
-executable coverage at all, in a phase whose CR-01/WR-01/WR-09 history is entirely about these
-two artifacts drifting apart.
-
-**Fix:** add `'rc=0'` (and ideally `'; }'`) to the token tuple, and extend
-`test_lock_held_exit_is_normalized_to_zero` to run the same 0/1/99 matrix against the
-`*/15` line read from `deploy/cron/fomo.crontab.example`, with the same stub splice.
-
-### WR-38: the WR-32 settings import guard is executed by no test
-
-**File:** `src/fomo/settings.py:436-443`; `solsys_code/tests/test_settings_api_key_fold.py:42-83`
-
-**Issue:** the new guard changes settings-import control flow:
+This is exactly the operator workflow the block exists for ("Printed even when a hard check
+failed -- an operator fixing prerequisites still wants to see the target state"), and it
+contradicts the runbook's new promise of a report captured "in one file, in check order".
+The success path is correctly ordered, so only the failing run — the run an operator
+actually reads — is inverted.
+**Fix:** flush after the trailing block, before the raise:
 
 ```python
-except ImportError as exc:
-    if exc.name != 'fomo.local_settings':
-        raise
+        self.stdout.write('')
+        self.stdout.write('Cron line to install (both host directories above must exist first):')
+        self.stdout.write(cron_line())
+        # Ordering, as in the loop above: a CommandError goes to the line-buffered
+        # stderr immediately, while this block sits in stdout's buffer until exit.
+        self.stdout.flush()
+
+        failed_hard = [result for result in results if result.hard and not result.ok]
 ```
 
-No test reaches it. `_FoldExecutionTestCase._run_fold()` always injects a working
-`types.ModuleType('fomo.local_settings')` into `sys.modules` before exec'ing the tail, so the
-`except` branch is dead in the suite; and this checkout has a real `src/fomo/local_settings.py`,
-so even the ordinary settings import at test start takes the success path. The only new test
-that touches this region, `TestFoldTailUsesStarImportIntoOwnNamespace`, is a source-token grep
-(`assertIn('from fomo.local_settings import *')`, `assertNotRegex(r'except\s*:')`) and would
-pass unchanged if the guard's condition were inverted. This is the same regression model as
-WR-29 (a settings change that kept every test green while a configured host failed at import),
-which is what the iteration-5 fix report cites as the reason this area needs executable cases.
+### WR-40: `check_email()` reports `[ok] EMAIL_BACKEND` for a backend that cannot be imported at all, and the send-time failure it defers to is swallowed by design
 
-**Fix:** add two cases that exec the fold tail with `sys.modules['fomo.local_settings']`
-removed and a temporary `sys.meta_path` finder raising: (a)
-`ModuleNotFoundError('...', name='fomo.local_settings')` — must be swallowed, `FACILITIES`
-untouched; (b) `ModuleNotFoundError('...', name='some_missing_dependency')` — must propagate
-out of the exec. Both run with no real local settings module on disk.
+**File:** `solsys_code/management/commands/check_unattended.py:311-329, 341-354`
+**Issue:** `_classify_email_backend()` catches `ImportError` from `import_string(backend)`
+and falls back to `_NON_DELIVERING_EMAIL_BACKENDS.get(backend)`. That dict only holds the
+four Django-shipped backends, which always import — so the fallback branch can only ever
+return `None`, and a typo'd or removed dotted path in `local_settings.py` (e.g.
+`django.core.mail.backends.smpt.EmailBackend`) is reported as `[ok] EMAIL_BACKEND`, i.e.
+"this backend can deliver". The docstring's rationale ("an unresolvable `EMAIL_BACKEND`
+fails for its own reasons at send time, not here") does not hold for this phase: at send
+time `_send_notification()` (`unattended.py:776-778`) catches the resulting `ImportError`
+and logs the class name only, so the failure notice is lost with no operator-visible
+signal — precisely the outcome this hard check exists to prevent. As a side effect
+`_NON_DELIVERING_EMAIL_BACKENDS` is now dead code in every reachable path (grep confirms
+its only reference is that unreachable branch), and no test covers it.
+**Fix:** treat an unimportable backend as a hard failure rather than a pass:
+
+```python
+def _classify_email_backend(backend: str) -> str | None:
+    try:
+        backend_cls = import_string(backend)
+    except ImportError:
+        return 'cannot be imported -- a failure notice would raise ImportError at send time and be swallowed'
+    ...
+```
+
+and delete `_NON_DELIVERING_EMAIL_BACKENDS`, with a test asserting a bogus dotted path
+fails the command.
+
+### WR-41: `issubclass()` on a non-class `EMAIL_BACKEND` raises `TypeError` and aborts the whole read-only preflight
+
+**File:** `solsys_code/management/commands/check_unattended.py:326-328`
+**Issue:** `issubclass(backend_cls, non_delivering_cls)` assumes `import_string()` returned
+a class. Django's own `django.core.mail.get_connection()` does
+`import_string(settings.EMAIL_BACKEND)(...)`, so any callable — a factory function, a
+`functools.partial`, a module-level instance — is a legal `EMAIL_BACKEND`. Verified:
+`issubclass(import_string('json.dumps'), Exception)` raises
+`TypeError: issubclass() arg 1 must be a class`. `check_email()` is called from
+`Command.handle()` (line 599) with no guard, so that `TypeError` propagates as an uncaught
+traceback, losing the heartbeat, base-URL, credential and watched-proposal results and the
+printed cron line. This is the identical failure class WR-20 was filed and fixed for in
+`check_flock()`, reintroduced one check later.
+**Fix:** guard the type before comparing:
+
+```python
+    if not isinstance(backend_cls, type):
+        return None  # a callable factory: not one of the four backends we can classify
+    for non_delivering_cls, reason in _NON_DELIVERING_EMAIL_BACKEND_CLASSES.items():
+```
+
+### WR-42: the runbook still enumerates exactly four warning conditions and calls `flock` a hard prerequisite, which WR-35 made untrue
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1607-1613`
+**Issue:** step 6 says the preflight "exits non-zero only when a hard prerequisite (flock,
+the directories, or email) is missing; an unset heartbeat URL, a default base URL, an
+unconfigured LCO/SOAR portal API key, and an empty watched-proposal list are warnings, not
+failures (the tick still runs, and mail still sends, without any of the four)." WR-35
+added a fifth warning condition in this same review round: a `flock` that works and
+supports `-E` but resolves outside `/usr/bin`, `/bin`, `/usr/sbin`, `/sbin`,
+`/usr/local/bin`, `/usr/local/sbin` now renders as `[WARN] flock: ...` with `hard=False`.
+An operator on a conda/venv-provided `flock` therefore sees a `[WARN] flock` line that the
+runbook says cannot exist ("flock" is listed only as a hard prerequisite) and a closed list
+of "the four" that does not include it. CLAUDE.md makes the affected `docs/runbooks/` page
+part of the deliverable for a behavior change like this one, not a follow-up.
+**Fix:** add the fifth case to the enumeration and drop the "the four" count, e.g.
+"...an unset heartbeat URL, a default base URL, an unconfigured LCO/SOAR portal API key, a
+`flock` that works but resolves outside the usual system directories, and an empty
+watched-proposal list are warnings, not failures".
+
+### WR-43: `test_merged_capture_has_no_escape_bytes` cannot fail in CI, so the prohibition it claims to pin is unpinned
+
+**File:** `solsys_code/tests/test_check_unattended.py:558-565`
+**Issue:** the test's own comment says it "pins the prohibition against ever passing that
+[style_func] argument". It cannot. `BaseCommand.__init__` sets `self.style =
+color_style()`, and `django.core.management.color.supports_color()` keys off
+`sys.stdout.isatty()`. Verified on this host: with stdout piped (every CI run, and every
+`manage.py test` whose output is redirected), `supports_color()` is `False` and
+`color_style().ERROR('x')` returns plain `'x'` — so even a deliberate
+`self.stderr.write(line, self.style.ERROR)` would emit no escape bytes and the test would
+still pass. It only has teeth on a developer's interactive terminal.
+**Fix:** make the styling explicit rather than ambient, e.g. assert against a forced style
+(`with patch.object(command, 'style', color_style(force_color=True))`) or assert the
+source-level prohibition directly (inspect `Command.handle`'s `self.stderr.write` calls for
+a second positional argument), so the test fails wherever it runs.
+
+### WR-44: the IN-37 regression guard is vacuous on any checkout without a `local_settings.py` defining `LCO_API_KEY`
+
+**File:** `solsys_code/tests/test_settings_api_key_fold.py:145-161`
+**Issue:** `test_settings_module_does_not_carry_the_loop_variable` asserts
+`not hasattr(settings_module, '_facility')` against the live settings module. The fold
+loop only runs when `'LCO_API_KEY' in globals()`, i.e. only when this host has a
+`local_settings.py` that sets it. On a checkout without one — every CI run, and any
+developer who has not created the file — the loop never executes, `_facility` is never
+bound whether or not `del _facility` exists, and the test passes trivially. The guard is
+green by construction in exactly the environment that is supposed to enforce it, which is
+the same regression model WR-29/WR-38 were filed about. The module already has the tool to
+do this deterministically: `_FoldExecutionTestCase._run_fold()` execs the real fold tail
+into a synthetic namespace.
+**Fix:** assert against the executed namespace instead of the live module — have
+`_run_fold()` return (or expose) the namespace and assert
+`self.assertNotIn('_facility', namespace)` after
+`_run_fold({'LCO_API_KEY': _FAKE_LCO_API_KEY})`, which exercises the `del` on every host.
 
 ## Info
 
-### IN-33: `test_settings_api_key_fold.py`'s module docstring still advertises the test class WR-30 deleted
+### IN-41: the new `self.stdout.flush()` is covered by no test that could fail without it
 
-**File:** `solsys_code/tests/test_settings_api_key_fold.py:4-11`
-**Issue:** the docstring says "They pin four behaviors: ... the bracketed dict-subscript form
-the old runbook wrongly documented raises `NameError` ...". `TestBracketedDictSubscriptRaisesNameError`
-was removed by the WR-30 fix and replaced by `TestFoldTailUsesStarImportIntoOwnNamespace`;
-there are now six test classes and that behavior is no longer pinned anywhere. The next
-reader is told coverage exists that does not.
-**Fix:** rewrite the docstring to enumerate the six classes actually present, naming the
-`from ... import *` mechanism rather than the deleted `NameError` case.
+**File:** `solsys_code/tests/test_check_unattended.py:91-106, 519-556`
+**Issue:** `_run_merged()` binds one `io.StringIO` as both sinks. A `StringIO` has no
+buffering asymmetry, so writes appear in call order with or without the flush — the
+merged-sink class pins the *deduplication* half of G-36-5 but not the *ordering* half the
+flush exists for (see WR-39, which is a live instance of that untested half being wrong).
+**Fix:** add one subprocess-level case that runs
+`sys.executable manage.py check_unattended` with stdout and stderr redirected to the same
+file and asserts the `[FAIL]`/`[WARN]` lines appear after the `[ok]` lines that preceded
+them (and, once WR-39 is fixed, that the cron-line block precedes the `CommandError`).
 
-### IN-34: the read-only preflight now imports the entire runner graph for two string constants
+### IN-42: the routing-contract test anchors on `[ok] flock`, which WR-35 made host-dependent
 
-**File:** `solsys_code/management/commands/check_unattended.py:38`
-**Issue:** IN-22's dedup added `from solsys_code.unattended import _DEFAULT_LOCK_DIR,
-_DEFAULT_LOG_FILE`, which pulls in `campaign_reconciler`, `observation_projector`,
-`backfill_lco_observations`, `project_observation_calendar`, `telescope_runs` (astropy) and
-both facility classes at import time — into a command whose whole contract is "read-only,
-reports, does not fix". Verified that none of these currently reaches `ephem_utils` (the
-1.6 GB SPICE path), so this is a cost and coupling concern, not a breakage — but the guard
-against it is now one accidental import away in any of five modules.
-**Fix:** move the two default-path constants into a leaf module (e.g. `solsys_code/constants.py`,
-or `src/fomo/settings.py` itself as `FOMO_DEFAULT_LOCK_DIR`/`FOMO_DEFAULT_LOG_FILE`) that both
-`unattended.py` and `check_unattended.py` import, so neither command depends on the other's
-import graph.
+**File:** `solsys_code/tests/test_check_unattended.py:567-575`
+**Issue:** `test_warning_and_passing_lines_route_to_separate_streams` asserts
+`'[ok] flock' in stdout` with `shutil.which` unpatched. After WR-35, a host whose `flock`
+comes from a conda/venv bin (a normal setup for this repo, per `.setup_dev.sh`) produces
+`[WARN] flock` instead, and this test fails for a reason unrelated to the routing contract
+it exists to pin.
+**Fix:** anchor on a line the fixture determines, e.g. `[ok] staff_recipients` (the base
+class always creates a staff user with an email), or patch `shutil.which` to
+`/usr/bin/flock` as the neighbouring tests already do.
 
-### IN-35: `_NON_DELIVERING_EMAIL_BACKENDS` is an exact dotted-path denylist that any subclass evades
+### IN-43: the runbook renders a docutils error into the published HTML at line 1562
 
-**File:** `solsys_code/management/commands/check_unattended.py:255-283`;
-`solsys_code/tests/test_check_unattended.py:34-46`
-**Issue:** the check is `_NON_DELIVERING_EMAIL_BACKENDS.get(settings.EMAIL_BACKEND)`, so a
-`local_settings.py` that subclasses or re-exports `locmem`/`dummy` passes. The suite itself
-demonstrates the evasion: `_FakeDeliveringEmailBackend(_LocmemEmailBackend)` exists precisely
-to be reported as deliverable while behaving exactly like the backend the check rejects.
-**Fix:** resolve the class (`django.utils.module_loading.import_string(settings.EMAIL_BACKEND)`)
-and test `issubclass()` against the four non-delivering classes, falling back to the dotted-path
-comparison if the import fails. The test helper would then need a genuinely different stand-in
-(e.g. a thin subclass of `BaseEmailBackend` that appends to `mail.outbox`).
+**File:** `docs/runbooks/telescope_runs_calendar.rst:1562`
+**Issue:** ``` ``_readthedocs/html/`` and ``docs/_build/html/`` are both ``.gitignore``d, ```
+— the inline literal is immediately followed by a word character, which docutils rejects:
+`sphinx-build` emits `WARNING: Inline literal start-string without end-string` and the
+built page renders a literal ``` `` ``` hyperlinked to an error message instead of the
+intended text (confirmed in
+`_docs/html/runbooks/telescope_runs_calendar.html`, `<span class="problematic">``</span>`).
+Introduced by this phase (commit `e2ed553`, the CR-03 fix) and missed by iterations 5 and 6.
+The pre-commit Sphinx hook has no `-W`, so it does not fail the build.
+**Fix:** ``` ``.gitignore``\ d ``` (escaped space) or reword to "are both ignored by
+``.gitignore``".
 
-### IN-36: `_SYSTEM_BINARY_DIRECTORIES` omits `/usr/local/bin`, and the path is compared unresolved
+### IN-44: residual TOCTOU and a planted-file denial of service around the CR-05 fallback trust check
 
-**File:** `solsys_code/management/commands/check_unattended.py:62, 137`
-**Issue:** `/usr/local/bin` is a standard system location on many hosts (and the default
-install prefix for a source-built util-linux), so a legitimate `/usr/local/bin/flock`
-produces the "outside the usual system directories" note — noise that trains operators to
-ignore it. Conversely the check compares `shutil.which()`'s raw result, so a symlink at
-`/usr/bin/flock` pointing into a user-writable directory passes silently.
-**Fix:** add `/usr/local/bin` and `/usr/local/sbin` to the tuple, and compare
-`str(Path(path).resolve())` so the note follows the real target.
+**File:** `solsys_code/unattended.py:461-478, 532-539, 656-667`
+**Issue:** `_fallback_is_trustworthy()` validates by path (`lstat`), then `load_state()`
+re-opens the same path by name (line 536) — a different inode may be there by then. On a
+sticky `/tmp` no other account can win that race, but the guarantee comes from the sticky
+bit rather than from anything this code does, and `TMPDIR` is operator-settable. The
+mirror case is a denial of service rather than a spoof: a local account that creates a
+regular file at the (predictable) fallback path first makes `os.replace()` fail with
+`EPERM` under the sticky bit, so `save_state()`'s fallback write raises, the suppression
+state is never persisted, and every tick re-mails the same failure notice — the WR-17
+failure mode, reachable by an unprivileged local user.
+**Fix:** open once and validate the descriptor:
+`fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)`, then `os.fstat(fd)` for the
+uid/regular-file/mode check, and read from that same descriptor. Optionally log the
+planted-file case distinctly in `save_state()` so the runbook's troubleshooting section can
+name it.
 
-### IN-37: the settings fold leaves its loop variable bound in the settings module namespace
+### IN-45: `_run_fold_with_missing_module()` duplicates `_run_fold()`'s anchor-slice-and-exec block
 
-**File:** `src/fomo/settings.py:459-460`
-**Issue:** `for _facility in ('LCO', 'SOAR'): FACILITIES.setdefault(...)` leaves `_facility`
-as a module-level name after the loop. Harmless today (Django's `Settings` only copies
-`isupper()` names), but it makes the settings module's final namespace carry a stray non-setting.
-**Fix:** `del _facility` after the loop, or use a tuple-unrolled pair of statements.
+**File:** `solsys_code/tests/test_settings_api_key_fold.py:236-266` (vs `58-105`)
+**Issue:** the import/read/`source.find(_FOLD_TAIL_ANCHOR)`/`self.fail(...)`/`compile(...,
+'exec')` sequence is copied verbatim into the WR-38 helper, differing only in how
+`fomo.local_settings` is made to fail. A future change to the anchor handling or to the
+seeded namespace has to be made twice, and only one copy is obviously the canonical one.
+**Fix:** extract the slice-and-exec into a small helper on `_FoldExecutionTestCase`
+(`_exec_fold_tail(self) -> dict`) that both entry points call after they have set up their
+respective `sys.modules`/`sys.meta_path` state.
 
-### IN-38: `step_discovery()` logs the whole captured sweep buffer as one INFO record
+### IN-46: `cron_line()` interpolates paths into a crontab line with no quoting or `%` escaping
 
-**File:** `solsys_code/unattended.py:401-404`
-**Issue:** `logger.info('discovery %s: %s', sink_name, captured_text)` emits the entire
-accumulated `StringIO` contents as a single multi-line log record. In a `--dry-run` preview
-`sweep_proposal()` writes one "Would create/reuse ..." line per portal request, so a large
-proposal produces one enormous log line that no line-oriented tool (grep, logrotate's
-size accounting, journald's field limits) handles gracefully. Content itself is fine — the
-lines carry only observation ids, target names and skip reasons, never a credential or a raw
-exception message.
-**Fix:** `for line in captured_text.splitlines(): logger.info('discovery %s: %s', sink_name, line)`.
-
-### IN-39: the runbook's description of the heartbeat reminder still names only the ping interval
-
-**File:** `docs/runbooks/telescope_runs_calendar.rst:1580-1583`
-**Issue:** step 6 says `check_unattended` "reminds you that the check at the other end still
-needs its own expected ping interval set". After IN-20 the detail string names both `Period`
-*and* `Grace`; the runbook's summary of that same line still names one knob — the exact
-one-knob/two-knob asymmetry IN-20 was filed about, now surviving in the doc instead of the code.
-**Fix:** change to "...still needs its own expected ping interval *and* grace time set".
-
-### IN-40: the template-parity test locates the template line by a hardcoded `*/15` while the code's schedule is now a constant
-
-**File:** `solsys_code/tests/test_check_unattended.py:459-467`
-**Issue:** the test finds the committed line with `stripped_line.startswith('*/15')` and never
-compares the schedule field itself (it is not among the compared tokens). Changing
-`_CRON_INTERVAL_MINUTES` to anything but 15 leaves the test comparing against a template line
-that no longer matches the generated one, and it still passes — the drift the test exists to
-catch.
-**Fix:** derive the prefix from the constant
-(`f'*/{check_unattended._CRON_INTERVAL_MINUTES}'`) and add that same token to the comparison list.
+**File:** `solsys_code/management/commands/check_unattended.py:477-482`
+**Issue:** `flock_path`, `lock_file`, `python_path`, `manage_py_path` and `log_file` are
+interpolated bare. A `FOMO_LOG_FILE`/`FOMO_LOCK_DIR`/venv path containing a space produces
+a silently wrong cron line (word-split into extra arguments), and a `%` in any of them is
+special to crontab (it terminates the command and starts stdin), truncating the line. The
+printed line is explicitly "authoritative" per the runbook, so an operator would paste it
+without review. Pre-existing, not introduced by this diff.
+**Fix:** `shlex.quote()` each interpolated path and replace `%` with `\%`, or reject such
+paths with a hard `CheckResult` naming the offending setting.
 
 ---
 
