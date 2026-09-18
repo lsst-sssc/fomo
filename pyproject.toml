@@ -25,7 +25,7 @@ dependencies = [
     "tom_jpl>=0.3.0",
     "numpy>1.24",
     "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
-    "sorcha",
+    "sorcha>=1.2.1",  # geocentre (obscode 500) support, dirac-institute/sorcha#1203
 ]
 
 [project.urls]

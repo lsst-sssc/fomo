@@ -114,9 +114,11 @@ To revisit:
 - **Window edges.** `visibility_windows` uses the first/last *valid sample*, so each window is
   underestimated by up to one interval and a single-sample run draws as a zero-width bar; pad by
   half an interval at each end if that matters.
-- **Rapidly moving NEOs.** No test exercises a close-approaching object (all ephemeris/visibility
-  tests use (33933), a main-belt asteroid). Add a fixture near a close approach to check that
-  the coarsened sampling interval for long ranges does not miss short windows, and that the
-  per-sample light-time/ASSIST integration behaves through the encounter.
+- **Rapidly moving NEOs** (done): `TestCloseApproach2025FA22` in `test_ephem_utils.py` checks the
+  geocentric ephemeris of 2025 FA22 against JPL Horizons through its 0.0056 au approach on
+  2025-09-18 (agreement < 0.01", 1e-10 au) and that LCO visibility switches on the night after
+  closest approach. The IAWN geometry file for the campaign differs from Horizons by up to 218"
+  at closest approach (older orbit solution), so it is not used as the reference. Geocentric
+  ephemerides need sorcha >= 1.2.1 (dirac-institute/sorcha#1203), which closes FOMO issue #27.
 - **Render time.** A 7-day, six-site plan takes ~11 s; the per-row `build_apco_context` in
   `compute_ephemeris` is the obvious optimisation target.
