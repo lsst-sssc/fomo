@@ -25,12 +25,18 @@ from django.core.mail.backends.locmem import EmailBackend as _LocmemEmailBackend
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
-from solsys_code.management.commands.check_unattended import _owner_mode, cron_line
+from solsys_code.management.commands.check_unattended import _CRON_INTERVAL_MINUTES, _owner_mode, cron_line
 from solsys_code.models import WatchedProposal
 
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST-CHECK-UNATTENDED'
 _FAKE_MAIL_PASSWORD = 'sk-fake-mail-password-check-unattended'  # noqa: S105 -- fixture literal, not a real secret
 _FAKE_LCO_API_KEY = 'fake-lco-api-key-check-unattended'
+# IN-40 (36-REVIEW.md): derived from the same constant cron_line() itself reads, not a
+# hardcoded '*/15' -- a hardcoded literal would silently stop matching the template's
+# own line (or, worse, still match a STALE template line the schedule constant has moved
+# on from) the moment _CRON_INTERVAL_MINUTES changes, defeating every test below that
+# locates the committed template's schedule line by this prefix.
+_TEMPLATE_SCHEDULE_PREFIX = f'*/{_CRON_INTERVAL_MINUTES}'
 
 
 class _FakeDeliveringEmailBackend(_BaseEmailBackend):
@@ -518,17 +524,17 @@ class TestCronLine(CheckUnattendedTestBase):
         # alone (e.g. losing the `{ ... ; rc=0; }` grouping) and every test would still
         # pass, in a phase whose CR-01/WR-01/WR-09 history is entirely about these two
         # artifacts drifting apart. Runs the identical 0/1/99 matrix against the
-        # template's own `*/15` line, read from disk.
+        # template's own schedule line, read from disk.
         template_path = Path(django_settings.BASE_DIR).parent / 'deploy' / 'cron' / 'fomo.crontab.example'
         template_line = next(
             (
                 stripped_line
                 for raw_line in template_path.read_text().splitlines()
-                if (stripped_line := raw_line.strip()).startswith('*/15')
+                if (stripped_line := raw_line.strip()).startswith(_TEMPLATE_SCHEDULE_PREFIX)
             ),
             None,
         )
-        self.assertIsNotNone(template_line, f'no */15 line found in {template_path}')
+        self.assertIsNotNone(template_line, f'no {_TEMPLATE_SCHEDULE_PREFIX!r} line found in {template_path}')
         self._assert_lock_held_exit_matrix_is_normalized(template_line)
 
     def test_line_has_real_paths(self):
@@ -548,7 +554,7 @@ class TestCronLine(CheckUnattendedTestBase):
         flock_path = shutil.which('flock') or '/usr/bin/flock'
         line = cron_line()
         for element in (
-            '*/15 * * * *',
+            f'{_TEMPLATE_SCHEDULE_PREFIX} * * * *',
             f'{flock_path} -n -E 99',
             'run_unattended.cron.lock',
             'run_unattended',
@@ -566,7 +572,7 @@ class TestCronLine(CheckUnattendedTestBase):
         # agreement with deploy/cron/fomo.crontab.example but never actually read it,
         # comparing only a hand-maintained fragment list instead -- drift between the two
         # is exactly what CR-01/WR-01/WR-09 were about. Read the committed file's own
-        # `*/15` line and compare option tokens, ignoring the two host-specific
+        # schedule line and compare option tokens, ignoring the two host-specific
         # placeholder paths this test doesn't resolve.
         # IN-23 (36-REVIEW.md): resolve the repo root from settings.BASE_DIR (the same
         # way cron_line() itself resolves manage.py's path) rather than
@@ -577,13 +583,19 @@ class TestCronLine(CheckUnattendedTestBase):
             (
                 stripped_line
                 for raw_line in template_path.read_text().splitlines()
-                if (stripped_line := raw_line.strip()).startswith('*/15')
+                if (stripped_line := raw_line.strip()).startswith(_TEMPLATE_SCHEDULE_PREFIX)
             ),
             None,
         )
-        self.assertIsNotNone(template_line, f'no */15 line found in {template_path}')
+        self.assertIsNotNone(template_line, f'no {_TEMPLATE_SCHEDULE_PREFIX!r} line found in {template_path}')
         line = cron_line()
         for token in (
+            # IN-40 (36-REVIEW.md): the schedule field itself was not among the compared
+            # tokens -- changing _CRON_INTERVAL_MINUTES to anything but 15 previously left
+            # this test comparing against a template line that no longer matched the
+            # generated one, and it still passed. Now the same dynamic prefix used to
+            # locate template_line above is also compared token-for-token.
+            _TEMPLATE_SCHEDULE_PREFIX,
             '-n',
             '-E 99',
             '.cron.lock',
