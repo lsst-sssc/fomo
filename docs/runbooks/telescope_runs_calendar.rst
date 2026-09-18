@@ -1460,6 +1460,28 @@ Setting it up on a fresh host
    this host points ``FOMO_STATE_DIR`` somewhere else -- create that
    directory separately, with the same ownership, if it does.
 
+   If the primary state file cannot be written at tick time -- for
+   example ``FOMO_STATE_DIR`` fills up or loses write permission for the
+   cron account sometime *after* setup, past this section entirely --
+   the tick logs an error naming both paths and writes the suppression
+   state to ``fomo-unattended-state.fallback.json`` in the system temp
+   directory (typically ``/tmp``) instead of failing (WR-17,
+   36-REVIEW.md). That fallback location is deliberately outside
+   ``FOMO_STATE_DIR``: that directory is precisely what may have gone
+   bad, and ``run_unattended`` is a fresh process per cron tick with
+   nothing in memory surviving between ticks, so only a file somewhere
+   still writable can carry the suppression decision forward. The next
+   tick then reads whichever of the primary and fallback files was
+   written most recently, so the fallback tick's decision is honored --
+   instead of the next tick deciding "newly failing" all over again and
+   mailing the identical failure notice every 15 minutes for as long as
+   the outage lasts (D-11 failing open). Once a later tick succeeds in
+   writing the primary location again, it deletes the stale fallback by
+   itself, so the runner reverts to reading the primary alone with no
+   operator action needed. Both files are written atomically and with
+   mode 0600, so a state file living in the shared system temp
+   directory is not a new exposure.
+
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
    the crontab line, never in an environment variable, and never committed
@@ -1548,7 +1570,13 @@ Setting it up on a fresh host
    It reports every prerequisite in one pass -- whether ``flock`` is on
    ``PATH`` *and* new enough to support ``-E`` (util-linux 2.27+, which
    the cron line's skip detection needs), whether the lock, log and
-   suppression-state directories exist and are writable, whether the
+   suppression-state directories exist and are writable (this
+   suppression-state check is a setup-time preflight only: it catches an
+   unwritable ``FOMO_STATE_DIR`` before an operator ever installs the
+   cron line, but it cannot see that directory going bad afterwards -- a
+   full ``/var/lock`` tmpfs is the realistic trigger; that case is
+   handled at runtime by the fallback described in step 1 above, not by
+   this check (WR-17, 36-REVIEW.md)), whether the
    email backend can actually deliver and at least one staff
    user has an email on file, whether ``FOMO_HEARTBEAT_URL`` is set (and
    reminds you that the check at the other end still needs its own
@@ -2169,6 +2197,30 @@ the admin's ``Watched proposals``/``last_run_summary`` for the failure
 that is still ongoing. If a *different* step starts failing while the
 first is still failing, that is reported as a new failing set and mails
 immediately, without waiting for the 24-hour reminder interval.
+
+The log shows the suppression state could not be persisted
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** ``FOMO_STATE_DIR`` (default ``FOMO_LOCK_DIR``) became
+unwritable or full sometime after ``check_unattended`` passed, so the
+tick could not write the D-11 suppression-state file to its usual
+location and instead wrote it to ``fomo-unattended-state.fallback.json``
+in the system temp directory (WR-17, 36-REVIEW.md). Nothing is actually
+broken by this: the tick itself is not failed by it, no mail was lost,
+and no duplicate mail was sent -- the suppression decision persisted,
+just somewhere else. The presence of that fallback file in the temp
+directory is itself the signal that the primary directory needs
+attention.
+
+**Fix:** restore the primary directory -- free up space, or restore
+write permission and ownership for the account cron runs as -- and
+re-run ``check_unattended`` as that account (not as root) to confirm.
+The next tick that writes the primary state file successfully deletes
+the fallback by itself, so there is nothing to clean up by hand. Do
+**not** delete the fallback file while the primary location is still
+unwritable -- it is the only record of the current suppression state,
+and removing it makes the very next tick decide "newly failing" again
+and re-mail the failure that is already being tracked.
 
 The heartbeat alerts even though the log shows a healthy tick
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
