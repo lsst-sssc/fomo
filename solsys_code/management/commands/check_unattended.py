@@ -135,10 +135,18 @@ def check_flock() -> CheckResult:
     # end up installing a non-system flock into a service crontab -- low-likelihood,
     # but a silent one the committed template's hardcoded /usr/bin/flock never had.
     if not any(path.startswith(f'{system_dir}/') for system_dir in _SYSTEM_BINARY_DIRECTORIES):
+        # WR-35 (36-REVIEW.md): ok=True here rendered as '[ok] flock: ...' and, because
+        # Command.handle() only mirrors a non-'ok' status line to stderr, the one signal
+        # this branch exists to raise was invisible to both a plain "grep FAIL/WARN" scan
+        # and anything watching stderr -- exactly the "operator pastes the printed line
+        # into a persistent crontab" workflow this check is about. ok=False/hard=False
+        # renders it as '[WARN] flock: ...' (advisory, does not fail the command) and
+        # mirrors it to stderr, matching every other advisory result in this command
+        # (heartbeat, FOMO_BASE_URL, facility_credentials, watched_proposals).
         return CheckResult(
             name='flock',
-            ok=True,
-            hard=True,
+            ok=False,
+            hard=False,
             detail=(
                 f'found at {path}, supports -E -- resolved outside the usual system '
                 'directories (/usr/bin, /bin, /usr/sbin, /sbin) -- confirm this is the '

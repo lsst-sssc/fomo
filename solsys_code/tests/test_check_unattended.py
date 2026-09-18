@@ -122,8 +122,11 @@ class TestHardChecks(CheckUnattendedTestBase):
         # IN-23 (36-REVIEW.md): shutil.which('flock') resolves against the preflight
         # process's own PATH -- a stale or user-writable directory early in PATH (a
         # conda/venv bin, a ~/bin) could resolve a non-system flock that then gets
-        # pasted into a persistent, scheduled crontab entry. Still [ok] (it works and
-        # supports -E), but flagged for the operator to double check.
+        # pasted into a persistent, scheduled crontab entry. WR-35 (36-REVIEW.md): the
+        # note must render as [WARN] and reach stderr -- an [ok] line (the previous
+        # behavior) is invisible to both a "grep FAIL/WARN" scan and anything watching
+        # stderr, exactly the workflow this note exists to catch. Still advisory only
+        # (it works and supports -E): the command must not exit non-zero for it.
         fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
         with (
             patch(
@@ -132,9 +135,10 @@ class TestHardChecks(CheckUnattendedTestBase):
             ),
             patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
         ):
-            stdout, _stderr = _run()
-        self.assertIn('[ok] flock', stdout)
+            stdout, stderr = _run()
+        self.assertIn('[WARN] flock', stdout)
         self.assertIn('outside the usual system directories', stdout)
+        self.assertIn('[WARN] flock', stderr)
 
     def test_flock_in_usr_bin_gets_no_sanity_note(self):
         with patch(
