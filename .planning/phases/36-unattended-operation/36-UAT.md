@@ -1,93 +1,44 @@
 ---
-status: diagnosed
+status: testing
 phase: 36-unattended-operation
 source: [36-VERIFICATION.md]
-started: 2026-09-17T17:25:00Z
-updated: 2026-09-18T00:55:22Z
+started: 2026-09-18T02:10:00Z
+updated: 2026-09-18T02:10:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 1
+name: Re-run UAT Test 3 against a live healthchecks-compatible check configured only from the corrected runbook paragraph
+expected: |
+  Configure a fresh check using ONLY what the corrected "Heartbeat." paragraph in
+  docs/runbooks/telescope_runs_calendar.rst names: expected interval (healthchecks.io
+  `Period`) 15 min — or a Cron-type check with `*/15 * * * *` — and grace (`Grace`)
+  about 20 min. Point FOMO_HEARTBEAT_URL at it, let one tick ping, then disable the
+  crontab line. The check goes late about 15 minutes after the missed tick and alerts
+  about 35 minutes after the last successful ping, with FOMO logging nothing and
+  mailing nothing.
+awaiting: user response
 
 ## Tests
 
-### 1. Fresh-host preflight
-expected: On the real FOMO host, after creating `/var/lock/fomo` and `/var/log/fomo` writable by the cron account, putting the real `EMAIL_BACKEND`/`EMAIL_HOST_*` and the LCO/SOAR `api_key` in `local_settings.py`, and exporting `FOMO_HEARTBEAT_URL` and `FOMO_BASE_URL` for the cron daemon, `python manage.py check_unattended` reports `[ok]` on every hard check, exits 0, and prints a cron line with this host's real interpreter and `manage.py` paths. (On the dev checkout it correctly exits 1 naming `FOMO_LOCK_DIR`/`FOMO_LOG_FILE`/`EMAIL_BACKEND`.)
-result: pass
-note: "Only a [WARN] for no active WatchedProposal; every other check [ok], exit 0, cron line printed."
+### 1. Re-run UAT Test 3 against a live healthchecks-compatible check configured only from the corrected runbook paragraph
+expected: Check goes late ~15 min after the missed tick and alerts ~35 min after the last successful ping (expected interval 15 min + grace ~20 min), with FOMO logging nothing and mailing nothing. This is the only proof that closes G-36-3 end-to-end; no automated gate can reach the external service.
+result: [pending]
 
-### 2. The real crontab
-expected: After installing the printed cron line in the FOMO service account's crontab (`crontab -e`) and waiting ~45 minutes, three `START` / per-step / `END` banners appear in `/var/log/fomo/unattended.log`, roughly 15 minutes apart, with nobody typing anything.
-result: pass
-note: "Three START+END sequences observed in /var/log/fomo/unattended.log."
-
-### 3. The heartbeat's dead-man half
-expected: With a healthchecks-compatible check pointed at `FOMO_HEARTBEAT_URL` (grace period ~20 minutes), disabling the crontab line and waiting past the grace period makes the heartbeat service raise an alert even though FOMO itself logged nothing and sent no email — the second, independent layer of SC 3.
-result: issue
-reported: "I have the healthchecks.io set at Grace 20 mins and last ping was 28 minutes ago but it is still green - not sure if I need to wait more or not... ? / set period to 15 minutes, now have orange pling / went red and got the alert email, nothing from FOMO"
-severity: major
-note: "Mechanism works: with Period=15 min, Grace=20 min the check went Late then Down and the alert email arrived with FOMO logging nothing and sending nothing. The issue is the runbook: docs/runbooks/telescope_runs_calendar.rst:1544-1547 says only 'grace period ~20 minutes' and never mentions the check's Period (default 1 day), so an operator following it literally gets a check that stays green for ~24 h after the schedule stops — the dead-man layer is silently disabled." 
-
-### 4. Real mail delivery
-expected: With the real (non-console) email backend configured, `python manage.py check_unattended --send-test-email` delivers one message to the mailbox of every staff user with an email on file — the same recipient rule the failure notice uses.
-result: pass
-
-### 5. Log rotation under a live writer
-expected: With `deploy/logrotate/fomo.example` installed as `/etc/logrotate.d/fomo`, `logrotate -d /etc/logrotate.d/fomo` parses the stanza, and forcing one real rotation while a tick is running shows `copytruncate` keeping cron's still-open append redirect writing to the live file rather than the rotated-away inode.
-result: pass
-note: "Forced rotation (possibly twice) mid-tick: START banner went with the rotated copy; the per-step lines and `=== FOMO unattended run END 2026-09-18T00:30:54 exit=0 ===` landed in the truncated live file." 
-
-### 6. Runbook sufficiency
-expected: Someone who has not read this phase's source, given only the runbook's "How do I run everything unattended?" section, reaches a working, checked schedule on a fresh host — no source reading, no questions back (SC 5).
-result: pass
-note: "User verdict: pass. Questions that came up during this UAT and may merit runbook clarification: where FOMO_HEARTBEAT_URL / FOMO_BASE_URL are read (env var vs local_settings.py, cron vs web process) and that installing /etc/logrotate.d/fomo and forcing a rotation need sudo. The heartbeat Period omission is tracked as G-36-3." 
+### 2. Decide on WR-22 before shipping (two `logger.debug()` sites format `str(exc)` on the unattended path)
+expected: Either (a) fix `solsys_code/management/commands/backfill_lco_observations.py:349` and `solsys_code/unattended.py:191` to log `type(exc).__name__` only, plus an `assertLogs(level='DEBUG')` credential-hygiene case; or (b) record an explicit acceptance that the class-name-only discipline (plan 36-01 truth 10) holds only while `settings.LOGGING` keeps the root logger at `INFO`, documented where an operator raising the log level would see it. SC 4 is not breached as shipped; this is a judgment call on a latent exposure (36-REVIEW.md WR-22, which should be fixed together with WR-18).
+result: [pending]
 
 ## Summary
 
-total: 6
-passed: 5
-issues: 1
-pending: 0
+total: 2
+passed: 0
+issues: 0
+pending: 2
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-- gap_id: G-36-3
-  truth: "An operator following the runbook's heartbeat guidance gets a healthchecks-compatible check that alerts within ~20 minutes of the cron schedule stopping."
-  status: failed
-  reason: "User reported: healthchecks.io check set to Grace 20 min per the runbook stayed green 28 minutes after the last ping; it only went Late/Down after the user discovered and set Period to 15 minutes themselves. Runbook (docs/runbooks/telescope_runs_calendar.rst:1544-1547) mentions only the grace period, not the check's Period/schedule, whose default is 1 day."
-  severity: major
-  test: 3
-  root_cause: "docs/runbooks/telescope_runs_calendar.rst:1543-1547 names only the check's Grace (~20 min) and never its Period (expected interval between pings). healthchecks.io alerts at last_ping + Period + Grace and Period defaults to 1 day, so a check configured as written first alerts ~24 h 20 min after the schedule stops. Upstream: 36-RESEARCH.md covered only the ping API, so D-12 (36-CONTEXT.md:133-143) used 'grace period' to mean total time-to-alert and plan 36-05 transcribed that into vendor-specific guidance where Grace is a narrower knob. The runner mechanism (unattended.py ping_heartbeat) is correct."
-  artifacts:
-    - path: "docs/runbooks/telescope_runs_calendar.rst"
-      issue: "1543-1547 heartbeat setup names Grace only, never Period/schedule (primary)"
-    - path: "docs/runbooks/telescope_runs_calendar.rst"
-      issue: "1563-1565 triage item compares last-ping age to Grace alone; correct bound is Period + Grace"
-    - path: "docs/runbooks/telescope_runs_calendar.rst"
-      issue: "2035-2038 third instance of the conflated 'grace period' phrase"
-    - path: "docs/runbooks/telescope_runs_calendar.rst"
-      issue: "2055-2068 only heartbeat troubleshooting entry covers the opposite symptom; no entry for 'heartbeat never alerted'"
-    - path: "deploy/cron/fomo.crontab.example"
-      issue: "line 31 repeats the Grace-only phrase"
-    - path: "solsys_code/management/commands/check_unattended.py"
-      issue: "235-244 check_heartbeat() reports only set/unset; no Period reminder (optional; test_check_unattended.py:198-221 asserts on the detail strings)"
-    - path: "solsys_code/unattended.py"
-      issue: "91, 593-594 docstrings repeat 'grace period ... is the backstop' (consistency only)"
-  missing:
-    - "Rewrite runbook 1543-1547 to name both knobs and the arithmetic (alert = Period + Grace): Period = 15 min matching the cron interval (or a Cron-type check with */15 * * * *), Grace ~20 min -> Late ~15 min, Down + alert ~35 min; name the 1-day default as the trap; keep wording service-agnostic"
-    - "Keep Grace at ~20 min (it also bounds /start-to-completion time; ticks may overrun a slot) -- do not shrink it to force a 20-minute total"
-    - "Restate time-to-alert as Period + Grace (~35 min) where 'roughly 20 minutes' appears (36-VERIFICATION.md:288, UAT expectation)"
-    - "Fix runbook 1563-1565 to compare last-ping age against Period + Grace"
-    - "Add a troubleshooting entry after 2068 for 'heartbeat never alerted although the schedule stopped' -> Period still at the 1-day default"
-    - "Propagate to deploy/cron/fomo.crontab.example:31; optionally add a Period reminder to check_heartbeat()'s [ok] detail (update test_check_unattended.py)"
-  debug_session: ".planning/debug/heartbeat-runbook-period-gap.md"
-
-## Operational Findings
-
-- finding_id: F-36-1
-  title: "One LCO record's observed-site lookup fails on every tick"
-  detail: "Tick ending 2026-09-18T00:30:54Z on the real host logged `observation_id='4276100': observed-site lookup unavailable -- using fallback label.` and `site_lookup_failed: 1` in the project_sweep summary (159 unchanged, 0 unprojectable). Tick still exit=0. Seen while verifying Test 5; not a Phase 36 defect."
-  action: "Check record 4276100 in the LCO portal / resolve_placement_block() path when convenient."
+_Previous round (2026-09-17): 6 tests, 5 passed, 1 issue → G-36-3 (heartbeat guidance named only the grace time). Closed by gap-closure plan 36-06 (commits 12c51c6, f075a7f, 1f3bbac); the full gap record with root cause is in git history of this file and in `.planning/debug/heartbeat-runbook-period-gap.md`._
