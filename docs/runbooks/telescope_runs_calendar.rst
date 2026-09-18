@@ -1458,8 +1458,16 @@ Setting it up on a fresh host
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
    the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
    the crontab line, never in an environment variable, and never committed
-   to git. The API key setting is nested: ``FACILITIES['LCO']['api_key']``
-   and ``FACILITIES['SOAR']['api_key']``.
+   to git. Write the API key as a flat, top-level assignment --
+   ``LCO_API_KEY = '<your key>'`` -- because this module is imported
+   into its own namespace, so it can only ASSIGN new settings: reaching
+   into a setting already built above it raises ``NameError``, which the
+   import guard does not catch, and Django then refuses to start at all.
+   ``src/fomo/settings.py`` folds that one key into both the LCO facility
+   entry and the SOAR facility entry, because SOAR authenticates against
+   the same LCO Observation Portal. Leave the setting out and both
+   facility entries stay empty, so any portal call FOMO makes -- including
+   the unattended tick's status refresh -- goes out unauthenticated.
 3. Create the heartbeat check. This is a dead-man's switch on a
    third-party service that alerts when a tick never ran at all or hung
    partway through -- not only when one failed outright, which is the one
