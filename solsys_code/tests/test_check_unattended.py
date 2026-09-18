@@ -20,6 +20,7 @@ from unittest.mock import patch
 from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.core import mail
+from django.core.mail.backends.base import BaseEmailBackend as _BaseEmailBackend
 from django.core.mail.backends.locmem import EmailBackend as _LocmemEmailBackend
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
@@ -32,18 +33,42 @@ _FAKE_MAIL_PASSWORD = 'sk-fake-mail-password-check-unattended'  # noqa: S105 -- 
 _FAKE_LCO_API_KEY = 'fake-lco-api-key-check-unattended'
 
 
-class _FakeDeliveringEmailBackend(_LocmemEmailBackend):
+class _FakeDeliveringEmailBackend(_BaseEmailBackend):
     """A stand-in for "some real, delivering backend" in tests (WR-19, 36-REVIEW.md).
 
-    Behaves exactly like ``locmem`` (inherits ``send_messages()`` unchanged, so
-    ``django.core.mail.outbox`` is still populated the same way Django's test runner
-    already relies on) but is not one of the dotted paths
-    ``_NON_DELIVERING_EMAIL_BACKENDS`` checks for by name -- so ``check_email()`` reports
-    it as OK, the same way it would report any real third-party SMTP-backed backend.
+    IN-35 (36-REVIEW.md): a thin, direct subclass of Django's own ``BaseEmailBackend`` --
+    NOT of ``locmem`` (the previous version of this fixture) -- because ``check_email()``
+    now resolves ``EMAIL_BACKEND`` to its actual class and checks ``issubclass()`` against
+    the four non-delivering backends, so a locmem subclass would itself now be (correctly)
+    reported as non-delivering. Replicates just enough of locmem's own
+    ``send_messages()`` to keep populating ``django.core.mail.outbox`` the same way
+    Django's test runner already relies on, without inheriting from any of the four
+    backends the check knows about -- the same shape any real third-party SMTP-backed
+    backend has.
     """
+
+    def send_messages(self, email_messages):
+        if not hasattr(mail, 'outbox'):
+            mail.outbox = []
+        msg_count = 0
+        for message in email_messages:  # .message() triggers header validation
+            message.message()
+            mail.outbox.append(message)
+            msg_count += 1
+        return msg_count
 
 
 _FAKE_DELIVERING_BACKEND_PATH = f'{__name__}.{_FakeDeliveringEmailBackend.__qualname__}'
+
+
+class _LocmemSubclassEmailBackend(_LocmemEmailBackend):
+    """IN-35 (36-REVIEW.md): a plain subclass of a known non-delivering backend, with no
+    overrides -- exactly the shape a local_settings.py might carry (e.g. to add logging
+    around ``send_messages()``) and exactly the evasion an exact dotted-path comparison
+    would miss. Defined at module level (not inside a test method) so
+    ``django.utils.module_loading.import_string()`` can resolve its dotted path -- a
+    class nested inside a method has a ``<locals>`` qualname that is not importable.
+    """
 
 
 def _run(*args, **kwargs):
@@ -210,6 +235,20 @@ class TestHardChecks(CheckUnattendedTestBase):
             ):
                 with self.assertRaises(CommandError) as ctx:
                     _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_subclass_of_a_non_delivering_backend_still_fails(self):
+        # IN-35 (36-REVIEW.md): an exact dotted-path comparison lets a local_settings.py
+        # that subclasses or re-exports a non-delivering backend (e.g. to add logging)
+        # evade the check entirely -- the fixture this module uses to stand in for "some
+        # real, delivering backend" (_FakeDeliveringEmailBackend) previously WAS itself
+        # exactly this evasion (a plain locmem subclass), and would have been reported
+        # as deliverable. check_email() must instead resolve EMAIL_BACKEND to its real
+        # class and reject it via issubclass().
+        backend_path = f'{__name__}.{_LocmemSubclassEmailBackend.__qualname__}'
+        with override_settings(EMAIL_BACKEND=backend_path):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
         self.assertIn('EMAIL_BACKEND', str(ctx.exception))
 
     def test_no_staff_email_fails(self):

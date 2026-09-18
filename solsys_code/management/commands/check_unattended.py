@@ -29,7 +29,12 @@ from pathlib import Path
 from typing import Any
 
 from django.conf import settings
+from django.core.mail.backends.console import EmailBackend as _ConsoleEmailBackend
+from django.core.mail.backends.dummy import EmailBackend as _DummyEmailBackend
+from django.core.mail.backends.filebased import EmailBackend as _FileBasedEmailBackend
+from django.core.mail.backends.locmem import EmailBackend as _LocMemEmailBackend
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.utils.module_loading import import_string
 from tom_observations.facilities.lco import LCOSettings
 from tom_observations.facilities.soar import SOARSettings
 
@@ -269,12 +274,48 @@ def check_state_dir() -> CheckResult:
 #  --send-test-email, since each backend's own send_messages() reports success) -- a
 #  strictly worse outcome than the console backend this check already caught, because
 #  --send-test-email actively confirmed the false positive.
+#
+#  IN-35 (36-REVIEW.md): keyed by dotted path only for the fallback branch below (an
+#  EMAIL_BACKEND setting that cannot even be imported). The primary check instead
+#  resolves the setting to its actual class and compares with issubclass() -- see
+#  _NON_DELIVERING_EMAIL_BACKEND_CLASSES -- so a local_settings.py that subclasses or
+#  re-exports one of these four (e.g. to add logging) is still caught. The exact
+#  dotted-path comparison this replaces let any such subclass evade the check entirely:
+#  the test suite's own stand-in for "some real, delivering backend" was itself a plain
+#  locmem subclass, and would have been silently reported as deliverable.
 _NON_DELIVERING_EMAIL_BACKENDS = {
     'django.core.mail.backends.console.EmailBackend': 'prints to a terminal no one is watching',
     'django.core.mail.backends.dummy.EmailBackend': 'discards every message -- the "turn email off" backend',
     'django.core.mail.backends.locmem.EmailBackend': 'keeps messages in memory only -- a test-only backend',
     'django.core.mail.backends.filebased.EmailBackend': 'writes to a local file, not a real mailbox',
 }
+_NON_DELIVERING_EMAIL_BACKEND_CLASSES = {
+    _ConsoleEmailBackend: 'prints to a terminal no one is watching',
+    _DummyEmailBackend: 'discards every message -- the "turn email off" backend',
+    _LocMemEmailBackend: 'keeps messages in memory only -- a test-only backend',
+    _FileBasedEmailBackend: 'writes to a local file, not a real mailbox',
+}
+
+
+def _classify_email_backend(backend: str) -> str | None:
+    """Return the non-delivering reason for ``backend``, or None if it can actually
+    deliver (IN-35, 36-REVIEW.md).
+
+    Resolves the dotted path to its real class and checks ``issubclass()`` against the
+    four backends known not to deliver -- catching a ``local_settings.py`` that
+    subclasses or re-exports one of them, which an exact dotted-path comparison would
+    miss. Falls back to the dotted-path comparison if the class cannot be imported at
+    all (an unresolvable ``EMAIL_BACKEND`` fails for its own reasons at send time, not
+    here -- this check only classifies backends it CAN resolve).
+    """
+    try:
+        backend_cls = import_string(backend)
+    except ImportError:
+        return _NON_DELIVERING_EMAIL_BACKENDS.get(backend)
+    for non_delivering_cls, reason in _NON_DELIVERING_EMAIL_BACKEND_CLASSES.items():
+        if issubclass(backend_cls, non_delivering_cls):
+            return reason
+    return None
 
 
 def check_email() -> list[CheckResult]:
@@ -287,7 +328,7 @@ def check_email() -> list[CheckResult]:
     results: list[CheckResult] = []
 
     backend = settings.EMAIL_BACKEND
-    non_delivering_reason = _NON_DELIVERING_EMAIL_BACKENDS.get(backend)
+    non_delivering_reason = _classify_email_backend(backend)
     results.append(
         CheckResult(
             name='EMAIL_BACKEND',
