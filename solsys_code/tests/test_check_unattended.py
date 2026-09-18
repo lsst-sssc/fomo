@@ -19,6 +19,7 @@ from unittest.mock import patch
 from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.core import mail
+from django.core.mail.backends.locmem import EmailBackend as _LocmemEmailBackend
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
@@ -28,6 +29,20 @@ from solsys_code.models import WatchedProposal
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST-CHECK-UNATTENDED'
 _FAKE_MAIL_PASSWORD = 'sk-fake-mail-password-check-unattended'  # noqa: S105 -- fixture literal, not a real secret
 _FAKE_LCO_API_KEY = 'fake-lco-api-key-check-unattended'
+
+
+class _FakeDeliveringEmailBackend(_LocmemEmailBackend):
+    """A stand-in for "some real, delivering backend" in tests (WR-19, 36-REVIEW.md).
+
+    Behaves exactly like ``locmem`` (inherits ``send_messages()`` unchanged, so
+    ``django.core.mail.outbox`` is still populated the same way Django's test runner
+    already relies on) but is not one of the dotted paths
+    ``_NON_DELIVERING_EMAIL_BACKENDS`` checks for by name -- so ``check_email()`` reports
+    it as OK, the same way it would report any real third-party SMTP-backed backend.
+    """
+
+
+_FAKE_DELIVERING_BACKEND_PATH = f'{__name__}.{_FakeDeliveringEmailBackend.__qualname__}'
 
 
 def _run(*args, **kwargs):
@@ -56,6 +71,14 @@ class CheckUnattendedTestBase(TestCase):
             FOMO_LOCK_DIR=self.lock_dir.name,
             FOMO_STATE_DIR=self.lock_dir.name,
             FOMO_LOG_FILE=str(Path(self.log_dir.name) / 'unattended.log'),
+            # WR-19 (36-REVIEW.md): Django's test runner swaps EMAIL_BACKEND to `locmem`
+            # for the whole suite -- which is now itself one of the non-delivering
+            # backends this check must fail on. Override it here to a stand-in that
+            # behaves exactly like locmem (mail.outbox still works) but is not one of
+            # the four dotted paths the check knows by name, so "every hard check
+            # passes by default" continues to hold; individual tests below override it
+            # back to each non-delivering backend explicitly.
+            EMAIL_BACKEND=_FAKE_DELIVERING_BACKEND_PATH,
         )
         settings_override.enable()
         self.addCleanup(settings_override.disable)
@@ -97,11 +120,39 @@ class TestHardChecks(CheckUnattendedTestBase):
         self.assertIn('FOMO_LOG_FILE', str(ctx.exception))
 
     def test_console_email_backend_fails(self):
-        # The test runner's automatic locmem swap must be overridden explicitly for this
-        # branch to be reachable at all.
         with override_settings(EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend'):
             with self.assertRaises(CommandError) as ctx:
                 _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_dummy_email_backend_fails(self):
+        # WR-19 (36-REVIEW.md): `dummy` is the canonical "turn email off" idiom and a
+        # realistic production setting -- it previously passed this check (and
+        # --send-test-email "succeeded" against it, since dummy.EmailBackend.
+        # send_messages() returns len(email_messages) without sending anything).
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.dummy.EmailBackend'):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_locmem_email_backend_fails(self):
+        # WR-19 (36-REVIEW.md): what a half-finished local_settings.py copied from a
+        # test config carries -- previously passed this check.
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_filebased_email_backend_fails(self):
+        # WR-19 (36-REVIEW.md): writes to a local file nobody reads -- previously
+        # passed this check.
+        with tempfile.TemporaryDirectory() as file_backend_dir:
+            with override_settings(
+                EMAIL_BACKEND='django.core.mail.backends.filebased.EmailBackend',
+                EMAIL_FILE_PATH=file_backend_dir,
+            ):
+                with self.assertRaises(CommandError) as ctx:
+                    _run()
         self.assertIn('EMAIL_BACKEND', str(ctx.exception))
 
     def test_no_staff_email_fails(self):

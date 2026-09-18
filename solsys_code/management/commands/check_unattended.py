@@ -195,6 +195,22 @@ def check_state_dir() -> CheckResult:
     )
 
 
+#  WR-19 (36-REVIEW.md): every Django-shipped backend that cannot deliver mail to a real
+#  recipient -- not just the console backend. `dummy` is the canonical "turn email off"
+#  idiom and a realistic production setting; `locmem` is what a half-finished
+#  local_settings.py copied from a test config carries; `filebased` writes to a directory
+#  nobody reads. All three previously passed this check (and "succeeded" under
+#  --send-test-email, since each backend's own send_messages() reports success) -- a
+#  strictly worse outcome than the console backend this check already caught, because
+#  --send-test-email actively confirmed the false positive.
+_NON_DELIVERING_EMAIL_BACKENDS = {
+    'django.core.mail.backends.console.EmailBackend': 'prints to a terminal no one is watching',
+    'django.core.mail.backends.dummy.EmailBackend': 'discards every message -- the "turn email off" backend',
+    'django.core.mail.backends.locmem.EmailBackend': 'keeps messages in memory only -- a test-only backend',
+    'django.core.mail.backends.filebased.EmailBackend': 'writes to a local file, not a real mailbox',
+}
+
+
 def check_email() -> list[CheckResult]:
     """Hard checks (two): the email backend can actually deliver, and there is at least
     one staff recipient on file (D-13).
@@ -205,16 +221,15 @@ def check_email() -> list[CheckResult]:
     results: list[CheckResult] = []
 
     backend = settings.EMAIL_BACKEND
-    is_console = backend == 'django.core.mail.backends.console.EmailBackend'
+    non_delivering_reason = _NON_DELIVERING_EMAIL_BACKENDS.get(backend)
     results.append(
         CheckResult(
             name='EMAIL_BACKEND',
-            ok=not is_console,
+            ok=non_delivering_reason is None,
             hard=True,
             detail=(
-                f'{backend} -- the console backend only prints to a terminal no one is '
-                'watching; a failure notice would never be seen'
-                if is_console
+                f'{backend} -- {non_delivering_reason}; a failure notice would never be seen'
+                if non_delivering_reason is not None
                 else backend
             ),
         )
