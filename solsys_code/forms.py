@@ -8,6 +8,7 @@ from django.urls import reverse
 from tom_targets.forms import TargetVisibilityForm
 
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.visibility import LCO_SITES
 
 
 class EphemerisForm(forms.Form):
@@ -80,8 +81,16 @@ class EphemerisForm(forms.Form):
 
 class NonSiderealVisibilityForm(TargetVisibilityForm):
     """
-    TOM's target visibility form (start/end dates and airmass limit) without its sidereal-only check.
+    TOM's target visibility form (start/end dates and airmass limit) without its sidereal-only check,
+    plus a choice of LCO sites to sample.
     """
+
+    sites = forms.MultipleChoiceField(
+        choices=[(sitecode, f'{name} ({sitecode.upper()})') for sitecode, (name, _) in LCO_SITES.items()],
+        initial=list(LCO_SITES),
+        widget=forms.CheckboxSelectMultiple,
+        label='Sites',
+    )
 
     def clean(self):
         """Checks the date range only; skips ``TargetVisibilityForm``'s rejection of non-sidereal targets."""

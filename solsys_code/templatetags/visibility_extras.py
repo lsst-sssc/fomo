@@ -2,6 +2,8 @@
 Template tags for non-sidereal visibility: TOM's airmass "Plan" panel plus the multi-site cadence window.
 """
 
+import math
+
 from django import template
 from plotly import graph_objs as go
 from plotly import offline
@@ -11,13 +13,11 @@ from tom_observations.facility import get_service_class
 from solsys_code.ephem_utils import get_nonsidereal_visibility
 from solsys_code.forms import NonSiderealVisibilityForm
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.visibility import cadence_window, visibility_windows
+from solsys_code.visibility import LCO_SITES, cadence_window, visibility_windows
 
 register = template.Library()
 
-# LCO site code -> MPC code of one dome at that site (inter-dome differences are negligible for visibility)
-LCO_SITE_OBSCODES = {'coj': 'Q63', 'cpt': 'K91', 'lsc': 'W85', 'tfn': 'Z31', 'elp': 'V38', 'ogg': 'T04'}
-DEFAULT_SITES = 'lsc,cpt,coj'
+MAX_SAMPLES_PER_SITE = 300
 
 
 def lco_observatories(sitecodes):
@@ -25,17 +25,18 @@ def lco_observatories(sitecodes):
     Maps LCO site codes to ``Observatory`` rows keyed by upper-case site code, creating any that are missing
     from the LCO facility's site list.
 
-    :param sitecodes: LCO site codes, e.g. ``['lsc', 'cpt', 'coj']``
+    :param sitecodes: LCO site codes, e.g. ``['lsc', 'cpt', 'coj']`` (keys of ``LCO_SITES``)
     :type sitecodes: list[str]
     :rtype: dict[str, Observatory]
     """
     lco_sites = get_service_class('LCO')().get_observing_sites()
-    by_sitecode = {details['sitecode']: (name, details) for name, details in lco_sites.items()}
+    by_sitecode = {details['sitecode']: details for details in lco_sites.values()}
     observatories = {}
     for sitecode in sitecodes:
-        name, details = by_sitecode[sitecode]
+        name, obscode = LCO_SITES[sitecode]
+        details = by_sitecode[sitecode]
         observatory, _ = Observatory.objects.get_or_create(
-            obscode=LCO_SITE_OBSCODES[sitecode],
+            obscode=obscode,
             defaults={
                 'name': f'{name}-LCO',
                 'lat': details['latitude'],
@@ -49,13 +50,20 @@ def lco_observatories(sitecodes):
 
 def airmass_figure(visibility, width=600, height=400):
     """
-    Airmass against time, one line per site, in the same style as TOM's ``target_plan`` tag.
+    Airmass against time, one line per site, in the same style as TOM's ``target_plan`` tag. Sites with no
+    visible samples are left greyed out in the legend (``visible='legendonly'``).
 
     :param visibility: ``{site: (times, airmasses)}`` as returned by ``get_nonsidereal_visibility``
     :rtype: plotly.graph_objs.Figure
     """
     data = [
-        go.Scatter(x=list(times), y=airmasses, mode='lines', name=site)
+        go.Scatter(
+            x=list(times),
+            y=airmasses,
+            mode='lines',
+            name=site,
+            visible=True if any(airmass is not None for airmass in airmasses) else 'legendonly',
+        )
         for site, (times, airmasses) in visibility.items()
     ]
     layout = go.Layout(
@@ -109,6 +117,16 @@ def cadence_figure(windows, window, width=600, height=300):
     return fig
 
 
+def sampling_interval(start_time, end_time, minimum=15, max_samples=MAX_SAMPLES_PER_SITE):
+    """
+    Sampling interval in whole minutes (a multiple of 5, at least ``minimum``) that keeps the number of
+    ephemeris samples per site at or below ``max_samples`` however long the date range is.
+    """
+    minutes = (end_time - start_time).total_seconds() / 60
+    needed = math.ceil(minutes / max_samples / 5) * 5
+    return max(minimum, needed)
+
+
 def window_summary(window):
     """One-line description of a ``CadenceWindow`` in the terms of an LCO cadence request."""
     hours = window.duration.total_seconds() / 3600
@@ -123,13 +141,13 @@ def window_summary(window):
 
 
 @register.inclusion_tag('solsys_code/partials/nonsidereal_target_plan.html', takes_context=True)
-def nonsidereal_target_plan(context, sites=DEFAULT_SITES, interval=15, width=600, height=400):
+def nonsidereal_target_plan(context, interval=15, width=600, height=400):
     """
-    Non-sidereal counterpart of TOM's ``target_plan`` tag: a form for the date range and airmass limit,
-    airmass against time for each LCO site and the merged cadence window (see ``solsys_code.visibility``).
+    Non-sidereal counterpart of TOM's ``target_plan`` tag: a form for the date range, airmass limit and
+    LCO sites, airmass against time for each site and the merged cadence window (see
+    ``solsys_code.visibility``).
 
-    :param sites: Comma-separated LCO site codes to sample (keys of ``LCO_SITE_OBSCODES``)
-    :param interval: Sampling interval in minutes
+    :param interval: Minimum sampling interval in minutes; coarsened for long ranges (see ``sampling_interval``)
     """
     request = context['request']
     target = context['object']
@@ -148,19 +166,22 @@ def nonsidereal_target_plan(context, sites=DEFAULT_SITES, interval=15, width=600
             'start_time': request.GET['start_time'],
             'end_time': request.GET['end_time'],
             'airmass': request.GET.get('airmass', 2.5),
+            'sites': request.GET.getlist('sites') or list(LCO_SITES),
         }
     )
     result['form'] = form
     if not form.is_valid():
         return result
 
+    start_time = form.cleaned_data['start_time']
+    end_time = form.cleaned_data['end_time']
     airmass_limit = form.cleaned_data['airmass']
     visibility = get_nonsidereal_visibility(
         target,
-        lco_observatories(sites.split(',')),
-        form.cleaned_data['start_time'],
-        form.cleaned_data['end_time'],
-        interval,
+        lco_observatories(form.cleaned_data['sites']),
+        start_time,
+        end_time,
+        sampling_interval(start_time, end_time, interval),
         None if airmass_limit is None else float(airmass_limit),
     )
     result['airmass_graph'] = offline.plot(
