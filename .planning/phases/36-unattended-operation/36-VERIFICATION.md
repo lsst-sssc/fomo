@@ -48,9 +48,9 @@ human_verification:
   - test: "Install the printed cron line in the FOMO service account's crontab (`crontab -e`) and leave it for ~45 minutes."
     expected: "Three START/per-step/END banners appear in /var/log/fomo/unattended.log, roughly 15 minutes apart, with nobody typing anything."
     why_human: "SC 1's 'on the real host' half needs a real crontab on the production host; only the mechanism, the committed template and the printed line can be verified here."
-  - test: "Create a healthchecks-compatible check pointed at FOMO_HEARTBEAT_URL with a grace period of about 20 minutes, then disable the crontab line (simulating the scheduler never invoking the job) and wait past the grace period."
-    expected: "The heartbeat service raises an alert even though FOMO itself logged nothing and sent no email — the second, independent layer of SC 3."
-    why_human: "The 'scheduler never ran the job' signal is produced by the external heartbeat service's own grace-period timer, not by any FOMO code path."
+  - test: "Create a healthchecks-compatible check pointed at FOMO_HEARTBEAT_URL, configuring only what the corrected runbook paragraph names: an expected ping interval (Period) of 15 minutes and a grace time (Grace) of about 20 minutes. Then disable the crontab line (simulating the scheduler never invoking the job) and watch the check."
+    expected: "The check goes late about 15 minutes after the missed tick and alerts about 35 minutes after the last successful ping (last ping + expected interval + grace), even though FOMO itself logged nothing and sent no email — the second, independent layer of SC 3."
+    why_human: "The 'scheduler never ran the job' signal is produced by the external heartbeat service's own expected-interval-plus-grace timer, not by any FOMO code path."
   - test: "With the real (non-console) email backend configured, run `python manage.py check_unattended --send-test-email`."
     expected: "One message arrives in the mailbox of every staff user with an email on file — the same recipient rule the failure notice uses."
     why_human: "Real SMTP delivery cannot be exercised from the dev host, whose EMAIL_BACKEND is the console backend."
@@ -144,7 +144,7 @@ human_verification:
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
 | 35 | An operator can set up or verify the whole schedule from one runbook section without reading source | ✓ VERIFIED (usability is a human item) | `.. _unattended-operation:` section: "What runs, and when", "Setting it up on a fresh host" (7 steps incl. the two directories, local_settings placement, the env vars, `check_unattended`, the crontab, logrotate), "Adding a proposal to watch", "The two failure signals", "When nothing has appeared", "Running it by hand" |
-| 36 | The section documents both failure signals — email (who, what, repeat, clear) and heartbeat (`/start`, `/<exit-code>`, grace period a little above 15 min) — plus the "nothing has appeared" checklist | ✓ VERIFIED | Runbook "The two failure signals" covers recipients, subject form, contents, 24 h reminder, recovery mail, and recommends ~20 min grace; "When nothing has appeared" gives the D-18 four-step checklist in order |
+| 36 | The section documents both failure signals — email (who, what, repeat, clear) and heartbeat (`/start`, `/<exit-code>`, expected ping interval (Period) plus grace time (Grace), alerting at last ping + Period + Grace) — plus the "nothing has appeared" checklist | ✓ VERIFIED | Runbook "The two failure signals" covers recipients, subject form, contents, 24 h reminder, recovery mail, and recommends a 15-min Period with a ~20-min Grace (late ~15 min, alert ~35 min after the last ping) — corrected post-G-36-3; "When nothing has appeared" gives the D-18 four-step checklist in order |
 | 37 | The backfill section documents `--proposal` as optional, the bare watched sweep, per-row overrides and per-row failure isolation | ✓ VERIFIED | Runbook diff lines 9-23 state all four points explicitly, including class-name-only failure recording |
 | 38 | The cheat-sheet carries rows for `run_unattended` and `check_unattended`, and `backfill_lco_observations` reflects its optional-argument contract | ✓ VERIFIED | Cheat-sheet rows added for all three (runbook diff lines 218-235) |
 | 39 | The overlap guarantee is stated at exactly its true strength (two ticks never overlap, incl. a hand-started `run_unattended --step`; a directly-run sweep command is not locked against a tick in this release) | ✓ VERIFIED | "What the locking does and does not cover" paragraph says precisely this and names `run_unattended --step <name>` as the exclusive manual route — matching the code, where only `unattended.py` takes the named locks |
@@ -285,9 +285,11 @@ The rule requires that a plan changing a mapped module's behavior carry its pair
 
 #### 3. The heartbeat's dead-man half
 
-**Test:** Create a healthchecks-compatible check pointed at `FOMO_HEARTBEAT_URL` with a grace period of about 20 minutes, then disable the crontab line (simulating the scheduler never invoking the job) and wait past the grace period.
-**Expected:** The heartbeat service raises an alert even though FOMO itself logged nothing and sent no email — the second, independent layer of SC 3.
-**Why human:** That signal is produced by the external heartbeat service's own grace-period timer, not by any FOMO code path.
+**Test:** Create a healthchecks-compatible check pointed at `FOMO_HEARTBEAT_URL`, configuring only what the corrected runbook paragraph names: an expected ping interval (Period) of 15 minutes and a grace time (Grace) of about 20 minutes. Then disable the crontab line (simulating the scheduler never invoking the job) and watch the check.
+**Expected:** The check goes late about 15 minutes after the missed tick and alerts about 35 minutes after the last successful ping (last ping + expected interval + grace), even though FOMO itself logged nothing and sent no email — the second, independent layer of SC 3.
+**Why human:** That signal is produced by the external heartbeat service's own expected-interval-plus-grace timer, not by any FOMO code path.
+
+**Note (post-G-36-3 correction):** This test script and the plan 36-05 evidence row above (table row 36) were both corrected after gap `G-36-3` found that the original wording named only the check's grace time, leaving its expected ping interval at the vendor default and disabling the alert for about a day. See `36-UAT.md` and `.planning/debug/heartbeat-runbook-period-gap.md` for the original wording and full diagnosis.
 
 #### 4. Real mail delivery
 
