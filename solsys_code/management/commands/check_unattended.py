@@ -181,13 +181,14 @@ def check_state_dir() -> CheckResult:
     """Hard check: ``settings.FOMO_STATE_DIR`` -- where ``save_state()`` persists the
     D-11 suppression state.
 
-    WR-15 (36-REVIEW.md): an unwritable ``FOMO_STATE_DIR`` makes every tick send the
-    same failure email again, forever -- ``load_state()`` falls back to "no prior
-    failure" (WR-03), ``decide_notification()`` therefore decides ``'failure'`` on
-    every tick, and ``save_state()``'s own raised ``OSError`` is caught and logged but
-    never recorded, so the identical email goes out again next tick. Catching an
-    unwritable state directory here, the same way ``check_lock_dir()`` catches an
-    unwritable lock directory, lets an operator fix it before that loop starts.
+    WR-15 (36-REVIEW.md): an unwritable ``FOMO_STATE_DIR`` at setup time is exactly what
+    this hard check exists to catch before an operator ever installs the cron line, the
+    same way ``check_lock_dir()`` catches an unwritable lock directory. WR-17
+    (36-REVIEW.md, this preflight cannot see): ``FOMO_STATE_DIR`` becoming unwritable
+    AFTER this check has already passed (a full ``/var/lock`` tmpfs is the realistic
+    trigger) is instead handled at runtime -- ``save_state()`` falls back to a location
+    outside ``FOMO_STATE_DIR`` rather than raising, so the suppression decision survives
+    the outage instead of re-mailing an identical failure notice every tick.
     """
     return _check_directory_writable(
         'FOMO_STATE_DIR', Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR)

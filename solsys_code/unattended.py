@@ -49,6 +49,14 @@ logger = logging.getLogger(__name__)
 _HEARTBEAT_TIMEOUT_SECONDS = 10
 _REMINDER_INTERVAL = timedelta(hours=24)
 _STATE_FILENAME = 'unattended-state.json'
+# WR-17 (36-REVIEW.md): where save_state() falls back to when FOMO_STATE_DIR is
+# unwritable. `run_unattended` is a fresh process per cron tick (no in-process loop), so
+# a module-level "already notified" flag cannot survive between ticks -- only something
+# written to disk can. tempfile.gettempdir() is deliberately NOT FOMO_STATE_DIR (which is
+# precisely what may have become unwritable): without a location outside it, an
+# unwritable state directory makes every tick reach the identical "newly failing"
+# decision forever, sending one identical failure email per tick (D-11 failing open).
+_FALLBACK_STATE_PATH = Path(tempfile.gettempdir()) / 'fomo-unattended-state.fallback.json'
 # IN-14 (36-REVIEW.md): mirrors settings.py's own os.getenv(..., <default>) defaults for
 # FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
 # from an unset environment variable with no default of its own yields None (exactly the
@@ -400,6 +408,31 @@ STEPS = (
 )
 
 
+def _primary_state_path() -> Path:
+    """The documented D-11 suppression-state file location (FOMO_STATE_DIR, defaulting
+    to FOMO_LOCK_DIR)."""
+    return Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR) / _STATE_FILENAME
+
+
+def _newest_existing_state_path() -> Path | None:
+    """Return whichever of the primary/fallback state files was written most recently,
+    or None if neither exists (WR-17, 36-REVIEW.md).
+
+    The fallback is only ever newer than the primary while the primary is unwritable --
+    the moment a ``save_state()`` succeeds against the primary again, it deletes the
+    fallback, so this reverts to reading the primary alone as soon as the outage clears.
+    """
+    candidates = []
+    for path in (_primary_state_path(), _FALLBACK_STATE_PATH):
+        try:
+            candidates.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    if not candidates:
+        return None
+    return max(candidates, key=lambda pair: pair[0])[1]
+
+
 def load_state() -> dict:
     """Read the D-11 suppression-state file.
 
@@ -413,8 +446,15 @@ def load_state() -> dict:
             prior failure" -- never an exception out of ``run_tick()``. A naive
             ``notified_at`` (no tzinfo) is assumed UTC, so ``decide_notification()``
             can always subtract it from an aware ``now``.
+
+    WR-17 (36-REVIEW.md): reads whichever of the primary state file and the
+    ``save_state()`` fallback location was written most recently, so a tick that could
+    only persist to the fallback (because ``FOMO_STATE_DIR`` was unwritable) is still
+    seen by the next tick's notification decision, instead of being silently lost.
     """
-    state_path = Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR) / _STATE_FILENAME
+    state_path = _newest_existing_state_path()
+    if state_path is None:
+        return {'failing_steps': [], 'notified_at': None}
     try:
         with state_path.open() as fh:
             data = json.load(fh)
@@ -447,6 +487,35 @@ def load_state() -> dict:
     }
 
 
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    """Write ``payload`` to ``path`` atomically: a fresh temp file in the same
+    directory, then ``os.replace()``.
+
+    IN-03 (36-REVIEW.md): so a process kill mid-write (the same OOM/SIGKILL class
+    WR-14 already documents for the lock file) can never leave a torn/partial JSON file
+    for the next tick's ``load_state()`` to find. Sets an explicit ``0o600`` mode rather
+    than relying on the process umask, since the parent directory may not be
+    exclusively owned by this process (``FOMO_STATE_DIR`` defaults to
+    ``FOMO_LOCK_DIR``; the fallback path is the shared system temp directory).
+
+    Raises:
+        OSError: the directory or temp file could not be created or written -- the
+            caller decides what "could not persist state" means for it.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp')
+    tmp_path = Path(tmp_path_str)
+    try:
+        with os.fdopen(fd, 'w') as fh:
+            json.dump(payload, fh)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, path)
+    except BaseException:
+        with suppress(OSError):
+            tmp_path.unlink()
+        raise
+
+
 def save_state(failing_steps: list[str], notified_at: datetime | None) -> None:
     """Write the D-11 suppression-state file.
 
@@ -456,31 +525,35 @@ def save_state(failing_steps: list[str], notified_at: datetime | None) -> None:
         notified_at: when the notification for this state was sent, or None (the
             recovered/no-prior-failure state).
 
-    IN-03 (36-REVIEW.md): writes atomically -- a fresh temp file in the same directory,
-    then ``os.replace()`` -- so a process kill mid-write (the same OOM/SIGKILL class
-    WR-14 already documents for the lock file) can never leave a torn/partial JSON file
-    for the next tick's ``load_state()`` to find. Sets an explicit ``0o600`` mode rather
-    than relying on the process umask, since ``FOMO_STATE_DIR`` defaults to
-    ``FOMO_LOCK_DIR``, a directory other processes may also write into.
+    WR-17 (36-REVIEW.md): if the primary location (``FOMO_STATE_DIR``) cannot be
+    written -- e.g. it became unwritable or full after setup, past
+    ``check_state_dir()``'s one-time preflight -- falls back to
+    ``_FALLBACK_STATE_PATH`` instead of raising. Without this, ``load_state()`` sees
+    no persisted failure on the NEXT tick, ``decide_notification()`` reaches "newly
+    failing" again, and the tick mails staff the same failure notice every 15 minutes
+    for as long as the outage lasts (D-11 failing open). Once a write to the primary
+    location succeeds again, the stale fallback is removed so ``load_state()`` goes
+    back to reading the primary alone.
     """
-    state_dir = Path(settings.FOMO_STATE_DIR or settings.FOMO_LOCK_DIR or _DEFAULT_LOCK_DIR)
-    state_dir.mkdir(parents=True, exist_ok=True)
-    state_path = state_dir / _STATE_FILENAME
     payload = {
         'failing_steps': sorted(failing_steps),
         'notified_at': notified_at.isoformat() if notified_at else None,
     }
-    fd, tmp_path_str = tempfile.mkstemp(dir=state_dir, prefix=f'.{_STATE_FILENAME}.', suffix='.tmp')
-    tmp_path = Path(tmp_path_str)
+    primary_path = _primary_state_path()
     try:
-        with os.fdopen(fd, 'w') as fh:
-            json.dump(payload, fh)
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, state_path)
-    except BaseException:
-        with suppress(OSError):
-            tmp_path.unlink()
-        raise
+        _atomic_write_json(primary_path, payload)
+    except OSError:
+        logger.error(
+            'could not persist unattended suppression state to %s -- writing to the fallback '
+            'location %s instead so a repeat notification for this failing set is still '
+            'suppressed (WR-17, 36-REVIEW.md)',
+            primary_path,
+            _FALLBACK_STATE_PATH,
+        )
+        _atomic_write_json(_FALLBACK_STATE_PATH, payload)
+        return
+    with suppress(OSError):
+        _FALLBACK_STATE_PATH.unlink()
 
 
 def decide_notification(previous_state: dict, failing_steps: list[str], now: datetime) -> str | None:

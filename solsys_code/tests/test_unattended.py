@@ -11,6 +11,7 @@ matching ``test_reconcile_campaign_runs.py``'s own convention.
 import contextlib
 import fcntl
 import json
+import os
 import stat
 import tempfile
 from datetime import date, datetime, timedelta
@@ -215,6 +216,38 @@ class TestNotification(UnattendedTestBase):
         with patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError('boom')):
             with self.assertRaises(SystemExit):
                 call_command('run_unattended')
+            with self.assertRaises(SystemExit):
+                call_command('run_unattended')
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_unwritable_state_dir_after_setup_still_suppresses_repeat_mail(self):
+        # WR-17 (36-REVIEW.md): WR-15's fix only covered the SETUP-time preflight
+        # (check_state_dir()) -- a state directory that becomes unwritable AFTER setup
+        # (a full /var/lock tmpfs is the realistic trigger) previously made
+        # save_state() raise, so the NEXT tick's load_state() saw no persisted failure
+        # and reached "newly failing" again -- one identical failure email per tick,
+        # forever (D-11 failing open). save_state() now falls back to a location
+        # outside FOMO_STATE_DIR when the primary write fails, so the suppression
+        # decision survives the outage across two separate `run_unattended` processes.
+        unwritable_state_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(unwritable_state_dir.cleanup)
+        state_path = Path(unwritable_state_dir.name)
+        os.chmod(state_path, stat.S_IRUSR | stat.S_IXUSR)
+        self.addCleanup(lambda: os.chmod(state_path, stat.S_IRWXU))
+
+        fallback_path = unattended._FALLBACK_STATE_PATH
+        with contextlib.suppress(FileNotFoundError):
+            fallback_path.unlink()
+        self.addCleanup(lambda: fallback_path.unlink(missing_ok=True))
+
+        self._make_campaign_run()
+        with (
+            override_settings(FOMO_STATE_DIR=str(state_path)),
+            patch('solsys_code.unattended.reconcile_run', side_effect=RuntimeError('boom')),
+        ):
+            with self.assertRaises(SystemExit):
+                call_command('run_unattended')
+            self.assertTrue(fallback_path.exists(), 'expected save_state() to fall back when the primary is unwritable')
             with self.assertRaises(SystemExit):
                 call_command('run_unattended')
         self.assertEqual(len(mail.outbox), 1)
