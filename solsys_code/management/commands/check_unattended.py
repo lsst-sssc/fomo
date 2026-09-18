@@ -34,8 +34,10 @@ from tom_observations.facilities.lco import LCOSettings
 from tom_observations.facilities.soar import SOARSettings
 
 from solsys_code import notifications
+from solsys_code.constants import CRON_INTERVAL_MINUTES as _CRON_INTERVAL_MINUTES
+from solsys_code.constants import DEFAULT_LOCK_DIR as _DEFAULT_LOCK_DIR
+from solsys_code.constants import DEFAULT_LOG_FILE as _DEFAULT_LOG_FILE
 from solsys_code.models import WatchedProposal
-from solsys_code.unattended import _CRON_INTERVAL_MINUTES, _DEFAULT_LOCK_DIR, _DEFAULT_LOG_FILE
 
 # IN-14 (36-REVIEW.md): mirrors settings.py's own os.getenv(..., <default>) defaults for
 # FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
@@ -44,22 +46,24 @@ from solsys_code.unattended import _CRON_INTERVAL_MINUTES, _DEFAULT_LOCK_DIR, _D
 # against). These are a last-resort fallback for that misconfiguration, not a
 # substitute for settings.py's own defaults.
 #
-# IN-22 (36-REVIEW.md): imported from unattended.py above rather than redefined here --
-# the IN-14 fix had duplicated the same two literals into both modules with nothing
-# enforcing they stayed in sync, so a future change to settings.py's own defaults could
-# silently desynchronize one of the two fallback paths whose entire purpose is to match
-# it. unattended.py is the single owner.
+# IN-22/IN-34 (36-REVIEW.md): imported from solsys_code.constants above rather than
+# redefined here -- the IN-14 fix had duplicated the same two literals into both modules
+# with nothing enforcing they stayed in sync. IN-22 first fixed that by having this
+# module import them from unattended.py; IN-34 moved the shared ownership out of
+# unattended.py into this leaf module instead, since importing unattended.py at all pulls
+# in the full runner graph (campaign_reconciler, observation_projector,
+# backfill_lco_observations, project_observation_calendar, telescope_runs (astropy), and
+# both facility classes) into a command whose whole contract is "read-only, reports, does
+# not fix" (D-05) -- a cost and coupling concern this read-only preflight should not carry
+# just to reach two path literals and one interval.
 #
-# IN-20/D-04/WR-36 (36-REVIEW.md): _CRON_INTERVAL_MINUTES is likewise imported from
-# unattended.py rather than redefined here -- both cron_line()'s
-# `*/{_CRON_INTERVAL_MINUTES}` schedule and check_heartbeat()'s reminder text read this
-# constant, so the "15" the runbook and crontab template also document cannot drift
-# between the two modules' own copies the way IN-20 found it already had (the preflight's
-# reminder named Period only, never Grace) and the way WR-36 found it had again (this
-# module's own `_CRON_INTERVAL_MINUTES = 15` and unattended.py's independent
-# `_CRON_TICK_INTERVAL = timedelta(minutes=15)`, introduced in the same iteration that
-# added the IN-22 single-owner rule for the two path defaults above). unattended.py is now
-# the single owner of the interval too.
+# IN-20/D-04/WR-36 (36-REVIEW.md): _CRON_INTERVAL_MINUTES is imported the same way --
+# both cron_line()'s `*/{_CRON_INTERVAL_MINUTES}` schedule and check_heartbeat()'s
+# reminder text read this constant, so the "15" the runbook and crontab template also
+# document cannot drift between the two modules' own copies the way IN-20 found it
+# already had (the preflight's reminder named Period only, never Grace) and the way WR-36
+# found it had again (this module's own `_CRON_INTERVAL_MINUTES = 15` and unattended.py's
+# independent `_CRON_TICK_INTERVAL = timedelta(minutes=15)`).
 _RECOMMENDED_HEARTBEAT_GRACE_MINUTES = 20
 # IN-23 (36-REVIEW.md): the allow-list check_flock()'s success detail compares a
 # resolved `flock` path against, before printing it for an operator to paste into a

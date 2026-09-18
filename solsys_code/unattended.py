@@ -41,6 +41,9 @@ from tom_observations.models import ObservationRecord
 
 from solsys_code import notifications
 from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.constants import CRON_INTERVAL_MINUTES as _CRON_INTERVAL_MINUTES
+from solsys_code.constants import DEFAULT_LOCK_DIR as _DEFAULT_LOCK_DIR
+from solsys_code.constants import DEFAULT_LOG_FILE as _DEFAULT_LOG_FILE
 from solsys_code.management.commands.backfill_lco_observations import sweep_watched_rows
 from solsys_code.management.commands.project_observation_calendar import resolve_observed_site
 from solsys_code.models import CampaignRun
@@ -50,27 +53,20 @@ logger = logging.getLogger(__name__)
 
 _HEARTBEAT_TIMEOUT_SECONDS = 10
 _REMINDER_INTERVAL = timedelta(hours=24)
-# D-04/WR-16/WR-36 (36-REVIEW.md): the single source for the cron schedule's own
-# interval -- check_unattended.py's cron_line() `*/{_CRON_INTERVAL_MINUTES}` schedule and
-# check_heartbeat() reminder text import this constant rather than redeclaring it, so the
-# "15" the runbook and crontab template also document cannot silently desynchronize
-# between the two modules the way WR-36 found it already had (IN-22 had already applied
-# the same single-owner discipline to _DEFAULT_LOCK_DIR/_DEFAULT_LOG_FILE below, but this
-# module then reintroduced a second, independent copy of the interval itself). Also the
-# threshold _reap_stale_temp_files() uses, since any of _atomic_write_json()'s temp files
-# still around after a full tick interval can only be a leftover from a killed process,
-# never an in-flight write (a single write is milliseconds of work).
-_CRON_INTERVAL_MINUTES = 15
+# D-04/WR-16/WR-36/IN-34 (36-REVIEW.md): _CRON_INTERVAL_MINUTES, _DEFAULT_LOCK_DIR and
+# _DEFAULT_LOG_FILE are imported from solsys_code.constants (a leaf module with no
+# project-local imports of its own) rather than declared here -- both this module and
+# check_unattended.py's cron_line()/check_heartbeat() need the same three literals
+# without either depending on the other's import graph. WR-36 found unattended.py had
+# grown a second, independent copy of the interval (_CRON_TICK_INTERVAL = timedelta(
+# minutes=15)) in the same iteration IN-22 established the single-owner rule for the two
+# path defaults below -- constants.py is now the one place all three are declared.
+# _CRON_TICK_INTERVAL is also the threshold _reap_stale_temp_files() uses, since any of
+# _atomic_write_json()'s temp files still around after a full tick interval can only be a
+# leftover from a killed process, never an in-flight write (a single write is
+# milliseconds of work).
 _CRON_TICK_INTERVAL = timedelta(minutes=_CRON_INTERVAL_MINUTES)
 _STATE_FILENAME = 'unattended-state.json'
-# IN-14 (36-REVIEW.md): mirrors settings.py's own os.getenv(..., <default>) defaults for
-# FOMO_LOCK_DIR/FOMO_LOG_FILE -- a hand-edited local_settings.py deriving one of these
-# from an unset environment variable with no default of its own yields None (exactly the
-# WR-07 hazard FOMO_BASE_URL already guards against), and Path(None) raises TypeError
-# from the very first thing run_tick() does. These are a last-resort fallback for that
-# misconfiguration, not a substitute for settings.py's own defaults.
-_DEFAULT_LOCK_DIR = '/var/lock/fomo'
-_DEFAULT_LOG_FILE = '/var/log/fomo/unattended.log'
 # WR-08 (36-REVIEW.md): during a whole-facility outage, every non-terminal record fails
 # update_all_observation_statuses(), and _refresh_one_facility() re-checks each one
 # individually purely to name the exception class -- uncapped, that is 2N portal
