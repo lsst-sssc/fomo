@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 8/8 plans executed, 7/8 executed (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1; 36-08 added 2026-09-18 as gap-closure wave 6 for verification gap G-36-4, the fresh-host API-key step 36-07 itself introduced)
+**Plans**: 9 plans (8/9 executed) (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1; 36-08 added 2026-09-18 as gap-closure wave 6 for verification gap G-36-4, the fresh-host API-key step 36-07 itself introduced; 36-09 added 2026-09-18 as gap-closure wave 7 for UAT gap G-36-5, the preflight printing every non-`ok` line twice when both streams share one destination)
 
 Plans:
 **Wave 1**
@@ -364,6 +364,10 @@ Plans:
 **Wave 6** *(gap closure — verification G-36-4)*
 
 - [x] 36-08-PLAN.md — The fresh-host API-key step names the flat `LCO_API_KEY` setting `local_settings.py` can actually assign, the settings fold is extended so that one key reaches the SOAR facility as well as LCO, a committed test executes the real fold to prove both, and the SC-5 read-through's hold gains a release condition
+
+**Wave 7** *(gap closure — UAT G-36-5)*
+
+- [ ] 36-09-PLAN.md — `check_unattended` writes each result line once, to one stream (passing to standard output, warnings and failures to standard error, with an ordering flush), the test module gains a merged-sink helper so this defect class is reachable at all, the runbook's preflight step states the routing and the redirect to use, and the operator's own API-key wording is committed with its typos fixed
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
