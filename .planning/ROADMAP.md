@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 6/7 plans executed (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1)
+**Plans**: 7/7 plans executed (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1)
 
 Plans:
 **Wave 1**
@@ -359,7 +359,7 @@ Plans:
 
 **Wave 5** *(gap closure — UAT G-36-1)*
 
-- [ ] 36-07-PLAN.md — The fresh-host procedure gains a create-and-configure-the-check step before the export, one step per variable, the service class and ping-URL provenance, the crontab pointer narrowed, and the SC-5 sufficiency read-through re-scripted to run first
+- [x] 36-07-PLAN.md — The fresh-host procedure gains a create-and-configure-the-check step before the export, one step per variable, the service class and ping-URL provenance, the crontab pointer narrowed, and the SC-5 sufficiency read-through re-scripted to run first
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
@@ -420,7 +420,7 @@ Plans:
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
-| 36. Unattended Operation | v2.4 | 6/6 | In Progress|  |
+| 36. Unattended Operation | v2.4 | 7/7 | In Progress|  |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

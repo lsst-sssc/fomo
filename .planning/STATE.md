@@ -5,16 +5,16 @@ milestone_name: Observation-First Calendar
 current_phase: 36
 current_phase_name: Unattended Operation
 status: executing
-stopped_at: Completed 36-06-PLAN.md
-last_updated: "2026-09-18T01:21:54.655Z"
+stopped_at: Completed 36-07-PLAN.md
+last_updated: "2026-09-18T05:17:58.547Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 36 execution started
-state_head: 1f3bbacae4726d8312a96daae9afb070b4d9575c
+state_head: 71cdec20adb519152844c8e94437144f17a78da7
 progress:
   total_phases: 5
   completed_phases: 35
-  total_plans: 49
-  completed_plans: 49
+  total_plans: 50
+  completed_plans: 50
   percent: 100
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 ## Current Position
 
 Phase: 36 (Unattended Operation) — EXECUTING
-Plan: 6 of 6
-Status: All plans complete — ready for phase verification
-Last activity: 2026-09-18 — Completed 36-06-PLAN.md (gap closure for G-36-3)
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-09-17 — Phase 36 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -221,6 +221,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36 P04 | 18min | 3 tasks | 3 files |
 | Phase 36 P05 | 33min | 3 tasks | 5 files |
 | Phase 36-unattended-operation P06 | 30min | 3 tasks | 6 files |
+| Phase 36 P07 | 25 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -361,6 +362,8 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: 36-05: added a previously-missing backfill_lco_observations cheat-sheet row rather than blocking on the plan's 'update' framing — No such row existed at all; the command was already fully documented elsewhere, so adding the row closed a pre-existing gap rather than introducing new scope.
 - [Phase 36]: 36-05: the runbook's locking guarantee for run_unattended is stated narrowly and verified against unattended.py's command_lock() call sites -- two ticks (incl. --step <name>) never overlap, but a direct manage.py invocation of the underlying sweep command is not locked against a tick — Cross-checked directly against source and step docstrings rather than assuming the discretion note's original aspiration held, so the runbook does not promise a guarantee the code does not provide.
 - [Phase 36-unattended-operation]: Corrected heartbeat alert-window guidance to name both the check's expected ping interval (Period) and grace time (Grace), everywhere it appears — G-36-3 found the runbook named only the grace knob, leaving Period at its 1-day vendor default and disabling the dead-man layer for about a day; the fix (36-06) propagates the two-knob guidance to the runbook, crontab template, runner docstrings, preflight output, and the verification record
+- [Phase 36]: [Phase 36-07]: Moved the stale Test 6 runbook-sufficiency entry out of re_verification.human_items_closed_by_uat into human_items_still_open with a RE-OPENED-by-G-36-1 marker — Makes 'no longer closed' unambiguous by list membership rather than relying on a reader noticing an appended marker string.
+- [Phase 36]: [Phase 36-07]: Kept the SC5/truth-35 evidence cells' base verdict as VERIFIED with a parenthetical human-item qualifier, matching the exact form SC3 already uses, instead of downgrading the marker — The structural half (9 numbered steps, correct order) is genuinely machine-verified; only sufficiency-at-point-of-use is a human item.
 
 ### Pending Todos
 
@@ -465,8 +468,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-18T01:21:54.332Z
-Stopped at: Completed 36-06-PLAN.md
+Last session: 2026-09-18T05:17:32.043Z
+Stopped at: Completed 36-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
