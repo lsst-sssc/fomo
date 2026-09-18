@@ -336,7 +336,7 @@ Plans:
   4. No API key or password appears in any log line, notification or error message the unattended path produces
   5. An operator can set up, or verify, the whole schedule on a fresh host from one runbook section without reading source
 
-**Plans**: 8 plans, 7/8 executed (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1; 36-08 added 2026-09-18 as gap-closure wave 6 for verification gap G-36-4, the fresh-host API-key step 36-07 itself introduced)
+**Plans**: 8/8 plans executed, 7/8 executed (36-06 closed UAT gap G-36-3; 36-07 added 2026-09-18 as gap-closure wave 5 for UAT gap G-36-1; 36-08 added 2026-09-18 as gap-closure wave 6 for verification gap G-36-4, the fresh-host API-key step 36-07 itself introduced)
 
 Plans:
 **Wave 1**
@@ -363,7 +363,7 @@ Plans:
 
 **Wave 6** *(gap closure — verification G-36-4)*
 
-- [ ] 36-08-PLAN.md — The fresh-host API-key step names the flat `LCO_API_KEY` setting `local_settings.py` can actually assign, the settings fold is extended so that one key reaches the SOAR facility as well as LCO, a committed test executes the real fold to prove both, and the SC-5 read-through's hold gains a release condition
+- [x] 36-08-PLAN.md — The fresh-host API-key step names the flat `LCO_API_KEY` setting `local_settings.py` can actually assign, the settings fold is extended so that one key reaches the SOAR facility as well as LCO, a committed test executes the real fold to prove both, and the SC-5 read-through's hold gains a release condition
 
 ### Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
@@ -424,7 +424,7 @@ Plans:
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
-| 36. Unattended Operation | v2.4 | 7/7 | In Progress|  |
+| 36. Unattended Operation | v2.4 | 8/8 | In Progress|  |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

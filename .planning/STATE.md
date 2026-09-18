@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 36
-current_phase_name: unattended-operation
+current_phase_name: Unattended Operation
 status: executing
-stopped_at: Completed 36-07-PLAN.md
-last_updated: "2026-09-18T11:44:54.086Z"
+stopped_at: Completed 36-08-PLAN.md (gap closure for G-36-4)
+last_updated: "2026-09-18T12:10:40.668Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 36 execution started
-state_head: 2c3400652b1365c9904ba4ce18b765d9c5d40bdc
+state_head: 96701a36796035888bf897a2fe7132507914406f
 progress:
   total_phases: 5
   completed_phases: 35
   total_plans: 51
-  completed_plans: 50
-  percent: 98
+  completed_plans: 51
+  percent: 100
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
 
 ## Current Position
 
-Phase: 36 (unattended-operation) — READY TO EXECUTE
-Plan: 2 of 7
-Status: Ready to execute
-Last activity: 2026-09-17 — Phase 36 execution started
+Phase: 36 (Unattended Operation) — 8/8 plans complete (gap-closure plan 36-08 closed G-36-4)
+Plan: 8 of 8
+Status: Phase 36 plans complete — pending re-verification
+Last activity: 2026-09-18 — Completed 36-08-PLAN.md (gap closure for G-36-4)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -222,6 +222,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36 P05 | 33min | 3 tasks | 5 files |
 | Phase 36-unattended-operation P06 | 30min | 3 tasks | 6 files |
 | Phase 36 P07 | 25 min | 3 tasks | 3 files |
+| Phase 36 P08 | ~15min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -364,6 +365,7 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 36-unattended-operation]: Corrected heartbeat alert-window guidance to name both the check's expected ping interval (Period) and grace time (Grace), everywhere it appears — G-36-3 found the runbook named only the grace knob, leaving Period at its 1-day vendor default and disabling the dead-man layer for about a day; the fix (36-06) propagates the two-knob guidance to the runbook, crontab template, runner docstrings, preflight output, and the verification record
 - [Phase 36]: [Phase 36-07]: Moved the stale Test 6 runbook-sufficiency entry out of re_verification.human_items_closed_by_uat into human_items_still_open with a RE-OPENED-by-G-36-1 marker — Makes 'no longer closed' unambiguous by list membership rather than relying on a reader noticing an appended marker string.
 - [Phase 36]: [Phase 36-07]: Kept the SC5/truth-35 evidence cells' base verdict as VERIFIED with a parenthetical human-item qualifier, matching the exact form SC3 already uses, instead of downgrading the marker — The structural half (9 numbered steps, correct order) is genuinely machine-verified; only sufficiency-at-point-of-use is a human item.
+- [Phase 36]: Promoted the single flat LCO_API_KEY setting to feed both the LCO and SOAR facility entries rather than adding a second SOAR_API_KEY (36-08). — One credential authenticates against the same LCO Observation Portal for both facilities; a second name would let the two drift.
 
 ### Pending Todos
 
@@ -468,8 +470,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-18T05:17:32.043Z
-Stopped at: Completed 36-07-PLAN.md
+Last session: 2026-09-18T12:10:40.342Z
+Stopped at: Completed 36-08-PLAN.md (gap closure for G-36-4)
 Resume file: None
 
 ## Operator Next Steps
