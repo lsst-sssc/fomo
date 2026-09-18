@@ -121,16 +121,29 @@ class TestLiveFacilitiesCarriesBothFoldTargets(SimpleTestCase):
             self.assertIn('api_key', live.FACILITIES[facility])
 
 
-class TestBracketedDictSubscriptRaisesNameError(SimpleTestCase):
-    """The instruction the OLD runbook gave -- reaching into a settings dict already
-    built above the import guard -- is fatal. Pins G-36-4's failure mode as an
-    executable case so the class of defect it belongs to cannot return silently. This
-    never imports, reads, or writes any real local settings module: it executes a
-    bare literal string in a namespace of the same model a local settings module gets."""
+class TestFoldTailUsesStarImportIntoOwnNamespace(SimpleTestCase):
+    """WR-30 (36-REVIEW.md iteration 5): the case this replaces asserted a property of
+    Python itself (``exec("d['k'] = 1", {})`` raises ``NameError`` for ANY empty
+    namespace -- true of every Python program ever written) rather than a property of
+    this codebase, so it could not fail no matter how the fold tail changed. This case
+    instead pins the actual mechanism the runbook's ``NameError`` explanation, and G-36-4's
+    failure mode, both rest on: the fold tail imports ``fomo.local_settings`` with a plain
+    ``from ... import *`` (so a local settings module can only ASSIGN new names into the
+    namespace it executes in -- it cannot mutate ``FACILITIES`` above it), and it does NOT
+    use a bare ``except:`` (which would also swallow the ``NameError`` such a mutation
+    attempt raises, rather than letting Django refuse to start)."""
 
-    def test_bracketed_subscript_assignment_raises_nameerror(self):
-        with self.assertRaises(NameError):
-            exec("FACILITIES['LCO']['api_key'] = 'placeholder'", {})  # noqa: S102
+    def test_fold_tail_star_imports_and_does_not_use_a_bare_except(self):
+        settings_module = importlib.import_module(environ['DJANGO_SETTINGS_MODULE'])
+        settings_path = settings_module.__file__
+        with open(settings_path) as fh:
+            source = fh.read()
+        anchor_index = source.find(_FOLD_TAIL_ANCHOR)
+        if anchor_index == -1:
+            self.fail(f'fold-tail anchor not found in {settings_path}: {_FOLD_TAIL_ANCHOR!r}')
+        tail_source = source[anchor_index:]
+        self.assertIn('from fomo.local_settings import *', tail_source)
+        self.assertNotRegex(tail_source, r'except\s*:', msg='a bare except would also swallow NameError')
 
 
 class TestSoarAccessorReadsFoldTarget(SimpleTestCase):
