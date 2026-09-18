@@ -459,3 +459,8 @@ if 'LCO_API_KEY' in globals():
     # 'SOAR' entry from this loop (see IN-31, 36-REVIEW.md iteration 5).
     for _facility in ('LCO', 'SOAR'):
         FACILITIES.setdefault(_facility, {})['api_key'] = LCO_API_KEY  # noqa: F405
+    # IN-37 (36-REVIEW.md): del the loop variable rather than leaving it bound in the
+    # settings module's namespace after the loop -- harmless today (Django's Settings
+    # only copies isupper() names off this module), but it left the module's final
+    # namespace carrying a stray non-setting.
+    del _facility

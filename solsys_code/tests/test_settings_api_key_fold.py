@@ -5,7 +5,7 @@ These tests execute the REAL fold tail of the live settings module -- not a
 re-implementation of it -- against either a synthetic ``fomo.local_settings`` module
 injected into ``sys.modules`` (``_FoldExecutionTestCase``) or a ``sys.meta_path`` finder
 that forces the import to fail on demand (``_MissingModuleFinder``), so a future edit to
-the fold tail fails one of these tests instead of passing a source-token grep. Seven test
+the fold tail fails one of these tests instead of passing a source-token grep. Eight test
 classes (IN-33, 36-REVIEW.md):
 
 - ``TestFlatKeyReachesBothFacilities``: the flat ``LCO_API_KEY`` setting reaches both the
@@ -15,6 +15,9 @@ classes (IN-33, 36-REVIEW.md):
   object actually carries both fold targets (``FACILITIES['LCO']``/``['SOAR']``), which
   the synthetic namespace the other cases execute into cannot itself detect (WR-29,
   36-REVIEW.md iteration 5).
+- ``TestFoldTailDoesNotLeakLoopVariable``: the fold's own ``for _facility in (...)`` loop
+  variable does not survive as a stray name in the live settings module's namespace
+  (IN-37, 36-REVIEW.md).
 - ``TestSoarPortalUrlMatchesLcoBeforeKeyIsCopied``: the SOAR and LCO portal URLs still
   match, the one thing that makes copying the LCO key into the SOAR entry safe (IN-31,
   36-REVIEW.md iteration 5).
@@ -137,6 +140,24 @@ class TestLiveFacilitiesCarriesBothFoldTargets(SimpleTestCase):
         for facility in ('LCO', 'SOAR'):
             self.assertIn(facility, live.FACILITIES)
             self.assertIn('api_key', live.FACILITIES[facility])
+
+
+class TestFoldTailDoesNotLeakLoopVariable(SimpleTestCase):
+    """IN-37 (36-REVIEW.md): the fold's ``for _facility in ('LCO', 'SOAR'):`` loop
+    variable must not survive as a stray module-level name in the settings module's own
+    namespace after import. This checkout's own real ``src/fomo/local_settings.py`` sets
+    ``LCO_API_KEY`` (a fixture for this whole test module -- see
+    ``TestLiveFacilitiesCarriesBothFoldTargets``'s docstring for the same premise), so the
+    fold loop actually runs on every settings import here. Asserts directly against the
+    live, already-imported settings module rather than a synthetic namespace, so it fails
+    if a future edit drops the ``del _facility`` this fix adds."""
+
+    def test_settings_module_does_not_carry_the_loop_variable(self):
+        settings_module = importlib.import_module(django_settings.SETTINGS_MODULE)
+        self.assertFalse(
+            hasattr(settings_module, '_facility'),
+            'the fold tail left its own loop variable bound in the settings module namespace',
+        )
 
 
 class TestSoarPortalUrlMatchesLcoBeforeKeyIsCopied(SimpleTestCase):
