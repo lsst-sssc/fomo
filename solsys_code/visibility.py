@@ -44,6 +44,33 @@ def _is_valid(airmass) -> bool:
         return True
 
 
+def airmass_samples(altitudes_deg, sun_altitudes_deg, airmass_limit=None, sun_alt_limit_deg=-18.0) -> list:
+    """
+    Converts sampled target and Sun altitudes into the ``[airmass | None]`` list used by ``visibility_windows``.
+
+    Mirrors the masking in ``tom_observations.utils.get_sidereal_visibility``: a sample is ``None`` when the
+    target is below the horizon, its plane-parallel (sec z) airmass is at or above ``airmass_limit`` (default 10)
+    or the Sun is above ``sun_alt_limit_deg`` (default: astronomical twilight).
+
+    :param altitudes_deg: Target altitude at each sample (degrees)
+    :param sun_altitudes_deg: Sun altitude at each sample (degrees)
+    :param airmass_limit: Maximum acceptable airmass; ``None`` means 10
+    :param sun_alt_limit_deg: Samples with the Sun above this altitude are rejected
+    :return: Airmass per sample, or ``None`` where the sample is not observable
+    :rtype: list
+    """
+    if airmass_limit is None:
+        airmass_limit = 10
+    airmasses = []
+    for alt, sun_alt in zip(altitudes_deg, sun_altitudes_deg, strict=True):
+        if alt <= 0 or sun_alt > sun_alt_limit_deg:
+            airmasses.append(None)
+            continue
+        airmass = 1.0 / math.sin(math.radians(alt))
+        airmasses.append(None if airmass >= airmass_limit else float(airmass))
+    return airmasses
+
+
 def visibility_windows(samples: dict[str, tuple]) -> dict[str, list[Interval]]:
     """
     Turns sampled visibility into per-site intervals of contiguous valid samples.

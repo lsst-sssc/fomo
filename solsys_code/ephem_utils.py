@@ -19,6 +19,7 @@ import rebound
 import spiceypy as spice
 from astropy import units as u
 from astropy.constants import GM_sun, c
+from astropy.coordinates import AltAz, EarthLocation, get_sun
 from astropy.coordinates.builtin_frames.utils import get_jd12, get_polar_motion
 from astropy.time import Time
 
@@ -34,6 +35,8 @@ from sorcha.ephemeris.simulation_geometry import (
 from sorcha.ephemeris.simulation_parsing import Observatory as SorchaObservatory
 from sorcha.ephemeris.simulation_setup import create_assist_ephemeris, furnish_spiceypy
 from sorcha.utilities.sorchaConfigs import auxiliaryConfigs
+
+from solsys_code.visibility import airmass_samples
 
 # Value of au in meters (fixed by IAU 2012 resolution)
 AU_M = 149597870700
@@ -607,3 +610,46 @@ def compute_ephemeris(target, observatory, times):
     # Add sky motion rate column
     predictions = add_sky_motion(predictions)
     return predictions
+
+
+def get_nonsidereal_visibility(target, sites, start_time, end_time, interval, airmass_limit=None):
+    """
+    Sample the airmass of a non-sidereal Target from each site between ``start_time`` and ``end_time``.
+
+    Non-sidereal counterpart of ``tom_observations.utils.get_sidereal_visibility`` with the same output
+    shape, so the result can be fed to ``solsys_code.visibility.visibility_windows`` or TOM's airmass plot.
+    A sample is ``None`` when the target is below the horizon, at or above ``airmass_limit`` or the Sun is
+    above -18 degrees (see ``solsys_code.visibility.airmass_samples``).
+
+    :param target: Target with orbital elements
+    :type target: tom_targets.models.Target
+    :param sites: Observatories to sample from, keyed by the site name to report
+    :type sites: dict[str, solsys_code.solsys_code_observatory.models.Observatory]
+    :param start_time: Start of the window (UTC)
+    :type start_time: datetime
+    :param end_time: End of the window (UTC)
+    :type end_time: datetime
+    :param interval: Sampling interval in minutes
+    :type interval: int
+    :param airmass_limit: Maximum acceptable airmass; ``None`` means 10
+    :type airmass_limit: float
+    :return: ``{site: (datetimes, airmasses)}`` with one entry per site and one sample per time
+    :rtype: dict
+    """
+    if end_time < start_time:
+        raise ValueError('Start must be before end')
+
+    start = Time(start_time)
+    n_samples = int(((Time(end_time) - start) / (interval * u.min)).decompose()) + 1
+    times = start + np.arange(n_samples) * interval * u.min
+    sun = get_sun(times)
+
+    visibility = {}
+    for site, observatory in sites.items():
+        location = EarthLocation.from_geodetic(
+            lon=observatory.lon * u.deg, lat=observatory.lat * u.deg, height=observatory.altitude * u.m
+        )
+        sun_alt = sun.transform_to(AltAz(obstime=times, location=location)).alt.deg
+        predictions = compute_ephemeris(target, observatory, times)
+        visibility[site] = (times.datetime, airmass_samples(predictions['Obs_Alt_deg'], sun_alt, airmass_limit))
+    return visibility
