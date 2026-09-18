@@ -117,6 +117,33 @@ class TestHardChecks(CheckUnattendedTestBase):
                 _run()
         self.assertIn('flock', str(ctx.exception))
 
+    def test_flock_outside_system_directories_gets_a_sanity_note(self):
+        # IN-23 (36-REVIEW.md): shutil.which('flock') resolves against the preflight
+        # process's own PATH -- a stale or user-writable directory early in PATH (a
+        # conda/venv bin, a ~/bin) could resolve a non-system flock that then gets
+        # pasted into a persistent, scheduled crontab entry. Still [ok] (it works and
+        # supports -E), but flagged for the operator to double check.
+        fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
+        with (
+            patch(
+                'solsys_code.management.commands.check_unattended.shutil.which',
+                return_value='/home/operator/.conda/envs/fomo/bin/flock',
+            ),
+            patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
+        ):
+            stdout, _stderr = _run()
+        self.assertIn('[ok] flock', stdout)
+        self.assertIn('outside the usual system directories', stdout)
+
+    def test_flock_in_usr_bin_gets_no_sanity_note(self):
+        with patch(
+            'solsys_code.management.commands.check_unattended.subprocess.run',
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr=''),
+        ):
+            stdout, _stderr = _run()
+        flock_line = next(line for line in stdout.splitlines() if line.startswith('[ok] flock'))
+        self.assertNotIn('outside the usual system directories', flock_line)
+
     def test_flock_probe_timing_out_fails_cleanly(self):
         # WR-20 (36-REVIEW.md): a flock binary on a stalled NFS mount could otherwise
         # hang the preflight indefinitely.
@@ -424,12 +451,20 @@ class TestCronLine(CheckUnattendedTestBase):
         # is exactly what CR-01/WR-01/WR-09 were about. Read the committed file's own
         # `*/15` line and compare option tokens, ignoring the two host-specific
         # placeholder paths this test doesn't resolve.
-        template_path = Path(__file__).resolve().parents[2] / 'deploy' / 'cron' / 'fomo.crontab.example'
+        # IN-23 (36-REVIEW.md): resolve the repo root from settings.BASE_DIR (the same
+        # way cron_line() itself resolves manage.py's path) rather than
+        # Path(__file__).resolve().parents[2], which silently assumes this test file's
+        # own depth below the repo root and breaks if the file is ever moved.
+        template_path = Path(django_settings.BASE_DIR).parent / 'deploy' / 'cron' / 'fomo.crontab.example'
         template_line = next(
-            stripped_line
-            for raw_line in template_path.read_text().splitlines()
-            if (stripped_line := raw_line.strip()).startswith('*/15')
+            (
+                stripped_line
+                for raw_line in template_path.read_text().splitlines()
+                if (stripped_line := raw_line.strip()).startswith('*/15')
+            ),
+            None,
         )
+        self.assertIsNotNone(template_line, f'no */15 line found in {template_path}')
         line = cron_line()
         for token in ('-n', '-E 99', '.cron.lock', '>>', '2>&1', 'rc=$?', '[ $rc -eq 99 ]', 'lock held', 'exit $rc'):
             self.assertIn(token, template_line, f'{token!r} missing from the committed template line')

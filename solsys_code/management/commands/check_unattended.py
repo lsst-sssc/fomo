@@ -56,6 +56,10 @@ from solsys_code.unattended import _DEFAULT_LOCK_DIR, _DEFAULT_LOG_FILE
 # preflight's reminder named Period only, never Grace).
 _CRON_INTERVAL_MINUTES = 15
 _RECOMMENDED_HEARTBEAT_GRACE_MINUTES = 20
+# IN-23 (36-REVIEW.md): the allow-list check_flock()'s success detail compares a
+# resolved `flock` path against, before printing it for an operator to paste into a
+# persistent crontab entry.
+_SYSTEM_BINARY_DIRECTORIES = ('/usr/bin', '/bin', '/usr/sbin', '/sbin')
 
 
 @dataclass
@@ -122,6 +126,23 @@ def check_flock() -> CheckResult:
             detail=(
                 f'{path} does not support -E/--conflict-exit-code (util-linux < 2.27) -- '
                 'the cron line below needs it to distinguish a skipped tick from a failed one'
+            ),
+        )
+    # IN-23 (36-REVIEW.md): shutil.which('flock') resolves against the PREFLIGHT
+    # PROCESS's own PATH, and the result is printed for the operator to paste into a
+    # persistent, scheduled crontab entry. An operator running this preflight with a
+    # stale or user-writable directory early in PATH (a conda/venv bin, a ~/bin) could
+    # end up installing a non-system flock into a service crontab -- low-likelihood,
+    # but a silent one the committed template's hardcoded /usr/bin/flock never had.
+    if not any(path.startswith(f'{system_dir}/') for system_dir in _SYSTEM_BINARY_DIRECTORIES):
+        return CheckResult(
+            name='flock',
+            ok=True,
+            hard=True,
+            detail=(
+                f'found at {path}, supports -E -- resolved outside the usual system '
+                'directories (/usr/bin, /bin, /usr/sbin, /sbin) -- confirm this is the '
+                'flock you want a service crontab to run'
             ),
         )
     return CheckResult(name='flock', ok=True, hard=True, detail=f'found at {path}, supports -E')
