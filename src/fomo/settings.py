@@ -439,3 +439,5 @@ except ImportError:
 # inside an existing dict therefore arrive as flat names and are folded in here.
 if 'LCO_API_KEY' in globals():
     FACILITIES['LCO']['api_key'] = LCO_API_KEY  # noqa: F405
+    # SOAR authenticates against the same LCO Observation Portal (see the FACILITIES['SOAR'] entry above).
+    FACILITIES['SOAR']['api_key'] = LCO_API_KEY  # noqa: F405
