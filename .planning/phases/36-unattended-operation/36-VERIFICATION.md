@@ -1,9 +1,10 @@
 ---
 phase: 36-unattended-operation
 verified: 2026-09-18T21:05:00Z
-status: human_needed
+status: passed
 score: 88/88 must-haves verified
 covered_files:
+
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/36-unattended-operation/36-01-PLAN.md"
   - ".planning/phases/36-unattended-operation/36-01-SUMMARY.md"
@@ -49,10 +50,12 @@ covered_files:
   - "solsys_code/tests/test_watched_proposal.py"
   - "solsys_code/unattended.py"
   - "src/fomo/settings.py"
+
 covered_digest: "v1:sha256:adb87d35463713c3ddece0aeef13b768452a6422a6f204efa98208355c676e4e"
 behavior_unverified: 0
 overrides_applied: 1
 overrides:
+
   - must_have: "Plan 36-01 truth 10 -- no log line on the unattended path interpolates a raw exception message (WR-22)"
     reason: "Two logger.debug() sites still interpolate str(exc): backfill_lco_observations.py:349 (live authenticated LCO portal call) and unattended.py:201 (bare except around reconcile_run()). Inert under the shipped configuration -- settings.LOGGING pins the root logger to INFO, so neither line is emitted -- and does NOT falsify SC 4, which is about what appears in a log line the path actually PRODUCES. The developer recorded explicit acceptance, option (b), in UAT round 2 Test 2. step_discovery()'s IN-38 comment now names WR-22 by id as the reason not to lower the global level to DEBUG."
     accepted_by: "tlister (UAT round 2, Test 2)"
@@ -73,6 +76,7 @@ re_verification:
 gaps: []
 deferred: []
 advisory:
+
   - finding: "The runbook's step-6 stream-routing passage added by plan 36-09 landed AFTER UAT round 3's SC-5 sufficiency read-through (Tests 2 and 3) was administered, so no operator has yet read the fresh-host procedure top-down with that passage in it. Plan 36-09's own coverage entry D2 declares human_judgment: true and asks for exactly this skim."
     category: other
     reason: "Not a must-have breach -- plan 36-09 truth 9 is satisfied on content (the passage names which stream carries what, that each line is written once, what a bare `>` drops, and shows the merged 2>&1 form, and every claim it makes matches the code verified above). Raised as the single human-verification item below rather than as a gap, because the risk is prose quality in an added clarification, not a missing or wrong instruction."
@@ -94,11 +98,13 @@ advisory:
     reason: "None falsifies a success criterion or a plan must-have truth. The durability point stands: three runbook-content gates now exist only as task-time shell commands, so a future edit reintroducing a copy-pasteable nested key path, or breaking the stream-routing sentence, would ship unblocked. Cheapest durable fix remains a ~15-line SimpleTestCase that awk-slices the subsection and asserts the same clauses."
     evidence_status: "re-confirmed this pass: `grep -rln 'Setting it up on a fresh host' solsys_code/ src/ --include=*.py` returns nothing"
 prohibitions_flagged:
+
   - plan: "36-09"
     count: 6
     tier: judgment
     note: "All six are verification: flagged-unverified (judgment tier). Per the fail-closed rule each carries a NON-AUTHORITATIVE LLM-judge verdict below and an `unverified-prohibition — human review recommended` flag; none is silently passed."
 human_verification:
+
   - test: "Skim the rendered 'Setting it up on a fresh host' procedure, step 6, in the built docs (or read docs/runbooks/telescope_runs_calendar.rst:1620-1638) with fresh eyes -- ideally the same reader who ran UAT round 3 Tests 2 and 3, since that read-through predates this passage."
     expected: "The added stream-routing paragraph reads in the surrounding operator voice, and a fresh-host operator finishes step 6 knowing that passing lines go to standard output, that warnings and failures go to standard error instead, that each line is written once, that a bare `>` silently drops every warning and failure, and that `2>&1` puts the whole report in one file in check order. Every factual claim in it is already verified against the code -- this is a prose-quality and point-of-use-sufficiency judgment only."
     why_human: "Whether an added operator-facing passage 'reads well' and genuinely helps at point of use is not observable by any token-presence or parse-cleanliness gate -- the same class of judgment that let G-36-1 pass a round-1 read-through. Plan 36-09's own coverage entry D2 declares human_judgment: true and asks for this skim by name."
@@ -112,7 +118,7 @@ human_verification:
 **Phase Goal:** The projector sweep, the LCO/SOAR discovery backfill and the reconciler run on the real host on a documented schedule with nobody typing anything, against a watched-proposal list an operator edits in the admin — and when it breaks, an operator finds out.
 
 **Verified:** 2026-09-18T21:05:00Z at HEAD `93ef89c`
-**Status:** human_needed
+**Status:** passed — UAT round 4 (2026-09-18, `7d1d1ea`) confirmed the two human items below; frontmatter canonicalized by `/gsd-verify-work 36`
 **Re-verification:** Yes — round 4, after gap-closure plan 36-09 (`gap_ids: [G-36-5]`) and the full 36-REVIEW-FIX round.
 
 > **Scope note.** The previous report was written before the 36-REVIEW-FIX round landed (35 source commits, `76ed56e`…`27c722a`). This pass re-derives the four ROADMAP Success Criteria, the artifact table and the key-link table from HEAD rather than carrying them forward, and re-runs every gate it cites. Rounds 1–3 are preserved in this file's git history.

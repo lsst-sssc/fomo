@@ -2,37 +2,37 @@
 gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
-current_phase: 36
-current_phase_name: Unattended Operation
-status: executing
-stopped_at: Completed 36-09-PLAN.md (gap closure for G-36-5)
-last_updated: "2026-09-18T20:22:18.675Z"
+current_phase: 37
+current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
+status: planning
+stopped_at: Phase 36 complete, ready to plan Phase 37
+last_updated: "2026-09-18T21:14:39.158Z"
 last_activity: 2026-09-18
-last_activity_desc: Phase 36 execution started
-state_head: be955cf59521ebf7e75f18a9381ee701bdf26308
+last_activity_desc: Phase 36 complete, transitioned to Phase 37
+state_head: b3b3d2dca228a183fc0f7b406f3c09bbe48fe6fe
 progress:
   total_phases: 5
-  completed_phases: 35
+  completed_phases: 36
   total_plans: 52
   completed_plans: 52
-  percent: 100
+  percent: 92
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-16 — after Phase 35 complete)
+See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Phase 36 — Unattended Operation
+**Current focus:** Phase 37 — Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 
 ## Current Position
 
-Phase: 36 (Unattended Operation) — EXECUTING
-Plan: 2 of 9
-Status: Ready to execute
-Last activity: 2026-09-18 — Phase 36 execution started
+Phase: 37 — Status Vocabulary, Public Tallies & Provenance-Blind Gaps
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-18 — Phase 36 complete, transitioned to Phase 37
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -134,6 +134,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | 33 | 11 | - | - |
 | 34 | 7 | - | - |
 | 35 | 25 | - | - |
+| 36 | 9 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
@@ -369,6 +370,14 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: Promoted the single flat LCO_API_KEY setting to feed both the LCO and SOAR facility entries rather than adding a second SOAR_API_KEY (36-08). — One credential authenticates against the same LCO Observation Portal for both facilities; a second name would let the two drift.
 - [Phase 36]: workflow.tdd_mode is false; RED for Task 2 verified manually per 36-01..36-04 precedent — gsd tdd-red-evidence's TAP parser targets node --test output with no Python/Django adapter
 
+Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions):
+
+- [Phase 36]: every exception the unattended path catches is reported by class name only (D-17) and `unattended.py` never calls `reverse()` — keeps credentials out of every output surface and the SPICE-kernel import out of the runner process.
+- [Phase 36]: two independent failure layers (suppressed/reminded/recovered failure email + `/start`//`/<exit-code>` heartbeat); the runbook states the Period/Grace values to set because the remote check's configuration is invisible to FOMO (G-36-1, G-36-3 — live dead-man re-run passed at UAT round 3).
+- [Phase 36]: one flat `LCO_API_KEY` local setting folded into both facility entries, pinned by a test that executes the real `settings.py` fold tail rather than grepping it (G-36-4).
+- [Phase 36]: `check_unattended` emits each result line once, to one stream chosen by status, flushing stdout before stderr, with a single-sink test fixture modelling the terminal/`2>&1` condition the operator actually runs in (G-36-5).
+- [Phase 36 UAT]: the two `logger.debug()` sites that still interpolate `str(exc)` (`backfill_lco_observations.py:349`, `unattended.py:201`) accepted as inert under the shipped root-INFO logging config (tlister, UAT round 2 Test 2) — not a SCHED-10 breach.
+
 ### Pending Todos
 
 - `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename
@@ -406,7 +415,15 @@ Phase 35 close decisions (UAT 2026-09-16; full rows in PROJECT.md Key Decisions)
 
 None blocking. v2.2 "One Canonical Run Record" shipped and closed 2026-09-01 (6 phases, 33 plans, 24/24 requirements). One non-blocking follow-up carried into the next milestone: `import_campaign_csv.py`'s `site_needs_review` is computed from the pre-preservation `telescope_class` value rather than the post-guard value (30-REVIEW.md WR-01) — recommend a future quick task.
 
-Carried forward from Phase 35 (completed 2026-09-16) — none blocks Phase 36 planning:
+Carried forward from Phase 36 (completed 2026-09-18) — none blocks Phase 37 planning:
+
+- **[Open ship decision — CR-03, `36-REVIEW.md`]** the repository's `sphinx-build` pre-commit hook renders `src/fomo/local_settings.py` into the gitignored `docs/_build/html/` and `_readthedocs/html/` trees on a configured host. `docs/conf.py` now excludes it from the autoapi/viewcode scan (`e2ed553`) and the runbook states the rule (never serve those trees from a configured checkout); recorded as accepted risks AR-36-03/AR-36-04 in `36-SECURITY.md`. The blast-radius judgment for the ship decision is still owed.
+- **[Accepted risk — `36-UAT.md` round 2, `36-VERIFICATION.md` accepted_by tlister 2026-09-18]** two `logger.debug()` sites still interpolate `str(exc)` — `backfill_lco_observations.py:349` (live authenticated portal call) and `unattended.py:201` (bare except around `reconcile_run()`). Inert under `settings.LOGGING`'s root-INFO pin; would matter only if DEBUG logging is ever enabled on the host.
+- **[Cosmetic — `36-VERIFICATION.md` round 4 advisory]** docutils warning "Inline literal start-string without end-string" at `docs/runbooks/telescope_runs_calendar.rst:1552` from ``.gitignore``d; fix is ``.gitignore``\ d. Renders, but not as intended; pre-existing before 36-09.
+- **[Durability — addressed at this transition, stronger form still available]** the three runbook-content gates (36-07 presence-and-order, 36-08 flat-setting, 36-09 stream-routing prose) were task-time shell commands; they are now recorded as reproducible rows in `36-VALIDATION.md`, but no file under `solsys_code/` or `src/` references the fresh-host subsection — a committed test would be the durable form.
+- **[Manual-only by design]** installing the printed cron line and configuring the heartbeat check on the real host remain operator actions (runbook "Setting it up on a fresh host"); UAT round 3 Test 4 proved the dead-man layer fires from the runbook's guidance alone.
+
+Still carried from Phase 35 (completed 2026-09-16):
 
 - **[Resolved 2026-09-16 — quick task `260916-o6n`]** `35-REVIEW.md` iteration 10 **CR-01** (critical): the retirement decline plan 35-23 added (CR-05) kept a human-confirmed `ALLOC:` night alive but ended in an unconditional `continue`, so the surviving night never received its title/description/target_list refresh — `mark_cancelled` never reached it. Fixed in `3a38858`/`c26cb97`: the decline now falls through to a shared `_refresh_labels()` (fields built once by `_label_fields()`, used by the decline branch, the dry-run preview and the real write), records no provenance token and makes no `sun_event()` call on that path, reuses `updated`/`unchanged` (no new counter; `ReconcileResult` unchanged); `TestDeclinedRetirementStillUpdatesLabels` (7 tests incl. receiver path, dry-run parity and a non-vacuous no-`sun_event` pin); runbook `detach_declined` section states the counter pair; notebook cell 20 demonstrates the `[CANCELLED]` refresh with executed output.
 - **[Follow-up — deferred at UAT 2026-09-16]** `35-REVIEW.md` iteration 10 **WR-01** / `35-UAT.md` Test 5: a declined re-mint whose site also moved records the run's *current* provenance token onto a night whose `start_time` is still the pre-edit value (`_record_sub_night_provenance()` call at `allocation_projector.py:1441`; the comment at `:1362-1368` is false on that path). Reachable only when a sub-night edit and an in-place `Observatory` correction land in the same sweep; no observable consequence. Guard the call on "the re-mint was not declined" when next in that code.
@@ -474,11 +491,12 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-09-18T20:22:18.586Z
-Stopped at: Completed 36-09-PLAN.md (gap closure for G-36-5)
+Stopped at: Phase 36 complete, ready to plan Phase 37
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 35 complete (2026-09-16); the owner-chosen quick task `260916-o6n` for `35-REVIEW.md` iteration 10 CR-01 landed the same day (`3a38858`, `c26cb97`), so no critical review finding is open against Phase 35.
-- Start Phase 36 "Unattended Operation" with `/gsd-discuss-phase 36` — no phase directory or CONTEXT.md exists yet. Its inputs are in place: the projector sweep (`project_observation_calendar`), the discovery backfill (`backfill_lco_observations`) and the reconciler (`reconcile_campaign_runs`) all exist as zero-required-argument commands; Phase 31 settled cron + `flock -n` on the real host; `DISCOVER-01` replaces `backfill_lco_observations`' `--proposal` arguments with an admin-editable watched-proposal list. Paired docs: `backfill_lco_observations_demo.ipynb` and a new unattended-operation runbook section.
+- Phase 36 complete (2026-09-18): 9/9 plans, final re-verification 88/88 must-haves, UAT four rounds (32 checks, 31 passed, the one issue G-36-5 closed by 36-09), `36-SECURITY.md` 38 threats / 0 open, `36-VALIDATION.md` re-audited with 26 rows. No critical review finding is open against Phase 36; CR-03 is recorded as an accepted-and-open ship decision (see Blockers/Concerns).
+- On the real host (operator action, not GSD): run `python manage.py check_unattended`, fix what it reports, install the printed cron line, and configure the heartbeat check from the runbook's fresh-host steps 3–4.
+- Start Phase 37 "Status Vocabulary, Public Tallies & Provenance-Blind Gaps" with `/gsd-discuss-phase 37` — no phase directory or CONTEXT.md exists yet. Its inputs are in place: the projected observation events (Phase 34) and allocation events (Phase 35) the tallies and the vocabulary read, `CalendarEventMeta`'s link fields (Phase 33), and Phase 34's provisional title prefixes it owns settling. Two UAT-deferred vocabulary ideas and the `#run-{pk}` first-page anchor limitation are listed under Blockers/Concerns for it.
 - `.planning/REQUIREMENTS.md`: `phase.complete` flagged 5 REQ-IDs present in the body but missing from the Traceability table (UPSTREAM-01, ESO-10, ESO-11, SUBMIT-06, SUBMIT-07 — all deferred/out-of-milestone items); add them manually when next editing that file.

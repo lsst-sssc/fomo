@@ -133,7 +133,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 - [x] **Phase 33: Series Identity & Reconciler Inversion** - Give `CalendarEventMeta` the real link fields the base layer needs, and turn the campaign reconciler from an owner into an annotator, so the two layers can run side by side without stealing each other's events (completed 2026-09-10)
 - [x] **Phase 34: The Observation Projector & Trigger** - Every LCO/SOAR observation record draws and keeps current its own calendar event on every save, with a sweep as the backstop, and the old LCO sync command is retired in its favour (completed 2026-09-12)
 - [x] **Phase 35: Allocation Layer & Classical Cutover** - An allocation projects its own sunset→sunrise intent nights and hands each night over when a real observation links to it; `load_telescope_runs` writes allocations instead of calendar events (completed 2026-09-16)
-- [ ] **Phase 36: Unattended Operation** - The sweep, the discovery backfill and the reconciler run on the real host on a schedule against an admin-editable watched-proposal list, with failures visible and no credential logged
+- [x] **Phase 36: Unattended Operation** - The sweep, the discovery backfill and the reconciler run on the real host on a schedule against an admin-editable watched-proposal list, with failures visible and no credential logged (completed 2026-09-18)
 - [ ] **Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps** - One status vocabulary, an ongoing public tally of what each run and campaign actually got, unused awarded nights that look unused, and coverage gaps that count every observation
 
 **Locked constraints** (settled by the `/gsd-explore` session's D1–D5 and the five spikes — phase planning executes these, it does not re-open them; full detail in the `spike-findings-fomo_devel` project skill):
@@ -428,7 +428,7 @@ Plans:
 | 33. Series Identity & Reconciler Inversion | v2.4 | 11/11 | Complete    | 2026-09-10 |
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
-| 36. Unattended Operation | v2.4 | 9/9 | In Progress|  |
+| 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.

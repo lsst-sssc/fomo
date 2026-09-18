@@ -191,7 +191,7 @@
     {
       "number": "36",
       "name": "Unattended Operation",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "37",
@@ -201,8 +201,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 36 of 5 · 100% · executing"
+    "label": "Advance to the next step (plan phase 37)",
+    "reason": "Phase 37 of 5 — needs a plan"
   },
-  "updated_at": "2026-09-18T12:09:57.795Z"
+  "updated_at": "2026-09-18T21:14:39.168Z"
 }
