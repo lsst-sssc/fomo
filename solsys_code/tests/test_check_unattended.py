@@ -398,22 +398,18 @@ class TestWarningChecks(CheckUnattendedTestBase):
 
 
 class TestCronLine(CheckUnattendedTestBase):
-    def test_lock_held_exit_is_normalized_to_zero(self):
-        # WR-16 (36-REVIEW.md): run_tick()'s own contract is that lock contention is NOT
-        # a failure -- it returns exit_code=0, and the heartbeat (D-12) is the
-        # structural backstop. Before this fix, a lock-held skip made the WHOLE cron
-        # line exit 99, which any supervisor (cron's own syslog line, an OnFailure=
-        # hook, a monitoring wrapper) reads as a failure on a routine tick overlap.
-        # Splices a stub in place of the real `flock ... run_unattended` invocation,
-        # keeping cron_line()'s own skip-tail/exit logic verbatim -- this exercises the
-        # actual shipped tail in a real shell, not a hand-copied re-implementation.
-        # Anchor on ' run_unattended >>' specifically (not the bare command name), which
-        # also appears inside the lock file path (`run_unattended.cron.lock`) and inside
-        # the skip line's own echoed text ("run_unattended skipped: lock held") -- only
-        # the real invocation is immediately followed by ' >>'.
-        line = cron_line()
+    def _assert_lock_held_exit_matrix_is_normalized(self, line: str) -> None:
+        """Shared 0/1/99 matrix: splice a stub in place of the real `flock ...
+        run_unattended` invocation in ``line``, keeping its own skip-tail/exit logic
+        verbatim, and run it in a real shell.
+
+        Anchor on ' run_unattended >>' specifically (not the bare command name), which
+        also appears inside the lock file path (`run_unattended.cron.lock`) and inside
+        the skip line's own echoed text ("run_unattended skipped: lock held") -- only
+        the real invocation is immediately followed by ' >>'.
+        """
         _head, sep, tail = line.partition(' run_unattended >>')
-        self.assertTrue(sep, 'expected exactly one " run_unattended >>" in the cron line')
+        self.assertTrue(sep, 'expected exactly one " run_unattended >>" in the line')
         for stub_exit, expected_final_exit in ((0, 0), (1, 1), (99, 0)):
             with self.subTest(stub_exit=stub_exit):
                 # The stub's extra positional argument ("run_unattended") is harmless --
@@ -421,6 +417,37 @@ class TestCronLine(CheckUnattendedTestBase):
                 script = f'sh -c "exit {stub_exit}"{sep}{tail}'
                 result = subprocess.run(['sh', '-c', script], check=False)
                 self.assertEqual(result.returncode, expected_final_exit)
+
+    def test_lock_held_exit_is_normalized_to_zero(self):
+        # WR-16 (36-REVIEW.md): run_tick()'s own contract is that lock contention is NOT
+        # a failure -- it returns exit_code=0, and the heartbeat (D-12) is the
+        # structural backstop. Before this fix, a lock-held skip made the WHOLE cron
+        # line exit 99, which any supervisor (cron's own syslog line, an OnFailure=
+        # hook, a monitoring wrapper) reads as a failure on a routine tick overlap.
+        # Exercises the actual shipped tail in a real shell, not a hand-copied
+        # re-implementation.
+        self._assert_lock_held_exit_matrix_is_normalized(cron_line())
+
+    def test_committed_template_lock_held_exit_is_normalized_to_zero(self):
+        # WR-37 (36-REVIEW.md): the previous version of this test only ever exercised
+        # cron_line()'s OWN generated output -- never the committed
+        # deploy/cron/fomo.crontab.example line an operator might instead copy-paste
+        # directly. The WR-16 rc=0 normalization could regress in the committed template
+        # alone (e.g. losing the `{ ... ; rc=0; }` grouping) and every test would still
+        # pass, in a phase whose CR-01/WR-01/WR-09 history is entirely about these two
+        # artifacts drifting apart. Runs the identical 0/1/99 matrix against the
+        # template's own `*/15` line, read from disk.
+        template_path = Path(django_settings.BASE_DIR).parent / 'deploy' / 'cron' / 'fomo.crontab.example'
+        template_line = next(
+            (
+                stripped_line
+                for raw_line in template_path.read_text().splitlines()
+                if (stripped_line := raw_line.strip()).startswith('*/15')
+            ),
+            None,
+        )
+        self.assertIsNotNone(template_line, f'no */15 line found in {template_path}')
+        self._assert_lock_held_exit_matrix_is_normalized(template_line)
 
     def test_line_has_real_paths(self):
         line = cron_line()
@@ -474,7 +501,22 @@ class TestCronLine(CheckUnattendedTestBase):
         )
         self.assertIsNotNone(template_line, f'no */15 line found in {template_path}')
         line = cron_line()
-        for token in ('-n', '-E 99', '.cron.lock', '>>', '2>&1', 'rc=$?', '[ $rc -eq 99 ]', 'lock held', 'exit $rc'):
+        for token in (
+            '-n',
+            '-E 99',
+            '.cron.lock',
+            '>>',
+            '2>&1',
+            'rc=$?',
+            '[ $rc -eq 99 ]',
+            'lock held',
+            # WR-37 (36-REVIEW.md): the previous token list did not cover WR-16's rc=0
+            # normalization or the `{ ... ; }` grouping that makes it work -- the
+            # committed template could lose either and this test would still pass.
+            'rc=0',
+            '; }',
+            'exit $rc',
+        ):
             self.assertIn(token, template_line, f'{token!r} missing from the committed template line')
             self.assertIn(token, line, f'{token!r} missing from cron_line()')
 
