@@ -1497,9 +1497,11 @@ Setting it up on a fresh host
    silent integrity or availability exposure.
 
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
-   the LCO/SOAR API key in this host's ``local_settings.py`` -- never in
-   the crontab line, never in an environment variable, and never committed
-   to git. Write the API key as a flat, top-level assignment --
+   the LCO/SOAR API key (from the LCO Observation Portal and the
+   'Profile' link under your username in the top right corner) in this
+   host's ``local_settings.py`` file. This should never be in the crontab
+   line, never in an environment variable, and never committed to git.
+   Write the API key as a flat, top-level assignment --
    ``LCO_API_KEY = '<your key>'`` -- because ``settings.py`` imports
    ``local_settings.py`` into a namespace of its own, near the end of
    the file: names you set there become settings, but anything you try
