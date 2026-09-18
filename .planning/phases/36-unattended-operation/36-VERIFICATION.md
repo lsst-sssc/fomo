@@ -68,7 +68,7 @@ re_verification:
     - "Test 5 logrotate under a live writer -- UAT round 1 pass (START went with the rotated copy; END landed in the truncated live file)"
     - "WR-22 ship decision -- UAT round 2 Test 2 pass, option (b), the recorded acceptance (see ## Acknowledged Gaps)"
   human_items_still_open:
-    - "SC-5 sufficiency read-through: RE-OPENED by G-36-1 (formerly Test 6, once recorded as closed) -- its round-1 pass came from a reader already taught the Period/Grace values by Test 3 in the same session, so it was not a sufficiency measurement; must be re-run from the fresh-host setup steps alone, BEFORE the live heartbeat re-run below. Do NOT administer it until G-36-4 is fixed: the subsection currently contains a step that bricks the host, so a read-through now would measure a procedure that is known-broken."
+    - "SC-5 sufficiency read-through: RE-OPENED by G-36-1 (formerly Test 6, once recorded as closed) -- its round-1 pass came from a reader already taught the Period/Grace values by Test 3 in the same session, so it was not a sufficiency measurement; must be re-run from the fresh-host setup steps alone, BEFORE the live heartbeat re-run below. RELEASE CONDITION: gap G-36-4 (step 2 named a settings path local_settings.py cannot assign) was closed by plan 36-08, which rewrote step 2 to the flat LCO_API_KEY assignment and extended the src/fomo/settings.py fold to also cover the SOAR facility entry; administer this read-through once re-verification confirms G-36-4 closed."
     - "Live heartbeat dead-man re-run (formerly Test 3): configure a live healthchecks-compatible check from the fresh-host setup steps alone and confirm late ~15 min / alert ~35 min; run AFTER the SC-5 sufficiency read-through above, since it teaches the values that read-through measures"
     - "CR-03 credential-in-docs-build decision: decide whether the docs-build render of local_settings.py is fixed (autoapi_ignore) or accepted before shipping -- see Human Verification item 3"
 gaps:
@@ -128,7 +128,7 @@ behavior_unverified_items:
     expected: "The check goes late about 15 minutes after the missed tick and alerts about 35 minutes after the last successful ping, while FOMO itself logs nothing and sends no email -- SC 3's second, independent layer."
     why_human: "The signal is produced by the external heartbeat service's own expected-interval-plus-grace timer, not by any FOMO code path. G-36-3 was only findable this way: every internal gate checked the runbook against decision D-12, which itself carried the conflation."
 human_verification:
-  - test: "SC-5 sufficiency read-through: a reader who has not read \"The two failure signals\" and has not been told the expected-interval/grace values reads only \"Setting it up on a fresh host\", top-down, and works the steps. HOLD until G-36-4 is fixed -- step 2 currently instructs an action that stops Django from starting, so a read-through now would measure a known-broken procedure."
+  - test: "SC-5 sufficiency read-through: a reader who has not read \"The two failure signals\" and has not been told the expected-interval/grace values reads only \"Setting it up on a fresh host\", top-down, and works the steps. RELEASE CONDITION: gap G-36-4 (step 2 instructed an action that stopped Django from starting) was closed by plan 36-08's rewrite of step 2 to the flat LCO_API_KEY assignment, with the fold in src/fomo/settings.py extended to also cover SOAR; administer once re-verification confirms G-36-4 closed."
     expected: "The reader creates the check, sets both of its settings (Period 15 min, or Cron type */15 * * * *; Grace ~20 min) and fills FOMO_HEARTBEAT_URL without leaving the subsection or reading source (SC 5)."
     why_human: "Sufficiency at point of use is not observable by any token-presence gate, and the verdict is only valid from a reader not already taught the knowledge out of band -- this is why round-1 UAT Test 6 passed while G-36-1 was live."
   - test: "Live heartbeat dead-man re-run: re-run UAT Test 3 against a live healthchecks-compatible check configured ONLY from the fresh-host setup steps (expected interval / Period 15 min, or Cron type */15 * * * *; grace / Grace ~20 min), then disable the crontab line. Run from the fresh-host setup steps, and AFTER the SC-5 sufficiency read-through above, because it teaches the values that read-through measures."
@@ -454,9 +454,10 @@ reading source (SC 5).
 **Why human:** Sufficiency at point of use is not observable by any token-presence gate, and the
 verdict is only valid from a reader not already taught the knowledge out of band — this is why
 round-1 UAT Test 6 passed while G-36-1 was live.
-**HOLD:** do not administer until gap **G-36-4** is fixed. Step 2 of the same subsection currently
-instructs an assignment that stops Django from starting, so a read-through run now would either
-measure a known-broken procedure or brick the reader's host.
+**RELEASE CONDITION:** gap **G-36-4** (step 2 instructed an assignment that stopped Django from
+starting) was closed by plan 36-08, which rewrote step 2 to the flat `LCO_API_KEY` assignment and
+extended the fold in `src/fomo/settings.py` to also cover the SOAR facility entry. Administer this
+read-through once re-verification confirms G-36-4 closed.
 
 #### 2. Live heartbeat dead-man re-run
 
