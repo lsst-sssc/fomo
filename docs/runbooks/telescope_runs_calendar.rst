@@ -1668,7 +1668,10 @@ Work through these in order:
 4. **A repeated "lock held" line in the log.** ``flock -n -E 99`` fails
    immediately rather than queuing, so a permanently contended cron lock
    (``FOMO_LOCK_DIR/run_unattended.cron.lock``) leaves this line on every
-   tick instead of looking like a healthy no-op::
+   tick -- but since WR-16 (36-REVIEW.md) normalized the skip back to
+   exit 0, the crontab line's own exit status looks exactly like a
+   healthy no-op. The log line is the only place a contended lock is
+   visible at all; do not expect the exit status to tell you::
 
       2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
 
@@ -2121,6 +2124,19 @@ held" occurrence is normal -- one tick overran its own 15-minute window
 and collided with the next scheduled one. Several occurrences in a row
 mean a previous tick is genuinely stuck (for example, blocked on a slow
 portal response) and never released the lock.
+
+Flock's own exit code 99 is still what the skip line above is gated on --
+that has not changed. What has changed (WR-16, 36-REVIEW.md) is what
+happens to that 99 next: the crontab line's tail now sets ``rc=0`` once
+it has logged the skip line, normalizing the line's own reported status
+back to exit 0. So the crontab line's own exit status is only ever
+``run_unattended``'s -- 0 healthy, 1 failing -- and never a code
+``run_unattended`` itself cannot produce. Anything reading the line's
+exit status (cron's own syslog line, a systemd ``OnFailure=`` hook, a
+monitoring wrapper) therefore no longer records a routine tick overlap
+as a failure -- ``run_tick()``'s own contract is that lock contention is
+NOT a failure, and the heartbeat (D-12) is the structural backstop for a
+lock that stays contended.
 
 **Fix:** a ``flock`` is always released by the kernel when the holding
 process exits -- including a crash, a ``SIGKILL``, or an OOM kill -- so a
