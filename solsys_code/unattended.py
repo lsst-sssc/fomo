@@ -48,6 +48,7 @@ from solsys_code.management.commands.backfill_lco_observations import sweep_watc
 from solsys_code.management.commands.project_observation_calendar import resolve_observed_site
 from solsys_code.models import CampaignRun
 from solsys_code.observation_projector import PROJECTED_FACILITIES, project_queryset
+from solsys_code.proposal_allocation import refresh_all
 
 logger = logging.getLogger(__name__)
 
@@ -417,12 +418,43 @@ def step_discovery(dry_run: bool) -> StepResult:
         return StepResult(name='discovery', failed=False, summary='skipped -- lock held')
 
 
+def step_proposal_allocation(dry_run: bool) -> StepResult:
+    """Refresh every stored proposal time allocation via the LCO portal (Phase 37 D-07).
+
+    A dry run returns immediately without instantiating a facility or making any network
+    call -- there is no meaningful read-only variant of a portal fetch.
+
+    Args:
+        dry_run: report a no-op summary without calling the portal when True.
+
+    Returns:
+        StepResult: ``failed`` is True if any proposal's fetch raised. The summary is built
+            only from integer counters and (on failure) the first failing exception's class
+            name -- never a credential value or a response body (T-37-04/T-37-05). When the
+            per-step lock is contended, returns a non-failing ``StepResult`` noting the skip
+            instead -- defence in depth behind the runner-level lock.
+    """
+    if dry_run:
+        return StepResult(name='proposal_allocation', failed=False, summary='skipped (dry run)')
+
+    try:
+        with command_lock('proposal_allocation'):
+            attempted, rows_written, failed, first_exception = refresh_all(LCOFacility())
+            summary = f'proposals: {attempted}, rows written: {rows_written}, failed: {failed}'
+            if first_exception:
+                summary += f', first error: {first_exception}'
+            return StepResult(name='proposal_allocation', failed=failed > 0, summary=summary)
+    except LockContended:
+        return StepResult(name='proposal_allocation', failed=False, summary='skipped -- lock held')
+
+
 # D-01/D-04: the single source of the step order. Nothing else may re-declare this tuple.
 STEPS = (
     ('status_refresh', step_status_refresh),
     ('project_sweep', step_project_sweep),
     ('discovery', step_discovery),
     ('reconcile', step_reconcile),
+    ('proposal_allocation', step_proposal_allocation),
 )
 
 
