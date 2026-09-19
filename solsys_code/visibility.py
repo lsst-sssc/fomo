@@ -73,7 +73,8 @@ def airmass_samples(altitudes_deg, sun_altitudes_deg, airmass_limit=None, sun_al
         airmass_limit = 10
     airmasses = []
     for alt, sun_alt in zip(altitudes_deg, sun_altitudes_deg, strict=True):
-        if alt <= 0 or sun_alt > sun_alt_limit_deg:
+        # `not alt > 0` rather than `alt <= 0` so that a NaN altitude (e.g. the geocentre) is also rejected
+        if not alt > 0 or sun_alt > sun_alt_limit_deg:
             airmasses.append(None)
             continue
         airmass = 1.0 / math.sin(math.radians(alt))

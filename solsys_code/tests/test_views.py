@@ -11,6 +11,7 @@ from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from tom_targets.models import Target
 
+from solsys_code.forms import EphemerisForm
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.templatetags.visibility_extras import (
     airmass_figure,
@@ -131,6 +132,31 @@ class TestEphemeris(TestCase):
     def test_no_site(self):
         response = self.client.get(reverse('ephem', kwargs={'pk': self.test_target.pk}) + '?obscode=500')
         self.assertEqual(response.status_code, 404)
+
+    def test_geocentre_shows_na_for_azimuth_and_elevation(self):
+        Observatory.objects.create(obscode='500', name='Geocentric', lat=90.0, lon=0.0, altitude=-6356752.314)
+        url = reverse('ephem', kwargs={'pk': self.test_target.pk}) + '?obscode=500&start=2025-05-10&stop=2025-05-12'
+
+        for full_precision in ('false', 'true'):
+            with self.subTest(full_precision=full_precision):
+                content = self.client.get(url + f'&full_precision={full_precision}').content.decode()
+
+                self.assertInHTML(f'Ephemeris for {self.test_target.name} at  (500)', content)
+                self.assertEqual(content.count('<td>n.a.</td>'), 2 * 3)
+                self.assertNotIn('<td>nan</td>', content)
+
+
+class TestEphemerisFormSiteChoices(TestCase):
+    def test_geocentre_offered_but_not_space_telescopes(self):
+        # Zero MPC parallax constants convert to lat 90, altitude -6356752 m (as the MPC fetcher stores them)
+        Observatory.objects.create(obscode='500', name='Geocentric', lat=90.0, lon=0.0, altitude=-6356752.314)
+        Observatory.objects.create(obscode='C51', name='WISE', lat=90.0, lon=0.0, altitude=-6356752.314)
+        Observatory.objects.create(obscode='289', name='Roman Space Telescope', lat=None, lon=None, altitude=None)
+        Observatory.objects.create(obscode='K93', name='Sutherland-LCO Dome C', lat=-32.38, lon=20.81, altitude=1808.33)
+
+        choices = EphemerisForm(initial={'target_id': 1}).fields['site_code'].queryset
+
+        self.assertEqual(set(choices.values_list('obscode', flat=True)), {'500', 'K93'})
 
 
 class TestNonsiderealTargetPlan(TestCase):

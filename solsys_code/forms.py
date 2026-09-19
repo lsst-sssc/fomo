@@ -4,6 +4,7 @@ from crispy_forms.bootstrap import FormActions
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Fieldset, Layout, Submit
 from django import forms
+from django.db.models import Q
 from django.urls import reverse
 from tom_targets.forms import TargetVisibilityForm
 
@@ -26,8 +27,12 @@ class EphemerisForm(forms.Form):
         initial='1d',
         help_text="Step size; any combination of number and parseable unit e.g. '1d', '0.5hour', '5m'",
     )
+    # Sites with a positive altitude (excludes roving/space observatories) plus the geocentre, whose zero
+    # parallax constants convert to a large negative altitude
     site_code = forms.ModelChoiceField(
-        Observatory.objects.filter(altitude__gt=0).order_by('name'), blank=False, required=True
+        Observatory.objects.filter(Q(altitude__gt=0) | Q(obscode='500')).order_by('name'),
+        blank=False,
+        required=True,
     )
     full_precision = forms.BooleanField(
         required=False, initial=True, help_text='Whether to show the full results precision'

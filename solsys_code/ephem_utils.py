@@ -481,10 +481,12 @@ def compute_ephemeris(target, observatory, times):
     :type times: astropy.time.Time
     :return: One row per time. Columns include ``epoch_UTC``, ``RA_deg``, ``Dec_deg``, ``Obs_Az_deg``,
         ``Obs_Alt_deg``, ``Obs_HA_deg``, ``APmag``, ``sky_motion``, ``sky_motion_PA_deg``, ``Helio_LTC_au``,
-        ``Range_LTC_au`` and ``phase_deg``
+        ``Range_LTC_au`` and ``phase_deg``. For the geocentre (MPC code 500) ``Obs_Az_deg``, ``Obs_Alt_deg`` and
+        ``Obs_HA_deg`` are NaN.
     :rtype: pandas.DataFrame
     """
     obscode = observatory.obscode
+    geocentric = obscode == '500'
     times = times.utc
 
     data = convert_target_to_layup(target)
@@ -588,16 +590,20 @@ def compute_ephemeris(target, observatory, times):
         ephem_geom_params.rho_hat = ephem_geom_params.rho / ephem_geom_params.rho_mag
 
         out_tuple = calculate_rates_and_geometry(pointing, ephem_geom_params)
-        # Transform from ICRS RA, Dec -> observed Alt, Az, HA
-        # Assemble astrometric context
-        astrom = build_apco_context(pointing, observatory)
-        # Transform to CIRS (can easily transform further to apparent RA, Dec if needed)
-        cirs_ra, cirs_dec = erfa.atciqz(np.radians(out_tuple[8]), np.radians(out_tuple[10]), astrom)
-        # Transform from CIRS->observed
-        obs_az, obs_zd, obs_ha, obs_dec, obs_ra = erfa.atioq(cirs_ra, cirs_dec, astrom)
-        # Convert zenith distance to altitude (in degrees)
-        obs_alt = np.degrees(PI_OVER_2 - obs_zd)
-        out_tuple = out_tuple + (np.degrees(obs_az), obs_alt, np.degrees(obs_ha))
+        if geocentric:
+            # Az, Alt and HA are undefined for the geocentre
+            out_tuple = out_tuple + (np.nan, np.nan, np.nan)
+        else:
+            # Transform from ICRS RA, Dec -> observed Alt, Az, HA
+            # Assemble astrometric context
+            astrom = build_apco_context(pointing, observatory)
+            # Transform to CIRS (can easily transform further to apparent RA, Dec if needed)
+            cirs_ra, cirs_dec = erfa.atciqz(np.radians(out_tuple[8]), np.radians(out_tuple[10]), astrom)
+            # Transform from CIRS->observed
+            obs_az, obs_zd, obs_ha, obs_dec, obs_ra = erfa.atioq(cirs_ra, cirs_dec, astrom)
+            # Convert zenith distance to altitude (in degrees)
+            obs_alt = np.degrees(PI_OVER_2 - obs_zd)
+            out_tuple = out_tuple + (np.degrees(obs_az), obs_alt, np.degrees(obs_ha))
 
         in_memory_csv.writerow(out_tuple)
     output.seek(0)

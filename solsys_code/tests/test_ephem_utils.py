@@ -421,6 +421,9 @@ class TestCloseApproach2025FA22(TestCase):
         assert_array_almost_equal(predictions['phase_deg'], self.horizons['phase_deg'], decimal=1)
         # Closest approach is the 2025-09-18 07:42:59 row
         self.assertEqual(predictions['Range_LTC_au'].idxmin(), 9)
+        # Az/Alt/HA are undefined for the geocentre
+        for column in ('Obs_Az_deg', 'Obs_Alt_deg', 'Obs_HA_deg'):
+            self.assertTrue(predictions[column].isna().all(), column)
 
     def test_visibility_switches_on_after_close_approach(self):
         lsc, created = Observatory.objects.get_or_create(
