@@ -4,18 +4,18 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 37
 current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
-status: executing
-stopped_at: Completed 37-06-PLAN.md
-last_updated: "2026-09-19T08:19:35.876Z"
+status: verifying
+stopped_at: Completed 37-07-PLAN.md (final plan of Phase 37)
+last_updated: "2026-09-19T10:21:48.186Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 37 execution started
-state_head: b54836d26d8f70895b28515785a47c49df0ea2e4
+state_head: 62c4e77f11bdb01f7fee12081e96ccdbd56f5685
 progress:
   total_phases: 5
   completed_phases: 36
   total_plans: 59
-  completed_plans: 58
-  percent: 98
+  completed_plans: 59
+  percent: 100
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-18 — Phase 37 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -231,6 +231,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37 P04 | 4h30min | 3 tasks | 2 files |
 | Phase 37 P05 | 65min | 2 tasks | 6 files |
 | Phase 37 P06 | 27min | 2 tasks | 4 files |
+| Phase 37 P07 | 135min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -391,6 +392,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: 37-05: Progress column pre-computed via tallies_for_runs() joined by pk in Python (never a queryset annotation), and get_or_compute_rollup() copies get_or_compute_tally()'s cache shape exactly for the campaign roll-up strip/badge
 - [Phase 37]: 37-06: run_tally() and unused_night_decoration() both mirror campaign_decoration()'s guard shape; the calendar and campaign table read the same campaign_tally classifiers so the two surfaces agree by construction (D-15). — Keeps the display-time-decoration-from-a-link pattern (Phase 33) as the single source of truth, and prevents the calendar chip's unused count from ever drifting from the table's.
 - [Phase 37]: 37-06: click-to-filter JS generalized from a single activeProposal string to a {kind, value} filter-object model so the new unused-night legend filter and the existing proposal filter share one toggle handler. — Avoids a second, near-duplicate JS code path that could drift from the existing single-active-filter invariant.
+- [Phase 37]: Deleted status_vocabulary.RETIRED_TITLE_PREFIXES once both re-title sweeps proved the developer database held no legacy-spelled CalendarEvent title -- exactly one spelling of every status marker remains. — Task 3's own precondition; the sweeps reported updated:0, meaning no re-titling was actually needed by the time this plan ran.
+- [Phase 37]: Found and fixed a real, previously-masked bug: test_views.py's module-level logging.disable(logging.CRITICAL) silenced all logging suite-wide once imported into the same process as the rest of the suite, breaking assertLogs()-based tests elsewhere; scoped it to setUpModule()/tearDownModule(). — The project's own test_command always ran test_views.py in a separate invocation, masking this; making the whole-suite invocation genuinely single-command (this plan's Task 3 deliverable) exposed it for the first time.
 
 ### Pending Todos
 
@@ -504,8 +507,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T08:19:22.684Z
-Stopped at: Completed 37-06-PLAN.md
+Last session: 2026-09-19T10:21:47.817Z
+Stopped at: Completed 37-07-PLAN.md (final plan of Phase 37)
 Resume file: None
 
 ## Operator Next Steps

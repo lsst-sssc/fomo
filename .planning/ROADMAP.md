@@ -384,7 +384,7 @@ Plans:
   4. An awarded night that came and went with nothing scheduled or observed is visibly different on the calendar from a night that was actually observed
   5. Coverage-gap analysis counts every observation on the campaign calendar, so classical and queue time is no longer reported as unclaimed
 
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans executed
 
 Plans:
 **Wave 1**
@@ -407,7 +407,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 37-07-PLAN.md — Paired docs: the runbook's final vocabulary, public-tally and new coverage-gap sections, four regenerated notebooks, and the legacy title spellings retired (wave 5)
+- [x] 37-07-PLAN.md — Paired docs: the runbook's final vocabulary, public-tally and new coverage-gap sections, four regenerated notebooks, and the legacy title spellings retired (wave 5)
 
 **UI hint**: yes
 
@@ -453,7 +453,7 @@ Plans:
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
-| 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 6/7 | In Progress|  |
+| 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 7/7 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
