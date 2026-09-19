@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 37
 current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 status: executing
-stopped_at: Completed 37-03-PLAN.md
-last_updated: "2026-09-19T04:29:37.419Z"
+stopped_at: Completed 37-02-PLAN.md
+last_updated: "2026-09-19T05:29:01.094Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 37 execution started
-state_head: b18b345a40405825dcc8f743142786d104ff7c28
+state_head: d5d25a1dff5574f2e87886710c62f5e2cac62845
 progress:
   total_phases: 5
   completed_phases: 36
   total_plans: 59
-  completed_plans: 54
-  percent: 92
+  completed_plans: 55
+  percent: 93
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 37 execution started
 
@@ -227,6 +227,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36 P09 | 42min | 3 tasks | 3 files |
 | Phase 37 P01 | 70min | 3 tasks | 13 files |
 | Phase 37 P03 | 46min | 2 tasks | 4 files |
+| Phase 37 P02 | 95min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -382,6 +383,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: STATUS-01 stays blocked pending plan 37-07's legacy-title re-title sweep (shared requirement ID); STATUS-02 marked complete — 37-01 and 37-07 both declare STATUS-01 in frontmatter; requirements.ready-ids gate prevents premature completion
 - [Phase 37]: GAPB-01 coverage-gap analysis: observed/scheduled observation blocks now union with approved run windows as claim sources; site-unknown observations are counted, never dropped. — T-37-09 mitigated via a single annotated scalar column, never select_related, to keep the public gap page from widening into CampaignRun contact fields.
 - [Phase 37]: Gap page's 'Claimed nights' list and site-unknown count line added to campaignrun_gap_analysis.html, going beyond the literal must_haves.truths list per Task 2's explicit action block. — The template previously never rendered result.claimed_dates at all; Task 2 required referencing result.observation_claimed_dates, which a display list satisfies naturally.
+- [Phase 37]: Task 1 checkpoint (human decision): proposal-code carrier a-store-all-types -- add CampaignRun.proposal_code, store every allocation type (std/rr/tc/realtime) as separate ProposalTimeAllocation rows, sum only std into the unused-so-far estimate so the summation rule can change later without a re-fetch.
+- [Phase 37]: estimated_unused_nights() rounds ties away from zero via math.floor(x + 0.5), not Python's banker's-rounding round(), and unused_hours_for() returns None (never 0.0) to distinguish not-yet-fetched from genuinely-zero.
 
 ### Pending Todos
 
@@ -495,8 +498,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T04:29:37.106Z
-Stopped at: Completed 37-03-PLAN.md
+Last session: 2026-09-19T05:29:00.780Z
+Stopped at: Completed 37-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
