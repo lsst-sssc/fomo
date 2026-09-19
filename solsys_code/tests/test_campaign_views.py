@@ -10,16 +10,22 @@ non-sidereal-only fixtures for this project) and a plain `is_staff=True` `User` 
 prior `is_staff` test precedent exists in this codebase per 15-RESEARCH.md Wave 0 Gaps).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
+from django.db.models.signals import post_save
 from django.test import TestCase
 from django.urls import reverse
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.campaign_tables import CampaignRunTable, _campaign_run_row_id
 from solsys_code.models import CampaignRun
+from solsys_code.observation_projector import receiver_on_record_save
+from solsys_code.solsys_code_observatory.models import Observatory
 
 # Cycle of run_status values for the "filler" rows -- deliberately excludes PLANNED/OBSERVED/
 # CANCELLED, which are pinned to specific rows below so the multi-select filter test (VIEW-04)
@@ -726,3 +732,86 @@ class TestCampaignRunAnchorPagination(CampaignViewTestBase):
         response = self.client.get(self._pagination_table_url(), {'page': 2})
         self.assertEqual(response.status_code, 200)
         self.assertIn(f'id="run-{self.oldest_run.pk}"', response.content.decode())
+
+
+class TestGapAnalysisSiteUnknownCount(TestCase):
+    """GAPB-01/D-17: the gap page's site-unknown count line renders only when there's
+    something to report, and states the count plainly rather than silently dropping an
+    observation the analysis could not place on a site."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.site = Observatory.objects.create(
+            obscode='F65',
+            name='Haleakala (FTN)',
+            short_name='FTN',
+            lon=-156.2570,
+            lat=20.7075,
+            altitude=3055.0,
+            timezone='Pacific/Honolulu',
+        )
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign = TargetList.objects.create(name='Site Unknown Campaign')
+        cls.campaign.targets.add(cls.target)
+        # A resolved-site approved run is required for gap_analysis_available() to be True
+        # (D-14) -- this run's own window plays no other part in either test below.
+        CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            site=cls.site,
+            window_start=date(2026, 6, 1),
+            window_end=date(2026, 6, 1),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+
+    def setUp(self):
+        # get_or_compute_gap() caches its result for an hour, keyed by campaign/target/site/
+        # date-range -- both tests below hit the same key, so a cache hit from whichever test
+        # runs first (alphabetical order, not declaration order) would silently make the
+        # second test see a stale result. Never share cache state across test methods here.
+        cache.clear()
+
+    def _gap_url(self):
+        return reverse('campaigns:gap_analysis', kwargs={'pk': self.campaign.pk})
+
+    def test_site_unknown_count_line_renders_when_nonzero(self):
+        # 34-01/WR-02 precedent: disconnect the observation projector's post_save receiver
+        # around this fixture -- its deliberately site-less `parameters` would otherwise
+        # either log as 'unprojectable' or auto-create a CalendarEventMeta this test never
+        # asked for.
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            ObservationRecord.objects.create(
+                target=self.target,
+                facility='LCO',
+                observation_id='SITEUNKNOWN-1',
+                status='COMPLETED',
+                scheduled_start=datetime(2026, 6, 5, 22, 0, tzinfo=dt_timezone.utc),
+                scheduled_end=datetime(2026, 6, 6, 4, 0, tzinfo=dt_timezone.utc),
+                parameters={},
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
+        response = self.client.get(self._gap_url(), {'site': self.site.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1 observation(s)')
+        self.assertContains(response, 'could not')
+        self.assertContains(response, 'not ignored')
+
+    def test_site_unknown_count_line_absent_when_zero(self):
+        response = self.client.get(self._gap_url(), {'site': self.site.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'not ignored')
