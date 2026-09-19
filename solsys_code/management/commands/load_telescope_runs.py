@@ -291,6 +291,7 @@ class Command(BaseCommand):
                     'night_start_utc': _window_token_to_time(parsed.start_window),
                     'night_end_utc': _window_token_to_time(parsed.end_window),
                     'observation_details': observation_details,
+                    'proposal_code': parsed.proposal or '',
                 }
 
                 if dry_run:

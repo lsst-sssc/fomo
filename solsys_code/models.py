@@ -419,6 +419,13 @@ class CampaignRun(models.Model):
     # source_identifier alone race-safe (WR-05); do not re-add a campaign-is-always-present
     # assumption when reading this field.
     source_identifier = models.CharField(max_length=500, null=True, blank=True, verbose_name='Write-time identity key')
+    # Phase 37 (D-07/TALLY-01): the structured carrier of the classical run file's bracketed
+    # [proposal] token (telescope_runs.ParsedRun.proposal) -- what the proposal-allocation
+    # fetch (proposal_allocation.py) keys on to find this run's unused-time estimate. Blank
+    # means "no proposal code recorded" -- NEVER "no allocation"; the tally must render a
+    # blank code as not-yet-known, never as zero. Populated only by the classical loader
+    # today; WEB/CSV-import runs stay blank until a follow-up captures one there too.
+    proposal_code = models.CharField(max_length=100, blank=True, default='', verbose_name='Proposal code')
 
     @property
     def is_publicly_visible(self) -> bool:
@@ -785,3 +792,56 @@ class WatchedProposal(models.Model):
 
     def __str__(self):
         return f'{self.proposal_code} ({"active" if self.is_active else "inactive"})'
+
+
+class ProposalTimeAllocation(models.Model):
+    """One row per (proposal code, semester, instrument type, allocation type) time
+    allocation fetched from the LCO Observation Portal (Phase 37 D-07).
+
+    Written only by the unattended runner's proposal-allocation step
+    (``proposal_allocation.refresh_all()`` / ``step_proposal_allocation()``) -- read-only
+    everywhere else, including the admin (every field is ``readonly_fields`` there). A
+    second call for the same key updates the matching row in place rather than creating a
+    duplicate, via ``objects.update_or_create()`` keyed on the four fields the unique
+    constraint below names.
+
+    ``WatchedProposal`` is deliberately NOT overloaded to carry these figures -- it stays a
+    watch list (D-07); this is a separate, purpose-built model.
+
+    ``allocated_hours``/``used_hours`` are the portal's own numbers, stored exactly as
+    reported. The "unused nights" figure derived from them elsewhere
+    (``proposal_allocation.estimated_unused_nights()``) is a deliberate *estimate* (D-06's
+    fixed 10-hours-per-night rule of thumb), never a measurement -- callers must never
+    present it as one.
+    """
+
+    proposal_code = models.CharField(max_length=100, verbose_name='Proposal code')
+    semester = models.CharField(max_length=32, blank=True, default='', verbose_name='Semester')
+    instrument_type = models.CharField(max_length=100, blank=True, default='', verbose_name='Instrument type')
+    # The portal's own time-type name -- 'std', 'rr' or 'tc' -- not a human-facing label.
+    allocation_type = models.CharField(max_length=16, verbose_name='Allocation type')
+    allocated_hours = models.FloatField(default=0.0, verbose_name='Allocated hours')
+    used_hours = models.FloatField(default=0.0, verbose_name='Used hours')
+    fetched_at = models.DateTimeField(verbose_name='Fetched at')
+
+    class Meta:  # noqa: D106
+        ordering = ['proposal_code', 'semester']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('proposal_code', 'semester', 'instrument_type', 'allocation_type'),
+                name='unique_proposal_time_allocation_key',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        """Strip `proposal_code` before every save (mirrors WatchedProposal.save()).
+
+        A pasted code with trailing whitespace would otherwise create a second row that
+        looks identical to an existing one in the admin changelist but fails to match the
+        unique constraint against the un-stripped stored value.
+        """
+        self.proposal_code = (self.proposal_code or '').strip()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.proposal_code} {self.semester} {self.allocation_type} ({self.allocated_hours}h)'

@@ -3,7 +3,13 @@ from django.forms.models import BaseInlineFormSet
 from django.utils import timezone
 from tom_targets.models import Target
 
-from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation, WatchedProposal
+from solsys_code.models import (
+    CalendarEventMeta,
+    CampaignRun,
+    CampaignRunObservation,
+    ProposalTimeAllocation,
+    WatchedProposal,
+)
 
 
 class CalendarEventMetaInlineFormSet(BaseInlineFormSet):
@@ -157,6 +163,7 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
         'window_end',
         'source',
         'telescope_class',
+        'proposal_code',
     ]
     # D-19: filtering by source is how staff audit "which runs came from the CSV import";
     # by telescope_class, how they find class-wide runs.
@@ -475,6 +482,34 @@ class WatchedProposalAdmin(admin.ModelAdmin):  # noqa: D101
     ordering = ['proposal_code']
 
 
+class ProposalTimeAllocationAdmin(admin.ModelAdmin):  # noqa: D101
+    """Phase 37 D-07: every field is read-only -- this row is written only by the
+    unattended runner's proposal-allocation fetch step; a staff user cannot hand-edit a
+    figure the public tallies present as portal-sourced (T-37-07)."""
+
+    list_display = [
+        'proposal_code',
+        'semester',
+        'instrument_type',
+        'allocation_type',
+        'allocated_hours',
+        'used_hours',
+        'fetched_at',
+    ]
+    list_filter = ['allocation_type', 'semester']
+    search_fields = ['proposal_code']
+    readonly_fields = [
+        'proposal_code',
+        'semester',
+        'instrument_type',
+        'allocation_type',
+        'allocated_hours',
+        'used_hours',
+        'fetched_at',
+    ]
+    ordering = ['proposal_code', 'semester']
+
+
 class TargetAdmin(admin.ModelAdmin):  # noqa: D101
     list_display = ['name', 'type', 'ra', 'dec']
     list_filter = ['type']
@@ -484,5 +519,6 @@ class TargetAdmin(admin.ModelAdmin):  # noqa: D101
 admin.site.register(CampaignRun, CampaignRunAdmin)
 admin.site.register(CalendarEventMeta, CalendarEventMetaAdmin)
 admin.site.register(WatchedProposal, WatchedProposalAdmin)
+admin.site.register(ProposalTimeAllocation, ProposalTimeAllocationAdmin)
 admin.site.unregister(Target)
 admin.site.register(Target, TargetAdmin)
