@@ -12,6 +12,7 @@ never ``SiderealTargetFactory`` (CLAUDE.md: FOMO is exclusively for Solar System
 targets).
 """
 
+import ast
 import inspect
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
@@ -97,12 +98,20 @@ class CampaignTallyTestBase(TestCase):
 
 
 class TestModuleImportGuard(TestCase):
-    """Mirrors campaign_gap.py's own static import-guard test."""
+    """Mirrors campaign_gap.py's own static import-guard test (test_campaign_gap.py
+    TestNoHeavyEphemerisImport) -- checks actual import STATEMENTS, not the module's prose,
+    since the module's own docstring legitimately names both modules by way of explaining
+    why they must never be imported."""
 
     def test_module_never_imports_views_or_ephem_utils(self):
-        src = inspect.getsource(campaign_tally)
-        self.assertNotIn('solsys_code.views', src)
-        self.assertNotIn('ephem_utils', src)
+        source = inspect.getsource(campaign_tally)
+        for line in source.splitlines():
+            stripped = line.strip()
+            self.assertFalse(
+                stripped.startswith(('from ', 'import ')) and 'ephem_utils' in stripped,
+                f'Forbidden ephem_utils import found: {line!r}',
+            )
+            self.assertNotIn('from solsys_code.views import', stripped)
 
     def test_module_states_tally_03_invariant_in_words(self):
         doc = campaign_tally.__doc__ or ''
@@ -372,7 +381,16 @@ class TestTalliesForRuns(CampaignTallyTestBase):
         self.assertEqual(result[run2.pk]['records'], 0)
 
     def test_never_calls_tally_for_run_in_a_row_loop(self):
-        """Docstring-level contract check: the function's own source never calls
-        tally_for_run() at all (D-08's "never a per-row loop")."""
-        src = inspect.getsource(tallies_for_runs)
-        self.assertNotIn('tally_for_run(', src)
+        """Source-level contract check (D-08's "never a per-row loop"): no executable line
+        of tallies_for_runs() calls tally_for_run(). Checked line-by-line, skipping the
+        function's own docstring, so prose mentioning tally_for_run() by name (to state the
+        very rule this test pins) cannot trip the check -- mirrors 37-03-SUMMARY.md's
+        documented self-correction for the identical docstring-vs-grep pitfall."""
+        source = inspect.getsource(tallies_for_runs)
+        func_node = ast.parse(source).body[0]
+        # body[0] is the docstring Expr node when one is present -- skip straight to the
+        # first REAL statement's line so the docstring's own prose (which names
+        # tally_for_run() by name to state this very rule) cannot trip the check.
+        first_real_stmt_lineno = func_node.body[1].lineno
+        code_only = '\n'.join(source.splitlines()[first_real_stmt_lineno - 1 :])
+        self.assertNotIn('tally_for_run(', code_only)
