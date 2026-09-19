@@ -133,7 +133,12 @@ The event narrows as the record's own fields change:
   cancelled, or fails.
 
 The event's title carries a compact marker naming that stage, e.g.
-``[Q] 2m0 3I/ATLAS``:
+``[Q] 2m0 3I/ATLAS``. **One module, ``solsys_code/status_vocabulary.py``,
+defines every marker below, its label and the calendar legend** -- the
+entry titles, the calendar legend and the campaign table's Progress cell
+(see "What does a run's or a campaign's public tally show?" below) all
+read from that single definition, so there is exactly one spelling of
+every state, final as of this phase:
 
 .. list-table::
    :header-rows: 1
@@ -144,15 +149,25 @@ The event's title carries a compact marker naming that stage, e.g.
    * - ``[Q]``
      - Queued -- awaiting placement by the LCO scheduler.
    * - ``[S]``
-     - Scheduled -- placed by the scheduler, not yet observed.
+     - Scheduled -- the LCO portal's own word for a block the scheduler has
+       placed but that has not yet been observed.
    * - ``[O]``
      - Observed -- a successful terminal status.
    * - ``[X]``
      - Window expired before the observation was attempted.
    * - ``[C]``
-     - Cancelled.
+     - Cancelled -- by whichever layer owns the entry: a staff decision on
+       a campaign run (the approval queue's "Mark Cancelled" button, see
+       "How do I mark a run cancelled or weathered-out?" below) or a
+       portal cancellation on an LCO/SOAR observation record. ``[C]``
+       itself never says which -- the pop-up's own "Run status:" line is
+       what distinguishes the two.
    * - ``[F]``
      - Failed (failure limit reached, or never attempted).
+   * - ``[W]``
+     - Weather or technical failure -- a staff decision on a campaign run
+       (the approval queue's "Mark Weathered" button, see "How do I mark a
+       run cancelled or weathered-out?" below).
    * - ``[?]``
      - Inconsistent record -- only one of ``scheduled_start``/
        ``scheduled_end`` is set; projected anyway so the data problem is
@@ -161,18 +176,24 @@ The event's title carries a compact marker naming that stage, e.g.
        inconsistent *and* window-expired/cancelled/failed shows ``[X]``/
        ``[C]``/``[F]`` instead -- the data problem is then visible only in
        a log, not on the calendar, for that combination.
-
-This letter vocabulary is provisional -- Phase 37 (status vocabulary) owns
-its final wording, so the exact markers may still change.
+   * - ``[U]``
+     - Unused awarded night -- an allocation night that came and went with
+       nothing scheduled or observed on it. Never stored in a title: it is
+       added only when the calendar page is rendered, on a muted chip, so
+       an operator reading a stored ``CalendarEvent.title`` directly (in
+       the admin, say) never sees it. See "What does a run's or a
+       campaign's public tally show?" below.
 
 You do not need to come back to this runbook to decode a marker on the
 calendar page itself: the calendar carries its own status **legend** row,
-listing every marker above beside its meaning (Queued, Scheduled, Observed,
-Window expired, Cancelled, Failed, Inconsistent record), so an operator
-reading a month cell can decode it at a glance. The ring drawn around a
-month cell follows the same vocabulary: a Queued or an Inconsistent record
-entry is ringed, a Scheduled or Observed entry is not, and an expired,
-cancelled or failed entry carries the terminal ring.
+listing every marker above beside its meaning, so an operator reading a
+month cell can decode it at a glance. The ring drawn around a month cell
+follows the same vocabulary: a Queued or an Inconsistent record entry is
+ringed, a Scheduled or Observed entry is not, and an expired, cancelled,
+failed or weathered entry carries the terminal ring. The unused marker
+(``[U]``) adds no ring of its own -- it is shown only by that muted chip
+and its ``[U]`` text token, precisely so the signal never depends on
+colour alone.
 
 Observation series
 ^^^^^^^^^^^^^^^^^^^^^
@@ -921,7 +942,7 @@ find those urls already held and refuse to re-key onto them -- reporting
 the stranded legacy events as ``key_collision`` instead of converting them.
 Running the cutover first avoids that entirely.
 
-It runs in four steps, in order:
+It runs the following steps, in order:
 
 .. code-block:: console
 
@@ -1426,7 +1447,7 @@ directly, in one process, every tick.
 What runs, and when
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Every 15 minutes (``*/15 * * * *``), ``run_unattended`` runs four steps, in
+Every 15 minutes (``*/15 * * * *``), ``run_unattended`` runs five steps, in
 this fixed order, in one process:
 
 1. **status_refresh** -- the FOMO-owned LCO/SOAR observation-status
@@ -1440,10 +1461,24 @@ this fixed order, in one process:
    to watch" below).
 4. **reconcile** -- the campaign reconciler sweep, the same logic
    ``reconcile_campaign_runs`` runs.
+5. **proposal_allocation** -- refreshes every watched or run-carried
+   proposal's time allocation from the LCO Observation Portal
+   (``timeallocation_set``) and stores it, one row per proposal code /
+   semester / instrument type / allocation type, in
+   ``ProposalTimeAllocation``. Public pages only ever read these stored
+   rows -- an anonymous visitor's page load never triggers a credentialed
+   portal call.
 
-A step that fails never stops the later ones: every tick runs all four
+A step that fails never stops the later ones: every tick runs all five
 steps, records each one's own outcome, and exits non-zero at the end only
-if at least one step failed.
+if at least one step failed. If **proposal_allocation** is the one that
+fails (a portal outage, an expired API key), the existing failure email
+below names it as the failing step exactly like any other; the other four
+steps still run on the same tick; and on the public pages, any run whose
+unused-nights estimate depends on that proposal shows **not yet known**
+rather than a blank page or a stale figure -- a portal outage is never
+visible to a public visitor as missing content, only as an honest "not yet
+known".
 
 Setting it up on a fresh host
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1895,6 +1930,125 @@ ever names a real match that already passed the same scoring the
 attribution queue itself uses; see "How do I attribute existing calendar
 events and observation records to a run?" above.
 
+What does a run's or a campaign's public tally show?
+------------------------------------------------------------------
+
+Every run row on the public campaign table (``campaigns:table``), the
+roll-up strip above that table, the ``N runs`` badge on the campaign list,
+and the "Attributed campaign run" block in the calendar pop-up (see "Why
+doesn't the calendar pop-up show an 'Attributed campaign run' block?"
+above) all show the same read-only tally, computed from the run's linked
+observation groups and records: how many distinct ``ObservationGroup``\ s
+and ``ObservationRecord``\ s are linked to the run, and four night counts
+-- observed, scheduled, expired-or-failed, and unused. **Anyone can see
+this, staff or not** -- it is not gated behind a login, exactly like the
+campaign table and the calendar itself.
+
+Nights are counted on the site-local observing night (the same
+noon-anchored rule ``telescope_runs.observing_night()`` uses everywhere
+else in FOMO), never the UTC calendar date, so a night that starts late in
+the evening and crosses midnight UTC is still counted once, on the night
+an observer at the site would call it.
+
+**None of this ever changes a run's own status.** The tally is a read-only
+aggregate over the run's linked records; ``CampaignRun.run_status`` stays
+exactly what a staff member set it to through the approval queue's
+decision buttons (see "How do I mark a run cancelled or weathered-out?"
+above) -- no tally computation, cache, or display tag writes to it.
+
+The unused figure needs its own explanation, because it is computed two
+different ways depending on the run:
+
+* For a run that projects its own allocation nights (a classical or
+  class-wide run with ``ALLOC:``-namespaced calendar events), the figure
+  is an **exact** count of that run's still-standing allocation nights
+  whose projected sunrise has already passed with nothing scheduled or
+  observed on them -- the same rule that puts the ``[U]`` marker on the
+  calendar (see "How do LCO/SOAR queue observations get onto the
+  calendar?" above).
+* For a run with no allocation events of its own (a queue-scheduled run
+  whose nights the LCO/SOAR portal itself schedules), the figure is an
+  **estimate**: the proposal's unused standard-time hours (the allocation
+  the portal reports, minus the hours already used, fetched once per
+  unattended tick -- see the fifth runner step in "How do I run everything
+  unattended?" below) divided by ten hours per night, a fixed rule of
+  thumb. An estimate is always shown with its estimate qualifier, never
+  presented as an exact count.
+* Before the proposal-allocation step has ever successfully fetched that
+  run's proposal, or when the run has no allocation events and no
+  proposal code at all, the figure shows as **not yet known** -- never as
+  a bare zero, which would read as "definitely nothing unused" rather
+  than "nothing to compute this from yet".
+
+**How fresh is the tally?** A change to a linked observation record -- the
+projector narrowing a queued request to a placed block, or a placed block
+coming back observed -- shows **on the next page load**, with no waiting
+period: the cached tally's cache key is built from the run's own primary
+key plus the newest linked-record change timestamp, so any such change
+produces a fresh cache key and a fresh computation immediately. A change
+that comes only from the clock -- an awarded night quietly elapsing into
+unused, or a freshly fetched proposal allocation replacing an older one --
+is bounded only by the cache lifetime, ``TALLY_CACHE_TTL_SECONDS`` in
+``solsys_code/campaign_tally.py``, one hour by default. An operator who
+wants a shorter bound on purely time-driven changes should look there.
+
+How do I find nights that were observed but never claimed by any approved run?
+-----------------------------------------------------------------------------------
+
+The **Show Coverage Gaps** button on a campaign's runs page
+(``campaigns:table``) opens a page that answers one question: of the
+nights this campaign's target(s) were actually observable at a chosen
+site, which ones are not accounted for by anything on the campaign's
+calendar? The button is disabled, with explanatory text in its place, when
+the campaign has no targets at all, or none of its runs has a resolved
+site -- there is nothing to compute observability against either way.
+
+The page computes over a requested date range: 90 days by default, capped
+at 180 days even if a caller asks for more. The result is cached for one
+hour (``GAP_CACHE_TTL_SECONDS`` in ``solsys_code/campaign_gap.py``); "Last
+computed" on the page names when that cached result was actually
+produced, not the time of the current page load.
+
+**What claims a night** (so it does NOT show up as a gap):
+
+* An approved ``CampaignRun``'s window, for every date in its
+  ``window_start``..``window_end`` range -- unless that run's own status
+  is cancelled, not-awarded, or weather/technical-failure, in which case
+  its window claims nothing (a run that fell through in the real world
+  frees its dates back up as a gap).
+* **As of this phase, also** an observed (``[O]``) or scheduled (``[S]``)
+  observation block on the campaign's calendar, on the site-local
+  observing night it falls in -- whether or not that observation is
+  attributed to any ``CampaignRun``. "On the campaign's calendar" means
+  either attributed to one of the campaign's runs, or the record's own
+  target belongs to the campaign, so a classical or queue-scheduled
+  observation of the campaign's own target counts even before anyone
+  works through the attribution queue. The page's "Claimed nights" list
+  marks each date with which kind of thing claimed it, when both are
+  known.
+
+**What does NOT claim a night:** a queued request's window (a request
+that has not yet been placed by the scheduler is not a set of owned
+nights), and an expired, cancelled, or failed observation record's
+window.
+
+**Site assignment for an observation.** An observation's own recorded
+observed site takes priority; failing that, the site of the
+``CampaignRun`` it is attributed to; failing that, the observation cannot
+be assigned to any site at all. That last case is reported on the page as
+a **claimed, site unknown** count -- listed, never silently dropped --
+and it closes no gap for any specific site, because the page cannot tell
+which site's gaps it would have closed.
+
+The page also carries forward the needs-review lists that predate this
+phase: runs with no date at all (**undated**), approved runs not
+attributed to either campaign target on a multi-target campaign
+(**unattributed**), and space-mission runs whose window has not yet
+narrowed to a single night (**pending narrowing**) -- none of these are
+counted as claiming any date, and all three are listed so a data-quality
+problem is visible rather than silently absorbed into the gap count
+either way.
+
 .. _command-cheat-sheet:
 
 Command cheat-sheet
@@ -1940,7 +2094,7 @@ Command cheat-sheet
      - One-time cutover: converts legacy blank-url classical CalendarEvents into CampaignRuns plus ALLOC:-keyed events.
    * - ``run_unattended``
      - ``--dry-run``, ``--step <name>`` (both optional)
-     - The unattended runner: status refresh, projector sweep, discovery, and reconcile in one cron-scheduled tick. See :ref:`unattended-operation`.
+     - The unattended runner: status refresh, projector sweep, discovery, reconcile, and proposal-allocation refresh in one cron-scheduled tick. See :ref:`unattended-operation`.
    * - ``check_unattended``
      - ``--send-test-email`` (optional)
      - Read-only preflight for the unattended path; prints the exact cron line to install. See :ref:`unattended-operation`.
@@ -2288,6 +2442,26 @@ crontab line disabled you should then see the check go late about 15
 minutes after the missed slot and alert about 35 minutes after the last
 ping. Standing check: compare the interval the check is configured with
 against the 15-minute cron schedule -- they must match.
+
+The unused figure says it is not yet known
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** either the **proposal_allocation** unattended step has never
+successfully fetched this run's proposal from the LCO Observation Portal
+yet (check the log, or the admin's ``Proposal time allocations`` list, for
+a row matching the run's proposal code), or the run itself has a blank
+``proposal_code`` and no allocation events of its own to count exactly --
+there is nothing this figure can be estimated from either way.
+
+**Fix:** for a queue-scheduled run, confirm the run's ``proposal_code`` is
+set (the classical loader's bracketed ``[proposal]`` token populates it
+automatically; a run imported another way may need it set by hand) and
+that the **proposal_allocation** step is completing successfully on the
+tick -- see "How do I run everything unattended?" above. For a run that
+projects its own allocation nights, this figure should never read "not
+yet known" at all; if it does, confirm the run actually has ``ALLOC:``
+events (see "How do LCO/SOAR queue observations get onto the calendar?"
+above).
 
 See also
 -----------
