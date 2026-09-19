@@ -518,3 +518,64 @@ def campaign_rollup(campaign) -> dict[str, Any]:
     rollup['unused_is_estimate'] = bool(estimate_codes)
 
     return rollup
+
+
+def build_rollup_cache_key(campaign_pk: int, records_version: datetime | None) -> str:
+    """Build a stable, freshness-sensitive cache key for a campaign's roll-up (TALLY-02),
+    in exactly ``build_tally_cache_key()``'s shape.
+
+    A key built from the campaign pk alone would leave the roll-up strip an hour behind the
+    rows beneath it whenever a linked observation record narrows -- folding in the newest
+    linked-record change stamp is what keeps the two surfaces agreeing on the very next page
+    load instead of the strip trailing the table by up to ``TALLY_CACHE_TTL_SECONDS``.
+
+    Args:
+        campaign_pk: pk of the campaign TargetList.
+        records_version: the newest linked-record change stamp across the campaign's
+            publicly visible runs (see ``campaign_records_version()``), or ``None`` when
+            there are none.
+
+    Returns:
+        str: a stable key; two calls with the same ``(campaign_pk, records_version)`` pair
+            produce identical keys, and any change to ``records_version`` produces a
+            different one.
+    """
+    version_segment = records_version.isoformat() if records_version is not None else _NO_RECORDS_VERSION_TOKEN
+    return f'campaign_rollup:{campaign_pk}:{version_segment}'
+
+
+def get_or_compute_rollup(campaign, records_version: datetime | None = None) -> dict[str, Any]:
+    """Cache-or-compute wrapper for one campaign's roll-up, mirroring
+    ``get_or_compute_tally()``'s shape exactly -- this is what keeps the campaign list from
+    recomputing every campaign's night counts on every visitor's page load, the same
+    exposure the folded attribution-banner-count todo measured (D-10).
+
+    Staleness this leaves: a record-driven change (a saved linked observation record
+    narrowing a run) is visible on the very next page load, because the cache key folds in
+    the newest linked-record change stamp. Only a purely time-driven transition -- an
+    awarded night elapsing into unused, or a newly fetched proposal allocation -- is visible
+    within ``TALLY_CACHE_TTL_SECONDS``, the same bound ``get_or_compute_tally()`` accepts.
+
+    Args:
+        campaign: the campaign TargetList.
+        records_version: the newest linked-record change stamp to key the cache on. When
+            omitted, this is derived with ``campaign_records_version()`` (one aggregate
+            query) rather than left out of the key entirely -- deliberately NOT folded into
+            ``CampaignListView``'s existing ``run_count`` annotation to save that query: a
+            second aggregate over a further multi-valued join would multiply the rows the
+            ``Count`` sees and silently inflate ``run_count``. One extra small query per
+            campaign is the safe form.
+
+    Returns:
+        dict[str, Any]: the cached roll-up dict unchanged on a hit; a freshly computed,
+            cached roll-up on a miss.
+    """
+    if records_version is None:
+        records_version = campaign_records_version(campaign)
+    key = build_rollup_cache_key(campaign.pk, records_version)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    rollup = campaign_rollup(campaign)
+    cache.set(key, rollup, timeout=TALLY_CACHE_TTL_SECONDS)
+    return rollup

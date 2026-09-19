@@ -204,12 +204,15 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         return {'order_by': (), 'tallies': campaign_tally.tallies_for_runs(runs)}
 
     def get_context_data(self, **kwargs):
-        """Add the campaign (TargetList) and D-14 gap-analysis-button availability to context."""
+        """Add the campaign (TargetList), D-14 gap-analysis-button availability, and the
+        TALLY-02/D-10 campaign roll-up (summary strip above the table) to context."""
         context = super().get_context_data(**kwargs)
         context['campaign'] = get_object_or_404(TargetList, pk=self.kwargs['pk'])
         # D-14: reuse gap_analysis_available() (defined below) rather than duplicating its
         # target-count / resolved-site logic here -- gates the "Show Coverage Gaps" button.
         context['gap_analysis_available'] = gap_analysis_available(context['campaign'])
+        context['rollup'] = campaign_tally.get_or_compute_rollup(context['campaign'])
+        context['rollup_segments'] = campaign_tally.tally_segments(context['rollup'])
         return context
 
 
@@ -266,6 +269,12 @@ class CampaignListView(ListView):
         ).count()
         context['site_review_count'] = runs_needing_site_review().count()
         context['attribution_count'] = campaign_attribution.orphans_needing_attribution_count()
+        # TALLY-02/D-10: one cached roll-up per listed campaign, attached directly to each
+        # campaign object so the template reads campaign.rollup.nights_observed -- iterating
+        # context['campaigns'] here (rather than a second queryset) caches the same queryset
+        # result the template itself iterates, so this costs no extra campaign-list query.
+        for campaign in context['campaigns']:
+            campaign.rollup = campaign_tally.get_or_compute_rollup(campaign)
         return context
 
 

@@ -67,5 +67,25 @@
   </form>
 </div>
 
+{% comment %}
+TALLY-02/D-10: campaign roll-up summary strip, styled like the filter card above it. Sums
+only the campaign's approved, publicly visible runs (a pending-review run contributes
+nothing, per campaign_tally.campaign_rollup()'s queryset-level exclude) -- computed once per
+request by the view (get_or_compute_rollup()), never once per template reference here.
+{% endcomment %}
+<div class="card bg-light p-3 mb-4">
+  <div>
+    <strong>{{ rollup.groups }} group{{ rollup.groups|pluralize }} &middot; {{ rollup.records }} record{{ rollup.records|pluralize }}</strong>
+  </div>
+  <div class="mt-1">
+    {% for segment in rollup_segments %}
+    <span class="mr-3" title="{{ segment.label }}">
+      {{ segment.label }}: {{ segment.marker }}
+      {% if not segment.known %}not yet known{% elif segment.is_estimate %}&approx;{{ segment.count }}{% else %}{{ segment.count }}{% endif %}
+    </span>
+    {% endfor %}
+  </div>
+</div>
+
 {% render_table table %}
 {% endblock %}

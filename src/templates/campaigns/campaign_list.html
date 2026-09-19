@@ -45,7 +45,9 @@ site_review_count (27.1-03) plus attribution_count (28-04, D-02).
   <a href="{% url 'campaigns:table' pk=campaign.pk %}"
      class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
     {{ campaign.name }}
-    <span class="badge text-bg-secondary">{{ campaign.run_count }} run{{ campaign.run_count|pluralize }}</span>
+    <span class="badge text-bg-secondary">
+      {{ campaign.run_count }} run{{ campaign.run_count|pluralize }}{% if campaign.rollup.nights_observed %} &middot; {{ campaign.rollup.nights_observed }} night{{ campaign.rollup.nights_observed|pluralize }} observed{% endif %}
+    </span>
   </a>
   {% endfor %}
 </div>

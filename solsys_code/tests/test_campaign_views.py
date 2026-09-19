@@ -1032,3 +1032,118 @@ class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
         three_row_count = len(ctx_three.captured_queries)
 
         self.assertEqual(two_row_count, three_row_count)
+
+
+class TestCampaignRollup(CampaignTallyViewTestBase):
+    """TALLY-02/D-10: a header strip above the runs table and a nights-observed badge on
+    the campaign list, rolled up only across publicly visible runs."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_runs_page_shows_rollup_strip_with_group_record_and_segment_counts(self):
+        run = self._make_run()
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('1 record', content)
+        self.assertIn('Observed', content)
+        self.assertIn('[O]', content)
+
+    def test_pending_review_run_excluded_from_rollup_and_not_inferable(self):
+        pending_run = self._make_run(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        self._link_record(
+            pending_run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['runs'], 0)
+        self.assertEqual(rollup['records'], 0)
+
+    def test_anonymous_get_of_runs_page_returns_200_with_rollup_content(self):
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'group')
+
+    def test_campaign_list_badge_reads_runs_and_nights_observed(self):
+        run = self._make_run()
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1 run')
+        self.assertContains(response, '1 night')
+        self.assertContains(response, 'observed')
+
+    def test_campaign_list_badge_omits_nights_clause_when_zero(self):
+        self._make_run()
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1 run')
+        self.assertNotContains(response, 'nights observed')
+
+    def test_saving_a_linked_record_moves_the_rollup_on_next_load_no_clock_advance_no_cache_clear(self):
+        run = self._make_run()
+        table_url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        list_url = reverse('campaigns:list')
+
+        first_table = self.client.get(table_url)
+        self.assertEqual(first_table.context['rollup']['records'], 0)
+        first_list = self.client.get(list_url)
+        self.assertNotContains(first_list, 'nights observed')
+
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+
+        second_table = self.client.get(table_url)
+        self.assertEqual(second_table.context['rollup']['records'], 1)
+        second_list = self.client.get(list_url)
+        self.assertContains(second_list, '1 night')
+
+    def test_build_rollup_cache_key_moves_with_the_change_stamp(self):
+        a = campaign_tally.build_rollup_cache_key(1, datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        b = campaign_tally.build_rollup_cache_key(1, datetime(2026, 1, 2, tzinfo=dt_timezone.utc))
+        c = campaign_tally.build_rollup_cache_key(1, datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        self.assertNotEqual(a, b)
+        self.assertEqual(a, c)
+
+    def test_campaign_list_query_count_bound_with_three_campaigns(self):
+        """D-10/T-37-19: one extra small query per listed campaign (the change-stamp probe)
+        is the accepted, bounded cost -- the cached rollup itself must add no further query."""
+        campaigns = [TargetList.objects.create(name=f'Bound Campaign {i}') for i in range(3)]
+        for c in campaigns:
+            self._make_run(campaign=c, telescope_instrument=f'FTN/{c.pk}')
+        # Warm the rollup cache for every campaign (including the fixture's own) first.
+        for c in list(campaigns) + [self.campaign]:
+            campaign_tally.get_or_compute_rollup(c)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse('campaigns:list'))
+        base_count = len(ctx.captured_queries)
+
+        extra_campaign = TargetList.objects.create(name='Bound Campaign Extra')
+        self._make_run(campaign=extra_campaign, telescope_instrument='FTN/extra')
+        campaign_tally.get_or_compute_rollup(extra_campaign)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse('campaigns:list'))
+        # One more campaign -> at most one more query (the version probe); the rollup
+        # itself must be a cache hit, adding zero.
+        self.assertLessEqual(len(ctx.captured_queries), base_count + 1)
