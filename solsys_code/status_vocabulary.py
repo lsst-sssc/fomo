@@ -21,6 +21,8 @@ this module, and those heavy modules trigger a ~1.6 GB SPICE-kernel download on 
 (CLAUDE.md "Heavy import side effect") that every one of those callers would otherwise pay.
 """
 
+from solsys_code.models import CampaignRun
+
 
 class OCSState:
     """Canonical LCO/SOAR observing-portal state names (D-05).
@@ -117,6 +119,19 @@ FAILURE_MARKER_BY_STATUS: dict[str, str] = {
     OCSState.CANCELED: MARKER[DisplayState.CANCELLED],
     OCSState.FAILURE_LIMIT_REACHED: MARKER[DisplayState.FAILED],
     OCSState.NOT_ATTEMPTED: MARKER[DisplayState.FAILED],
+}
+
+# D-02: the only two CampaignRun.RunStatus values that ever surface a calendar marker. A
+# staff-cancelled run night gets the same [C] a portal-cancelled record gets -- [C] means
+# "cancelled, by whoever owns this event"; the pop-up's own "Run status:" line is what
+# distinguishes the two layers. Every other RunStatus value (REQUESTED, PLANNED, OBSERVED,
+# REDUCED, PUBLISHED, NOT_AWARDED) gains no marker. Importing CampaignRun from
+# solsys_code.models at module scope is safe here: models.py imports
+# campaign_reconciler/allocation_projector lazily inside a signal receiver, so there is no
+# module-scope import cycle.
+RUN_STATUS_MARKER: dict[str, str] = {
+    CampaignRun.RunStatus.CANCELLED: MARKER[DisplayState.CANCELLED],
+    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: MARKER[DisplayState.WEATHERED],
 }
 
 # status_border_css()'s two ring buckets. SCHEDULED, OBSERVED and UNUSED are in neither

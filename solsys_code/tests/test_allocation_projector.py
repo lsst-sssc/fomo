@@ -189,7 +189,7 @@ class TestEndToEndAllocationNight(AllocationProjectorTestBase):
 
         event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
         pk_before = event.pk
-        self.assertEqual(event.title, '[CANCELLED] NTT EFOSC2')
+        self.assertEqual(event.title, '[C] NTT EFOSC2')
 
         run.run_status = CampaignRun.RunStatus.PLANNED
         run.save(update_fields=['run_status'])
@@ -709,7 +709,7 @@ class TestDeclinedRetirementStillUpdatesLabels(AllocationProjectorTestBase):
 
         event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
         self.assertEqual(event_after.title, allocation_night_title(run))
-        self.assertTrue(event_after.title.startswith('[CANCELLED]'))
+        self.assertTrue(event_after.title.startswith('[C]'))
         self.assertEqual(event_after.pk, pk_before)
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
@@ -746,7 +746,7 @@ class TestDeclinedRetirementStillUpdatesLabels(AllocationProjectorTestBase):
 
         self.assertTrue(CalendarEvent.objects.filter(pk=pk_before).exists())
         event_after = CalendarEvent.objects.get(pk=pk_before)
-        self.assertTrue(event_after.title.startswith('[CANCELLED]'))
+        self.assertTrue(event_after.title.startswith('[C]'))
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
         declined_records = [r for r in log_ctx.records if 'retire declined' in r.getMessage()]
@@ -2327,7 +2327,7 @@ class TestDeclinedRemintStillUpdatesLabels(AllocationProjectorTestBase):
         self.assertEqual(event_after.start_time, start_before)
         self.assertEqual(event_after.end_time, end_before)
         self.assertEqual(event_after.title, allocation_night_title(run))
-        self.assertTrue(event_after.title.startswith('[CANCELLED]'))
+        self.assertTrue(event_after.title.startswith('[C]'))
 
     def test_declined_night_confirmation_stamp_survives_the_fall_through(self):
         """`_link_event_to_run()` writes only `run` -- the fall-through's own update path

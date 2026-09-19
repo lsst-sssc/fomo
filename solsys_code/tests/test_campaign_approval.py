@@ -37,7 +37,6 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 from solsys_code import campaign_utils
 from solsys_code.allocation_projector import allocation_events, allocation_night_title, allocation_night_url
 from solsys_code.campaign_reconciler import (
-    RUN_STATUS_CALENDAR_PREFIX,
     event_description,
     owned_events,
     run_container_url,
@@ -52,6 +51,7 @@ from solsys_code.campaign_utils import (
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
+from solsys_code.status_vocabulary import RUN_STATUS_MARKER
 from solsys_code.telescope_runs import sun_event
 
 CONTACT_PERSON = 'Jane Coordinator'
@@ -576,7 +576,7 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         # campaign_reconciler.event_title(), which is the container branch's own builder
         # and still carries the (window a..b) suffix this per-night event no longer has)
         # rather than re-deriving the strings a second time here.
-        self.assertTrue(event.title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED]))
+        self.assertTrue(event.title.startswith(RUN_STATUS_MARKER[CampaignRun.RunStatus.CANCELLED]))
         self.assertEqual(event.title, allocation_night_title(run))
         self.assertIn(event_description(run), event.description)
 
@@ -590,7 +590,7 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         run.refresh_from_db()
         self.assertEqual(run.run_status, CampaignRun.RunStatus.WEATHER_TECH_FAILURE)
         event = CalendarEvent.objects.get(url=allocation_night_url(run, run.window_start))
-        self.assertTrue(event.title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.WEATHER_TECH_FAILURE]))
+        self.assertTrue(event.title.startswith(RUN_STATUS_MARKER[CampaignRun.RunStatus.WEATHER_TECH_FAILURE]))
         self.assertEqual(event.title, allocation_night_title(run))
         self.assertFalse(event.title.startswith('[CANCELLED]'))
         self.assertIn(event_description(run), event.description)
@@ -610,7 +610,7 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         combined = allocation_events(run)
         self.assertEqual(combined.count(), 15)
         expected_title = allocation_night_title(run)
-        self.assertTrue(expected_title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED]))
+        self.assertTrue(expected_title.startswith(RUN_STATUS_MARKER[CampaignRun.RunStatus.CANCELLED]))
         for event in combined:
             self.assertEqual(event.title, expected_title)
             self.assertNotIn('(window', event.title)
@@ -636,7 +636,7 @@ class TestRunStatusChange(CampaignApprovalTestBase):
         events = allocation_events(run)
         self.assertEqual(events.count(), 1)
         event_titled = events.get().title
-        self.assertTrue(event_titled.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED]))
+        self.assertTrue(event_titled.startswith(RUN_STATUS_MARKER[CampaignRun.RunStatus.CANCELLED]))
         self.assertEqual(event_titled, allocation_night_title(run))
 
     def test_mark_cancelled_on_tbd_window_run_still_ends_with_zero_events(self):
@@ -2749,7 +2749,7 @@ class TestGeminiFtScenario(CampaignApprovalTestBase):
         self.assertEqual(combined.count(), 4)
         expected_weathered_title = allocation_night_title(run)
         self.assertTrue(
-            expected_weathered_title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.WEATHER_TECH_FAILURE])
+            expected_weathered_title.startswith(RUN_STATUS_MARKER[CampaignRun.RunStatus.WEATHER_TECH_FAILURE])
         )
         for event in combined:
             self.assertEqual(event.title, expected_weathered_title)
@@ -2765,9 +2765,7 @@ class TestGeminiFtScenario(CampaignApprovalTestBase):
         combined = _combined()
         self.assertEqual(combined.count(), 4)
         expected_cancelled_title = allocation_night_title(run)
-        self.assertTrue(
-            expected_cancelled_title.startswith(RUN_STATUS_CALENDAR_PREFIX[CampaignRun.RunStatus.CANCELLED])
-        )
+        self.assertTrue(expected_cancelled_title.startswith(RUN_STATUS_MARKER[CampaignRun.RunStatus.CANCELLED]))
         for event in combined:
             self.assertEqual(event.title, expected_cancelled_title)
             self.assertNotIn('(window', event.title)

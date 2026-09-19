@@ -176,17 +176,18 @@ class TestLoadTelescopeRuns(TestCase):
             self.assertIn('NTT EFOSC2 allocation 9-13 July', desc)
 
     def test_cancelled_line_gets_bracket_cancelled_title_prefix(self):
-        """D-02: a cancelled classical run gets a '[CANCELLED] ' title prefix; description
-        still carries the original status/source-line body (plus the shared writer's own
-        'Run status: Cancelled' line -- see TestClassicalCalendarUnchangedByCutover for the
-        documented divergence this introduces vs. pre-cutover output)."""
+        """D-02 (Phase 37 STATUS-01: [CANCELLED] -> [C]): a cancelled classical run gets a
+        '[C] ' title marker; description still carries the original status/source-line body
+        (plus the shared writer's own 'Run status: Cancelled' line -- see
+        TestClassicalCalendarUnchangedByCutover for the documented divergence this
+        introduces vs. pre-cutover output)."""
         path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 9-13 July (cancelled)'])
         with tmpdir_ctx:
             call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
             events = self._alloc_events()
             self.assertGreater(events.count(), 0)
             event = events.first()
-            self.assertEqual(event.title, '[CANCELLED] NTT EFOSC2')
+            self.assertEqual(event.title, '[C] NTT EFOSC2')
             self.assertIn('Status: cancelled', event.description)
 
     def test_non_cancelled_statuses_keep_unprefixed_title(self):
@@ -222,7 +223,7 @@ class TestLoadTelescopeRuns(TestCase):
             cancelled_count = self._alloc_events().count()
             cancelled_pks = set(self._alloc_events().values_list('pk', flat=True))
             for event in self._alloc_events():
-                self.assertTrue(event.title.startswith('[CANCELLED] '))
+                self.assertTrue(event.title.startswith('[C] '))
 
         path2, tmpdir_ctx2 = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
         with tmpdir_ctx2:
@@ -879,7 +880,7 @@ class TestClassicalCalendarUnchangedByCutover(TestCase):
                 'NTT',
                 'EFOSC2',
                 [date(year, 7, 20), date(year, 7, 21)],
-                '[CANCELLED] NTT EFOSC2',
+                '[C] NTT EFOSC2',
                 None,
                 None,
             ),

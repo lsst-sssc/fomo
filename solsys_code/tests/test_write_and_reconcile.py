@@ -332,7 +332,7 @@ class TestLoadTelescopeRunsWritesAllocations(TestCase):
         events = CalendarEvent.objects.filter(url__startswith=ALLOC_URL_NAMESPACE)
         self.assertGreater(events.count(), 0)
         for event in events:
-            self.assertTrue(event.title.startswith('[CANCELLED]'), event.title)
+            self.assertTrue(event.title.startswith('[C]'), event.title)
 
     def test_partial_night_bon_hhmm_stores_only_end_sub_night_field(self):
         path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July BoN-0626'])

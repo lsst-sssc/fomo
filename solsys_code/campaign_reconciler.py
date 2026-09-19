@@ -62,21 +62,12 @@ from solsys_code.calendar_utils import (
 )
 from solsys_code.models import CalendarEventMeta, CampaignRun
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.status_vocabulary import RUN_STATUS_MARKER
 from solsys_code.telescope_runs import observing_night
 
 logger = logging.getLogger(__name__)
 
 RUN_URL_NAMESPACE = 'RUN:'
-
-# Moved verbatim from campaign_views._RUN_STATUS_CALENDAR_PREFIX (D-01) -- must stay
-# byte-identical to calendar_display_extras._TERMINAL_PREFIXES so the box-shadow status ring
-# still applies. Public (no leading underscore) because the reconciler now owns titles, and
-# test_campaign_approval.py asserts on these strings directly. Plan 29-04 deletes the
-# campaign_views copy.
-RUN_STATUS_CALENDAR_PREFIX = {
-    CampaignRun.RunStatus.CANCELLED: '[CANCELLED]',
-    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: '[WEATHERED]',
-}
 
 
 class ReconcileResult(NamedTuple):
@@ -212,23 +203,22 @@ def event_title(run: CampaignRun) -> str:
     campaign an event is attributed to is rendered from ``CalendarEventMeta.run`` at display
     time by ``calendar_display_extras.campaign_decoration()`` instead -- this is the single
     campaign label now, for every attributed event, ``RUN:`` or not. Must keep the terminal
-    cancelled/weathered prefix form (``RUN_STATUS_CALENDAR_PREFIX``) that
-    ``calendar_display_extras``' terminal-prefix ring matches on, so a cancelled/weathered
-    run's event still gets the status ring.
+    cancelled/weathered marker (``status_vocabulary.RUN_STATUS_MARKER``, Phase 37 STATUS-01)
+    that the status ring matches on, so a cancelled/weathered run's event still gets it.
     """
     base = run.telescope_instrument
     if run.window_start != run.window_end:
         base = f'{base} (window {run.window_start}..{run.window_end})'
-    prefix = RUN_STATUS_CALENDAR_PREFIX.get(run.run_status)
-    if prefix:
-        return f'{prefix} {base}'
+    marker = RUN_STATUS_MARKER.get(run.run_status)
+    if marker:
+        return f'{marker} {base}'
     return base
 
 
 def event_description(run: CampaignRun) -> str:
     """Appends the run-status line ``campaign_views._set_run_status()`` already writes,
-    only when a status prefix applies to this run's current ``run_status``."""
-    if run.run_status in RUN_STATUS_CALENDAR_PREFIX:
+    only when a status marker applies to this run's current ``run_status``."""
+    if run.run_status in RUN_STATUS_MARKER:
         return f'{run.observation_details}\nRun status: {run.get_run_status_display()}'
     return run.observation_details
 

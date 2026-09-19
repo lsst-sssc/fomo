@@ -46,7 +46,6 @@ from solsys_code.calendar_utils import (
     record_time_window,
     update_calendar_event_key_and_fields,
 )
-from solsys_code.campaign_reconciler import RUN_STATUS_CALENDAR_PREFIX as _RUN_STATUS_CALENDAR_PREFIX
 from solsys_code.campaign_reconciler import (
     ReconcileResult,
     _clearable_declined_and_unattributed,
@@ -57,6 +56,7 @@ from solsys_code.campaign_reconciler import (
     split_telescope_instrument,
 )
 from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.status_vocabulary import RUN_STATUS_MARKER
 from solsys_code.telescope_runs import observing_night, sun_event
 
 logger = logging.getLogger(__name__)
@@ -196,15 +196,15 @@ def writable_allocation_events(run: CampaignRun):
 
 def allocation_night_title(run: CampaignRun) -> str:
     """Allocation night title: ``<telescope> <instrument>``, with the optional
-    ``RUN_STATUS_CALENDAR_PREFIX`` -- exactly what ``load_telescope_runs`` writes today
-    (``'NTT EFOSC2'``, ``'[CANCELLED] NTT EFOSC2'``). Deliberately NO ``(window a..b)``
+    ``status_vocabulary.RUN_STATUS_MARKER`` prefix -- exactly what ``load_telescope_runs``
+    writes today (``'NTT EFOSC2'``, ``'[C] NTT EFOSC2'``). Deliberately NO ``(window a..b)``
     suffix -- that form belongs to the container branch's ``event_title()`` only (D-12).
     """
     telescope, instrument = split_telescope_instrument(run.telescope_instrument)
     base = f'{telescope} {instrument}'.strip()
-    prefix = _RUN_STATUS_CALENDAR_PREFIX.get(run.run_status)
-    if prefix:
-        return f'{prefix} {base}'
+    marker = RUN_STATUS_MARKER.get(run.run_status)
+    if marker:
+        return f'{marker} {base}'
     return base
 
 
