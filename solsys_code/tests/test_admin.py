@@ -1373,3 +1373,45 @@ class ProposalTimeAllocationAdminTests(TestCase):
         response = self.client.get(reverse('admin:solsys_code_proposaltimeallocation_changelist'))
         self.assertEqual(response.status_code, 200)
         self.assertIn('UTX2026A-002', response.content.decode())
+
+    def test_add_permission_is_denied(self) -> None:
+        """WR-10 (37-REVIEW.md): every field is read-only, so the Add form could never
+        satisfy the non-null fetched_at -- has_add_permission() must deny it outright
+        rather than render a form that cannot be submitted. This project's
+        tom_common.middleware.Raise403Middleware turns every 403 into a 302 redirect to
+        the login page (carrying '?next='), so that -- not a raw 403 -- is this project's
+        observable access-denied contract; see the identical pattern proven directly
+        against admin.py in ProposalTimeAllocationAdminPermissionUnitTests below."""
+        response = self.client.get(reverse('admin:solsys_code_proposaltimeallocation_add'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('next=', response['Location'])
+
+    def test_delete_permission_is_denied(self) -> None:
+        """WR-10 (37-REVIEW.md): deleting a row silently changes the public unused-nights
+        estimate (or flips it from a number to "not yet known") -- a staff user must not be
+        able to, since this table is written only by the unattended runner's fetch step."""
+        response = self.client.post(reverse('admin:solsys_code_proposaltimeallocation_delete', args=[self.row.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('next=', response['Location'])
+        self.assertTrue(ProposalTimeAllocation.objects.filter(pk=self.row.pk).exists())
+
+    def test_add_button_is_not_rendered_on_the_changelist(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_proposaltimeallocation_changelist'))
+        self.assertNotContains(response, reverse('admin:solsys_code_proposaltimeallocation_add'))
+
+
+class ProposalTimeAllocationAdminPermissionUnitTests(TestCase):
+    """WR-10 (37-REVIEW.md): unit-level check of has_add_permission()/has_delete_permission()
+    directly against the ModelAdmin instance -- independent of this project's
+    tom_common.middleware.Raise403Middleware, which turns every 403 an HTTP request would
+    hit into a 302 redirect (see ProposalTimeAllocationAdminTests' own HTTP-level tests for
+    that observable behaviour)."""
+
+    def test_add_permission_is_false_for_any_request(self) -> None:
+        model_admin = django_admin.site._registry[ProposalTimeAllocation]
+        self.assertFalse(model_admin.has_add_permission(request=None))
+
+    def test_delete_permission_is_false_for_any_request_or_object(self) -> None:
+        model_admin = django_admin.site._registry[ProposalTimeAllocation]
+        self.assertFalse(model_admin.has_delete_permission(request=None))
+        self.assertFalse(model_admin.has_delete_permission(request=None, obj=object()))

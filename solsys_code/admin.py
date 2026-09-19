@@ -485,7 +485,14 @@ class WatchedProposalAdmin(admin.ModelAdmin):  # noqa: D101
 class ProposalTimeAllocationAdmin(admin.ModelAdmin):  # noqa: D101
     """Phase 37 D-07: every field is read-only -- this row is written only by the
     unattended runner's proposal-allocation fetch step; a staff user cannot hand-edit a
-    figure the public tallies present as portal-sourced (T-37-07)."""
+    figure the public tallies present as portal-sourced (T-37-07).
+
+    WR-10 (37-REVIEW.md): per-field read-only alone left add and delete unguarded -- a
+    staff user could still delete a row (silently changing the public unused-nights
+    estimate, or flipping it from a number to "not yet known"), and the "Add" button
+    rendered a form that could never satisfy the non-null fetched_at since every field is
+    read-only. has_add_permission()/has_delete_permission() close both.
+    """
 
     list_display = [
         'proposal_code',
@@ -508,6 +515,12 @@ class ProposalTimeAllocationAdmin(admin.ModelAdmin):  # noqa: D101
         'fetched_at',
     ]
     ordering = ['proposal_code', 'semester']
+
+    def has_add_permission(self, request):  # noqa: D102
+        return False
+
+    def has_delete_permission(self, request, obj=None):  # noqa: D102
+        return False
 
 
 class TargetAdmin(admin.ModelAdmin):  # noqa: D101
