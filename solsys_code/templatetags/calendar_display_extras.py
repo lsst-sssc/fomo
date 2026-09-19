@@ -634,7 +634,10 @@ def unused_night_decoration(event: CalendarEvent) -> dict | None:
     is untouched, and a run's nights never flip one by one across ticks.
 
     Mirrors ``campaign_decoration()``'s guard shape: same ``isinstance`` check, same
-    ``ObjectDoesNotExist`` companion-row guard, plus a namespace guard specific to this tag --
+    ``ObjectDoesNotExist`` companion-row guard, same ``run is None or not
+    run.is_publicly_visible`` gate (WR-06, 37-REVIEW.md: every sibling tally surface gates
+    on public visibility, and a pending-review run's allocation night must not surface the
+    public ``[U]`` token/chip/tooltip either), plus a namespace guard specific to this tag --
     an event whose ``url`` is not in the ``allocation_projector.ALLOC_URL_NAMESPACE``
     namespace is never an allocation night and is not classified at all. Reads the run
     through the companion row's ``run`` (never a bare attribute chain).
@@ -645,7 +648,8 @@ def unused_night_decoration(event: CalendarEvent) -> dict | None:
 
     Returns ``None`` for a value that is not a ``CalendarEvent``, for an event with no
     companion row, for an event whose ``url`` is not in the ``ALLOC:`` namespace, for an
-    event with no linked run, and for a night that is not (yet) unused per
+    event with no linked run, for a run that is not publicly visible
+    (``run.is_publicly_visible``), and for a night that is not (yet) unused per
     ``campaign_tally.is_unused_allocation_night()`` -- which includes a cancelled or
     weather/technical-failure run's night, whatever the time (D-14: staff run status always
     wins).
@@ -669,7 +673,12 @@ def unused_night_decoration(event: CalendarEvent) -> dict | None:
     if not (event.url or '').startswith(ALLOC_URL_NAMESPACE):
         return None
     run = meta.run
-    if run is None:
+    # WR-06 (37-REVIEW.md): every sibling tally surface (run_tally(), campaign_rollup()'s
+    # queryset-level PENDING_REVIEW exclude) gates on public visibility -- this tag did not,
+    # so a pending-review run's allocation night got the public [U] token, chip and tooltip
+    # on the anonymous calendar, leaking the existence of an unreviewed run and making the
+    # calendar's [U] set a superset of what the table counts (a second D-15 divergence).
+    if run is None or not run.is_publicly_visible:
         return None
     if not campaign_tally.is_unused_allocation_night(event.end_time, run.run_status):
         return None

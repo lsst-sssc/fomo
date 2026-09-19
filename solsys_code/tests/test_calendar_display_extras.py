@@ -1046,6 +1046,22 @@ class TestUnusedNightDecoration(TestCase):
         CalendarEventMeta.objects.create(event=event, run=self.weathered_run)
         self.assertIsNone(unused_night_decoration(event))
 
+    def test_elapsed_night_on_pending_review_run_returns_none(self):
+        """WR-06 (37-REVIEW.md): every sibling tally surface (run_tally(), the campaign
+        roll-up's queryset-level exclude) gates on is_publicly_visible -- this tag must too,
+        so a pending-review run's elapsed allocation night never surfaces the public [U]
+        token, chip or tooltip on the anonymous calendar."""
+        pending_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 9, 10),
+            window_end=date(2026, 9, 12),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        event = self._make_alloc_event(f'ALLOC:{pending_run.pk}:2026-09-10', timezone.now() - timedelta(days=1))
+        CalendarEventMeta.objects.create(event=event, run=pending_run)
+        self.assertIsNone(unused_night_decoration(event))
+
     def test_rendering_does_not_change_stored_title(self):
         event = self._make_alloc_event(
             f'ALLOC:{self.active_run.pk}:2026-09-01', timezone.now() - timedelta(days=1), title='NTT/EFOSC2'
