@@ -10,7 +10,7 @@ fix, status box-shadow rings, composition with Phase 8 dashed border, and the fo
 legend with click-to-filter infrastructure.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from pathlib import Path
 
@@ -20,6 +20,7 @@ from django.db.models.signals import m2m_changed, post_save
 from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import escape
 from tom_calendar.models import CalendarEvent
@@ -683,6 +684,89 @@ class EventModalRunTallyTest(TestCase):
         response = self.client.get(self._modal_url(self.event_with_approved_run))
         content = response.content.decode()
         self.assertIn('not yet known', content)
+
+
+class MonthCellUnusedNightRenderTest(TestCase):
+    """Phase 37 Plan 06 (UNUSED-01, D-12/D-13/D-14): both of calendar.html's event loops
+    call unused_night_decoration() and render its two channels -- the cal-event-unused
+    style class plus the [U] text token -- for an elapsed, still-standing allocation night,
+    and neither channel for a future one. The token is added at render time only; the
+    stored CalendarEvent.title never changes.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Unused Night Month View')
+        cls.active_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # All-day branch: an overnight span, safely elapsed relative to the real clock
+        # (system date is far past August 2026 by the time this test runs). Blank
+        # proposal -> neutral-slot color -> the cal-event-classical branch, so the
+        # class-list assertions below can pin the exact combined class string.
+        cls.elapsed_all_day_event = CalendarEvent.objects.create(
+            title='NTT/EFOSC2',
+            start_time=datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 6, 0, tzinfo=dt_timezone.utc),
+            url=f'ALLOC:{cls.active_run.pk}:2026-08-01',
+        )
+        CalendarEventMeta.objects.create(event=cls.elapsed_all_day_event, run=cls.active_run)
+
+        # Timed branch: a same-day span, also elapsed.
+        cls.elapsed_timed_event = CalendarEvent.objects.create(
+            title='NTT/EFOSC2',
+            start_time=datetime(2026, 8, 3, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 3, 21, 0, tzinfo=dt_timezone.utc),
+            url=f'ALLOC:{cls.active_run.pk}:2026-08-03',
+        )
+        CalendarEventMeta.objects.create(event=cls.elapsed_timed_event, run=cls.active_run)
+
+        # Timed branch, computed relative to the real clock so this never goes stale.
+        future_start = timezone.now() + timedelta(days=400)
+        cls.future_year = future_start.year
+        cls.future_month = future_start.month
+        cls.future_event = CalendarEvent.objects.create(
+            title='NTT/EFOSC2',
+            start_time=future_start,
+            end_time=future_start + timedelta(hours=1),
+            url=f'ALLOC:{cls.active_run.pk}:{future_start.date().isoformat()}',
+        )
+        CalendarEventMeta.objects.create(event=cls.future_event, run=cls.active_run)
+
+    def _get_calendar(self, year, month):
+        return self.client.get(reverse('calendar:calendar'), {'year': year, 'month': month})
+
+    def test_elapsed_allocation_nights_render_unused_class_attribute_and_token(self):
+        response = self._get_calendar(2026, 8)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('cal-event-classical cal-event-unused', content)
+        self.assertIn('cal-event-timed cal-event-unused', content)
+        self.assertIn('data-unused="1"', content)
+        self.assertIn('[U] NTT/EFOSC2', content)
+
+    def test_future_allocation_night_renders_none_of_the_three_channels(self):
+        response = self._get_calendar(self.future_year, self.future_month)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('cal-event-classical cal-event-unused', content)
+        self.assertNotIn('cal-event-timed cal-event-unused', content)
+        self.assertNotIn('data-unused="1"', content)
+        self.assertNotIn('[U] NTT/EFOSC2', content)
+
+    def test_rendering_the_month_view_leaves_stored_titles_byte_identical(self):
+        before_all_day_title = self.elapsed_all_day_event.title
+        before_timed_title = self.elapsed_timed_event.title
+        self._get_calendar(2026, 8)
+        self.elapsed_all_day_event.refresh_from_db()
+        self.elapsed_timed_event.refresh_from_db()
+        self.assertEqual(self.elapsed_all_day_event.title, before_all_day_title)
+        self.assertEqual(self.elapsed_timed_event.title, before_timed_title)
 
 
 class EventModalAttributionHintTest(TestCase):

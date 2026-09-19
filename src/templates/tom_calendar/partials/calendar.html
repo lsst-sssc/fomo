@@ -177,6 +177,15 @@
     opacity: 1;
     filter: none;
   }
+  /* D-13 (Phase 37 Plan 06, UNUSED-01): style-only channel for an unused awarded night --
+     reduced opacity plus a dashed border, distinct at a glance from a realised night. The
+     [U] text token (prepended to the title below) is the OTHER channel; this rule never
+     replaces it, and D-13 explicitly forbids a fourth status_border_css() ring colour for
+     this state, so no box-shadow is added here. */
+  .cal-event-unused {
+    opacity: 0.55;
+    border: 1px dashed rgba(0, 0, 0, 0.45);
+  }
 </style>
 
 {% load tz calendar_tags calendar_display_extras %}
@@ -239,8 +248,18 @@
               {% text_color_for_bg bg_color as text_color %}
               {% telescope_stripe_color event.telescope as tel_color %}
               {% campaign_decoration event as campaign_deco %}
+              {% comment %}
+                 UNUSED-01 (Phase 37 Plan 06, D-12/D-13/D-14): unused_night_decoration()
+                 mirrors campaign_decoration()'s own guard shape and delegates to the same
+                 shared classifier the campaign table's unused count reads (D-15). Called
+                 alongside campaign_decoration() rather than inside its {% if %} block --
+                 an event can be attributed to a run without being an ALLOC: night, and vice
+                 versa, so the two decorations are independent siblings here.
+              {% endcomment %}
+              {% unused_night_decoration event as unused %}
               <div class="cal-event cal-event-all-day-row"
                    data-proposal="{{ bg_color }}"
+                   {% if unused %}data-unused="1"{% endif %}
                    hx-get="{% url 'calendar:update-event' event.id %}"
               >
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
@@ -256,13 +275,13 @@
                 later phase rather than widen this fix's scope.
                 {% endcomment %}
                 {% if event.telescope_label_meta.is_verified == False %}
-                <div class="cal-event-all-day{% if bg_color == neutral_color %} cal-event-classical{% endif %}" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);{% if bg_color == neutral_color %} --tel-color: {{ tel_color }};{% endif %}"
+                <div class="cal-event-all-day{% if bg_color == neutral_color %} cal-event-classical{% endif %}{% if unused %} cal-event-unused{% endif %}" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);{% if bg_color == neutral_color %} --tel-color: {{ tel_color }};{% endif %}"
                      title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
                 {% else %}
-                <div class="cal-event-all-day{% if bg_color == neutral_color %} cal-event-classical{% endif %}" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}{% if bg_color == neutral_color %} --tel-color: {{ tel_color }};{% endif %}">
+                <div class="cal-event-all-day{% if bg_color == neutral_color %} cal-event-classical{% endif %}{% if unused %} cal-event-unused{% endif %}" style="background-color: {{ bg_color }}; color: {{ text_color }}; {{ status_border }}{% if bg_color == neutral_color %} --tel-color: {{ tel_color }};{% endif %}"{% if unused %} title="{{ unused.tooltip }}"{% endif %}>
                 {% endif %}
                   {% include 'tom_calendar/partials/campaign_chip.html' with deco=campaign_deco %}
-                  {{ event.title|truncatechars:18 }}
+                  {% if unused %}{{ unused.token }} {% endif %}{{ event.title|truncatechars:18 }}
                   {% if event.active_todo_count %}
                   ({{ event.active_todo_count }})
                   {% endif %}
@@ -273,25 +292,29 @@
               {% proposal_color event.proposal as bg_color %}
               {% status_border_css event.title as status_border %}
               {% campaign_decoration event as campaign_deco %}
+              {% unused_night_decoration event as unused %}
               {# WR-06: same unreachable-from-any-current-writer note as the all-day branch above #}
               {% if event.telescope_label_meta.is_verified == False %}
-              <div class="cal-event cal-event-timed"
+              <div class="cal-event cal-event-timed{% if unused %} cal-event-unused{% endif %}"
                    data-proposal="{{ bg_color }}"
+                   {% if unused %}data-unused="1"{% endif %}
                    style="{{ status_border }} border: 2px dashed rgba(0, 0, 0, 0.65);"
                    hx-get="{% url 'calendar:update-event' event.id %}"
                    title="Telescope label is an estimate — could not be verified against the LCO API; showing a coarse fallback label (1m0/0m4/2m0/4m0).">
               {% else %}
-              <div class="cal-event cal-event-timed"
+              <div class="cal-event cal-event-timed{% if unused %} cal-event-unused{% endif %}"
                    data-proposal="{{ bg_color }}"
+                   {% if unused %}data-unused="1"{% endif %}
                    style="{{ status_border }}"
                    hx-get="{% url 'calendar:update-event' event.id %}"
+                   {% if unused %}title="{{ unused.tooltip }}"{% endif %}
               >
               {% endif %}
                 {% include 'tom_calendar/partials/target_list_block.html' with target_list=event.target_list %}
                 <span class="cal-event-bullet" style="color: {{ bg_color }};">▌</span>
                 {% include 'tom_calendar/partials/campaign_chip.html' with deco=campaign_deco %}
                 <span class="cal-event-title">
-                  {{ event.title|truncatechars:16 }}
+                  {% if unused %}{{ unused.token }} {% endif %}{{ event.title|truncatechars:16 }}
                   {% if event.active_todo_count %}
                   ({{ event.active_todo_count }})
                   {% endif %}
@@ -330,9 +353,17 @@
       {# reads status_border_css()'s own vocabulary off the page, no per-month data. #}
       {% observation_status_legend as status_legend %}
       {% for entry in status_legend %}
+        {% if entry.marker == '[U]' %}
+        {# D-15 (Phase 37 Plan 06): the unused entry alone gets the proposal swatches' #}
+        {# click-to-filter treatment -- "show me the wasted nights" is one click. #}
+        <span class="cal-legend-swatch mr-3" role="button" aria-pressed="false" data-filter="unused">
+          <small class="text-secondary">{{ entry.marker }} {{ entry.label }}</small>
+        </span>
+        {% else %}
         <span class="cal-legend-telescope mr-3">
           <small class="text-secondary">{{ entry.marker }} {{ entry.label }}</small>
         </span>
+        {% endif %}
       {% endfor %}
     </div>
     <select name="utc_offset"
@@ -350,24 +381,44 @@
   (function () {
     var container = document.getElementById('calendar-partial');
     if (!container) return;
-    var activeProposal = null;
+    // D-15 (Phase 37 Plan 06): one shared toggle serves both filter kinds -- a click on a
+    // proposal swatch still filters on data-proposal exactly as before; a click on the
+    // legend's [U] entry (data-filter="unused") toggles cal-filter-match on elements
+    // carrying the data-unused flag instead. activeFilter is null, or {kind: 'proposal', value}
+    // or {kind: 'unused'} -- the existing single-active-filter behaviour (clicking the
+    // active entry clears it) is unchanged, just generalized over which kind is active.
+    var activeFilter = null;
+    function filterForSwatch(swatch) {
+      if (swatch.dataset.filter === 'unused') {
+        return {kind: 'unused'};
+      }
+      return {kind: 'proposal', value: swatch.dataset.proposal};
+    }
+    function sameFilter(a, b) {
+      if (!a || !b) return false;
+      return a.kind === b.kind && a.value === b.value;
+    }
+    function eventMatchesFilter(el, filter) {
+      if (filter.kind === 'unused') return el.dataset.unused === '1';
+      return (el.dataset.proposal || '') === filter.value;
+    }
     container.addEventListener('click', function (e) {
       var swatch = e.target.closest('.cal-legend-swatch');
       if (!swatch) return;
-      var proposal = swatch.dataset.proposal;
-      if (activeProposal === proposal) {
-        activeProposal = null;
+      var filter = filterForSwatch(swatch);
+      if (sameFilter(activeFilter, filter)) {
+        activeFilter = null;
         container.classList.remove('cal-filtering');
         container.querySelectorAll('.cal-event').forEach(function (el) { el.classList.remove('cal-filter-match'); });
         container.querySelectorAll('.cal-legend-swatch').forEach(function (el) { el.classList.remove('is-active'); });
       } else {
-        activeProposal = proposal;
+        activeFilter = filter;
         container.classList.add('cal-filtering');
         container.querySelectorAll('.cal-event').forEach(function (el) {
-          el.classList.toggle('cal-filter-match', (el.dataset.proposal || '') === proposal);
+          el.classList.toggle('cal-filter-match', eventMatchesFilter(el, filter));
         });
         container.querySelectorAll('.cal-legend-swatch').forEach(function (el) {
-          el.classList.toggle('is-active', (el.dataset.proposal || '') === proposal);
+          el.classList.toggle('is-active', sameFilter(filterForSwatch(el), filter));
         });
       }
     });

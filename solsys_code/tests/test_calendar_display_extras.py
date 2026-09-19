@@ -5,13 +5,14 @@ public tags: proposal_color (DISPLAY-04, D-04/D-05), status_border_css (DISPLAY-
 D-08/D-09), and visible_proposals (DISPLAY-07, D-02/D-04/D-06).
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from types import SimpleNamespace
 
 from django.db.models.signals import m2m_changed, post_save
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
@@ -38,6 +39,7 @@ from solsys_code.templatetags.calendar_display_extras import (
     telescope_color,
     telescope_stripe_color,
     text_color_for_bg,
+    unused_night_decoration,
     visible_classical_telescopes,
     visible_proposals,
 )
@@ -943,3 +945,105 @@ class TestRunTally(TestCase):
         self.assertFalse(unused_segment['known'])
         self.assertIsNone(unused_segment['count'])
         self.assertIn('not yet known', result['summary'])
+
+
+class TestUnusedNightDecoration(TestCase):
+    """Phase 37 Plan 06 (D-12/D-13/D-14, UNUSED-01): unused_night_decoration() delegates to
+    campaign_tally.is_unused_allocation_night() -- the single shared classifier the campaign
+    table's unused count also reads (D-15) -- and never writes CalendarEvent.title.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Unused Night Campaign')
+        cls.active_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.cancelled_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 9, 4),
+            window_end=date(2026, 9, 6),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.CANCELLED,
+        )
+        cls.weathered_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 9, 7),
+            window_end=date(2026, 9, 9),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.WEATHER_TECH_FAILURE,
+        )
+
+    def _make_alloc_event(self, url: str, end_time: datetime, title: str = 'alloc event') -> CalendarEvent:
+        return CalendarEvent.objects.create(
+            title=title,
+            start_time=end_time - timedelta(hours=8),
+            end_time=end_time,
+            url=url,
+        )
+
+    def test_non_calendar_event_returns_none_without_raising(self):
+        self.assertIsNone(unused_night_decoration('not-an-event'))
+        self.assertIsNone(unused_night_decoration(None))
+
+    def test_event_with_no_companion_row_returns_none(self):
+        event = self._make_alloc_event(f'ALLOC:{self.active_run.pk}:2026-09-01', timezone.now() - timedelta(days=1))
+        self.assertIsNone(unused_night_decoration(event))
+
+    def test_non_allocation_url_returns_none(self):
+        """A RUN: container event (or any non-ALLOC: url) is never classified at all."""
+        event = CalendarEvent.objects.create(
+            title='RUN container event',
+            start_time=timezone.now() - timedelta(days=2),
+            end_time=timezone.now() - timedelta(days=1),
+            url=f'RUN:{self.active_run.pk}',
+        )
+        CalendarEventMeta.objects.create(event=event, run=self.active_run)
+        self.assertIsNone(unused_night_decoration(event))
+
+    def test_companion_row_with_no_run_returns_none(self):
+        event = self._make_alloc_event(f'ALLOC:{self.active_run.pk}:2026-09-01', timezone.now() - timedelta(days=1))
+        CalendarEventMeta.objects.create(event=event, run=None)
+        self.assertIsNone(unused_night_decoration(event))
+
+    def test_future_night_returns_none(self):
+        event = self._make_alloc_event(f'ALLOC:{self.active_run.pk}:2026-09-02', timezone.now() + timedelta(days=1))
+        CalendarEventMeta.objects.create(event=event, run=self.active_run)
+        self.assertIsNone(unused_night_decoration(event))
+
+    def test_elapsed_night_on_active_run_returns_token_and_label(self):
+        event = self._make_alloc_event(f'ALLOC:{self.active_run.pk}:2026-09-01', timezone.now() - timedelta(days=1))
+        CalendarEventMeta.objects.create(event=event, run=self.active_run)
+        result = unused_night_decoration(event)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['token'], '[U]')
+        self.assertEqual(result['label'], 'Unused awarded night')
+
+    def test_elapsed_night_on_cancelled_run_returns_none(self):
+        """D-14: staff run status always wins -- a cancelled run's elapsed night is never
+        unused, whatever the time."""
+        event = self._make_alloc_event(f'ALLOC:{self.cancelled_run.pk}:2026-09-04', timezone.now() - timedelta(days=1))
+        CalendarEventMeta.objects.create(event=event, run=self.cancelled_run)
+        self.assertIsNone(unused_night_decoration(event))
+
+    def test_elapsed_night_on_weathered_run_returns_none(self):
+        """D-14: a weather/technical-failure run's elapsed night is never unused either."""
+        event = self._make_alloc_event(f'ALLOC:{self.weathered_run.pk}:2026-09-07', timezone.now() - timedelta(days=1))
+        CalendarEventMeta.objects.create(event=event, run=self.weathered_run)
+        self.assertIsNone(unused_night_decoration(event))
+
+    def test_rendering_does_not_change_stored_title(self):
+        event = self._make_alloc_event(
+            f'ALLOC:{self.active_run.pk}:2026-09-01', timezone.now() - timedelta(days=1), title='NTT/EFOSC2'
+        )
+        CalendarEventMeta.objects.create(event=event, run=self.active_run)
+        before_title = event.title
+        unused_night_decoration(event)
+        event.refresh_from_db()
+        self.assertEqual(event.title, before_title)

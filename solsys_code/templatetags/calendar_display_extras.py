@@ -19,6 +19,9 @@ Provides simple_tags consumed by calendar.html (Plan 02):
   (PROJ-04/PROJ-05, D-04, Phase 34 Plan 03)
 - run_tally: read-only run-tally decoration for event_form.html's attributed-run block,
   rendered from CalendarEventMeta.run at request time (TALLY-01, D-09, Phase 37 Plan 06)
+- unused_night_decoration: read-only "unused awarded night" decoration for calendar.html's
+  two event loops, rendered from CalendarEventMeta.run at request time (UNUSED-01,
+  D-12/D-13/D-14, Phase 37 Plan 06)
 
 All values returned by proposal_color, telescope_color, and status_border_css are drawn
 from fixed internal constants — the raw proposal/telescope/title string is used only as
@@ -37,6 +40,7 @@ from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
 from solsys_code import campaign_tally, status_vocabulary
+from solsys_code.allocation_projector import ALLOC_URL_NAMESPACE
 from solsys_code.calendar_utils import record_time_window
 from solsys_code.models import NO_CAMPAIGN_LABEL
 
@@ -614,6 +618,66 @@ def run_tally(event: CalendarEvent) -> dict | None:
         'records': tally['records'],
         'segments': segments,
         'summary': summary,
+    }
+
+
+@register.simple_tag
+def unused_night_decoration(event: CalendarEvent) -> dict | None:
+    """Read-only "unused awarded night" decoration for a CalendarEvent (UNUSED-01,
+    D-12/D-13/D-14, Phase 37 Plan 06).
+
+    Classifies an ``ALLOC:`` allocation-night event as unused at render time, from
+    ``campaign_tally.is_unused_allocation_night()`` -- the single shared rule the campaign
+    table's Progress-column unused count already reads (D-15), so the two surfaces agree by
+    construction. The token this tag returns is added by the template at render time and
+    never written into ``CalendarEvent.title``; the allocation projector's no-churn contract
+    is untouched, and a run's nights never flip one by one across ticks.
+
+    Mirrors ``campaign_decoration()``'s guard shape: same ``isinstance`` check, same
+    ``ObjectDoesNotExist`` companion-row guard, plus a namespace guard specific to this tag --
+    an event whose ``url`` is not in the ``allocation_projector.ALLOC_URL_NAMESPACE``
+    namespace is never an allocation night and is not classified at all. Reads the run
+    through the companion row's ``run`` (never a bare attribute chain).
+
+    This tag never raises and makes no write of any kind (no ``.save()``, ``.update()``,
+    ``.create()`` or ``get_or_create()``); it never imports ``solsys_code.views`` or the
+    SPICE-kernel-loading ephemeris module.
+
+    Returns ``None`` for a value that is not a ``CalendarEvent``, for an event with no
+    companion row, for an event whose ``url`` is not in the ``ALLOC:`` namespace, for an
+    event with no linked run, and for a night that is not (yet) unused per
+    ``campaign_tally.is_unused_allocation_night()`` -- which includes a cancelled or
+    weather/technical-failure run's night, whatever the time (D-14: staff run status always
+    wins).
+
+    Args:
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: ``{'token': str, 'label': str, 'tooltip': str}`` for an elapsed,
+        still-standing allocation night on a run in any status other than cancelled/
+        weather-technical-failure, or ``None``. ``token`` is
+        ``status_vocabulary.MARKER[status_vocabulary.DisplayState.UNUSED]`` (``'[U]'``);
+        ``label`` is the matching ``status_vocabulary.LABEL`` entry.
+    """
+    if not isinstance(event, CalendarEvent):
+        return None
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    if not (event.url or '').startswith(ALLOC_URL_NAMESPACE):
+        return None
+    run = meta.run
+    if run is None:
+        return None
+    if not campaign_tally.is_unused_allocation_night(event.end_time, run.run_status):
+        return None
+
+    return {
+        'token': status_vocabulary.MARKER[status_vocabulary.DisplayState.UNUSED],
+        'label': status_vocabulary.LABEL[status_vocabulary.DisplayState.UNUSED],
+        'tooltip': 'This awarded night passed with nothing scheduled or observed.',
     }
 
 
