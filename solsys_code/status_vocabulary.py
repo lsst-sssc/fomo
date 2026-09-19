@@ -21,6 +21,8 @@ this module, and those heavy modules trigger a ~1.6 GB SPICE-kernel download on 
 (CLAUDE.md "Heavy import side effect") that every one of those callers would otherwise pay.
 """
 
+from typing import Any
+
 from solsys_code.models import CampaignRun
 
 
@@ -188,3 +190,94 @@ def state_for_title(title: str | None) -> str | None:
         if title.startswith(prefix):
             return state
     return None
+
+
+# D-05: FOMO-side override table -- a facility absent from this table is trusted to use the
+# canonical LCO/SOAR OCS vocabulary; a facility present here is not. This is where a future
+# facility-vocabulary change lands.
+OBSERVED_STATES_BY_FACILITY: dict[str, frozenset[str]] = {
+    # tom_gemini is a limited, ToO-only subset: its "terminal" states (TRIGGERED, ON_HOLD)
+    # mean the ToO was submitted, never that it was observed, and may change with future GPP
+    # support.
+    'GEM': frozenset(),
+    # ESO has no Phase 2 read-back vocabulary yet.
+    'ESO': frozenset(),
+}
+
+
+def failed_states_for(facility: Any) -> frozenset[str]:
+    """Return this facility's own failed-observing-state set, unmapped.
+
+    Args:
+        facility: a TOM Toolkit facility service instance.
+
+    Returns:
+        frozenset[str]: ``frozenset(facility.get_failed_observing_states())``.
+    """
+    return frozenset(facility.get_failed_observing_states())
+
+
+def observed_states_for(facility: Any) -> frozenset[str]:
+    """Return the set of this facility's statuses that mean an observation happened.
+
+    D-05: the LCO/SOAR OCS vocabulary is canonical -- a facility absent from
+    ``OBSERVED_STATES_BY_FACILITY`` is trusted to use it, and its observed set is its own
+    terminal states minus its own failed states. A facility present in the table (currently
+    ``GEM``/``ESO``) is not trusted at all: its terminal states mean "submitted", never
+    "observed", so its override is an empty set. Reads the facility's name defensively (a
+    plain ``getattr`` with the class name as fallback) so an unexpected facility object
+    cannot raise inside a template-time caller.
+
+    Args:
+        facility: a TOM Toolkit facility service instance
+            (``facility.get_terminal_observing_states()``/``.get_failed_observing_states()``).
+
+    Returns:
+        frozenset[str]: the observed-state set for this facility. Never raises.
+    """
+    name = getattr(facility, 'name', None) or type(facility).__name__
+    if name in OBSERVED_STATES_BY_FACILITY:
+        return OBSERVED_STATES_BY_FACILITY[name]
+    return frozenset(facility.get_terminal_observing_states()) - failed_states_for(facility)
+
+
+_FAILURE_STATE_BY_OCS_STATE: dict[str, str] = {
+    OCSState.WINDOW_EXPIRED: DisplayState.WINDOW_EXPIRED,
+    OCSState.CANCELED: DisplayState.CANCELLED,
+    OCSState.FAILURE_LIMIT_REACHED: DisplayState.FAILED,
+    OCSState.NOT_ATTEMPTED: DisplayState.FAILED,
+}
+
+
+def classify_record(record: Any, facility: Any) -> str:
+    """Classify an ObservationRecord's lifecycle stage into a DisplayState (D-05).
+
+    Makes no network call and never raises for messy record data: a half-set
+    ``scheduled_start``/``scheduled_end`` pair is ``INCONSISTENT``; a status in the
+    facility's failed set maps through the OCS-state keys to
+    ``WINDOW_EXPIRED``/``CANCELLED``/``FAILED`` (``FAILED`` is the fallback for an
+    unrecognised failure state); a status in ``observed_states_for(facility)`` is
+    ``OBSERVED``; a record with both schedule fields set is ``SCHEDULED``; anything else is
+    ``QUEUED``.
+
+    Args:
+        record: the ObservationRecord being classified (reads ``scheduled_start``,
+            ``scheduled_end`` and ``status``).
+        facility: the record's facility instance.
+
+    Returns:
+        str: one of the ``DisplayState`` members above. Never raises.
+    """
+    has_start = record.scheduled_start is not None
+    has_end = record.scheduled_end is not None
+    if has_start != has_end:
+        return DisplayState.INCONSISTENT
+    has_block = has_start and has_end
+    failed = failed_states_for(facility)
+    if record.status in failed:
+        return _FAILURE_STATE_BY_OCS_STATE.get(record.status, DisplayState.FAILED)
+    if record.status in observed_states_for(facility):
+        return DisplayState.OBSERVED
+    if has_block:
+        return DisplayState.SCHEDULED
+    return DisplayState.QUEUED

@@ -19,6 +19,10 @@ Three ownership rules hold across every function in this module:
    queue and must survive a projection untouched.
 3. It never raises out of a signal receiver -- a calendar-layer fault must never cost an
    operator their observation record.
+
+As of Phase 37 (STATUS-01/02), the per-facility observed/failed-state mapping this module
+consumes lives in ``solsys_code.status_vocabulary`` -- see ``observed_states_for()``/
+``failed_states_for()`` there for where a future facility's vocabulary quirk is mapped.
 """
 
 import logging
@@ -42,7 +46,7 @@ from solsys_code.calendar_utils import (
     record_time_window,
 )
 from solsys_code.models import CalendarEventMeta
-from solsys_code.status_vocabulary import FAILURE_MARKER_BY_STATUS, STAGE_MARKER
+from solsys_code.status_vocabulary import FAILURE_MARKER_BY_STATUS, STAGE_MARKER, failed_states_for, observed_states_for
 
 logger = logging.getLogger(__name__)
 
@@ -85,9 +89,11 @@ def _failure_marker(status: str, facility: Any) -> str | None:
     """Return the D-02 failure marker for a status, or None if it is not a failure state.
 
     Reads ``status_vocabulary.FAILURE_MARKER_BY_STATUS`` -- the single home for this table
-    since Phase 37 (STATUS-01) -- rather than a local copy.
+    since Phase 37 (STATUS-01) -- rather than a local copy. Sources the failed-state set
+    from ``status_vocabulary.failed_states_for()`` (STATUS-02) rather than calling
+    ``facility.get_failed_observing_states()`` directly.
     """
-    if status not in set(facility.get_failed_observing_states()):
+    if status not in failed_states_for(facility):
         return None
     return FAILURE_MARKER_BY_STATUS.get(status, '[F]')
 
@@ -105,14 +111,19 @@ def stage_for(record: ObservationRecord, facility: Any) -> str:
             'terminal-negative' (status in the facility's failed states, D-11), 'observed'
             or 'completed-no-block' (status in terminal-minus-failed, with or without a
             placed block, D-12), or 'placed'/'queued' (with or without a placed block).
+
+    As of Phase 37 (STATUS-02) the two state sets are sourced from
+    ``status_vocabulary.observed_states_for()``/``.failed_states_for()`` instead of calling
+    the facility's own two methods directly -- a GEM/ESO record can no longer read as
+    observed on the strength of its own facility's terminal-state list (D-05).
     """
     has_start = record.scheduled_start is not None
     has_end = record.scheduled_end is not None
     if has_start != has_end:
         return 'inconsistent'
     has_block = has_start and has_end
-    failed = set(facility.get_failed_observing_states())
-    successful = set(facility.get_terminal_observing_states()) - failed
+    failed = failed_states_for(facility)
+    successful = observed_states_for(facility)
     if record.status in failed:
         return 'terminal-negative'
     if record.status in successful:

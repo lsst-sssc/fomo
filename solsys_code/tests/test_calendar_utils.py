@@ -430,6 +430,34 @@ class TestResolvePlacementBlockFailureModes(TestCase):
             block = resolve_placement_block('12345', mock_facility)
         self.assertIsNone(block)
 
+    def test_completed_first_else_pending_selection(self):
+        """Phase 37 STATUS-02: the block-selection logic (COMPLETED-first-else-PENDING) is
+        unchanged by routing the state literals through status_vocabulary.OCSState -- a
+        COMPLETED block wins even when it is not first in the list, and a PENDING-only list
+        falls back to its last PENDING entry."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        pending_then_completed = MagicMock()
+        pending_then_completed.json.return_value = [
+            {'site': 'lsc', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+            {'site': 'lsc', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'COMPLETED'},
+        ]
+        with patch('solsys_code.calendar_utils.make_request', return_value=pending_then_completed):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'COMPLETED')
+
+        pending_only = MagicMock()
+        pending_only.json.return_value = [
+            {'site': 'lsc', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+            {'site': 'cpt', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+        ]
+        with patch('solsys_code.calendar_utils.make_request', return_value=pending_only):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'PENDING')
+        self.assertEqual(block['site'], 'cpt')
+
 
 class TestCoerceScheduleDatetime(SimpleTestCase):
     """coerce_schedule_datetime() (G-34-2) -- no database rows needed; every case is a pure

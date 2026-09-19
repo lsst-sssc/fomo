@@ -24,6 +24,7 @@ from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
 
 from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
+from solsys_code.status_vocabulary import OCSState
 
 # (site, aperture_class) -> 'SITECODE-CLASS' telescope label (TELESCOPE-01/D-03/D-04).
 # Verified, real-data-grounded inventory of the 7 real LCO-network sites this
@@ -333,10 +334,10 @@ def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[
 
     current_block = None
     for block in blocks:
-        if block.get('state') == 'COMPLETED':
+        if block.get('state') == OCSState.COMPLETED:
             current_block = block
             break
-        elif block.get('state') == 'PENDING':
+        elif block.get('state') == OCSState.PENDING:
             current_block = block
     return current_block
 
