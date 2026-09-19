@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 37
 current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 status: executing
-stopped_at: Phase 37 context gathered
-last_updated: "2026-09-19T00:38:18.899Z"
+stopped_at: Completed 37-01-PLAN.md
+last_updated: "2026-09-19T03:18:40.851Z"
 last_activity: 2026-09-18
-last_activity_desc: Phase 36 complete, transitioned to Phase 37
-state_head: ce137c14c2b6563fee777b996c5c2cadf954aad8
+last_activity_desc: Phase 37 execution started
+state_head: 47f8c6ff2cd1072bf1ab67dbc03eebf373d274be
 progress:
   total_phases: 5
   completed_phases: 36
   total_plans: 59
-  completed_plans: 52
-  percent: 88
+  completed_plans: 53
+  percent: 90
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — READY TO EXECUTE
-Plan: Not started
+Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-09-18 — Phase 36 complete, transitioned to Phase 37
+Last activity: 2026-09-18 — Phase 37 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -225,6 +225,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36 P07 | 25 min | 3 tasks | 3 files |
 | Phase 36 P08 | ~15min | 3 tasks | 4 files |
 | Phase 36 P09 | 42min | 3 tasks | 3 files |
+| Phase 37 P01 | 70min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -377,6 +378,7 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: one flat `LCO_API_KEY` local setting folded into both facility entries, pinned by a test that executes the real `settings.py` fold tail rather than grepping it (G-36-4).
 - [Phase 36]: `check_unattended` emits each result line once, to one stream chosen by status, flushing stdout before stderr, with a single-sink test fixture modelling the terminal/`2>&1` condition the operator actually runs in (G-36-5).
 - [Phase 36 UAT]: the two `logger.debug()` sites that still interpolate `str(exc)` (`backfill_lco_observations.py:349`, `unattended.py:201`) accepted as inert under the shipped root-INFO logging config (tlister, UAT round 2 Test 2) — not a SCHED-10 breach.
+- [Phase 37]: STATUS-01 stays blocked pending plan 37-07's legacy-title re-title sweep (shared requirement ID); STATUS-02 marked complete — 37-01 and 37-07 both declare STATUS-01 in frontmatter; requirements.ready-ids gate prevents premature completion
 
 ### Pending Todos
 
@@ -490,9 +492,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-18T23:13:57.220Z
-Stopped at: Phase 37 context gathered
-Resume file: .planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-CONTEXT.md
+Last session: 2026-09-19T03:18:40.547Z
+Stopped at: Completed 37-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

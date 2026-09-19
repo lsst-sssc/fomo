@@ -57,7 +57,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Status Vocabulary & Gap Analysis (carried from v2.2/v2.3)
 
 - [ ] **STATUS-01**: One status vocabulary replaces the three parallel prefix maps (`_CLASSICAL_STATUS_PREFIX`, `_FAILURE_PREFIX_BY_STATUS`, `_RUN_STATUS_CALENDAR_PREFIX`) which today agree with `calendar_display_extras._TERMINAL_PREFIXES` only by convention, and includes a placed-but-unobserved state (spike 002's `[SCHEDULED]` gap)
-- [ ] **STATUS-02**: A general terminal-state classifier replaces the `status == 'COMPLETED'` check, once per-facility `get_terminal_observing_states()` differences are reconciled
+- [x] **STATUS-02**: A general terminal-state classifier replaces the `status == 'COMPLETED'` check, once per-facility `get_terminal_observing_states()` differences are reconciled
 - [ ] **GAPB-01**: `campaign_gap.claimed_dates()` counts every observation on the campaign calendar, not only those with a `CampaignRun`, so classical and queue time is no longer reported as unclaimed
 
 ## v2 Requirements
@@ -127,7 +127,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TALLY-03 | Phase 37 | Pending |
 | UNUSED-01 | Phase 37 | Pending |
 | STATUS-01 | Phase 37 | Pending |
-| STATUS-02 | Phase 37 | Pending |
+| STATUS-02 | Phase 37 | Complete |
 | GAPB-01 | Phase 37 | Pending |
 
 **Coverage:**
