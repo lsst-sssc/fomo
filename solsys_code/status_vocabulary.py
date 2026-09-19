@@ -149,45 +149,35 @@ RING_TERMINAL_STATES: frozenset[str] = frozenset(
     }
 )
 
-# Legacy bracket-WORD title prefixes already stored in existing CalendarEvent.title rows by
-# pre-Phase-37 code. This is a deliberately temporary retirement list, not a second
-# vocabulary -- plan 37-07 deletes it once a re-title sweep has proved the developer
-# database holds none of them. Recognising it here is the reason the status ring does not
-# silently disappear from a not-yet-swept event during the migration (RESEARCH Pitfall 1).
-RETIRED_TITLE_PREFIXES: tuple[str, ...] = ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[WEATHERED]')
-
-_RETIRED_PREFIX_STATE: dict[str, str] = {
-    '[EXPIRED]': DisplayState.WINDOW_EXPIRED,
-    '[CANCELLED]': DisplayState.CANCELLED,
-    '[FAILED]': DisplayState.FAILED,
-    '[WEATHERED]': DisplayState.WEATHERED,
-}
-
+# Migration complete (Phase 37 Plan 07): the legacy bracket-WORD title prefixes
+# (`[EXPIRED]`/`[CANCELLED]`/`[FAILED]`/`[WEATHERED]`) this module used to also recognise
+# as a temporary retirement list (`RETIRED_TITLE_PREFIXES`) are gone -- a re-title sweep
+# (`reconcile_campaign_runs` + `project_observation_calendar`) proved the developer
+# database held none of them, so there is exactly one spelling of every marker now. A
+# deployment that has not yet run both sweeps re-titles itself within one unattended tick,
+# because both sweeps run every tick (`solsys_code/unattended.py` `STEPS`) -- see the
+# runbook's "One-time title change" note.
 _MARKER_STATE: dict[str, str] = {marker: state for state, marker in MARKER.items()}
 
 
 def state_for_title(title: str | None) -> str | None:
-    """Resolve a stored CalendarEvent title's leading prefix to a display state.
+    """Resolve a stored CalendarEvent title's leading marker to a display state.
 
     Used by the status ring (``calendar_display_extras.status_border_css()``): matches a
-    marker followed by a space first (the existing trailing-space rule, so ``'[C] '``
-    cannot match a hypothetical future ``'[COMPLETED]'``-style word prefix), then the
-    retired bracket-word prefixes (``RETIRED_TITLE_PREFIXES``), else returns ``None``.
+    marker followed by a space (the trailing-space rule, so ``'[C] '`` cannot match a
+    hypothetical future ``'[COMPLETED]'``-style word prefix), else returns ``None``.
 
     Args:
         title: a ``CalendarEvent.title`` value, or ``None``.
 
     Returns:
         str | None: the matching ``DisplayState`` member, or ``None`` if the title starts
-            with neither a known marker nor a retired bracket-word prefix. Never raises.
+            with no known marker. Never raises.
     """
     if not title:
         return None
     for marker, state in _MARKER_STATE.items():
         if title.startswith(f'{marker} '):
-            return state
-    for prefix, state in _RETIRED_PREFIX_STATE.items():
-        if title.startswith(prefix):
             return state
     return None
 

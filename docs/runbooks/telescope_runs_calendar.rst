@@ -672,14 +672,30 @@ shows "Mark Cancelled" (``action=mark_cancelled``) and "Mark Weathered"
 (``action=mark_weather_failure``) buttons on that row's Actions column
 (they appear for any approved run regardless of its current observing
 status). Clicking one immediately and publicly prepends
-``[CANCELLED]`` or ``[WEATHERED]`` to the title of **every**
+``[C]`` or ``[W]`` to the title of **every**
 ``CalendarEvent`` associated with that run -- including every per-night
 event of a multi-night range-window run -- on the shared campaign calendar
-that anonymous visitors can see. There is no separate confirmation step and
-no revert button, but the action is a safe, idempotent no-op to re-click:
-clicking the same button again, or clicking the other button to correct a
-mis-click, simply re-applies the new prefix without creating duplicate
-events or losing any data.
+that anonymous visitors can see. ``[C]`` is the same marker a portal
+cancellation on an LCO/SOAR observation record uses (see the marker table
+above); the pop-up's own "Run status:" line is what tells a visitor this
+cancellation came from a staff decision on the run, not the portal. There
+is no separate confirmation step and no revert button, but the action is a
+safe, idempotent no-op to re-click: clicking the same button again, or
+clicking the other button to correct a mis-click, simply re-applies the
+new prefix without creating duplicate events or losing any data.
+
+.. note::
+   **One-time title change (Phase 37).** Before this phase, a cancelled or
+   weathered run's events carried the bracket-word prefix ``[CANCELLED]``
+   or ``[WEATHERED]``. The first sweep after this phase (either
+   ``reconcile_campaign_runs`` run by hand, or the automatic reconcile
+   every staff decision on a run already triggers) rewrites those prefixes
+   to the short-letter form ``[C]``/``[W]``, once. This mirrors the
+   Phase 34 "One-time title change" note above for the observation
+   projector's own titles, and it is expected, not a fault -- a deployment
+   that has not yet run the sweep re-titles itself within one unattended
+   tick, because both re-titling sweeps run every tick (see "How do I run
+   everything unattended?" below).
 
 Can I correct a run's source?
 ----------------------------------

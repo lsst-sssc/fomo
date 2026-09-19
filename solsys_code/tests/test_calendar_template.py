@@ -109,7 +109,10 @@ class CalendarTemplateTest(TestCase):
         )
 
         self.terminal_event = CalendarEvent.objects.create(
-            title='[FAILED] LTP2025B run',
+            # Phase 37 STATUS-01: [F] is the final short-letter marker; the legacy
+            # bracket-word [FAILED] form was retired in plan 37-07 once a re-title sweep
+            # proved the developer database held none of it.
+            title='[F] LTP2025B run',
             proposal='LTP2025B-012',
             start_time=datetime(2026, 6, 22, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 23, 6, 0, tzinfo=dt_timezone.utc),

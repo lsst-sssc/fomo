@@ -97,21 +97,26 @@ class StatusBorderCssTest(TestCase):
         self.assertEqual(result, QUEUED_BOX_SHADOW)
 
     def test_expired_returns_terminal_box_shadow(self):
-        # D-08: [EXPIRED]-prefixed title → terminal-failure ring.
-        self.assertEqual(status_border_css('[EXPIRED] x'), TERMINAL_BOX_SHADOW)
+        # Phase 37 STATUS-01: [X]-prefixed title (final short-letter marker, the legacy
+        # bracket-word [EXPIRED] form was retired once plan 37-07's re-title sweep proved
+        # the developer database held none of it) → terminal-failure ring.
+        self.assertEqual(status_border_css('[X] x'), TERMINAL_BOX_SHADOW)
 
     def test_cancelled_returns_terminal_box_shadow(self):
-        # D-08: [CANCELLED]-prefixed title → terminal-failure ring.
-        self.assertEqual(status_border_css('[CANCELLED] x'), TERMINAL_BOX_SHADOW)
+        # Phase 37 STATUS-01: [C]-prefixed title (final short-letter marker, the legacy
+        # bracket-word [CANCELLED] form was retired) → terminal-failure ring.
+        self.assertEqual(status_border_css('[C] x'), TERMINAL_BOX_SHADOW)
 
     def test_failed_returns_terminal_box_shadow(self):
-        # D-08: [FAILED]-prefixed title → terminal-failure ring.
-        self.assertEqual(status_border_css('[FAILED] x'), TERMINAL_BOX_SHADOW)
+        # Phase 37 STATUS-01: [F]-prefixed title (final short-letter marker, the legacy
+        # bracket-word [FAILED] form was retired) → terminal-failure ring.
+        self.assertEqual(status_border_css('[F] x'), TERMINAL_BOX_SHADOW)
 
     def test_weathered_returns_terminal_box_shadow(self):
-        # D-03/D-08 (Phase 23 Plan 02): [WEATHERED]-prefixed title → terminal-failure ring,
-        # same as [CANCELLED] -- both CampaignRun terminal run_status outcomes get the ring.
-        self.assertEqual(status_border_css('[WEATHERED] x'), TERMINAL_BOX_SHADOW)
+        # Phase 37 STATUS-01 (D-02, migrated from the Phase 23 Plan 02 [WEATHERED] bracket-
+        # word form): [W]-prefixed title → terminal-failure ring, same as [C] -- both
+        # CampaignRun terminal run_status outcomes get the ring.
+        self.assertEqual(status_border_css('[W] x'), TERMINAL_BOX_SHADOW)
 
     def test_unverified_returns_empty_string(self):
         # D-09: placed bucket → '' (Phase 8's dashed border owns this distinction).
@@ -131,10 +136,10 @@ class StatusBorderCssTest(TestCase):
 
     def test_no_dashed_in_terminal_result(self):
         # D-09: terminal ring must not use dashed border-style.
-        self.assertNotIn('dashed', status_border_css('[EXPIRED] x'))
-        self.assertNotIn('dashed', status_border_css('[CANCELLED] x'))
-        self.assertNotIn('dashed', status_border_css('[FAILED] x'))
-        self.assertNotIn('dashed', status_border_css('[WEATHERED] x'))
+        self.assertNotIn('dashed', status_border_css('[X] x'))
+        self.assertNotIn('dashed', status_border_css('[C] x'))
+        self.assertNotIn('dashed', status_border_css('[F] x'))
+        self.assertNotIn('dashed', status_border_css('[W] x'))
 
     def test_no_dashed_in_placed_result(self):
         # D-09: placed events return '' — inherently no dashed.
@@ -368,7 +373,7 @@ class TestTelescopeStripeContrast(TestCase):
     def test_stripe_outer_edge_clears_terminal_ring_adjacency(self):
         """quick-260724-vb0 Task 3: status_border_css's terminal branch emits an
         outward box-shadow ring on .cal-event-all-day, painted outside the chip's
-        border box -- so on a [CANCELLED]/[EXPIRED]/[FAILED]/[WEATHERED] classical
+        border box -- so on a [C]/[X]/[F]/[W] classical
         chip, the ring's inner neighbour along the chip's left flank is the stripe's
         outward-facing edge (STRIPE_OUTER_EDGE_COLOR), not the fill-facing side.
         rgba(160, 0, 0, 0.55) composited over the white day cell is #cb7373; the
@@ -464,13 +469,16 @@ class TestProjectorMarkerRings(TestCase):
                 self.assertNotIn('dashed', status_border_css(title))
 
     def test_all_pre_existing_bracket_word_assertions_still_hold(self):
-        # Belt-and-suspenders re-assertion alongside the individual tests above (T-34-18):
-        # no existing ring is lost when the new tokens are added.
+        # Belt-and-suspenders re-assertion alongside the individual tests above (T-34-18).
+        # The legacy bracket-word [EXPIRED]/[CANCELLED]/[FAILED]/[WEATHERED] forms were
+        # retired in Phase 37 Plan 07 once the re-title sweep proved the developer database
+        # held none of them -- [QUEUED] is a separate, deliberately preserved word-form
+        # literal (37-01 SUMMARY key-decision) that this deletion never touched.
         self.assertEqual(status_border_css('[QUEUED] x'), QUEUED_BOX_SHADOW)
-        self.assertEqual(status_border_css('[EXPIRED] x'), TERMINAL_BOX_SHADOW)
-        self.assertEqual(status_border_css('[CANCELLED] x'), TERMINAL_BOX_SHADOW)
-        self.assertEqual(status_border_css('[FAILED] x'), TERMINAL_BOX_SHADOW)
-        self.assertEqual(status_border_css('[WEATHERED] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[X] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[C] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[F] x'), TERMINAL_BOX_SHADOW)
+        self.assertEqual(status_border_css('[W] x'), TERMINAL_BOX_SHADOW)
         self.assertEqual(status_border_css('[UNVERIFIED] x'), '')
         self.assertEqual(status_border_css('bare title'), '')
 

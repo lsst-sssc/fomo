@@ -5,15 +5,41 @@ from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
 from astropy.table import QTable
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase, tag
 from django.urls import reverse
 from tom_targets.models import Target
 
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.views import JPLSBDBQuery, split_number_unit_regex
 
-## Silence logging during tests
-logging.disable(logging.CRITICAL)
+
+## Silence logging while this module's (ephemeris-heavy, noisy) tests run.
+#
+# Phase 37 Plan 07 fix: this used to be a bare module-level `logging.disable(logging.CRITICAL)`
+# call. Because Django's test loader imports every test module during discovery -- before
+# running any test in any module -- that call permanently disabled ALL logging (at every
+# severity, in every logger) for the rest of the whole-suite process the moment this module
+# was imported, not just for this module's own tests. That silently broke any later test
+# anywhere in the suite using `assertLogs()` (which relies on `Logger.isEnabledFor()`, itself
+# gated by the same process-wide `logging.Manager.disable` this call sets, ahead of the
+# per-logger level `assertLogs()` configures) -- e.g.
+# `test_allocation_projector.TestDeclinedNightResolutionCostIsBounded`. This was masked
+# before Plan 07 only because the project's own documented test command (`config.json`
+# `workflow.test_command`) always ran `test_views.py` in a SEPARATE `manage.py test`
+# invocation from the rest of the suite, so the two invocations' processes never shared
+# this manager-level flag. Scoping the disable/restore to setUpModule()/tearDownModule()
+# (which unittest runs immediately before/after this module's own tests, not at import
+# time) keeps the intended effect -- quiet output while THIS module's tests run -- without
+# leaking it into every module imported into the same whole-suite process.
+def setUpModule():
+    """Silence logging for the duration of this module's tests only."""
+    logging.disable(logging.CRITICAL)
+
+
+def tearDownModule():
+    """Restore logging so later modules in the same whole-suite process are unaffected."""
+    logging.disable(logging.NOTSET)
+
 
 MJD_TO_JD_CONVERSION = 2400000.5
 JD2000 = 2451545.0  # Reference epoch
@@ -69,6 +95,11 @@ class TestSplitNumberUnitRegex(SimpleTestCase):
         self.assertEqual(expected_units, unit)
 
 
+@tag('ephemeris_segfault')  # Phase 37 Plan 07: the native ASSIST integrator crashes the whole
+# test-runner process (a segfault) rather than failing a test, so a whole-suite run must
+# exclude this class by name (--exclude-tag=ephemeris_segfault) rather than relying on
+# prose alongside the command to remember to do so by hand. The class itself is untouched --
+# it still runs for anyone who asks for it directly.
 class TestEphemeris(TestCase):
     def setUp(self):
         self.test_observatory, created = Observatory.objects.get_or_create(

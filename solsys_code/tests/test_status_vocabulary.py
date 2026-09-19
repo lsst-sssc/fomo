@@ -128,16 +128,17 @@ class TestVocabularyStructure(TestCase):
             with self.subTest(state=state):
                 self.assertEqual(status_vocabulary.state_for_title(f'{marker} NTT EFOSC2'), state)
 
-    def test_state_for_title_resolves_retired_bracket_word_prefixes(self) -> None:
-        cases = {
-            '[EXPIRED] x': status_vocabulary.DisplayState.WINDOW_EXPIRED,
-            '[CANCELLED] x': status_vocabulary.DisplayState.CANCELLED,
-            '[FAILED] x': status_vocabulary.DisplayState.FAILED,
-            '[WEATHERED] x': status_vocabulary.DisplayState.WEATHERED,
-        }
-        for title, expected_state in cases.items():
+    def test_state_for_title_returns_none_for_retired_bracket_word_prefixes(self) -> None:
+        # Phase 37 Plan 07: the retirement is complete -- a re-title sweep
+        # (reconcile_campaign_runs + project_observation_calendar) proved the developer
+        # database held no legacy bracket-word title, so RETIRED_TITLE_PREFIXES and its
+        # branch of state_for_title() are gone. This test documents the retirement (a
+        # legacy title now resolves to no display state at all) rather than silently
+        # dropping the case that used to assert the opposite.
+        self.assertFalse(hasattr(status_vocabulary, 'RETIRED_TITLE_PREFIXES'))
+        for title in ('[EXPIRED] x', '[CANCELLED] x', '[FAILED] x', '[WEATHERED] x'):
             with self.subTest(title=title):
-                self.assertEqual(status_vocabulary.state_for_title(title), expected_state)
+                self.assertIsNone(status_vocabulary.state_for_title(title))
 
     def test_state_for_title_returns_none_for_unknown_title(self) -> None:
         self.assertIsNone(status_vocabulary.state_for_title('Some title'))
@@ -174,11 +175,20 @@ class TestRunStatusMarker(TestCase):
                 else:
                     self.assertNotIn(value, RUN_STATUS_MARKER)
 
-    def test_cancelled_and_legacy_cancelled_share_the_same_terminal_ring(self) -> None:
+    def test_cancelled_gets_the_terminal_ring_and_legacy_cancelled_resolves_to_no_state(self) -> None:
+        # Phase 37 Plan 07: this test used to assert the [C] marker and the legacy
+        # [CANCELLED] bracket-word title shared the same terminal ring, back when
+        # RETIRED_TITLE_PREFIXES kept the legacy spelling recognised during the migration.
+        # The migration is complete (a re-title sweep proved the developer database held
+        # none of it), so this now documents the retirement directly: the short marker
+        # still gets the ring, and the legacy spelling resolves to no display state at all
+        # -- rather than silently dropping the case the ring-equivalence assertion used to
+        # cover.
         from solsys_code.templatetags.calendar_display_extras import status_border_css
 
-        self.assertEqual(status_border_css('[C] NTT EFOSC2'), status_border_css('[CANCELLED] NTT EFOSC2'))
         self.assertNotEqual(status_border_css('[C] NTT EFOSC2'), '')
+        self.assertEqual(status_border_css('[CANCELLED] NTT EFOSC2'), '')
+        self.assertIsNone(status_vocabulary.state_for_title('[CANCELLED] NTT EFOSC2'))
 
 
 class _StubFacility:
