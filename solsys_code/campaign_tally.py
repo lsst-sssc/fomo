@@ -20,12 +20,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.cache import cache
 from django.db.models import Count, F, Max
+from django.utils import timezone
 from tom_observations.models import ObservationGroup, ObservationRecord
 
+from solsys_code import proposal_allocation
+from solsys_code.allocation_projector import allocation_events
 from solsys_code.calendar_utils import record_time_window
 from solsys_code.models import CampaignRun, CampaignRunObservation
 from solsys_code.observation_projector import facility_for
-from solsys_code.status_vocabulary import DisplayState, classify_record
+from solsys_code.status_vocabulary import LABEL, MARKER, RUN_STATUS_MARKER, DisplayState, classify_record
 from solsys_code.telescope_runs import observing_night
 
 logger = logging.getLogger(__name__)
@@ -221,7 +224,9 @@ def tally_for_run(run: CampaignRun) -> dict[str, Any]:
     """
     counts = link_counts_for_runs([run.pk])[run.pk]
     nights = night_counts_for_run(run)
-    return _combine_tally(counts, nights)
+    tally = _combine_tally(counts, nights)
+    _apply_unused_fields(tally, run)
+    return tally
 
 
 def get_or_compute_tally(run: CampaignRun, records_version: datetime | None = None) -> dict[str, Any]:
@@ -279,6 +284,135 @@ def tallies_for_runs(runs) -> dict[int, dict[str, Any]]:
             continue
         nights = night_counts_for_run(run)
         tally = _combine_tally(counts, nights)
+        _apply_unused_fields(tally, run)
         cache.set(key, tally, timeout=TALLY_CACHE_TTL_SECONDS)
         result[run.pk] = tally
     return result
+
+
+# D-13's accepted combined token for the expired-or-failed segment -- not a
+# status_vocabulary.MARKER entry on its own, because "expired-or-failed" is a tally-display
+# grouping of three underlying DisplayState markers ([X]/[C]/[F]), not a DisplayState itself.
+_EXPIRED_OR_FAILED_MARKER = '[X/F]'
+_EXPIRED_OR_FAILED_LABEL = 'Expired/failed'
+
+
+def is_unused_allocation_night(end_time: datetime, run_status: str) -> bool:
+    """The single shared rule (D-15) both the table's unused count and the calendar's
+    ``[U]`` marker read -- so the two agree by construction.
+
+    Args:
+        end_time: an ``ALLOC:`` CalendarEvent's ``end_time`` (its projected sunrise).
+        run_status: the owning CampaignRun's ``run_status``.
+
+    Returns:
+        bool: True when ``end_time`` is strictly before now (UTC, no grace period -- an
+            allocation night's ``end_time`` IS its projected sunrise, so "the night has
+            ended" needs no buffer) AND ``run_status`` is not one of the two statuses that
+            carry a calendar marker (``status_vocabulary.RUN_STATUS_MARKER`` -- cancelled or
+            weather/technical failure). Staff run status always wins (D-14): an
+            unattributed observation on the same site-night does NOT rescue the night --
+              that is an attribution-queue matter, not a display rule, and checking for it
+              would be a per-cell query that silently masks missing attribution.
+    """
+    if run_status in RUN_STATUS_MARKER:
+        return False
+    return end_time < timezone.now()
+
+
+def unused_nights_for_run(run: CampaignRun) -> int | None:
+    """Count of this run's still-standing ``ALLOC:`` nights that pass
+    ``is_unused_allocation_night()``.
+
+    A retired night (the Phase 35 handoff already deletes a night's event once a placed/
+    observed record claims it) contributes nothing, because it no longer exists as an event
+    to count.
+
+    Args:
+        run: the CampaignRun being counted.
+
+    Returns:
+        int | None: the exact unused-night count, or ``None`` when the run has NO
+            allocation events at all (so a caller can tell "an allocation run with nothing
+            unused" from "not an allocation run" -- never conflate the two as zero).
+    """
+    events = list(allocation_events(run).only('pk', 'end_time'))
+    if not events:
+        return None
+    return sum(1 for event in events if is_unused_allocation_night(event.end_time, run.run_status))
+
+
+def _apply_unused_fields(tally: dict[str, Any], run: CampaignRun) -> None:
+    """Fill in ``tally``'s three ``unused_*`` keys in place, mutating the dict
+    ``_combine_tally()`` already built.
+
+    D-11: for a run with at least one allocation event, the figure is the exact
+    still-standing-unused count (``unused_is_estimate=False``). For a run with none, it
+    falls back to the D-06 proposal-derived estimate. When neither is available (no
+    allocation events AND a blank or never-fetched proposal code), the figure is left
+    ``None`` with ``unused_known=False`` -- callers must render this as not-yet-known,
+    never as zero (see ``proposal_allocation.unused_hours_for()``'s identical contract).
+    """
+    exact = unused_nights_for_run(run)
+    if exact is not None:
+        tally['nights_unused'] = exact
+        tally['unused_is_estimate'] = False
+        tally['unused_known'] = True
+        return
+    estimate = proposal_allocation.estimated_unused_nights(run.proposal_code)
+    if estimate is not None:
+        tally['nights_unused'] = estimate
+        tally['unused_is_estimate'] = True
+        tally['unused_known'] = True
+    else:
+        # Not yet fetched (or a blank proposal_code) -- render as unknown, never zero.
+        tally['nights_unused'] = None
+        tally['unused_is_estimate'] = True
+        tally['unused_known'] = False
+
+
+def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
+    """The fixed ordered render contract shared by the Progress column and the calendar
+    pop-up block (D-08/D-15): one segment per state, always in the same order, regardless of
+    which counts are zero.
+
+    Args:
+        tally: a per-run or per-campaign tally dict (anything ``tally_for_run()``,
+            ``get_or_compute_tally()``, ``tallies_for_runs()`` or ``campaign_rollup()``
+            returns).
+
+    Returns:
+        list[dict[str, Any]]: four segments, in the fixed order observed/scheduled/
+            expired-or-failed/unused, each ``{'marker': str, 'label': str, 'count':
+            int | None, 'is_estimate': bool, 'known': bool}``.
+    """
+    return [
+        {
+            'marker': MARKER[DisplayState.OBSERVED],
+            'label': LABEL[DisplayState.OBSERVED],
+            'count': tally['nights_observed'],
+            'is_estimate': False,
+            'known': True,
+        },
+        {
+            'marker': MARKER[DisplayState.SCHEDULED],
+            'label': LABEL[DisplayState.SCHEDULED],
+            'count': tally['nights_scheduled'],
+            'is_estimate': False,
+            'known': True,
+        },
+        {
+            'marker': _EXPIRED_OR_FAILED_MARKER,
+            'label': _EXPIRED_OR_FAILED_LABEL,
+            'count': tally['nights_failed'],
+            'is_estimate': False,
+            'known': True,
+        },
+        {
+            'marker': MARKER[DisplayState.UNUSED],
+            'label': LABEL[DisplayState.UNUSED],
+            'count': tally['nights_unused'],
+            'is_estimate': tally['unused_is_estimate'],
+            'known': tally['unused_known'],
+        },
+    ]
