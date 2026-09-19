@@ -615,6 +615,76 @@ class EventModalCampaignRunLinkTest(TestCase):
         self.assertIn(f'({expected}&ndash;{expected})', content)
 
 
+class EventModalRunTallyTest(TestCase):
+    """Phase 37 Plan 06 (D-09, TALLY-01): the event_form.html override renders the run's
+    live tally inside the same attributed-run block the campaign_decoration() gate already
+    applies -- an anonymous visitor sees it for an approved run's event, and sees no
+    attributed-run block at all for a pending-review run's event.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Run Tally Modal Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 7, 4),
+            window_end=date(2026, 7, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=date(2026, 7, 5),
+            window_end=date(2026, 7, 5),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        cls.event_with_approved_run = CalendarEvent.objects.create(
+            title='Event with approved run tally',
+            start_time=datetime(2026, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_approved_run, run=cls.approved_run)
+
+        cls.event_with_pending_run = CalendarEvent.objects.create(
+            title='Event with pending run tally',
+            start_time=datetime(2026, 7, 5, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 6, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_pending_run, run=cls.pending_run)
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def test_approved_run_shows_tally_to_anonymous_visitor(self):
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('0 groups', content)
+        self.assertIn('0 records', content)
+        self.assertIn('[O]', content)
+        self.assertIn('[S]', content)
+        self.assertIn('[X/F]', content)
+        self.assertIn('[U]', content)
+
+    def test_pending_review_run_shows_no_attributed_run_block_at_all(self):
+        """T-37-21: the whole {% if deco %} block -- including the tally sub-line -- must
+        not render at all for a pending-review run, for an anonymous visitor."""
+        response = self.client.get(self._modal_url(self.event_with_pending_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Attributed campaign run', content)
+        self.assertNotIn('groups', content)
+
+    def test_not_yet_known_unused_figure_renders_a_word_not_a_zero(self):
+        """The approved run has no allocation events and no proposal code -- the unused
+        segment must render as not-yet-known text, never a bare zero."""
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        content = response.content.decode()
+        self.assertIn('not yet known', content)
+
+
 class EventModalAttributionHintTest(TestCase):
     """27-07 gap closure (27-UAT.md Test 9, .planning/debug/calendar-event-run-link-inconsistent.md):
     the event_form.html modal for an unlinked event with a HIGH-band attribution-queue

@@ -183,6 +183,35 @@
           {% endif %}
           &mdash; {{ deco.run_status_display }}
         </div>
+        {% comment %}
+           D-09/TALLY-01 (Phase 37 Plan 06): the run's live tally, read from the same
+           run.is_publicly_visible-gated link campaign_decoration() already applied above --
+           deliberately rendered INSIDE this {% if deco %} block, not behind a second
+           top-level {% if %}, so the visibility gate is applied once. run_tally() mirrors
+           campaign_decoration()'s own guard shape and returns campaign_tally's
+           tally_segments() -- the same ordered segments the campaign table's public
+           Progress column renders (D-15: the two surfaces agree by construction).
+        {% endcomment %}
+        {% run_tally event as tally %}
+        {% if tally %}
+        <div class="small text-secondary" title="{{ tally.summary }}" aria-label="{{ tally.summary }}">
+          {{ tally.groups }} group{{ tally.groups|pluralize }} &middot; {{ tally.records }} record{{ tally.records|pluralize }}
+          {% for segment in tally.segments %}
+          &middot; {{ segment.marker }}
+          {% comment %}
+             WR-04-style guard (event_form.html's own window_start rule, above): a
+             not-yet-known unused figure must never render as a bare zero.
+          {% endcomment %}
+          {% if not segment.known %}
+          {{ segment.label }} not yet known
+          {% elif segment.is_estimate %}
+          &asymp;{{ segment.count }} {{ segment.label }} (estimate)
+          {% else %}
+          {{ segment.count }} {{ segment.label }}
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 {% elif not event.telescope_label_meta.run and request.user.is_staff %}

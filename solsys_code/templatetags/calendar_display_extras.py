@@ -17,6 +17,8 @@ Provides simple_tags consumed by calendar.html (Plan 02):
 - observation_series_decoration: read-only "night n of N" series decoration for
   event_form.html, rendered from CalendarEventMeta.observation_group at request time
   (PROJ-04/PROJ-05, D-04, Phase 34 Plan 03)
+- run_tally: read-only run-tally decoration for event_form.html's attributed-run block,
+  rendered from CalendarEventMeta.run at request time (TALLY-01, D-09, Phase 37 Plan 06)
 
 All values returned by proposal_color, telescope_color, and status_border_css are drawn
 from fixed internal constants — the raw proposal/telescope/title string is used only as
@@ -34,7 +36,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
-from solsys_code import status_vocabulary
+from solsys_code import campaign_tally, status_vocabulary
 from solsys_code.calendar_utils import record_time_window
 from solsys_code.models import NO_CAMPAIGN_LABEL
 
@@ -538,6 +540,80 @@ def campaign_decoration(event: CalendarEvent) -> dict | None:
         'window_start': run.window_start,
         'window_end': run.window_end,
         'run_status_display': run.get_run_status_display(),
+    }
+
+
+def _segment_summary_words(segment: dict) -> str:
+    """Render one ``campaign_tally.tally_segments()`` entry as a words-only phrase.
+
+    Used to build ``run_tally()``'s ``summary`` string, so a screen reader (or a plain
+    tooltip) has a channel that names the state in words even where the visible chip only
+    has room for the marker + count.
+    """
+    if not segment['known']:
+        return f'{segment["label"]} not yet known'
+    if segment['is_estimate']:
+        return f'about {segment["count"]} {segment["label"].lower()} (estimate)'
+    return f'{segment["count"]} {segment["label"].lower()}'
+
+
+@register.simple_tag
+def run_tally(event: CalendarEvent) -> dict | None:
+    """Read-only run-tally decoration for a CalendarEvent's attributed campaign run
+    (D-09, TALLY-01, Phase 37 Plan 06).
+
+    Renders the same tally ``campaign_tally`` computes for the campaign table's public
+    Progress column, read from ``CalendarEventMeta.run`` at request time -- never written
+    into the event's own fields -- so a base-layer re-projection of this event's title/
+    description cannot erase it. Mirrors ``campaign_decoration()``'s guard shape exactly:
+    same ``isinstance`` check, same ``ObjectDoesNotExist`` companion-row guard, same
+    ``run is None or not run.is_publicly_visible`` gate -- the pop-up applies that gate once,
+    reused here, rather than a template re-deriving it a second time.
+
+    This tag never raises, makes no write of any kind (no ``.save()``, ``.update()``,
+    ``.create()`` or ``get_or_create()``), and never imports ``solsys_code.views`` or the
+    SPICE-kernel-loading ephemeris module -- it reads the tally from the run link exactly as
+    ``campaign_decoration()`` reads the campaign name, the Phase 33 display-time-decoration
+    pattern.
+
+    Returns ``None`` for a value that is not a ``CalendarEvent``, for an event with no
+    companion row, for a companion row with no ``run``, and for a run that is not publicly
+    visible (``run.is_publicly_visible``).
+
+    Args:
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: ``{'groups': int, 'records': int, 'segments': list[dict], 'summary':
+        str}`` for an event attributed to a publicly visible run, or ``None``. ``segments``
+        is ``campaign_tally.tally_segments()``'s fixed ordered list (observed/scheduled/
+        expired-or-failed/unused) -- the same list the campaign table's Progress column
+        renders, so the two surfaces agree by construction (D-15). ``summary`` is a
+        words-only phrase (never letters-only) suitable for a tooltip or accessible name.
+    """
+    if not isinstance(event, CalendarEvent):
+        # Same reasoning as campaign_decoration(): the create-event form context has no
+        # `event` key at all, and Django resolves the missing variable to the invalid-
+        # variable placeholder rather than raising.
+        return None
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    run = meta.run
+    if run is None or not run.is_publicly_visible:
+        return None
+
+    tally = campaign_tally.get_or_compute_tally(run)
+    segments = campaign_tally.tally_segments(tally)
+    summary = f'{tally["groups"]} groups, {tally["records"]} records — ' + ', '.join(
+        _segment_summary_words(segment) for segment in segments
+    )
+    return {
+        'groups': tally['groups'],
+        'records': tally['records'],
+        'segments': segments,
+        'summary': summary,
     }
 
 

@@ -33,6 +33,7 @@ from solsys_code.templatetags.calendar_display_extras import (
     observation_series_decoration,
     observation_status_legend,
     proposal_color,
+    run_tally,
     status_border_css,
     telescope_color,
     telescope_stripe_color,
@@ -869,3 +870,76 @@ class TestObservationSeriesDecoration(TestCase):
         event.refresh_from_db()
         self.assertEqual(event.title, before_title)
         self.assertEqual(event.description, before_description)
+
+
+class TestRunTally(TestCase):
+    """Phase 37 Plan 06 (D-09, TALLY-01): run_tally() mirrors campaign_decoration()'s guard
+    shape and renders campaign_tally.tally_segments() for the calendar pop-up's
+    attributed-run block -- read from CalendarEventMeta.run at request time, never written
+    anywhere.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Run Tally Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT3',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+    def _make_event(self, title: str = 'run tally event') -> CalendarEvent:
+        return CalendarEvent.objects.create(
+            title=title,
+            start_time=datetime(2026, 9, 1, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 1, 21, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def test_non_calendar_event_returns_none_without_raising(self):
+        self.assertIsNone(run_tally('not-an-event'))
+        self.assertIsNone(run_tally(None))
+
+    def test_event_with_no_companion_row_returns_none(self):
+        event = self._make_event()
+        self.assertIsNone(run_tally(event))
+
+    def test_companion_row_with_no_run_returns_none(self):
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, run=None)
+        self.assertIsNone(run_tally(event))
+
+    def test_pending_review_run_returns_none(self):
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, run=self.pending_run)
+        self.assertIsNone(run_tally(event))
+
+    def test_approved_run_returns_tally_dict_with_ordered_segments(self):
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, run=self.approved_run)
+        result = run_tally(event)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['groups'], 0)
+        self.assertEqual(result['records'], 0)
+        markers = [segment['marker'] for segment in result['segments']]
+        self.assertEqual(markers, ['[O]', '[S]', '[X/F]', '[U]'])
+        self.assertIn('0 groups', result['summary'])
+
+    def test_not_yet_known_unused_figure_renders_a_word_not_a_zero(self):
+        """A run with no allocation events and no proposal code leaves nights_unused as
+        None/unused_known=False -- the summary word must never claim zero."""
+        event = self._make_event()
+        CalendarEventMeta.objects.create(event=event, run=self.approved_run)
+        result = run_tally(event)
+        unused_segment = result['segments'][-1]
+        self.assertFalse(unused_segment['known'])
+        self.assertIsNone(unused_segment['count'])
+        self.assertIn('not yet known', result['summary'])
