@@ -1,7 +1,10 @@
-"""Unit tests for the pure-computation coverage-gap module (GAP-02) + import guard (GAP-01).
+"""Unit tests for the pure-computation coverage-gap module (GAP-02/GAPB-01) + import guard
+(GAP-01).
 
-Depends only on `campaign_gap.py`, which itself depends only on `telescope_runs.sun_event` for
-ephemerides -- never the heavy SPICE-loading ephemeris/views module. This module's own static
+`campaign_gap.py` depends on `telescope_runs.sun_event`/`observing_night` for ephemerides and
+site-local nights, and (as of GAPB-01) on `calendar_utils`, `campaign_attribution`,
+`observation_projector` and `status_vocabulary` for the second, observation-event claim
+source -- never the heavy SPICE-loading ephemeris/views module. This module's own static
 import-guard test mirrors the grep this file's plan verification step also runs, so the two stay
 in agreement.
 
@@ -11,12 +14,15 @@ targets).
 """
 
 import inspect
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
 from unittest import mock
 
 from django.core.cache import cache
+from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
@@ -28,8 +34,10 @@ from solsys_code.campaign_gap import (
     claimed_dates,
     clamp_date_range,
     observable_dates,
+    observation_claimed_dates,
 )
 from solsys_code.models import CampaignRun
+from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
 
 TEST_CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
@@ -165,7 +173,7 @@ class TestClaimedDates(TestCase):
     def test_approved_run_claims_its_single_night_window(self):
         night = date(2026, 7, 10)
         self._make_run(window_start=night, window_end=night, telescope_instrument='A')
-        claimed, undated, unattributed, pending_narrowing = claimed_dates(self.campaign, self.target, self.site)
+        claimed, undated, unattributed, pending_narrowing, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertIn(night, claimed)
         self.assertEqual(len(claimed), 1)
         self.assertEqual(undated, [])
@@ -176,7 +184,7 @@ class TestClaimedDates(TestCase):
         window_start = date(2026, 8, 1)
         window_end = date(2026, 8, 4)
         self._make_run(window_start=window_start, window_end=window_end, telescope_instrument='RANGE')
-        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.site)
+        claimed, undated, _, pending_narrowing, _, _ = claimed_dates(self.campaign, self.target, self.site)
         expected = {
             date(2026, 8, 1),
             date(2026, 8, 2),
@@ -194,7 +202,7 @@ class TestClaimedDates(TestCase):
         self._make_run(
             window_start=night, window_end=night, telescope_instrument='B', run_status=CampaignRun.RunStatus.CANCELLED
         )
-        claimed, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, _, _, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertNotIn(night, claimed)
 
     def test_pending_review_run_not_claimed(self):
@@ -205,12 +213,12 @@ class TestClaimedDates(TestCase):
             telescope_instrument='C',
             approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
         )
-        claimed, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, _, _, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertNotIn(night, claimed)
 
     def test_undated_runs_flagged(self):
         run = self._make_run(window_start=None, window_end=None, telescope_instrument='E')
-        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.site)
+        claimed, undated, _, pending_narrowing, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertIn(run, undated)
         self.assertNotIn(None, claimed)
         # No date should have been added on behalf of this run.
@@ -221,7 +229,7 @@ class TestClaimedDates(TestCase):
     def test_different_site_not_claimed(self):
         night = date(2026, 7, 15)
         self._make_run(window_start=night, window_end=night, telescope_instrument='F', site=self.other_site)
-        claimed, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
+        claimed, _, _, _, _, _ = claimed_dates(self.campaign, self.target, self.site)
         self.assertNotIn(night, claimed)
 
 
@@ -261,7 +269,7 @@ class TestClaimedDatesSpaceMission(TestCase):
     def test_narrowed_space_run_claims_its_single_night(self):
         night = date(2026, 9, 1)
         self._make_run(window_start=night, window_end=night, telescope_instrument='Narrowed')
-        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.space_site)
+        claimed, undated, _, pending_narrowing, _, _ = claimed_dates(self.campaign, self.target, self.space_site)
         self.assertEqual(claimed, {night})
         self.assertEqual(undated, [])
         self.assertEqual(pending_narrowing, [])
@@ -270,7 +278,7 @@ class TestClaimedDatesSpaceMission(TestCase):
         window_start = date(2026, 9, 1)
         window_end = date(2026, 9, 10)
         run = self._make_run(window_start=window_start, window_end=window_end, telescope_instrument='Unnarrowed')
-        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.space_site)
+        claimed, undated, _, pending_narrowing, _, _ = claimed_dates(self.campaign, self.target, self.space_site)
         self.assertEqual(claimed, set())
         self.assertEqual(undated, [])
         self.assertIn(run, pending_narrowing)
@@ -278,7 +286,7 @@ class TestClaimedDatesSpaceMission(TestCase):
 
     def test_tbd_space_run_lands_in_undated_not_pending_narrowing(self):
         run = self._make_run(window_start=None, window_end=None, telescope_instrument='TBD')
-        claimed, undated, _, pending_narrowing = claimed_dates(self.campaign, self.target, self.space_site)
+        claimed, undated, _, pending_narrowing, _, _ = claimed_dates(self.campaign, self.target, self.space_site)
         self.assertEqual(claimed, set())
         self.assertIn(run, undated)
         self.assertEqual(pending_narrowing, [])
@@ -319,8 +327,8 @@ class TestClaimedDatesMultiTarget(TestCase):
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
-        claimed_a, _, unattributed_a, _ = claimed_dates(self.campaign, self.target_a, self.site)
-        claimed_b, _, unattributed_b, _ = claimed_dates(self.campaign, self.target_b, self.site)
+        claimed_a, _, unattributed_a, _, _, _ = claimed_dates(self.campaign, self.target_a, self.site)
+        claimed_b, _, unattributed_b, _, _, _ = claimed_dates(self.campaign, self.target_b, self.site)
         self.assertNotIn(night, claimed_a)
         self.assertNotIn(night, claimed_b)
         self.assertEqual(len(unattributed_a), 1)
@@ -338,10 +346,301 @@ class TestClaimedDatesMultiTarget(TestCase):
             approval_status=CampaignRun.ApprovalStatus.APPROVED,
             run_status=CampaignRun.RunStatus.OBSERVED,
         )
-        claimed_a, _, _, _ = claimed_dates(self.campaign, self.target_a, self.site)
-        claimed_b, _, _, _ = claimed_dates(self.campaign, self.target_b, self.site)
+        claimed_a, _, _, _, _, _ = claimed_dates(self.campaign, self.target_a, self.site)
+        claimed_b, _, _, _, _, _ = claimed_dates(self.campaign, self.target_b, self.site)
         self.assertIn(night, claimed_a)
         self.assertNotIn(night, claimed_b)
+
+
+def _create_observation_record_without_projection(**kwargs):
+    """Create an ObservationRecord with the observation projector's post_save receiver
+    disconnected (34-01/WR-02 precedent, `test_campaign_attribution.py`): these fixtures'
+    deliberately incomplete/synthetic `parameters`/schedule fields would otherwise either
+    log as 'unprojectable' or, for a would-be-complete fixture, auto-create a
+    CalendarEventMeta this module's own manual attribution fixtures would then collide with
+    (`CalendarEventMeta.observation_record` is a OneToOneField).
+    """
+    post_save.disconnect(
+        receiver_on_record_save,
+        sender=ObservationRecord,
+        dispatch_uid='solsys_code.observation_projector.post_save',
+    )
+    try:
+        return ObservationRecord.objects.create(**kwargs)
+    finally:
+        post_save.connect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            weak=False,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestObservationClaimedDates(TestCase):
+    """GAPB-01 (D-16..D-19): observed/scheduled observation blocks claim their site-local
+    night alongside approved run windows; a queued/expired/cancelled/failed/inconsistent
+    record claims nothing; a record whose site cannot be resolved is counted, never
+    silently dropped; the claimed set is a union regardless of which source adds a night
+    first.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        # Haleakala/FTN -- a real, verified rung-1 (observed_site/observed_telescope
+        # parameter) resolution target: derive_telescope('ogg', '2m0a') -> 'FTN' ->
+        # campaign_attribution.OBSERVED_TELESCOPE_OBSCODES['FTN'] -> 'F65'.
+        cls.site = Observatory.objects.create(
+            obscode='F65',
+            name='Haleakala (FTN)',
+            short_name='FTN',
+            lon=-156.2570,
+            lat=20.7075,
+            altitude=3055.0,
+            timezone='Pacific/Honolulu',
+        )
+        # Siding Spring/FTS -- a real, verified rung-1 SITECODE-CLASS resolution target:
+        # derive_telescope('coj', '1m0a') -> 'COJ-1m0' -> LCO_SITE_CODE_TO_OBSCODE['coj'] ->
+        # 'E10'. Used as the "resolves to a DIFFERENT observatory" fixture below.
+        cls.other_site = Observatory.objects.create(
+            obscode='E10',
+            name='Siding Spring (FTS)',
+            short_name='FTS',
+            lon=149.0708,
+            lat=-31.2733,
+            altitude=1165.0,
+            timezone='Australia/Sydney',
+        )
+        cls.campaign = TargetList.objects.create(name='Observation Claims Campaign')
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign.targets.add(cls.target)
+
+    def setUp(self):
+        cache.clear()
+
+    def _make_record(self, **kwargs):
+        defaults = {
+            'target': self.target,
+            'facility': 'LCO',
+            'status': 'COMPLETED',
+            'parameters': {},
+        }
+        defaults.update(kwargs)
+        return _create_observation_record_without_projection(**defaults)
+
+    def test_observed_block_claims_its_site_local_night(self):
+        night = date(2026, 8, 1)
+        self._make_record(
+            observation_id='OBSCLAIM-OBSERVED',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 8, 2, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, {night})
+        self.assertEqual(site_unknown, 0)
+
+    def test_scheduled_block_claims_its_site_local_night(self):
+        night = date(2026, 8, 3)
+        self._make_record(
+            observation_id='OBSCLAIM-SCHEDULED',
+            status='PENDING',
+            scheduled_start=datetime(2026, 8, 3, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 8, 4, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, {night})
+        self.assertEqual(site_unknown, 0)
+
+    def test_queued_record_with_a_request_window_claims_nothing(self):
+        self._make_record(
+            observation_id='OBSCLAIM-QUEUED',
+            status='PENDING',
+            parameters={
+                'observed_site': 'ogg',
+                'observed_telescope': '2m0a',
+                'start': '2026-08-05T22:00:00',
+                'end': '2026-08-06T04:00:00',
+            },
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, set())
+        self.assertEqual(site_unknown, 0)
+
+    def test_terminal_and_inconsistent_records_claim_nothing(self):
+        for i, status in enumerate(('WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED')):
+            self._make_record(
+                observation_id=f'OBSCLAIM-TERMINAL-{i}',
+                status=status,
+                scheduled_start=datetime(2026, 8, 10 + i, 22, 0, tzinfo=dt_timezone.utc),
+                scheduled_end=datetime(2026, 8, 11 + i, 4, 0, tzinfo=dt_timezone.utc),
+                parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+            )
+        # Inconsistent: only scheduled_start set.
+        self._make_record(
+            observation_id='OBSCLAIM-INCONSISTENT',
+            status='PENDING',
+            scheduled_start=datetime(2026, 8, 20, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=None,
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, set())
+        self.assertEqual(site_unknown, 0)
+
+    def test_record_resolving_to_a_different_observatory_claims_nothing_for_this_site(self):
+        self._make_record(
+            observation_id='OBSCLAIM-OTHERSITE',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 8, 15, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 8, 16, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'coj', 'observed_telescope': '1m0a'},
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, set())
+        self.assertEqual(site_unknown, 0)
+        # Sanity: the SAME record does claim its night for the site it actually resolves to.
+        other_claimed, _ = observation_claimed_dates(self.campaign, self.target, self.other_site)
+        self.assertEqual(other_claimed, {date(2026, 8, 15)})
+
+    def test_record_with_unresolvable_site_increments_unknown_count_not_claimed(self):
+        self._make_record(
+            observation_id='OBSCLAIM-UNKNOWNSITE',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 8, 17, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 8, 18, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={},
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, set())
+        self.assertEqual(site_unknown, 1)
+
+    def test_record_time_window_raising_is_skipped_never_aborts_the_loop(self):
+        # status='COMPLETED' with both schedule fields None still classifies OBSERVED
+        # (status_vocabulary.classify_record()'s "completed-no-block" case) -- with no
+        # parameters['start']/['end'] either, record_time_window() raises KeyError, which
+        # must be skipped as unknown rather than aborting the whole computation. A second,
+        # perfectly good record proves the loop really does continue past it.
+        self._make_record(
+            observation_id='OBSCLAIM-RAISES',
+            status='COMPLETED',
+            scheduled_start=None,
+            scheduled_end=None,
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        good_night = date(2026, 8, 19)
+        self._make_record(
+            observation_id='OBSCLAIM-RAISES-SIBLING',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 8, 19, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 8, 20, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, {good_night})
+        self.assertEqual(site_unknown, 0)
+
+    def test_union_with_approved_run_window_produces_one_claimed_date(self):
+        night = date(2026, 8, 1)
+        self._make_record(
+            observation_id='OBSCLAIM-UNION',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 8, 2, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT4',
+            site=self.site,
+            window_start=night,
+            window_end=night,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        claimed, _, _, _, observation_claimed, site_unknown = claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(claimed, {night})
+        self.assertEqual(observation_claimed, {night})
+        self.assertEqual(site_unknown, 0)
+
+    def test_result_claimed_dates_sorted_and_unique_run_window_seeded_first(self):
+        night = date(2026, 9, 1)
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT4',
+            site=self.site,
+            window_start=night,
+            window_end=night,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        self._make_record(
+            observation_id='OBSCLAIM-ORDER-A',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 2, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        result = campaign_gap._compute_gap(self.campaign, self.target, self.site, night, night)
+        self.assertEqual(result['claimed_dates'], [night])
+
+    def test_result_claimed_dates_sorted_and_unique_observation_seeded_first(self):
+        night = date(2026, 9, 2)
+        self._make_record(
+            observation_id='OBSCLAIM-ORDER-B',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 3, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT4',
+            site=self.site,
+            window_start=night,
+            window_end=night,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        result = campaign_gap._compute_gap(self.campaign, self.target, self.site, night, night)
+        self.assertEqual(result['claimed_dates'], [night])
+
+    def test_campaign_with_no_observation_events_behaves_like_run_window_only(self):
+        night = date(2026, 8, 30)
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT4',
+            site=self.site,
+            window_start=night,
+            window_end=night,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        claimed, _, _, _, observation_claimed, site_unknown = claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(claimed, {night})
+        self.assertEqual(observation_claimed, set())
+        self.assertEqual(site_unknown, 0)
+
+    def test_campaign_with_observations_but_no_runs_is_well_formed(self):
+        night = date(2026, 8, 31)
+        self._make_record(
+            observation_id='OBSCLAIM-NORUNS',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 8, 31, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 1, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        claimed, undated, unattributed, pending_narrowing, observation_claimed, site_unknown = claimed_dates(
+            self.campaign, self.target, self.site
+        )
+        self.assertEqual(claimed, {night})
+        self.assertEqual(observation_claimed, {night})
+        self.assertEqual(undated, [])
+        self.assertEqual(unattributed, [])
+        self.assertEqual(pending_narrowing, [])
+        self.assertEqual(site_unknown, 0)
 
 
 @override_settings(CACHES=TEST_CACHES)

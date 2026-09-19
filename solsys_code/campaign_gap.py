@@ -15,13 +15,24 @@ import side effect") would otherwise be paid by every process that imports this 
 
 import logging
 from datetime import date, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.cache import cache
+from django.db.models import F, Q
 from django.utils import timezone
+from tom_observations.models import ObservationRecord
 
+from solsys_code.calendar_utils import derive_telescope, record_time_window
+from solsys_code.campaign_attribution import (
+    LCO_SITE_CODE_TO_OBSCODE,
+    OBSERVED_TELESCOPE_OBSCODES,
+    _extract_lco_site_code,
+)
 from solsys_code.models import CampaignRun
+from solsys_code.observation_projector import facility_for
 from solsys_code.solsys_code_observatory.models import Observatory
-from solsys_code.telescope_runs import sun_event
+from solsys_code.status_vocabulary import DisplayState, classify_record
+from solsys_code.telescope_runs import observing_night, sun_event
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +50,11 @@ _EXCLUDED_RUN_STATUSES = frozenset(
         CampaignRun.RunStatus.WEATHER_TECH_FAILURE,
     }
 )
+
+# D-16 (GAPB-01): only a real placed block claims a night -- a queue window is not a set of
+# owned nights (the Phase 26/35 domain correction), and a record that expired, was cancelled
+# or failed claims nothing.
+_CLAIMING_DISPLAY_STATES = frozenset({DisplayState.OBSERVED, DisplayState.SCHEDULED})
 
 
 def clamp_date_range(today: date, requested_end: date | None) -> tuple[date, date]:
@@ -113,7 +129,114 @@ def observable_dates(site, start: date, end: date) -> set[date]:
     return observable
 
 
-def claimed_dates(campaign, target, site) -> tuple[set[date], list, list, list]:
+def observation_site_obscode(record, attributed_site_obscode: str | None) -> str | None:
+    """D-17 site-resolution ladder for one observation event.
+
+    Resolution order: (1) the record's own ``parameters['observed_site']``/
+    ``['observed_telescope']`` (the observation projector's one-time observed-site lookup,
+    Phase 34 D-09), mapped through ``calendar_utils.derive_telescope()`` to a verified
+    telescope label and then to an obscode via ``campaign_attribution``'s label-keyed
+    ``OBSERVED_TELESCOPE_OBSCODES`` (the three renamed 2m0/4m0 telescopes) or, for a
+    SITECODE-CLASS label, its site-keyed ``LCO_SITE_CODE_TO_OBSCODE``; (2) failing that, the
+    obscode of the site of the CampaignRun this event is attributed to (``attributed_site_obscode``,
+    read from the caller's own ``CalendarEventMeta.run.site`` annotation); (3) otherwise
+    ``None`` -- the event is not assignable to any site.
+
+    A ``None`` result must be reported by the caller as claimed-but-site-unknown and must
+    never be treated as a match for the caller's selected site.
+
+    Args:
+        record: the ObservationRecord being resolved (reads ``parameters`` only).
+        attributed_site_obscode: the obscode of the site of the CampaignRun this event is
+            attributed to via ``CalendarEventMeta.run``, or None if unattributed or that
+            run's own site is unset.
+
+    Returns:
+        str | None: the resolved Observatory obscode, or None. Never raises: a missing
+            parameter key, an unmapped (site, telescope) pair and an unknown site code all
+            fall through to the next rung rather than raising.
+    """
+    parameters = record.parameters or {}
+    label = derive_telescope(parameters.get('observed_site'), parameters.get('observed_telescope'))
+    if label:
+        obscode = OBSERVED_TELESCOPE_OBSCODES.get(label)
+        if obscode is None:
+            lco_site_code = _extract_lco_site_code(label)
+            if lco_site_code:
+                obscode = LCO_SITE_CODE_TO_OBSCODE.get(lco_site_code)
+        if obscode is not None:
+            return obscode
+    return attributed_site_obscode
+
+
+def observation_claimed_dates(campaign, target, site) -> tuple[set[date], int]:
+    """The second GAPB-01 claim source: observed/scheduled events on the campaign calendar.
+
+    D-18: "on the campaign calendar" is the union of an event attributed to one of the
+    campaign's runs (``CalendarEventMeta.run``) OR the record's own target belonging to the
+    campaign's TargetList -- an unattributed classical/queue observation of the campaign's
+    own target counts even before anyone works the attribution queue. D-16: only an
+    OBSERVED- or SCHEDULED-classified record's placed block claims a night; a queued
+    request's window claims nothing, and an expired/cancelled/failed/inconsistent record
+    claims nothing. D-17: an event whose site cannot be resolved increments the
+    site-unknown counter and closes no gap.
+
+    T-37-09: this queryset carries its own explicit ``.only()`` field restriction and never
+    eagerly joins the whole attributed-run row into memory -- a wide eager join could later
+    be widened to pull ``CampaignRun.contact_person``/``.contact_email`` onto a page that is
+    public. The attributed run's site obscode is read instead as a single annotated scalar
+    column.
+
+    Args:
+        campaign: the campaign TargetList.
+        target: the selected Target, or None.
+        site: the selected Observatory.
+
+    Returns:
+        tuple[set[date], int]: (observation_claimed_dates, site_unknown_count). Not
+            range-bounded, mirroring ``claimed_dates()``'s own WR-05 note.
+    """
+    try:
+        site_zone = ZoneInfo(site.timezone)
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        # A site with no usable IANA timezone can't derive a site-local observing night for
+        # any observation event -- never abort the gap page for it (D-16/17 concern the
+        # per-record site, not this query-level site's own timezone).
+        logger.debug('observation_claimed_dates: site pk=%s has no usable timezone; skipping.', site.pk)
+        return set(), 0
+
+    qs = ObservationRecord.objects.filter(
+        Q(calendar_event_meta__run__campaign=campaign) | Q(target__in=campaign.targets.all())
+    )
+    if campaign.targets.count() != 1:
+        # Multi-target campaign: the same target rule claimed_dates() uses above.
+        qs = qs.filter(target=target)
+    qs = qs.annotate(attributed_site_obscode=F('calendar_event_meta__run__site__obscode'))
+    qs = qs.only('pk', 'status', 'facility', 'scheduled_start', 'scheduled_end', 'parameters')
+
+    observation_claimed: set[date] = set()
+    site_unknown_count = 0
+    for record in qs:
+        facility = facility_for(record)
+        if classify_record(record, facility) not in _CLAIMING_DISPLAY_STATES:
+            continue
+        obscode = observation_site_obscode(record, record.attributed_site_obscode)
+        if obscode is None:
+            site_unknown_count += 1
+            continue
+        if obscode != site.obscode:
+            continue
+        try:
+            start_time, _end_time = record_time_window(record)
+        except (KeyError, ValueError):
+            logger.debug('record_time_window() raised for observation record pk=%s; skipping as unknown.', record.pk)
+            continue
+        observation_claimed.add(observing_night(start_time, site_zone))
+
+    return observation_claimed, site_unknown_count
+
+
+def claimed_dates(campaign, target, site) -> tuple[set[date], list, list, list, set[date], int]:
     """Return the set of dates claimed by approved, non-terminal-failure CampaignRuns.
 
     D-05: a date is claimed when a CampaignRun has approval_status=APPROVED and
@@ -147,19 +270,29 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list, list]:
         target: the selected Target, or None.
         site: the selected Observatory.
 
+    GAPB-01/D-19: after the run-window loop below, ``observation_claimed_dates()`` is called
+    and its result is unioned into the same ``claimed`` set -- an observed/scheduled
+    observation block claims a night alongside, never instead of, an approved run window's
+    claims (the ``_EXCLUDED_RUN_STATUSES`` rule above is unchanged). The observation-only
+    subset is also returned separately (as ``observation_claimed``) so a caller can say
+    which kind of claim covered a given night, along with the count of observation events
+    this call could not assign to any site (``site_unknown_count``, D-17) -- a listed count,
+    never a silent drop.
+
     WR-05: unlike ``observable_dates(site, start, end)``, this function takes no date-range
     parameters -- it returns every approved, non-excluded ``CampaignRun`` for the campaign/
     site combination regardless of any requested window. ``_compute_gap()`` only ever
     evaluates the range-bounded ``gap = obs - claimed`` against the range-bounded ``obs``
     set, so ``gap_dates`` is correct -- but the returned ``claimed_dates``/``undated_runs``/
-    ``unattributed_runs``/``pending_narrowing_runs`` are campaign/site-wide, NOT scoped to
-    ``[start, end]``, even though the cached result they end up in
-    (``build_gap_cache_key()``) is keyed by a date range. Do not assume a range-keyed cache
-    entry's ``claimed_dates`` is itself range-bounded.
+    ``unattributed_runs``/``pending_narrowing_runs``/``observation_claimed`` are
+    campaign/site-wide, NOT scoped to ``[start, end]``, even though the cached result they
+    end up in (``build_gap_cache_key()``) is keyed by a date range. Do not assume a
+    range-keyed cache entry's ``claimed_dates`` is itself range-bounded.
 
     Returns:
-        tuple[set[date], list, list, list]: (claimed_dates, undated_runs,
-            unattributed_runs, pending_narrowing_runs).
+        tuple[set[date], list, list, list, set[date], int]: (claimed_dates, undated_runs,
+            unattributed_runs, pending_narrowing_runs, observation_claimed,
+            site_unknown_count).
     """
     # D-13/WR-01: restrict the columns actually fetched to a PII-free field set (never
     # contact_person/contact_email) before anything is collected into
@@ -208,7 +341,12 @@ def claimed_dates(campaign, target, site) -> tuple[set[date], list, list, list]:
         for i in range(n_days):
             claimed.add(run.window_start + timedelta(days=i))
 
-    return claimed, undated_runs, unattributed_runs, pending_narrowing_runs
+    # GAPB-01/D-19: union, never substitution -- the run-window claims above are unchanged;
+    # an observed/scheduled observation block adds to the same claimed set.
+    observation_claimed, site_unknown_count = observation_claimed_dates(campaign, target, site)
+    claimed |= observation_claimed
+
+    return claimed, undated_runs, unattributed_runs, pending_narrowing_runs, observation_claimed, site_unknown_count
 
 
 def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
@@ -222,14 +360,23 @@ def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
         end: inclusive end date.
 
     Returns:
-        dict: gap_dates, claimed_dates, observable_dates (each a sorted list of dates),
-            undated_runs, unattributed_runs, pending_narrowing_runs (lists of CampaignRun),
-            and unknown_date_count (number of dates in range whose sun_event() call
-            raised, i.e. dates in range that are neither observable nor
-            known-unavailable).
+        dict: gap_dates, claimed_dates, observable_dates, observation_claimed_dates (each a
+            sorted list of dates), undated_runs, unattributed_runs, pending_narrowing_runs
+            (lists of CampaignRun), unknown_date_count (number of dates in range whose
+            sun_event() call raised, i.e. dates in range that are neither observable nor
+            known-unavailable), and claimed_site_unknown_count (GAPB-01/D-17: number of
+            observation events on the campaign calendar that could not be assigned to any
+            site -- counted, never silently dropped).
     """
     obs = observable_dates(site, start, end)
-    claimed, undated_runs, unattributed_runs, pending_narrowing_runs = claimed_dates(campaign, target, site)
+    (
+        claimed,
+        undated_runs,
+        unattributed_runs,
+        pending_narrowing_runs,
+        observation_claimed,
+        site_unknown_count,
+    ) = claimed_dates(campaign, target, site)
     gap = obs - claimed
 
     n_days = (end - start).days + 1
@@ -247,6 +394,8 @@ def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
         'unattributed_runs': unattributed_runs,
         'pending_narrowing_runs': pending_narrowing_runs,
         'unknown_date_count': unknown_date_count,
+        'observation_claimed_dates': sorted(observation_claimed),
+        'claimed_site_unknown_count': site_unknown_count,
     }
 
 
