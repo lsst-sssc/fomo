@@ -384,6 +384,9 @@ def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
         observation_claimed,
         site_unknown_count,
     ) = claimed_dates(campaign, target, site)
+    # gap = obs - claimed MUST keep using the unbounded `claimed`/`observation_claimed` sets
+    # -- a night claimed by a run/observation entirely outside [start, end] still correctly
+    # removes it from `obs` (obs is already bounded to the range on its own).
     gap = obs - claimed
 
     n_days = (end - start).days + 1
@@ -393,15 +396,20 @@ def _compute_gap(campaign, target, site, start: date, end: date) -> dict:
     # whose sun_event() call raised ValueError (D-03) and was skipped as unknown.
     unknown_date_count = n_days - len(obs)
 
+    # WR-11 (37-REVIEW.md): claimed_dates()/observation_claimed_dates() are campaign/site-
+    # wide, NOT scoped to [start, end] (see claimed_dates()'s own WR-05 docstring note) --
+    # the template renders these two lists directly as "Claimed nights" on a page whose
+    # whole premise is the user-selected date range, so they are bounded here, at display
+    # time, while `gap` above keeps using the unbounded sets.
     return {
         'gap_dates': sorted(gap),
-        'claimed_dates': sorted(claimed),
+        'claimed_dates': sorted(d for d in claimed if start <= d <= end),
         'observable_dates': sorted(obs),
         'undated_runs': undated_runs,
         'unattributed_runs': unattributed_runs,
         'pending_narrowing_runs': pending_narrowing_runs,
         'unknown_date_count': unknown_date_count,
-        'observation_claimed_dates': sorted(observation_claimed),
+        'observation_claimed_dates': sorted(d for d in observation_claimed if start <= d <= end),
         'claimed_site_unknown_count': site_unknown_count,
     }
 

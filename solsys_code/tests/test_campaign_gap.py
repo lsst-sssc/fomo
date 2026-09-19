@@ -659,6 +659,53 @@ class TestObservationClaimedDates(TestCase):
         self.assertEqual(pending_narrowing, [])
         self.assertEqual(site_unknown, 0)
 
+    def test_compute_gap_bounds_claimed_dates_to_the_requested_range(self):
+        """WR-11 (37-REVIEW.md): claimed_dates()/observation_claimed_dates() are campaign/
+        site-wide, not scoped to [start, end] -- _compute_gap()'s own 'claimed_dates'/
+        'observation_claimed_dates' result keys (rendered as the "Claimed nights" list)
+        must be bounded to the requested range, so a user asking about the next 30 days is
+        not shown claimed nights from years ago or years ahead."""
+        in_range_night = date(2026, 9, 1)
+        out_of_range_run_night = date(2020, 1, 1)
+        out_of_range_obs_night = date(2030, 1, 1)
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT4',
+            site=self.site,
+            window_start=in_range_night,
+            window_end=in_range_night,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT4',
+            site=self.site,
+            window_start=out_of_range_run_night,
+            window_end=out_of_range_run_night,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+        self._make_record(
+            observation_id='OBSCLAIM-OUT-OF-RANGE',
+            status='COMPLETED',
+            scheduled_start=datetime(2030, 1, 1, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2030, 1, 2, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+
+        # Sanity: claimed_dates() itself is genuinely unbounded (its own documented contract).
+        claimed, *_ = claimed_dates(self.campaign, self.target, self.site)
+        self.assertIn(out_of_range_run_night, claimed)
+
+        result = campaign_gap._compute_gap(self.campaign, self.target, self.site, in_range_night, in_range_night)
+        self.assertEqual(result['claimed_dates'], [in_range_night])
+        self.assertNotIn(out_of_range_run_night, result['claimed_dates'])
+        self.assertNotIn(out_of_range_obs_night, result['observation_claimed_dates'])
+        # gap_dates must still be computed from the UNBOUNDED claimed set -- the
+        # out-of-range run does not resurrect the in-range night as a "gap".
+        self.assertEqual(result['gap_dates'], [])
+
 
 @override_settings(CACHES=TEST_CACHES)
 class TestGapAnalysisView(TestCase):
