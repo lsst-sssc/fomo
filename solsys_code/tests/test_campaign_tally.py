@@ -584,8 +584,8 @@ class TestCampaignRollup(CampaignTallyTestBase):
         self.assertNotIn('is_publicly_visible', source)
 
     def test_sums_groups_records_and_nights_across_approved_public_runs(self):
-        run1 = self._make_run(campaign=self.campaign)
-        run2 = self._make_run(campaign=self.campaign)
+        run1 = self._make_run(campaign=self.campaign, telescope_instrument='FTN/FLOYDS')
+        run2 = self._make_run(campaign=self.campaign, telescope_instrument='FTN/Muscat')
         self._link_record(
             run1,
             status='COMPLETED',
@@ -604,8 +604,8 @@ class TestCampaignRollup(CampaignTallyTestBase):
         self.assertEqual(rollup['nights_observed'], 2)
 
     def test_unused_estimate_is_counted_once_per_distinct_proposal_code(self):
-        self._make_run(campaign=self.campaign, proposal_code='SHARED-2026A-001')
-        self._make_run(campaign=self.campaign, proposal_code='SHARED-2026A-001')
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/FLOYDS', proposal_code='SHARED-2026A-001')
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/Muscat', proposal_code='SHARED-2026A-001')
         ProposalTimeAllocation.objects.create(
             proposal_code='SHARED-2026A-001',
             semester='2026A',
@@ -621,9 +621,9 @@ class TestCampaignRollup(CampaignTallyTestBase):
         self.assertTrue(rollup['unused_known'])
 
     def test_exact_allocation_counts_are_added_alongside_the_estimate(self):
-        run_exact = self._make_run(campaign=self.campaign)
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/FLOYDS')
         self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
-        self._make_run(campaign=self.campaign, proposal_code='SOLO-2026A-002')
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/Muscat', proposal_code='SOLO-2026A-002')
         ProposalTimeAllocation.objects.create(
             proposal_code='SOLO-2026A-002',
             semester='2026A',

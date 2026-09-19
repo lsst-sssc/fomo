@@ -416,3 +416,105 @@ def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
             'known': tally['unused_known'],
         },
     ]
+
+
+def campaign_records_version(campaign) -> datetime | None:
+    """One-query helper: the newest linked-record change stamp across a campaign's
+    publicly visible (non-pending-review) runs -- lets a caller key a cached campaign
+    roll-up on the same freshness fact ``tallies_for_runs()`` uses, without computing the
+    roll-up first.
+
+    Args:
+        campaign: the campaign TargetList.
+
+    Returns:
+        datetime | None: the newest ``ObservationRecord.modified`` stamp across every
+            linked record on every publicly visible run in this campaign, or ``None`` when
+            there are none.
+    """
+    run_pks = CampaignRun.objects.filter(campaign=campaign).exclude(
+        approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW
+    )
+    return CampaignRunObservation.objects.filter(run_id__in=run_pks).aggregate(
+        version=Max('observation_record__modified')
+    )['version']
+
+
+def campaign_rollup(campaign) -> dict[str, Any]:
+    """The campaign roll-up: sums a per-run tally across the campaign's approved, publicly
+    visible runs only (D-10) -- a pending-review run contributes nothing.
+
+    The queryset-level exclude below -- never the model's own visibility convenience
+    property, which cannot be used inside a ``.filter()`` per that property's own docstring
+    note -- is what keeps a pending run's row out of the SQL SELECT entirely, matching
+    ``CampaignRunTableView.get_queryset()``'s identical discipline.
+
+    Because this sums through ``tallies_for_runs()``, the roll-up inherits Task 1's
+    freshness rule for free: a narrowed record reaches the roll-up on the next page load,
+    and only a purely time-driven transition waits on ``TALLY_CACHE_TTL_SECONDS``.
+
+    Args:
+        campaign: the campaign TargetList.
+
+    Returns:
+        dict[str, Any]: the same eight tally keys plus ``runs`` (the number of runs
+            summed). The unused figure adds each run's exact still-standing allocation-night
+            count directly, and the D-06 proposal-derived estimate ONCE per distinct
+            non-blank ``proposal_code`` among the runs that have no allocation events of
+            their own -- never once per run carrying that code (D-10).
+    """
+    runs = list(
+        CampaignRun.objects.filter(campaign=campaign)
+        .exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        .only('pk', 'proposal_code', 'site_id')
+    )
+    rollup: dict[str, Any] = {
+        'groups': 0,
+        'records': 0,
+        'nights_observed': 0,
+        'nights_scheduled': 0,
+        'nights_failed': 0,
+        'nights_unused': None,
+        'unused_is_estimate': True,
+        'unused_known': False,
+        'runs': len(runs),
+    }
+    if not runs:
+        return rollup
+
+    tallies = tallies_for_runs(runs)
+    rollup['groups'] = sum(t['groups'] for t in tallies.values())
+    rollup['records'] = sum(t['records'] for t in tallies.values())
+    rollup['nights_observed'] = sum(t['nights_observed'] for t in tallies.values())
+    rollup['nights_scheduled'] = sum(t['nights_scheduled'] for t in tallies.values())
+    rollup['nights_failed'] = sum(t['nights_failed'] for t in tallies.values())
+
+    # D-10: an exact per-run allocation count is added directly (never de-duplicated -- each
+    # run's own still-standing nights are its own); a proposal-derived estimate is collected
+    # by CODE, not by run, so two runs sharing one proposal contribute that proposal's
+    # estimate once, not twice.
+    exact_total = 0
+    exact_known = False
+    estimate_codes: set[str] = set()
+    for run in runs:
+        tally = tallies[run.pk]
+        if tally['unused_known'] and not tally['unused_is_estimate']:
+            exact_total += tally['nights_unused']
+            exact_known = True
+        elif run.proposal_code:
+            estimate_codes.add(run.proposal_code)
+
+    estimate_total = 0
+    estimate_known = False
+    for code in estimate_codes:
+        estimate = proposal_allocation.estimated_unused_nights(code)
+        if estimate is not None:
+            estimate_total += estimate
+            estimate_known = True
+
+    if exact_known or estimate_known:
+        rollup['nights_unused'] = exact_total + estimate_total
+        rollup['unused_known'] = True
+    rollup['unused_is_estimate'] = bool(estimate_codes)
+
+    return rollup
