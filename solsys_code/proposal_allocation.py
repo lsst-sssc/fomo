@@ -160,15 +160,22 @@ def store_proposal_allocations(proposal_code: str, rows: list[dict[str, Any]]) -
     the response does not carry (missing BOTH its ``<type>_allocation`` and
     ``<type>_time_used`` keys) is treated as absent, not zero -- no row is written for it.
 
+    WR-08 (37-REVIEW.md): after writing every row the response carries, prunes any
+    previously-stored row for this ``proposal_code`` whose (semester, instrument_type,
+    allocation_type) key did NOT appear in this response -- without this, a semester that
+    retires from the portal's ``timeallocation_set`` stayed in the table forever, and
+    ``unused_hours_for()``'s (pre-WR-08, cross-semester) estimate only ever grew.
+
     Args:
         proposal_code: the proposal code every written row is keyed on.
         rows: the ``timeallocation_set`` list :func:`fetch_proposal_allocations` returned.
 
     Returns:
-        int: the number of rows created or updated.
+        int: the number of rows created or updated (pruned rows are not counted).
     """
     written = 0
     fetched_at = timezone.now()
+    seen_keys: set[tuple[str, str, str]] = set()
     for entry in rows:
         semester = entry.get('semester') or ''
         instrument_type = entry.get('instrument_type') or ''
@@ -189,24 +196,44 @@ def store_proposal_allocations(proposal_code: str, rows: list[dict[str, Any]]) -
                 },
             )
             written += 1
+            seen_keys.add((semester, instrument_type, allocation_type))
+
+    stale = ProposalTimeAllocation.objects.filter(proposal_code=proposal_code)
+    for semester, instrument_type, allocation_type in seen_keys:
+        stale = stale.exclude(semester=semester, instrument_type=instrument_type, allocation_type=allocation_type)
+    stale.delete()
     return written
 
 
-def unused_hours_for(proposal_code: str) -> float | None:
+def unused_hours_for(proposal_code: str, semester: str | None = None) -> float | None:
     """Summed ``allocated_hours - used_hours`` over the stored rows in
     ``ESTIMATE_ALLOCATION_TYPES``, floored at zero.
 
+    WR-08 (37-REVIEW.md): scoped to a single semester -- a proposal carrying allocations in
+    two semesters (e.g. a finished prior semester plus a fresh current one) previously
+    summed both, over-reporting the run's currently-relevant wasted time. Semester strings
+    sort correctly as plain text (``'2026A' < '2026B'``), so the alphabetically-greatest
+    stored semester IS the chronologically most recent one for every semester code this
+    module has ever seen.
+
     Args:
         proposal_code: the proposal code to sum.
+        semester: the semester to scope the sum to. When omitted (the default), resolved to
+            this proposal_code's own alphabetically most-recent stored semester.
 
     Returns:
         float | None: the summed unused hours (never negative), or ``None`` when the
-            proposal has no stored rows at all -- callers must render this as "not yet
-            fetched", never as zero.
+            proposal has no stored rows at all (or none in the resolved/given semester) --
+            callers must render this as "not yet fetched", never as zero.
     """
     rows = ProposalTimeAllocation.objects.filter(
         proposal_code=proposal_code, allocation_type__in=ESTIMATE_ALLOCATION_TYPES
     )
+    if semester is None:
+        semester = rows.order_by('-semester').values_list('semester', flat=True).first()
+    if semester is None:
+        return None
+    rows = rows.filter(semester=semester)
     if not rows.exists():
         return None
     total = rows.aggregate(total=Sum(F('allocated_hours') - F('used_hours')))['total']

@@ -260,6 +260,40 @@ class StoreProposalAllocationsTests(TestCase):
         self.assertEqual(ProposalTimeAllocation.objects.count(), 1)
         self.assertEqual(ProposalTimeAllocation.objects.get().used_hours, 15.0)
 
+    def test_a_key_absent_from_a_later_response_is_pruned(self):
+        """WR-08 (37-REVIEW.md): a (semester, instrument_type, allocation_type) row that
+        disappears from the portal's timeallocation_set must be deleted, not left to
+        accumulate forever."""
+        rows_v1 = [
+            {'semester': '2026A', 'instrument_type': 'X', 'std_allocation': 40.0, 'std_time_used': 10.0},
+            {'semester': '2026B', 'instrument_type': 'X', 'std_allocation': 30.0, 'std_time_used': 5.0},
+        ]
+        pa.store_proposal_allocations('UTX2026A-002', rows_v1)
+        self.assertEqual(ProposalTimeAllocation.objects.filter(proposal_code='UTX2026A-002').count(), 2)
+
+        # 2026A retires from the response; only 2026B remains.
+        rows_v2 = [{'semester': '2026B', 'instrument_type': 'X', 'std_allocation': 30.0, 'std_time_used': 5.0}]
+        written = pa.store_proposal_allocations('UTX2026A-002', rows_v2)
+
+        self.assertEqual(written, 1)
+        remaining = ProposalTimeAllocation.objects.filter(proposal_code='UTX2026A-002')
+        self.assertEqual(remaining.count(), 1)
+        self.assertEqual(remaining.get().semester, '2026B')
+
+    def test_prune_never_touches_a_different_proposal_codes_rows(self):
+        pa.store_proposal_allocations(
+            'UTX2026A-002',
+            [{'semester': '2026A', 'instrument_type': 'X', 'std_allocation': 40.0, 'std_time_used': 10.0}],
+        )
+        pa.store_proposal_allocations(
+            'OTHER-2026A-099',
+            [{'semester': '2026A', 'instrument_type': 'X', 'std_allocation': 5.0, 'std_time_used': 1.0}],
+        )
+        # Re-fetch UTX2026A-002 with an EMPTY response -- prunes all of its own rows.
+        pa.store_proposal_allocations('UTX2026A-002', [])
+        self.assertEqual(ProposalTimeAllocation.objects.filter(proposal_code='UTX2026A-002').count(), 0)
+        self.assertEqual(ProposalTimeAllocation.objects.filter(proposal_code='OTHER-2026A-099').count(), 1)
+
 
 class UnusedHoursForTests(TestCase):
     """unused_hours_for()'s summation-over-ESTIMATE_ALLOCATION_TYPES, floored-at-zero rule."""
@@ -294,6 +328,59 @@ class UnusedHoursForTests(TestCase):
             fetched_at=timezone.now(),
         )
         self.assertEqual(pa.unused_hours_for('UTX2026A-002'), 0.0)
+
+    def test_only_the_most_recent_semester_is_summed(self):
+        """WR-08 (37-REVIEW.md) regression: a finished 2026A carrying 40 unused hours plus
+        a fresh 2026B carrying 100 hours must report ONLY 2026B's unused hours, not both
+        summed -- the finished semester's leftover time is no longer "currently relevant
+        wasted time"."""
+        ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026A',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=0.0,
+            fetched_at=timezone.now(),
+        )
+        ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026B',
+            allocation_type='std',
+            allocated_hours=100.0,
+            used_hours=30.0,
+            fetched_at=timezone.now(),
+        )
+        self.assertEqual(pa.unused_hours_for('UTX2026A-002'), 70.0)
+
+    def test_explicit_semester_overrides_the_most_recent_default(self):
+        ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026A',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=0.0,
+            fetched_at=timezone.now(),
+        )
+        ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026B',
+            allocation_type='std',
+            allocated_hours=100.0,
+            used_hours=30.0,
+            fetched_at=timezone.now(),
+        )
+        self.assertEqual(pa.unused_hours_for('UTX2026A-002', semester='2026A'), 40.0)
+
+    def test_no_rows_in_an_explicitly_requested_semester_is_none(self):
+        ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026A',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=0.0,
+            fetched_at=timezone.now(),
+        )
+        self.assertIsNone(pa.unused_hours_for('UTX2026A-002', semester='2026C'))
 
 
 class EstimatedUnusedNightsTests(TestCase):
