@@ -468,8 +468,11 @@ def observation_status_legend() -> list[dict]:
     Takes no arguments, reads nothing from the database, and never raises.
 
     Returns:
-        list[dict]: one ``{'marker': ..., 'label': ...}`` dict per marker, in the fixed
-        order ``[Q]``, ``[S]``, ``[O]``, ``[X]``, ``[C]``, ``[F]``, ``[W]``, ``[?]``, ``[U]``.
+        list[dict]: one ``{'marker': ..., 'label': ..., 'filterable': bool}`` dict per
+        marker, in the fixed order ``[Q]``, ``[S]``, ``[O]``, ``[X]``, ``[C]``, ``[F]``,
+        ``[W]``, ``[?]``, ``[U]``. ``filterable`` is ``True`` only for the ``[U]`` entry
+        (WR-09, 37-REVIEW.md) -- the template branches on it instead of comparing
+        ``entry.marker`` to a bare ``'[U]'`` literal.
     """
     return [dict(entry) for entry in status_vocabulary.LEGEND]
 

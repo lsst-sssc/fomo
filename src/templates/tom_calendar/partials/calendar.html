@@ -353,9 +353,12 @@
       {# reads status_border_css()'s own vocabulary off the page, no per-month data. #}
       {% observation_status_legend as status_legend %}
       {% for entry in status_legend %}
-        {% if entry.marker == '[U]' %}
-        {# D-15 (Phase 37 Plan 06): the unused entry alone gets the proposal swatches' #}
-        {# click-to-filter treatment -- "show me the wasted nights" is one click. #}
+        {% if entry.filterable %}
+        {# D-15 (Phase 37 Plan 06)/WR-09 (37-REVIEW.md): the unused entry alone gets the #}
+        {# proposal swatches' click-to-filter treatment -- "show me the wasted nights" is #}
+        {# one click. Gated on entry.filterable (status_vocabulary.LEGEND), never on a #}
+        {# bare 'entry.marker == '[U]'' comparison -- a marker literal here could silently #}
+        {# drift from MARKER[DisplayState.UNUSED] with no test or error to catch it. #}
         <span class="cal-legend-swatch mr-3" role="button" aria-pressed="false" data-filter="unused">
           <small class="text-secondary">{{ entry.marker }} {{ entry.label }}</small>
         </span>

@@ -86,8 +86,12 @@ LABEL: dict[str, str] = {
 # D-04: one legend, every visible state, one fixed order -- never derived from a database
 # query and never derived from the ring buckets below (deriving it would only let
 # ring-vs-label drift in the other direction: a marker with a ring but no legend entry).
-LEGEND: tuple[dict[str, str], ...] = tuple(
-    {'marker': MARKER[state], 'label': LABEL[state]}
+# 'filterable' (WR-09, 37-REVIEW.md): True only for the UNUSED entry -- calendar.html's
+# click-to-filter legend swatch reads this instead of comparing entry.marker == '[U]', so a
+# future change to MARKER[DisplayState.UNUSED] cannot silently degrade the swatch from a
+# filterable control to an inert legend entry with no test or error to catch it.
+LEGEND: tuple[dict[str, Any], ...] = tuple(
+    {'marker': MARKER[state], 'label': LABEL[state], 'filterable': state is DisplayState.UNUSED}
     for state in (
         DisplayState.QUEUED,
         DisplayState.SCHEDULED,

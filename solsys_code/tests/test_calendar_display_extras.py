@@ -506,6 +506,13 @@ class TestObservationStatusLegend(TestCase):
         second = observation_status_legend()
         self.assertEqual(first, second)
 
+    def test_only_the_unused_entry_is_filterable(self):
+        """WR-09 (37-REVIEW.md): calendar.html's click-to-filter swatch branches on
+        entry.filterable, never on a bare `entry.marker == '[U]'` literal comparison."""
+        legend = observation_status_legend()
+        filterable_markers = [entry['marker'] for entry in legend if entry['filterable']]
+        self.assertEqual(filterable_markers, ['[U]'])
+
 
 class TestObservationSeriesDecoration(TestCase):
     """PROJ-04/PROJ-05 (Phase 34 Plan 03, D-04): observation_series_decoration() reads

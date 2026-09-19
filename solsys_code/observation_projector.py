@@ -46,7 +46,14 @@ from solsys_code.calendar_utils import (
     record_time_window,
 )
 from solsys_code.models import CalendarEventMeta
-from solsys_code.status_vocabulary import FAILURE_MARKER_BY_STATUS, STAGE_MARKER, failed_states_for, observed_states_for
+from solsys_code.status_vocabulary import (
+    FAILURE_MARKER_BY_STATUS,
+    MARKER,
+    STAGE_MARKER,
+    DisplayState,
+    failed_states_for,
+    observed_states_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +127,10 @@ def _failure_marker(status: str, facility: Any) -> str | None:
     """
     if status not in failed_states_for(facility):
         return None
-    return FAILURE_MARKER_BY_STATUS.get(status, '[F]')
+    # WR-09 (37-REVIEW.md): the fallback marker is sourced from status_vocabulary.MARKER,
+    # not re-typed as a bare literal -- the exact "one module still carries its own bare
+    # quoted marker" pattern the STATUS-01 consolidation set out to eliminate.
+    return FAILURE_MARKER_BY_STATUS.get(status, MARKER[DisplayState.FAILED])
 
 
 def stage_for(record: ObservationRecord, facility: Any) -> str:
@@ -229,7 +239,9 @@ def title_for(record: ObservationRecord, stage: str, token: str, target_name: st
     """
     marker = _failure_marker(record.status, facility)
     if marker is None:
-        marker = STAGE_MARKER.get(stage, '[?]')
+        # WR-09 (37-REVIEW.md): same fix as _failure_marker() above -- MARKER[INCONSISTENT],
+        # not a bare '[?]' literal.
+        marker = STAGE_MARKER.get(stage, MARKER[DisplayState.INCONSISTENT])
     return f'{marker} {token} {target_name}'[:200]
 
 
