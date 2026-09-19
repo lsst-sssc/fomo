@@ -731,6 +731,20 @@ class TestCampaignRollup(CampaignTallyTestBase):
         self.assertIn('PENDING_REVIEW', source)
         self.assertNotIn('is_publicly_visible', source)
 
+    def test_only_does_not_trigger_deferred_field_queries(self):
+        """WR-03 (37-REVIEW.md) regression: the roll-up's own .only('pk', 'proposal_code',
+        'site_id') deferred `run_status` (read by _apply_unused_fields() via
+        unused_nights_for_run()) and never select_related('site') at all (so
+        night_counts_for_run()'s run.site.timezone read cost a second per-run query) --
+        two invisible N+1s on the anonymous campaign list. With both named in .only() and
+        'site' select_related, computing the roll-up for one run must issue no queries
+        beyond the fixed aggregate/lookup set (never one deferred SELECT per run)."""
+        run = self._make_run(campaign=self.campaign)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
+        cache.clear()
+        with self.assertNumQueries(5):
+            campaign_rollup(self.campaign)
+
     def test_sums_groups_records_and_nights_across_approved_public_runs(self):
         run1 = self._make_run(campaign=self.campaign, telescope_instrument='FTN/FLOYDS')
         run2 = self._make_run(campaign=self.campaign, telescope_instrument='FTN/Muscat')

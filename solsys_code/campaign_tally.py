@@ -524,10 +524,15 @@ def campaign_rollup(campaign) -> dict[str, Any]:
             non-blank ``proposal_code`` among the runs that have no allocation events of
             their own -- never once per run carrying that code (D-10).
     """
+    # select_related('site') + naming 'run_status'/'site__timezone'/'site__obscode' in
+    # .only() avoids two per-run deferred-field SELECTs this roll-up would otherwise trigger
+    # (WR-03, 37-REVIEW.md): _apply_unused_fields() -> unused_nights_for_run() reads
+    # run.run_status, and night_counts_for_run() reads run.site.timezone.
     runs = list(
         CampaignRun.objects.filter(campaign=campaign)
         .exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
-        .only('pk', 'proposal_code', 'site_id')
+        .select_related('site')
+        .only('pk', 'proposal_code', 'run_status', 'site_id', 'site__timezone', 'site__obscode')
     )
     rollup: dict[str, Any] = {
         'groups': 0,
