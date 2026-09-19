@@ -1275,8 +1275,8 @@ already states for its own decline, and for the same reason: the night
 survives and only the delete is declined, so its title, description and
 campaign label are still refreshed. This is what keeps a later **Mark
 cancelled** / **Mark weather/technical failure** action reaching a night
-whose retirement was declined, so the entry picks up its ``[CANCELLED]``
-/ ``[WEATHERED]`` prefix on the next sweep instead of sitting on the
+whose retirement was declined, so the entry picks up its ``[C]``
+/ ``[W]`` marker on the next sweep instead of sitting on the
 calendar as an ordinary observing night for as long as the confirmation
 stands. The night's primary key, start time, end time and
 ``confirmed_by``/``confirmed_at`` stamp are never touched by that
