@@ -384,7 +384,17 @@ Plans:
   4. An awarded night that came and went with nothing scheduled or observed is visibly different on the calendar from a night that was actually observed
   5. Coverage-gap analysis counts every observation on the campaign calendar, so classical and queue time is no longer reported as unclaimed
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — One status vocabulary module; the three parallel prefix maps folded into it and the hardcoded terminal-state check routed through a facility-aware classifier (wave 1, tracer)
+- [ ] 37-02-PLAN.md — A structured proposal code on a run, a stored proposal time allocation, and a fifth unattended runner step that fetches it (wave 2)
+- [ ] 37-03-PLAN.md — Coverage-gap analysis claims a night for every observed or scheduled block on the campaign calendar, with a claimed-but-site-unknown count (wave 2)
+- [ ] 37-04-PLAN.md — The tally core: per-run counts, site-local night counts behind a TTL cache, the shared unused-night classifier, the campaign roll-up and the TALLY-03 guard (wave 3)
+- [ ] 37-05-PLAN.md — A public Progress cell on every run row, a roll-up strip above the runs table and a nights-observed clause on the campaign list badge (wave 4)
+- [ ] 37-06-PLAN.md — The tally in the calendar pop-up, and an unused awarded night shown by a muted chip plus its own token, filterable from the legend (wave 4)
+- [ ] 37-07-PLAN.md — Paired docs: the runbook's final vocabulary, public-tally and new coverage-gap sections, four regenerated notebooks, and the legacy title spellings retired (wave 5)
+
 **UI hint**: yes
 
 ## Progress

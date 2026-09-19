@@ -146,7 +146,7 @@ Gemini read-back, ESO sync, any new writer of another layer's events.
   block, on the site-local observing night it falls in (D-11). A queued request's window claims
   nothing (a queue window is not a set of owned nights — the Phase 26/35 domain correction);
   expired / cancelled / failed records claim nothing.
-- **D-17: Site assignment for an observation event:** the record's `observed_site`
+- **D-17: Site assignment for an observation event** — the record's `observed_site`
   (`ObservationRecord.parameters`, Phase 34 D-09) mapped to its `Observatory`; else the site of
   the `CampaignRun` the event is attributed to; else the event is **not** assignable to a site —
   it is reported on the gap page as "claimed, site unknown" (a listed count, never silently
