@@ -20,7 +20,7 @@ from io import StringIO
 from pathlib import Path
 from smtplib import SMTPAuthenticationError
 from unittest import skipIf
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests
 from django.contrib.auth.models import User
@@ -966,6 +966,73 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertEqual(len(discovery_records), 2, discovery_records)
         self.assertTrue(any('obs-1' in record for record in discovery_records))
         self.assertTrue(any('obs-2' in record for record in discovery_records))
+
+
+class TestProposalAllocationStep(UnattendedTestBase):
+    """Task 3 (D-07): the proposal-allocation fetch step joins the runner's fixed step order."""
+
+    def test_registered_as_the_fifth_and_final_step(self):
+        names = [name for name, _fn in unattended.STEPS]
+        self.assertEqual(names[-1], 'proposal_allocation')
+        self.assertEqual(names[:-1], ['status_refresh', 'project_sweep', 'discovery', 'reconcile'])
+
+    def test_dry_run_makes_no_network_call(self):
+        with patch('solsys_code.proposal_allocation.make_request') as mock_make_request:
+            result = unattended.step_proposal_allocation(dry_run=True)
+
+        mock_make_request.assert_not_called()
+        self.assertFalse(result.failed)
+        self.assertIn('dry run', result.summary)
+
+    def test_lock_contended_is_a_non_failing_skip(self):
+        lock_dir = Path(self.tmp_dir.name)
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_dir / 'proposal_allocation.lock'
+        fh = lock_path.open('a+')
+        self.addCleanup(fh.close)
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            result = unattended.step_proposal_allocation(dry_run=False)
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+        self.assertFalse(result.failed)
+        self.assertIn('lock', result.summary.lower())
+
+    def test_success_reports_counters(self):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        response = MagicMock()
+        response.json.return_value = {
+            'timeallocation_set': [
+                {'semester': '2026A', 'instrument_type': 'X', 'std_allocation': 10.0, 'std_time_used': 2.0}
+            ]
+        }
+        with patch('solsys_code.proposal_allocation.make_request', return_value=response):
+            result = unattended.step_proposal_allocation(dry_run=False)
+
+        self.assertFalse(result.failed)
+        self.assertIn('proposals: 1', result.summary)
+        self.assertIn('rows written: 1', result.summary)
+
+    def test_portal_outage_is_a_step_failure(self):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        with patch('solsys_code.proposal_allocation.make_request', side_effect=requests.exceptions.Timeout('boom')):
+            result = unattended.step_proposal_allocation(dry_run=False)
+
+        self.assertTrue(result.failed)
+        self.assertIn('failed: 1', result.summary)
+
+    def test_summary_leaks_no_api_key_or_response_body(self):
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        fake_key = 'FAKE-API-KEY-CREDHYG-PROPOSAL-1'
+        with patch(
+            'solsys_code.proposal_allocation.make_request',
+            side_effect=ImproperCredentialsException(f'OCS: {fake_key}'),
+        ):
+            result = unattended.step_proposal_allocation(dry_run=False)
+
+        self.assertNotIn(fake_key, result.summary)
+        self.assertTrue(result.failed)
 
 
 _FAKE_LCO_API_KEY = 'FAKE-API-KEY-DO-NOT-LOG-a1b2c3'
