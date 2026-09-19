@@ -3,7 +3,7 @@ import logging
 import re
 import urllib.parse
 from datetime import timezone
-from math import ceil
+from math import ceil, isnan
 from typing import Any
 
 import requests
@@ -213,12 +213,13 @@ class Ephemeris(View):
 
         ephem_lines = []
         for _, e in predictions.iterrows():
+            # Az/Alt are NaN for the geocentre; pass None so the template can show 'n.a.'
             ephem_line = [
                 e['epoch_UTC'],
                 e['RA_deg'],
                 e['Dec_deg'],
-                e['Obs_Az_deg'],
-                e['Obs_Alt_deg'],
+                None if isnan(e['Obs_Az_deg']) else e['Obs_Az_deg'],
+                None if isnan(e['Obs_Alt_deg']) else e['Obs_Alt_deg'],
                 e['APmag'],
                 e['Helio_LTC_au'],
                 e['Range_LTC_au'],

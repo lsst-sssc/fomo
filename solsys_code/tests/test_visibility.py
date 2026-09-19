@@ -39,6 +39,9 @@ class TestAirmassSamples(SimpleTestCase):
     def test_below_horizon_is_none(self):
         self.assertAirmasses(airmass_samples([0.0, -5.0], [-30.0, -30.0]), [None, None])
 
+    def test_undefined_altitude_is_none(self):
+        self.assertAirmasses(airmass_samples([nan, 30.0], [-30.0, -30.0]), [None, 2.0])
+
     def test_sun_up_is_none(self):
         # Sun exactly at the limit is still night; anything above it is rejected
         self.assertAirmasses(airmass_samples([30.0, 30.0, 30.0], [-18.0, -17.9, 10.0]), [2.0, None, None])
