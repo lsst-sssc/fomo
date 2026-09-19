@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 37
 current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 status: executing
-stopped_at: Completed 37-01-PLAN.md
-last_updated: "2026-09-19T03:18:40.851Z"
+stopped_at: Completed 37-03-PLAN.md
+last_updated: "2026-09-19T04:29:37.419Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 37 execution started
-state_head: 47f8c6ff2cd1072bf1ab67dbc03eebf373d274be
+state_head: b18b345a40405825dcc8f743142786d104ff7c28
 progress:
   total_phases: 5
   completed_phases: 36
   total_plans: 59
-  completed_plans: 53
-  percent: 90
+  completed_plans: 54
+  percent: 92
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 37 execution started
 
@@ -226,6 +226,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 36 P08 | ~15min | 3 tasks | 4 files |
 | Phase 36 P09 | 42min | 3 tasks | 3 files |
 | Phase 37 P01 | 70min | 3 tasks | 13 files |
+| Phase 37 P03 | 46min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -379,6 +380,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 36]: `check_unattended` emits each result line once, to one stream chosen by status, flushing stdout before stderr, with a single-sink test fixture modelling the terminal/`2>&1` condition the operator actually runs in (G-36-5).
 - [Phase 36 UAT]: the two `logger.debug()` sites that still interpolate `str(exc)` (`backfill_lco_observations.py:349`, `unattended.py:201`) accepted as inert under the shipped root-INFO logging config (tlister, UAT round 2 Test 2) — not a SCHED-10 breach.
 - [Phase 37]: STATUS-01 stays blocked pending plan 37-07's legacy-title re-title sweep (shared requirement ID); STATUS-02 marked complete — 37-01 and 37-07 both declare STATUS-01 in frontmatter; requirements.ready-ids gate prevents premature completion
+- [Phase 37]: GAPB-01 coverage-gap analysis: observed/scheduled observation blocks now union with approved run windows as claim sources; site-unknown observations are counted, never dropped. — T-37-09 mitigated via a single annotated scalar column, never select_related, to keep the public gap page from widening into CampaignRun contact fields.
+- [Phase 37]: Gap page's 'Claimed nights' list and site-unknown count line added to campaignrun_gap_analysis.html, going beyond the literal must_haves.truths list per Task 2's explicit action block. — The template previously never rendered result.claimed_dates at all; Task 2 required referencing result.observation_claimed_dates, which a display list satisfies naturally.
 
 ### Pending Todos
 
@@ -492,8 +495,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T03:18:40.547Z
-Stopped at: Completed 37-01-PLAN.md
+Last session: 2026-09-19T04:29:37.106Z
+Stopped at: Completed 37-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
