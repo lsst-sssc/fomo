@@ -14,28 +14,34 @@ targets).
 
 import ast
 import inspect
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.utils import timezone
+from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import campaign_tally
+from solsys_code.allocation_projector import allocation_night_url
 from solsys_code.campaign_tally import (
     TALLY_CACHE_TTL_SECONDS,
     build_tally_cache_key,
     get_or_compute_tally,
+    is_unused_allocation_night,
     link_counts_for_runs,
     night_counts_for_run,
     tallies_for_runs,
     tally_for_run,
+    tally_segments,
+    unused_nights_for_run,
 )
-from solsys_code.models import CampaignRun, CampaignRunObservation
+from solsys_code.models import CampaignRun, CampaignRunObservation, ProposalTimeAllocation
 from solsys_code.solsys_code_observatory.models import Observatory
 
 TEST_CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
@@ -95,6 +101,17 @@ class CampaignTallyTestBase(TestCase):
         record = ObservationRecord.objects.create(**kwargs)
         CampaignRunObservation.objects.create(run=run, observation_record=record)
         return record
+
+    def _make_alloc_event(self, run: CampaignRun, night: date, *, end_time: datetime) -> CalendarEvent:
+        """Create one ``ALLOC:``-namespaced CalendarEvent for ``run``/``night`` directly --
+        cheaper than a full ``project_allocation()`` sweep for a unit test that only cares
+        about ``unused_nights_for_run()``'s own counting rule."""
+        return CalendarEvent.objects.create(
+            title=f'{run.telescope_instrument} allocation',
+            start_time=end_time - timedelta(hours=8),
+            end_time=end_time,
+            url=allocation_night_url(run, night),
+        )
 
 
 class TestModuleImportGuard(TestCase):
@@ -394,3 +411,137 @@ class TestTalliesForRuns(CampaignTallyTestBase):
         first_real_stmt_lineno = func_node.body[1].lineno
         code_only = '\n'.join(source.splitlines()[first_real_stmt_lineno - 1 :])
         self.assertNotIn('tally_for_run(', code_only)
+
+
+class TestIsUnusedAllocationNight(TestCase):
+    """D-14: staff run status always wins; only a truly-ended, truly-empty night reads
+    unused. No grace period -- `end_time < now()` in UTC, exactly."""
+
+    def test_past_night_and_ordinary_run_status_is_unused(self):
+        past = timezone.now() - timedelta(hours=1)
+        self.assertTrue(is_unused_allocation_night(past, CampaignRun.RunStatus.REQUESTED))
+
+    def test_past_night_but_cancelled_run_status_is_not_unused(self):
+        past = timezone.now() - timedelta(hours=1)
+        self.assertFalse(is_unused_allocation_night(past, CampaignRun.RunStatus.CANCELLED))
+
+    def test_past_night_but_weather_tech_failure_run_status_is_not_unused(self):
+        past = timezone.now() - timedelta(hours=1)
+        self.assertFalse(is_unused_allocation_night(past, CampaignRun.RunStatus.WEATHER_TECH_FAILURE))
+
+    def test_future_night_is_never_unused_regardless_of_run_status(self):
+        future = timezone.now() + timedelta(hours=1)
+        self.assertFalse(is_unused_allocation_night(future, CampaignRun.RunStatus.REQUESTED))
+
+
+class TestUnusedNightsForRun(CampaignTallyTestBase):
+    def test_no_allocation_events_returns_none(self):
+        run = self._make_run()
+        self.assertIsNone(unused_nights_for_run(run))
+
+    def test_one_past_still_standing_night_counts_as_one(self):
+        run = self._make_run()
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self.assertEqual(unused_nights_for_run(run), 1)
+
+    def test_a_future_night_does_not_count_but_events_are_known(self):
+        run = self._make_run()
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() + timedelta(days=1))
+        self.assertEqual(unused_nights_for_run(run), 0)
+
+    def test_cancelled_run_status_suppresses_every_past_night(self):
+        run = self._make_run(run_status=CampaignRun.RunStatus.CANCELLED)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self.assertEqual(unused_nights_for_run(run), 0)
+
+    def test_two_past_nights_count_both(self):
+        run = self._make_run()
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=2))
+        self._make_alloc_event(run, date(2026, 7, 10), end_time=timezone.now() - timedelta(days=1))
+        self.assertEqual(unused_nights_for_run(run), 2)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestTallyForRunUnusedWiring(CampaignTallyTestBase):
+    """tally_for_run()'s three unused_* keys, wired to the D-06/D-11 rule."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def test_run_with_allocation_events_uses_the_exact_count(self):
+        run = self._make_run()
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        tally = tally_for_run(run)
+        self.assertEqual(tally['nights_unused'], 1)
+        self.assertFalse(tally['unused_is_estimate'])
+        self.assertTrue(tally['unused_known'])
+
+    def test_run_with_no_allocation_events_uses_the_proposal_estimate(self):
+        run = self._make_run(proposal_code='UTX2026A-002')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026B',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=15.0,
+            fetched_at=timezone.now(),
+        )
+        tally = tally_for_run(run)
+        self.assertEqual(tally['nights_unused'], 3)  # floor(25/10 + 0.5) == 3
+        self.assertTrue(tally['unused_is_estimate'])
+        self.assertTrue(tally['unused_known'])
+
+    def test_run_with_no_allocation_events_and_blank_proposal_code_is_unknown_not_zero(self):
+        run = self._make_run(proposal_code='')
+        tally = tally_for_run(run)
+        self.assertIsNone(tally['nights_unused'])
+        self.assertFalse(tally['unused_known'])
+
+    def test_run_with_a_proposal_code_but_no_stored_rows_is_unknown_not_zero(self):
+        run = self._make_run(proposal_code='NEVER-FETCHED-2026A-001')
+        tally = tally_for_run(run)
+        self.assertIsNone(tally['nights_unused'])
+        self.assertFalse(tally['unused_known'])
+
+
+class TestTallySegments(TestCase):
+    """D-15: the table and the calendar must agree by construction -- tally_segments()
+    always returns the same four segments in the same fixed order."""
+
+    _TALLY = {
+        'groups': 2,
+        'records': 14,
+        'nights_observed': 5,
+        'nights_scheduled': 2,
+        'nights_failed': 1,
+        'nights_unused': 3,
+        'unused_is_estimate': True,
+        'unused_known': True,
+    }
+
+    def test_returns_four_segments_in_fixed_order(self):
+        segments = tally_segments(self._TALLY)
+        self.assertEqual([s['marker'] for s in segments], ['[O]', '[S]', '[X/F]', '[U]'])
+
+    def test_counts_come_from_the_tally_dict(self):
+        segments = tally_segments(self._TALLY)
+        by_marker = {s['marker']: s for s in segments}
+        self.assertEqual(by_marker['[O]']['count'], 5)
+        self.assertEqual(by_marker['[S]']['count'], 2)
+        self.assertEqual(by_marker['[X/F]']['count'], 1)
+        self.assertEqual(by_marker['[U]']['count'], 3)
+
+    def test_unused_segment_carries_the_estimate_and_known_flags(self):
+        segments = tally_segments(self._TALLY)
+        by_marker = {s['marker']: s for s in segments}
+        self.assertTrue(by_marker['[U]']['is_estimate'])
+        self.assertTrue(by_marker['[U]']['known'])
+
+    def test_order_is_fixed_regardless_of_which_counts_are_zero(self):
+        zero_tally = dict(self._TALLY)
+        zero_tally.update(nights_observed=0, nights_scheduled=0, nights_failed=0, nights_unused=0)
+        segments = tally_segments(zero_tally)
+        self.assertEqual([s['marker'] for s in segments], ['[O]', '[S]', '[X/F]', '[U]'])
