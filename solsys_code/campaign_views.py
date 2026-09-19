@@ -198,9 +198,31 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         is untouched: the tally is joined by pk in Python here, not as a queryset annotation,
         so the PII gate above (``.values()`` before ``.annotate()``,
         ``ALLOWED_FIELDS_FOR_NON_STAFF``) never needs to widen for it.
+
+        WR-04 (37-REVIEW.md): this method runs BEFORE django-tables2 paginates
+        ``self.object_list`` (that happens inside ``get_table()``'s own
+        ``RequestConfig(...).configure(table)`` call), so without a page slice here,
+        ``tallies_for_runs()`` was asked for EVERY run in the filtered queryset even though
+        ``table_pagination`` renders only 25 rows -- the exact per-page-load query
+        amplification D-08 exists to prevent, displaced from "per row" to "per whole
+        filtered set". The slice below mirrors ``RequestConfig``'s own page-number
+        resolution (the ``'page'`` query param, matching an unprefixed single table's
+        ``prefixed_page_field``) to compute the same 25-row window django-tables2 will
+        render. An out-of-range/non-integer page number degrades to page 1's pks here
+        (RequestConfig itself separately clamps the rendered page to a valid one) --
+        the worst case is a page whose rows are missing from ``self.tallies`` and so
+        render "Progress not available" rather than a wrong count or a query storm.
         """
-        pks = self.object_list.values_list('pk', flat=True)
-        runs = CampaignRun.objects.filter(pk__in=pks).select_related('site')
+        per_page = self.table_pagination['per_page']
+        try:
+            page = max(int(self.request.GET.get('page', 1)), 1)
+        except (TypeError, ValueError):
+            page = 1
+        # Left unevaluated (never list()-ed) so this is embedded as a single LIMIT/OFFSET
+        # subquery in the CampaignRun fetch below, exactly like the unsliced pks queryset
+        # before this fix -- never a second, separately-executed pk-enumeration query.
+        page_pks = self.object_list.values_list('pk', flat=True)[(page - 1) * per_page : page * per_page]
+        runs = CampaignRun.objects.filter(pk__in=page_pks).select_related('site')
         return {'order_by': (), 'tallies': campaign_tally.tallies_for_runs(runs)}
 
     def get_context_data(self, **kwargs):
@@ -246,10 +268,25 @@ class CampaignListView(ListView):
     """
 
     queryset = (
-        TargetList.objects.filter(campaign_runs__isnull=False).distinct().annotate(run_count=Count('campaign_runs'))
+        TargetList.objects.filter(campaign_runs__isnull=False)
+        .distinct()
+        .annotate(run_count=Count('campaign_runs'))
+        # WR-05 (37-REVIEW.md): pagination needs a deterministic ordering -- an unordered
+        # queryset can show/hide/duplicate rows across page loads (Django's own
+        # UnorderedObjectListWarning). 'name' matches the page's own alphabetising-free,
+        # simplest deterministic tiebreak; nothing about which campaigns list first was a
+        # documented contract before this fix.
+        .order_by('name')
     )
     template_name = 'campaigns/campaign_list.html'
     context_object_name = 'campaigns'
+    # WR-05 (37-REVIEW.md): this page is reachable anonymously, and get_context_data() below
+    # computes a get_or_compute_rollup() for every listed campaign -- on a cache flush, that
+    # is O(campaigns x runs) queries for a single unauthenticated GET. Bounding the page to
+    # 100 campaigns bounds that fan-out per request while keeping every campaign's tally
+    # genuinely visible to any visitor (TALLY-01) -- never hidden behind a cache-hit gate --
+    # just reachable a page at a time once the list is long enough to matter.
+    paginate_by = 100
 
     def get_context_data(self, **kwargs):
         """Add the three staff-only banner counts: pending_count, its 27.1-03 sibling, and

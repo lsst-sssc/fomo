@@ -12,6 +12,7 @@ prior `is_staff` test precedent exists in this codebase per 15-RESEARCH.md Wave 
 
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from unittest import mock
 from uuid import uuid4
 
 from django.contrib.auth.models import User
@@ -30,6 +31,7 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 from solsys_code import campaign_tally
 from solsys_code.allocation_projector import allocation_night_url
 from solsys_code.campaign_tables import CampaignRunTable, _campaign_run_row_id
+from solsys_code.campaign_views import CampaignListView
 from solsys_code.models import CampaignRun, CampaignRunObservation, ProposalTimeAllocation
 from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -493,6 +495,37 @@ class TestCampaignListView(CampaignViewTestBase):
             1 for run in self.runs if run.approval_status == CampaignRun.ApprovalStatus.PENDING_REVIEW
         )
         self.assertEqual(response.context['pending_count'], expected_pending)
+
+
+class TestCampaignListPagination(CampaignViewTestBase):
+    """WR-05 (37-REVIEW.md): the anonymous campaign list must bound its per-campaign
+    get_or_compute_rollup() fan-out to one page's worth of campaigns, rather than looping
+    every campaign with >= 1 run unconditionally on every request."""
+
+    def test_paginate_by_is_set(self):
+        self.assertEqual(CampaignListView.paginate_by, 100)
+
+    def test_list_paginates_once_campaign_count_exceeds_page_size(self):
+        second_campaign = TargetList.objects.create(name='Second Campaign')
+        CampaignRun.objects.create(campaign=second_campaign, telescope_instrument='FTN/Extra')
+        with mock.patch.object(CampaignListView, 'paginate_by', 1):
+            response = self.client.get(self.list_url())
+        self.assertTrue(response.context['is_paginated'])
+        self.assertEqual(response.context['paginator'].num_pages, 2)
+        self.assertEqual(len(response.context['campaigns']), 1)
+
+    def test_second_page_is_reachable(self):
+        """The tally is never hidden from a visitor (TALLY-01) -- only paginated -- so every
+        campaign (and its roll-up) must still be reachable via ?page=2."""
+        second_campaign = TargetList.objects.create(name='Second Campaign')
+        CampaignRun.objects.create(campaign=second_campaign, telescope_instrument='FTN/Extra')
+        with mock.patch.object(CampaignListView, 'paginate_by', 1):
+            first_page = self.client.get(self.list_url())
+            second_page = self.client.get(self.list_url() + '?page=2')
+        first_page_names = {c.name for c in first_page.context['campaigns']}
+        second_page_names = {c.name for c in second_page.context['campaigns']}
+        self.assertEqual(first_page_names | second_page_names, {self.campaign.name, second_campaign.name})
+        self.assertNotContains(first_page, second_page_names.pop())
 
 
 class TestCampaignListSiteReviewEntryPoint(CampaignViewTestBase):
