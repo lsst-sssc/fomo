@@ -41,10 +41,17 @@ from solsys_code.admin import (
     CalendarEventMetaInline,
     CampaignRunAdmin,
     CampaignRunObservationInline,
+    ProposalTimeAllocationAdmin,
     WatchedProposalAdmin,
 )
 from solsys_code.campaign_utils import UNLINK_CLEARED_FIELDS
-from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation, WatchedProposal
+from solsys_code.models import (
+    CalendarEventMeta,
+    CampaignRun,
+    CampaignRunObservation,
+    ProposalTimeAllocation,
+    WatchedProposal,
+)
 from solsys_code.solsys_code_observatory.models import Observatory
 
 PII_CONTACT_PERSON = 'Zztestcontact'
@@ -1323,3 +1330,46 @@ class WatchedProposalAdminTests(TestCase):
         response = self.client.get(reverse('admin:solsys_code_watchedproposal_changelist'))
         self.assertEqual(response.status_code, 200)
         self.assertIn('KEY2026B-004', response.content.decode())
+
+
+class ProposalTimeAllocationAdminTests(TestCase):
+    """Phase 37 Task 2: `ProposalTimeAllocation` is registered and every field is read-only --
+    an operator never hand-types a figure the unattended runner's fetch step owns."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(username='ptaadmin', email='ptaadmin@example.test', password='pw')
+        cls.row = ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_registered_with_admin_site(self) -> None:
+        self.assertIn(ProposalTimeAllocation, django_admin.site._registry)
+        self.assertIsInstance(django_admin.site._registry[ProposalTimeAllocation], ProposalTimeAllocationAdmin)
+
+    def test_every_field_is_readonly(self) -> None:
+        model_admin = django_admin.site._registry[ProposalTimeAllocation]
+        for field in (
+            'proposal_code',
+            'semester',
+            'instrument_type',
+            'allocation_type',
+            'allocated_hours',
+            'used_hours',
+            'fetched_at',
+        ):
+            self.assertIn(field, model_admin.readonly_fields)
+
+    def test_changelist_loads_and_shows_seeded_row(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_proposaltimeallocation_changelist'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('UTX2026A-002', response.content.decode())

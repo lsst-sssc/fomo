@@ -175,6 +175,24 @@ class TestLoadTelescopeRuns(TestCase):
             # Source line text
             self.assertIn('NTT EFOSC2 allocation 9-13 July', desc)
 
+    def test_proposal_token_populates_campaignrun_proposal_code(self):
+        """Phase 37 Task 2: a run line carrying a bracketed [proposal] token lands that token
+        in CampaignRun.proposal_code, and the existing free-text proposal line is unchanged."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July [0110.C-0234]'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            run = CampaignRun.objects.get()
+            self.assertEqual(run.proposal_code, '0110.C-0234')
+            self.assertIn('Proposal: 0110.C-0234', run.observation_details)
+
+    def test_no_proposal_token_leaves_campaignrun_proposal_code_blank(self):
+        """A run line with no bracketed token leaves proposal_code as the empty string."""
+        path, tmpdir_ctx = self._write_schedule_file(['NTT EFOSC2 allocation 9-13 July'])
+        with tmpdir_ctx:
+            call_command('load_telescope_runs', path, stdout=io.StringIO(), stderr=io.StringIO())
+            run = CampaignRun.objects.get()
+            self.assertEqual(run.proposal_code, '')
+
     def test_cancelled_line_gets_bracket_cancelled_title_prefix(self):
         """D-02 (Phase 37 STATUS-01: [CANCELLED] -> [C]): a cancelled classical run gets a
         '[C] ' title marker; description still carries the original status/source-line body
