@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 37
 current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 status: executing
-stopped_at: Completed 37-05-PLAN.md
-last_updated: "2026-09-19T07:49:57.304Z"
+stopped_at: Completed 37-06-PLAN.md
+last_updated: "2026-09-19T08:19:35.876Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 37 execution started
-state_head: 69edfde1ada1709372e38db77e5cfb73f9d06b04
+state_head: b54836d26d8f70895b28515785a47c49df0ea2e4
 progress:
   total_phases: 5
   completed_phases: 36
   total_plans: 59
-  completed_plans: 57
-  percent: 97
+  completed_plans: 58
+  percent: 98
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 37 execution started
 
@@ -230,6 +230,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37 P02 | 95min | 3 tasks | 10 files |
 | Phase 37 P04 | 4h30min | 3 tasks | 2 files |
 | Phase 37 P05 | 65min | 2 tasks | 6 files |
+| Phase 37 P06 | 27min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -388,6 +389,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: Task 1 checkpoint (human decision): proposal-code carrier a-store-all-types -- add CampaignRun.proposal_code, store every allocation type (std/rr/tc/realtime) as separate ProposalTimeAllocation rows, sum only std into the unused-so-far estimate so the summation rule can change later without a re-fetch.
 - [Phase 37]: estimated_unused_nights() rounds ties away from zero via math.floor(x + 0.5), not Python's banker's-rounding round(), and unused_hours_for() returns None (never 0.0) to distinguish not-yet-fetched from genuinely-zero.
 - [Phase 37]: 37-05: Progress column pre-computed via tallies_for_runs() joined by pk in Python (never a queryset annotation), and get_or_compute_rollup() copies get_or_compute_tally()'s cache shape exactly for the campaign roll-up strip/badge
+- [Phase 37]: 37-06: run_tally() and unused_night_decoration() both mirror campaign_decoration()'s guard shape; the calendar and campaign table read the same campaign_tally classifiers so the two surfaces agree by construction (D-15). — Keeps the display-time-decoration-from-a-link pattern (Phase 33) as the single source of truth, and prevents the calendar chip's unused count from ever drifting from the table's.
+- [Phase 37]: 37-06: click-to-filter JS generalized from a single activeProposal string to a {kind, value} filter-object model so the new unused-night legend filter and the existing proposal filter share one toggle handler. — Avoids a second, near-duplicate JS code path that could drift from the existing single-active-filter invariant.
 
 ### Pending Todos
 
@@ -501,8 +504,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T07:49:56.973Z
-Stopped at: Completed 37-05-PLAN.md
+Last session: 2026-09-19T08:19:22.684Z
+Stopped at: Completed 37-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
