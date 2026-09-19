@@ -20,6 +20,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from tom_calendar.models import CalendarEvent
@@ -27,11 +28,13 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code import campaign_tally
+from solsys_code import campaign_gap, campaign_tally, proposal_allocation, status_vocabulary
 from solsys_code.allocation_projector import allocation_night_url
 from solsys_code.campaign_tally import (
     TALLY_CACHE_TTL_SECONDS,
     build_tally_cache_key,
+    campaign_records_version,
+    campaign_rollup,
     get_or_compute_tally,
     is_unused_allocation_night,
     link_counts_for_runs,
@@ -343,8 +346,6 @@ class TestGetOrComputeTallyFreshness(CampaignTallyTestBase):
     """The regression guard for "updating as the projector narrows" (TALLY-01)."""
 
     def setUp(self):
-        from django.core.cache import cache
-
         cache.clear()
 
     def test_ttl_is_one_hour(self):
@@ -384,8 +385,6 @@ class TestGetOrComputeTallyFreshness(CampaignTallyTestBase):
 @override_settings(CACHES=TEST_CACHES)
 class TestTalliesForRuns(CampaignTallyTestBase):
     def setUp(self):
-        from django.core.cache import cache
-
         cache.clear()
 
     def test_returns_one_dict_per_pk(self):
@@ -466,8 +465,6 @@ class TestTallyForRunUnusedWiring(CampaignTallyTestBase):
     """tally_for_run()'s three unused_* keys, wired to the D-06/D-11 rule."""
 
     def setUp(self):
-        from django.core.cache import cache
-
         cache.clear()
 
     def test_run_with_allocation_events_uses_the_exact_count(self):
@@ -545,3 +542,185 @@ class TestTallySegments(TestCase):
         zero_tally.update(nights_observed=0, nights_scheduled=0, nights_failed=0, nights_unused=0)
         segments = tally_segments(zero_tally)
         self.assertEqual([s['marker'] for s in segments], ['[O]', '[S]', '[X/F]', '[U]'])
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestCampaignRollup(CampaignTallyTestBase):
+    """D-10: the campaign roll-up sums only publicly visible runs, and counts each distinct
+    proposal code once, not once per run."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_empty_campaign_returns_a_well_formed_all_zero_rollup(self):
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['runs'], 0)
+        self.assertEqual(rollup['groups'], 0)
+        self.assertEqual(rollup['records'], 0)
+        self.assertEqual(rollup['nights_observed'], 0)
+        self.assertEqual(rollup['nights_scheduled'], 0)
+        self.assertEqual(rollup['nights_failed'], 0)
+        self.assertIsNone(rollup['nights_unused'])
+        self.assertFalse(rollup['unused_known'])
+
+    def test_pending_review_run_contributes_nothing(self):
+        run = self._make_run(campaign=self.campaign, approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['runs'], 0)
+        self.assertEqual(rollup['records'], 0)
+
+    def test_pending_review_exclusion_is_applied_at_the_queryset_level(self):
+        """The exclusion must be a queryset .exclude(), never CampaignRun.is_publicly_
+        visible -- a Python property cannot be used in a filter (the model's own docstring
+        note). Checked at the source level, mirroring the plan's own must-have wording."""
+        source = inspect.getsource(campaign_rollup)
+        self.assertIn('PENDING_REVIEW', source)
+        self.assertNotIn('is_publicly_visible', source)
+
+    def test_sums_groups_records_and_nights_across_approved_public_runs(self):
+        run1 = self._make_run(campaign=self.campaign)
+        run2 = self._make_run(campaign=self.campaign)
+        self._link_record(
+            run1,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self._link_record(
+            run2,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 11, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 11, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['runs'], 2)
+        self.assertEqual(rollup['records'], 2)
+        self.assertEqual(rollup['nights_observed'], 2)
+
+    def test_unused_estimate_is_counted_once_per_distinct_proposal_code(self):
+        self._make_run(campaign=self.campaign, proposal_code='SHARED-2026A-001')
+        self._make_run(campaign=self.campaign, proposal_code='SHARED-2026A-001')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='SHARED-2026A-001',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=15.0,
+            fetched_at=timezone.now(),
+        )
+        rollup = campaign_rollup(self.campaign)
+        # floor(25/10 + 0.5) == 3 -- counted ONCE for the shared code, never 3+3=6.
+        self.assertEqual(rollup['nights_unused'], 3)
+        self.assertTrue(rollup['unused_known'])
+
+    def test_exact_allocation_counts_are_added_alongside_the_estimate(self):
+        run_exact = self._make_run(campaign=self.campaign)
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, proposal_code='SOLO-2026A-002')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='SOLO-2026A-002',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=20.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+        rollup = campaign_rollup(self.campaign)
+        # 1 exact still-standing night + floor(10/10 + 0.5) == 1 estimated night.
+        self.assertEqual(rollup['nights_unused'], 2)
+        self.assertTrue(rollup['unused_known'])
+
+
+class TestCampaignRecordsVersion(CampaignTallyTestBase):
+    def test_no_runs_returns_none(self):
+        self.assertIsNone(campaign_records_version(self.campaign))
+
+    def test_returns_the_newest_stamp_across_the_campaigns_runs(self):
+        run = self._make_run(campaign=self.campaign)
+        record = self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self.assertEqual(campaign_records_version(self.campaign), record.modified)
+
+    def test_pending_review_run_is_excluded(self):
+        run = self._make_run(campaign=self.campaign, approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self.assertIsNone(campaign_records_version(self.campaign))
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestTallyNeverWritesRunStatus(CampaignTallyTestBase):
+    """TALLY-03's two-part guard: a behavioural before/after snapshot across every tally
+    entry point and both cache orders, plus a syntax-tree assertion that no module in the
+    computation path assigns to the field."""
+
+    def setUp(self):
+        cache.clear()
+
+    def _exercise_every_entry_point(self, run: CampaignRun) -> None:
+        tally_for_run(run)
+        get_or_compute_tally(run)  # cache miss
+        get_or_compute_tally(run)  # cache hit
+        cache.clear()
+        get_or_compute_tally(run)  # miss again (hit-then-miss ordering)
+        tallies_for_runs([run])
+        unused_nights_for_run(run)
+        campaign_rollup(self.campaign)
+
+    def test_run_status_unchanged_for_a_fully_observed_run(self):
+        run = self._make_run(campaign=self.campaign, run_status=CampaignRun.RunStatus.OBSERVED)
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        before = CampaignRun.objects.get(pk=run.pk).run_status
+        self._exercise_every_entry_point(run)
+        after = CampaignRun.objects.get(pk=run.pk).run_status
+        self.assertEqual(before, after)
+
+    def test_run_status_unchanged_for_a_run_with_no_linked_records(self):
+        run = self._make_run(campaign=self.campaign)
+        before = CampaignRun.objects.get(pk=run.pk).run_status
+        self._exercise_every_entry_point(run)
+        after = CampaignRun.objects.get(pk=run.pk).run_status
+        self.assertEqual(before, after)
+
+    def test_no_computation_path_module_assigns_to_run_status_attribute(self):
+        """Static AST check over the four named modules -- a docstring or comment
+        mentioning the field cannot make this pass or fail spuriously, since only actual
+        ast.Assign/ast.Call nodes are inspected, never the source text."""
+        modules = (campaign_tally, status_vocabulary, proposal_allocation, campaign_gap)
+        for module in modules:
+            tree = ast.parse(inspect.getsource(module))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        self.assertFalse(
+                            isinstance(target, ast.Attribute) and target.attr == 'run_status',
+                            f'{module.__name__} assigns to .run_status at line {node.lineno}',
+                        )
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'update':
+                    for keyword in node.keywords:
+                        self.assertNotEqual(
+                            keyword.arg,
+                            'run_status',
+                            f'{module.__name__} calls update(run_status=...) at line {node.lineno}',
+                        )
