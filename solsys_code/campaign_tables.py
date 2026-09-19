@@ -14,6 +14,7 @@ from django.utils.html import format_html
 from django.utils.http import urlencode
 from django_tables2.utils import Accessor
 
+from . import campaign_tally
 from .campaign_utils import is_placeholder_observatory
 from .models import CampaignRun, CampaignRunObservation, ObservationRecordDismissal
 
@@ -90,6 +91,11 @@ class CampaignRunTable(tables.Table):
     # discarded for staff and non-staff alike -- D-18's stated outcome was not delivered.
     # Sits immediately after `site` because that is the distinction it exists to draw.
     telescope_class = tables.Column(verbose_name='Telescope class')
+    # TALLY-01/D-08: computed value, not a selected model field -- orderable=False because
+    # there is nothing for django-tables2 to sort against in SQL, and empty_values=() so a
+    # run whose counts are all zero still renders (django-tables2's default empty_values
+    # would otherwise short-circuit a falsy value to the table's empty placeholder).
+    progress = tables.Column(verbose_name='Progress', orderable=False, empty_values=())
 
     class Meta:  # noqa: D106
         model = CampaignRun
@@ -100,6 +106,27 @@ class CampaignRunTable(tables.Table):
             'window_start',
             'filters_bandpass',
             'run_status',
+            'approval_status',
+            'open_to_collaboration',
+            'observation_details',
+            'weather',
+            'observation_outcome',
+            'publication_plans',
+            'comments',
+            'contact_person',
+            'contact_email',
+        )
+        # TALLY-01/D-08: 'progress' isn't a model field (it can't be in `fields` above), so
+        # its position is pinned here explicitly -- immediately after run_status, matching
+        # the plan's placement -- rather than left to declaration order.
+        sequence = (
+            'telescope_instrument',
+            'site',
+            'telescope_class',
+            'window_start',
+            'filters_bandpass',
+            'run_status',
+            'progress',
             'approval_status',
             'open_to_collaboration',
             'observation_details',
@@ -125,6 +152,62 @@ class CampaignRunTable(tables.Table):
     observation_outcome = tables.Column(attrs=_FREE_TEXT_ATTRS)
     publication_plans = tables.Column(attrs=_FREE_TEXT_ATTRS)
     comments = tables.Column(attrs=_FREE_TEXT_ATTRS)
+
+    def __init__(self, *args, tallies=None, **kwargs):
+        """``tallies`` (TALLY-01/D-08) is an optional ``{run_pk: tally_dict}`` mapping,
+        pre-computed for the WHOLE table in one pass by the view
+        (``campaign_tally.tallies_for_runs()``) and consumed here only by
+        ``render_progress()``'s dict lookup -- never recomputed per row (D-08). Popped
+        before ``super().__init__()`` since django-tables2's own ``Table.__init__`` does not
+        accept it, and must stay optional (defaulting to an empty dict) so ``ApprovalQueueTable``
+        and any other direct instantiation of this table keep working unchanged.
+        """
+        self.tallies = tallies or {}
+        super().__init__(*args, **kwargs)
+
+    def render_progress(self, record):
+        """Render the TALLY-01/D-08 public Progress cell: group/record counts plus the four
+        ordered tally segments (observed, scheduled, expired-or-failed, unused), reusing the
+        shared marker vocabulary so this cell and the calendar speak the same language.
+
+        Resolves the row's pk via Accessor (works for both dict and model-instance rows,
+        see ``render_run_status``'s docstring for why) and looks the tally up in
+        ``self.tallies`` -- it must NEVER issue a query (D-08 forbids a per-row loop): the
+        counts arrive pre-computed from the view's one-pass ``tallies_for_runs()`` call. A
+        pk that cannot be resolved, or one with no entry in ``self.tallies`` (e.g. the table
+        was constructed with no ``tallies`` kwarg at all), renders a muted not-available
+        token instead of raising or falling back to a live query.
+        """
+        pk = Accessor('pk').resolve(record, quiet=True)
+        tally = self.tallies.get(pk) if pk is not None else None
+        if tally is None:
+            return format_html(
+                '<span class="text-muted font-italic" title="Progress not available">Progress not available</span>'
+            )
+        segments = campaign_tally.tally_segments(tally)
+        segment_bits = []
+        words = []
+        for segment in segments:
+            words.append(segment['label'])
+            if not segment['known']:
+                segment_bits.append(f"{segment['marker']} not yet known")
+            elif segment['is_estimate']:
+                segment_bits.append(f"{segment['marker']} ≈{segment['count']}")
+            else:
+                segment_bits.append(f"{segment['marker']} {segment['count']}")
+        segments_text = ' '.join(segment_bits)
+        title = ', '.join(words)
+        groups = tally['groups']
+        records = tally['records']
+        return format_html(
+            '<span title="{}">{} group{} · {} record{} · {}</span>',
+            title,
+            groups,
+            '' if groups == 1 else 's',
+            records,
+            '' if records == 1 else 's',
+            segments_text,
+        )
 
     def render_run_status(self, record):
         """Render run_status as a muted Bootstrap badge (UI-SPEC Run-Status Badge Contract).

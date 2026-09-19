@@ -40,7 +40,7 @@ from tom_targets.models import TargetList
 from solsys_code import notifications
 from solsys_code.solsys_code_observatory.models import Observatory
 
-from . import campaign_attribution
+from . import campaign_attribution, campaign_tally
 from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
@@ -186,8 +186,22 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         VIEW-05: contact_person/contact_email are no longer excluded for non-staff -- they're
         always safe to render now (blank string for opted-out rows, populated for opted-in
         ones), gated at the SQL SELECT by get_queryset()'s Case/When annotation, not here.
+
+        TALLY-01/D-08: adds the ``tallies`` kwarg the table's ``render_progress()`` reads
+        (never queries) per row. Pks come from ``self.object_list`` via ``.values_list('pk',
+        flat=True)`` -- this works identically whether ``self.object_list`` is the staff
+        model queryset or the non-staff ``.values()`` queryset. A fresh ``CampaignRun``
+        queryset (with ``site`` pre-selected so ``campaign_tally.night_counts_for_run()``'s
+        per-run site-timezone read costs no extra query on a cache miss) is built from those
+        pks and handed to ``campaign_tally.tallies_for_runs()`` for the whole page in one
+        pass -- never one ``tally_for_run()`` call per row (D-08). ``get_queryset()`` itself
+        is untouched: the tally is joined by pk in Python here, not as a queryset annotation,
+        so the PII gate above (``.values()`` before ``.annotate()``,
+        ``ALLOWED_FIELDS_FOR_NON_STAFF``) never needs to widen for it.
         """
-        return {'order_by': ()}
+        pks = self.object_list.values_list('pk', flat=True)
+        runs = CampaignRun.objects.filter(pk__in=pks).select_related('site')
+        return {'order_by': (), 'tallies': campaign_tally.tallies_for_runs(runs)}
 
     def get_context_data(self, **kwargs):
         """Add the campaign (TargetList) and D-14 gap-analysis-button availability to context."""

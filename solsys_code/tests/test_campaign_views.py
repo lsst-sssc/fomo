@@ -12,18 +12,25 @@ prior `is_staff` test precedent exists in this codebase per 15-RESEARCH.md Wave 
 
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.db import connection
 from django.db.models.signals import post_save
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
-from tom_observations.models import ObservationRecord
+from django.utils import timezone
+from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code import campaign_tally
+from solsys_code.allocation_projector import allocation_night_url
 from solsys_code.campaign_tables import CampaignRunTable, _campaign_run_row_id
-from solsys_code.models import CampaignRun
+from solsys_code.models import CampaignRun, CampaignRunObservation, ProposalTimeAllocation
 from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
 
@@ -815,3 +822,213 @@ class TestGapAnalysisSiteUnknownCount(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'not ignored')
+
+
+class CampaignTallyViewTestBase(TestCase):
+    """Shared fixture for the TALLY-01/02 Progress-column and roll-up tests: one
+    resolvable ground Observatory (fixed UTC-10, no DST -- mirrors
+    ``test_campaign_tally.CampaignTallyTestBase``) and a campaign, plus run/link factory
+    helpers matching that module's own fixture shape so the two test suites agree on what a
+    linked record's state means.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.site = Observatory.objects.create(
+            obscode='F65',
+            name='Haleakala Observatory',
+            short_name='FTN',
+            lat=20.7069,
+            lon=-156.2570,
+            altitude=3055,
+            timezone='Pacific/Honolulu',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.campaign = TargetList.objects.create(name='Tally View Campaign')
+
+    def _make_run(self, **overrides) -> CampaignRun:
+        kwargs = {
+            'campaign': self.campaign,
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'telescope_instrument': f'FTN/FLOYDS-{uuid4().hex[:8]}',
+            'site': self.site,
+            'site_raw': 'F65',
+            'window_start': date(2026, 7, 9),
+            'window_end': date(2026, 7, 11),
+        }
+        kwargs.update(overrides)
+        return CampaignRun.objects.create(**kwargs)
+
+    def _link_record(self, run: CampaignRun, group: ObservationGroup | None = None, **overrides) -> ObservationRecord:
+        """Create one linked ObservationRecord (COMPLETED/OBSERVED by default), matching
+        ``test_campaign_tally.CampaignTallyTestBase._link_record()``'s fixture shape."""
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'obs-owner-{uuid4().hex[:8]}')
+        kwargs = {
+            'target': target,
+            'user': owner,
+            'facility': 'LCO',
+            'observation_id': f'obs-{uuid4().hex[:8]}',
+            'status': 'COMPLETED',
+            'scheduled_start': None,
+            'scheduled_end': None,
+            'parameters': {},
+        }
+        kwargs.update(overrides)
+        record = ObservationRecord.objects.create(**kwargs)
+        CampaignRunObservation.objects.create(run=run, observation_record=record)
+        if group is not None:
+            group.observation_records.add(record)
+        return record
+
+    def _make_alloc_event(self, run: CampaignRun, night: date, *, end_time: datetime) -> CalendarEvent:
+        """One ``ALLOC:``-namespaced CalendarEvent for ``run``/``night`` -- mirrors
+        ``test_campaign_tally.CampaignTallyTestBase._make_alloc_event()``."""
+        return CalendarEvent.objects.create(
+            title=f'{run.telescope_instrument} allocation',
+            start_time=end_time - timedelta(hours=8),
+            end_time=end_time,
+            url=allocation_night_url(run, night),
+        )
+
+
+class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
+    """TALLY-01/D-08: a public Progress cell on every run row, computed for the whole table
+    in one pass and never a per-row query."""
+
+    def setUp(self):
+        # Each test's fresh CampaignRun can land on the same pk a prior test's rolled-back
+        # transaction used (sqlite reuses rowids after rollback) -- without clearing the
+        # cache, a stale campaign_tally cache entry keyed on that reused pk (with the same
+        # "no linked records" records_version) would be returned instead of a fresh
+        # computation, exactly as TestCampaignRollup.setUp() already guards against.
+        cache.clear()
+
+    def test_progress_cell_shows_groups_records_and_ordered_segments(self):
+        run = self._make_run()
+        group1 = ObservationGroup.objects.create(name='Group A')
+        group2 = ObservationGroup.objects.create(name='Group B')
+        self._link_record(
+            run,
+            group=group1,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self._link_record(
+            run,
+            group=group2,
+            status='PENDING',
+            scheduled_start=datetime(2026, 7, 11, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 11, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self._link_record(
+            run,
+            status='WINDOW_EXPIRED',
+            scheduled_start=datetime(2026, 7, 12, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 12, 3, 30, tzinfo=dt_timezone.utc),
+        )
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('2 groups', content)
+        self.assertIn('3 records', content)
+        # Fixed order: observed, scheduled, expired-or-failed, unused -- and never split
+        # across lines in a way that reorders the segments.
+        marker_positions = [content.find(marker) for marker in ('[O]', '[S]', '[X/F]', '[U]')]
+        self.assertGreater(min(marker_positions), -1)
+        self.assertEqual(marker_positions, sorted(marker_positions))
+        self.assertIn('[O] 1', content)
+        self.assertIn('[S] 1', content)
+        self.assertIn('[X/F] 1', content)
+
+    def test_run_with_nothing_linked_renders_zeros_not_an_empty_cell(self):
+        self._make_run()
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('0 groups', content)
+        self.assertIn('0 records', content)
+        self.assertIn('[O] 0', content)
+        self.assertIn('[S] 0', content)
+        self.assertIn('[X/F] 0', content)
+        self.assertNotIn('[U] 0', content)  # never zero for an unknown/not-yet-fetched figure
+
+    def test_unused_segment_reads_exact_when_an_allocation_run_has_still_standing_nights(self):
+        run = self._make_run(telescope_instrument='FTN/Exact')
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertContains(response, '[U] 1')
+
+    def test_unused_segment_reads_as_an_estimate_for_a_container_run_with_a_fetched_proposal(self):
+        self._make_run(telescope_instrument='FTN/Estimate', proposal_code='EST-2026A-001')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='EST-2026A-001',
+            allocation_type='std',
+            allocated_hours=30.0,
+            used_hours=0.0,
+            fetched_at=timezone.now(),
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertContains(response, '[U] ≈3')
+
+    def test_unused_segment_reads_not_yet_known_before_any_fetch(self):
+        self._make_run(telescope_instrument='FTN/Unknown', proposal_code='NEVER-FETCHED-001')
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertContains(response, '[U] not yet known')
+
+    def test_anonymous_and_staff_requests_render_the_same_segments(self):
+        staff_user = User.objects.create_user(username='progress-staff', password='pw', is_staff=True)
+        run = self._make_run()
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+
+        anon_content = self.client.get(url).content.decode()
+
+        staff_client = self.client
+        staff_client.force_login(staff_user)
+        staff_content = staff_client.get(url).content.decode()
+
+        for marker in ('[O] 1', '[S] 0', '[X/F] 0'):
+            self.assertIn(marker, anon_content)
+            self.assertIn(marker, staff_content)
+
+    def test_get_queryset_is_unchanged_and_no_field_added_for_the_tally(self):
+        """T-37-17: the tally must never widen ALLOWED_FIELDS_FOR_NON_STAFF."""
+        from solsys_code.campaign_views import ALLOWED_FIELDS_FOR_NON_STAFF
+
+        self.assertNotIn('progress', ALLOWED_FIELDS_FOR_NON_STAFF)
+        self.assertNotIn('tally', ALLOWED_FIELDS_FOR_NON_STAFF)
+
+    def test_page_query_count_does_not_grow_with_additional_cached_rows(self):
+        """D-08/T-37-19: adding rows to an already-cached page must not add queries --
+        warm the tally cache for every run first (mirrors a page that was already loaded
+        once), then assert the SAME query count for two and for three rows."""
+        run1 = self._make_run(telescope_instrument='FTN/Q1')
+        run2 = self._make_run(telescope_instrument='FTN/Q2')
+        campaign_tally.tallies_for_runs([run1, run2])
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+
+        # Prime any process-level framework caches (e.g. ContentType) with one throwaway
+        # request first -- the very first request in a test process costs extra queries for
+        # reasons unrelated to this feature, which would bias the two-vs-three comparison.
+        self.client.get(url)
+
+        with CaptureQueriesContext(connection) as ctx_two:
+            self.client.get(url)
+        two_row_count = len(ctx_two.captured_queries)
+
+        run3 = self._make_run(telescope_instrument='FTN/Q3')
+        campaign_tally.tallies_for_runs([run3])
+
+        with CaptureQueriesContext(connection) as ctx_three:
+            self.client.get(url)
+        three_row_count = len(ctx_three.captured_queries)
+
+        self.assertEqual(two_row_count, three_row_count)
