@@ -42,7 +42,7 @@ key-decisions:
   - "get_or_compute_rollup() is a full copy of get_or_compute_tally()'s cache-or-compute shape rather than a generic wrapper parameterized over campaign_rollup()/tally_for_run() -- the two compute functions take different arguments (campaign vs. run) and the plan's own action text asked for 'exactly get_or_compute_tally()'s shape', not a shared abstraction."
   - "CampaignListView.get_context_data() attaches rollup as a plain attribute on each already-fetched campaign object (mutating the cached queryset iterable) rather than building a parallel {pk: rollup} dict -- the template then reads campaign.rollup.nights_observed directly, and iterating context['campaigns'] here does not cost a second query since QuerySet caches its result set after the first iteration."
 
-requirements-completed: []
+requirements-completed: [TALLY-01, TALLY-02]
 
 coverage:
   - id: D1
@@ -166,7 +166,7 @@ None — no external service configuration required.
 
 `CampaignRunTable`'s `progress` column, `get_or_compute_rollup()`, and both templates' new markup are ready for 37-06 (the calendar pop-up's `[U]` decoration, sharing `is_unused_allocation_night()`) and 37-07 (paired-docs update to `campaign_lifecycle_demo.ipynb`'s "public campaign table" cell, and the runbook's `TALLY_CACHE_TTL_SECONDS` staleness note).
 
-**Requirements traceability:** this plan declares no `requirements` in its own frontmatter (TALLY-01/TALLY-02 remain shared with 37-06/37-07/37-02 respectively under the phase's shared-ID gate) — no `requirements.mark-complete` call was made this session.
+**Requirements traceability:** this plan's frontmatter declares `requirements: [TALLY-01, TALLY-02]`. `requirements.ready-ids` reported `0/2 ready` — both are declared by at least one sibling plan in this phase that has not yet produced its own `*-SUMMARY.md`, so neither is marked complete this session; the shared-ID gate re-evaluates automatically once that sibling finishes.
 
 No blockers for 37-06/37-07. The plan-level full-`solsys_code`-suite regression command was not re-run this session (see "Verification" below); this plan's own two test modules (127 tests) and all inline verify probes passed.
 

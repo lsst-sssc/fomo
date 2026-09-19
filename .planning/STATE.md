@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 37
 current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 status: executing
-stopped_at: Completed 37-04-PLAN.md
-last_updated: "2026-09-19T06:50:15.312Z"
+stopped_at: Completed 37-05-PLAN.md
+last_updated: "2026-09-19T07:49:57.304Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 37 execution started
-state_head: f61c0346a1ab02915608a99b427d2ef7fd53e667
+state_head: 69edfde1ada1709372e38db77e5cfb73f9d06b04
 progress:
   total_phases: 5
   completed_phases: 36
   total_plans: 59
-  completed_plans: 56
-  percent: 95
+  completed_plans: 57
+  percent: 97
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 37 execution started
 
@@ -229,6 +229,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37 P03 | 46min | 2 tasks | 4 files |
 | Phase 37 P02 | 95min | 3 tasks | 10 files |
 | Phase 37 P04 | 4h30min | 3 tasks | 2 files |
+| Phase 37 P05 | 65min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -386,6 +387,7 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: Gap page's 'Claimed nights' list and site-unknown count line added to campaignrun_gap_analysis.html, going beyond the literal must_haves.truths list per Task 2's explicit action block. — The template previously never rendered result.claimed_dates at all; Task 2 required referencing result.observation_claimed_dates, which a display list satisfies naturally.
 - [Phase 37]: Task 1 checkpoint (human decision): proposal-code carrier a-store-all-types -- add CampaignRun.proposal_code, store every allocation type (std/rr/tc/realtime) as separate ProposalTimeAllocation rows, sum only std into the unused-so-far estimate so the summation rule can change later without a re-fetch.
 - [Phase 37]: estimated_unused_nights() rounds ties away from zero via math.floor(x + 0.5), not Python's banker's-rounding round(), and unused_hours_for() returns None (never 0.0) to distinguish not-yet-fetched from genuinely-zero.
+- [Phase 37]: 37-05: Progress column pre-computed via tallies_for_runs() joined by pk in Python (never a queryset annotation), and get_or_compute_rollup() copies get_or_compute_tally()'s cache shape exactly for the campaign roll-up strip/badge
 
 ### Pending Todos
 
@@ -499,8 +501,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T06:50:14.982Z
-Stopped at: Completed 37-04-PLAN.md
+Last session: 2026-09-19T07:49:56.973Z
+Stopped at: Completed 37-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
