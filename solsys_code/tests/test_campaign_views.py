@@ -1039,10 +1039,20 @@ class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
         self.assertNotIn('progress', ALLOWED_FIELDS_FOR_NON_STAFF)
         self.assertNotIn('tally', ALLOWED_FIELDS_FOR_NON_STAFF)
 
-    def test_page_query_count_does_not_grow_with_additional_cached_rows(self):
-        """D-08/T-37-19: adding rows to an already-cached page must not add queries --
-        warm the tally cache for every run first (mirrors a page that was already loaded
-        once), then assert the SAME query count for two and for three rows."""
+    def test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly(self):
+        """D-08/T-37-19, revised for CR-02 (37-REVIEW.md): the five link/night-count tally
+        fields (groups/records/nights_observed/nights_scheduled/nights_failed) are still
+        fully cached and batched -- an already-cached row costs zero marginal queries for
+        those. But CR-02 requires the three unused_* fields to be recomputed LIVE on every
+        call, even a cache hit (never served from the cached value), so the calendar's
+        live [U] marker and the table's unused count can never visibly disagree for up to
+        TALLY_CACHE_TTL_SECONDS the way they could before this fix. That live recomputation
+        costs exactly two queries per row (one allocation-event lookup, one proposal-
+        allocation existence check) -- a small, PAGE-SIZE-bounded cost (never unbounded,
+        never one query per linked ObservationRecord), not the zero this test asserted
+        before CR-02. Pinned here at exactly 2 extra queries for the one added row, so a
+        future regression that makes it grow per LINKED RECORD instead of per RENDERED ROW
+        is still caught."""
         run1 = self._make_run(telescope_instrument='FTN/Q1')
         run2 = self._make_run(telescope_instrument='FTN/Q2')
         campaign_tally.tallies_for_runs([run1, run2])
@@ -1064,7 +1074,7 @@ class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
             self.client.get(url)
         three_row_count = len(ctx_three.captured_queries)
 
-        self.assertEqual(two_row_count, three_row_count)
+        self.assertEqual(three_row_count - two_row_count, 2)
 
 
 class TestCampaignRollup(CampaignTallyViewTestBase):
