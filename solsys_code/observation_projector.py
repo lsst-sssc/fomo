@@ -42,6 +42,7 @@ from solsys_code.calendar_utils import (
     record_time_window,
 )
 from solsys_code.models import CalendarEventMeta
+from solsys_code.status_vocabulary import FAILURE_MARKER_BY_STATUS, STAGE_MARKER
 
 logger = logging.getLogger(__name__)
 
@@ -80,29 +81,15 @@ def reset_facility_cache() -> None:
     _facilities.clear()
 
 
-# D-02: a hand-typed snapshot of the four failure states get_failed_observing_states()
-# returns today. An unrecognised failure state still falls back to '[F]' rather than being
-# silently unmarked -- if the facility ever adds a fifth failure state, update this table.
-_FAILURE_MARKER_BY_STATUS = {
-    'WINDOW_EXPIRED': '[X]',
-    'CANCELED': '[C]',
-    'FAILURE_LIMIT_REACHED': '[F]',
-    'NOT_ATTEMPTED': '[F]',
-}
-
-_STAGE_MARKER = {
-    'queued': '[Q]',
-    'placed': '[S]',
-    'observed': '[O]',
-    'completed-no-block': '[O]',
-}
-
-
 def _failure_marker(status: str, facility: Any) -> str | None:
-    """Return the D-02 failure marker for a status, or None if it is not a failure state."""
+    """Return the D-02 failure marker for a status, or None if it is not a failure state.
+
+    Reads ``status_vocabulary.FAILURE_MARKER_BY_STATUS`` -- the single home for this table
+    since Phase 37 (STATUS-01) -- rather than a local copy.
+    """
     if status not in set(facility.get_failed_observing_states()):
         return None
-    return _FAILURE_MARKER_BY_STATUS.get(status, '[F]')
+    return FAILURE_MARKER_BY_STATUS.get(status, '[F]')
 
 
 def stage_for(record: ObservationRecord, facility: Any) -> str:
@@ -206,7 +193,7 @@ def title_for(record: ObservationRecord, stage: str, token: str, target_name: st
     """
     marker = _failure_marker(record.status, facility)
     if marker is None:
-        marker = _STAGE_MARKER.get(stage, '[?]')
+        marker = STAGE_MARKER.get(stage, '[?]')
     return f'{marker} {token} {target_name}'[:200]
 
 

@@ -34,6 +34,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 
+from solsys_code import status_vocabulary
 from solsys_code.calendar_utils import record_time_window
 from solsys_code.models import NO_CAMPAIGN_LABEL
 
@@ -114,38 +115,10 @@ NEUTRAL_SLOT_COLOR = '#5a6268'
 # D-06: human-readable label for classical-schedule (empty-proposal) legend entry.
 CLASSICAL_SCHEDULE_LABEL = 'Classical schedule'
 
-# Two title-prefix vocabularies live side by side here. The bracket-WORD prefixes are the
-# legacy verbose vocabulary (the v1.3-era LCO/SOAR sync command's own prefixes, retired
-# 34-02/D-18 but still emitted by load_telescope_runs.py and campaign_views.py), plus
-# '[WEATHERED]' (D-03, campaign_views._RUN_STATUS_CALENDAR_PREFIX, Phase 23 Plan 02) -- both
-# must stay byte-identical to their producers. The bracket-LETTER prefixes are the
-# observation projector's own terse marker vocabulary (observation_projector.py, 34-01
-# PROJ-03/D-02): '[X] ' (window expired), '[C] ' (cancelled), '[F] ' (failed) and '[?] '
-# (inconsistent record -- projected with a half-set schedule, D-13; reads as terminal because
-# an inconsistent record needs an operator's eye, not because anything actually failed).
-# These four carry a trailing space deliberately, since this tuple is consumed by
-# `title.startswith(p)` and a bare '[C]' would also match a hypothetical future
-# '[COMPLETED]'-style bracket-word prefix. Terminal states: observations that reached an
-# unrecoverable failure state (or, for '[?] ', a state that needs one). [QUEUED] is handled
-# separately (its own branch below). Reconciling the two vocabularies into one is Phase 37's
-# STATUS-01/02, not this phase's concern.
-_TERMINAL_PREFIXES = ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[WEATHERED]', '[X] ', '[C] ', '[F] ', '[?] ')
-
-# Ordered legend vocabulary for observation_status_legend() (PROJ-03/D-02): every marker
-# the observation projector (observation_projector.py, 34-01) can write, plus its
-# human-readable label. Fixed and hand-maintained rather than derived from
-# _TERMINAL_PREFIXES/status_border_css() -- deriving it would only let ring-vs-label drift
-# in the other direction (a marker with a ring but no legend entry, say). Phase 37 owns the
-# final wording of this vocabulary (STATUS-01/02); this is deliberately provisional.
-_OBSERVATION_STATUS_LEGEND = (
-    {'marker': '[Q]', 'label': 'Queued'},
-    {'marker': '[S]', 'label': 'Scheduled'},
-    {'marker': '[O]', 'label': 'Observed'},
-    {'marker': '[X]', 'label': 'Window expired'},
-    {'marker': '[C]', 'label': 'Cancelled'},
-    {'marker': '[F]', 'label': 'Failed'},
-    {'marker': '[?]', 'label': 'Inconsistent record'},
-)
+# The two title-prefix vocabularies and the observation-status legend used to live here as
+# local copies that had to stay byte-identical to their producers -- that second copy is
+# gone as of Phase 37 (STATUS-01/02). status_border_css() and observation_status_legend()
+# below now read directly from solsys_code.status_vocabulary, the single definition.
 
 
 @register.simple_tag
@@ -177,11 +150,14 @@ def proposal_color(proposal: str) -> str:
 def status_border_css(title: str) -> str:
     """Return a CSS box-shadow fragment encoding the observation status (DISPLAY-06).
 
-    Maps both title-prefix vocabularies (see ``_TERMINAL_PREFIXES`` above) to a box-shadow
-    ring (D-08 resolved=box-shadow): the legacy verbose bracket-word prefixes from the
-    retired sync command and campaign_views, and the observation projector's terse
-    bracket-letter marker vocabulary (34-01 PROJ-03/D-02). The placed bucket ([UNVERIFIED],
-    the projector's own '[S] '/'[O] ' markers, or no prefix at all) intentionally returns ''
+    Resolves the title through ``status_vocabulary.state_for_title()`` (Phase 37
+    STATUS-01/02 -- the single vocabulary definition, replacing this tag's former local
+    ``_TERMINAL_PREFIXES`` tuple) and returns the queued ring, the terminal ring
+    (``status_vocabulary.RING_TERMINAL_STATES``), or '' from the ring buckets. The legacy
+    ``'[QUEUED] '`` word-form prefix (pre-dates the marker vocabulary; not part of
+    ``status_vocabulary`` since it was never a producer this phase consolidates) is kept as
+    a direct check alongside the ``'[Q] '`` marker. The placed bucket ('[UNVERIFIED]', the
+    projector's own '[S] '/'[O] ' markers, or no prefix at all) intentionally returns ''
     because Phase 8's D-09-reserved border treatment already owns the verified/fallback
     visual distinction — re-encoding it here would cause the two signals to merge into one
     style attribute branch instead of composing independently (09-RESEARCH Pitfall 3
@@ -198,9 +174,12 @@ def status_border_css(title: str) -> str:
         events.  The D-09-reserved border style is never emitted by this tag.
     """
     title = title or ''
-    if title.startswith('[QUEUED] ') or title.startswith('[Q] '):
+    if title.startswith('[QUEUED] '):
         return 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
-    if any(title.startswith(p) for p in _TERMINAL_PREFIXES):
+    state = status_vocabulary.state_for_title(title)
+    if state in status_vocabulary.RING_QUEUED_STATES:
+        return 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
+    if state in status_vocabulary.RING_TERMINAL_STATES:
         # quick-260724-vb0: this ring is painted outside the chip's border box, so on
         # a classical chip its inner neighbour along the chip's left flank is the
         # stripe's outward-facing edge (STRIPE_OUTER_EDGE_COLOR). rgba(160, 0, 0, 0.55)
@@ -471,22 +450,22 @@ def visible_classical_telescopes(weeks) -> list[dict]:
 
 @register.simple_tag
 def observation_status_legend() -> list[dict]:
-    """Return the fixed, ordered observation-status marker legend (PROJ-03, D-02).
+    """Return the fixed, ordered observation-status marker legend (PROJ-03, D-02, D-04).
 
-    Exposes ``_OBSERVATION_STATUS_LEGEND`` to calendar.html so a calendar visitor can read
-    what every observation-projector marker (``[Q]``/``[S]``/``[O]``/``[X]``/``[C]``/``[F]``/
-    ``[?]``) means directly off the page, without needing this module's source. Deliberately
-    a fixed vocabulary rather than data-driven — making it read from the database would only
-    let it drift out of sync with ``status_border_css()``'s own prefix matching. Phase 37
-    owns the final wording of this vocabulary (STATUS-01/02); this is provisional.
+    Exposes ``status_vocabulary.LEGEND`` to calendar.html so a calendar visitor can read
+    what every calendar marker means directly off the page, without needing this module's
+    source. Deliberately a fixed vocabulary rather than data-driven — making it read from
+    the database would only let it drift out of sync with ``status_border_css()``'s own
+    prefix matching. As of Phase 37 (STATUS-01/02) this is the final wording, read from the
+    one shared module rather than a local copy.
 
     Takes no arguments, reads nothing from the database, and never raises.
 
     Returns:
         list[dict]: one ``{'marker': ..., 'label': ...}`` dict per marker, in the fixed
-        order ``[Q]``, ``[S]``, ``[O]``, ``[X]``, ``[C]``, ``[F]``, ``[?]``.
+        order ``[Q]``, ``[S]``, ``[O]``, ``[X]``, ``[C]``, ``[F]``, ``[W]``, ``[?]``, ``[U]``.
     """
-    return [dict(entry) for entry in _OBSERVATION_STATUS_LEGEND]
+    return [dict(entry) for entry in status_vocabulary.LEGEND]
 
 
 @register.simple_tag

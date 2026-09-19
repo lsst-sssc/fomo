@@ -473,14 +473,15 @@ class TestProjectorMarkerRings(TestCase):
 
 
 class TestObservationStatusLegend(TestCase):
-    """PROJ-03/D-02 (Phase 34 Plan 03): observation_status_legend() exposes the fixed
-    marker vocabulary to calendar.html."""
+    """PROJ-03/D-02/D-04 (Phase 37): observation_status_legend() exposes the fixed
+    marker vocabulary (read from status_vocabulary.LEGEND, Phase 37 STATUS-01/02) to
+    calendar.html."""
 
-    def test_returns_seven_entries_covering_every_marker(self):
+    def test_returns_nine_entries_covering_every_marker(self):
         legend = observation_status_legend()
-        self.assertEqual(len(legend), 7)
+        self.assertEqual(len(legend), 9)
         markers = [entry['marker'] for entry in legend]
-        self.assertEqual(markers, ['[Q]', '[S]', '[O]', '[X]', '[C]', '[F]', '[?]'])
+        self.assertEqual(markers, ['[Q]', '[S]', '[O]', '[X]', '[C]', '[F]', '[W]', '[?]', '[U]'])
 
     def test_every_entry_has_a_non_empty_label(self):
         for entry in observation_status_legend():
