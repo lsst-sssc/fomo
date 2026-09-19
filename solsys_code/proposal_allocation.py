@@ -18,8 +18,9 @@ needs to fetch or read a proposal's time allocation.
 """
 
 import math
+import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import requests
 from django import forms
@@ -64,6 +65,21 @@ class PortalUnavailable(Exception):  # noqa: N818 -- exact symbol name given by 
     """
 
 
+# WR-07 (37-REVIEW.md): both of proposal_code's sources -- WatchedProposal.proposal_code
+# (admin-editable free text) and CampaignRun.proposal_code (verbatim from a classical
+# schedule file's bracketed [proposal] token, which telescope_runs._resolve_proposal()
+# accepts as any non-empty text) -- are operator-supplied and reach
+# fetch_proposal_allocations() unvalidated. A value containing '..', '?' or '#' would
+# redirect the authenticated portal request to a different endpoint when urljoin()
+# normalises it server-side, and CampaignRun.proposal_code's own max_length=100 means an
+# over-long value raises DataError on PostgreSQL. Restricting to a conservative charset
+# that covers every real LCO/SOAR proposal code format observed in this codebase's fixtures
+# and runbook (e.g. 'LCO2026A-001', 'KEY2026B-002') closes both without touching the
+# classical-file ingestion grammar itself (telescope_runs.py), which stays deliberately
+# permissive for the file-parsing use case it serves.
+_PROPOSAL_CODE_RE = re.compile(r'^[A-Za-z0-9._-]{1,100}$')
+
+
 def proposal_codes_to_fetch() -> list[str]:
     """The union of every active ``WatchedProposal`` code and every distinct non-blank
     ``CampaignRun.proposal_code``, as a sorted list of unique codes.
@@ -97,13 +113,23 @@ def fetch_proposal_allocations(proposal_code: str, facility: LCOFacility) -> lis
         list[dict[str, Any]]: the parsed ``timeallocation_set`` list.
 
     Raises:
-        PortalUnavailable: on any network error, auth failure, or non-JSON/malformed body --
-            carrying only the caught exception's class name.
+        PortalUnavailable: on any network error, auth failure, or non-JSON/malformed body,
+            or on a ``proposal_code`` that fails ``_PROPOSAL_CODE_RE`` (WR-07, 37-REVIEW.md)
+            -- carrying only the caught exception's (or, for the validation failure,
+            ``ValueError``'s) class name.
     """
+    if not _PROPOSAL_CODE_RE.match(proposal_code or ''):
+        # WR-07: never build a request URL from an unvalidated proposal_code -- a value
+        # containing '..', '?' or '#' would redirect this credentialed request to a
+        # different portal endpoint once urljoin()/the server normalises it.
+        raise PortalUnavailable('ValueError')
     try:
         response = make_request(
             'GET',
-            urljoin(facility.facility_settings.get_setting('portal_url'), f'/api/proposals/{proposal_code}/'),
+            urljoin(
+                facility.facility_settings.get_setting('portal_url'),
+                f'/api/proposals/{quote(proposal_code, safe="")}/',
+            ),
             headers=facility._portal_headers(),
             timeout=_API_TIMEOUT_SECONDS,
         )

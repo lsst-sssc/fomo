@@ -172,6 +172,50 @@ class FetchProposalAllocationsTests(TestCase):
             with self.assertRaises(pa.PortalUnavailable):
                 pa.fetch_proposal_allocations('UTX2026A-002', _mock_facility())
 
+    def test_path_traversal_like_code_is_rejected_before_any_request(self):
+        """WR-07 (37-REVIEW.md): a proposal_code containing '..' would redirect this
+        credentialed request to a different portal endpoint once urljoin()/the server
+        normalises it -- must be rejected before make_request() is ever called."""
+        with patch('solsys_code.proposal_allocation.make_request') as mock_request:
+            with self.assertRaises(pa.PortalUnavailable):
+                pa.fetch_proposal_allocations('../requestgroups', _mock_facility())
+        mock_request.assert_not_called()
+
+    def test_code_with_query_or_fragment_characters_is_rejected(self):
+        with self.assertRaises(pa.PortalUnavailable):
+            pa.fetch_proposal_allocations('ABC?x=1', _mock_facility())
+        with self.assertRaises(pa.PortalUnavailable):
+            pa.fetch_proposal_allocations('ABC#frag', _mock_facility())
+
+    def test_over_long_code_is_rejected(self):
+        """CampaignRun.proposal_code has max_length=100 -- a longer value would raise
+        DataError on PostgreSQL if it ever reached a write; reject it here instead."""
+        with self.assertRaises(pa.PortalUnavailable):
+            pa.fetch_proposal_allocations('A' * 101, _mock_facility())
+
+    def test_blank_code_is_rejected(self):
+        with self.assertRaises(pa.PortalUnavailable):
+            pa.fetch_proposal_allocations('', _mock_facility())
+
+    def test_valid_code_reaches_a_properly_quoted_request_url(self):
+        response = MagicMock()
+        response.json.return_value = {'timeallocation_set': []}
+        with patch('solsys_code.proposal_allocation.make_request', return_value=response) as mock_request:
+            pa.fetch_proposal_allocations('UTX2026A-002', _mock_facility())
+        called_url = mock_request.call_args[0][1]
+        self.assertEqual(called_url, 'https://observe.lco.global/api/proposals/UTX2026A-002/')
+
+    def test_an_eso_style_code_with_a_period_is_accepted_and_quoted(self):
+        """Mirrors ProposalCodeDefaultTests.test_explicit_value_persists_and_reloads's own
+        real-world fixture ('0110.C-0234') -- the charset must not be so strict it rejects
+        a real, already-observed proposal code shape."""
+        response = MagicMock()
+        response.json.return_value = {'timeallocation_set': []}
+        with patch('solsys_code.proposal_allocation.make_request', return_value=response) as mock_request:
+            pa.fetch_proposal_allocations('0110.C-0234', _mock_facility())
+        called_url = mock_request.call_args[0][1]
+        self.assertEqual(called_url, 'https://observe.lco.global/api/proposals/0110.C-0234/')
+
 
 class StoreProposalAllocationsTests(TestCase):
     """store_proposal_allocations()'s per-allocation-type create-or-update behaviour."""
