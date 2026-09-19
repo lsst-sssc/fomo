@@ -163,7 +163,10 @@ class TestLinkCountsForRuns(CampaignTallyTestBase):
     def test_run_with_no_links_reports_zero_and_none_version(self):
         run = self._make_run()
         counts = link_counts_for_runs([run.pk])
-        self.assertEqual(counts[run.pk], {'groups': 0, 'records': 0, 'records_version': None})
+        self.assertEqual(
+            counts[run.pk],
+            {'groups': 0, 'records': 0, 'records_version': None, 'link_version': None},
+        )
 
     def test_records_count_and_version_come_from_one_aggregate(self):
         run = self._make_run()
@@ -171,6 +174,21 @@ class TestLinkCountsForRuns(CampaignTallyTestBase):
         counts = link_counts_for_runs([run.pk])[run.pk]
         self.assertEqual(counts['records'], 1)
         self.assertEqual(counts['records_version'], record.modified)
+
+    def test_link_version_is_the_newest_linked_record_id(self):
+        """CR-01 (37-REVIEW.md): link_version moves on a create/delete even when the
+        linked record's own `modified` stamp does not -- this is what lets
+        build_tally_cache_key() see a link creation/deletion that records_version alone
+        would miss, since CampaignRunObservation itself carries no timestamp."""
+        run = self._make_run()
+        first_record = self._link_record(run)
+        first_counts = link_counts_for_runs([run.pk])[run.pk]
+        self.assertEqual(first_counts['link_version'], first_record.pk)
+
+        second_record = self._link_record(run)
+        second_counts = link_counts_for_runs([run.pk])[run.pk]
+        self.assertEqual(second_counts['link_version'], max(first_record.pk, second_record.pk))
+        self.assertNotEqual(first_counts['link_version'], second_counts['link_version'])
 
     def test_groups_are_counted_distinct(self):
         run = self._make_run()
@@ -381,6 +399,95 @@ class TestGetOrComputeTallyFreshness(CampaignTallyTestBase):
         second = get_or_compute_tally(run, records_version=version)
         self.assertEqual(first, second)
 
+    def test_linking_an_older_untouched_record_is_reflected_with_no_clock_advance(self):
+        """CR-01 (37-REVIEW.md) regression, exactly as reported: creating a
+        CampaignRunObservation link to a pre-existing record whose own `modified` stamp is
+        OLDER than the run's current linked-record max must still move the tally on the
+        very next call. records_version alone (Max('observation_record__modified')) would
+        leave the cache key -- and so the tally -- unchanged, because linking a record does
+        not touch that record's own `modified` field and Max(modified) does not move when a
+        record older than the current max is newly linked."""
+        run = self._make_run()
+        newer = self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        first = get_or_compute_tally(run)
+        self.assertEqual(first['records'], 1)
+
+        # A pre-existing record whose own `modified` stamp is forced older than `newer`'s --
+        # linking it (below) never saves the record itself, so this stamp never moves.
+        older_target = NonSiderealTargetFactory.create()
+        older_owner = User.objects.create(username=f'obs-owner-older-{uuid4().hex[:8]}')
+        older = ObservationRecord.objects.create(
+            target=older_target,
+            user=older_owner,
+            facility='LCO',
+            observation_id=f'obs-pre-existing-{uuid4().hex[:8]}',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 9, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 9, 3, 30, tzinfo=dt_timezone.utc),
+            parameters={},
+        )
+        ObservationRecord.objects.filter(pk=older.pk).update(modified=newer.modified - timedelta(days=1))
+        older.refresh_from_db()
+        self.assertLess(older.modified, newer.modified)
+
+        CampaignRunObservation.objects.create(run=run, observation_record=older)
+
+        second = get_or_compute_tally(run)
+        self.assertEqual(second['records'], 2)
+
+    def test_unused_count_is_live_even_on_a_cache_hit(self):
+        """CR-02 (37-REVIEW.md): mirrors the same-named TestTalliesForRuns test for the
+        calendar pop-up's own entry point -- get_or_compute_tally() must never serve the
+        unused figure from the cached value."""
+        run = self._make_run()
+        past = timezone.now() - timedelta(hours=1)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=past)
+
+        first = get_or_compute_tally(run)
+        self.assertEqual(first['nights_unused'], 1)
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+
+        second = get_or_compute_tally(run)
+        self.assertEqual(second['nights_unused'], 0)
+        self.assertEqual(second['records'], first['records'])
+
+    def test_removing_a_non_newest_link_is_reflected_with_no_clock_advance(self):
+        """CR-01 (37-REVIEW.md) regression: deleting the link to a record that is NOT the
+        run's newest-linked record leaves records_version (Max(modified)) unchanged --
+        records_count in the cache key is what makes the removal visible on the very next
+        call instead of waiting out the TTL."""
+        run = self._make_run()
+        older = self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        newer = self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 11, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 11, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        ObservationRecord.objects.filter(pk=older.pk).update(modified=newer.modified - timedelta(days=1))
+
+        first = get_or_compute_tally(run)
+        self.assertEqual(first['records'], 2)
+
+        # Remove the OLDER link -- the run's remaining (newest) linked record's `modified`
+        # stamp is unchanged, so records_version alone would not move.
+        CampaignRunObservation.objects.filter(run=run, observation_record=older).delete()
+
+        second = get_or_compute_tally(run)
+        self.assertEqual(second['records'], 1)
+
 
 @override_settings(CACHES=TEST_CACHES)
 class TestTalliesForRuns(CampaignTallyTestBase):
@@ -395,6 +502,28 @@ class TestTalliesForRuns(CampaignTallyTestBase):
         self.assertEqual(set(result.keys()), {run1.pk, run2.pk})
         self.assertEqual(result[run1.pk]['records'], 1)
         self.assertEqual(result[run2.pk]['records'], 0)
+
+    def test_unused_count_is_live_even_on_a_cache_hit(self):
+        """CR-02 (37-REVIEW.md): the three unused_* keys must never come from the cached
+        value -- they are recomputed on every call, live, from
+        is_unused_allocation_night(), so a run_status flip to CANCELLED is visible on the
+        very next call with no cache invalidation and no TTL wait, exactly matching
+        unused_night_decoration()'s live read for the calendar's [U] marker (D-15)."""
+        run = self._make_run()
+        past = timezone.now() - timedelta(hours=1)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=past)
+
+        first = tallies_for_runs([run])[run.pk]
+        self.assertEqual(first['nights_unused'], 1)
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+
+        # No linked ObservationRecord changed, so records_version/records/link_version --
+        # and so the cache key -- are unchanged: this is a cache hit for the other keys.
+        second = tallies_for_runs([run])[run.pk]
+        self.assertEqual(second['nights_unused'], 0)
+        self.assertEqual(second['records'], first['records'])
 
     def test_never_calls_tally_for_run_in_a_row_loop(self):
         """Source-level contract check (D-08's "never a per-row loop"): no executable line

@@ -67,7 +67,12 @@ _NIGHT_CLAIMING_STATES = frozenset(
 )
 
 
-def build_tally_cache_key(run_pk: int, records_version: datetime | None) -> str:
+def build_tally_cache_key(
+    run_pk: int,
+    records_version: datetime | None,
+    records_count: int = 0,
+    link_version: int | None = None,
+) -> str:
     """Build a stable, freshness-sensitive cache key for a run's tally (TALLY-01).
 
     A key built from the run pk alone would leave a request the projector has just narrowed
@@ -75,50 +80,75 @@ def build_tally_cache_key(run_pk: int, records_version: datetime | None) -> str:
     linked-record change stamp into the key is what makes a narrowing visible on the very
     next page load instead of waiting out the TTL.
 
+    ``records_count``/``link_version`` close a second hole (CR-01, 37-REVIEW.md):
+    ``CampaignRunObservation`` (the link row itself) carries no ``created``/``modified``
+    column, and creating or deleting a link does not touch the linked ``ObservationRecord``,
+    so ``records_version`` alone cannot see a link being attached or detached.
+    ``records_count`` catches a create or delete that changes the link count;
+    ``link_version`` additionally catches a delete-then-create pair that leaves the count
+    unchanged (e.g. re-attributing one record to a different, same-count link set).
+
     Args:
         run_pk: pk of the CampaignRun.
         records_version: the newest ``modified`` timestamp across the run's linked
             ObservationRecords (see ``link_counts_for_runs()``), or ``None`` for a run with
             no linked records at all.
+        records_count: the run's current distinct linked-record count
+            (``link_counts_for_runs()``'s ``'records'`` value). Defaults to ``0`` so existing
+            two-argument call sites keep producing a valid (if less precise) key.
+        link_version: the run's current linked-record id watermark
+            (``link_counts_for_runs()``'s ``'link_version'`` value), or ``None`` for a run
+            with no linked records at all -- normalised to ``0`` in the key so ``None`` and a
+            literal ``0`` id can never collide.
 
     Returns:
-        str: a stable key; two calls with the same ``(run_pk, records_version)`` pair
-            produce identical keys, and any change to ``records_version`` produces a
-            different one.
+        str: a stable key; two calls with the same ``(run_pk, records_version,
+            records_count, link_version)`` tuple produce identical keys, and any change to
+            any of the three freshness inputs produces a different one.
     """
     version_segment = records_version.isoformat() if records_version is not None else _NO_RECORDS_VERSION_TOKEN
-    return f'campaign_tally:{run_pk}:{version_segment}'
+    return f'campaign_tally:{run_pk}:{version_segment}:{records_count}:{link_version or 0}'
 
 
 def link_counts_for_runs(run_pks: list[int]) -> dict[int, dict[str, Any]]:
     """The SQL-expressible half of the tally: group/record counts and the freshness stamp,
-    for a whole set of runs in two queries total -- never one query per run (D-08).
+    for a whole set of runs in two queries total -- never one query per row (D-08).
 
     Args:
         run_pks: pks of the CampaignRuns to count.
 
     Returns:
         dict[int, dict[str, Any]]: ``{run_pk: {'groups': int, 'records': int,
-            'records_version': datetime | None}}`` with zeros and ``None`` for a pk that
-            appears in neither underlying query (a run with no linked records/groups at
-            all). Every pk in ``run_pks`` is guaranteed a key in the result.
+            'records_version': datetime | None, 'link_version': int | None}}`` with zeros
+            and ``None`` for a pk that appears in neither underlying query (a run with no
+            linked records/groups at all). Every pk in ``run_pks`` is guaranteed a key in
+            the result. ``link_version`` (CR-01, 37-REVIEW.md) is the newest linked
+            ``ObservationRecord`` id for this run -- it moves on every new link even when
+            the linked record's own ``modified`` stamp does not, which is what lets
+            ``build_tally_cache_key()`` see a link creation/deletion that ``records_version``
+            alone would miss.
     """
     run_pks = list(run_pks)
-    result: dict[int, dict[str, Any]] = {pk: {'groups': 0, 'records': 0, 'records_version': None} for pk in run_pks}
+    result: dict[int, dict[str, Any]] = {
+        pk: {'groups': 0, 'records': 0, 'records_version': None, 'link_version': None} for pk in run_pks
+    }
 
-    # One aggregate query: distinct linked-record count AND the newest linked-record change
-    # stamp, in the same pass -- taking the stamp here is why freshness costs no extra query.
+    # One aggregate query: distinct linked-record count, the newest linked-record change
+    # stamp, AND the newest linked-record id, in the same pass -- taking all three here is
+    # why freshness costs no extra query.
     record_rows = (
         CampaignRunObservation.objects.filter(run_id__in=run_pks)
         .values('run_id')
         .annotate(
             records=Count('observation_record', distinct=True),
             records_version=Max('observation_record__modified'),
+            link_version=Max('observation_record_id'),
         )
     )
     for row in record_rows:
         result[row['run_id']]['records'] = row['records']
         result[row['run_id']]['records_version'] = row['records_version']
+        result[row['run_id']]['link_version'] = row['link_version']
 
     # A second aggregate query: distinct linked-group count per run.
     group_rows = (
@@ -233,33 +263,51 @@ def get_or_compute_tally(run: CampaignRun, records_version: datetime | None = No
     """Cache-or-compute wrapper for one run's tally, mirroring
     ``campaign_gap.get_or_compute_gap()``'s shape.
 
+    The cached half never includes the three ``unused_*`` keys (CR-02, 37-REVIEW.md):
+    ``_apply_unused_fields()`` runs live on every call, on the cached value too, so this
+    function's unused figure always matches ``unused_night_decoration()``'s live per-event
+    read of the same rule -- the two can never visibly disagree the way a fully cached tally
+    could for up to ``TALLY_CACHE_TTL_SECONDS``.
+
     Args:
         run: the CampaignRun being tallied.
         records_version: the newest linked-record change stamp to key the cache on. When
-            omitted, this is derived with one aggregate query
-            (``link_counts_for_runs([run.pk])``) rather than left out of the key entirely --
-            a single-event caller (e.g. the calendar pop-up's tag) pays one extra query,
-            which is far cheaper than showing an hour-stale tally.
+            omitted, this is derived from ``link_counts_for_runs([run.pk])`` -- which this
+            function always calls anyway, to also read ``records_count``/``link_version``
+            (CR-01, 37-REVIEW.md: a link create/delete does not move ``records_version``
+            alone, since ``CampaignRunObservation`` carries no timestamp of its own).
 
     Returns:
-        dict[str, Any]: the cached dict unchanged on a hit; a freshly computed, cached dict
-            on a miss.
+        dict[str, Any]: a tally dict with live unused-night fields, built from a cache hit
+            for the other five keys when available, else freshly computed and cached (still
+            without the unused fields) before they are filled in.
     """
+    counts = link_counts_for_runs([run.pk])[run.pk]
     if records_version is None:
-        records_version = link_counts_for_runs([run.pk])[run.pk]['records_version']
-    key = build_tally_cache_key(run.pk, records_version)
+        records_version = counts['records_version']
+    key = build_tally_cache_key(run.pk, records_version, counts['records'], counts['link_version'])
     cached = cache.get(key)
     if cached is not None:
-        return cached
-    tally = tally_for_run(run)
-    cache.set(key, tally, timeout=TALLY_CACHE_TTL_SECONDS)
+        tally = dict(cached)
+        _apply_unused_fields(tally, run)
+        return tally
+    nights = night_counts_for_run(run)
+    tally = _combine_tally(counts, nights)
+    cache.set(key, tally, timeout=TALLY_CACHE_TTL_SECONDS)  # cached WITHOUT unused_* fields
+    _apply_unused_fields(tally, run)
     return tally
 
 
 def tallies_for_runs(runs) -> dict[int, dict[str, Any]]:
     """The bulk entry point the table uses: one ``link_counts_for_runs()`` call for the
     whole set, then the per-run cached night counts keyed with each run's own
-    ``records_version`` from that call.
+    ``records_version``/``records``/``link_version`` from that call (CR-01, 37-REVIEW.md).
+
+    The three ``unused_*`` keys are never part of the cached value (CR-02, 37-REVIEW.md):
+    they are filled in live, on every call, from ``is_unused_allocation_night()`` -- the
+    same rule ``unused_night_decoration()`` evaluates live for the calendar's ``[U]``
+    marker -- so the table's Progress column and the calendar can never visibly disagree for
+    up to ``TALLY_CACHE_TTL_SECONDS`` the way a fully cached tally could (D-15).
 
     Callers must NOT call ``tally_for_run()`` inside a row loop -- that would re-run the
     SQL-expressible aggregate once per row, exactly the per-row query loop D-08 forbids.
@@ -277,15 +325,17 @@ def tallies_for_runs(runs) -> dict[int, dict[str, Any]]:
     result: dict[int, dict[str, Any]] = {}
     for run in runs:
         counts = counts_by_pk[run.pk]
-        key = build_tally_cache_key(run.pk, counts['records_version'])
+        key = build_tally_cache_key(run.pk, counts['records_version'], counts['records'], counts['link_version'])
         cached = cache.get(key)
         if cached is not None:
-            result[run.pk] = cached
+            tally = dict(cached)
+            _apply_unused_fields(tally, run)
+            result[run.pk] = tally
             continue
         nights = night_counts_for_run(run)
         tally = _combine_tally(counts, nights)
+        cache.set(key, tally, timeout=TALLY_CACHE_TTL_SECONDS)  # cached WITHOUT unused_* fields
         _apply_unused_fields(tally, run)
-        cache.set(key, tally, timeout=TALLY_CACHE_TTL_SECONDS)
         result[run.pk] = tally
     return result
 
