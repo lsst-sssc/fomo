@@ -147,3 +147,35 @@ class TestVocabularyStructure(TestCase):
     def test_unused_is_in_neither_ring_bucket(self) -> None:
         self.assertNotIn(status_vocabulary.DisplayState.UNUSED, status_vocabulary.RING_QUEUED_STATES)
         self.assertNotIn(status_vocabulary.DisplayState.UNUSED, status_vocabulary.RING_TERMINAL_STATES)
+
+
+class TestRunStatusMarker(TestCase):
+    """Task 2 (D-02): run-level RunStatus values join the same short-letter vocabulary --
+    [C] for CANCELLED, [W] for WEATHER_TECH_FAILURE, no marker for the other six values."""
+
+    def test_run_status_marker_has_exactly_two_entries(self) -> None:
+        from solsys_code.models import CampaignRun
+        from solsys_code.status_vocabulary import RUN_STATUS_MARKER
+
+        self.assertEqual(len(RUN_STATUS_MARKER), 2)
+        self.assertEqual(sorted(RUN_STATUS_MARKER.values()), ['[C]', '[W]'])
+        self.assertEqual(RUN_STATUS_MARKER[CampaignRun.RunStatus.CANCELLED], '[C]')
+        self.assertEqual(RUN_STATUS_MARKER[CampaignRun.RunStatus.WEATHER_TECH_FAILURE], '[W]')
+
+    def test_no_other_run_status_value_has_a_marker(self) -> None:
+        from solsys_code.models import CampaignRun
+        from solsys_code.status_vocabulary import RUN_STATUS_MARKER
+
+        marked = {CampaignRun.RunStatus.CANCELLED, CampaignRun.RunStatus.WEATHER_TECH_FAILURE}
+        for value in CampaignRun.RunStatus:
+            with self.subTest(value=value):
+                if value in marked:
+                    self.assertIn(value, RUN_STATUS_MARKER)
+                else:
+                    self.assertNotIn(value, RUN_STATUS_MARKER)
+
+    def test_cancelled_and_legacy_cancelled_share_the_same_terminal_ring(self) -> None:
+        from solsys_code.templatetags.calendar_display_extras import status_border_css
+
+        self.assertEqual(status_border_css('[C] NTT EFOSC2'), status_border_css('[CANCELLED] NTT EFOSC2'))
+        self.assertNotEqual(status_border_css('[C] NTT EFOSC2'), '')
