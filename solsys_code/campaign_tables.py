@@ -343,7 +343,11 @@ class ApprovalQueueTable(CampaignRunTable):
     # horizontal scrolling. CampaignRunTable itself is untouched -- it stays spreadsheet-parity
     # for Phase 15's D-09 read path.
     class Meta(CampaignRunTable.Meta):  # noqa: D106
-        exclude = ('weather', 'observation_outcome', 'publication_plans')
+        # 'progress' is excluded too (WR-01, 37-REVIEW.md): the three approval-queue
+        # construction sites in ApprovalQueueView never pass a `tallies` kwarg, so
+        # render_progress() would fall into its "not available" branch for every row,
+        # adding a permanently-dead wide column to three staff pages.
+        exclude = ('weather', 'observation_outcome', 'publication_plans', 'progress')
         sequence = (
             'actions',
             'approval_status',

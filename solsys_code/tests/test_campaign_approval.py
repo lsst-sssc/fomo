@@ -801,10 +801,19 @@ class TestApprovalQueueColumns(TestCase):
         column_names = {column.name for column in ApprovalQueueTable([]).columns}
         self.assertEqual(column_names & {'weather', 'observation_outcome', 'publication_plans'}, set())
 
+    def test_approval_queue_table_excludes_the_always_unavailable_progress_column(self):
+        """WR-01 (37-REVIEW.md): none of the three approval-queue construction sites in
+        ApprovalQueueView pass a `tallies` kwarg, so `progress` would render "Progress not
+        available" for every row -- a permanently-dead column that must not be declared at
+        all on this table."""
+        column_names = {column.name for column in ApprovalQueueTable([]).columns}
+        self.assertNotIn('progress', column_names)
+
     def test_campaign_run_table_unchanged_by_approval_queue_trim(self):
         """D-09 regression guard: the fix is scoped to ApprovalQueueTable only."""
         column_names = {column.name for column in CampaignRunTable([]).columns}
         self.assertTrue({'weather', 'observation_outcome', 'publication_plans'} <= column_names)
+        self.assertIn('progress', column_names)
         self.assertNotIn('actions', column_names)
 
 
