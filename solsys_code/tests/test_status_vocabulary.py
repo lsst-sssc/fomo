@@ -179,3 +179,96 @@ class TestRunStatusMarker(TestCase):
 
         self.assertEqual(status_border_css('[C] NTT EFOSC2'), status_border_css('[CANCELLED] NTT EFOSC2'))
         self.assertNotEqual(status_border_css('[C] NTT EFOSC2'), '')
+
+
+class _StubFacility:
+    """Minimal facility double exposing name/get_terminal_observing_states/
+    get_failed_observing_states -- neither GEM nor ESO's real package is installed in this
+    environment, so a real facility class cannot be imported for those two cases."""
+
+    def __init__(self, name, terminal_states, failed_states):
+        self.name = name
+        self._terminal_states = terminal_states
+        self._failed_states = failed_states
+
+    def get_terminal_observing_states(self):
+        return self._terminal_states
+
+    def get_failed_observing_states(self):
+        return self._failed_states
+
+
+class TestFacilityAwareClassifier(TestCase):
+    """Task 3 (D-05): one facility-aware terminal classifier -- observed_states_for(),
+    failed_states_for(), classify_record(), OBSERVED_STATES_BY_FACILITY."""
+
+    def test_observed_states_for_lco_is_terminal_minus_failed(self) -> None:
+        from tom_observations.facilities.lco import LCOFacility
+
+        from solsys_code.status_vocabulary import observed_states_for
+
+        self.assertEqual(observed_states_for(LCOFacility()), frozenset({'COMPLETED'}))
+
+    def test_observed_states_for_gem_is_empty(self) -> None:
+        from solsys_code.status_vocabulary import observed_states_for
+
+        gem = _StubFacility('GEM', {'TRIGGERED', 'ON_HOLD'}, {'ON_HOLD'})
+        self.assertEqual(observed_states_for(gem), frozenset())
+
+    def test_observed_states_for_eso_is_empty(self) -> None:
+        from solsys_code.status_vocabulary import observed_states_for
+
+        eso = _StubFacility('ESO', {'COMPLETED'}, set())
+        self.assertEqual(observed_states_for(eso), frozenset())
+
+    def test_observed_states_by_facility_has_exactly_gem_and_eso(self) -> None:
+        from solsys_code.status_vocabulary import OBSERVED_STATES_BY_FACILITY
+
+        self.assertEqual(sorted(OBSERVED_STATES_BY_FACILITY), ['ESO', 'GEM'])
+        self.assertEqual(OBSERVED_STATES_BY_FACILITY['GEM'], frozenset())
+        self.assertEqual(OBSERVED_STATES_BY_FACILITY['ESO'], frozenset())
+
+    def test_classify_record_inconsistent_for_half_set_schedule(self) -> None:
+        from unittest.mock import MagicMock
+
+        from solsys_code.status_vocabulary import DisplayState, classify_record
+
+        record = MagicMock(scheduled_start=None, scheduled_end='not-none', status='PENDING')
+        facility = _StubFacility('LCO', {'COMPLETED'}, set())
+        self.assertEqual(classify_record(record, facility), DisplayState.INCONSISTENT)
+
+    def test_classify_record_observed_for_completed_status(self) -> None:
+        from unittest.mock import MagicMock
+
+        from solsys_code.status_vocabulary import DisplayState, classify_record
+
+        record = MagicMock(scheduled_start=None, scheduled_end=None, status='COMPLETED')
+        facility = _StubFacility('LCO', {'COMPLETED'}, set())
+        self.assertEqual(classify_record(record, facility), DisplayState.OBSERVED)
+
+    def test_classify_record_scheduled_for_full_block_unresolved_status(self) -> None:
+        from unittest.mock import MagicMock
+
+        from solsys_code.status_vocabulary import DisplayState, classify_record
+
+        record = MagicMock(scheduled_start='a', scheduled_end='b', status='PENDING')
+        facility = _StubFacility('LCO', {'COMPLETED'}, set())
+        self.assertEqual(classify_record(record, facility), DisplayState.SCHEDULED)
+
+    def test_classify_record_queued_otherwise(self) -> None:
+        from unittest.mock import MagicMock
+
+        from solsys_code.status_vocabulary import DisplayState, classify_record
+
+        record = MagicMock(scheduled_start=None, scheduled_end=None, status='PENDING')
+        facility = _StubFacility('LCO', {'COMPLETED'}, set())
+        self.assertEqual(classify_record(record, facility), DisplayState.QUEUED)
+
+    def test_classify_record_failure_state_maps_through_failure_marker_states(self) -> None:
+        from unittest.mock import MagicMock
+
+        from solsys_code.status_vocabulary import DisplayState, classify_record
+
+        facility = _StubFacility('LCO', {'CANCELED'}, {'CANCELED'})
+        record = MagicMock(scheduled_start=None, scheduled_end=None, status='CANCELED')
+        self.assertEqual(classify_record(record, facility), DisplayState.CANCELLED)
