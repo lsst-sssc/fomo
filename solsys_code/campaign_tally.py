@@ -27,7 +27,7 @@ from solsys_code import proposal_allocation
 from solsys_code.allocation_projector import allocation_events
 from solsys_code.calendar_utils import record_time_window
 from solsys_code.models import CampaignRun, CampaignRunObservation
-from solsys_code.observation_projector import facility_for
+from solsys_code.observation_projector import facility_for_or_none
 from solsys_code.status_vocabulary import LABEL, MARKER, RUN_STATUS_MARKER, DisplayState, classify_record
 from solsys_code.telescope_runs import observing_night
 
@@ -185,16 +185,27 @@ def night_counts_for_run(run: CampaignRun) -> dict[str, int]:
         return zero_counts
 
     # Restrict the fetched columns explicitly -- pk/status/facility/scheduled_start/
-    # scheduled_end only, exactly what classify_record()/record_time_window() read.
+    # scheduled_end/parameters, exactly what classify_record()/record_time_window() read.
+    # 'parameters' is needed too: record_time_window() falls back to
+    # record.parameters['start']/['end'] whenever both schedule fields are None
+    # (calendar_utils.py), which is reachable for a failure-state or completed-no-block
+    # record that survives the _NIGHT_CLAIMING_STATES filter below (WR-02, 37-REVIEW.md) --
+    # omitting it triggered a deferred-field refresh (one extra SELECT per record).
     records = ObservationRecord.objects.filter(
         pk__in=run.observation_links.values_list('observation_record_id', flat=True)
-    ).only('pk', 'status', 'facility', 'scheduled_start', 'scheduled_end')
+    ).only('pk', 'status', 'facility', 'scheduled_start', 'scheduled_end', 'parameters')
 
     observed_nights: set = set()
     scheduled_nights: set = set()
     failed_nights: set = set()
     for record in records:
-        facility = facility_for(record)
+        # CR-03 (37-REVIEW.md): facility_for_or_none() never raises for a stale/unconfigured
+        # facility name -- this function's own docstring promises "never raises", and a
+        # bare facility_for() call would take the anonymous campaign run table and campaign
+        # list to a 500 for every visitor on a single such record.
+        facility = facility_for_or_none(record)
+        if facility is None:
+            continue
         state = classify_record(record, facility)
         if state not in _NIGHT_CLAIMING_STATES:
             # QUEUED (no block at all) or INCONSISTENT -- contributes to no night set.

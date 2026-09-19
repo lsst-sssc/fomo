@@ -63,6 +63,20 @@ class _ObservationProjectorTestBase(TestCase):
         )
 
 
+class TestFacilityForOrNone(_ObservationProjectorTestBase):
+    """CR-03 (37-REVIEW.md): facility_for_or_none() must never raise, even though
+    facility_for() itself raises ImportError for a facility name absent from
+    TOM_FACILITY_CLASSES."""
+
+    def test_configured_facility_returns_the_same_instance_as_facility_for(self) -> None:
+        record = self._make_record('facilityfor-configured', facility='LCO')
+        self.assertIs(op.facility_for_or_none(record), op.facility_for(record))
+
+    def test_unconfigured_facility_returns_none_not_raise(self) -> None:
+        record = self._make_record('facilityfor-unconfigured', facility='NOT_A_CONFIGURED_FACILITY')
+        self.assertIsNone(op.facility_for_or_none(record))
+
+
 class TestStageFor(_ObservationProjectorTestBase):
     """stage_for() classifies a record's lifecycle stage from its own fields alone."""
 

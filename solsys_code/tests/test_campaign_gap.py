@@ -517,6 +517,23 @@ class TestObservationClaimedDates(TestCase):
         self.assertEqual(observation_claimed, set())
         self.assertEqual(site_unknown, 1)
 
+    def test_record_with_unconfigured_facility_increments_unknown_count_never_raises(self):
+        """CR-03 (37-REVIEW.md) regression: observation_projector.facility_for() raises
+        ImportError for a facility name absent from TOM_FACILITY_CLASSES -- this must
+        degrade to the same site-unknown bucket an unresolvable site already falls into,
+        never a 500 on the anonymous gap-analysis page."""
+        self._make_record(
+            observation_id='OBSCLAIM-BADFACILITY',
+            facility='NOT_A_CONFIGURED_FACILITY',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 8, 17, 22, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 8, 18, 4, 0, tzinfo=dt_timezone.utc),
+            parameters={'observed_site': 'ogg', 'observed_telescope': '2m0a'},
+        )
+        observation_claimed, site_unknown = observation_claimed_dates(self.campaign, self.target, self.site)
+        self.assertEqual(observation_claimed, set())
+        self.assertEqual(site_unknown, 1)
+
     def test_record_time_window_raising_is_skipped_never_aborts_the_loop(self):
         # status='COMPLETED' with both schedule fields None still classifies OBSERVED
         # (status_vocabulary.classify_record()'s "completed-no-block" case) -- with no

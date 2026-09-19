@@ -76,6 +76,31 @@ def facility_for(record: ObservationRecord) -> Any:
     return _facilities[name]
 
 
+def facility_for_or_none(record: ObservationRecord) -> Any | None:
+    """``facility_for()``, returning ``None`` instead of raising for an unconfigured facility.
+
+    ``facility_for()`` calls ``tom_observations.facility.get_service_class(name)``, which
+    raises ``ImportError`` for any facility name absent from ``settings.TOM_FACILITY_CLASSES``
+    -- a stale ``record.facility`` value (e.g. left behind by removing ``tom_eso``/
+    ``tom_gemini`` from that list) otherwise takes down a caller with no guard of its own
+    (CR-03, 37-REVIEW.md). Every public-facing display path that reads a facility instance
+    off of a possibly-stale stored record must go through this function, never
+    ``facility_for()`` directly.
+
+    Args:
+        record: the ObservationRecord whose ``facility`` selects the instance.
+
+    Returns:
+        Any | None: ``facility_for(record)``'s result, or ``None`` when ``record.facility``
+            names no configured facility. Never raises.
+    """
+    try:
+        return facility_for(record)
+    except ImportError:
+        logger.debug('facility_for: no configured facility named %r (record pk=%s)', record.facility, record.pk)
+        return None
+
+
 def reset_facility_cache() -> None:
     """Clear the cached facility instances (test-only helper).
 

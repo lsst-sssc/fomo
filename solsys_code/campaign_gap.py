@@ -29,7 +29,7 @@ from solsys_code.campaign_attribution import (
     _extract_lco_site_code,
 )
 from solsys_code.models import CampaignRun
-from solsys_code.observation_projector import facility_for
+from solsys_code.observation_projector import facility_for_or_none
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.status_vocabulary import DisplayState, classify_record
 from solsys_code.telescope_runs import observing_night, sun_event
@@ -217,7 +217,14 @@ def observation_claimed_dates(campaign, target, site) -> tuple[set[date], int]:
     observation_claimed: set[date] = set()
     site_unknown_count = 0
     for record in qs:
-        facility = facility_for(record)
+        # CR-03 (37-REVIEW.md): facility_for_or_none() never raises for a stale/
+        # unconfigured facility name. A record with no resolvable facility is counted as
+        # site-unknown, the same bucket a resolvable-but-unattributed site already falls
+        # into just below -- never a 500 on the gap-analysis page.
+        facility = facility_for_or_none(record)
+        if facility is None:
+            site_unknown_count += 1
+            continue
         if classify_record(record, facility) not in _CLAIMING_DISPLAY_STATES:
             continue
         obscode = observation_site_obscode(record, record.attributed_site_obscode)

@@ -322,6 +322,25 @@ class TestNightCountsForRun(CampaignTallyTestBase):
             {'nights_observed': 0, 'nights_scheduled': 0, 'nights_failed': 0},
         )
 
+    def test_unconfigured_facility_is_skipped_never_raises(self):
+        """CR-03 (37-REVIEW.md) regression: observation_projector.facility_for() raises
+        ImportError for a facility name absent from TOM_FACILITY_CLASSES -- night_counts_for_run()'s
+        own docstring promises "never raises", and a bare facility_for() call would take
+        the anonymous campaign run table and campaign list down for every visitor on one
+        stale record."""
+        run = self._make_run()
+        self._link_record(
+            run,
+            facility='NOT_A_CONFIGURED_FACILITY',
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self.assertEqual(
+            night_counts_for_run(run),
+            {'nights_observed': 0, 'nights_scheduled': 0, 'nights_failed': 0},
+        )
+
 
 class TestTallyForRun(CampaignTallyTestBase):
     def test_zero_linked_records_produces_all_zero_and_unused_unknown(self):
