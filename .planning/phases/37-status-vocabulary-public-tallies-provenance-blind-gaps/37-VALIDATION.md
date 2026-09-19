@@ -22,7 +22,7 @@ created: "2026-09-18"
 | **Framework** | Django's built-in `TestCase` runner (unittest-based) — the only functioning suite per CLAUDE.md; `python -m pytest` does not collect these tests |
 | **Config file** | none — invoked directly via `manage.py test` |
 | **Quick run command** | `python manage.py test solsys_code.tests.<module>` |
-| **Full suite command** | `python manage.py test solsys_code` (exclude `solsys_code.tests.test_views.TestEphemeris` if the run segfaults in native ASSIST, per project memory) |
+| **Full suite command** | `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` — 37-07 Task 3 tags `solsys_code.tests.test_views.TestEphemeris` with `ephemeris_segfault` so the project's known-issue caveat (it segfaults in native ASSIST) becomes part of the invocation rather than prose beside it. Waves 1-4 run before the tag exists, where the flag matches nothing and excludes nothing — those waves omit the class by hand instead, exactly as the project note describes. |
 | **Estimated runtime** | ~5 s for a single module (measured: `test_campaign_gap`, 27 tests, 4.9 s wall including Django startup and test-database creation) |
 
 ---
@@ -31,7 +31,8 @@ created: "2026-09-18"
 
 - **After every task commit:** Run the task's own `<automated>` commands — always at least one
   `python manage.py test solsys_code.tests.<module>`
-- **After every plan wave:** Run `python manage.py test solsys_code`
+- **After every plan wave:** Run the full suite in the form given in the table above (waves 1-4
+  by hand-omitting the ephemeris class; wave 5 onward with `--exclude-tag=ephemeris_segfault`)
 - **Before `/gsd-verify-work`:** Full suite green, plus `pre-commit run ruff --all-files` and
   `pre-commit run ruff-format --all-files` clean
 - **Max feedback latency:** ~5 s per task-level check (a single module); the full suite is the
@@ -60,7 +61,7 @@ created: "2026-09-18"
 | 37-06-02 | 06 | 4 | UNUSED-01 | T-37-23, T-37-24 | The unused token is render-time only; the stored title is unchanged by a render | unit | `python manage.py test solsys_code.tests.test_calendar_display_extras solsys_code.tests.test_calendar_template` | ✅ | ⬜ pending |
 | 37-07-01 | 07 | 5 | STATUS-01, TALLY-01, GAPB-01 | T-37-26 | The runbook names the credential setting key, never a value | doc build | `pre-commit run --all-files` (includes the Sphinx build hook) | ✅ | ⬜ pending |
 | 37-07-02 | 07 | 5 | TALLY-01, TALLY-02, UNUSED-01 | T-37-25 | No regenerated notebook output carries a contact detail, an API key or a real portal group id | integration (executed notebook) | the executed-cell-count probe in 37-07 Task 2's `<verify>` | ✅ | ⬜ pending |
-| 37-07-03 | 07 | 5 | STATUS-01 | T-37-27 | The retirement list is deleted only after the database holds no legacy-spelled title | unit + data query | `python manage.py test solsys_code` | ✅ | ⬜ pending |
+| 37-07-03 | 07 | 5 | STATUS-01 | T-37-27 | The retirement list is deleted only after the database holds no legacy-spelled title | unit + data query | `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

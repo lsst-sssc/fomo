@@ -720,9 +720,20 @@ in this document is either `[VERIFIED: <path>:<lines>]` (read from the actual so
 session, with the constant/value quoted verbatim above) or `[CITED: <url>]` (official LCO
 documentation / the LCOGT example-scripts repository).
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three questions below were dispositioned during planning; each carries its resolution and the
+plan and task that owns it. Nothing in this section is outstanding — an executor should read the
+**Resolution** line first and treat the "What was unclear" paragraph as the record of how the
+answer was reached, not as a live choice to make.
 
 1. **How is a proposal code actually attached to a `CampaignRun` for the D-07 fetch to key on?**
+   - **Resolution (RESOLVED — 37-02 Task 1 and Task 2):** option (a). Plan 37-02 Task 1 is a
+     `checkpoint:decision` with `gate="blocking"` that confirms the portal's field names against
+     one live credentialed call before any code is written; Task 2 then adds the
+     `proposal_code` `CharField(blank=True, default='')` to `CampaignRun` with its migration and
+     populates it from `ParsedRun.proposal` in the classical loader, leaving WEB/CSV runs blank
+     and covered by the not-yet-known fallback. No planning decision is left open here.
    - What we know: `WatchedProposal.proposal_code` exists as a config list
      (`[VERIFIED: solsys_code/models.py:758]`), and the classical loader's `[proposal]` token
      is parsed into `ParsedRun.proposal`
@@ -734,7 +745,8 @@ documentation / the LCOGT example-scripts repository).
      (`[VERIFIED: solsys_code/models.py:195-421`, full field list read this session`]`), and a
      repo-wide grep for "proposal" in `campaign_forms.py` and `import_campaign_csv.py` returned
      zero hits — the WEB-submission and CSV-import paths never capture a proposal code either.
-   - What's unclear: whether the planner should (a) add a new `proposal_code` field to
+   - What was unclear at research time (settled by the Resolution above): whether the planner
+     should (a) add a new `proposal_code` field to
      `CampaignRun` populated at write time by each of the three active write paths (classical
      loader, CSV import column if one exists, a new web-form field), or (b) derive it
      differently (e.g. matching `WatchedProposal.proposal_code` against a run's
@@ -750,6 +762,11 @@ documentation / the LCOGT example-scripts repository).
      fetched" fallback (Claude's Discretion) already covers the runs left blank.
 
 2. **The runbook has no existing "coverage-gap analysis" section to change.**
+   - **Resolution (RESOLVED — 37-07 Task 1, with the behaviour it documents in 37-03):** the
+     recommendation was taken. 37-07 Task 1's action says the coverage-gap section is *written
+     fresh* ("a full-text search of this file found no existing section") and lists what it must
+     cover; 37-07's `must_haves` carries the same as an observable truth. `docs/design/` is left
+     alone, being rationale rather than operator how-to. No planning decision is left open here.
    - What we know: the phase's canonical-refs and roadmap text both say "the gap-analysis
      section" in `docs/runbooks/telescope_runs_calendar.rst` changes as a paired doc for this
      phase. A full-text search of that file this session for "Coverage", "gap", "unclaimed", and
@@ -758,9 +775,10 @@ documentation / the LCOGT example-scripts repository).
      output line-by-line this session) — no section documenting the coverage-gap feature exists
      in this runbook today, despite the feature (`campaign_gap.py`, `CampaignGapAnalysisView`)
      having shipped in v2.0/v2.1 (GAP-01/GAP-02, ASSET-01/02).
-   - What's unclear: whether this is a pre-existing documentation gap the phase should also
-     close (add a new section) or whether the gap-analysis feature is documented elsewhere (a
-     `docs/design/*.rst` file) that the phase should instead update.
+   - What was unclear at research time (settled by the Resolution above): whether this is a
+     pre-existing documentation gap the phase should also close (add a new section) or whether
+     the gap-analysis feature is documented elsewhere (a `docs/design/*.rst` file) that the
+     phase should instead update.
    - Recommendation: treat this as "add a new coverage-gap-analysis section to the runbook" — a
      repo-wide search this session (`grep -rln "coverage.gap\|Coverage-Gap\|claimed_dates" docs/`)
      found only `docs/design/canonical_record_spike.rst` mentions it, and design docs are
@@ -768,12 +786,17 @@ documentation / the LCOGT example-scripts repository).
      plan should write this section fresh rather than assume it exists to be edited in place.
 
 3. **Which `RunStatus` values other than `CANCELLED`/`WEATHER_TECH_FAILURE` should ever surface a marker, if any, as tallies roll up "observed/scheduled/expired-or-failed/unused"?**
+   - **Resolution (RESOLVED — no action needed; enforced by 37-01 Task 1 and 37-04 Task 2):**
+     the run-level marker table stays at exactly the two existing entries, migrated to `[C]`/`[W]`
+     (37-01), and 37-04 Task 2's `is_unused_allocation_night()` derives its suppression set from
+     that same table rather than re-listing statuses — so the other six `RunStatus` values cannot
+     reach the classifier by analogy. This question was recorded as a guard rail, not a choice.
    - What we know: `RunStatus` has 8 values total, but only 2 map to a calendar prefix today.
      The tally counts (D-11) are explicitly defined as derived from *linked records* via the
      classifier, not from `run_status` itself (TALLY-03's guard) — so `run_status` values like
      `OBSERVED`/`REDUCED`/`PUBLISHED` are staff-only downstream bookkeeping states that should
      never feed the tally computation, only the pop-up's existing `Run status:` display line.
-   - What's unclear: nothing structurally — this is confirmed correct by TALLY-03 and D-14
+   - What was unclear at research time: nothing structurally — this is confirmed correct by TALLY-03 and D-14
      ("staff run status always wins" only for the `[C]`/`[W]` unused-suppression case). Listed
      here only so the planner doesn't accidentally wire `REQUESTED`/`PLANNED`/`OBSERVED`/
      `REDUCED`/`PUBLISHED` into the classifier's marker table by analogy with
