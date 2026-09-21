@@ -1,40 +1,28 @@
 ---
-status: testing
+status: diagnosed
 phase: 37-status-vocabulary-public-tallies-provenance-blind-gaps
 source: [37-VERIFICATION.md]
 started: 2026-09-19T17:20:00Z
-updated: 2026-09-19T17:20:00Z
+updated: 2026-09-20T00:00:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: Calendar reads correctly by eye — unused night muted and `[U]`-prefixed, cancelled night keeps `[C]` plus its ring
-expected: |
-  On the calendar, an awarded night that came and went with nothing scheduled or observed
-  renders visibly different from a realised night: muted (opacity 0.55) with a dashed border,
-  and its title text carries a leading `[U]` token. A staff-cancelled run night still renders
-  `[C]` and keeps its status ring. The two states are distinguishable at a glance without
-  hovering.
-
-  All markup, CSS, template tags and JS are verified present and unit-tested (395 scoped tests
-  green). Only the by-eye half is outstanding — this is the deferred `<human-check>` block from
-  37-07-PLAN.md:307.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Unused vs cancelled night render distinctly on the calendar
 expected: An unused awarded night is muted/dashed with a `[U]` title token; a cancelled night shows `[C]` and retains its status ring; the two are distinguishable at a glance.
-result: [pending]
+result: pass
 
 ### 2. `[U]` legend swatch toggles the unused filter on and off
 expected: Clicking the `[U]` entry in the calendar legend filters the view to unused nights; clicking it again clears the filter. Behaves like the existing proposal swatches, and does not break the single-active-filter behaviour those already have.
-result: [pending]
+result: pass
 
 ### 3. Calendar pop-up tally line reads sensibly
 expected: Opening an event pop-up for an attributed run shows a tally line inside the attributed-run block, reading naturally (counts of linked groups/records and nights observed / scheduled / expired-or-failed / unused). A not-yet-known unused figure reads as a word, never a bare `0`.
-result: [pending]
+result: pass
 
 ### 4. Product decision — roll-up strip's unused figure staleness
 expected: |
@@ -53,21 +41,41 @@ expected: |
       per-run tally now has. This requires relaxing
       `test_campaign_list_query_count_bound_with_three_campaigns`'s zero-marginal-query
       bound on the anonymous campaign list page.
-result: [pending]
+result: issue
+reported: "Option (b)"
+severity: major
 
 ## Summary
 
 total: 4
-passed: 0
-issues: 0
-pending: 4
+passed: 3
+issues: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-None. The verifier scored 5/5 must-haves with no gaps or blockers; these four items are
-human-judgement checks, not defects.
+- gap_id: G-37-4
+  truth: "The campaign-list roll-up strip's [U] total agrees with the sum of the Progress cells directly beneath it on the same page, with no time-bounded disagreement."
+  status: failed
+  reason: "User reported: Option (b)"
+  severity: major
+  test: 4
+  root_cause: "get_or_compute_rollup() (campaign_tally.py:613) caches the WHOLE campaign_rollup() dict, unused_* fields included, so the roll-up's unused figure is frozen for TALLY_CACHE_TTL_SECONDS. The per-run path deliberately does not: tallies_for_runs()/get_or_compute_tally() cache WITHOUT the unused_* keys and re-apply them live through _apply_unused_fields() on every call, including on a cache hit (campaign_tally.py:269/278/303/308/343/349). build_rollup_cache_key() folds in campaign_records_version(), so the strip IS live to a record-driven narrowing; the residual is confined to the two unused_* drivers that do not move records_version -- an awarded night elapsing past its projected sunrise (is_unused_allocation_night() compares end_time against timezone.now()) and a staff run_status edit into a RUN_STATUS_MARKER status."
+  artifacts:
+    - path: "solsys_code/campaign_tally.py"
+      issue: "get_or_compute_rollup() caches unused_* with the rest of the roll-up instead of recomputing that split live, diverging from get_or_compute_tally()'s cache-without-unused contract"
+    - path: "solsys_code/campaign_tally.py"
+      issue: "campaign_rollup() computes the unused sum inline; the live split needs it factored out so the cached and live halves can be assembled separately"
+    - path: "solsys_code/tests/test_campaign_views.py:1170"
+      issue: "test_campaign_list_query_count_bound_with_three_campaigns asserts a zero-marginal-query bound that a live per-run allocation-event count on the anonymous campaign list page will exceed"
+  missing:
+    - "Factor campaign_rollup()'s unused sum into a campaign-level counterpart of _apply_unused_fields() that adds each run's exact still-standing allocation-night count plus the D-06 proposal-derived estimate once per distinct non-blank proposal_code"
+    - "Cache the roll-up WITHOUT the unused_* keys in get_or_compute_rollup() and apply the live split on every call, on cache hits too -- mirroring get_or_compute_tally()"
+    - "Relax test_campaign_list_query_count_bound_with_three_campaigns to the new bound, keeping it a bound (asserting it does not scale per campaign) rather than deleting it"
+    - "Update the docstrings on campaign_rollup()/get_or_compute_rollup() that currently promise the TALLY_CACHE_TTL_SECONDS staleness this change removes"
+  debug_session: ""
 
 ## Notes carried forward (not blocking this phase)
 
@@ -82,3 +90,16 @@ human-judgement checks, not defects.
   (`PROJECTED_FACILITIES = ('LCO', 'SOAR')`; marker values byte-identical, only their source
   moved), and CLAUDE.md's paired-docs rule explicitly carves out pure refactors. A commit-log
   inaccuracy, not a stale artifact.
+- Segment labels in the tally line are not pluralized. `event_form.html:198` pluralizes the
+  `groups`/`records` prefix but the segment loop at `event_form.html:211` renders
+  `{{ segment.count }} {{ segment.label }}` with no `|pluralize`. Three of the four labels are
+  state adjectives so it never shows; `Unused awarded night`
+  (`status_vocabulary.py:83`) is the only count noun, so a count of 15 reads
+  `15 Unused awarded night`. Same label feeds the campaign table's Progress column and the
+  campaign-list roll-up strip, so the singular reads wrong in all three surfaces. Observed
+  during UAT test 3 and accepted as non-blocking by the developer; worth a follow-up quick task.
+- The pop-up's attributed-run header ends in `run.get_run_status_display()` (the staff-set
+  `CampaignRun.run_status`, `calendar_display_extras.py:546`) while the tally line beneath it
+  carries a derived `[O] N Observed` count. A run whose staff status is `Observed` can sit above
+  `[O] 0 Observed`, so one line uses the same word for an editorial status and a computed count.
+  Not a data inconsistency; noted as a readability observation, accepted as-is during UAT test 3.

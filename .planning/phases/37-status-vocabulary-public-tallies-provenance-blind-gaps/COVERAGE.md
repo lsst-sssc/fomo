@@ -20,12 +20,12 @@ boundary: an anonymous visitor must not be able to trigger a credentialed portal
 
 ## Capability surface
 
-| Capability / field | Disposition | Reason |
+| capability | decision | reason |
 |---|---|---|
 | `timeallocation_set[].std_allocation` | INTEGRATE | Standard-time hours awarded — the numerator half of D-06's unused-hours figure. |
 | `timeallocation_set[].std_time_used` | INTEGRATE | Standard-time hours used — the subtrahend. |
-| `timeallocation_set[].rr_allocation` / `rr_time_used` | INTEGRATE (stored, not summed) | Stored as their own rows so the summation rule can change without a re-fetch (RESEARCH assumption A2 is unverified against live credentials); excluded from the estimate until a live check says otherwise. |
-| `timeallocation_set[].tc_allocation` / `tc_time_used` | INTEGRATE (stored, not summed) | Same reason as the rapid-response pair. |
+| `timeallocation_set[].rr_allocation` / `rr_time_used` | INTEGRATE | Stored as their own rows but NOT summed into the estimate, so the summation rule can change without a re-fetch (RESEARCH assumption A2 is unverified against live credentials). |
+| `timeallocation_set[].tc_allocation` / `tc_time_used` | INTEGRATE | Stored as their own rows but NOT summed into the estimate — same reason as the rapid-response pair. |
 | `timeallocation_set[].semester` | INTEGRATE | Part of the natural key, so one proposal's two semesters do not collide in one row. |
 | `timeallocation_set[].instrument_types` | INTEGRATE | Part of the natural key, for the same reason. |
 | `timeallocation_set[].ipp_limit` / `ipp_time_available` | OPT-OUT | Intra-proposal priority accounting; it changes which requests get scheduled, not how many nights are unused, so it feeds nothing this phase renders. |
