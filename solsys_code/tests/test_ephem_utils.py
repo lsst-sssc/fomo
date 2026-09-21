@@ -444,5 +444,6 @@ class TestCloseApproach2025FA22(TestCase):
             )
         # The night after closest approach it is well placed from both hemispheres
         windows = visibility_windows(visibility)
-        self.assertEqual(windows['LSC'][-1], (datetime(2025, 9, 19, 5, 30), datetime(2025, 9, 19, 9, 15)))
-        self.assertEqual(windows['OGG'][-1], (datetime(2025, 9, 19, 9, 0), datetime(2025, 9, 19, 14, 45)))
+        # Edges sit half a sampling interval outside the first/last valid sample (see visibility_windows)
+        self.assertEqual(windows['LSC'][-1], (datetime(2025, 9, 19, 5, 22, 30), datetime(2025, 9, 19, 9, 22, 30)))
+        self.assertEqual(windows['OGG'][-1], (datetime(2025, 9, 19, 8, 52, 30), datetime(2025, 9, 19, 14, 52, 30)))

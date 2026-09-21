@@ -82,32 +82,54 @@ def airmass_samples(altitudes_deg, sun_altitudes_deg, airmass_limit=None, sun_al
     return airmasses
 
 
+def _run_interval(times: list, first: int, last: int) -> Interval:
+    """
+    The interval covered by the run of valid samples ``times[first:last + 1]``.
+
+    Extended halfway towards the invalid sample on either side, except where the run reaches the end
+    of the sampled range. See ``visibility_windows``.
+    """
+    start = times[first] if first == 0 else times[first - 1] + (times[first] - times[first - 1]) / 2
+    end = times[last] if last == len(times) - 1 else times[last] + (times[last + 1] - times[last]) / 2
+    return start, end
+
+
 def visibility_windows(samples: dict[str, tuple]) -> dict[str, list[Interval]]:
     """
     Turns sampled visibility into per-site intervals of contiguous valid samples.
+
+    Each run is extended to the midpoint between its first (last) valid sample and the invalid sample
+    before (after) it: the crossing lies somewhere between that pair, so the midpoint is the best
+    estimate available without recomputing the ephemeris. Taking the valid sample itself would clip
+    every window by up to one sampling interval at each end, always in the same direction, and would
+    collapse a single-sample run to zero width (which ``cadence_window`` then discards). A run
+    reaching the first or last sample is not extended, as nothing is known beyond the sampled range.
+
+    The residual error is the curvature of the altitude curve across one interval; interpolating the
+    crossing from the surrounding samples would remove it.
 
     :param samples: ``{site: (times, airmasses)}`` in the shape returned by
         ``tom_observations.utils.get_sidereal_visibility``; a sample is valid when its airmass is
         neither ``None`` nor NaN
     :type samples: dict
-    :return: ``{site: [(start, end), ...]}`` where ``start``/``end`` are the first and last valid
-        sample times of each run
+    :return: ``{site: [(start, end), ...]}``, one interval per run of valid samples
     :rtype: dict
     """
     windows = {}
     for site, (times, airmasses) in samples.items():
+        times = list(times)
+        valid = [_is_valid(airmass) for _, airmass in zip(times, airmasses, strict=True)]
         intervals = []
-        run_start = run_end = None
-        for time, airmass in zip(times, airmasses, strict=True):
-            if _is_valid(airmass):
-                if run_start is None:
-                    run_start = time
-                run_end = time
-            elif run_start is not None:
-                intervals.append((run_start, run_end))
-                run_start = run_end = None
-        if run_start is not None:
-            intervals.append((run_start, run_end))
+        first = None
+        for index, is_valid in enumerate(valid):
+            if is_valid:
+                if first is None:
+                    first = index
+            elif first is not None:
+                intervals.append(_run_interval(times, first, index - 1))
+                first = None
+        if first is not None:
+            intervals.append(_run_interval(times, first, len(valid) - 1))
         windows[site] = intervals
     return windows
 
