@@ -1992,9 +1992,28 @@ different ways depending on the run:
   presented as an exact count.
 * Before the proposal-allocation step has ever successfully fetched that
   run's proposal, or when the run has no allocation events and no
-  proposal code at all, the figure shows as **not yet known** -- never as
-  a bare zero, which would read as "definitely nothing unused" rather
-  than "nothing to compute this from yet".
+  proposal code at all, that run's own Progress cell or the pop-up
+  block's own figure shows as **not yet known** -- never as a bare zero,
+  which would read as "definitely nothing unused" rather than "nothing
+  to compute this from yet". In the **campaign roll-up strip**, which
+  sums across runs, a run whose own figure is not yet known is never
+  counted as zero either: the strip shows the total it CAN account for,
+  prefixed with the words **at least**, and names how many runs it
+  could not include -- for example ``at least 2 (1 run not yet known)``.
+  A total that silently dropped those runs would read as "definitely
+  nothing more unused", the same false certainty a bare zero carries for
+  a single run.
+
+The estimate qualifier (the ``≈`` sign, spelled ``&approx;`` on the
+roll-up strip) means something stricter than "a proposal code was looked
+up": it appears only when a proposal-derived estimate actually
+contributed a number to the total. A campaign whose only proposal has
+never been fetched shows no estimate qualifier at all -- its figure reads
+as not yet known instead, on both the run's own cell and the roll-up
+strip -- because there is no estimate behind the figure to qualify. This
+changed in Phase 37's gap-closure plan (G-37-6/D-20): an operator who
+remembers seeing the qualifier on a total with nothing estimated behind
+it was seeing the defect, not the design.
 
 **How fresh is the tally?** A change to a linked observation record -- the
 projector narrowing a queued request to a placed block, or a placed block
