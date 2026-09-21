@@ -29,7 +29,7 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code import campaign_tally
+from solsys_code import campaign_tally, campaign_views
 from solsys_code.allocation_projector import allocation_night_url
 from solsys_code.campaign_tables import CampaignRunTable, _campaign_run_row_id
 from solsys_code.campaign_views import CampaignListView
@@ -1149,6 +1149,115 @@ class TestProgressColumnCoversEveryRenderedRow(CampaignTallyViewTestBase):
         response = self.client.get(url)
         rendered_pks = self._assert_full_coverage(response)
         self.assertEqual(len(rendered_pks), 25)
+
+    def test_per_page_widened_covers_every_rendered_row(self):
+        """RED before the Task 1 fix and the T-37-09-02 cap: 10 occurrences of the token
+        (5 of 30 rows) when ``per_page`` widens the page past the old hardcoded 25-row
+        tally slice. ``?per_page=50`` is at/below MAX_TABLE_PER_PAGE, so it must be
+        honoured exactly -- all 30 rows render."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': '50'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 30)
+
+    def test_sort_and_per_page_combined_cover_every_rendered_row(self):
+        """Both G-37-5 GET params applied at once -- still zero."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': 'telescope_instrument', 'per_page': '50'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 30)
+
+    def test_sorted_page_two_boundary_covers_every_rendered_row(self):
+        """Adjacency: the short final page of a sorted 30-run campaign -- rows 25/26
+        change identity when the sort changes, and this is the short 5-row tail."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument', 'page': '2'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 5)
+
+    def test_tied_window_start_ordering_covers_every_rendered_row(self):
+        """SQLite gives no tie-break guarantee for rows whose ``window_start`` compares
+        equal, so the default ``get_queryset()`` ordering has real ties here. Coverage is
+        asserted, never which of the tied rows lands on which page -- the tie-break order
+        itself is deliberately not a contract of this plan (TALLY-01's ordering must_have)."""
+        tied_date = _BASE_DATE + timedelta(days=100)
+        for _ in range(6):
+            self._make_run(window_start=tied_date, window_end=tied_date)
+        for i in range(25):
+            window_date = _BASE_DATE + timedelta(days=i)
+            self._make_run(window_start=window_date, window_end=window_date)
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url)
+        self._assert_full_coverage(response)
+
+    def test_out_of_range_page_number_covers_every_rendered_row(self):
+        """RequestConfig falls back to the last page via its own EmptyPage handling; the
+        tallies follow whatever it settled on, because they are read afterwards."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument', 'page': '99'})
+        self._assert_full_coverage(response)
+
+    def test_non_integer_page_number_covers_every_rendered_row(self):
+        """RequestConfig falls back to page 1 via its own PageNotAnInteger handling."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument', 'page': 'banana'})
+        self._assert_full_coverage(response)
+
+    def test_huge_per_page_is_capped_and_still_fully_covered(self):
+        """T-37-09-02: ``?per_page=100000`` must not fan the tally pass out across the
+        whole campaign -- it renders at most MAX_TABLE_PER_PAGE rows, and the cap must not
+        reintroduce the coverage gap it protects against (the tallies dict is exactly the
+        same size as the rendered set)."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': '100000'})
+        self.assertEqual(response.status_code, 200)
+        table = response.context['table']
+        rendered_count = len(list(table.paginated_rows))
+        self.assertLessEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
+        self.assertEqual(len(table.tallies), rendered_count)
+        self._assert_full_coverage(response)
+
+
+class TestProgressColumnOnDegenerateCampaigns(CampaignTallyViewTestBase):
+    """G-37-5 edge coverage: a campaign with zero or exactly one run must still render
+    cleanly -- no exception from an empty pk list, and a single row still gets a real
+    tally."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_zero_run_campaign_renders_with_empty_tallies(self):
+        empty_campaign = TargetList.objects.create(name='Zero-Run Tally Campaign')
+        url = reverse('campaigns:table', kwargs={'pk': empty_campaign.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        table = response.context['table']
+        self.assertEqual(table.tallies, {})
+        self.assertEqual(response.content.decode().count('Progress not available'), 0)
+
+    def test_one_run_campaign_renders_with_a_real_tally(self):
+        one_run_campaign = TargetList.objects.create(name='One-Run Tally Campaign')
+        CampaignRun.objects.create(
+            campaign=one_run_campaign,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument=f'FTN/Solo-{uuid4().hex[:8]}',
+            site=self.site,
+            site_raw='F65',
+            window_start=_BASE_DATE,
+            window_end=_BASE_DATE,
+        )
+        url = reverse('campaigns:table', kwargs={'pk': one_run_campaign.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        table = response.context['table']
+        self.assertEqual(len(table.tallies), 1)
+        self.assertEqual(response.content.decode().count('Progress not available'), 0)
 
 
 class TestCampaignRollup(CampaignTallyViewTestBase):

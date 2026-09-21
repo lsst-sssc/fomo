@@ -113,6 +113,15 @@ ALLOWED_FIELDS_FOR_NON_STAFF = [
     'comments',
 ]
 
+# T-37-09-02: CampaignRunTableView is public and unauthenticated, and RequestConfig.configure()
+# reads `per_page` straight from the query string, OVERRIDING table_pagination -- so following
+# the rendered rows (get_table() below) removes an accidental bound the old hardcoded-25 tally
+# slice used to provide for free. The per-run tally pass costs roughly two to three queries per
+# rendered row (campaign_tally.tallies_for_runs()), so an uncapped `per_page` would let one GET
+# fan that cost out across an entire campaign. 100 matches the existing CampaignListView.paginate_by
+# bound below -- the precedent for what one anonymous page load may cost.
+MAX_TABLE_PER_PAGE = 100
+
 
 class CampaignRunTableView(SingleTableMixin, FilterView):
     """Sortable/paginated/filterable table of every CampaignRun for one campaign (VIEW-01/04).
@@ -128,6 +137,37 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
     filterset_class = CampaignRunFilterSet
     template_name = 'campaigns/campaignrun_table.html'
     table_pagination = {'per_page': 25}  # D-11
+
+    def get(self, request, *args, **kwargs):
+        """T-37-09-02: cap an attacker-controlled ``per_page`` at ``MAX_TABLE_PER_PAGE``
+        before anything downstream reads it.
+
+        ``RequestConfig.configure()`` reads ``per_page`` straight from
+        ``self.request.GET`` and uses it to OVERRIDE ``table_pagination`` -- so the cap
+        cannot live in ``get_table_pagination()``, which ``configure()`` bypasses
+        entirely for this parameter. Instead, when the incoming ``per_page`` parses as an
+        integer above the cap (or below 1), it is replaced with ``MAX_TABLE_PER_PAGE`` on
+        a mutable copy of ``request.GET`` before ``super().get()`` runs -- every other
+        query parameter on the copy (``sort``, ``page``, and every ``CampaignRunFilterSet``
+        field) is left untouched. A ``per_page`` that does not parse as an integer is left
+        exactly as it is: ``RequestConfig.configure()`` already ignores it via its own
+        ``except (ValueError, KeyError)``.
+
+        A legitimate ``per_page`` at or below the cap (e.g. ``?per_page=50``, needed for
+        the G-37-5 fix this cap ships alongside) is honoured exactly -- this is a ceiling,
+        not a re-hardcoding of the old 25-row default.
+        """
+        raw_per_page = request.GET.get('per_page')
+        if raw_per_page is not None:
+            try:
+                per_page = int(raw_per_page)
+            except (TypeError, ValueError):
+                per_page = None
+            if per_page is not None and (per_page > MAX_TABLE_PER_PAGE or per_page < 1):
+                mutable_get = request.GET.copy()
+                mutable_get['per_page'] = str(MAX_TABLE_PER_PAGE)
+                request.GET = mutable_get
+        return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
         """Restrict to this campaign; non-staff get a PII-safe .values() queryset (D-13).
