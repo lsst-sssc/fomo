@@ -171,8 +171,19 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         A legitimate ``per_page`` at or below the cap (e.g. ``?per_page=50``, needed for
         the G-37-5 fix this cap ships alongside) is honoured exactly -- this is a ceiling,
         not a re-hardcoding of the old 25-row default.
+
+        WR-06 (37-REVIEW.md): the query-string field name is resolved from
+        ``self.table_class._meta`` (``prefix + per_page_field``) rather than the bare
+        literal ``'per_page'`` -- that is the exact same
+        ``table.prefixed_per_page_field`` expression ``RequestConfig.configure()`` itself
+        reads (django-tables2 ``config.py``). Today the two agree only because
+        ``CampaignRunTable.Meta`` sets neither ``prefix`` nor ``per_page_field``; resolving
+        it dynamically means the cap keeps matching whichever parameter django-tables2
+        actually reads even if that ever changes (e.g. a ``prefix`` added so a second table
+        can render on the same page, as ``ApprovalQueueView`` already does).
         """
-        raw_per_page = request.GET.get('per_page')
+        per_page_field = self.table_class._meta.prefix + self.table_class._meta.per_page_field
+        raw_per_page = request.GET.get(per_page_field)
         if raw_per_page is not None:
             try:
                 per_page = int(raw_per_page)
@@ -181,7 +192,7 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
             if per_page is not None and not (1 <= per_page <= MAX_TABLE_PER_PAGE):
                 clamped = MAX_TABLE_PER_PAGE if per_page > MAX_TABLE_PER_PAGE else DEFAULT_TABLE_PER_PAGE
                 mutable_get = request.GET.copy()
-                mutable_get['per_page'] = str(clamped)
+                mutable_get[per_page_field] = str(clamped)
                 request.GET = mutable_get
         return super().get(request, *args, **kwargs)
 

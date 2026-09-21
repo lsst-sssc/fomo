@@ -1096,6 +1096,15 @@ class TestProgressColumnCoversEveryRenderedRow(CampaignTallyViewTestBase):
         # Same pk-reuse rationale as TestCampaignRunTableProgressColumn.setUp().
         cache.clear()
 
+    def test_per_page_field_name_used_by_the_cap_matches_the_table(self):
+        """WR-06 (37-REVIEW.md): CampaignRunTableView.get() resolves the query-string field
+        name it caps from ``CampaignRunTable``'s own Meta rather than restating the literal
+        ``'per_page'`` -- this pins that they agree with what django-tables2's own
+        ``RequestConfig.configure()`` reads (``table.prefixed_per_page_field``), so a future
+        ``prefix`` or ``per_page_field`` override on ``CampaignRunTable.Meta`` would break
+        this test loudly instead of silently disabling the cap."""
+        self.assertEqual(CampaignRunTable(data=[]).prefixed_per_page_field, 'per_page')
+
     def _make_thirty_runs(self) -> list[CampaignRun]:
         """30 runs on ``self.campaign``, each with a distinct ``window_start`` so
         ``get_queryset()``'s default nulls-last descending order is well defined. Each
