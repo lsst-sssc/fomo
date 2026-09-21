@@ -384,7 +384,7 @@ Plans:
   4. An awarded night that came and went with nothing scheduled or observed is visibly different on the calendar from a night that was actually observed
   5. Coverage-gap analysis counts every observation on the campaign calendar, so classical and queue time is no longer reported as unclaimed
 
-**Plans**: 7/7 plans executed
+**Plans**: 7/8 plans executed (37-08 added 2026-09-20 as gap-closure wave 6 for UAT gap G-37-4 — the campaign roll-up strip's `[U]` unused total disagreeing with the Progress cells directly beneath it on the same page for up to the tally cache lifetime, developer's chosen option (b))
 
 Plans:
 **Wave 1**
@@ -408,6 +408,10 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 37-07-PLAN.md — Paired docs: the runbook's final vocabulary, public-tally and new coverage-gap sections, four regenerated notebooks, and the legacy title spellings retired (wave 5)
+
+**Wave 6** *(gap closure, blocked on Wave 5 completion)*
+
+- [ ] 37-08-PLAN.md — The campaign roll-up's unused figure is recomputed live on every call, cache hits included, through one campaign-level applier both paths share, so the strip agrees with the Progress cells beneath it; the campaign-list query bound is relaxed to a constant enumerated marginal cost, and both docstrings, the pagination comment and the runbook's freshness paragraph are corrected (wave 6, gap closure G-37-4)
 
 **UI hint**: yes
 
