@@ -1167,6 +1167,60 @@ class TestCampaignRollup(CampaignTallyViewTestBase):
         self.assertNotEqual(a, b)
         self.assertEqual(a, c)
 
+    def test_rollup_strip_agrees_with_progress_cells_after_a_staff_status_edit_not_a_records_change(self):
+        """G-37-4/D-15: the roll-up strip's [U] total must equal the sum of the Progress
+        cells' [U] values on the SAME rendered page response, across a driver that moves the
+        unused figure without moving campaign_records_version() -- a staff run_status edit.
+        Before this fix, get_or_compute_rollup() served the cached whole dict unchanged on a
+        hit, so the strip kept reading the pre-edit total while the row beneath it (computed
+        live via tallies_for_runs()) already read the post-edit one -- one page response
+        contradicting itself.
+
+        Body assertions run against a WHITESPACE-COLLAPSED copy of the response body. The
+        strip renders its marker and its count on two separate template lines
+        (campaignrun_table.html's rollup_segments loop), while the row cell emits them
+        contiguously (campaign_tables.py render_progress()'s f-string) -- a raw-body
+        contiguous-token check on the strip would distinguish nothing, passing or failing
+        identically before and after the fix.
+        """
+        run_a = self._make_run(telescope_instrument='FTN/RunA')
+        run_b = self._make_run(telescope_instrument='FTN/RunB')
+        self._make_alloc_event(run_a, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_a, date(2026, 7, 10), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_b, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+
+        first = self.client.get(url)
+        self.assertEqual(first.context['rollup']['nights_unused'], 3)
+        self.assertTrue(first.context['rollup']['unused_known'])
+        self.assertFalse(first.context['rollup']['unused_is_estimate'])
+        first_body = ' '.join(first.content.decode().split())
+        self.assertIn('[U] 3', first_body)
+        self.assertIn('[U] 2', first_body)
+        self.assertIn('[U] 1', first_body)
+
+        # A staff edit, exactly like the approval-queue decision view makes. Touches no
+        # ObservationRecord, so campaign_records_version() -- and the roll-up cache key --
+        # does not move.
+        run_b.run_status = CampaignRun.RunStatus.CANCELLED
+        run_b.save(update_fields=['run_status'])
+
+        second = self.client.get(url)
+        self.assertEqual(second.context['rollup']['nights_unused'], 2)
+        second_body = ' '.join(second.content.decode().split())
+        self.assertNotIn('[U] 3', second_body)
+        self.assertIn('[U] 2', second_body)
+        self.assertIn('[U] 0', second_body)
+
+        # The roll-up-equals-its-rows property in its computed form, independent of how the
+        # HTML wraps.
+        per_run = campaign_tally.tallies_for_runs([run_a, run_b])
+        self.assertEqual(
+            second.context['rollup']['nights_unused'],
+            per_run[run_a.pk]['nights_unused'] + per_run[run_b.pk]['nights_unused'],
+        )
+
     def test_campaign_list_query_count_bound_with_three_campaigns(self):
         """D-10/T-37-19: one extra small query per listed campaign (the change-stamp probe)
         is the accepted, bounded cost -- the cached rollup itself must add no further query."""
