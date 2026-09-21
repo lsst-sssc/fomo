@@ -1103,6 +1103,12 @@ class TestRollupPartiallyKnownUnusedTotal(CampaignTallyTestBase):
         rollup = campaign_rollup(self.campaign)
         self.assertIsNone(rollup['nights_unused'])
         self.assertFalse(rollup['unused_known'])
+        # WR-03 (37-REVIEW.md): every not-yet-known roll-up must carry the SAME
+        # unused_is_estimate value as every other not-yet-known writer in campaign_tally.py
+        # (the empty-runs early return, campaign_rollup()'s initial dict, and
+        # _without_unused_fields()'s cached reset all write True) -- this is the branch that
+        # used to disagree (False) with all three of those.
+        self.assertTrue(rollup['unused_is_estimate'])
         self.assertEqual(rollup['unused_unknown_runs'], 1)
         unused_segment = tally_segments(rollup)[-1]
         self.assertFalse(unused_segment['known'])
@@ -1110,6 +1116,26 @@ class TestRollupPartiallyKnownUnusedTotal(CampaignTallyTestBase):
     def test_empty_campaign_reports_zero_unknown_runs_too(self):
         rollup = campaign_rollup(self.campaign)
         self.assertEqual(rollup['unused_unknown_runs'], 0)
+
+    def test_not_yet_known_states_agree_on_every_unused_key_except_unknown_runs(self):
+        """WR-03 (37-REVIEW.md): an empty campaign (unused_known False because there are no
+        runs at all) and a campaign with one run that resolves nothing (unused_known False
+        because nothing contributed) are the SAME logical "not yet known" state from the
+        strip's point of view -- they must agree key-for-key on every ``unused_*`` field
+        except ``unused_unknown_runs`` (0 vs. 1, since only the second campaign has an
+        unresolved run to count)."""
+        empty_rollup = campaign_rollup(self.campaign)
+
+        other_campaign = TargetList.objects.create(name='WR-03 Nothing Known')
+        self._make_run(campaign=other_campaign, telescope_instrument='FTN/WR03NothingKnown')
+        nothing_known_rollup = campaign_rollup(other_campaign)
+
+        self.assertEqual(empty_rollup['nights_unused'], nothing_known_rollup['nights_unused'])
+        self.assertEqual(empty_rollup['unused_known'], nothing_known_rollup['unused_known'])
+        self.assertEqual(empty_rollup['unused_is_estimate'], nothing_known_rollup['unused_is_estimate'])
+        self.assertNotEqual(empty_rollup['unused_unknown_runs'], nothing_known_rollup['unused_unknown_runs'])
+        self.assertEqual(empty_rollup['unused_unknown_runs'], 0)
+        self.assertEqual(nothing_known_rollup['unused_unknown_runs'], 1)
 
     def test_cold_and_warm_calls_agree_on_a_partially_known_campaign(self):
         """The new key travels on both the cache-miss and cache-hit paths identically."""

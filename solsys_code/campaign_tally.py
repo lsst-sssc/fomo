@@ -632,10 +632,16 @@ def _apply_rollup_unused_fields(rollup: dict[str, Any], runs: list[CampaignRun])
     if exact_known or estimate_known:
         rollup['nights_unused'] = exact_total + estimate_total
         rollup['unused_known'] = True
+        rollup['unused_is_estimate'] = bool(contributing_codes)
     else:
+        # WR-03 (37-REVIEW.md): a not-yet-known roll-up must carry the SAME
+        # ``unused_is_estimate`` value as every other not-yet-known writer in this module
+        # (the empty-``runs`` early return above, ``campaign_rollup()``'s initial dict, and
+        # ``_without_unused_fields()``'s cached reset all write ``True``) -- ``False`` here
+        # would be a fourth, disagreeing shape for the identical "nothing known" state.
         rollup['nights_unused'] = None
         rollup['unused_known'] = False
-    rollup['unused_is_estimate'] = bool(contributing_codes)
+        rollup['unused_is_estimate'] = True
     rollup['unused_unknown_runs'] = unknown_runs
 
 
