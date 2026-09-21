@@ -121,6 +121,12 @@ ALLOWED_FIELDS_FOR_NON_STAFF = [
 # fan that cost out across an entire campaign. 100 matches the existing CampaignListView.paginate_by
 # bound below -- the precedent for what one anonymous page load may cost.
 MAX_TABLE_PER_PAGE = 100
+# CR-01 (37-REVIEW.md): the low-end fallback for an out-of-range `per_page` (0, negative,
+# unparseable-as-positive). MUST be a valid, small page size -- never MAX_TABLE_PER_PAGE, which
+# would clamp a *too-small* request UP to the *most expensive* one this cap exists to bound.
+# Shares the same value get() and table_pagination below already use as the default page size,
+# so a degenerate per_page produces exactly what an absent per_page would.
+DEFAULT_TABLE_PER_PAGE = 25  # D-11
 
 
 class CampaignRunTableView(SingleTableMixin, FilterView):
@@ -136,22 +142,31 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
     table_class = CampaignRunTable
     filterset_class = CampaignRunFilterSet
     template_name = 'campaigns/campaignrun_table.html'
-    table_pagination = {'per_page': 25}  # D-11
+    table_pagination = {'per_page': DEFAULT_TABLE_PER_PAGE}  # D-11
 
     def get(self, request, *args, **kwargs):
-        """T-37-09-02: cap an attacker-controlled ``per_page`` at ``MAX_TABLE_PER_PAGE``
-        before anything downstream reads it.
+        """T-37-09-02/CR-01: cap an attacker-controlled ``per_page`` at ``MAX_TABLE_PER_PAGE``
+        (and, for a too-small value, fall back to ``DEFAULT_TABLE_PER_PAGE`` rather than
+        the maximum) before anything downstream reads it.
 
         ``RequestConfig.configure()`` reads ``per_page`` straight from
         ``self.request.GET`` and uses it to OVERRIDE ``table_pagination`` -- so the cap
         cannot live in ``get_table_pagination()``, which ``configure()`` bypasses
         entirely for this parameter. Instead, when the incoming ``per_page`` parses as an
-        integer above the cap (or below 1), it is replaced with ``MAX_TABLE_PER_PAGE`` on
-        a mutable copy of ``request.GET`` before ``super().get()`` runs -- every other
-        query parameter on the copy (``sort``, ``page``, and every ``CampaignRunFilterSet``
-        field) is left untouched. A ``per_page`` that does not parse as an integer is left
-        exactly as it is: ``RequestConfig.configure()`` already ignores it via its own
+        integer outside ``[1, MAX_TABLE_PER_PAGE]``, it is replaced on a mutable copy of
+        ``request.GET`` before ``super().get()`` runs -- every other query parameter on
+        the copy (``sort``, ``page``, and every ``CampaignRunFilterSet`` field) is left
+        untouched. A ``per_page`` that does not parse as an integer is left exactly as it
+        is: ``RequestConfig.configure()`` already ignores it via its own
         ``except (ValueError, KeyError)``.
+
+        CR-01 (37-REVIEW.md): the two out-of-range directions are NOT clamped to the same
+        value. A too-LARGE ``per_page`` (``> MAX_TABLE_PER_PAGE``) is clamped DOWN to
+        ``MAX_TABLE_PER_PAGE`` -- that is the ceiling this cap exists for. A too-SMALL
+        ``per_page`` (``< 1``, i.e. ``0`` or negative) is clamped to
+        ``DEFAULT_TABLE_PER_PAGE`` instead -- clamping it UP to ``MAX_TABLE_PER_PAGE``
+        would make the cheapest-looking query string (``?per_page=0``) render the MOST
+        expensive page this view will serve, the opposite of what a cost cap should do.
 
         A legitimate ``per_page`` at or below the cap (e.g. ``?per_page=50``, needed for
         the G-37-5 fix this cap ships alongside) is honoured exactly -- this is a ceiling,
@@ -163,9 +178,10 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
                 per_page = int(raw_per_page)
             except (TypeError, ValueError):
                 per_page = None
-            if per_page is not None and (per_page > MAX_TABLE_PER_PAGE or per_page < 1):
+            if per_page is not None and not (1 <= per_page <= MAX_TABLE_PER_PAGE):
+                clamped = MAX_TABLE_PER_PAGE if per_page > MAX_TABLE_PER_PAGE else DEFAULT_TABLE_PER_PAGE
                 mutable_get = request.GET.copy()
-                mutable_get['per_page'] = str(MAX_TABLE_PER_PAGE)
+                mutable_get['per_page'] = str(clamped)
                 request.GET = mutable_get
         return super().get(request, *args, **kwargs)
 
