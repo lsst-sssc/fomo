@@ -437,6 +437,12 @@ def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
     pop-up block (D-08/D-15): one segment per state, always in the same order, regardless of
     which counts are zero.
 
+    ``unknown_runs`` (G-37-6/D-20) is a literal ``0`` on the observed/scheduled/expired-or-
+    failed segments, and ``tally.get('unused_unknown_runs', 0)`` on the unused segment -- a
+    ``.get()`` with a default, so a per-run tally dict (which never carries the key) reports
+    ``0`` and is unaffected. Non-zero only for a campaign roll-up; only the roll-up strip
+    template branches on it.
+
     Args:
         tally: a per-run or per-campaign tally dict (anything ``tally_for_run()``,
             ``get_or_compute_tally()``, ``tallies_for_runs()`` or ``campaign_rollup()``
@@ -445,7 +451,7 @@ def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
     Returns:
         list[dict[str, Any]]: four segments, in the fixed order observed/scheduled/
             expired-or-failed/unused, each ``{'marker': str, 'label': str, 'count':
-            int | None, 'is_estimate': bool, 'known': bool}``.
+            int | None, 'is_estimate': bool, 'known': bool, 'unknown_runs': int}``.
     """
     return [
         {
@@ -454,6 +460,7 @@ def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
             'count': tally['nights_observed'],
             'is_estimate': False,
             'known': True,
+            'unknown_runs': 0,
         },
         {
             'marker': MARKER[DisplayState.SCHEDULED],
@@ -461,6 +468,7 @@ def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
             'count': tally['nights_scheduled'],
             'is_estimate': False,
             'known': True,
+            'unknown_runs': 0,
         },
         {
             'marker': _EXPIRED_OR_FAILED_MARKER,
@@ -468,6 +476,7 @@ def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
             'count': tally['nights_failed'],
             'is_estimate': False,
             'known': True,
+            'unknown_runs': 0,
         },
         {
             'marker': MARKER[DisplayState.UNUSED],
@@ -475,6 +484,7 @@ def tally_segments(tally: dict[str, Any]) -> list[dict[str, Any]]:
             'count': tally['nights_unused'],
             'is_estimate': tally['unused_is_estimate'],
             'known': tally['unused_known'],
+            'unknown_runs': tally.get('unused_unknown_runs', 0),
         },
     ]
 
@@ -537,7 +547,7 @@ def _rollup_runs(campaign) -> list[CampaignRun]:
 
 
 def _apply_rollup_unused_fields(rollup: dict[str, Any], runs: list[CampaignRun]) -> None:
-    """Fill in ``rollup``'s three ``unused_*`` keys in place, mutating the dict the caller
+    """Fill in ``rollup``'s four ``unused_*`` keys in place, mutating the dict the caller
     already built -- the campaign-level counterpart of ``_apply_unused_fields()``, and the
     ONLY place the roll-up's unused figure is ever computed. Both ``campaign_rollup()`` (the
     cache-miss path) and ``get_or_compute_rollup()`` (the cache-hit path) call this on every
@@ -552,9 +562,23 @@ def _apply_rollup_unused_fields(rollup: dict[str, Any], runs: list[CampaignRun])
     because ``calendar_display_extras.unused_night_decoration()`` evaluates the same
     ``is_unused_allocation_night()`` rule for the ``[U]`` marker.
 
+    D-20 (G-37-6): a run whose own unused figure is not yet known must never be silently
+    counted as zero in the total. A run counts as unknown when it has no allocation events
+    of its own AND either its ``proposal_code`` is blank, or that code has no stored
+    ``ProposalTimeAllocation`` (``estimated_unused_nights()`` returns ``None`` for it). The
+    count is taken PER RUN, not per distinct proposal code -- it corresponds one-for-one
+    with the rows the strip sits above (two runs sharing one unfetched code is two units of
+    the count, matching the two rows that each read "not yet known"). D-10's
+    once-per-distinct-code rule continues to govern the CONTRIBUTING estimate only, and is
+    unchanged here. ``unused_is_estimate`` is derived from whether a code CONTRIBUTED a
+    number to the total (its ``estimated_unused_nights()`` was not ``None``), never from
+    whether a code was merely attempted -- that substitution is what makes the ``&approx;``
+    qualifier mean "an estimate is behind this number" instead of "an estimate was looked
+    for".
+
     An empty ``runs`` list writes the same not-yet-known defaults (``None``/``True``/
-    ``False``) an empty campaign's roll-up carries today, so the cache-hit path reproduces
-    that exact shape too.
+    ``False``/``0``) an empty campaign's roll-up carries today, so the cache-hit path
+    reproduces that exact shape too.
 
     Args:
         rollup: the roll-up dict to mutate (already carrying its other keys).
@@ -564,15 +588,21 @@ def _apply_rollup_unused_fields(rollup: dict[str, Any], runs: list[CampaignRun])
         rollup['nights_unused'] = None
         rollup['unused_known'] = False
         rollup['unused_is_estimate'] = True
+        rollup['unused_unknown_runs'] = 0
         return
 
     # D-10: an exact per-run allocation count is added directly (never de-duplicated -- each
     # run's own still-standing nights are its own); a proposal-derived estimate is collected
     # by CODE, not by run, so two runs sharing one proposal contribute that proposal's
-    # estimate once, not twice.
+    # estimate once, not twice. D-20: a run with no allocation events and a BLANK
+    # proposal_code is counted as unknown immediately (its row already reads "not yet
+    # known"); a run with a non-blank code is held in `code_candidate_runs` until the
+    # per-code loop below decides whether that code contributed.
     exact_total = 0
     exact_known = False
     estimate_codes: set[str] = set()
+    code_candidate_runs: list[str] = []
+    unknown_runs = 0
     for run in runs:
         exact = unused_nights_for_run(run)
         if exact is not None:
@@ -580,14 +610,24 @@ def _apply_rollup_unused_fields(rollup: dict[str, Any], runs: list[CampaignRun])
             exact_known = True
         elif run.proposal_code:
             estimate_codes.add(run.proposal_code)
+            code_candidate_runs.append(run.proposal_code)
+        else:
+            unknown_runs += 1
 
     estimate_total = 0
     estimate_known = False
+    contributing_codes: set[str] = set()
     for code in estimate_codes:
         estimate = proposal_allocation.estimated_unused_nights(code)
         if estimate is not None:
             estimate_total += estimate
             estimate_known = True
+            contributing_codes.add(code)
+
+    # D-20: a code that was attempted but contributed nothing counts as unknown, one unit
+    # per RUN carrying that code -- not one unit per code.
+    attempted_not_contributing = estimate_codes - contributing_codes
+    unknown_runs += sum(1 for code in code_candidate_runs if code in attempted_not_contributing)
 
     if exact_known or estimate_known:
         rollup['nights_unused'] = exact_total + estimate_total
@@ -595,19 +635,22 @@ def _apply_rollup_unused_fields(rollup: dict[str, Any], runs: list[CampaignRun])
     else:
         rollup['nights_unused'] = None
         rollup['unused_known'] = False
-    rollup['unused_is_estimate'] = bool(estimate_codes)
+    rollup['unused_is_estimate'] = bool(contributing_codes)
+    rollup['unused_unknown_runs'] = unknown_runs
 
 
 def _without_unused_fields(rollup: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of ``rollup`` with its three ``unused_*`` keys reset to their
+    """Return a copy of ``rollup`` with its four ``unused_*`` keys reset to their
     not-yet-known defaults -- exactly what ``get_or_compute_rollup()`` hands to
-    ``cache.set()``, so nothing with a computed unused figure is ever stored (CR-02's
-    campaign-level counterpart). Never mutates the caller's dict.
+    ``cache.set()``, so nothing with a computed unused figure (the partial-total signal
+    included, G-37-6) is ever stored (CR-02's campaign-level counterpart). Never mutates the
+    caller's dict.
     """
     without = dict(rollup)
     without['nights_unused'] = None
     without['unused_known'] = False
     without['unused_is_estimate'] = True
+    without['unused_unknown_runs'] = 0
     return without
 
 
@@ -643,6 +686,7 @@ def campaign_rollup(campaign) -> dict[str, Any]:
         'nights_unused': None,
         'unused_is_estimate': True,
         'unused_known': False,
+        'unused_unknown_runs': 0,
         'runs': len(runs),
     }
     if not runs:

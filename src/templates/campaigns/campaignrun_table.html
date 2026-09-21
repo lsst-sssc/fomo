@@ -72,6 +72,14 @@ TALLY-02/D-10: campaign roll-up summary strip, styled like the filter card above
 only the campaign's approved, publicly visible runs (a pending-review run contributes
 nothing, per campaign_tally.campaign_rollup()'s queryset-level exclude) -- computed once per
 request by the view (get_or_compute_rollup()), never once per template reference here.
+
+G-37-6/D-20: the unused segment has a FOURTH branch, inserted second (between "nothing known
+at all" and "known complete estimate"), for a total that is known so far but not complete --
+one or more of this campaign's runs has its own figure not yet known. Such a run is never
+silently counted as zero: the strip instead reads "at least {count} ({n} run(s) not yet
+known)", naming how many runs it could not account for. This is the ROLL-UP STRIP'S OWN
+rendering -- render_progress() (the per-run Progress cell) and event_form.html (the calendar
+pop-up) are unchanged and never read `unknown_runs`.
 {% endcomment %}
 <div class="card bg-light p-3 mb-4">
   <div>
@@ -81,7 +89,7 @@ request by the view (get_or_compute_rollup()), never once per template reference
     {% for segment in rollup_segments %}
     <span class="mr-3" title="{{ segment.label }}">
       {{ segment.label }}: {{ segment.marker }}
-      {% if not segment.known %}not yet known{% elif segment.is_estimate %}&approx;{{ segment.count }}{% else %}{{ segment.count }}{% endif %}
+      {% if not segment.known %}not yet known{% elif segment.unknown_runs %}at least {% if segment.is_estimate %}&approx;{% endif %}{{ segment.count }} ({{ segment.unknown_runs }} run{{ segment.unknown_runs|pluralize }} not yet known){% elif segment.is_estimate %}&approx;{{ segment.count }}{% else %}{{ segment.count }}{% endif %}
     </span>
     {% endfor %}
   </div>
