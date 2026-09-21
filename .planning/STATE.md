@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: 37
 current_phase_name: Status Vocabulary, Public Tallies & Provenance-Blind Gaps
 status: executing
-stopped_at: Completed 37-08-PLAN.md (G-37-4 gap closure)
-last_updated: "2026-09-21T16:28:47.783Z"
-last_activity: 2026-09-20
+stopped_at: Completed 37-09-PLAN.md (G-37-5 gap closure)
+last_updated: "2026-09-21T17:24:21.729Z"
+last_activity: 2026-09-21
 last_activity_desc: Phase 37 execution started
-state_head: a2d47b25cdc3ff60f9c384f392c1dc3b0cc55630
+state_head: c6f19875cb9f491ff8acac8e3b89b0280648d522
 progress:
   total_phases: 5
   completed_phases: 36
   total_plans: 62
-  completed_plans: 60
-  percent: 97
+  completed_plans: 61
+  percent: 98
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — READY TO EXECUTE
-Plan: 2 of 8
+Phase: 37 (Status Vocabulary, Public Tallies & Provenance-Blind Gaps) — EXECUTING
+Plan: 2 of 10
 Status: Ready to execute
-Last activity: 2026-09-20 — Phase 37 execution started
+Last activity: 2026-09-21 — Phase 37 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -233,6 +233,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37 P06 | 27min | 2 tasks | 4 files |
 | Phase 37 P07 | 135min | 3 tasks | 9 files |
 | Phase 37 P08 | 75min | 3 tasks | 5 files |
+| Phase 37 P09 | ~55min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -396,6 +397,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: Deleted status_vocabulary.RETIRED_TITLE_PREFIXES once both re-title sweeps proved the developer database held no legacy-spelled CalendarEvent title -- exactly one spelling of every status marker remains. — Task 3's own precondition; the sweeps reported updated:0, meaning no re-titling was actually needed by the time this plan ran.
 - [Phase 37]: Found and fixed a real, previously-masked bug: test_views.py's module-level logging.disable(logging.CRITICAL) silenced all logging suite-wide once imported into the same process as the rest of the suite, breaking assertLogs()-based tests elsewhere; scoped it to setUpModule()/tearDownModule(). — The project's own test_command always ran test_views.py in a separate invocation, masking this; making the whole-suite invocation genuinely single-command (this plan's Task 3 deliverable) exposed it for the first time.
 - [Phase 37]: Extended the per-run live-unused-split cache contract (CR-02) to the campaign roll-up, closing G-37-4 -- one shared applier reached by both cache-hit and cache-miss paths.
+- [Phase 37]: 37-09: get_table() override resolves the Progress tally from table.paginated_rows after RequestConfig.configure(), replacing a pre-resolution page-slice that never saw ?sort=/?per_page=. — Closes G-37-5 (CR-01): the tally must cover exactly the rows django-tables2 renders for every combination of sort/page/per_page, not a slice predicted before RequestConfig runs.
+- [Phase 37]: 37-09: added MAX_TABLE_PER_PAGE=100, capping per_page on request.GET in a get() override (never in get_table_pagination(), which RequestConfig.configure() overrides from the raw query string). — Following rendered rows removes the accidental 25-row bound the old hardcoded slice provided; per_page is otherwise unauthenticated and unbounded, and the per-run tally pass costs ~2-3 queries per row (T-37-09-02).
 
 ### Pending Todos
 
@@ -509,8 +512,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-21T04:48:23.158Z
-Stopped at: Completed 37-08-PLAN.md (G-37-4 gap closure)
+Last session: 2026-09-21T17:24:21.634Z
+Stopped at: Completed 37-09-PLAN.md (G-37-5 gap closure)
 Resume file: None
 
 ## Operator Next Steps
