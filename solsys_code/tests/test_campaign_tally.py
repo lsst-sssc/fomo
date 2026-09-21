@@ -16,6 +16,7 @@ import ast
 import inspect
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from unittest import mock
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -32,9 +33,11 @@ from solsys_code import campaign_gap, campaign_tally, proposal_allocation, statu
 from solsys_code.allocation_projector import allocation_night_url
 from solsys_code.campaign_tally import (
     TALLY_CACHE_TTL_SECONDS,
+    build_rollup_cache_key,
     build_tally_cache_key,
     campaign_records_version,
     campaign_rollup,
+    get_or_compute_rollup,
     get_or_compute_tally,
     is_unused_allocation_night,
     link_counts_for_runs,
@@ -815,6 +818,169 @@ class TestCampaignRollup(CampaignTallyTestBase):
         # 1 exact still-standing night + floor(10/10 + 0.5) == 1 estimated night.
         self.assertEqual(rollup['nights_unused'], 2)
         self.assertTrue(rollup['unused_known'])
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestGetOrComputeRollupFreshness(CampaignTallyTestBase):
+    """G-37-4/D-15: the campaign-level sibling of TestGetOrComputeTallyFreshness (line 382)
+    and TestTalliesForRuns.test_unused_count_is_live_even_on_a_cache_hit (line 525) -- the
+    roll-up's unused figure must never be served from the cache, for either of the two
+    drivers a record-keyed cache key cannot see: an elapsed clock and a staff run_status
+    edit."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_staff_status_edit_moves_the_figure_on_a_cache_hit(self):
+        """Driver 1. A staff run_status edit touches no ObservationRecord, so it does not
+        move campaign_records_version() -- the second call is a cache hit for the other
+        keys. RED before Task 1 (37-08-PLAN.md): the second call still reported 1."""
+        run = self._make_run(campaign=self.campaign)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
+
+        first = get_or_compute_rollup(self.campaign)
+        self.assertEqual(first['nights_unused'], 1)
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+
+        second = get_or_compute_rollup(self.campaign)
+        self.assertEqual(second['nights_unused'], 0)
+        self.assertEqual(second['records'], first['records'])
+
+    def test_the_clock_alone_moves_the_figure_on_a_cache_hit(self):
+        """Driver 2. An awarded night elapsing past its projected sunrise is a purely
+        time-driven transition -- exactly what records_version cannot see, so this is a
+        cache hit for the other keys too. RED before Task 1: the second call still
+        reported 0. The patch is scoped to one call, since it replaces the shared
+        django.utils.timezone.now."""
+        run = self._make_run(campaign=self.campaign)
+        future_end = timezone.now() + timedelta(hours=1)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=future_end)
+
+        first = get_or_compute_rollup(self.campaign)
+        self.assertEqual(first['nights_unused'], 0)
+        self.assertTrue(first['unused_known'])
+
+        with mock.patch(
+            'solsys_code.campaign_tally.timezone.now',
+            return_value=future_end + timedelta(hours=2),
+        ):
+            second = get_or_compute_rollup(self.campaign)
+        self.assertEqual(second['nights_unused'], 1)
+
+    def test_cached_value_never_carries_a_computed_unused_figure(self):
+        """The cache contract, checked from outside rather than by reading the call order:
+        what cache.set() actually stored carries the not-yet-known defaults, never the real
+        figure the caller received."""
+        run = self._make_run(campaign=self.campaign)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
+
+        records_version = campaign_records_version(self.campaign)
+        returned = get_or_compute_rollup(self.campaign, records_version=records_version)
+        self.assertEqual(returned['nights_unused'], 1)
+
+        stored = cache.get(build_rollup_cache_key(self.campaign.pk, records_version))
+        self.assertIsNotNone(stored)
+        self.assertIsNone(stored['nights_unused'])
+        self.assertFalse(stored['unused_known'])
+        self.assertTrue(stored['unused_is_estimate'])
+
+    def test_cold_and_warm_calls_agree_key_for_key(self):
+        """Cache-miss and cache-hit paths must produce identical dicts for the same campaign
+        state -- no second copy of the counting rule to drift -- for a campaign mixing an
+        exact-count run and an estimate-only run."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/Exact')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/Estimate', proposal_code='AGREE-2026A-001')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='AGREE-2026A-001',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=15.0,
+            fetched_at=timezone.now(),
+        )
+        cold = get_or_compute_rollup(self.campaign)
+        warm = get_or_compute_rollup(self.campaign)
+        self.assertEqual(cold, warm)
+
+    def test_d10_once_per_distinct_proposal_code_survives_the_warm_path(self):
+        """D-10 on the warm path: two runs sharing one proposal_code with a stored
+        ProposalTimeAllocation of 40 allocated / 15 used hours both report nights_unused 3
+        -- counted once for the shared code, never 3+3 -- on both the cold and the warm
+        call."""
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/A', proposal_code='WARM-2026A-001')
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/B', proposal_code='WARM-2026A-001')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='WARM-2026A-001',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=15.0,
+            fetched_at=timezone.now(),
+        )
+        cold = get_or_compute_rollup(self.campaign)
+        self.assertEqual(cold['nights_unused'], 3)
+        self.assertTrue(cold['unused_is_estimate'])
+        warm = get_or_compute_rollup(self.campaign)
+        self.assertEqual(warm['nights_unused'], 3)
+        self.assertTrue(warm['unused_is_estimate'])
+
+    def test_d06_unknown_contract_survives_the_warm_path(self):
+        """D-06: a run with no allocation events and a proposal_code with no stored rows
+        reports nights_unused None with unused_known False on both the cold and the warm
+        call -- never 0."""
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/NoAlloc')
+        cold = get_or_compute_rollup(self.campaign)
+        self.assertIsNone(cold['nights_unused'])
+        self.assertFalse(cold['unused_known'])
+        warm = get_or_compute_rollup(self.campaign)
+        self.assertIsNone(warm['nights_unused'])
+        self.assertFalse(warm['unused_known'])
+
+    def test_pending_review_run_contributes_nothing_on_the_warm_path(self):
+        """D-10: an approved run with one elapsed allocation night plus a pending-review run
+        with its own elapsed allocation night reports nights_unused 1 and runs 1 on both the
+        cold and the warm call."""
+        approved = self._make_run(campaign=self.campaign, telescope_instrument='FTN/Approved')
+        self._make_alloc_event(approved, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
+        pending = self._make_run(
+            campaign=self.campaign,
+            telescope_instrument='FTN/Pending',
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        self._make_alloc_event(pending, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
+
+        cold = get_or_compute_rollup(self.campaign)
+        self.assertEqual(cold['runs'], 1)
+        self.assertEqual(cold['nights_unused'], 1)
+        warm = get_or_compute_rollup(self.campaign)
+        self.assertEqual(warm['runs'], 1)
+        self.assertEqual(warm['nights_unused'], 1)
+
+    def test_empty_campaign_returns_the_same_dict_from_both_paths(self):
+        cold = get_or_compute_rollup(self.campaign)
+        self.assertEqual(cold['runs'], 0)
+        self.assertIsNone(cold['nights_unused'])
+        self.assertFalse(cold['unused_known'])
+        self.assertTrue(cold['unused_is_estimate'])
+        warm = get_or_compute_rollup(self.campaign)
+        self.assertEqual(warm, cold)
+
+    def test_warm_path_query_cost_is_bounded_and_enumerated(self):
+        """With the cache warm for a campaign of one run with one allocation event and no
+        proposal code, get_or_compute_rollup() costs exactly three queries: the
+        campaign_records_version() probe, the shared run-fetch (_rollup_runs()), and one
+        allocation-event lookup for the single run."""
+        run = self._make_run(campaign=self.campaign)
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
+        get_or_compute_rollup(self.campaign)  # warm the cache
+
+        with self.assertNumQueries(3):
+            get_or_compute_rollup(self.campaign)
 
 
 class TestCampaignRecordsVersion(CampaignTallyTestBase):
