@@ -153,16 +153,23 @@ class CampaignRunTable(tables.Table):
     publication_plans = tables.Column(attrs=_FREE_TEXT_ATTRS)
     comments = tables.Column(attrs=_FREE_TEXT_ATTRS)
 
-    def __init__(self, *args, tallies=None, **kwargs):
-        """``tallies`` (TALLY-01/D-08) is an optional ``{run_pk: tally_dict}`` mapping,
-        pre-computed for the WHOLE table in one pass by the view
-        (``campaign_tally.tallies_for_runs()``) and consumed here only by
-        ``render_progress()``'s dict lookup -- never recomputed per row (D-08). Popped
-        before ``super().__init__()`` since django-tables2's own ``Table.__init__`` does not
-        accept it, and must stay optional (defaulting to an empty dict) so ``ApprovalQueueTable``
-        and any other direct instantiation of this table keep working unchanged.
+    def __init__(self, *args, **kwargs):
+        """``self.tallies`` (TALLY-01/D-08) starts as an empty ``{run_pk: tally_dict}``
+        mapping and is consumed only by ``render_progress()``'s dict lookup -- never
+        recomputed per row (D-08).
+
+        WR-05 (37-REVIEW.md): this used to be populated via a ``tallies=`` constructor
+        kwarg, pre-computed for the WHOLE table in one pass by the view before
+        ``__init__()`` ran. ``CampaignRunTableView.get_table()`` (G-37-5/CR-01) replaced
+        that with post-construction attribute assignment
+        (``table.tallies = campaign_tally.tallies_for_runs(runs)``, set only AFTER
+        ``RequestConfig.configure()`` has resolved which rows will actually render) --
+        a ``tallies=`` kwarg is no longer read by any caller in this codebase. Keeping
+        both mechanisms would let a future ``tallies=`` caller be silently overwritten by
+        ``get_table()`` two lines later, so the kwarg is dropped outright rather than kept
+        as a second, non-functional way to set the same attribute.
         """
-        self.tallies = tallies or {}
+        self.tallies = {}
         super().__init__(*args, **kwargs)
 
     def render_progress(self, record):
@@ -174,8 +181,8 @@ class CampaignRunTable(tables.Table):
         see ``render_run_status``'s docstring for why) and looks the tally up in
         ``self.tallies`` -- it must NEVER issue a query (D-08 forbids a per-row loop): the
         counts arrive pre-computed from the view's one-pass ``tallies_for_runs()`` call. A
-        pk that cannot be resolved, or one with no entry in ``self.tallies`` (e.g. the table
-        was constructed with no ``tallies`` kwarg at all), renders a muted not-available
+        pk that cannot be resolved, or one with no entry in ``self.tallies`` (e.g. no view
+        ever attached one after construction, WR-05), renders a muted not-available
         token instead of raising or falling back to a live query.
         """
         pk = Accessor('pk').resolve(record, quiet=True)
@@ -344,9 +351,12 @@ class ApprovalQueueTable(CampaignRunTable):
     # for Phase 15's D-09 read path.
     class Meta(CampaignRunTable.Meta):  # noqa: D106
         # 'progress' is excluded too (WR-01, 37-REVIEW.md): the three approval-queue
-        # construction sites in ApprovalQueueView never pass a `tallies` kwarg, so
-        # render_progress() would fall into its "not available" branch for every row,
-        # adding a permanently-dead wide column to three staff pages.
+        # construction sites in ApprovalQueueView never attach a `tallies` dict to the table
+        # they build (WR-05, 37-REVIEW.md: no view attaches tallies to an ApprovalQueueTable
+        # at all -- only CampaignRunTableView.get_table() does, for the plain
+        # CampaignRunTable it renders), so render_progress() would fall into its "not
+        # available" branch for every row, adding a permanently-dead wide column to three
+        # staff pages.
         exclude = ('weather', 'observation_outcome', 'publication_plans', 'progress')
         sequence = (
             'actions',
