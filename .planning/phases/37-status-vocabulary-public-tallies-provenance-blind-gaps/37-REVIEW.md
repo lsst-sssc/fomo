@@ -1,715 +1,624 @@
 ---
 phase: 37-status-vocabulary-public-tallies-provenance-blind-gaps
-reviewed: 2026-09-19T00:00:00Z
+reviewed: 2026-09-21T05:20:27Z
 depth: deep
-files_reviewed: 37
+files_reviewed: 21
 files_reviewed_list:
-  - solsys_code/status_vocabulary.py
   - solsys_code/campaign_tally.py
-  - solsys_code/proposal_allocation.py
-  - solsys_code/campaign_gap.py
-  - solsys_code/campaign_tables.py
   - solsys_code/campaign_views.py
+  - solsys_code/campaign_tables.py
+  - solsys_code/campaign_gap.py
+  - solsys_code/status_vocabulary.py
+  - solsys_code/proposal_allocation.py
   - solsys_code/observation_projector.py
-  - solsys_code/campaign_reconciler.py
-  - solsys_code/allocation_projector.py
-  - solsys_code/calendar_utils.py
-  - solsys_code/models.py
   - solsys_code/admin.py
-  - solsys_code/unattended.py
   - solsys_code/templatetags/calendar_display_extras.py
-  - solsys_code/management/commands/load_telescope_runs.py
-  - solsys_code/migrations/0023_proposal_time_allocation_and_campaignrun_proposal_code.py
-  - solsys_code/tests/test_status_vocabulary.py
   - solsys_code/tests/test_campaign_tally.py
-  - solsys_code/tests/test_proposal_allocation.py
-  - solsys_code/tests/test_campaign_gap.py
   - solsys_code/tests/test_campaign_views.py
-  - solsys_code/tests/test_calendar_display_extras.py
-  - solsys_code/tests/test_calendar_template.py
-  - solsys_code/tests/test_calendar_utils.py
+  - solsys_code/tests/test_campaign_gap.py
   - solsys_code/tests/test_campaign_approval.py
-  - solsys_code/tests/test_load_telescope_runs.py
-  - solsys_code/tests/test_unattended.py
+  - solsys_code/tests/test_calendar_display_extras.py
+  - solsys_code/tests/test_observation_projector.py
+  - solsys_code/tests/test_proposal_allocation.py
   - solsys_code/tests/test_admin.py
-  - solsys_code/tests/test_allocation_projector.py
-  - solsys_code/tests/test_views.py
-  - solsys_code/tests/test_write_and_reconcile.py
   - src/templates/campaigns/campaign_list.html
-  - src/templates/campaigns/campaignrun_gap_analysis.html
-  - src/templates/campaigns/campaignrun_table.html
   - src/templates/tom_calendar/partials/calendar.html
-  - src/templates/tom_calendar/partials/event_form.html
   - docs/runbooks/telescope_runs_calendar.rst
 findings:
-  critical: 3
-  warning: 12
-  info: 7
-  total: 22
+  critical: 2
+  warning: 11
+  info: 6
+  total: 19
 status: issues_found
 ---
 
 # Phase 37: Code Review Report
 
-**Reviewed:** 2026-09-19
+**Reviewed:** 2026-09-21T05:20:27Z
 **Depth:** deep
-**Files Reviewed:** 37
+**Files Reviewed:** 21
 **Status:** issues_found
 
 ## Summary
 
-The vocabulary consolidation (37-01) is largely real — the three parallel prefix maps are
-gone and `status_vocabulary.py` is genuinely the single definition — but two bare marker
-literals survived in `observation_projector.py` and a third in `calendar.html`, i.e. the
-exact drift disease the phase set out to cure (WR-09).
+Scope: everything changed since `957417f` — the phase's review-fix round (CR-01/CR-02/CR-03,
+WR-01..WR-11) plus plan 37-08's gap closure (G-37-4), which made the campaign roll-up's unused
+figure compute live on every call.
 
-The serious problems are in the tally cache. Its freshness stamp is
-`Max(ObservationRecord.modified)` over the run's *links*, which is blind to the two events
-that actually change the numbers it reports: creating or deleting a `CampaignRunObservation`
-(no timestamp on that model, no touch of the record), and any change to
-`CampaignRun.run_status` or to the set of `ALLOC:` calendar events. The result is a public
-page showing wrong group/record/night counts for up to an hour (CR-01), and — worse — the
-campaign table's unused count and the calendar's `[U]` marker visibly disagreeing for up to
-an hour, which is precisely what D-15 said must be impossible by construction (CR-02). Both
-contradict the module docstrings and the runbook text shipped in the same phase.
+Both quality gates are clean (`pre-commit run ruff` and `ruff-format` pass on every changed
+Python file), and the mechanical half of G-37-4 holds up: `_rollup_runs()` genuinely is the one
+run-fetch both roll-up paths use, `_without_unused_fields()` genuinely keeps a computed unused
+figure out of the roll-up cache, and the new tests for the two time-driven drivers are real RED
+→ GREEN tests, not tautologies.
 
-Third, the public tally path calls `observation_projector.facility_for()` with no guard;
-that helper raises `ImportError` for a facility name absent from `TOM_FACILITY_CLASSES`,
-which turns a stale facility name on one linked record into a 500 on the anonymous campaign
-list, the campaign run table and the calendar pop-up — on code paths whose own docstrings
-promise "never raises" (CR-03).
+Two defects nevertheless survive, both verified by executing the code rather than by reading it:
 
-Beyond that: a new always-broken `Progress` column leaked into three staff approval-queue
-tables (WR-01), several `.only()` field restrictions omit fields their own callees read and
-so reintroduce per-row queries (WR-02, WR-03), the table computes tallies for the whole
-filtered queryset rather than the rendered page (WR-04), the public campaign list loops
-roll-ups over an unpaginated campaign list (WR-05), and the new portal fetch interpolates an
-untrusted proposal code into a credentialed URL path without quoting (WR-07).
+1. The public Progress column silently blanks out the moment a reader clicks a column header or
+   passes `?per_page=`, because the page slice added for WR-04 mirrors django-tables2's page
+   *number* but not its *ordering* or *page size*. Measured: `?sort=-telescope_instrument&page=2`
+   renders 5 rows, **all 5** showing "Progress not available".
+2. The campaign roll-up strip publishes a definite-looking `[U] ≈2` for a campaign in which one
+   run's unused figure is genuinely unknown — silently counting "unknown" as zero, which is the
+   one thing every docstring in `campaign_tally.py`/`proposal_allocation.py` says must never
+   happen, and a roll-up-vs-cells disagreement on a single page response, which is exactly the
+   invariant G-37-4 exists to guarantee.
 
-Credential handling in `proposal_allocation.py` is otherwise good: the exception set matches
-`resolve_placement_block()`, the caught exception is never stringified, and `raise ... from
-None` suppresses the chained context that would have carried the response body.
+Beyond those, the WR-07 path-traversal mitigation does not reject the value its own comment
+cites (`..` passes the charset and `urljoin` still normalises it away), the WR-08 prune is
+destructive in a way that is now unrecoverable through the admin, and the CR-01 cache-key
+"link_version" watermark does not close the delete-then-create hole its docstring claims it
+closes. Several of the new tests assert weaker properties than their names and docstrings
+promise.
+
+No structural-findings block was supplied with this review.
+
+## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: Tally cache key is blind to link creation/deletion — public counts stay wrong for up to an hour
+### CR-01: Progress cells blank out whenever the table is sorted or `?per_page=` is passed
 
-**File:** `solsys_code/campaign_tally.py:70-90`, `solsys_code/campaign_tally.py:93-132`, `solsys_code/campaign_tally.py:232-256`, `solsys_code/campaign_tally.py:259-290`
+**File:** `solsys_code/campaign_views.py:214-226` (`CampaignRunTableView.get_table_kwargs`)
 
-**Issue:** The freshness segment of the cache key is `records_version =
-Max('observation_record__modified')` over the run's `CampaignRunObservation` rows.
-`CampaignRunObservation` (`solsys_code/models.py:582-643`) carries **no** `created`/`modified`
-column, and creating a link does not save the `ObservationRecord` (the only receiver wired on
-that signal is `allocation_projector.receiver_on_run_observation_save`, `solsys_code/apps.py:64-75`,
-which re-projects calendar events, not the record). Therefore:
-
-- Staff confirms an attribution (creates a link) to a record whose `modified` is older than
-  the run's current max → `records_version` is unchanged → the cached tally is returned with
-  the **old** `groups`/`records`/`nights_*` values for up to `TALLY_CACHE_TTL_SECONDS`
-  (3600 s).
-- Staff removes a link to a non-newest record → `records_version` is unchanged → same stale
-  result, now over-counting.
-
-This directly contradicts the module's own contract at `campaign_tally.py:42-47` ("It is NOT
-what makes the tally see a record-driven change ... that happens immediately, with no TTL
-wait") and the runbook text shipped in this phase
-(`docs/runbooks/telescope_runs_calendar.rst:1999-2006`). `test_campaign_tally.py:354`
-(`test_saving_a_linked_record_is_reflected_with_no_clock_advance`) only exercises saving an
-*already-linked* record, so the hole is untested.
-
-**Fix:** Fold the link set itself into the key, not just the record timestamps. The cheapest
-correct form keeps `link_counts_for_runs()` at two queries:
+**Issue:**
+The WR-04 fix slices the tally pk set with
 
 ```python
-# campaign_tally.py
-record_rows = (
-    CampaignRunObservation.objects.filter(run_id__in=run_pks)
-    .values('run_id')
-    .annotate(
-        records=Count('observation_record', distinct=True),
-        records_version=Max('observation_record__modified'),
-        link_version=Max('observation_record_id'),   # changes on every new link
-    )
-)
-...
-
-def build_tally_cache_key(run_pk, records_version, records_count=0, link_version=None):
-    version_segment = records_version.isoformat() if records_version is not None else _NO_RECORDS_VERSION_TOKEN
-    return f'campaign_tally:{run_pk}:{version_segment}:{records_count}:{link_version or 0}'
+per_page = self.table_pagination['per_page']
+page = max(int(self.request.GET.get('page', 1)), 1)
+page_pks = self.object_list.values_list('pk', flat=True)[(page - 1) * per_page : page * per_page]
 ```
 
-`records_count` alone already catches both create and delete; `link_version` additionally
-catches a delete-then-create pair that leaves the count unchanged. Alternatively (cleaner,
-but needs a migration) add `created`/`modified` to `CampaignRunObservation` and take
-`Max('modified')` from the link table. Add a regression test that creates a
-`CampaignRunObservation` for an untouched pre-existing record and asserts the tally moves on
-the next call.
+It mirrors django-tables2's page *number* only. `RequestConfig.configure()` (verified against the
+installed `django_tables2/config.py`) does **three** things after `get_table_kwargs()` has already
+run:
 
----
+- `order_by = request.GET.getlist(table.prefixed_order_by_field)` → `?sort=` re-orders the
+  queryset via `TableQuerysetData.order_by()` (`django_tables2/data.py:179-204`), which calls
+  `queryset.order_by(...)` and *replaces* `get_queryset()`'s `window_start desc nulls_last`
+  ordering;
+- `kwargs['per_page'] = int(request.GET['per_page'])` → `?per_page=` overrides the 25 this method
+  hard-reads from `self.table_pagination`;
+- `EmptyPage` → the rendered page is clamped to the last page, which the slice does not do.
 
-### CR-02: The calendar's `[U]` marker and the table's unused count disagree for up to an hour — D-15 is not satisfied by construction
+So the 25 pks handed to `tallies_for_runs()` are computed from a *different ordering and a
+different page size* than the rows django-tables2 actually renders. `render_progress()` then falls
+into its `tally is None` branch (`campaign_tables.py:181-186`) and emits the muted "Progress not
+available" token. The `get_table_kwargs` docstring's own claim — "Interactive column-header sorting
+(RequestConfig) still works normally on top of this" — is false.
 
-**File:** `solsys_code/campaign_tally.py:323-342`, `solsys_code/campaign_tally.py:345-371`, `solsys_code/templatetags/calendar_display_extras.py:625-679`
+Measured against this working tree (30 approved runs, one campaign, anonymous client; the token is
+emitted twice per cell, once in `title=` and once as text):
 
-**Issue:** D-15 requires the table and the calendar to agree *by construction*. They share
-the predicate `is_unused_allocation_night()`, but not the freshness of its inputs:
+| request | rows rendered | rows showing "Progress not available" |
+|---|---|---|
+| (no params) | 25 | 0 |
+| `?sort=-telescope_instrument` | 25 | **5** |
+| `?sort=-telescope_instrument&page=2` | 5 | **5 (all of them)** |
+| `?per_page=30` | 30 | **5** |
 
-- `unused_night_decoration()` evaluates the rule **live**, per event, on every calendar
-  render (`calendar_display_extras.py:674`).
-- `tally_segments()`'s unused figure comes from `unused_nights_for_run()` **through the TTL
-  cache**, whose key (`build_tally_cache_key`) contains only `run_pk` and the linked-record
-  timestamp.
+This silently destroys the phase's headline public deliverable (TALLY-01) for any reader who
+clicks a sortable column header, and no existing test covers a sorted or `per_page`-overridden
+request.
 
-Neither `CampaignRun.run_status` nor the set of `ALLOC:` `CalendarEvent` rows is in the key.
-So:
-
-1. Staff clicks "Mark Cancelled". The reconciler re-titles the nights to `[C]` and the
-   calendar drops every `[U]` immediately (`is_unused_allocation_night` returns `False` at
-   `campaign_tally.py:318-319`). The campaign table keeps serving the cached non-zero
-   "Unused awarded night" count for up to an hour.
-2. An allocation night elapses past its projected sunrise. The calendar paints `[U]` at once;
-   the table's count lags by up to an hour.
-3. A night is retired (its `ALLOC:` event deleted by the Phase 35 handoff when a placed
-   record claims it). The calendar stops showing `[U]`; the table still counts it.
-
-Case 1 is the damaging one: a cancelled run is publicly advertised as having wasted awarded
-nights after staff explicitly said otherwise, and the two surfaces contradict each other on
-screen. The same key gap makes `campaign_rollup()`'s summary strip disagree with the sum of
-the rows rendered directly beneath it (`campaign_tally.py:443-520`,
-`src/templates/campaigns/campaignrun_table.html:76-87`).
-
-**Fix:** Either make the cache key cover every input the tally reads, or stop caching the
-unused half. The smaller change is the latter — `unused_nights_for_run()` is one indexed
-`CalendarEvent` query:
-
-```python
-def tallies_for_runs(runs) -> dict[int, dict[str, Any]]:
-    ...
-        cached = cache.get(key)
-        if cached is not None:
-            tally = dict(cached)
-            _apply_unused_fields(tally, run)   # always live: matches the calendar exactly
-            result[run.pk] = tally
-            continue
-        ...
-        tally = _combine_tally(counts, nights)
-        cache.set(key, tally, timeout=TALLY_CACHE_TTL_SECONDS)   # cache WITHOUT unused_*
-        _apply_unused_fields(tally, run)
-        result[run.pk] = tally
-```
-
-Apply the same split in `get_or_compute_tally()` and `get_or_compute_rollup()`. If the
-caching must stay, add `run.run_status` and a cheap allocation-event version
-(`Max(CalendarEvent.modified)` over `allocation_events(run)`) to both cache keys, and add a
-test that flips `run_status` to `CANCELLED` and asserts the table count and the calendar
-decoration agree on the very next render.
-
----
-
-### CR-03: `facility_for()` raises `ImportError` for an unknown facility — unguarded on three public pages that promise "never raises"
-
-**File:** `solsys_code/campaign_tally.py:166-167`, `solsys_code/campaign_gap.py:220`, `solsys_code/templatetags/calendar_display_extras.py:611`
-
-**Issue:** `observation_projector.facility_for()` (`observation_projector.py:62-76`) calls
-`tom_observations.facility.get_service_class(name)`, which raises `ImportError` for any
-facility name not in `settings.TOM_FACILITY_CLASSES` / the `observation_facilities()`
-integration point (verified in the installed
-`tom_observations/facility.py:110-120`). Three new Phase 37 call sites invoke it with no
-guard, over records whose `facility` value is whatever TOM stored historically:
-
-- `campaign_tally.night_counts_for_run()` line 167 — reached from the **anonymous** campaign
-  run table (`campaign_views.py:203-204`) and the **anonymous** campaign list
-  (`campaign_views.py:276-277`).
-- `campaign_gap.observation_claimed_dates()` line 220 — reached from the gap-analysis page.
-- `calendar_display_extras.run_tally()` line 611 — reached from the calendar pop-up.
-
-Every one of these advertises the opposite. `night_counts_for_run`'s docstring
-(`campaign_tally.py:146`) says "never raises"; `run_tally`'s docstring
-(`calendar_display_extras.py:585`) says "This tag never raises". A single record left behind
-by removing `tom_eso` or `tom_gemini` from the facility list — both names are explicitly
-modelled in `status_vocabulary.OBSERVED_STATES_BY_FACILITY` — takes the public campaign list
-to a 500 for every visitor. Note the observation projector itself only survives this because
-its signal receivers swallow everything; these new callers have no such net.
-
-**Fix:** Give the shared helper a non-raising variant and use it on every display path:
-
-```python
-# observation_projector.py
-def facility_for_or_none(record: ObservationRecord) -> Any | None:
-    """facility_for(), returning None instead of raising for an unconfigured facility."""
-    try:
-        return facility_for(record)
-    except ImportError:
-        logger.debug('facility_for: no configured facility named %r (record pk=%s)', record.facility, record.pk)
-        return None
-```
-
-Then in `night_counts_for_run()` / `observation_claimed_dates()`:
-
-```python
-facility = facility_for_or_none(record)
-if facility is None:
-    continue          # or increment the existing site_unknown_count in campaign_gap
-state = classify_record(record, facility)
-```
-
-and wrap the `get_or_compute_tally()` call in `run_tally()` in the same guard so the tag's
-"never raises" contract becomes true. Add a test with `record.facility = 'NOT_CONFIGURED'`
-asserting a zero tally rather than an exception.
-
-## Warnings
-
-### WR-01: `ApprovalQueueTable` inherits a `Progress` column that is permanently "Progress not available"
-
-**File:** `solsys_code/campaign_tables.py:99`, `solsys_code/campaign_tables.py:156-162`, `solsys_code/campaign_tables.py:324-380`, `solsys_code/campaign_views.py:408-435`
-
-**Issue:** `progress` is declared on `CampaignRunTable`, so `ApprovalQueueTable` inherits it,
-and its `Meta.sequence` ends in `'...'` so the column lands at the far right. The three
-approval-queue tables are constructed without a `tallies` kwarg
-(`campaign_views.py:408`, `:415`, `:428`), so `self.tallies == {}` and `render_progress()`
-falls into its not-available branch for **every** row. Confirmed empirically:
-
-```
-approval cols: ['actions', 'approval_status', 'telescope_instrument', 'site', 'window_start',
- 'telescope_class', 'filters_bandpass', 'run_status', 'open_to_collaboration',
- 'observation_details', 'comments', 'contact_person', 'contact_email', 'progress']
-tallies attr: {}
-```
-
-The `__init__` docstring claims the optional kwarg keeps `ApprovalQueueTable` "working
-unchanged" — it does not; it adds a wide, permanently-dead column to three staff pages.
-
-**Fix:** Either exclude it in the subclass, or feed it. Excluding is the smaller change:
-
-```python
-class Meta(CampaignRunTable.Meta):  # noqa: D106
-    exclude = ('weather', 'observation_outcome', 'publication_plans', 'progress')
-```
-
-If staff should see progress in the queue, pass `tallies=campaign_tally.tallies_for_runs(...)`
-at each of the three construction sites in `ApprovalQueueView` instead.
-
----
-
-### WR-02: `night_counts_for_run()`'s `.only()` omits `parameters`, which `record_time_window()` reads — a hidden per-record query
-
-**File:** `solsys_code/campaign_tally.py:157-161`
-
-**Issue:** The comment says the field list is "exactly what `classify_record()`/
-`record_time_window()` read", but `record_time_window()` reads `record.parameters['start']`/
-`['end']` whenever both schedule fields are `None` (`calendar_utils.py:543-550`). That branch
-is reachable for records that survive the `_NIGHT_CLAIMING_STATES` filter: a
-`WINDOW_EXPIRED`/`CANCELED`/`FAILURE_LIMIT_REACHED`/`NOT_ATTEMPTED` record with no placed
-block classifies as a failure state (`status_vocabulary.py:266-268`), and a `completed-no-block`
-observed record likewise. Each such record triggers a deferred-field refresh — one extra
-`SELECT` per record, on a public page. `campaign_gap.observation_claimed_dates()` gets this
-right (`campaign_gap.py:215` includes `'parameters'`), which makes the two modules
-inconsistent.
-
-**Fix:**
-
-```python
-    ).only('pk', 'status', 'facility', 'scheduled_start', 'scheduled_end', 'parameters')
-```
-
-and correct the comment above it.
-
----
-
-### WR-03: `campaign_rollup()`'s `.only()` triggers a deferred load of `run_status` plus a `site` query on every run
-
-**File:** `solsys_code/campaign_tally.py:466-470`
-
-**Issue:** `.only('pk', 'proposal_code', 'site_id')` defers `run_status`, but the roll-up path
-reads it: `_apply_unused_fields()` → `unused_nights_for_run()` →
-`is_unused_allocation_night(event.end_time, run.run_status)` (`campaign_tally.py:342`). That
-is one extra `SELECT` per run. Separately, `night_counts_for_run()` reads `run.site.timezone`
-(`campaign_tally.py:148`) with no `select_related('site')` on this queryset — a second extra
-`SELECT` per run. Both are invisible N+1s on the anonymous campaign list, which loops this
-over every campaign (see WR-05).
-
-**Fix:**
-
-```python
-    runs = list(
-        CampaignRun.objects.filter(campaign=campaign)
-        .exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
-        .select_related('site')
-        .only('pk', 'proposal_code', 'run_status', 'site_id',
-              'site__timezone', 'site__obscode')
-    )
-```
-
----
-
-### WR-04: The campaign table computes tallies for the entire filtered queryset, not the 25-row page
-
-**File:** `solsys_code/campaign_views.py:203-204`
-
-**Issue:** `self.object_list` is the full filtered queryset; `table_pagination = {'per_page': 25}`
-means only 25 rows are rendered. `tallies_for_runs()` is therefore asked for every run in the
-campaign, and on a cold cache performs 3-5 queries per run
-(`night_counts_for_run` + `allocation_events` + the proposal-allocation lookups). A campaign
-with 500 runs pays ~2000 queries to render 25 cells. This is the per-row query loop D-08 set
-out to prevent, displaced one level up.
-
-**Fix:** Scope the tally pass to the rendered page. `get_table_kwargs()` runs before the table
-exists, so derive the page slice from the request:
+**Fix:** stop predicting the page and read it. Build the tallies from the rows django-tables2
+actually paginated, after `RequestConfig` has run:
 
 ```python
 def get_table_kwargs(self):
-    per_page = self.table_pagination['per_page']
-    try:
-        page = max(int(self.request.GET.get('page', 1)), 1)
-    except (TypeError, ValueError):
-        page = 1
-    page_pks = list(self.object_list.values_list('pk', flat=True)[(page - 1) * per_page: page * per_page])
+    # 'order_by': () still suppresses django-tables2's own default sort (D-04).
+    return {'order_by': ()}
+
+def get_table(self, **kwargs):
+    table = super().get_table(**kwargs)  # RequestConfig has now applied sort/page/per_page
+    page_pks = [
+        pk
+        for pk in (Accessor('pk').resolve(row, quiet=True) for row in table.page.object_list)
+        if pk is not None
+    ]
     runs = CampaignRun.objects.filter(pk__in=page_pks).select_related('site')
-    return {'order_by': (), 'tallies': campaign_tally.tallies_for_runs(runs)}
+    table.tallies = campaign_tally.tallies_for_runs(runs)
+    return table
 ```
 
-(Alternatively override `get_table()` and slice from `table.page.object_list`.)
+(`Accessor` is already imported in `campaign_tables.py`; import it here too, or reuse the same
+dict-vs-model resolution.) Add regression tests for `?sort=<col>`, `?sort=-<col>&page=2` and
+`?per_page=<n>` asserting that **no** rendered row carries "Progress not available".
 
 ---
 
-### WR-05: `CampaignListView` loops a roll-up over an unpaginated campaign list on a public page
+### CR-02: Campaign roll-up counts an unknown run's unused nights as zero and labels an exact total as an estimate
 
-**File:** `solsys_code/campaign_views.py:276-277`
-
-**Issue:** `CampaignListView` declares no `paginate_by`, so `context['campaigns']` is every
-campaign. Each iteration calls `get_or_compute_rollup(campaign)`, which on a cold cache costs
-`campaign_records_version()` (1 query) + `campaign_rollup()` (1 runs query + 2 aggregate
-queries + WR-03's 2 deferred queries per run + `night_counts_for_run`'s query per run +
-`allocation_events`' query per run + up to 2 proposal-allocation queries per run). The page is
-reachable anonymously, so a single unauthenticated GET after a cache flush fans out to
-O(campaigns × runs) queries — an easy accidental (or deliberate) amplification.
-
-**Fix:** Bound the work. Either paginate the list (`paginate_by = 50`) and keep the loop, or
-replace the per-campaign roll-up with a single annotated aggregate for the only value the
-template actually renders (`campaign.rollup.nights_observed`,
-`src/templates/campaigns/campaign_list.html:48`), or gate the loop on a cache hit only and
-render "—" on a miss.
-
----
-
-### WR-06: `unused_night_decoration()` has no `is_publicly_visible` gate, unlike every sibling tally surface
-
-**File:** `solsys_code/templatetags/calendar_display_extras.py:661-679`
-
-**Issue:** `run_tally()` gates on `run is None or not run.is_publicly_visible`
-(`calendar_display_extras.py:607-609`) and `campaign_rollup()` excludes
-`PENDING_REVIEW` at the queryset level (`campaign_tally.py:467-468`), but
-`unused_night_decoration()` only checks `run is None` (line 671). A pending-review run's
-allocation night therefore gets the public `[U]` token, the dashed muted chip, and the
-"This awarded night passed with nothing scheduled or observed." tooltip on the anonymous
-calendar — leaking the fact that an unreviewed run exists and asserting a judgement about it.
-It also makes the calendar's `[U]` set a superset of what the table counts, another D-15
-divergence.
-
-**Fix:**
-
-```python
-    run = meta.run
-    if run is None or not run.is_publicly_visible:
-        return None
-```
-
----
-
-### WR-07: Proposal code is interpolated into the credentialed portal URL path without quoting or validation
-
-**File:** `solsys_code/proposal_allocation.py:104-109`
+**File:** `solsys_code/campaign_tally.py:576-598` (`_apply_rollup_unused_fields`)
 
 **Issue:**
+For each run the applier either adds an exact count or records the run's `proposal_code` in
+`estimate_codes`. A code whose `estimated_unused_nights()` returns `None` (never fetched, or a
+semester with no stored rows) contributes **nothing** to `estimate_total`, but the final branch is
 
 ```python
-urljoin(facility.facility_settings.get_setting('portal_url'), f'/api/proposals/{proposal_code}/')
+if exact_known or estimate_known:
+    rollup['nights_unused'] = exact_total + estimate_total
+    rollup['unused_known'] = True
+...
+rollup['unused_is_estimate'] = bool(estimate_codes)
 ```
 
-`proposal_code` is not percent-encoded and not validated. Its two sources are both
-operator-supplied free text: `WatchedProposal.proposal_code` (admin-editable) and
-`CampaignRun.proposal_code`, which comes verbatim from the bracketed `[proposal]` token in a
-classical schedule file — `telescope_runs._resolve_proposal()` (`telescope_runs.py:401-437`)
-accepts any non-empty text between `[` and `]` with no charset or length constraint. A value
-containing `..`, `?` or `#` redirects the authenticated request to a different portal endpoint
-(`/api/proposals/../requestgroups/` normalises server-side), and a value over 100 characters
-will raise `DataError` on PostgreSQL against `max_length=100`.
+So a campaign mixing one run with real allocation events and one run whose figure is genuinely
+unknown reports a definite number, with the unknown run silently treated as 0. Verified by
+execution (campaign with run A = 2 elapsed `ALLOC:` nights, run B = `proposal_code`
+`'NEVER-FETCHED-001'` with no `ProposalTimeAllocation` rows):
 
-**Fix:** Quote and validate:
+```
+run A cell  : {'nights_unused': 2,    'unused_known': True,  'unused_is_estimate': False}
+run B cell  : {'nights_unused': None, 'unused_known': False, 'unused_is_estimate': True}
+rollup strip: {'nights_unused': 2,    'unused_known': True,  'unused_is_estimate': True}
+```
+
+Two separate faults in one page response:
+
+1. **Unknown rendered as a number.** The strip renders `[U] ≈2` while the row directly beneath it
+   renders `[U] not yet known`. That contradicts `_apply_unused_fields()`'s own docstring
+   ("callers must render this as not-yet-known, never as zero"), `unused_hours_for()`'s identical
+   contract, and D-15's "the strip and the rows agree by construction" — the very invariant G-37-4
+   was written to establish. It also under-reports wasted telescope time, the number the whole
+   feature exists to surface.
+2. **Exact total mislabelled.** `unused_is_estimate` is set from the codes that were *attempted*,
+   not the codes that *contributed*. Here every contributing figure (2) is exact, yet the strip
+   prints the `≈` estimate marker.
+
+The existing tests miss this: `test_d06_unknown_contract_survives_the_warm_path` uses a campaign
+whose *only* run is unknown, so `exact_known` is False and the `else` branch rescues it.
+
+**Fix:** distinguish "no figure attempted" from "a figure was attempted and came back unknown",
+and derive the estimate flag from the contributing codes:
 
 ```python
-import re
-from urllib.parse import quote
+    estimate_total = 0
+    known_codes: set[str] = set()
+    unknown_codes: set[str] = set()
+    for code in estimate_codes:
+        estimate = proposal_allocation.estimated_unused_nights(code)
+        if estimate is None:
+            unknown_codes.add(code)
+        else:
+            estimate_total += estimate
+            known_codes.add(code)
 
-_PROPOSAL_CODE_RE = re.compile(r'^[A-Za-z0-9._\-]{1,100}$')
+    # A run with neither an exact count nor a resolvable estimate makes the WHOLE campaign
+    # total unknown -- never silently zero (the same contract _apply_unused_fields() keeps
+    # per run).
+    if unknown_codes or blank_code_runs:
+        rollup['nights_unused'] = None
+        rollup['unused_known'] = False
+        rollup['unused_is_estimate'] = True
+        return
 
-def fetch_proposal_allocations(proposal_code: str, facility: LCOFacility) -> list[dict[str, Any]]:
-    if not _PROPOSAL_CODE_RE.match(proposal_code or ''):
-        raise PortalUnavailable('ValueError')
-    url = urljoin(
-        facility.facility_settings.get_setting('portal_url'),
-        f'/api/proposals/{quote(proposal_code, safe="")}/',
-    )
+    rollup['nights_unused'] = exact_total + estimate_total
+    rollup['unused_known'] = bool(exact_known or known_codes)
+    rollup['unused_is_estimate'] = bool(known_codes)
 ```
 
-and reject an over-long/ill-formed token in `_resolve_proposal()` so it never reaches the DB.
+where `blank_code_runs` is set in the first loop for a run with no allocation events and no
+`proposal_code`. If a fully-unknown strip is judged worse UX than a partial one, add an explicit
+`unused_partial` key and render `[U] ≥2` — but do not keep publishing `≈2` for a campaign whose
+real total is unknown. Add a test for the mixed exact + unknown-code campaign above.
 
 ---
 
-### WR-08: `unused_hours_for()` sums across every semester and instrument type, and stale rows are never pruned
+## Warnings
 
-**File:** `solsys_code/proposal_allocation.py:181-187`, `solsys_code/proposal_allocation.py:129-166`
+### WR-01: `_PROPOSAL_CODE_RE` admits the exact `..` value its own comment says it rejects
 
-**Issue:** The sum filters only on `proposal_code` and `allocation_type__in=('std',)`. A
-proposal carrying allocations in two semesters contributes both, so a proposal that finished
-2026A with 40 unused standard hours and has 100 hours in 2026B reports 14 estimated unused
-nights rather than 10 — a figure published on a public page as the run's wasted time.
-Compounding it, `store_proposal_allocations()` only ever calls `update_or_create()`; a row
-whose (semester, instrument_type, allocation_type) key disappears from the portal response is
-never deleted, so retired semesters accumulate forever and the estimate only ever grows.
-Neither behaviour is tested (`test_proposal_allocation.py` has no cross-semester case).
+**File:** `solsys_code/proposal_allocation.py:80`, `:121-135`
 
-**Fix:** Scope the sum to the current/most-recent semester, and prune on refresh:
+**Issue:** The comment states the charset closes "a value containing `..`, `?` or `#` [which]
+would redirect the authenticated portal request to a different endpoint when `urljoin()`
+normalises it". The charset is `^[A-Za-z0-9._-]{1,100}$` — `.` is in it, so `..` and `.` both
+match. `quote(code, safe='')` does not escape `.` (unreserved), and `urljoin` removes dot
+segments per RFC 3986. Verified:
 
 ```python
-def unused_hours_for(proposal_code: str, semester: str | None = None) -> float | None:
-    rows = ProposalTimeAllocation.objects.filter(
-        proposal_code=proposal_code, allocation_type__in=ESTIMATE_ALLOCATION_TYPES
-    )
-    if semester is None:
-        semester = rows.order_by('-semester').values_list('semester', flat=True).first()
-    if semester is None:
-        return None
-    rows = rows.filter(semester=semester)
+>>> urljoin('https://observe.lco.global/', '/api/proposals/../')
+'https://observe.lco.global/api/'
+>>> urljoin('https://observe.lco.global/', '/api/proposals/./')
+'https://observe.lco.global/api/proposals/'
+```
+
+So a `WatchedProposal.proposal_code` (admin-editable free text) or a classical schedule file's
+`[..]` token still sends the credentialed, API-key-bearing GET to a different portal endpoint.
+Practical blast radius is limited (one level up, same host, GET only, and the response fails the
+`timeallocation_set` check), but the mitigation does not do what it claims and the test named for
+it (WR-11 below) never exercises the admitted value.
+
+**Fix:** reject dot-only segments explicitly, e.g.
+
+```python
+_PROPOSAL_CODE_RE = re.compile(r'^(?!\.+$)[A-Za-z0-9._-]{1,100}$')
+```
+
+and add `self.assertRaises(pa.PortalUnavailable)` cases for `'..'` and `'.'` alongside the
+existing `'../requestgroups'` case.
+
+---
+
+### WR-02: `link_version` does not catch the delete-then-create pair its docstring says it catches
+
+**File:** `solsys_code/campaign_tally.py:99-110`, `:145`
+
+**Issue:** `build_tally_cache_key()`'s docstring states `link_version` "additionally catches a
+delete-then-create pair that leaves the count unchanged (e.g. re-attributing one record to a
+different, same-count link set)". `link_version` is `Max('observation_record_id')`, so it only
+moves when the *maximum* linked record id changes. Counter-example: a run linked to records
+`{5, 9}`; staff re-attribute record 5 away and attach record 7 instead. Afterwards:
+`records = 2` (unchanged), `link_version = 9` (unchanged), and `records_version =
+Max(modified)` is still record 9's stamp because neither `ObservationRecord` row was saved.
+Identical cache key → the stale five-key tally is served for up to `TALLY_CACHE_TTL_SECONDS`
+(one hour), which is precisely the hole CR-01 set out to close.
+
+The two new tests only cover the cases where the max *does* move
+(`test_link_version_is_the_newest_linked_record_id`,
+`test_removing_a_non_newest_link_is_reflected_with_no_clock_advance` — the latter changes the
+count).
+
+**Fix:** use an order-insensitive watermark that changes for any membership change, e.g.
+`link_version=Sum('observation_record_id')` (cheap, and combined with `records` it distinguishes
+essentially every real swap), or `link_version=Max('observation_record_id')` plus
+`link_checksum=Sum('observation_record_id')` folded into the key. Either way, correct the
+docstring so it does not promise coverage the key does not have, and add the
+`{5, 9} → {7, 9}` swap test.
+
+---
+
+### WR-03: `CampaignListView` pays an unbounded, per-run live unused recomputation for a value the template never renders
+
+**File:** `solsys_code/campaign_views.py:279-292`, `:317-319`; `src/templates/campaigns/campaign_list.html:48-50`
+
+**Issue:** `get_context_data()` calls `campaign_tally.get_or_compute_rollup(campaign)` for every
+listed campaign. Since G-37-4, that call is never fully cached: `_apply_rollup_unused_fields()`
+re-runs live on every hit, issuing one `allocation_events()` query per run plus one
+`estimated_unused_nights()` query per distinct proposal code, plus a `_rollup_runs()` fetch and a
+`campaign_records_version()` probe per campaign.
+
+The template renders only `campaign.run_count` (a queryset annotation) and
+`campaign.rollup.nights_observed` (a fully cached key). **The three `unused_*` keys — the only
+part that is recomputed live — are never displayed on this page at all.** The entire marginal
+cost is dead work.
+
+The code comment's justification is also factually wrong: "Bounding the page to 100 campaigns
+bounds both costs per request" bounds the *campaign* count, not the *run* count. Measured on a
+fully warm cache, anonymous client:
+
+```
+WARM campaign-list queries for 3 campaigns (1 + 5 + 20 = 26 runs): 38
+WARM campaign-list queries after adding a 50-run campaign:         90
+```
+
+i.e. +52 queries for one added campaign — one SQL query per run, on every anonymous GET, forever.
+At `paginate_by = 100` with campaigns averaging 20 runs that is ~2 000 queries per unauthenticated
+page load, which is a request-amplification/availability risk on a public endpoint.
+
+**Fix:** do not compute the live unused split on a page that does not show it. Either give
+`CampaignListView` a cheap cached-only entry point:
+
+```python
+# campaign_tally.py
+def get_or_compute_rollup(campaign, records_version=None, *, live_unused: bool = True):
+    ...
+    if cached is not None:
+        rollup = dict(cached)
+        if live_unused:
+            _apply_rollup_unused_fields(rollup, _rollup_runs(campaign))
+        return rollup
+```
+
+and call it with `live_unused=False` from the list view, or (cleaner) replace the list view's call
+with a dedicated `campaign_observed_nights(campaign)` helper that reads only the cached
+record-derived half. Keep the live path for `CampaignRunTableView`, which does render the figure.
+
+---
+
+### WR-04: The test that claims to bound the campaign-list query cost cannot detect growth with run count
+
+**File:** `solsys_code/tests/test_campaign_views.py` — `TestCampaignRollup.test_campaign_list_query_count_bound_with_three_campaigns`
+
+**Issue:** The test pins `MARGINAL_QUERIES_PER_CAMPAIGN = 3` and its docstring claims a second
+added campaign "proves the cost stays CONSTANT per campaign rather than growing". Every fixture
+campaign has exactly **one** run (`self._make_run(campaign=c, ...)` once per campaign), so the
+constant it measures is `2 + n_runs` evaluated at `n_runs == 1`. The regression WR-03 describes —
+per-run query fan-out — is invisible to it, and the `assertEqual` gives false confidence that it
+is pinned.
+
+**Fix:** parameterise the fixture over run count and assert the shape, not a single point:
+
+```python
+for n_runs in (1, 4):
+    extra = TargetList.objects.create(name=f'Bound Extra {n_runs}')
+    for i in range(n_runs):
+        self._make_run(campaign=extra, telescope_instrument=f'FTN/x{n_runs}-{i}')
+    campaign_tally.get_or_compute_rollup(extra)
+    with CaptureQueriesContext(connection) as ctx:
+        self.client.get(reverse('campaigns:list'))
+    marginal[n_runs] = len(ctx.captured_queries) - previous
+self.assertEqual(marginal[4], marginal[1])  # constant per campaign, independent of run count
+```
+
+---
+
+### WR-05: `store_proposal_allocations()`'s prune can wipe a proposal's stored allocations, with no admin recovery path
+
+**File:** `solsys_code/proposal_allocation.py:201-204`; `solsys_code/admin.py:519-523`
+
+**Issue:** The new prune deletes every stored row for `proposal_code` whose
+`(semester, instrument_type, allocation_type)` key was not in this response. When `rows == []`
+(portal returns a syntactically valid body with an empty `timeallocation_set` — an outage state
+that `fetch_proposal_allocations()` accepts, since only a non-list fails the check), `seen_keys`
+is empty and **all** rows for that proposal are deleted. The test
+`test_prune_never_touches_a_different_proposal_codes_rows` encodes this behaviour deliberately.
+
+Consequences: the public unused estimate flips from a number to "not yet known" for every run
+carrying that code, and — because WR-10 in the same round added
+`has_add_permission() == False` and `has_delete_permission() == False` to
+`ProposalTimeAllocationAdmin` — there is no longer any manual way for staff to restore or even
+inspect-and-correct the table. Recovery depends entirely on the next successful unattended fetch.
+
+**Fix:** make the prune conditional on having written something, and guard the destructive case:
+
+```python
+    if not seen_keys:
+        # An empty timeallocation_set is indistinguishable from a partial/degraded portal
+        # response -- never let it silently destroy a proposal's stored allocations.
+        logger.warning('store_proposal_allocations: empty response for %r; keeping stored rows.', proposal_code)
+        return written
+    stale = ProposalTimeAllocation.objects.filter(proposal_code=proposal_code)
     ...
 ```
 
-and in `store_proposal_allocations()`, after the loop, delete rows for this
-`proposal_code` whose key was not in the response. If summing across semesters is the
-intended rule, say so explicitly in the docstring and add a test that pins it.
+If a genuinely-empty allocation set must be representable, add an explicit
+`--prune-empty` path on the management command rather than making it the default of the
+unattended runner.
 
 ---
 
-### WR-09: Bare marker literals survive in `observation_projector.py` and `calendar.html` — the exact drift STATUS-01 set out to remove
+### WR-06: `unused_hours_for()`'s new `semester` parameter has no production caller, and the estimate is still not scoped to the run
 
-**File:** `solsys_code/observation_projector.py:98`, `solsys_code/observation_projector.py:207`, `src/templates/tom_calendar/partials/calendar.html:356`
+**File:** `solsys_code/proposal_allocation.py:208-240`, `:257`
 
-**Issue:** After the consolidation, three hardcoded markers remain outside
-`status_vocabulary`:
+**Issue:** WR-08 widened `unused_hours_for()` with a `semester` argument, but the only production
+caller, `estimated_unused_nights()`, never passes it (`unused_hours_for(proposal_code)`), and
+`campaign_tally` calls `estimated_unused_nights(code)` only. Grep confirms the parameter is
+exercised exclusively by `test_explicit_semester_overrides_the_most_recent_default` and
+`test_no_rows_in_an_explicitly_requested_semester_is_none` — it is test-only API surface.
 
-- `observation_projector.py:98` — `return FAILURE_MARKER_BY_STATUS.get(status, '[F]')`
-- `observation_projector.py:207` — `marker = STAGE_MARKER.get(stage, '[?]')`
-- `calendar.html:356` — `{% if entry.marker == '[U]' %}` gates the click-to-filter treatment
+The substantive gap is that the default (`max(semester)`) is not the semester the *run* belongs
+to. A 2026A run whose proposal also carries 2026B allocations now reports 2026B's unused hours as
+"this run's wasted time". The docstring's "currently-relevant wasted time" claim only holds for
+runs in the newest stored semester.
 
-The first two are exactly the "one module still carries its own bare quoted marker" pattern
-the phase docstring (`status_vocabulary.py:3-9`) declares eliminated. The third is worse in
-kind: if `MARKER[DisplayState.UNUSED]` ever changes, the legend silently degrades from a
-filterable swatch to an inert entry with no test or error to catch it — the same
-byte-identical-by-convention coupling the phase removed from Python.
-
-**Fix:**
+**Fix:** either plumb the run's own semester through —
 
 ```python
-# observation_projector.py
-from solsys_code.status_vocabulary import (
-    FAILURE_MARKER_BY_STATUS, MARKER, STAGE_MARKER, DisplayState, failed_states_for, observed_states_for,
+def estimated_unused_nights(proposal_code: str, semester: str | None = None) -> int | None:
+    unused_hours = unused_hours_for(proposal_code, semester=semester)
+```
+
+with `campaign_tally._apply_unused_fields()` deriving the semester from `run.window_start` — or
+drop the unused parameter and state plainly in the docstring that the estimate is
+proposal-latest-semester-wide, not run-scoped, so no reader mistakes it for the latter.
+
+---
+
+### WR-07: Cache-write asymmetry — the per-run paths rely on backend serialisation to keep `unused_*` out of the cache
+
+**File:** `solsys_code/campaign_tally.py:305-309`, `:346-350` vs `:601-611`, `:743`
+
+**Issue:** The roll-up path defensively caches an explicit copy
+(`cache.set(key, _without_unused_fields(rollup), ...)`). The two per-run paths instead do
+
+```python
+cache.set(key, tally, timeout=TALLY_CACHE_TTL_SECONDS)  # cached WITHOUT unused_* fields
+_apply_unused_fields(tally, run)                        # mutates the same dict afterwards
+```
+
+and depend on the backend copying/pickling at `set()` time. That holds for `LocMemCache`,
+`DatabaseCache`, memcached and redis, so it is not a live bug today — but the invariant "no
+computed unused figure is ever written to the cache" is enforced by the backend, not by this
+module, and a future in-process by-reference cache would silently break the D-15 guarantee with
+no test failing (the existing
+`test_cached_value_never_carries_a_computed_unused_figure` exists only for the roll-up).
+
+**Fix:** use the same explicit copy on both paths, and reuse it for the per-run shape:
+
+```python
+cache.set(key, _without_unused_fields(tally), timeout=TALLY_CACHE_TTL_SECONDS)
+_apply_unused_fields(tally, run)
+```
+
+and add the per-run twin of `test_cached_value_never_carries_a_computed_unused_figure`.
+
+---
+
+### WR-08: CLAUDE.md paired-docs rule — `campaign_views.py` and `observation_projector.py` changed behaviour with no notebook regeneration
+
+**File:** `solsys_code/campaign_views.py`, `solsys_code/observation_projector.py` (no
+`docs/notebooks/pre_executed/**` change in `957417f..HEAD`)
+
+**Issue:** CLAUDE.md maps `campaign_views.py` → `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb`
+(the v2.2 campaign-surface collective mapping) and `observation_projector.py` →
+`docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb`, and states that a change to
+those modules' *behaviour* must include the paired notebook in scope "up front, not as a
+follow-up". This round changed `CampaignListView` behaviour (added `order_by('name')` and
+`paginate_by = 100`), changed `CampaignRunTableView.get_table_kwargs()` behaviour (page slicing),
+and added a new public `observation_projector.facility_for_or_none()`. The last notebook
+regeneration is `df40929` ("docs(37-07): regenerate the four pre-executed notebooks"), which is an
+ancestor of the review base — so the notebooks predate all of it.
+
+`campaign_lifecycle_demo.ipynb` cells 41-44 demonstrate the roll-up and per-run tally; nothing in
+them exercises the live-on-cache-hit property that is this round's entire point, nor the new
+campaign-list pagination. CLAUDE.md's breach history (Phase 5, Phase 6, quick task `260726-kdp`,
+Phase 35 NF-24) is explicitly about exactly this omission.
+
+**Fix:** add a cell to `campaign_lifecycle_demo.ipynb` that warms the roll-up cache, makes a staff
+`run_status` edit that touches no `ObservationRecord`, and shows the strip and the row cells
+agreeing on the second call; add a cell to `project_observation_calendar_demo.ipynb` showing
+`facility_for_or_none()` returning `None` for a stale facility name. Regenerate both with
+`jupyter nbconvert --to notebook --execute --inplace` and commit with output.
+
+---
+
+### WR-09: Runbook lists the campaign-list badge as a surface that shows the unused figure; it does not
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:2001-2022`; `src/templates/campaigns/campaign_list.html:48-50`
+
+**Issue:** The updated runbook text reads: "The unused figure is recomputed **on every page
+load**, on every surface that shows it -- the run row's Progress cell, the campaign roll-up strip
+above the runs table, **the campaign-list badge**, and the calendar pop-up's attributed-run
+block." The campaign-list badge renders only
+`{{ campaign.run_count }} run(s)` and, conditionally, `{{ campaign.rollup.nights_observed }}
+night(s) observed`. It never renders `nights_unused`. An operator reading this will look for a
+number that is not there — and the sentence is also the stated justification for the wasted cost
+in WR-03.
+
+**Fix:** drop "the campaign-list badge" from that list, or add the unused segment to the badge if
+it was meant to be there. Whichever is chosen, keep the runbook and the template in agreement.
+
+---
+
+### WR-10: The anonymous campaign list still leaks pending-review run counts, the same leak WR-06 hardened the calendar against
+
+**File:** `solsys_code/campaign_views.py:269-273` (`run_count = Count('campaign_runs')`); `src/templates/campaigns/campaign_list.html:49`
+
+**Issue:** WR-06 in this same round added
+`if run is None or not run.is_publicly_visible: return None` to `unused_night_decoration()`, with
+the stated rationale "leaking the existence of an unreviewed run". Two lines of the same page's
+own view still expose exactly that: `run_count` is an unfiltered `Count('campaign_runs')` and is
+rendered in the badge to anonymous visitors, while `campaign.rollup['runs']` (computed on the same
+request) excludes `PENDING_REVIEW`. A visitor who submits a run can watch the badge increment to
+confirm it landed, and staff-side pending volume is publicly countable.
+
+The annotation predates this phase, but the inconsistency is now internal to a single request and
+directly contradicts the rationale written into this round's own fix.
+
+**Fix:** filter the annotation to publicly visible runs, matching `_rollup_runs()`'s discipline:
+
+```python
+.annotate(
+    run_count=Count(
+        'campaign_runs',
+        filter=~Q(campaign_runs__approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW),
+    )
 )
-...
-    return FAILURE_MARKER_BY_STATUS.get(status, MARKER[DisplayState.FAILED])
-...
-    marker = STAGE_MARKER.get(stage, MARKER[DisplayState.INCONSISTENT])
 ```
 
-For the template, expose the marker rather than comparing to a literal — e.g. add
-`'filterable': state is DisplayState.UNUSED` to each `LEGEND` entry in
-`status_vocabulary.LEGEND` and branch on `{% if entry.filterable %}`.
+(or simply render `campaign.rollup.runs`, which is already correct, and drop the annotation).
 
 ---
 
-### WR-10: `ProposalTimeAllocationAdmin` is read-only per field but leaves add and delete unguarded
+### WR-11: `test_path_traversal_like_code_is_rejected_before_any_request` does not test a value the regex admits
 
-**File:** `solsys_code/admin.py:485-511`
+**File:** `solsys_code/tests/test_proposal_allocation.py` — `FetchProposalAllocationsTests.test_path_traversal_like_code_is_rejected_before_any_request`
 
-**Issue:** The docstring says "a staff user cannot hand-edit a figure the public tallies
-present as portal-sourced (T-37-07)", and the model docstring says the rows are "Written only
-by the unattended runner's proposal-allocation step". Neither `has_add_permission()` nor
-`has_delete_permission()` is overridden, so a staff user can **delete** rows — which silently
-changes the public unused-nights estimate, or flips it from a number to "not yet known" —
-and the "Add" button is rendered despite every field being read-only, producing a form that
-cannot satisfy the non-null `fetched_at`.
+**Issue:** The test asserts `'../requestgroups'` is rejected. That value is rejected by the `/`
+character, not by any handling of `..`. The values that actually traverse — `'..'` and `'.'` —
+both pass `_PROPOSAL_CODE_RE` (see WR-01) and are not tested. The test therefore proves nothing
+about the property its name and docstring claim.
 
-**Fix:**
+**Fix:** add the two admitted values to the test, which will fail until WR-01 is fixed:
 
 ```python
-class ProposalTimeAllocationAdmin(admin.ModelAdmin):  # noqa: D101
-    ...
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
+    def test_bare_dot_segments_are_rejected(self):
+        for code in ('..', '.'):
+            with self.subTest(code=code), patch('solsys_code.proposal_allocation.make_request') as mock_request:
+                with self.assertRaises(pa.PortalUnavailable):
+                    pa.fetch_proposal_allocations(code, _mock_facility())
+                mock_request.assert_not_called()
 ```
 
 ---
-
-### WR-11: The gap page's new "Claimed nights" list is not bounded by the requested date range
-
-**File:** `src/templates/campaigns/campaignrun_gap_analysis.html:48-63`, `solsys_code/campaign_gap.py:282-290`
-
-**Issue:** `claimed_dates()`'s own WR-05 note states that `claimed_dates` is campaign/site-wide
-and "NOT scoped to `[start, end]`", and `_compute_gap()` passes it straight through
-(`campaign_gap.py:391`). The new template block renders that unbounded set as a flat list
-headed "Claimed nights" on a page whose whole premise is the user-selected date range. A user
-asking about the next 30 days is shown claimed nights from years ago and years ahead, with no
-indication they are out of range.
-
-**Fix:** Bound the displayed lists in `_compute_gap()`, where `start`/`end` are in scope:
-
-```python
-    in_range = {d for d in claimed if start <= d <= end}
-    return {
-        ...
-        'claimed_dates': sorted(in_range),
-        'observation_claimed_dates': sorted(d for d in observation_claimed if start <= d <= end),
-        ...
-    }
-```
-
-(`gap = obs - claimed` must keep using the *unbounded* `claimed`, as today.)
-
----
-
-### WR-12: The runbook still documents the retired `[CANCELLED]`/`[WEATHERED]` prefixes as current
-
-**File:** `docs/runbooks/telescope_runs_calendar.rst:1277-1279`
-
-**Issue:** The phase rewrote the marker table (lines 136-200) and added a "One-time title
-change (Phase 37)" note (lines 687-699) explaining that `[CANCELLED]`/`[WEATHERED]` are
-rewritten to `[C]`/`[W]`. Line 1277-1279 still tells the operator that a declined-retirement
-night "picks up its ``[CANCELLED]`` / ``[WEATHERED]`` prefix on the next sweep". Under
-CLAUDE.md's paired-docs rule the runbook is part of the deliverable, and an operator reading
-that passage will look for a title that no writer produces.
-
-**Fix:** Replace the two markers in that sentence with ``[C]`` / ``[W]``:
-
-```rst
-   ...so the entry picks up its ``[C]`` / ``[W]`` marker on the next
-   sweep instead of sitting on the calendar as an ordinary observing night...
-```
 
 ## Info
 
-### IN-01: A cancelled night is labelled "Expired/failed" in the tally segment
+### IN-01: `_rollup_runs()` requests a column nothing reads
 
-**File:** `solsys_code/campaign_tally.py:293-297`, `solsys_code/campaign_tally.py:59-67`
+**File:** `solsys_code/campaign_tally.py:535`
 
-**Issue:** `_NIGHT_CLAIMING_STATES` folds `WINDOW_EXPIRED`, `CANCELLED` and `FAILED` into
-`nights_failed`, which `tally_segments()` renders as `[X/F] Expired/failed`. A portal-cancelled
-night is neither expired nor failed, and the combined marker omits `[C]` even though `[C]` is
-one of the three states being summed.
+`.only('pk', 'proposal_code', 'run_status', 'site_id', 'site__timezone', 'site__obscode')` — the
+docstring justifies `run_status` and `site__timezone` by naming the exact readers, but nothing on
+the roll-up path reads `site.obscode` (`night_counts_for_run()` reads only `site.timezone`;
+`unused_nights_for_run()` reads only `pk` and `run_status`). Drop `site__obscode` or name its
+reader, so the `.only()` list stays the audit trail its docstring claims it is.
 
-**Fix:** Either widen the token/label to `[X/C/F]` / "Expired, cancelled or failed", or split
-cancelled into its own segment.
+### IN-02: `claimed_site_unknown_count` now includes non-claiming records
 
----
+**File:** `solsys_code/campaign_gap.py:220-226`
 
-### IN-02: `status_border_css()`'s `'[QUEUED] '` branch is dead code
+The `facility is None → site_unknown_count += 1; continue` guard runs *before* the
+`classify_record(...) not in _CLAIMING_DISPLAY_STATES` filter, so a QUEUED or otherwise
+non-claiming record with a stale facility name now inflates the "N observation(s) on this
+campaign's calendar could not be assigned to a site" banner
+(`campaignrun_gap_analysis.html:66-72`), which previously counted only records that would
+otherwise have claimed a night. Defensible (an unclassifiable record genuinely is unknown), but
+the banner copy no longer quite matches what is counted.
 
-**File:** `solsys_code/templatetags/calendar_display_extras.py:183-184`
+### IN-03: `unused_night_decoration()` pays a query before the cheap namespace check
 
-**Issue:** A repo-wide grep finds no producer of a `'[QUEUED] '`-prefixed title outside test
-fixtures; every current writer emits `'[Q] '` via `STAGE_MARKER`. The branch is retained
-"deliberately" per the docstring, but with `RETIRED_TITLE_PREFIXES` deleted in 37-07 on the
-grounds that the database holds no legacy spellings, the same argument retires this one.
+**File:** `solsys_code/templatetags/calendar_display_extras.py:674-679`
 
-**Fix:** Delete the branch (the `RING_QUEUED_STATES` check immediately below covers `'[Q] '`),
-or document the specific legacy rows it exists for.
+The tag fetches `event.telescope_label_meta` (one query per event) before testing
+`(event.url or '').startswith(ALLOC_URL_NAMESPACE)`, so every non-allocation event on every
+calendar cell pays a companion-row lookup for nothing. Reordering the two guards is free.
+Pre-existing (Plan 06), not introduced here.
 
----
+### IN-04: `link_counts_for_runs()` indexes the result dict without a guard
 
-### IN-03: The `[U]` legend swatch never updates `aria-pressed`
+**File:** `solsys_code/campaign_tally.py:148-160`
 
-**File:** `src/templates/tom_calendar/partials/calendar.html:356-360`, `:400-420`
+`result[row['run_id']][...] = ...` assumes the `values(run_id=F('observation_records__campaign_run_links__run_id'))`
+re-traversal reuses the join the `.filter()` set up. It does in the installed Django, but a
+join-reuse surprise here is a `KeyError`/500 on the anonymous campaign table rather than a
+degraded count. `result.setdefault(row['run_id'], {...})` or a `if row['run_id'] in result` guard
+costs nothing.
 
-**Issue:** The new filter control is `role="button" aria-pressed="false"`, but the click
-handler only toggles the `is-active` class; `aria-pressed` stays `"false"` forever, so a
-screen-reader user cannot tell the filter is on. It is also not keyboard-focusable
-(`<span role="button">` with no `tabindex`).
+### IN-05: `facility_for_or_none()` catches only `ImportError`
 
-**Fix:** Add `tabindex="0"`, a keydown handler for Enter/Space, and
-`el.setAttribute('aria-pressed', String(matched))` alongside each `classList.toggle('is-active', ...)`.
+**File:** `solsys_code/observation_projector.py:104-107`
 
----
+`facility_for()` also *instantiates* the service class (`get_service_class(name)()`,
+`observation_projector.py:82`). A facility whose `__init__` raises (bad settings, missing API key
+object) still escapes the "never raises" promise into the anonymous campaign table. Widen to
+`except (ImportError, Exception)`-with-logging, or at minimum document that instantiation errors
+are out of scope.
 
-### IN-04: The portal fetch depends on `LCOFacility._portal_headers()`, a private upstream method
+### IN-06: Campaign-list pagination links drop other query parameters
 
-**File:** `solsys_code/proposal_allocation.py:107`
+**File:** `src/templates/campaigns/campaign_list.html:58`, `:66`
 
-**Issue:** `facility._portal_headers()` is a leading-underscore method of a third-party class;
-an upstream rename breaks the unattended step with an `AttributeError` that
-`fetch_proposal_allocations()`'s except clause does not catch (it lists
-`RequestException`/`ImproperCredentialsException`/`ValidationError`/`ValueError`), so it
-escapes `refresh_all()`'s per-proposal isolation and aborts the whole step.
-
-**Fix:** Pin the dependency in a comment, and add `AttributeError` to the caught set (or wrap
-the header construction) so one upstream change degrades to "portal unavailable" rather than
-an unattended-runner traceback.
-
----
-
-### IN-05: `ProposalTimeAllocation.save()` strips `proposal_code` while `update_or_create()` looks it up unstripped
-
-**File:** `solsys_code/models.py:836-844`, `solsys_code/proposal_allocation.py:154-164`
-
-**Issue:** `update_or_create(proposal_code=' X ', ...)` fails to match the stored `'X'`,
-creates a second instance, whose `save()` strips it back to `'X'`, and the unique constraint
-then raises `IntegrityError`. Today both code sources happen to be pre-stripped
-(`_resolve_proposal()` strips, `WatchedProposal.save()` strips), so this is latent rather than
-live.
-
-**Fix:** Strip at the call site — `proposal_code = (proposal_code or '').strip()` at the top of
-`store_proposal_allocations()` and `proposal_codes_to_fetch()`.
+`href="?page={{ ... }}"` discards any other querystring. Harmless today (the list view takes no
+other params), but it will silently break the first time a filter or search is added. Prefer a
+`querystring` template tag.
 
 ---
 
-### IN-06: Stale comments and a now-vacuous assertion reference the retired bracket-word prefixes
-
-**File:** `solsys_code/campaign_views.py:805`, `solsys_code/campaign_views.py:840`, `solsys_code/models.py:173`, `solsys_code/tests/test_campaign_approval.py:593`
-
-**Issue:** Three code comments still describe the writer as producing
-`[CANCELLED]`/`[WEATHERED]`/`[EXPIRED]` titles. `test_campaign_approval.py:593`
-(`self.assertFalse(event.title.startswith('[CANCELLED]'))`) is now trivially true for every
-possible title and no longer distinguishes the weathered marker from the cancelled one.
-
-**Fix:** Update the three comments to `[C]`/`[W]`/`[X]`, and change the assertion to
-`self.assertFalse(event.title.startswith(RUN_STATUS_MARKER[CampaignRun.RunStatus.CANCELLED]))`.
-
----
-
-### IN-07: `get_table_kwargs()` builds an unrestricted `CampaignRun` queryset on non-staff requests
-
-**File:** `solsys_code/campaign_views.py:203`
-
-**Issue:** `CampaignRun.objects.filter(pk__in=pks).select_related('site')` selects every column
-— including `contact_person`/`contact_email` — into the request process for anonymous
-visitors, on a view whose surrounding code goes to considerable length
-(`ALLOWED_FIELDS_FOR_NON_STAFF`, the `.values()`-before-`.annotate()` gate,
-`campaign_gap.claimed_dates()`'s own `.only()` note at `campaign_gap.py:297-302`) to keep
-those columns out of a public request. Nothing renders them today, so this is defence in
-depth, not a live leak.
-
-**Fix:** Mirror the established discipline:
-
-```python
-runs = (CampaignRun.objects.filter(pk__in=pks)
-        .select_related('site')
-        .only('pk', 'proposal_code', 'run_status', 'site_id', 'site__timezone', 'site__obscode'))
-```
-
-(which also fixes WR-03's deferred-field loads on this path).
-
----
-
-_Reviewed: 2026-09-19_
+_Reviewed: 2026-09-21T05:20:27Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
