@@ -384,7 +384,7 @@ Plans:
   4. An awarded night that came and went with nothing scheduled or observed is visibly different on the calendar from a night that was actually observed
   5. Coverage-gap analysis counts every observation on the campaign calendar, so classical and queue time is no longer reported as unclaimed
 
-**Plans**: 9/10 plans executed (8 executed; 37-09 and 37-10 added 2026-09-21 as gap-closure waves 7 and 8). 37-08 was added 2026-09-20 as gap-closure wave 6 for UAT gap G-37-4 — the campaign roll-up strip's `[U]` unused total disagreeing with the Progress cells directly beneath it on the same page for up to the tally cache lifetime, developer's chosen option (b). 37-09 closes G-37-5 (verification gap CR-01: the public Progress cell disappears from rows rendered under `?sort=` or `?per_page=` on a campaign with more than one page of runs) and 37-10 closes G-37-6 (code-review finding CR-02, decided by the developer as D-20: the roll-up strip absorbed an unknown contributor into its total as zero and showed an estimate qualifier with no estimate behind it)
+**Plans**: 10/10 plans executed (8 executed; 37-09 and 37-10 added 2026-09-21 as gap-closure waves 7 and 8). 37-08 was added 2026-09-20 as gap-closure wave 6 for UAT gap G-37-4 — the campaign roll-up strip's `[U]` unused total disagreeing with the Progress cells directly beneath it on the same page for up to the tally cache lifetime, developer's chosen option (b). 37-09 closes G-37-5 (verification gap CR-01: the public Progress cell disappears from rows rendered under `?sort=` or `?per_page=` on a campaign with more than one page of runs) and 37-10 closes G-37-6 (code-review finding CR-02, decided by the developer as D-20: the roll-up strip absorbed an unknown contributor into its total as zero and showed an estimate qualifier with no estimate behind it)
 
 Plans:
 **Wave 1**
@@ -419,7 +419,7 @@ Plans:
 
 **Wave 8** *(gap closure, blocked on Wave 7 completion)*
 
-- [ ] 37-10-PLAN.md — The campaign roll-up strip stops absorbing an unknown contributor into its total as zero: contributing and attempted proposal estimates are tracked separately, the roll-up carries a count of the runs it could not include, the strip gets its own "at least N, M not yet known" rendering, and both paired docs are brought up to date — the runbook's public-tally section explains it, and the campaign-lifecycle notebook's own reimplementation of the strip's rendering (cell 42) is updated and regenerated with output (wave 8, gap closure G-37-6, decision D-20)
+- [x] 37-10-PLAN.md — The campaign roll-up strip stops absorbing an unknown contributor into its total as zero: contributing and attempted proposal estimates are tracked separately, the roll-up carries a count of the runs it could not include, the strip gets its own "at least N, M not yet known" rendering, and both paired docs are brought up to date — the runbook's public-tally section explains it, and the campaign-lifecycle notebook's own reimplementation of the strip's rendering (cell 42) is updated and regenerated with output (wave 8, gap closure G-37-6, decision D-20)
 
 **UI hint**: yes
 
@@ -465,7 +465,7 @@ Plans:
 | 34. The Observation Projector & Trigger | v2.4 | 7/7 | Complete    | 2026-09-12 |
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
-| 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 9/10 | In Progress|  |
+| 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 

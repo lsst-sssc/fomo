@@ -49,10 +49,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Progress Legibility (public)
 
-- [ ] **TALLY-01**: Any user (not only staff) sees on each run — on the campaign table row and the run detail — an ongoing tally of linked `ObservationGroup`s, linked `ObservationRecord`s, and nights observed / scheduled / expired-or-failed / unused-so-far, updating as the projector narrows
-- [ ] **TALLY-02**: The campaign page rolls the same tally up across the campaign's runs
+- [x] **TALLY-01**: Any user (not only staff) sees on each run — on the campaign table row and the run detail — an ongoing tally of linked `ObservationGroup`s, linked `ObservationRecord`s, and nights observed / scheduled / expired-or-failed / unused-so-far, updating as the projector narrows
+- [x] **TALLY-02**: The campaign page rolls the same tally up across the campaign's runs
 - [ ] **TALLY-03**: `CampaignRun.run_status` is never set automatically from linked records — it stays a staff decision, made when the run's window has ended
-- [ ] **UNUSED-01** (carried from v2.2/v2.3): An awarded night that was never scheduled or observed (an allocation event still standing after its night has passed) is visually distinct on the calendar from a realised night
+- [x] **UNUSED-01** (carried from v2.2/v2.3): An awarded night that was never scheduled or observed (an allocation event still standing after its night has passed) is visually distinct on the calendar from a realised night
 
 ### Status Vocabulary & Gap Analysis (carried from v2.2/v2.3)
 
@@ -122,10 +122,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SCHED-09 | Phase 36 | Complete |
 | SCHED-10 | Phase 36 | Complete |
 | DISCOVER-01 | Phase 36 | Complete |
-| TALLY-01 | Phase 37 | Gaps Found |
-| TALLY-02 | Phase 37 | Gaps Found |
+| TALLY-01 | Phase 37 | Complete |
+| TALLY-02 | Phase 37 | Complete |
 | TALLY-03 | Phase 37 | Gaps Found |
-| UNUSED-01 | Phase 37 | Gaps Found |
+| UNUSED-01 | Phase 37 | Complete |
 | STATUS-01 | Phase 37 | Gaps Found |
 | STATUS-02 | Phase 37 | Gaps Found |
 | GAPB-01 | Phase 37 | Gaps Found |
