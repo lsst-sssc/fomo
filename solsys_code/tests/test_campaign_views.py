@@ -1208,20 +1208,69 @@ class TestProgressColumnCoversEveryRenderedRow(CampaignTallyViewTestBase):
         response = self.client.get(url, {'sort': '-telescope_instrument', 'page': 'banana'})
         self._assert_full_coverage(response)
 
-    def test_huge_per_page_is_capped_and_still_fully_covered(self):
-        """T-37-09-02: ``?per_page=100000`` must not fan the tally pass out across the
-        whole campaign -- it renders at most MAX_TABLE_PER_PAGE rows, and the cap must not
-        reintroduce the coverage gap it protects against (the tallies dict is exactly the
-        same size as the rendered set)."""
-        self._make_thirty_runs()
+    def _make_n_runs(self, n: int) -> list[CampaignRun]:
+        """Like ``_make_thirty_runs()`` but for an arbitrary count -- used by the cap tests
+        below (WR-01, 37-REVIEW.md), which need more runs than ``MAX_TABLE_PER_PAGE`` to make
+        the cap's effect on ``per_page`` observable at all (30 runs can never expose a 100-row
+        cap: every value from 30 upward renders the same 30 rows whether or not the cap
+        exists)."""
+        runs = []
+        for i in range(n):
+            window_date = _BASE_DATE + timedelta(days=i)
+            runs.append(self._make_run(window_start=window_date, window_end=window_date))
+        return runs
+
+    def test_huge_per_page_is_capped_at_the_maximum(self):
+        """WR-01 (37-REVIEW.md): with MORE runs than ``MAX_TABLE_PER_PAGE`` in the campaign,
+        ``?per_page=100000`` must render EXACTLY ``MAX_TABLE_PER_PAGE`` rows, not merely "at
+        most" -- the previous version of this test fixtured only 30 runs, so
+        ``assertLessEqual(30, 100)`` held whether or not the cap existed at all (deleting the
+        whole ``get()`` override left it passing)."""
+        self._make_n_runs(120)
         url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
         response = self.client.get(url, {'per_page': '100000'})
         self.assertEqual(response.status_code, 200)
         table = response.context['table']
         rendered_count = len(list(table.paginated_rows))
-        self.assertLessEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
+        self.assertEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
         self.assertEqual(len(table.tallies), rendered_count)
         self._assert_full_coverage(response)
+
+    def test_per_page_exactly_at_the_cap_is_honoured(self):
+        """The boundary itself: ``?per_page=100`` (== MAX_TABLE_PER_PAGE) must render exactly
+        100 rows, not be treated as one-past-the-cap."""
+        self._make_n_runs(120)
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': str(campaign_views.MAX_TABLE_PER_PAGE)})
+        self.assertEqual(response.status_code, 200)
+        rendered_count = len(list(response.context['table'].paginated_rows))
+        self.assertEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
+        self._assert_full_coverage(response)
+
+    def test_first_value_above_the_cap_is_clamped_down(self):
+        """The first integer actually above the cap (``MAX_TABLE_PER_PAGE + 1``) must still be
+        clamped DOWN to the cap, not merely "some value <= 100 renders"."""
+        self._make_n_runs(120)
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': str(campaign_views.MAX_TABLE_PER_PAGE + 1)})
+        self.assertEqual(response.status_code, 200)
+        rendered_count = len(list(response.context['table'].paginated_rows))
+        self.assertEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
+        self._assert_full_coverage(response)
+
+    def test_degenerate_per_page_falls_back_to_the_default_not_the_maximum(self):
+        """CR-01 (37-REVIEW.md): a below-range ``per_page`` (``0``, ``-1``, a large negative
+        value) must fall back to ``DEFAULT_TABLE_PER_PAGE`` (the view's normal page size),
+        never to ``MAX_TABLE_PER_PAGE`` -- clamping the cheapest-looking query string to the
+        most expensive page is the exact regression CR-01 fixed."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        for value in ('0', '-1', '-9999'):
+            with self.subTest(per_page=value):
+                response = self.client.get(url, {'per_page': value})
+                self.assertEqual(response.status_code, 200)
+                rendered_count = len(list(response.context['table'].paginated_rows))
+                self.assertEqual(rendered_count, campaign_views.DEFAULT_TABLE_PER_PAGE)
 
 
 class TestProgressColumnOnDegenerateCampaigns(CampaignTallyViewTestBase):
