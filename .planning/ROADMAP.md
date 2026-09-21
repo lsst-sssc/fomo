@@ -384,7 +384,7 @@ Plans:
   4. An awarded night that came and went with nothing scheduled or observed is visibly different on the calendar from a night that was actually observed
   5. Coverage-gap analysis counts every observation on the campaign calendar, so classical and queue time is no longer reported as unclaimed
 
-**Plans**: 8/8 plans executed (37-08 added 2026-09-20 as gap-closure wave 6 for UAT gap G-37-4 — the campaign roll-up strip's `[U]` unused total disagreeing with the Progress cells directly beneath it on the same page for up to the tally cache lifetime, developer's chosen option (b))
+**Plans**: 10 plans (8 executed; 37-09 and 37-10 added 2026-09-21 as gap-closure waves 7 and 8). 37-08 was added 2026-09-20 as gap-closure wave 6 for UAT gap G-37-4 — the campaign roll-up strip's `[U]` unused total disagreeing with the Progress cells directly beneath it on the same page for up to the tally cache lifetime, developer's chosen option (b). 37-09 closes G-37-5 (verification gap CR-01: the public Progress cell disappears from rows rendered under `?sort=` or `?per_page=` on a campaign with more than one page of runs) and 37-10 closes G-37-6 (code-review finding CR-02, decided by the developer as D-20: the roll-up strip absorbed an unknown contributor into its total as zero and showed an estimate qualifier with no estimate behind it)
 
 Plans:
 **Wave 1**
@@ -412,6 +412,14 @@ Plans:
 **Wave 6** *(gap closure, blocked on Wave 5 completion)*
 
 - [x] 37-08-PLAN.md — The campaign roll-up's unused figure is recomputed live on every call, cache hits included, through one campaign-level applier both paths share, so the strip agrees with the Progress cells beneath it; the campaign-list query bound is relaxed to a constant enumerated marginal cost, and both docstrings, the pagination comment and the runbook's freshness paragraph are corrected (wave 6, gap closure G-37-4)
+
+**Wave 7** *(gap closure, blocked on Wave 6 completion)*
+
+- [ ] 37-09-PLAN.md — The public Progress tally covers every row django-tables2 actually renders: the page slice the view reimplemented before `RequestConfig` is deleted and the tally is fetched from the resolved page instead, so `?sort=`, `?per_page=` and `?page=` all keep their tallies; the newly request-controlled page size is capped, and the paired campaign-lifecycle notebook demonstrates it (wave 7, gap closure G-37-5)
+
+**Wave 8** *(gap closure, blocked on Wave 7 completion)*
+
+- [ ] 37-10-PLAN.md — The campaign roll-up strip stops absorbing an unknown contributor into its total as zero: contributing and attempted proposal estimates are tracked separately, the roll-up carries a count of the runs it could not include, the strip gets its own "at least N, M not yet known" rendering, and the runbook's public-tally section explains it (wave 8, gap closure G-37-6, decision D-20)
 
 **UI hint**: yes
 
