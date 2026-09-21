@@ -116,10 +116,19 @@ ALLOWED_FIELDS_FOR_NON_STAFF = [
 # T-37-09-02: CampaignRunTableView is public and unauthenticated, and RequestConfig.configure()
 # reads `per_page` straight from the query string, OVERRIDING table_pagination -- so following
 # the rendered rows (get_table() below) removes an accidental bound the old hardcoded-25 tally
-# slice used to provide for free. The per-run tally pass costs roughly two to three queries per
-# rendered row (campaign_tally.tallies_for_runs()), so an uncapped `per_page` would let one GET
-# fan that cost out across an entire campaign. 100 matches the existing CampaignListView.paginate_by
-# bound below -- the precedent for what one anonymous page load may cost.
+# slice used to provide for free. An uncapped `per_page` would let one GET fan the per-row tally
+# pass out across an entire campaign, so this bounds the rendered page size.
+#
+# WR-07 (37-REVIEW.md): 100 is a deliberate tradeoff, stated in the actual query cost it
+# authorises, not by analogy to CampaignListView.paginate_by below (that page's 100 rows are
+# fully cached campaign summaries costing nothing marginal per row -- a different page with a
+# different cost shape). This view's own test
+# (test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly) pins the per-rendered-
+# row cost of campaign_tally.tallies_for_runs() at exactly 3 queries (two live unused-rule
+# queries per row plus one for the roll-up strip above the table, none of them cacheable by
+# D-15 design). 100 rows x 3 queries/row ~= 300 queries is therefore the accepted anonymous
+# ceiling for one unauthenticated GET to this view -- there is no throttle on this endpoint.
+# Lower this constant (e.g. to 50) to halve that ceiling if 300 turns out to be too much.
 MAX_TABLE_PER_PAGE = 100
 # CR-01 (37-REVIEW.md): the low-end fallback for an out-of-range `per_page` (0, negative,
 # unparseable-as-positive). MUST be a valid, small page size -- never MAX_TABLE_PER_PAGE, which
