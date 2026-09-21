@@ -1040,19 +1040,22 @@ class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
         self.assertNotIn('tally', ALLOWED_FIELDS_FOR_NON_STAFF)
 
     def test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly(self):
-        """D-08/T-37-19, revised for CR-02 (37-REVIEW.md): the five link/night-count tally
-        fields (groups/records/nights_observed/nights_scheduled/nights_failed) are still
-        fully cached and batched -- an already-cached row costs zero marginal queries for
-        those. But CR-02 requires the three unused_* fields to be recomputed LIVE on every
-        call, even a cache hit (never served from the cached value), so the calendar's
-        live [U] marker and the table's unused count can never visibly disagree for up to
-        TALLY_CACHE_TTL_SECONDS the way they could before this fix. That live recomputation
-        costs exactly two queries per row (one allocation-event lookup, one proposal-
-        allocation existence check) -- a small, PAGE-SIZE-bounded cost (never unbounded,
-        never one query per linked ObservationRecord), not the zero this test asserted
-        before CR-02. Pinned here at exactly 2 extra queries for the one added row, so a
-        future regression that makes it grow per LINKED RECORD instead of per RENDERED ROW
-        is still caught."""
+        """D-08/T-37-19, revised for CR-02 (37-REVIEW.md) and again for G-37-4 (37-08-PLAN.md,
+        Task 3): the five link/night-count tally fields (groups/records/nights_observed/
+        nights_scheduled/nights_failed) are still fully cached and batched -- an
+        already-cached row costs zero marginal queries for those. CR-02 requires the three
+        unused_* fields to be recomputed LIVE on every call, even a cache hit (never served
+        from the cached value), so the calendar's live [U] marker and the table's unused
+        count can never visibly disagree for up to TALLY_CACHE_TTL_SECONDS the way they
+        could before that fix -- that live recomputation costs two queries per row (one
+        allocation-event lookup, one proposal-allocation existence check). G-37-4's fix adds
+        a THIRD query for the added row: the roll-up strip above this same table is also
+        computed on this page, and its own live unused pass (_apply_rollup_unused_fields())
+        issues one more allocation-event lookup for the run just added, on top of the two the
+        row's own per-run split already costs -- the price of the strip agreeing with the row
+        beneath it. Pinned here at exactly 3 extra queries for the one added row, so a future
+        regression that makes it grow per LINKED RECORD instead of per RENDERED ROW is still
+        caught."""
         run1 = self._make_run(telescope_instrument='FTN/Q1')
         run2 = self._make_run(telescope_instrument='FTN/Q2')
         campaign_tally.tallies_for_runs([run1, run2])
@@ -1074,7 +1077,7 @@ class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
             self.client.get(url)
         three_row_count = len(ctx_three.captured_queries)
 
-        self.assertEqual(three_row_count - two_row_count, 2)
+        self.assertEqual(three_row_count - two_row_count, 3)
 
 
 class TestCampaignRollup(CampaignTallyViewTestBase):
@@ -1222,8 +1225,24 @@ class TestCampaignRollup(CampaignTallyViewTestBase):
         )
 
     def test_campaign_list_query_count_bound_with_three_campaigns(self):
-        """D-10/T-37-19: one extra small query per listed campaign (the change-stamp probe)
-        is the accepted, bounded cost -- the cached rollup itself must add no further query."""
+        """D-10/T-37-19, revised for G-37-4 (37-08-PLAN.md, Task 3): each listed campaign's
+        five record-derived keys are still fully cached and cost nothing marginal once warm
+        -- that half of the roll-up is unchanged by this plan. The three unused_* keys are
+        now recomputed live on every call (G-37-4/D-15), so the campaign-list badge can
+        never disagree with the runs page's own strip and rows the way it could before this
+        fix; that live recomputation costs the campaign_records_version() probe, the shared
+        run-fetch (_rollup_runs()) and one allocation-event lookup per run within the
+        campaign -- per LISTED campaign, on every load. For this fixture's one-run,
+        no-proposal-code, no-allocation-event-yet campaigns that marginal cost is measured
+        at MARGINAL_QUERIES_PER_CAMPAIGN queries.
+
+        Pinned as an equality against that named constant, and a SECOND added campaign
+        proves the cost stays CONSTANT per campaign rather than growing with how many are
+        already on the page -- the real invariant that catches a regression making the
+        roll-up re-scan every campaign's runs, or making one campaign's marginal cost
+        depend on the page's existing campaign count."""
+        MARGINAL_QUERIES_PER_CAMPAIGN = 3  # measured: records_version probe, run-fetch, 1 allocation-event lookup
+
         campaigns = [TargetList.objects.create(name=f'Bound Campaign {i}') for i in range(3)]
         for c in campaigns:
             self._make_run(campaign=c, telescope_instrument=f'FTN/{c.pk}')
@@ -1235,12 +1254,24 @@ class TestCampaignRollup(CampaignTallyViewTestBase):
             self.client.get(reverse('campaigns:list'))
         base_count = len(ctx.captured_queries)
 
-        extra_campaign = TargetList.objects.create(name='Bound Campaign Extra')
-        self._make_run(campaign=extra_campaign, telescope_instrument='FTN/extra')
-        campaign_tally.get_or_compute_rollup(extra_campaign)
+        extra_campaign_1 = TargetList.objects.create(name='Bound Campaign Extra 1')
+        self._make_run(campaign=extra_campaign_1, telescope_instrument='FTN/extra1')
+        campaign_tally.get_or_compute_rollup(extra_campaign_1)
 
         with CaptureQueriesContext(connection) as ctx:
             self.client.get(reverse('campaigns:list'))
-        # One more campaign -> at most one more query (the version probe); the rollup
-        # itself must be a cache hit, adding zero.
-        self.assertLessEqual(len(ctx.captured_queries), base_count + 1)
+        first_marginal_count = len(ctx.captured_queries) - base_count
+        self.assertEqual(first_marginal_count, MARGINAL_QUERIES_PER_CAMPAIGN)
+
+        # A second added campaign, warmed the same way -- proves the marginal cost per
+        # campaign is CONSTANT rather than growing with the number of campaigns already
+        # listed.
+        base_count_after_first_extra = base_count + first_marginal_count
+        extra_campaign_2 = TargetList.objects.create(name='Bound Campaign Extra 2')
+        self._make_run(campaign=extra_campaign_2, telescope_instrument='FTN/extra2')
+        campaign_tally.get_or_compute_rollup(extra_campaign_2)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse('campaigns:list'))
+        second_marginal_count = len(ctx.captured_queries) - base_count_after_first_extra
+        self.assertEqual(second_marginal_count, first_marginal_count)

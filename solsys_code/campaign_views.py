@@ -280,12 +280,19 @@ class CampaignListView(ListView):
     )
     template_name = 'campaigns/campaign_list.html'
     context_object_name = 'campaigns'
-    # WR-05 (37-REVIEW.md): this page is reachable anonymously, and get_context_data() below
-    # computes a get_or_compute_rollup() for every listed campaign -- on a cache flush, that
-    # is O(campaigns x runs) queries for a single unauthenticated GET. Bounding the page to
-    # 100 campaigns bounds that fan-out per request while keeping every campaign's tally
-    # genuinely visible to any visitor (TALLY-01) -- never hidden behind a cache-hit gate --
-    # just reachable a page at a time once the list is long enough to matter.
+    # WR-05 (37-REVIEW.md), revised for G-37-4 (37-08-PLAN.md, Task 3): this page is
+    # reachable anonymously, and get_context_data() below computes a get_or_compute_rollup()
+    # for every listed campaign. Since G-37-4's fix, that cost is not a cache-flush-only
+    # spike: each listed campaign's three unused_* keys are recomputed LIVE on EVERY
+    # anonymous GET (never served from the cache, D-15), costing a campaign_records_version()
+    # change-stamp probe, a run-fetch and one allocation-event lookup per run within that
+    # campaign -- on top of the five record-derived keys, which stay fully cached and cost
+    # nothing marginal once warm. A cache flush additionally re-derives that record-driven
+    # half for every campaign too, so the O(campaigns x runs) worst case still exists there.
+    # Bounding the page to 100 campaigns bounds both costs per request, while keeping every
+    # campaign's tally genuinely visible to any visitor (TALLY-01) -- never hidden behind a
+    # cache-hit gate -- just reachable a page at a time once the list is long enough to
+    # matter.
     paginate_by = 100
 
     def get_context_data(self, **kwargs):

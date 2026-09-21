@@ -2001,12 +2001,22 @@ projector narrowing a queued request to a placed block, or a placed block
 coming back observed -- shows **on the next page load**, with no waiting
 period: the cached tally's cache key is built from the run's own primary
 key plus the newest linked-record change timestamp, so any such change
-produces a fresh cache key and a fresh computation immediately. A change
-that comes only from the clock -- an awarded night quietly elapsing into
-unused, or a freshly fetched proposal allocation replacing an older one --
-is bounded only by the cache lifetime, ``TALLY_CACHE_TTL_SECONDS`` in
-``solsys_code/campaign_tally.py``, one hour by default. An operator who
-wants a shorter bound on purely time-driven changes should look there.
+produces a fresh cache key and a fresh computation immediately, for the
+same reason as before. The unused figure is recomputed **on every page
+load**, on every surface that shows it -- the run row's Progress cell, the
+campaign roll-up strip above the runs table, the campaign-list badge, and
+the calendar pop-up's attributed-run block. All three of its drivers are
+immediate: an awarded night passing its projected sunrise, a staff
+run-status change to cancelled or weathered, and a freshly fetched proposal
+allocation. This is why the roll-up strip can never disagree with the rows
+beneath it. What the cache still holds -- and what
+``TALLY_CACHE_TTL_SECONDS`` (``solsys_code/campaign_tally.py``, one hour by
+default) therefore still bounds -- is the linked group and record counts
+and the three record-derived night counts, keyed by the newest
+linked-record change stamp: a change that moves neither that stamp nor the
+unused rule, such as a run added to the campaign with no linked records
+yet, or a site's timezone being edited, is bounded only by that setting.
+An operator who wants a shorter bound on that residual should look there.
 
 How do I find nights that were observed but never claimed by any approved run?
 -----------------------------------------------------------------------------------
