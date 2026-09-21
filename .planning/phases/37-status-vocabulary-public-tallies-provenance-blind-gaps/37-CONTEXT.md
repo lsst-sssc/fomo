@@ -160,6 +160,30 @@ Gemini read-back, ESO sync, any new writer of another layer's events.
   forward-looking search) and adds the D-16 blocks; the gap page's claimed list may say which
   kind covered a night when both apply. The D-05 `_EXCLUDED_RUN_STATUSES` rule is unchanged.
 
+### Gap-closure decision (recorded 2026-09-21, during gap-closure planning for G-37-6)
+
+- **D-20: Track contributing-vs-attempted separately, and give the roll-up strip its own
+  not-fully-known rendering.** An unknown must never be absorbed into a displayed total as zero.
+  The developer chose the *thorough* option, explicitly NOT "accept the `≈` hedge as the signal
+  for an incomplete total": the estimate qualifier must mean an estimate actually contributed a
+  number to the figure (not merely that a proposal code was looked up), and a campaign roll-up
+  some of whose contributors are not yet known must say so on its face rather than present a
+  partial figure as a complete one. Closes G-37-6 (code-review finding CR-02, confirmed as
+  behaviour by 37-VERIFICATION.md and decided by the developer rather than left as a human item).
+  — **Reversibility:** reversible — the roll-up's new unknown-run count defaults to 0 for any dict
+  that does not set it and the strip's extra branch is inert when it is 0, so the rendering can be
+  reverted without touching the counting rule or the cache contract.
+  - *Planner's interpretation, not the developer's words* — recorded here, with the decision, because
+    it settles one boundary the decision's wording alone does not: **"an unknown" is read as any run
+    whose own unused figure reads `not yet known`** — a run with no allocation events AND either a
+    blank `proposal_code` or a code with no stored `ProposalTimeAllocation` — and the count is **per
+    run**, not per distinct proposal code, so it corresponds one-for-one with the rows the strip sits
+    above. Counting only the non-blank unfetched codes would leave the same defect standing for the
+    blank-code case, where the row already reads `not yet known` and the strip would still absorb it
+    as zero; D-20's own sentence ("never be absorbed into a displayed total as zero") is what forces
+    the wider reading. D-10's once-per-distinct-code rule continues to govern the CONTRIBUTING
+    estimate and is unchanged by this, as is D-11's definition of what each run contributes.
+
 ### Claude's Discretion
 
 - **Where the vocabulary lives and its name** — a peer module under `solsys_code/` (e.g.

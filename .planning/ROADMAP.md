@@ -419,7 +419,7 @@ Plans:
 
 **Wave 8** *(gap closure, blocked on Wave 7 completion)*
 
-- [ ] 37-10-PLAN.md — The campaign roll-up strip stops absorbing an unknown contributor into its total as zero: contributing and attempted proposal estimates are tracked separately, the roll-up carries a count of the runs it could not include, the strip gets its own "at least N, M not yet known" rendering, and the runbook's public-tally section explains it (wave 8, gap closure G-37-6, decision D-20)
+- [ ] 37-10-PLAN.md — The campaign roll-up strip stops absorbing an unknown contributor into its total as zero: contributing and attempted proposal estimates are tracked separately, the roll-up carries a count of the runs it could not include, the strip gets its own "at least N, M not yet known" rendering, and both paired docs are brought up to date — the runbook's public-tally section explains it, and the campaign-lifecycle notebook's own reimplementation of the strip's rendering (cell 42) is updated and regenerated with output (wave 8, gap closure G-37-6, decision D-20)
 
 **UI hint**: yes
 
