@@ -666,7 +666,7 @@ def campaign_rollup(campaign) -> dict[str, Any]:
 
     The five record-derived keys (``groups``, ``records``, ``nights_observed``,
     ``nights_scheduled``, ``nights_failed``) come from ``tallies_for_runs()``, summed across
-    ``_rollup_runs()``'s run set. The three ``unused_*`` keys come from
+    ``_rollup_runs()``'s run set. The four ``unused_*`` keys come from
     ``_apply_rollup_unused_fields()`` on every call, including the no-runs early return --
     there is no purely time-driven transition left in this function that waits on
     ``TALLY_CACHE_TTL_SECONDS``; see ``get_or_compute_rollup()`` for what the cache still
@@ -676,7 +676,7 @@ def campaign_rollup(campaign) -> dict[str, Any]:
         campaign: the campaign TargetList.
 
     Returns:
-        dict[str, Any]: the same eight tally keys plus ``runs`` (the number of runs
+        dict[str, Any]: the same nine tally keys plus ``runs`` (the number of runs
             summed). The unused figure adds each run's exact still-standing allocation-night
             count directly, and the D-06 proposal-derived estimate ONCE per distinct
             non-blank ``proposal_code`` among the runs that have no allocation events of
@@ -749,7 +749,7 @@ def get_or_compute_rollup(campaign, records_version: datetime | None = None) -> 
     recomputing every campaign's link/night counts on every visitor's page load, the same
     exposure the folded attribution-banner-count todo measured (D-10).
 
-    The three ``unused_*`` keys are never served from the cache (G-37-4/D-15, the campaign-
+    The four ``unused_*`` keys are never served from the cache (G-37-4/D-15, the campaign-
     level counterpart of CR-02, 37-REVIEW.md): on a cache hit, ``_apply_rollup_unused_fields()``
     re-runs live against a fresh ``_rollup_runs(campaign)`` fetch before the dict is returned,
     exactly mirroring the cache-miss path in ``campaign_rollup()``. That is what makes an
