@@ -872,7 +872,8 @@ class TestGetOrComputeRollupFreshness(CampaignTallyTestBase):
     def test_cached_value_never_carries_a_computed_unused_figure(self):
         """The cache contract, checked from outside rather than by reading the call order:
         what cache.set() actually stored carries the not-yet-known defaults, never the real
-        figure the caller received."""
+        figure the caller received. G-37-6: the new unused_unknown_runs key must be reset to
+        0 in the cached value too, so a partial-total signal can never be served stale."""
         run = self._make_run(campaign=self.campaign)
         self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
 
@@ -885,6 +886,7 @@ class TestGetOrComputeRollupFreshness(CampaignTallyTestBase):
         self.assertIsNone(stored['nights_unused'])
         self.assertFalse(stored['unused_known'])
         self.assertTrue(stored['unused_is_estimate'])
+        self.assertEqual(stored['unused_unknown_runs'], 0)
 
     def test_cold_and_warm_calls_agree_key_for_key(self):
         """Cache-miss and cache-hit paths must produce identical dicts for the same campaign
@@ -981,6 +983,207 @@ class TestGetOrComputeRollupFreshness(CampaignTallyTestBase):
 
         with self.assertNumQueries(3):
             get_or_compute_rollup(self.campaign)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestRollupPartiallyKnownUnusedTotal(CampaignTallyTestBase):
+    """G-37-6/D-20: the contributing-vs-attempted matrix, the blank-code case, the cache
+    contract and the accounting invariant for the roll-up's ``unused_unknown_runs`` count.
+
+    Exercised through ``campaign_rollup()``, ``get_or_compute_rollup()`` and
+    ``tally_segments()`` only -- never by reaching into a private module-level helper
+    directly, so a test here would go red if a future change stopped routing a public path
+    through the shared applier (mirrors 37-08's own discipline)."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_exact_only_reports_no_unknown_runs_and_no_estimate(self):
+        """D-20: a campaign with only an exact-count allocation run and no proposal code
+        anywhere has nothing unknown and no estimate behind its figure."""
+        run = self._make_run(campaign=self.campaign, telescope_instrument='FTN/ExactOnly')
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['nights_unused'], 1)
+        self.assertTrue(rollup['unused_known'])
+        self.assertFalse(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 0)
+
+    def test_attempted_but_nothing_contributed_is_not_counted_as_an_estimate(self):
+        """D-20: this is the case that reads `≈` today (bool(estimate_codes) was True
+        merely because a code was collected). One allocation run with an exact figure plus
+        one run with a non-blank code and no stored ProposalTimeAllocation: the total is the
+        exact figure ALONE, unused_is_estimate is False (nothing contributed), and the
+        unfetched run counts as one unknown run."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/AttemptedA')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/AttemptedB', proposal_code='NEVER-37-10-A')
+
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['nights_unused'], 1)
+        self.assertFalse(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+
+    def test_a_contributing_estimate_is_counted_and_leaves_no_run_unknown(self):
+        """D-20: restates test_exact_allocation_counts_are_added_alongside_the_estimate's
+        expectations from the new key's side -- a fetched code contributes, so nothing about
+        that run is unknown."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/ContribA')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/ContribB', proposal_code='FETCHED-37-10-A')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='FETCHED-37-10-A',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=20.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+
+        rollup = campaign_rollup(self.campaign)
+        # 1 exact still-standing night + floor(10/10 + 0.5) == 1 estimated night.
+        self.assertEqual(rollup['nights_unused'], 2)
+        self.assertTrue(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 0)
+
+    def test_mixed_contributing_and_attempted_co_occur_without_cancelling(self):
+        """D-20: exact + one fetched code + one unfetched code -- the estimate qualifier and
+        the unknown-run count are both true at once."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/MixedA')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/MixedB', proposal_code='FETCHED-37-10-B')
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/MixedC', proposal_code='NEVER-37-10-B')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='FETCHED-37-10-B',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=20.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+
+        rollup = campaign_rollup(self.campaign)
+        self.assertTrue(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+
+    def test_two_runs_sharing_one_unfetched_code_count_as_two_unknown_runs(self):
+        """D-20/D-10: the unknown count is per RUN, matching the two rows that each read
+        `not yet known` -- NOT per distinct proposal code. D-10's once-per-distinct-code rule
+        continues to govern only the CONTRIBUTING estimate (see the contributing counterpart
+        test_d10_once_per_distinct_proposal_code_survives_the_warm_path, which must still
+        report 3 for a SHARED fetched code) and is unchanged by this."""
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/SharedA', proposal_code='NEVER-37-10-SHARED')
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/SharedB', proposal_code='NEVER-37-10-SHARED')
+
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['unused_unknown_runs'], 2)
+
+    def test_blank_proposal_code_with_no_allocation_events_counts_as_one_unknown_run(self):
+        """D-20's boundary reading: a run with a BLANK proposal_code and no allocation
+        events has its own Progress cell reading `not yet known` too, so the strip must not
+        absorb it as zero either -- counting only non-blank unfetched codes would leave this
+        case standing."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/BlankA')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/BlankB')  # proposal_code='' (default)
+
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+
+    def test_nothing_known_at_all_leaves_the_strip_segment_unknown_not_partial(self):
+        """D-20/D-06: a single run, blank code, no allocation events -- nights_unused stays
+        None with unused_known False, and tally_segments()'s unused segment reports `known`
+        False, so the template's FIRST branch (plain "not yet known") fires rather than the
+        new "at least" branch."""
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/NothingKnown')
+
+        rollup = campaign_rollup(self.campaign)
+        self.assertIsNone(rollup['nights_unused'])
+        self.assertFalse(rollup['unused_known'])
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+        unused_segment = tally_segments(rollup)[-1]
+        self.assertFalse(unused_segment['known'])
+
+    def test_empty_campaign_reports_zero_unknown_runs_too(self):
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['unused_unknown_runs'], 0)
+
+    def test_cold_and_warm_calls_agree_on_a_partially_known_campaign(self):
+        """The new key travels on both the cache-miss and cache-hit paths identically."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/PartialWarmA')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/PartialWarmB', proposal_code='NEVER-37-10-C')
+
+        cold = get_or_compute_rollup(self.campaign)
+        warm = get_or_compute_rollup(self.campaign)
+        self.assertEqual(cold, warm)
+        self.assertEqual(cold['unused_unknown_runs'], 1)
+
+    def test_pending_review_run_never_raises_the_unknown_count(self):
+        """T-37-10-01: the unknown count is derived from the same already-excluded run set
+        the shared applier's run-fetch uses, so it cannot become a side channel revealing a
+        hidden pending-review run.
+        An established count must stay unchanged when a pending-review run with its own
+        unknown figure is added to the same campaign."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/PendingGuardA')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_run(campaign=self.campaign, telescope_instrument='FTN/PendingGuardB', proposal_code='NEVER-37-10-D')
+        established = campaign_rollup(self.campaign)['unused_unknown_runs']
+        self.assertEqual(established, 1)
+
+        self._make_run(
+            campaign=self.campaign,
+            telescope_instrument='FTN/PendingGuardC',
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        after = campaign_rollup(self.campaign)['unused_unknown_runs']
+        self.assertEqual(after, established)
+
+    def test_the_strip_total_plus_its_unknown_runs_accounts_for_every_run_in_the_rollup(self):
+        """Accepted companion invariant (assumption-delta decision): for a campaign mixing
+        all three kinds of run, the number of runs that contributed a known figure PLUS
+        unused_unknown_runs equals rollup['runs']. Derived independently from
+        tallies_for_runs() rather than from the applier, so this is a real check rather than
+        a restatement -- it goes red the instant a future contributor kind is added without
+        being accounted for on either side."""
+        run_exact = self._make_run(campaign=self.campaign, telescope_instrument='FTN/InvariantExact')
+        self._make_alloc_event(run_exact, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        run_estimate = self._make_run(
+            campaign=self.campaign, telescope_instrument='FTN/InvariantEstimate', proposal_code='FETCHED-37-10-INV'
+        )
+        ProposalTimeAllocation.objects.create(
+            proposal_code='FETCHED-37-10-INV',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=20.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+        self._make_run(
+            campaign=self.campaign, telescope_instrument='FTN/InvariantUnknown', proposal_code='NEVER-37-10-INV'
+        )
+
+        rollup = campaign_rollup(self.campaign)
+        per_run = tallies_for_runs([run_exact, run_estimate])
+        contributor_count = sum(1 for t in per_run.values() if t['unused_known'])
+        self.assertEqual(contributor_count + rollup['unused_unknown_runs'], rollup['runs'])
+
+    def test_a_per_run_tally_never_carries_the_unknown_key_and_its_segments_report_zero(self):
+        """Row-surface inertness: tally_for_run()'s dict must not carry unused_unknown_runs
+        at all, and tally_segments() of a per-run tally must report unknown_runs 0 on every
+        segment -- the strip-only prohibition, guarded from the row side."""
+        run = self._make_run(campaign=self.campaign, telescope_instrument='FTN/RowInert')
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+
+        tally = tally_for_run(run)
+        self.assertNotIn('unused_unknown_runs', tally)
+        for segment in tally_segments(tally):
+            self.assertEqual(segment['unknown_runs'], 0)
 
 
 class TestCampaignRecordsVersion(CampaignTallyTestBase):
