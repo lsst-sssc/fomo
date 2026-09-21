@@ -726,8 +726,14 @@ class TestCampaignRollup(CampaignTallyTestBase):
     def test_pending_review_exclusion_is_applied_at_the_queryset_level(self):
         """The exclusion must be a queryset .exclude(), never CampaignRun.is_publicly_
         visible -- a Python property cannot be used in a filter (the model's own docstring
-        note). Checked at the source level, mirroring the plan's own must-have wording."""
-        source = inspect.getsource(campaign_rollup)
+        note). Checked at the source level, mirroring the plan's own must-have wording.
+
+        G-37-4 (37-08-PLAN.md, Task 1): the run-fetch this guard inspects moved out of
+        campaign_rollup() and into the shared _rollup_runs() helper -- the single run-fetch
+        both the cache-miss and cache-hit roll-up paths now use -- so the guard follows the
+        queryset into its new home rather than continuing to inspect a function that no
+        longer owns it."""
+        source = inspect.getsource(campaign_tally._rollup_runs)
         self.assertIn('PENDING_REVIEW', source)
         self.assertNotIn('is_publicly_visible', source)
 
@@ -738,11 +744,21 @@ class TestCampaignRollup(CampaignTallyTestBase):
         night_counts_for_run()'s run.site.timezone read cost a second per-run query) --
         two invisible N+1s on the anonymous campaign list. With both named in .only() and
         'site' select_related, computing the roll-up for one run must issue no queries
-        beyond the fixed aggregate/lookup set (never one deferred SELECT per run)."""
+        beyond the fixed aggregate/lookup set (never one deferred SELECT per run).
+
+        The count moved from 5 to 6 with G-37-4's fix (37-08-PLAN.md, Task 1): the roll-up
+        now runs its own live unused pass via _apply_rollup_unused_fields(), which issues one
+        allocation-event lookup for this fixture's single run, on top of the one
+        tallies_for_runs() already issued for the same run via _apply_unused_fields() -- the
+        deliberate double lookup the cache-miss path accepts so there is exactly one route to
+        the unused figure (see campaign_rollup()'s own in-code comment). The property this
+        test still guards is unchanged: no per-run deferred-field SELECT for run_status or
+        site__timezone, and no query that scales with the number of linked
+        ObservationRecords."""
         run = self._make_run(campaign=self.campaign)
         self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(hours=1))
         cache.clear()
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             campaign_rollup(self.campaign)
 
     def test_sums_groups_records_and_nights_across_approved_public_runs(self):

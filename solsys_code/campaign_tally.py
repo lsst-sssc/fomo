@@ -501,59 +501,70 @@ def campaign_records_version(campaign) -> datetime | None:
     )['version']
 
 
-def campaign_rollup(campaign) -> dict[str, Any]:
-    """The campaign roll-up: sums a per-run tally across the campaign's approved, publicly
-    visible runs only (D-10) -- a pending-review run contributes nothing.
+def _rollup_runs(campaign) -> list[CampaignRun]:
+    """The single run-fetch BOTH the cache-miss (``campaign_rollup()``) and cache-hit
+    (``get_or_compute_rollup()``) paths use for the campaign roll-up, so the two paths can
+    never cover different run sets -- a pending-review run that leaked into one but not the
+    other would be invisible in one code path's dict and present in the other's.
 
     The queryset-level exclude below -- never the model's own visibility convenience
     property, which cannot be used inside a ``.filter()`` per that property's own docstring
-    note -- is what keeps a pending run's row out of the SQL SELECT entirely, matching
-    ``CampaignRunTableView.get_queryset()``'s identical discipline.
+    note -- is what keeps a pending-review run's row out of the SQL SELECT entirely, matching
+    ``CampaignRunTableView.get_queryset()``'s identical discipline. This exclusion is applied
+    at the queryset level and can never be expressed as a Python-property filter.
 
-    Because this sums through ``tallies_for_runs()``, the roll-up inherits Task 1's
-    freshness rule for free: a narrowed record reaches the roll-up on the next page load,
-    and only a purely time-driven transition waits on ``TALLY_CACHE_TTL_SECONDS``.
+    ``select_related('site')`` plus naming ``run_status``/``proposal_code``/``site__timezone``/
+    ``site__obscode`` in ``.only()`` avoids two per-run deferred-field SELECTs the roll-up
+    would otherwise trigger for every run on every anonymous campaign-list/table load
+    (WR-03, 37-REVIEW.md): ``_apply_rollup_unused_fields()`` -> ``unused_nights_for_run()``
+    reads ``run.run_status``, and ``night_counts_for_run()`` (via ``tallies_for_runs()``)
+    reads ``run.site.timezone``. This discipline is load-bearing for the anonymous campaign
+    list, not cosmetic -- it is what keeps the roll-up's query cost from scaling with the
+    number of runs on every load.
 
     Args:
         campaign: the campaign TargetList.
 
     Returns:
-        dict[str, Any]: the same eight tally keys plus ``runs`` (the number of runs
-            summed). The unused figure adds each run's exact still-standing allocation-night
-            count directly, and the D-06 proposal-derived estimate ONCE per distinct
-            non-blank ``proposal_code`` among the runs that have no allocation events of
-            their own -- never once per run carrying that code (D-10).
+        list[CampaignRun]: the campaign's approved, publicly visible runs.
     """
-    # select_related('site') + naming 'run_status'/'site__timezone'/'site__obscode' in
-    # .only() avoids two per-run deferred-field SELECTs this roll-up would otherwise trigger
-    # (WR-03, 37-REVIEW.md): _apply_unused_fields() -> unused_nights_for_run() reads
-    # run.run_status, and night_counts_for_run() reads run.site.timezone.
-    runs = list(
+    return list(
         CampaignRun.objects.filter(campaign=campaign)
         .exclude(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
         .select_related('site')
         .only('pk', 'proposal_code', 'run_status', 'site_id', 'site__timezone', 'site__obscode')
     )
-    rollup: dict[str, Any] = {
-        'groups': 0,
-        'records': 0,
-        'nights_observed': 0,
-        'nights_scheduled': 0,
-        'nights_failed': 0,
-        'nights_unused': None,
-        'unused_is_estimate': True,
-        'unused_known': False,
-        'runs': len(runs),
-    }
-    if not runs:
-        return rollup
 
-    tallies = tallies_for_runs(runs)
-    rollup['groups'] = sum(t['groups'] for t in tallies.values())
-    rollup['records'] = sum(t['records'] for t in tallies.values())
-    rollup['nights_observed'] = sum(t['nights_observed'] for t in tallies.values())
-    rollup['nights_scheduled'] = sum(t['nights_scheduled'] for t in tallies.values())
-    rollup['nights_failed'] = sum(t['nights_failed'] for t in tallies.values())
+
+def _apply_rollup_unused_fields(rollup: dict[str, Any], runs: list[CampaignRun]) -> None:
+    """Fill in ``rollup``'s three ``unused_*`` keys in place, mutating the dict the caller
+    already built -- the campaign-level counterpart of ``_apply_unused_fields()``, and the
+    ONLY place the roll-up's unused figure is ever computed. Both ``campaign_rollup()`` (the
+    cache-miss path) and ``get_or_compute_rollup()`` (the cache-hit path) call this on every
+    exit, so the two can never carry two different copies of the counting rule.
+
+    D-10: each run's own still-standing elapsed ``ALLOC:`` night count is added directly
+    (never de-duplicated -- a run's own nights are its own), and the D-06 proposal-derived
+    estimate is added ONCE per distinct non-blank ``proposal_code`` among the runs that have
+    no allocation events of their own -- never once per run carrying that code. Reaches the
+    unused rule only through ``unused_nights_for_run()``, never by re-deriving it: that
+    function is what makes D-15's "the table and the calendar agree by construction" true,
+    because ``calendar_display_extras.unused_night_decoration()`` evaluates the same
+    ``is_unused_allocation_night()`` rule for the ``[U]`` marker.
+
+    An empty ``runs`` list writes the same not-yet-known defaults (``None``/``True``/
+    ``False``) an empty campaign's roll-up carries today, so the cache-hit path reproduces
+    that exact shape too.
+
+    Args:
+        rollup: the roll-up dict to mutate (already carrying its other keys).
+        runs: the campaign's runs, from ``_rollup_runs()``.
+    """
+    if not runs:
+        rollup['nights_unused'] = None
+        rollup['unused_known'] = False
+        rollup['unused_is_estimate'] = True
+        return
 
     # D-10: an exact per-run allocation count is added directly (never de-duplicated -- each
     # run's own still-standing nights are its own); a proposal-derived estimate is collected
@@ -563,9 +574,9 @@ def campaign_rollup(campaign) -> dict[str, Any]:
     exact_known = False
     estimate_codes: set[str] = set()
     for run in runs:
-        tally = tallies[run.pk]
-        if tally['unused_known'] and not tally['unused_is_estimate']:
-            exact_total += tally['nights_unused']
+        exact = unused_nights_for_run(run)
+        if exact is not None:
+            exact_total += exact
             exact_known = True
         elif run.proposal_code:
             estimate_codes.add(run.proposal_code)
@@ -581,7 +592,79 @@ def campaign_rollup(campaign) -> dict[str, Any]:
     if exact_known or estimate_known:
         rollup['nights_unused'] = exact_total + estimate_total
         rollup['unused_known'] = True
+    else:
+        rollup['nights_unused'] = None
+        rollup['unused_known'] = False
     rollup['unused_is_estimate'] = bool(estimate_codes)
+
+
+def _without_unused_fields(rollup: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``rollup`` with its three ``unused_*`` keys reset to their
+    not-yet-known defaults -- exactly what ``get_or_compute_rollup()`` hands to
+    ``cache.set()``, so nothing with a computed unused figure is ever stored (CR-02's
+    campaign-level counterpart). Never mutates the caller's dict.
+    """
+    without = dict(rollup)
+    without['nights_unused'] = None
+    without['unused_known'] = False
+    without['unused_is_estimate'] = True
+    return without
+
+
+def campaign_rollup(campaign) -> dict[str, Any]:
+    """The campaign roll-up: sums a per-run tally across the campaign's approved, publicly
+    visible runs only (D-10) -- a pending-review run contributes nothing.
+
+    The five record-derived keys (``groups``, ``records``, ``nights_observed``,
+    ``nights_scheduled``, ``nights_failed``) come from ``tallies_for_runs()``, summed across
+    ``_rollup_runs()``'s run set. The three ``unused_*`` keys come from
+    ``_apply_rollup_unused_fields()`` on every call, including the no-runs early return --
+    there is no purely time-driven transition left in this function that waits on
+    ``TALLY_CACHE_TTL_SECONDS``; see ``get_or_compute_rollup()`` for what the cache still
+    bounds.
+
+    Args:
+        campaign: the campaign TargetList.
+
+    Returns:
+        dict[str, Any]: the same eight tally keys plus ``runs`` (the number of runs
+            summed). The unused figure adds each run's exact still-standing allocation-night
+            count directly, and the D-06 proposal-derived estimate ONCE per distinct
+            non-blank ``proposal_code`` among the runs that have no allocation events of
+            their own -- never once per run carrying that code (D-10).
+    """
+    runs = _rollup_runs(campaign)
+    rollup: dict[str, Any] = {
+        'groups': 0,
+        'records': 0,
+        'nights_observed': 0,
+        'nights_scheduled': 0,
+        'nights_failed': 0,
+        'nights_unused': None,
+        'unused_is_estimate': True,
+        'unused_known': False,
+        'runs': len(runs),
+    }
+    if not runs:
+        _apply_rollup_unused_fields(rollup, runs)
+        return rollup
+
+    tallies = tallies_for_runs(runs)
+    rollup['groups'] = sum(t['groups'] for t in tallies.values())
+    rollup['records'] = sum(t['records'] for t in tallies.values())
+    rollup['nights_observed'] = sum(t['nights_observed'] for t in tallies.values())
+    rollup['nights_scheduled'] = sum(t['nights_scheduled'] for t in tallies.values())
+    rollup['nights_failed'] = sum(t['nights_failed'] for t in tallies.values())
+
+    # Deliberate cost, accepted rather than optimised away: on this cache-miss path the
+    # per-run allocation-event lookup happens TWICE -- once inside tallies_for_runs()'s own
+    # live per-run split (via _apply_unused_fields()), and once more here inside
+    # _apply_rollup_unused_fields(). Passing the already-computed per-run tallies into the
+    # applier as a shortcut would save that query, but it would also reintroduce exactly the
+    # two-sources-for-one-figure structure G-37-4 is made of -- a second copy of the counting
+    # rule that could drift from the first. One route is worth one extra query per run on the
+    # miss path; do not "optimise" this back into two.
+    _apply_rollup_unused_fields(rollup, runs)
 
     return rollup
 
@@ -613,14 +696,25 @@ def build_rollup_cache_key(campaign_pk: int, records_version: datetime | None) -
 def get_or_compute_rollup(campaign, records_version: datetime | None = None) -> dict[str, Any]:
     """Cache-or-compute wrapper for one campaign's roll-up, mirroring
     ``get_or_compute_tally()``'s shape exactly -- this is what keeps the campaign list from
-    recomputing every campaign's night counts on every visitor's page load, the same
+    recomputing every campaign's link/night counts on every visitor's page load, the same
     exposure the folded attribution-banner-count todo measured (D-10).
 
-    Staleness this leaves: a record-driven change (a saved linked observation record
-    narrowing a run) is visible on the very next page load, because the cache key folds in
-    the newest linked-record change stamp. Only a purely time-driven transition -- an
-    awarded night elapsing into unused, or a newly fetched proposal allocation -- is visible
-    within ``TALLY_CACHE_TTL_SECONDS``, the same bound ``get_or_compute_tally()`` accepts.
+    The three ``unused_*`` keys are never served from the cache (G-37-4/D-15, the campaign-
+    level counterpart of CR-02, 37-REVIEW.md): on a cache hit, ``_apply_rollup_unused_fields()``
+    re-runs live against a fresh ``_rollup_runs(campaign)`` fetch before the dict is returned,
+    exactly mirroring the cache-miss path in ``campaign_rollup()``. That is what makes an
+    awarded night elapsing past its projected sunrise, a staff ``run_status`` edit into a
+    marker status, and a freshly fetched proposal allocation all visible on the very next
+    call -- with no cache invalidation and no TTL wait -- so the roll-up strip can never
+    visibly disagree with the Progress cells beneath it the way it could before this fix.
+
+    What the cache still holds, and what ``TALLY_CACHE_TTL_SECONDS`` therefore still bounds:
+    the five record-derived keys plus the run count, keyed by ``campaign_records_version()``.
+    A change that moves neither that stamp nor the unused rule -- a run added to the campaign
+    with no linked records yet, or an ``Observatory`` timezone edit that re-buckets a linked
+    record's night -- is still bounded by the TTL, exactly as ``get_or_compute_tally()``
+    accepts for the per-run tally. This function does not claim the roll-up is free of
+    staleness in every respect; only the unused split is now live everywhere.
 
     Args:
         campaign: the campaign TargetList.
@@ -633,15 +727,18 @@ def get_or_compute_rollup(campaign, records_version: datetime | None = None) -> 
             campaign is the safe form.
 
     Returns:
-        dict[str, Any]: the cached roll-up dict unchanged on a hit; a freshly computed,
-            cached roll-up on a miss.
+        dict[str, Any]: a roll-up dict with live unused-night fields, built from a cache hit
+            for the other six keys when available, else freshly computed and cached (still
+            without the unused fields) before they are filled in.
     """
     if records_version is None:
         records_version = campaign_records_version(campaign)
     key = build_rollup_cache_key(campaign.pk, records_version)
     cached = cache.get(key)
     if cached is not None:
-        return cached
+        rollup = dict(cached)
+        _apply_rollup_unused_fields(rollup, _rollup_runs(campaign))
+        return rollup
     rollup = campaign_rollup(campaign)
-    cache.set(key, rollup, timeout=TALLY_CACHE_TTL_SECONDS)
+    cache.set(key, _without_unused_fields(rollup), timeout=TALLY_CACHE_TTL_SECONDS)  # cached WITHOUT unused_* fields
     return rollup
