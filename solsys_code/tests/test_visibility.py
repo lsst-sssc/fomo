@@ -75,12 +75,15 @@ class TestVisibilityWindows(SimpleTestCase):
         samples = {'LSC': (self.times, [None, 1.5, 1.2, None, 2.0, 1.9])}
         self.assertEqual(
             visibility_windows(samples),
-            {'LSC': [(t(16, 100), t(16, 200)), (t(16, 400), t(16, 500))]},
+            {'LSC': [(t(16, 30), t(16, 230)), (t(16, 330), t(16, 500))]},
         )
 
     def test_nan_is_invalid(self):
         samples = {'CPT': (self.times, [1.1, nan, 1.3, 1.4, nan, nan])}
-        self.assertEqual(visibility_windows(samples), {'CPT': [(t(16, 0), t(16, 0)), (t(16, 200), t(16, 300))]})
+        self.assertEqual(
+            visibility_windows(samples),
+            {'CPT': [(t(16, 0), t(16, 30)), (t(16, 130), t(16, 330))]},
+        )
 
     def test_all_invalid_gives_no_windows(self):
         self.assertEqual(visibility_windows({'COJ': (self.times, [None] * 6)}), {'COJ': []})
@@ -91,8 +94,30 @@ class TestVisibilityWindows(SimpleTestCase):
             'COJ': (self.times, [None, None, 1.0, 1.0, None, None]),
         }
         self.assertEqual(list(visibility_windows(samples)), ['LSC', 'COJ'])
-        self.assertEqual(visibility_windows(samples)['COJ'], [(t(16, 200), t(16, 300))])
+        self.assertEqual(visibility_windows(samples)['COJ'], [(t(16, 130), t(16, 330))])
         self.assertEqual(visibility_windows(samples)['LSC'], [(t(16, 0), t(16, 500))])
+
+    def test_single_valid_sample_spans_its_neighbours(self):
+        # Without extension this run would be zero-width and cadence_window would discard it
+        samples = {'LSC': (self.times, [None, 1.5, None, None, None, None])}
+        windows = visibility_windows(samples)
+        self.assertEqual(windows, {'LSC': [(t(16, 30), t(16, 130))]})
+        self.assertEqual(cadence_window(windows['LSC']).duration, timedelta(hours=1))
+
+    def test_runs_reaching_the_range_edges_are_not_extended(self):
+        # Nothing is known before the first or after the last sample, so do not invent coverage
+        samples = {'LSC': (self.times, [1.0, 1.0, None, None, 1.0, 1.0])}
+        self.assertEqual(
+            visibility_windows(samples),
+            {'LSC': [(t(16, 0), t(16, 130)), (t(16, 330), t(16, 500))]},
+        )
+
+    def test_uneven_sampling_uses_the_neighbouring_sample_times(self):
+        times = [t(16, 0), t(16, 100), t(16, 500), t(16, 600)]
+        self.assertEqual(
+            visibility_windows({'CPT': (times, [None, 1.0, None, None])}),
+            {'CPT': [(t(16, 30), t(16, 300))]},
+        )
 
     def test_numpy_inputs(self):
         # Shape of tom_observations.utils.get_sidereal_visibility: object array of datetimes, float array
@@ -101,7 +126,7 @@ class TestVisibilityWindows(SimpleTestCase):
 
         self.assertEqual(
             visibility_windows({'LSC': (times, airmasses)}),
-            {'LSC': [(t(16, 100), t(16, 200)), (t(16, 400), t(16, 500))]},
+            {'LSC': [(t(16, 30), t(16, 230)), (t(16, 330), t(16, 500))]},
         )
 
 

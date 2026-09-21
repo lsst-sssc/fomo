@@ -111,9 +111,16 @@ To revisit:
   colour to a site; both take Plotly's colorway in trace order, so colours shift when sites are
   deselected or greyed out. Add a colour to each `LCO_SITES` entry and use it in `airmass_figure`
   and `cadence_figure` (plus a fixed colour for the "All sites" row).
-- **Window edges.** `visibility_windows` uses the first/last *valid sample*, so each window is
-  underestimated by up to one interval and a single-sample run draws as a zero-width bar; pad by
-  half an interval at each end if that matters.
+- **Window edges** (partly done): `visibility_windows` now extends each run to the midpoint between
+  its edge sample and the invalid sample beyond it, removing the one-sided bias (every window was
+  short by up to one interval at each end) and the zero-width single-sample run that
+  `cadence_window` silently discarded. What remains is the curvature of the altitude curve across
+  one interval: ~20 s at the 15-min floor, ~2 min at the ~35-min interval a 7-day plan coarsens to.
+  To remove it, solve the two crossings separately and intersect: the Sun's is exact and cheap
+  (`_find_crossing` in `telescope_runs.py` on `issue37-telescope-runs-calendar` is pure and needs no
+  timezone -- only its `sun_event` wrapper does, for local-noon anchoring -- so it lifts into
+  `visibility.py` without waiting for PR #43), and the target's interpolates from samples already
+  computed, quadratically to kill the term above, at no extra ephemeris cost.
 - **Rapidly moving NEOs** (done): `TestCloseApproach2025FA22` in `test_ephem_utils.py` checks the
   geocentric ephemeris of 2025 FA22 against JPL Horizons through its 0.0056 au approach on
   2025-09-18 (agreement < 0.01", 1e-10 au) and that LCO visibility switches on the night after
