@@ -1,8 +1,8 @@
 ---
 phase: 37-status-vocabulary-public-tallies-provenance-blind-gaps
-verified: 2026-09-20T23:10:00Z
-status: gaps_found
-score: 4/5 must-haves verified
+verified: 2026-09-21T18:41:52Z
+status: passed
+score: 5/5 must-haves verified
 covered_files:
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-01-PLAN.md"
@@ -21,6 +21,10 @@ covered_files:
   - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-07-SUMMARY.md"
   - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-08-PLAN.md"
   - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-08-SUMMARY.md"
+  - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-09-PLAN.md"
+  - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-09-SUMMARY.md"
+  - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-10-PLAN.md"
+  - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-10-SUMMARY.md"
   - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-REVIEW-FIX.md"
   - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-REVIEW.md"
   - ".planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-UAT.md"
@@ -44,45 +48,41 @@ covered_files:
   - "src/templates/campaigns/campaignrun_table.html"
   - "src/templates/tom_calendar/partials/calendar.html"
   - "src/templates/tom_calendar/partials/event_form.html"
-covered_digest: "v1:sha256:cf79cd5415355ecaad18b85558395fd0f62b73ee296453ba84d85be360aec5b3"
+covered_digest: "v1:sha256:8b81d2f652422084716be42e359b833727784ecdc4d387d1b5fc8a542126bf72"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: human_needed
-  previous_score: 5/5
+  previous_status: gaps_found
+  previous_score: 4/5
   gaps_closed:
-    - "G-37-4: the campaign roll-up strip's [U] total could disagree with the [U] values in the Progress cells beneath it for up to TALLY_CACHE_TTL_SECONDS after a purely time-driven or staff-run_status-driven change"
+    - "G-37-5 (prior CR-01): the public Progress cell disappeared from rows rendered under ?sort= or ?per_page= on a campaign with more than one page of runs, because get_table_kwargs() reimplemented django-tables2's page resolution before RequestConfig.configure() applied those GET params"
+    - "G-37-6 (prior CR-02, carried as a human product decision, since decided as D-20): the campaign roll-up strip absorbed an unknown contributor into its total as zero and rendered an approximation qualifier derived from proposal codes ATTEMPTED rather than codes that actually contributed"
   gaps_remaining: []
   regressions: []
   human_items_resolved:
-    - "Prior item 1 (calendar visual/interaction check) — resolved by 37-UAT.md tests 1, 2 and 3, all `result: pass`"
-    - "Prior item 2 (product decision on roll-up unused staleness) — decided by the developer as Option (b) in 37-UAT.md test 4, implemented by plan 37-08 and verified closed below"
-gaps:
-  - truth: "Any visitor — not only staff — sees on each run a live tally of linked observation groups and records and of nights observed / scheduled / expired-or-failed / unused so far, updating as the projector narrows, and the campaign page rolls the same tally up across its runs"
-    status: partial
-    reason: "CR-01, independently reproduced. `CampaignRunTableView.get_table_kwargs()` mirrors only django-tables2's page NUMBER when slicing the pks it hands to `tallies_for_runs()`, but `RequestConfig.configure()` afterwards also applies `?sort=` (via `table.prefixed_order_by_field`) and `?per_page=` (via `table.prefixed_per_page_field`). Both change which rows the table actually renders, so rows outside the mirrored slice have no entry in `self.tallies` and `render_progress()` falls into its `Progress not available` branch. Measured on a 30-run campaign: the plain page renders 0 `Progress not available` cells, `?sort=-telescope_instrument` renders 5 of 25 rows without a tally, and `?per_page=50` renders 5 of 30 rows without a tally. REQUIREMENTS.md TALLY-01 names the campaign table row as one of the two surfaces the tally must appear on, and the view's own docstring advertises that interactive column-header sorting still works — so this is a supported interaction that silently removes the tally."
-    artifacts:
-      - path: "solsys_code/campaign_views.py"
-        issue: "get_table_kwargs() (lines ~216-226) resolves only the `page` GET param and hardcodes `per_page = self.table_pagination['per_page']`; it ignores the `sort` param entirely, so the slice is taken in get_queryset()'s order rather than the order the table will render. The docstring's stated worst case ('an out-of-range/non-integer page number degrades to page 1's pks') does not cover sorting or a per_page override."
-      - path: "solsys_code/tests/test_campaign_views.py"
-        issue: "No test exercises the Progress column under `?sort=` or `?per_page=`, and no test asserts that a rendered runs page contains zero `Progress not available` cells. `TestCampaignRunTableProgressColumn` only covers the default, unsorted, default-per_page view."
-    missing:
-      - "Resolve the rendered row set the same way django-tables2 will: apply the `?sort=` ordering (and the `?per_page=` override) before slicing, or move the tally fetch to after `RequestConfig.configure()` and read the pks off `table.page.object_list` — so the tallies dict always covers exactly the rows rendered"
-      - "A regression test on a campaign with more than one page of runs asserting that `?sort=<column>` and `?per_page=<n>` both render every row with a real tally and zero `Progress not available` cells"
-      - "If a page-1 degradation is genuinely acceptable for some param combination, say so in the docstring explicitly rather than leaving sorting undescribed"
+    - "Prior item 1 (product decision on how a partially-unknown roll-up unused total should read) — decided by the developer as D-20, implemented by plan 37-10, verified closed below"
+  review_fixes_verified:
+    - "37-REVIEW CR-01 (the per_page cap clamped below-range values UP to the maximum) — fixed in a1d4328 and behaviorally re-verified: ?per_page=0/-1/-9999 render DEFAULT_TABLE_PER_PAGE (25) rows, ?per_page=100000/101 clamp DOWN to MAX_TABLE_PER_PAGE (100)"
+    - "37-REVIEW WR-01..WR-07 — all present in the source and green; none regressed either gap closure (39 gap-closure tests + 101 tally/calendar tests + 67 vocabulary/gap tests re-run in this pass)"
+gaps: []
 deferred: []
-human_verification:
-  - test: "Decide how the campaign roll-up strip should report a partially-unknown unused figure (CR-02). Reproduce with a campaign holding one allocation run with elapsed still-standing ALLOC: nights and one container run with a non-blank `proposal_code` whose `ProposalTimeAllocation` has never been fetched."
-    expected: "A decision, not a code state. Today the strip renders `[U] ≈2` directly above rows reading `[U] 2` and `[U] not yet known`: `_apply_rollup_unused_fields()` adds nothing for the unknown code (so the unknown is absorbed as zero into a displayed total, against D-06's never-zero contract) while `unused_known` stays True from the other run's exact count, and `unused_is_estimate` is set from `bool(estimate_codes)` — the codes ATTEMPTED — so the `≈` appears even when no estimate contributed a single night. Either accept the `≈` hedge as the intended signal for 'incomplete total', or track contributing-vs-attempted separately and give the strip its own not-fully-known rendering."
-    why_human: "This is pre-existing counting-rule semantics from plan 37-04, not something plan 37-08 introduced or was allowed to change (its 'No tally value changes' prohibition forbids it explicitly), and the right display for a partially-unknown roll-up total is a product decision that nothing in the codebase determines. D-10 fixes the counting rule but says nothing about how a partially-unknown sum should read."
+advisory:
+  - finding: "An unauthenticated GET to CampaignRunTableView may now cost ~300 queries at the accepted MAX_TABLE_PER_PAGE=100 ceiling (100 rows x the 3 queries/row this view's own test pins), on an endpoint with no throttle"
+    category: security
+    reason: "Deliberate, documented tradeoff recorded in campaign_views.py's MAX_TABLE_PER_PAGE comment during the WR-07 fix (the review offered lowering the constant and the fixer chose the lower-risk option of keeping 100). Bounded and pinned by tests, and strictly better than the pre-cap unbounded state. Lowering the constant to 50 would halve the ceiling if the developer wants it lower; no code change is required for this phase's goal."
+    evidence_status: "none provided — the cost is bounded and test-pinned; no exploit or degradation was observed"
+  - finding: ".planning/REQUIREMENTS.md's traceability table still marks TALLY-03, STATUS-01, STATUS-02 and GAPB-01 as `Gaps Found` (and leaves their checkboxes unticked), which the codebase now contradicts"
+    category: other
+    reason: "Bookkeeping churn, not a codebase gap: commit 283f6e8 ('revert premature Complete requirements after gaps found') blanket-reverted four IDs after the 2026-09-20 gaps_found verdict, even though the only open gap then was on TALLY-01. All four are implemented and behaviorally green in this pass. The orchestrator should reconcile the table to `Complete` for all seven Phase 37 IDs on phase completion."
+    evidence_status: "none needed — planning-artifact state, verified against the code it describes"
 ---
 
 # Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps — Verification Report
 
 **Phase Goal:** The layered calendar reads correctly to everyone — one status vocabulary instead of three that agree by convention, an ongoing public tally of what each run and campaign actually got, unused awarded nights that look unused, and coverage gaps that count every observation.
-**Verified:** 2026-09-20T23:10:00Z
-**Status:** gaps_found
-**Re-verification:** Yes — after the `--gaps-only` re-execution of plan 37-08 (G-37-4). Supersedes the 2026-09-19 pass.
+**Verified:** 2026-09-21T18:41:52Z
+**Status:** passed
+**Re-verification:** Yes — after the 37-09/37-10 gap-closure wave and the 37-REVIEW/37-REVIEW-FIX pass. Supersedes the 2026-09-20 `gaps_found` report.
 
 ## Goal Achievement
 
@@ -90,120 +90,107 @@ human_verification:
 
 | # | Truth (ROADMAP Success Criterion) | Status | Evidence |
 |---|---|---|---|
-| 1 | One status vocabulary drives every calendar title prefix and status ring — the three parallel prefix maps are gone, a placed-but-unobserved night has its own named state, and terminal-state detection goes through one facility-aware classifier instead of a hardcoded `status == 'COMPLETED'` | ✓ VERIFIED | Regression check only — `solsys_code/status_vocabulary.py` (12,319 bytes, mtime 2026-09-19 07:46) was not touched by this round's commits (`git diff --stat e8b7219~1 HEAD` lists only `campaign_tally.py`, `campaign_views.py`, two test modules and the runbook). Behavioral re-run this pass: `test_status_vocabulary` green inside a 67-test run. |
-| 2 | Any visitor — not only staff — sees on each run a live tally of linked observation groups and records and of nights observed / scheduled / expired-or-failed / unused so far, updating as the projector narrows, and the campaign page rolls the same tally up across its runs | ✗ FAILED | **The liveness half is now fully delivered** (G-37-4 closed — see below), but the "any visitor sees on each run a tally" half breaks under a supported interaction. Measured on a 30-run campaign through the Django test client: plain page → 0 `Progress not available` cells; `?sort=-telescope_instrument` → 5 of 25 rendered rows have no tally; `?per_page=50` → 5 of 30 rendered rows have no tally. Root cause is structural and reproducible: `get_table_kwargs()` slices by page number only while `RequestConfig.configure()` applies `sort` and `per_page` afterwards (`django_tables2/config.py`, `for arg in ("page", "per_page")` plus `table.order_by = request.GET.getlist(table.prefixed_order_by_field)`). See Gaps. |
-| 3 | A run's `run_status` never changes by itself: whatever its linked records did, it stays what a staff member set | ✓ VERIFIED | The one module changed this round that participates in the computation path, `campaign_tally.py`, gained three helpers (`_rollup_runs()`, `_apply_rollup_unused_fields()`, `_without_unused_fields()`) — all read-only: the applier reads `run.run_status` and `run.proposal_code` and writes neither. Behavioral: `TestTallyNeverWritesRunStatus` (including its AST check that no computation-path module assigns to the attribute) re-run green this pass. |
-| 4 | An awarded night that came and went with nothing scheduled or observed is visibly different on the calendar from a night that was actually observed | ✓ VERIFIED | Regression check plus the human half now closed. `calendar_display_extras.py` and `src/templates/tom_calendar/partials/calendar.html` untouched this round; `.cal-event-unused` class and `[U]` token still wired at `calendar.html:185/278/281/298`. The prior pass left this present-but-visually-unconfirmed; **37-UAT.md tests 1 and 2 both `result: pass`** — a human confirmed the muted/dashed unused chip is distinguishable from a `[C]` cancelled night and that the `[U]` legend swatch toggles the filter. |
-| 5 | Coverage-gap analysis counts every observation on the campaign calendar, so classical and queue time is no longer reported as unclaimed | ✓ VERIFIED | Regression check only — `campaign_gap.py` (23,032 bytes, mtime 2026-09-19 07:53) untouched this round; `observation_claimed_dates()` still present at line 172 and unioned into `claimed_dates()`. Behavioral: `test_campaign_gap` green inside this pass's 67-test run. |
+| 1 | One status vocabulary drives every calendar title prefix and status ring — the three parallel prefix maps are gone, a placed-but-unobserved night has its own named state, and terminal-state detection goes through one facility-aware classifier instead of a hardcoded `status == 'COMPLETED'` | ✓ VERIFIED | Structural: `grep -rn '_CLASSICAL_STATUS_PREFIX\|_FAILURE_PREFIX_BY_STATUS\|_RUN_STATUS_CALENDAR_PREFIX\|_TERMINAL_PREFIXES'` over `solsys_code/` + `src/` returns only two *docstring/comment* references naming the retired maps — zero live definitions or uses. `status_vocabulary.py` holds the single `DisplayState`/`MARKER`/`LABEL`/legend home including `DisplayState.SCHEDULED` (`[S]`, the placed-but-unobserved state) and `terminal_observing_states_for(facility)` built from `facility.get_terminal_observing_states() - failed_states_for(facility)` (line 235). The only surviving `== 'COMPLETED'` in non-test code is `backfill_lco_observations.py:303`, and it tests an LCO API *block payload* key (`block.get('state')`), not an `ObservationRecord.status` — outside every Phase 37 plan's `files_modified` (Info below). Behavioral: `test_status_vocabulary` re-run green in this pass. Regression-safe: the module is byte-unchanged since the prior report (`git diff --stat f29210c HEAD` lists eight files, none of them `status_vocabulary.py`). |
+| 2 | Any visitor — not only staff — sees on each run a live tally of linked observation groups and records and of nights observed / scheduled / expired-or-failed / unused so far, updating as the projector narrows, and the campaign page rolls the same tally up across its runs | ✓ VERIFIED | **The prior report's one gap is closed, re-measured, not taken on trust.** `get_table_kwargs()` no longer predicts the page (it returns `{'order_by': ()}`); a new `CampaignRunTableView.get_table()` calls `super().get_table()` first — which is where `RequestConfig(...).configure(table)` applies `sort`/`page`/`per_page` — and then resolves pks from `table.paginated_rows`, the exact `BoundRows` `{% render_table table %}` iterates (`campaignrun_table.html:98`). Re-measured this pass on the same 30-run fixture: **zero** `Progress not available` occurrences under `?sort=-telescope_instrument` (25 rows), under `?per_page=50` (30 rows), under both combined, on the page-2 tail, on tied `window_start`, and under `?page=99`/`?page=banana` — against the prior report's 10 occurrences each for the first two. The assertion is not vacuous: `_assert_full_coverage()` also asserts *set equality* between the rendered-pk set and `table.tallies`' key set, and the `'Progress not available'` literal it counts is the exact string `render_progress()` emits (`campaign_tables.py:192`). Liveness half: `test_saving_a_linked_record_moves_the_rollup_on_next_load_no_clock_advance_no_cache_clear` and `test_rollup_strip_agrees_with_progress_cells_after_a_staff_status_edit_not_a_records_change` both green. Public half: `test_anonymous_and_staff_requests_render_the_same_segments` green. 39 + 101 tests re-run by me, OK. |
+| 3 | A run's `run_status` never changes by itself: whatever its linked records did, it stays what a staff member set | ✓ VERIFIED | The one computation-path module changed this wave, `campaign_tally.py`, gained only read-only logic: `_apply_rollup_unused_fields()` reads `run.proposal_code` and `unused_nights_for_run(run)` and writes nothing back. Behavioral: `TestTallyNeverWritesRunStatus` — including its AST check that no computation-path module contains an assignment to the attribute — re-run green in this pass (inside a 67-test run). |
+| 4 | An awarded night that came and went with nothing scheduled or observed is visibly different on the calendar from a night that was actually observed | ✓ VERIFIED | Regression + a standing human pass. `solsys_code/templatetags/calendar_display_extras.py` and `src/templates/tom_calendar/partials/calendar.html` are byte-unchanged since the prior report (not in `git diff --stat f29210c HEAD`); `cal-event-unused` still appears 5× in `calendar.html`, and `[U]`/`Unused awarded night` are still sourced from `MARKER[DisplayState.UNUSED]`/`LABEL[DisplayState.UNUSED]`. The visual half was human-confirmed in `37-UAT.md` tests 1 and 2, both `result: pass`, against code identical to today's. `test_calendar_display_extras` (101-test run with the Progress-column class) green — confirming 37-10's new `unknown_runs` segment key stays inert on the per-run/pop-up path (`tally.get('unused_unknown_runs', 0)` → 0). |
+| 5 | Coverage-gap analysis counts every observation on the campaign calendar, so classical and queue time is no longer reported as unclaimed | ✓ VERIFIED | Regression. `campaign_gap.py` unchanged since the prior report; `observation_claimed_dates()` (line 172) is still **unioned**, never substituted, into `claimed_dates()` (`claimed \|= observation_claimed`), with the site-unknown count returned alongside. Behavioral: `test_campaign_gap` green in this pass's 67-test run. |
 
-**Score:** 4/5 truths verified (0 present, behavior-unverified)
+**Score:** 5/5 truths verified (0 present, behavior-unverified)
 
-### G-37-4 Closure Assessment (the carried-forward gap)
+### G-37-5 Closure Assessment (prior gap)
 
-**G-37-4 is CLOSED.** Verified against the code and behaviorally, not from SUMMARY claims:
+**CLOSED.** Verified from the source and re-measured behaviorally, not from SUMMARY claims:
 
-- `get_or_compute_rollup()` (`campaign_tally.py:696`) no longer returns the cached dict on a hit. Its hit branch is `rollup = dict(cached); _apply_rollup_unused_fields(rollup, _rollup_runs(campaign)); return rollup`, and its miss branch caches `_without_unused_fields(rollup)` — so no computed unused figure is ever written to the cache at all.
-- There is exactly one route to the figure: `_apply_rollup_unused_fields()` is called from both `campaign_rollup()` (including the no-runs early return) and `get_or_compute_rollup()`'s hit branch. `git show 55349cf` confirms D-10's counting rule was **moved**, not rewritten — the estimate-per-distinct-code loop is byte-identical, and the exact-count derivation changed from `tally['unused_known'] and not tally['unused_is_estimate']` to `unused_nights_for_run(run) is not None`, which is the same predicate by construction (`_apply_unused_fields()` sets those two keys exactly when `unused_nights_for_run()` returns non-None).
-- The end-to-end test is real, not vacuous: `test_rollup_strip_agrees_with_progress_cells_after_a_staff_status_edit_not_a_records_change` (`test_campaign_views.py:1173`) renders `campaigns:table` twice around a `run_b.save(update_fields=['run_status'])` that touches no `ObservationRecord`, asserts `[U] 3` / `[U] 2` / `[U] 1` in a whitespace-collapsed body before and `[U] 2` / `[U] 0` with `assertNotIn('[U] 3', ...)` after, then re-asserts the strip total equals the computed per-run sum.
-- Independently re-run this pass: `TestGetOrComputeRollupFreshness` + `TestCampaignRollup` (both modules) — 25 tests, OK in 15.3 s.
+- `get_table_kwargs()` (`campaign_views.py:256`) is now three lines returning `{'order_by': ()}`; the page-slice reimplementation the prior report faulted is *gone*, not merely patched.
+- `get_table()` (`campaign_views.py:275`) is ordered correctly: `table = super().get_table(**kwargs)` runs `RequestConfig.configure()` first, then `pks = {Accessor('pk').resolve(row.record, quiet=True) for row in table.paginated_rows}`, then one `tallies_for_runs()` pass over `CampaignRun.objects.filter(pk__in=pks).select_related('site')`. `Accessor` (not `record.pk` or a dict subscript) is required because a staff row is a model instance and an anonymous row is a `.values()` dict — both branches are exercised by the tests.
+- The coverage tests assert the *property* (every rendered row has a tally) as set equality, never row order — so they cannot pass by accidentally re-encoding the old ordering.
+- Re-measurement (my run, 39 tests, OK in 4.5 s): `plain 0 / sorted 0 / per_page=50 0` `Progress not available` occurrences, against the prior report's `plain 0 / sorted 10 / per_page=50 10`.
 
-### CR-01 (code review BLOCKER) — CONFIRMED, and it is the phase's gap
+### G-37-6 Closure Assessment (prior human decision item, decided as D-20)
 
-Verified from source **and** reproduced. `django_tables2/config.py`'s `RequestConfig.configure()` runs after `get_table_kwargs()`:
+**CLOSED.** The prior report escalated this as a product decision rather than a blocker; the developer decided it (D-20) and plan 37-10 implemented it:
+
+- `_apply_rollup_unused_fields()` (`campaign_tally.py:549`) now collects `estimate_codes` (attempted) and `contributing_codes` (those whose `estimated_unused_nights()` returned non-`None`) separately, derives `rollup['unused_is_estimate'] = bool(contributing_codes)` — the exact substitution D-20 required — and counts `unused_unknown_runs` **per run**, adding one unit for every run with no allocation events and either a blank `proposal_code` or a code that did not contribute.
+- `tally_segments()` carries `unknown_runs` on all four segment dicts (literal `0` on three, `tally.get('unused_unknown_runs', 0)` on the unused one), so a per-run tally is inert by construction and only the strip branches on it.
+- `campaignrun_table.html:92` has the fourth branch: `{% if not segment.known %}not yet known{% elif segment.unknown_runs %}at least {% if segment.is_estimate %}&approx;{% endif %}{{ segment.count }} ({{ segment.unknown_runs }} run{{ ...|pluralize }} not yet known){% elif segment.is_estimate %}&approx;{{ segment.count }}{% else %}{{ segment.count }}{% endif %}`.
+- End-to-end on the developer's own reproduction, re-run by me and green: the strip renders `[U] at least 2 (1 run not yet known)` over rows reading `[U] 2` and `[U] not yet known`, with `assertNotIn('[U] ≈2', body)` — the exact contradiction the prior report reproduced is now asserted absent. A second test proves the two signals co-occur rather than cancel: `[U] at least &approx;3 (1 run not yet known)`.
+- `_without_unused_fields()` resets the new key to `0` before `cache.set()`, so G-37-4's "nothing computed is ever cached" contract still holds with the fourth key.
+
+### 37-REVIEW CR-01 (the review's critical) — FIX HOLDS
+
+The review's critical was the *inverse* of a cap: `?per_page=0` was rewritten to `100`, taking a public page from 25 rendered rows to 100 — a 4× query amplification introduced by the control meant to prevent it.
+
+Source today (`campaign_views.py:201-205`):
 
 ```python
-order_by = self.request.GET.getlist(table.prefixed_order_by_field)   # ?sort=
-if order_by:
-    table.order_by = order_by
-...
-for arg in ("page", "per_page"):                                      # ?per_page=
-    kwargs[arg] = int(self.request.GET[name])
+if per_page is not None and not (1 <= per_page <= MAX_TABLE_PER_PAGE):
+    clamped = MAX_TABLE_PER_PAGE if per_page > MAX_TABLE_PER_PAGE else DEFAULT_TABLE_PER_PAGE
 ```
 
-`get_table_kwargs()` mirrors only `page` and hardcodes `per_page = self.table_pagination['per_page']` (25), and slices `self.object_list` in `get_queryset()`'s order. Reproduction (throwaway test, 30 runs in one campaign, removed after the run — the working tree is clean):
+Two directions, two targets. Behaviorally re-verified by me, not read: `test_degenerate_per_page_falls_back_to_the_default_not_the_maximum` sub-tests `0`, `-1`, `-9999` all render exactly `DEFAULT_TABLE_PER_PAGE` (25) rows on a 30-run campaign; `test_huge_per_page_is_capped_at_the_maximum` and `test_first_value_above_the_cap_is_clamped_down` render exactly `MAX_TABLE_PER_PAGE` (100) on a **120**-run fixture (WR-01's point: the old 30-run fixture made the cap test vacuous); `test_per_page_exactly_at_the_cap_is_honoured` pins the boundary. All green.
 
-| Request | `Progress not available` occurrences in body (2 per cell) | Rows without a tally |
-|---|---|---|
-| plain | 0 | 0 |
-| `?sort=-telescope_instrument` | 10 | 5 of 25 rendered |
-| `?per_page=50` | 10 | 5 of 30 rendered |
+The other seven fixes are present and did not regress either gap closure: WR-01 (real boundary fixture), WR-02 (the notebook's split `assert (...), '...' '...'` is now one parenthesized message and the notebook re-executes clean), WR-03 (`unused_is_estimate` writes `True` in the not-yet-known branch, agreeing with all four not-known writers), WR-04 (docstring counts now "four"/"nine"), WR-05 (`tallies=` constructor kwarg dropped — `grep -rn 'tallies=' solsys_code/ src/` returns only docstring prose; `ApprovalQueueTable.Meta` excludes `progress` so no staff queue page renders a permanently-dead column), WR-06 (the capped field name resolves as `_meta.prefix + _meta.per_page_field`, pinned by `test_per_page_field_name_used_by_the_cap_matches_the_table`), WR-07 (comment-only).
 
-Manifests only on campaigns with more than one page of runs (>25), and degrades gracefully (a muted token, never a wrong number). It is nonetheless an observable failure of Success Criterion 2 / TALLY-01 under an interaction the page explicitly offers.
+### CLAUDE.md Paired-Docs Rule — SATISFIED for this wave
 
-Evidence gate (#3304): `campaign_views.py` was git-modified since the prior `verified:` timestamp (2026-09-19T17:05:00Z) by commit `9886c0c`, so this finding is in-contract and blocks regardless; it is additionally backed by the deterministic reproduction above, so the gate is satisfied on both routes.
+Both wave-8 plans declared their paired artifacts up front and both actually carry real, executed content:
 
-### CR-02 (code review BLOCKER) — CONFIRMED as behavior, DOWNGRADED to a decision item
-
-The reviewer's description of `_apply_rollup_unused_fields()` is accurate. Reproduced with stubbed dependencies (no DB):
-
-```
-ROLLUP unused fields: {'nights_unused': 2, 'unused_known': True, 'unused_is_estimate': True}
-STRIP renders: [U] ≈2
-  ROW run1 renders: [U] 2
-  ROW run2 renders: [U] not yet known
-```
-
-A `proposal_code` whose `estimated_unused_nights()` returns `None` contributes nothing to the total but is still counted in `estimate_codes`, so `unused_is_estimate = bool(estimate_codes)` sets the `≈` with no estimate behind it, and `unused_known` stays True from the other run's exact count.
-
-**It is not G-37-4 reached by another route, and it is not a regression.** `git show 55349cf` shows the estimate loop and the `unused_is_estimate = bool(estimate_codes)` line are unchanged from plan 37-04's original inline implementation — this semantics predates the gap-closure round and was passed by the prior verification. Plan 37-08's prohibitions forbid it explicitly: *"This plan changes WHEN the roll-up's unused figure is computed, never WHAT it counts."* The gap it was dispatched to close was the caching staleness, and it closed that.
-
-**It is not silently accepted either.** The `≈` is a hedge rather than a flat contradiction (a reader sees "roughly 2" over "2" and "not yet known"), but the roll-up does absorb an unknown as zero into a displayed number, against D-06's "never zero" contract, and the `≈` fires on attempted rather than contributing codes. Routed to the human decision item above rather than raised as a blocker.
-
-### CLAUDE.md Paired-Docs Rule (WR-08) — NOT a gap this round
-
-The flag's premise does not hold for this round's commits:
-
-- `solsys_code/observation_projector.py` was **not modified at all** by 37-08 — `git diff --stat e8b7219~1 HEAD` lists only `campaign_tally.py`, `campaign_views.py`, `tests/test_campaign_tally.py`, `tests/test_campaign_views.py`, the runbook and planning docs. Its paired `project_observation_calendar_demo.ipynb` has nothing to be stale against. (The prior pass separately established that Phase 37's earlier change to that module was a pure refactor for `PROJECTED_FACILITIES = ('LCO', 'SOAR')`.)
-- `solsys_code/campaign_views.py`'s only change this round is the 19-line comment block above `CampaignListView.paginate_by` (`git show 9886c0c -- solsys_code/campaign_views.py` — comment lines only, zero code lines). CLAUDE.md's rule triggers on a module's *behavior* changing and carves out pure refactors and typo fixes, so `campaign_lifecycle_demo.ipynb` is not stale.
-- `campaign_tally.py` — the module whose behavior actually changed — has no paired notebook in CLAUDE.md's map, and its values are unchanged (the notebook's cell-42 roll-up assertions still hold; `TestCampaignRollup`'s expected numbers were untouched and re-run green).
-- The directory-scoped half of the rule **was** honoured: `docs/runbooks/telescope_runs_calendar.rst`'s `How fresh is the tally?` paragraph was updated in the same round (22 lines, commit `9886c0c`) and no longer ties an elapsed awarded night to the cache lifetime.
+- `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb` — 50 cells, output committed. Cell 47 (37-09) is executed with 664 chars of real output reading `plain rendered_rows=25 not_available_count=0 / sorted (?sort=-telescope_instrument) rendered_rows=25 not_available_count=0 / widened (?per_page=50) rendered_rows=30 not_available_count=0` on its own separate 30-run campaign, and names the `MAX_TABLE_PER_PAGE=100` cap. Cell 42 (37-10) is executed with 734 chars of real output reading `Unused awarded night: [U] at least 3 (4 runs not yet known)` above per-run rows of `[U] 3` and `[U] not yet known` — the strip's new fourth branch demonstrated on real data, with its own `unused_unknown_runs >= 3` / `< rollup['runs']` assertions.
+- `docs/runbooks/telescope_runs_calendar.rst` — the "What does a run's or a campaign's public tally show?" section gained the roll-up's `at least N (M runs not yet known)` explanation and a new paragraph stating that the `≈`/`&approx;` qualifier now means "an estimate contributed", explicitly noting an operator who remembers the old behavior "was seeing the defect, not the design".
+- 37-09's SUMMARY documents one deviation (new cells placed before the notebook's load-bearing teardown pair rather than literally last, because a write after `shutil.rmtree(scratch_db_dir)` fails). I confirmed the placement independently: the new pairs sit at indices 41/42 and 46/47, the teardown pair is still last, and both new code cells carry committed output — the rule's intent (executed demonstration of the new behavior) is met.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `solsys_code/campaign_tally.py` | One shared campaign-level unused applier; cache never carries a computed unused figure | ✓ VERIFIED | 744 lines; `_rollup_runs()` (504), `_apply_rollup_unused_fields()` (539), `_without_unused_fields()` (601); both cache branches call the applier |
-| `solsys_code/campaign_views.py` | Roll-up + per-row tallies wired into the runs page | ⚠️ PARTIAL | `get_context_data()` → `get_or_compute_rollup()` ✓; `get_table_kwargs()` → `tallies_for_runs()` ✓ but the page slice covers the wrong rows under `?sort=`/`?per_page=` (CR-01) |
-| `solsys_code/tests/test_campaign_tally.py` | Cache-hit freshness coverage for both blind-spot drivers | ✓ VERIFIED | `TestGetOrComputeRollupFreshness` added (+166 lines, 9 cases); green |
-| `solsys_code/tests/test_campaign_views.py` | End-to-end strip-vs-rows agreement + re-pinned query bounds | ✓ VERIFIED | `test_rollup_strip_agrees_with_progress_cells_...` substantive (not a vacuous substring check — collapses whitespace first and uses both `assertIn` and `assertNotIn`); `MARGINAL_QUERIES_PER_CAMPAIGN = 3` with a second added-campaign constancy assertion |
-| `docs/runbooks/telescope_runs_calendar.rst` | `How fresh is the tally?` corrected | ✓ VERIFIED | Updated in `9886c0c`; no longer ties an elapsed awarded night or a refreshed allocation to `TALLY_CACHE_TTL_SECONDS` |
-| `solsys_code/status_vocabulary.py` | Single marker/label/legend/classifier home | ✓ VERIFIED (regression) | Unchanged this round; 67-test regression run green |
-| `solsys_code/campaign_gap.py` | Provenance-blind claim source | ✓ VERIFIED (regression) | Unchanged this round; `observation_claimed_dates()` at line 172 |
-| `solsys_code/templatetags/calendar_display_extras.py` + `calendar.html` | `[U]` decoration, two channels | ✓ VERIFIED (regression) | Unchanged this round; `cal-event-unused` at `calendar.html:185/278/281/298`; UAT tests 1-2 pass |
+| `solsys_code/campaign_views.py` | Tally resolved from the rows actually rendered; a two-direction `per_page` clamp | ✓ VERIFIED | `get_table()` reads `table.paginated_rows` after `super().get_table()`; `get()` clamps high→100, low→25 on a field name resolved from the table's own Meta; `get_table_kwargs()` reduced to `{'order_by': ()}` |
+| `solsys_code/campaign_tally.py` | Contributing-vs-attempted split; per-run unknown count; cache never carries a computed unused figure | ✓ VERIFIED | `_apply_rollup_unused_fields()` 549-646 (`contributing_codes`, `attempted_not_contributing`, `unused_unknown_runs`); `_without_unused_fields()` resets all four keys; `tally_segments()` defaults `unknown_runs` inertly |
+| `src/templates/campaigns/campaignrun_table.html` | Roll-up strip's fourth ("at least … not yet known") branch | ✓ VERIFIED | Line 92, four branches, `&approx;` only inside the estimate sub-branch; pluralised run count |
+| `solsys_code/campaign_tables.py` | Progress cell reads an attribute-attached tallies dict; no dead kwarg; approval queue excludes the column | ✓ VERIFIED | `self.tallies = {}` in `__init__`, populated only by the view; `ApprovalQueueTable.Meta.exclude` includes `'progress'` |
+| `solsys_code/tests/test_campaign_views.py` | Coverage matrix over sort/per_page/page/tie/empty/clamped + the cap boundaries | ✓ VERIFIED | `TestProgressColumnCoversEveryRenderedRow` (12 cases, set-equality based), `TestProgressColumnOnDegenerateCampaigns` (2), two new `TestCampaignRollup` cases for D-20 |
+| `solsys_code/tests/test_campaign_tally.py` | Contributing/attempted/blank-code matrix + cache reset + accounting invariant | ✓ VERIFIED | `TestRollupPartiallyKnownUnusedTotal` green; the invariant (known contributors + `unused_unknown_runs` == `rollup['runs']`) would break loudly on a new unaccounted contributor kind |
+| `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb` | Executed demonstration of both closures | ✓ VERIFIED | Cells 42 and 47, real committed output (see paired-docs section) |
+| `docs/runbooks/telescope_runs_calendar.rst` | Public-tally section describes the partially-known roll-up and the contribution-based qualifier | ✓ VERIFIED | Lines ~1992-2013 |
+| `solsys_code/status_vocabulary.py` | Single marker/label/legend/classifier home | ✓ VERIFIED (regression) | Unchanged since the prior report; 67-test run green |
+| `solsys_code/campaign_gap.py` | Provenance-blind claim source | ✓ VERIFIED (regression) | Unchanged; `observation_claimed_dates()` unioned at line 353/`claimed \|= observation_claimed` |
+| `solsys_code/templatetags/calendar_display_extras.py` + `calendar.html` | `[U]` decoration, two channels | ✓ VERIFIED (regression) | Unchanged; `cal-event-unused` ×5; UAT tests 1-2 pass against identical code |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| `get_or_compute_rollup()` cache-HIT branch | `_apply_rollup_unused_fields()` | direct call on a `dict(cached)` copy before return | ✓ WIRED | The single line whose absence *was* G-37-4 |
-| `get_or_compute_rollup()` cache-MISS branch | `cache.set(..., _without_unused_fields(rollup))` | explicit stripping helper | ✓ WIRED | Nothing computed is ever stored |
-| `campaign_rollup()` | `_apply_rollup_unused_fields()` | called on both exits, no-runs return included | ✓ WIRED | One counting rule, no second copy |
-| `_apply_rollup_unused_fields()` | `unused_nights_for_run()` → `is_unused_allocation_night()` | D-15's shared rule, the same one `unused_night_decoration()` reads | ✓ WIRED | No re-derivation |
-| both roll-up paths | `_rollup_runs()`'s `.exclude(approval_status=PENDING_REVIEW)` | one shared queryset | ✓ WIRED | `test_pending_review_exclusion_is_applied_at_the_queryset_level` retargeted to `_rollup_runs`, assertion lines unchanged |
-| `CampaignRunTableView.get_table_kwargs()` page slice | the rows django-tables2 actually renders | mirrors `?page` only | ✗ NOT_WIRED | `?sort=` and `?per_page=` are applied later by `RequestConfig.configure()`; the slice misses those rows (CR-01) |
-| `CampaignListView` | `get_or_compute_rollup()` per listed campaign | `get_context_data()` | ✓ WIRED | WR-05 comment corrected to describe the live per-load cost |
+| `CampaignRunTableView.get_table()` | the rows django-tables2 actually renders | `table.paginated_rows` read after `super().get_table()` (which runs `RequestConfig.configure()`) | ✓ WIRED | The link whose absence *was* G-37-5. Same `BoundRows` `{% render_table table %}` iterates (`campaignrun_table.html:98`); no per-row query added |
+| `CampaignRunTableView.get()` | django-tables2's own `per_page` read | `self.table_class._meta.prefix + _meta.per_page_field` on a mutable `request.GET` copy | ✓ WIRED | Matches `table.prefixed_per_page_field`, pinned by a test; both clamp directions exercised |
+| `CampaignRunTable.render_progress()` | `table.tallies` | attribute assignment from the view only | ✓ WIRED | No `tallies=` kwarg anywhere; unresolvable pk degrades to the muted token, never a query |
+| `_apply_rollup_unused_fields()` | `unused_nights_for_run()` → `is_unused_allocation_night()` | D-15's shared rule, the same one `unused_night_decoration()` reads | ✓ WIRED | No re-derivation; table and calendar still agree by construction |
+| `_apply_rollup_unused_fields()` | `proposal_allocation.estimated_unused_nights()` | second pass over the attempted code set | ✓ WIRED | Contributing subset drives both the total and the `≈` qualifier |
+| `tally_segments()` unused segment | `campaignrun_table.html` fourth branch | `unknown_runs` | ✓ WIRED | Non-zero only for a roll-up; `0` on the per-run/pop-up path |
+| `get_or_compute_rollup()` (both branches) | `_apply_rollup_unused_fields()` | one campaign-level applier | ✓ WIRED | G-37-4's fix intact after 37-10's widening; `_without_unused_fields()` resets the new key too |
+| `campaign_gap.claimed_dates()` | `observation_claimed_dates()` | set union | ✓ WIRED | Never substitution |
 
 ### Data-Flow Trace (Level 4)
 
 | Rendered value | Source | Produces real data | Status |
 |---|---|---|---|
-| Roll-up strip `[U]` total | `get_or_compute_rollup()` → `_apply_rollup_unused_fields()` → live `unused_nights_for_run()` per run | Yes, on every call including cache hits | ✓ FLOWING |
-| Roll-up strip's five record-derived keys | cached `campaign_rollup()` half, keyed by `campaign_records_version()` | Yes | ✓ FLOWING |
-| Progress cell `[U]` figure | `tallies_for_runs()` → `_apply_unused_fields()` live per call | Yes — for rows inside the page slice | ⚠️ PARTIAL — rows outside the slice render `Progress not available` under `?sort=`/`?per_page=` |
-| Campaign-list nights badge | `campaign.rollup.nights_observed` | Yes | ✓ FLOWING |
+| Progress cell groups/records/segments | `get_table()` → `tallies_for_runs()` over the pks of the rows actually rendered | Yes — for **every** rendered row now, under any sort/page/per_page combination | ✓ FLOWING |
+| Roll-up strip `[U]` total + unknown-run count | `get_or_compute_rollup()` → `_apply_rollup_unused_fields()` → live `unused_nights_for_run()` / `estimated_unused_nights()` per call | Yes, on cache hits too; unknown contributors counted, never zeroed | ✓ FLOWING |
+| Roll-up strip's record-derived keys | cached `campaign_rollup()` half, keyed by `campaign_records_version()` | Yes | ✓ FLOWING |
+| Campaign-list nights badge | `campaign.rollup.nights_observed` (the only roll-up field that template reads) | Yes | ✓ FLOWING |
 | Calendar `[U]` chip | `unused_night_decoration()` → `is_unused_allocation_night()` | Yes | ✓ FLOWING |
-| Gap page claimed/site-unknown | `_compute_gap()` | Yes | ✓ FLOWING |
+| Gap page claimed/site-unknown | `_compute_gap()` → `claimed_dates()` ∪ `observation_claimed_dates()` | Yes | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Roll-up unused figure live on cache hits; strip agrees with rows end-to-end | `python manage.py test solsys_code.tests.test_campaign_tally.TestGetOrComputeRollupFreshness solsys_code.tests.test_campaign_tally.TestCampaignRollup solsys_code.tests.test_campaign_views.TestCampaignRollup --exclude-tag=ephemeris_segfault` | Ran 25 tests in 15.3 s — OK | ✓ PASS |
-| TALLY-03 guard, status vocabulary, provenance-blind gap claims | `python manage.py test solsys_code.tests.test_campaign_tally.TestTallyNeverWritesRunStatus solsys_code.tests.test_status_vocabulary solsys_code.tests.test_campaign_gap --exclude-tag=ephemeris_segfault` | Ran 67 tests in 10.1 s — OK | ✓ PASS |
-| Progress cells survive `?sort=` / `?per_page=` on a >1-page campaign | throwaway test, 30 runs, counting `Progress not available` in the rendered body (probe file removed; `git status --porcelain solsys_code/` clean) | plain 0, sorted 10, per_page=50 10 | ✗ FAIL |
-| CR-02 roll-up aggregation semantics | standalone script stubbing `unused_nights_for_run` / `estimated_unused_nights`, no DB | strip `[U] ≈2` over rows `[U] 2` and `[U] not yet known` | ✗ FAIL (downgraded to decision item — see above) |
+| Every rendered row keeps its tally under `?sort=`/`?per_page=`/`?page=`/ties/empty/clamped; both `per_page` clamp directions; D-20 strip rendering end-to-end; roll-up liveness | `python manage.py test solsys_code.tests.test_campaign_views.TestProgressColumnCoversEveryRenderedRow solsys_code.tests.test_campaign_views.TestProgressColumnOnDegenerateCampaigns solsys_code.tests.test_campaign_views.TestCampaignRollup solsys_code.tests.test_campaign_tally.TestRollupPartiallyKnownUnusedTotal --exclude-tag=ephemeris_segfault` | Ran 39 tests in 4.5 s — OK | ✓ PASS |
+| Status vocabulary single source; provenance-blind gap claims; TALLY-03 no-self-write AST guard | `python manage.py test solsys_code.tests.test_status_vocabulary solsys_code.tests.test_campaign_gap solsys_code.tests.test_campaign_tally.TestTallyNeverWritesRunStatus --exclude-tag=ephemeris_segfault` | Ran 67 tests in 2.9 s — OK | ✓ PASS |
+| Calendar/pop-up tally unaffected by the new `unknown_runs` key; per-row query budget still bounded at 3/row | `python manage.py test solsys_code.tests.test_calendar_display_extras solsys_code.tests.test_campaign_views.TestCampaignRunTableProgressColumn --exclude-tag=ephemeris_segfault` | Ran 101 tests in 2.2 s — OK | ✓ PASS |
+| Paired notebook carries real executed output for both closures | `json.load()` on `campaign_lifecycle_demo.ipynb`, reading cells 42 and 47 outputs | `[U] at least 3 (4 runs not yet known)`; `not_available_count=0` for plain/sorted/widened | ✓ PASS |
+| Debt-marker gate on every file changed this wave | `grep -n -E "FIXME\|XXX\|HACK\|TODO\|PLACEHOLDER"` over the 8 changed files | Only two hits, both the domain term "tier-3 PLACEHOLDER Observatory" (Phase 22); zero `TODO`/`FIXME`/`XXX` | ✓ PASS |
 
-Full-suite and lint gates were run by the orchestrator (post-merge test gate exit 0; both ruff gates clean) and not repeated here.
+Full-suite and lint gates were run by the orchestrator before this verification (1774 tests exit 0; both ruff gates Passed; post-merge build gate exit 0) and were not repeated — per the one-full-run-per-verification constraint, this pass ran only named classes.
 
 ### Probe Execution
 
@@ -215,48 +202,45 @@ Full-suite and lint gates were run by the orchestrator (post-merge test gate exi
 
 | Requirement | Source Plans | Description | Status | Evidence |
 |---|---|---|---|---|
-| STATUS-01 | 37-01, 37-07 | One status vocabulary replaces the three parallel prefix maps | ✓ SATISFIED | Truth 1 (regression-verified) |
-| STATUS-02 | 37-01 | General terminal-state classifier replaces `status == 'COMPLETED'` | ✓ SATISFIED | Truth 1 |
-| TALLY-01 | 37-02, 37-04, 37-05, 37-06, 37-07, 37-08 | Public per-run tally on the campaign table row and run detail, updating as the projector narrows | ✗ BLOCKED | Truth 2 — the tally disappears from the campaign table row for rows outside the mirrored page slice under `?sort=`/`?per_page=` (CR-01). The liveness clause itself is satisfied. |
-| TALLY-02 | 37-04, 37-05, 37-07, 37-08 | Campaign page rolls the same tally up | ✓ SATISFIED | G-37-4 closed; strip is live on every call, proven end-to-end. CR-02's partially-unknown-total rendering routed to a decision item, not a blocker. |
-| TALLY-03 | 37-04 | `run_status` never set automatically from linked records | ✓ SATISFIED | Truth 3 — new applier is read-only; AST guard green |
-| UNUSED-01 | 37-04, 37-06, 37-07, 37-08 | Unused awarded night visually distinct | ✓ SATISFIED | Truth 4 — plus 37-UAT.md tests 1 and 2 human-passed |
+| STATUS-01 | 37-01, 37-07 | One status vocabulary replaces the three parallel prefix maps | ✓ SATISFIED | Truth 1 — zero live references to the three retired maps; `DisplayState.SCHEDULED` present |
+| STATUS-02 | 37-01 | General terminal-state classifier replaces `status == 'COMPLETED'` | ✓ SATISFIED | Truth 1 — `terminal_observing_states_for()` / `failed_states_for()`; only remaining literal is an LCO API block-payload check outside phase scope |
+| TALLY-01 | 37-02, 37-04, 37-05, 37-06, 37-07, 37-08, 37-09 | Public per-run tally on the campaign table row and run detail, updating as the projector narrows | ✓ SATISFIED | Truth 2 — the prior report's blocker is closed and re-measured at zero missing cells; anonymous and staff render identically |
+| TALLY-02 | 37-04, 37-05, 37-07, 37-08, 37-10 | Campaign page rolls the same tally up | ✓ SATISFIED | Truth 2 + G-37-6 closure — strip live on every call and now honest about what it could not account for |
+| TALLY-03 | 37-04 | `run_status` never set automatically from linked records | ✓ SATISFIED | Truth 3 — new applier read-only; AST guard green |
+| UNUSED-01 | 37-04, 37-06, 37-07, 37-08, 37-10 | Unused awarded night visually distinct | ✓ SATISFIED | Truth 4 — unchanged code plus `37-UAT.md` tests 1-2 human-passed |
 | GAPB-01 | 37-03, 37-07 | `claimed_dates()` counts every observation | ✓ SATISFIED | Truth 5 |
 
-No orphaned requirements: REQUIREMENTS.md maps exactly these seven IDs to Phase 37 and each appears in at least one plan's `requirements` field. **Note:** REQUIREMENTS.md line 52 already marks TALLY-01 `[x]` and line 125 `Complete`; that should not be taken as settled while the gap above is open.
+No orphaned requirements: REQUIREMENTS.md maps exactly these seven IDs to Phase 37 and each appears in at least one plan's `requirements` field. **Bookkeeping note (Advisory 2):** REQUIREMENTS.md still shows four of the seven as `Gaps Found` with unticked checkboxes — a blanket revert (commit `283f6e8`) after the 2026-09-20 verdict that the codebase now contradicts. It needs reconciling to `Complete` on phase completion.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---|---|---|---|
-| `solsys_code/campaign_views.py` | ~216-226 | Page slice mirrors only one of the three GET params django-tables2 consumes | 🛑 Blocker | Rows rendered under `?sort=`/`?per_page=` have no tally; see Gaps |
-| `solsys_code/campaign_tally.py` | `_apply_rollup_unused_fields()` 539-599 | Unknown contributor absorbed as zero into a displayed total; `unused_is_estimate` set from attempted rather than contributing codes | ⚠️ Warning | Strip can read `[U] ≈2` above a row reading `[U] not yet known`. Pre-existing (plan 37-04), explicitly out of 37-08's mandate. Routed to a human decision. |
-| `solsys_code/campaign_tally.py` | `campaign_rollup()` 655-663 | Deliberate double allocation-event lookup per run on the cache-miss path | ℹ️ Info | Documented in an inline comment as the price of one route to the figure; the alternative reintroduces the two-sources structure G-37-4 is made of. Bounded and pinned by `assertNumQueries` and the re-pinned marginal-cost tests. |
-| `solsys_code/management/commands/backfill_lco_observations.py` | 303 | Bare `block.get('state') == 'COMPLETED'` outside `status_vocabulary` | ℹ️ Info | Carried forward unchanged from the prior pass and from 37-UAT.md's notes; outside every Phase 37 plan's `files_modified`. Follow-up quick task. |
-| `src/templates/tom_calendar/partials/event_form.html` | 211 | Segment labels not pluralised (`15 Unused awarded night`) | ℹ️ Info | Observed and accepted as non-blocking by the developer during UAT test 3; 37-08 was explicitly prohibited from touching it. Follow-up quick task. |
-| `solsys_code/campaign_views.py`, `tests/*`, runbook | various | `TBD` string occurrences | ℹ️ Info (not a debt marker) | Every hit is the domain term "TBD window"/"TBD Telescope"/"TBD Coordinator" on `CampaignRun`, present since Phase 15. No `FIXME`/`XXX` in any file changed this round. The debt-marker gate does not fire. |
+| `solsys_code/campaign_views.py` | 132 | `MAX_TABLE_PER_PAGE = 100` authorises ~300 queries for one anonymous GET on an unthrottled endpoint | ℹ️ Info (Advisory) | Deliberate, arithmetic-justified tradeoff (WR-07); bounded and test-pinned; lowering to 50 halves it. Not a phase-goal gap |
+| `solsys_code/management/commands/backfill_lco_observations.py` | 303 | Bare `block.get('state') == 'COMPLETED'` outside `status_vocabulary` | ℹ️ Info | Carried forward unchanged for the third pass; it reads an LCO API block payload, not an `ObservationRecord.status`, and the file is outside every Phase 37 plan's `files_modified`. Follow-up quick task |
+| `src/templates/tom_calendar/partials/event_form.html` | 211 | Segment labels not pluralised (`15 Unused awarded night`) | ℹ️ Info | Observed and accepted as non-blocking by the developer during UAT test 3. Follow-up quick task |
+| `solsys_code/campaign_tally.py` | `campaign_rollup()` | Deliberate double allocation-event lookup per run on the cache-miss path | ℹ️ Info | Documented inline as the price of a single route to the figure; bounded by `assertNumQueries` |
+| `campaign_views.py`, `campaign_tables.py` | 785, 442 | `PLACEHOLDER` string | ℹ️ Info (not a debt marker) | The Phase 22 domain term "tier-3 PLACEHOLDER Observatory". No `TODO`/`FIXME`/`XXX` in any file changed this wave — the debt-marker gate does not fire |
 
 ### Deferred Items
 
-None actionable. Phase 37 is the final phase of the v2.4 milestone (ROADMAP.md holds phases 33-37 only), so no later phase exists to defer a gap to. `deferred-items.md` records one order-dependent Playwright flake in `test_bootstrap5_rendering.py`, confirmed non-reproducible on an immediate identical re-run and outside every Phase 37 plan's `files_modified` — a follow-up quick task, not a Phase 37 gap.
+None actionable. Phase 37 is the final phase of the v2.4 milestone (ROADMAP.md holds phases 33-37), so no later phase exists to defer to. `deferred-items.md`'s one entry — an order-dependent Playwright flake in `test_bootstrap5_rendering.py`, confirmed non-reproducible on an immediate identical re-run and outside every Phase 37 plan's `files_modified` — remains a follow-up quick task, not a Phase 37 gap.
 
 ### Human Verification Required
 
-#### 1. Product decision: how a partially-unknown roll-up unused total should read (CR-02)
-
-**Test:** Build a campaign with one allocation run holding elapsed still-standing `ALLOC:` nights and one container run whose `proposal_code` is set but whose `ProposalTimeAllocation` has never been fetched. Load `campaigns:table` and read the strip against the rows.
-**Expected:** A decision. Today: strip `[U] ≈2`, rows `[U] 2` and `[U] not yet known`. Either accept `≈` as the agreed signal for "total incomplete", or separate contributing from attempted estimate codes and give the strip its own not-fully-known rendering.
-**Why human:** Pre-existing semantics from plan 37-04, explicitly outside 37-08's mandate, and D-10 fixes the counting rule without saying how a partially-unknown sum should read. Nothing in the codebase determines the answer.
+None. The prior report's single human item (the product decision on a partially-unknown roll-up unused total) was decided by the developer as D-20, implemented by plan 37-10, and is verified closed above. The visual must-have (Truth 4) was human-passed in `37-UAT.md` tests 1 and 2 against code that is byte-unchanged since, so it needs no re-confirmation.
 
 ### Gaps Summary
 
-**G-37-4 is genuinely closed.** The caching defect UAT raised is gone by construction, not by TTL: `get_or_compute_rollup()` strips the three `unused_*` keys before caching and re-applies them live on every call including hits, through a single campaign-level applier both paths share. The counting rule was moved, not rewritten, and every pre-existing expected value in `TestCampaignRollup` still passes. The end-to-end page test is substantive and I re-ran it green.
+No gaps. Both items the prior report left open are closed against the codebase, not against their SUMMARYs:
 
-**One new gap blocks the phase goal.** Success Criterion 2's "any visitor sees on each run a live tally" fails for a supported interaction: the tally fetch mirrors only django-tables2's page number, so sorting the runs table — or overriding `per_page` — on a campaign with more than 25 runs renders rows whose tallies were never fetched, and those Progress cells read "Progress not available". Reproduced deterministically (5 of 25 rows under `?sort=`, 5 of 30 under `?per_page=50`). The fix is confined to `CampaignRunTableView.get_table_kwargs()` plus one regression test; it is independent of everything 37-08 built, and closing it does not disturb the roll-up work.
+**G-37-5** was a structural ordering defect — the tally was computed before django-tables2 had decided which rows to render. The fix removes the prediction entirely rather than extending it to a third GET param: `get_table()` now reads the rows after `RequestConfig.configure()`. I re-ran the prior report's own measurement and the 10-occurrence counts under `?sort=` and `?per_page=50` are now 0, with set equality between rendered pks and tally keys asserted across a 12-case matrix that includes the page-2 tail, tied orderings, clamped and malformed page numbers, and zero/one-run campaigns.
 
-**Two escalated findings resolved differently from how they were framed.** CR-02 is real behavior but is pre-existing, hedged by `≈`, and explicitly outside the gap-closure plan's mandate — a decision item, not a blocker, and not G-37-4 by another route. WR-08's paired-docs concern does not hold for this round at all: `observation_projector.py` was not touched, `campaign_views.py`'s only change is a comment block, and the one directory-scoped paired doc that *was* in scope — the runbook's freshness paragraph — was updated in the same commit as the code.
+**G-37-6** was a counting-semantics defect the prior report escalated rather than blocked. D-20's decision is implemented exactly as stated: the `≈` qualifier now fires on codes that *contributed*, and an unaccounted run is counted rather than absorbed as zero, so the strip reads `at least 2 (1 run not yet known)` over the rows it sits above instead of `≈2` over a row reading `not yet known`.
+
+The code review's own critical — a cost cap that clamped the cheapest query string to the most expensive page — is fixed in the right direction and, unlike its predecessor, is now tested against a fixture large enough for the cap to be observable at all. The remaining seven review fixes are present in the source and regressed neither closure: 207 tests across the affected modules were re-run in this pass, all green, on top of the orchestrator's clean full suite and lint gates.
 
 ---
 
-_Verified: 2026-09-20T23:10:00Z_
+_Verified: 2026-09-21T18:41:52Z_
 _Verifier: Claude (gsd-verifier)_
