@@ -32,6 +32,7 @@ from django.utils import timezone
 from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
 from django_tables2 import RequestConfig
+from django_tables2.utils import Accessor
 from django_tables2.views import SingleTableMixin
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
@@ -187,43 +188,56 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         always safe to render now (blank string for opted-out rows, populated for opted-in
         ones), gated at the SQL SELECT by get_queryset()'s Case/When annotation, not here.
 
-        TALLY-01/D-08: adds the ``tallies`` kwarg the table's ``render_progress()`` reads
-        (never queries) per row. Pks come from ``self.object_list`` via ``.values_list('pk',
-        flat=True)`` -- this works identically whether ``self.object_list`` is the staff
-        model queryset or the non-staff ``.values()`` queryset. A fresh ``CampaignRun``
-        queryset (with ``site`` pre-selected so ``campaign_tally.night_counts_for_run()``'s
-        per-run site-timezone read costs no extra query on a cache miss) is built from those
-        pks and handed to ``campaign_tally.tallies_for_runs()`` for the whole page in one
-        pass -- never one ``tally_for_run()`` call per row (D-08). ``get_queryset()`` itself
-        is untouched: the tally is joined by pk in Python here, not as a queryset annotation,
-        so the PII gate above (``.values()`` before ``.annotate()``,
-        ``ALLOWED_FIELDS_FOR_NON_STAFF``) never needs to widen for it.
-
-        WR-04 (37-REVIEW.md): this method runs BEFORE django-tables2 paginates
-        ``self.object_list`` (that happens inside ``get_table()``'s own
-        ``RequestConfig(...).configure(table)`` call), so without a page slice here,
-        ``tallies_for_runs()`` was asked for EVERY run in the filtered queryset even though
-        ``table_pagination`` renders only 25 rows -- the exact per-page-load query
-        amplification D-08 exists to prevent, displaced from "per row" to "per whole
-        filtered set". The slice below mirrors ``RequestConfig``'s own page-number
-        resolution (the ``'page'`` query param, matching an unprefixed single table's
-        ``prefixed_page_field``) to compute the same 25-row window django-tables2 will
-        render. An out-of-range/non-integer page number degrades to page 1's pks here
-        (RequestConfig itself separately clamps the rendered page to a valid one) --
-        the worst case is a page whose rows are missing from ``self.tallies`` and so
-        render "Progress not available" rather than a wrong count or a query storm.
+        TALLY-01/D-08/G-37-5: the tally is no longer attached here. This method runs BEFORE
+        django-tables2 has resolved ``sort``/``page``/``per_page`` (that happens inside
+        ``get_table()``'s own ``RequestConfig(...).configure(table)`` call, overridden
+        below), so any attempt here to predict which rows will render is one GET param
+        behind by construction -- see ``get_table()``'s docstring for the fix.
         """
-        per_page = self.table_pagination['per_page']
-        try:
-            page = max(int(self.request.GET.get('page', 1)), 1)
-        except (TypeError, ValueError):
-            page = 1
-        # Left unevaluated (never list()-ed) so this is embedded as a single LIMIT/OFFSET
-        # subquery in the CampaignRun fetch below, exactly like the unsliced pks queryset
-        # before this fix -- never a second, separately-executed pk-enumeration query.
-        page_pks = self.object_list.values_list('pk', flat=True)[(page - 1) * per_page : page * per_page]
-        runs = CampaignRun.objects.filter(pk__in=page_pks).select_related('site')
-        return {'order_by': (), 'tallies': campaign_tally.tallies_for_runs(runs)}
+        return {'order_by': ()}
+
+    def get_table(self, **kwargs):
+        """G-37-5/CR-01: attach the TALLY-01/D-08 Progress tally to the table AFTER
+        django-tables2 has resolved which rows it is actually going to render.
+
+        ``SingleTableMixin.get_table()`` (called via ``super()`` first, below) builds the
+        table and then runs ``RequestConfig(self.request, ...).configure(table)``, which
+        reads THREE query-string parameters -- ``sort`` (``table.order_by``), ``page`` and
+        ``per_page`` (both consumed by ``table.paginate()``) -- and only after that call
+        returns is it known which rows ``table.paginated_rows`` will iterate. The former
+        ``get_table_kwargs()`` computed a page of pks BEFORE this call, mirroring only
+        ``page`` and hardcoding ``per_page`` from ``table_pagination`` -- it never saw
+        ``sort`` at all, so a sorted request rendered a different 25 rows than the ones the
+        tally was computed for (G-37-5, reproduced as CR-01: 5 of 25 rendered rows lost
+        their tally under ``?sort=-telescope_instrument``, 5 of 30 under ``?per_page=50``).
+
+        Reading ``table.paginated_rows`` here instead is definitionally correct for every
+        combination of ``sort``, ``page`` and ``per_page``: it is the exact same ``BoundRows``
+        the django-tables2 table templates (``table.html``/``bootstrap4.html``/
+        ``bootstrap5.html``, none of them overridden in ``src/templates/``) iterate to
+        render rows, so the tallies dict covers exactly the rendered rows with no
+        reimplementation left to fall behind. Iterating it costs no extra query: it wraps
+        the ONE already-evaluated, already-sliced page queryset, whose result cache is
+        shared between this iteration and the template's own.
+
+        Each row's pk is resolved via ``Accessor('pk')`` (never ``row.record.pk`` or a dict
+        subscript) because a staff row is a ``CampaignRun`` model instance and a non-staff
+        row is a plain dict from ``get_queryset()``'s ``.values()`` projection -- the same
+        resolution ``CampaignRunTable.render_progress()`` itself uses. The resulting
+        ``CampaignRun`` MODEL queryset (``site`` pre-selected so
+        ``campaign_tally.night_counts_for_run()``'s per-run site-timezone read costs no
+        extra query on a cache miss) is built from those pks and handed to
+        ``campaign_tally.tallies_for_runs()`` for the WHOLE rendered page in one pass --
+        still never one ``tally_for_run()`` call per row (D-08) -- and used only to feed
+        that counts dict, never merged into ``table.data`` or rendered as a row field
+        (T-37-09-01). ``get_queryset()`` and ``ALLOWED_FIELDS_FOR_NON_STAFF`` are untouched.
+        """
+        table = super().get_table(**kwargs)
+        pks = {Accessor('pk').resolve(row.record, quiet=True) for row in table.paginated_rows}
+        pks.discard(None)
+        runs = CampaignRun.objects.filter(pk__in=pks).select_related('site')
+        table.tallies = campaign_tally.tallies_for_runs(runs)
+        return table
 
     def get_context_data(self, **kwargs):
         """Add the campaign (TargetList), D-14 gap-analysis-button availability, and the

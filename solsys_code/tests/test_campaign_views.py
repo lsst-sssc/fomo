@@ -23,6 +23,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django_tables2.utils import Accessor
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
@@ -1078,6 +1079,76 @@ class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
         three_row_count = len(ctx_three.captured_queries)
 
         self.assertEqual(three_row_count - two_row_count, 3)
+
+
+class TestProgressColumnCoversEveryRenderedRow(CampaignTallyViewTestBase):
+    """G-37-5/CR-01: every row django-tables2 actually renders carries a real Progress
+    tally -- under ``?sort=``, ``?per_page=``, ``?page=``, and any combination of the
+    three -- not only the page a pre-``RequestConfig`` slice predicted.
+
+    Named and asserted for the coverage PROPERTY (every rendered row has a tally), never
+    for the mechanism or for row order: the set of pks resolved from
+    ``table.paginated_rows`` must equal the set of keys in ``table.tallies``, with no
+    assertion anywhere in this class on which order those rows render in.
+    """
+
+    def setUp(self):
+        # Same pk-reuse rationale as TestCampaignRunTableProgressColumn.setUp().
+        cache.clear()
+
+    def _make_thirty_runs(self) -> list[CampaignRun]:
+        """30 runs on ``self.campaign``, each with a distinct ``window_start`` so
+        ``get_queryset()``'s default nulls-last descending order is well defined. Each
+        run's ``telescope_instrument`` carries a ``uuid4`` suffix (via the inherited
+        ``_make_run()``), so sorting by that column produces an order genuinely different
+        from the ``window_start``-descending default -- exactly the mismatch G-37-5 is
+        about."""
+        runs = []
+        for i in range(30):
+            window_date = _BASE_DATE + timedelta(days=i)
+            runs.append(self._make_run(window_start=window_date, window_end=window_date))
+        return runs
+
+    def _assert_full_coverage(self, response):
+        """The two invariants every case in this class checks: zero muted not-available
+        Progress cells in the rendered body, and the rendered-pk set equals the tallies
+        key set -- SET equality, never a list or an order comparison (the ordering
+        must_have; this probe is literally the ``?sort=`` bug)."""
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        not_available_count = content.count('Progress not available')
+        table = response.context['table']
+        rendered_pks = {Accessor('pk').resolve(row.record, quiet=True) for row in table.paginated_rows}
+        rendered_pks.discard(None)
+        self.assertEqual(
+            not_available_count,
+            0,
+            f'{not_available_count} occurrences of the not-available token in the rendered body '
+            f'({len(rendered_pks)} rows rendered)',
+        )
+        self.assertEqual(rendered_pks, set(table.tallies))
+        return rendered_pks
+
+    def test_sorted_request_covers_every_rendered_row(self):
+        """RED today: sorting by telescope_instrument re-orders the table AFTER
+        get_table_kwargs() already sliced the first 25 pks in window_start order, so 5 of
+        the 25 rendered rows have no entry in table.tallies (10 occurrences of the token,
+        two per cell -- the title attribute and the body text)."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 25)
+
+    def test_unsorted_request_still_covers_every_rendered_row(self):
+        """The un-sorted control: same 30-run campaign, no query string, zero occurrences
+        of the token too -- distinguishes "the sort broke it" from "the fixture never had
+        tallies at all"."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url)
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 25)
 
 
 class TestCampaignRollup(CampaignTallyViewTestBase):
