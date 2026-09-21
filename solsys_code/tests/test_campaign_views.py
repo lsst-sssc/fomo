@@ -1455,3 +1455,68 @@ class TestCampaignRollup(CampaignTallyViewTestBase):
             self.client.get(reverse('campaigns:list'))
         second_marginal_count = len(ctx.captured_queries) - base_count_after_first_extra
         self.assertEqual(second_marginal_count, first_marginal_count)
+
+    def test_an_unknown_contributor_is_never_absorbed_as_zero_into_the_strip_total(self):
+        """G-37-6/D-20: a run whose own unused figure is not yet known must not be silently
+        counted as zero in the roll-up strip's total, and the total must say how many runs
+        it could not account for. Developer's own reproduction: one allocation run with two
+        already-elapsed still-standing ``ALLOC:`` nights (exact 2), plus one container run
+        with a non-blank, never-fetched ``proposal_code`` (own figure: not yet known).
+
+        RED today: ``unused_is_estimate`` is True (derived from the code ATTEMPTED, not
+        contributed) and the ``unused_unknown_runs`` key does not exist at all.
+        """
+        run_a = self._make_run(telescope_instrument='FTN/G376-A')
+        self._make_run(telescope_instrument='FTN/G376-B', proposal_code='NEVER-FETCHED-37-6')
+        self._make_alloc_event(run_a, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_a, date(2026, 7, 10), end_time=timezone.now() - timedelta(days=1))
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['nights_unused'], 2)
+        self.assertTrue(rollup['unused_known'])
+        self.assertFalse(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+
+        # Collapse first, then assert (37-08's Task 1 idiom): the strip renders its marker
+        # and value on two separate template lines, while the row cell emits them
+        # contiguously, so the raw body carries a newline between them.
+        body = ' '.join(response.content.decode().split())
+        self.assertIn('[U] at least 2 (1 run not yet known)', body)
+        self.assertIn('[U] 2', body)
+        self.assertIn('[U] not yet known', body)
+        self.assertNotIn('[U] ≈2', body)
+
+    def test_the_approximation_qualifier_and_the_unknown_run_count_can_co_occur(self):
+        """G-37-6/D-20: the two signals must not cancel each other. Same reproduction as
+        above, plus a third run carrying a DIFFERENT proposal code that DOES have a stored
+        ``ProposalTimeAllocation`` (20 allocated, 10 used -> 1 estimated night), so an
+        estimate contributes AND a run is still unknown at the same time.
+        """
+        run_a = self._make_run(telescope_instrument='FTN/G376-CoA')
+        self._make_run(telescope_instrument='FTN/G376-CoB', proposal_code='NEVER-FETCHED-37-6-CO')
+        self._make_run(telescope_instrument='FTN/G376-CoC', proposal_code='FETCHED-37-6-CO')
+        self._make_alloc_event(run_a, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_a, date(2026, 7, 10), end_time=timezone.now() - timedelta(days=1))
+        ProposalTimeAllocation.objects.create(
+            proposal_code='FETCHED-37-6-CO',
+            allocation_type='std',
+            allocated_hours=20.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['nights_unused'], 3)
+        self.assertTrue(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+
+        # The strip emits the approximation sign as the `&approx;` HTML entity (the row cell
+        # emits the literal `≈` character through format_html), so this assertion is
+        # entity-spelled on purpose -- a literal-character assertion would never match the
+        # strip in either state.
+        body = ' '.join(response.content.decode().split())
+        self.assertIn('[U] at least &approx;3 (1 run not yet known)', body)
