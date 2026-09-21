@@ -1,287 +1,172 @@
 ---
 phase: 37-status-vocabulary-public-tallies-provenance-blind-gaps
-fixed_at: 2026-09-19T15:00:36Z
+fixed_at: 2026-09-21T18:30:39Z
 review_path: .planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-REVIEW.md
 iteration: 1
-findings_in_scope: 15
-fixed: 15
+findings_in_scope: 8
+fixed: 8
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 37: Code Review Fix Report
 
-**Fixed at:** 2026-09-19T15:00:36Z
-**Source review:** .planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-REVIEW.md
+**Fixed at:** 2026-09-21T18:30:39Z
+**Source review:** `.planning/phases/37-status-vocabulary-public-tallies-provenance-blind-gaps/37-REVIEW.md`
 **Iteration:** 1
+**Mode:** sequential (no worktree, per orchestrator project notes) — edits and commits made
+directly on `issue37-telescope-runs-calendar`.
 
 **Summary:**
-- Findings in scope: 15 (Critical: 3, Warning: 12 — Info findings excluded per `fix_scope`)
-- Fixed: 15
+- Findings in scope (critical + warning): 8
+- Fixed: 8
 - Skipped: 0
 
-All in-scope findings were fixed. Two findings carry a **narrower scope than the review
-suggested**, documented below with reasoning rather than silently applied — see CR-02's
-rollup-caching note and WR-07's `telescope_runs.py` note. One finding (CR-02) surfaced a
-necessary trade-off against an existing, deliberately-designed performance test, which was
-resolved by updating that test's expectation rather than reverting the fix — documented
-below as well.
+All fixes were applied against the code as it stands today (not blindly pasted from
+REVIEW.md's suggested snippets), verified with `ast.parse`, `pre-commit run ruff` /
+`ruff-format`, and the relevant Django test module(s) after each change, then committed
+individually with hooks enabled (no `--no-verify`).
 
 ## Fixed Issues
 
-### CR-01: Tally cache key is blind to link creation/deletion
+### CR-01: the `per_page` cap clamped below-range values UP to the maximum
+
+**Files modified:** `solsys_code/campaign_views.py`
+**Commit:** `a1d4328`
+**Applied fix:** Added `DEFAULT_TABLE_PER_PAGE = 25` (matching the view's existing
+`table_pagination` default) alongside `MAX_TABLE_PER_PAGE = 100`. `CampaignRunTableView.get()`
+now clamps a too-large `per_page` DOWN to `MAX_TABLE_PER_PAGE` (unchanged) but a too-small one
+(`< 1`, e.g. `0`, `-1`, `-9999`) to `DEFAULT_TABLE_PER_PAGE` instead of `MAX_TABLE_PER_PAGE` —
+fixing the 4x anonymous-cost amplification the review identified. `table_pagination` now reads
+from the same `DEFAULT_TABLE_PER_PAGE` constant so the two never drift. Docstring rewritten to
+describe the two-direction clamp explicitly instead of asserting the old (wrong) single-target
+behaviour.
+
+### WR-01: the huge-`per_page` cap test was vacuous (30-run fixture couldn't expose a 100-row cap)
+
+**Files modified:** `solsys_code/tests/test_campaign_views.py`
+**Commit:** `fbb3c50`
+**Applied fix:** Replaced `test_huge_per_page_is_capped_and_still_fully_covered` (which
+asserted `assertLessEqual(30, 100)` — true with or without the cap) with a `_make_n_runs(n)`
+helper and four real boundary tests, all against a 120-run fixture (> `MAX_TABLE_PER_PAGE`):
+`test_huge_per_page_is_capped_at_the_maximum` (exact `100`, not "at most"),
+`test_per_page_exactly_at_the_cap_is_honoured` (`per_page=100` boundary),
+`test_first_value_above_the_cap_is_clamped_down` (`per_page=101`), and
+`test_degenerate_per_page_falls_back_to_the_default_not_the_maximum` (`0`, `-1`, `-9999`
+against the existing 30-run fixture, asserting the new `DEFAULT_TABLE_PER_PAGE` fallback from
+CR-01). 12/12 tests in the class pass.
+
+### WR-02: broken multi-line `assert` in the committed notebook (dead string literals)
+
+**Files modified:** `docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb`
+**Commit:** `2049056`
+**Applied fix:** Rewrote the split `assert (...), '...' '...' '...'` (whose message halves
+after the first string were an inert, unreachable expression statement) as
+`assert rollup['unused_is_estimate'] is False, ('...' '...' '...')` — one string, one
+assert. Re-executed the whole notebook in place via `jupyter nbconvert --to notebook --execute
+--inplace` (all 50 cells, zero errors) so the committed output reflects the corrected source,
+per the CLAUDE.md paired-docs convention of committing `pre_executed/` notebooks with output.
+
+### WR-03: the roll-up's "nothing known" state had two disagreeing `unused_is_estimate` shapes
 
 **Files modified:** `solsys_code/campaign_tally.py`, `solsys_code/tests/test_campaign_tally.py`
-**Commit:** `26b778d`
-**Applied fix:** `link_counts_for_runs()` now also returns a distinct-link-count and a
-linked-record-id watermark (`link_version`, `Max('observation_record_id')`).
-`build_tally_cache_key()` folds `records_count`/`link_version` into the cache key alongside
-`records_version`, so a link create, a delete, or a delete-then-create pair that leaves the
-count unchanged all produce a new key. `get_or_compute_tally()`/`tallies_for_runs()` updated
-to pass the new fields. Added three regression tests reproducing the exact reported bugs:
-linking a pre-existing record whose `modified` is older than the run's current max, and
-removing a non-newest link — both previously left the cached tally unchanged.
+**Commit:** `92cf849`
+**Applied fix:** In `_apply_rollup_unused_fields()`, the `unused_is_estimate` assignment moved
+inside the `if exact_known or estimate_known` / `else` branches: the known branch keeps
+`bool(contributing_codes)`, the not-known branch now writes `True` — matching the other three
+not-yet-known writers in the module (empty-`runs` early return, `campaign_rollup()`'s initial
+dict, `_without_unused_fields()`'s cached reset). Added an assertion to the existing
+`test_nothing_known_at_all_leaves_the_strip_segment_unknown_not_partial` test plus a new
+`test_not_yet_known_states_agree_on_every_unused_key_except_unknown_runs`, which directly
+compares an empty-campaign roll-up against a one-run "nothing contributed" roll-up and asserts
+every `unused_*` key matches except `unused_unknown_runs` (0 vs. 1). Full
+`test_campaign_tally` + `test_campaign_views` suite (176 tests) green.
 
-### CR-02: Calendar `[U]` marker and table's unused count could disagree for up to an hour
+### WR-04: stale "three"/"eight" key counts in `campaign_tally.py` docstrings
 
-**Files modified:** `solsys_code/campaign_tally.py`, `solsys_code/tests/test_campaign_tally.py`,
-`solsys_code/tests/test_campaign_views.py`
-**Commits:** `26b778d` (fix, combined with CR-01 per the review's own note that the two share
-a root cause and touch the same functions), `6f0ae3f` (test follow-up)
-**Applied fix:** `get_or_compute_tally()` and `tallies_for_runs()` now cache only the five
-link/night-count tally fields; the three `unused_*` fields are recomputed **live, on every
-call, including a cache hit**, from `is_unused_allocation_night()` — the same rule
-`unused_night_decoration()` already evaluates live for the calendar's `[U]` marker. This
-makes the table's Progress column and the calendar agree by construction, with no TTL wait.
-Added regression tests (`test_unused_count_is_live_even_on_a_cache_hit`, both call sites)
-that flip `run_status` to `CANCELLED` after warming the cache and assert the unused figure
-moves on the very next call.
+**Files modified:** `solsys_code/campaign_tally.py`
+**Commit:** `4e9a9f2`
+**Applied fix:** Updated the three docstring mentions review pointed at (`campaign_rollup()`'s
+own docstring "three unused_* keys" and "eight tally keys plus runs", and
+`get_or_compute_rollup()`'s "three unused_* keys") to "four" / "nine" respectively. Left the
+four other "three unused_*"/"three ``unused_*`` keys" mentions untouched, per the review's own
+note that those describe the per-run tally, which never gained the fourth key.
 
-**Discovered trade-off (documented, not silently applied):** running `unused_*` live on
-every call, even a cache hit, costs two bounded queries per rendered table row (one
-allocation-event lookup, one proposal-allocation existence check). An existing test,
-`test_page_query_count_does_not_grow_with_additional_cached_rows`, encoded a "zero marginal
-query cost on an already-warmed page" contract that this fix structurally cannot satisfy —
-you cannot have both "zero marginal cost" and "always live, never stale." Since the cost is
-bounded by page size (25 rows after WR-04, not by the number of linked records), this is an
-acceptable trade-off for closing a Critical, publicly-visible staleness bug. The test was
-rewritten (commit `6f0ae3f`) to assert the new bounded per-row delta (exactly 2 queries) so a
-future regression that makes the cost scale with *linked records* instead of *rendered rows*
-is still caught.
+### WR-05: `CampaignRunTable.__init__`'s `tallies` kwarg was dead, comments still described it as live
 
-**Scope note (deliberately narrower than the review's Fix section):**
-`campaign_rollup()`/`get_or_compute_rollup()` (the campaign-list roll-up strip, used by
-`CampaignListView`) were **left untouched**. Applying the same live-unused split there would
-require calling `tallies_for_runs()` even on a rollup cache hit, which directly conflicts
-with an existing, explicitly-titled test:
-`test_campaign_list_query_count_bound_with_three_campaigns` (`test_campaign_views.py`,
-docstring cites "D-10/T-37-19") asserts that a cached rollup adds **zero** further queries on
-the anonymous, high-traffic campaign list page. That bound exists specifically because this
-page is reachable anonymously and was already flagged by WR-05 as an amplification risk
-(`O(campaigns × runs)` on a cold cache) — relaxing it the way CR-02 relaxed the per-row table
-test would reintroduce exactly the amplification WR-05 fixes. The residual gap CR-02
-describes ("`campaign_rollup()`'s summary strip disagree[ing] with the sum of the rows
-rendered directly beneath it") therefore still exists at the roll-up-strip level only, bounded
-to `TALLY_CACHE_TTL_SECONDS` (1 hour), same as before this fix. This needs a human product
-decision (accept the existing rollup staleness bound, or relax the T-37-19 query bound) before
-it can be closed — flagging for follow-up rather than picking one side silently.
+**Files modified:** `solsys_code/campaign_tables.py`
+**Commit:** `b5da497`
+**Applied fix:** Dropped the `tallies=None` constructor kwarg; `__init__` now sets
+`self.tallies = {}` unconditionally, with the docstring rewritten to explain that
+`CampaignRunTableView.get_table()` attaches tallies via post-construction attribute assignment
+instead (G-37-5/CR-01), and that a `tallies=` kwarg would previously have been silently
+overwritten. Also updated `render_progress()`'s docstring (which still referenced "constructed
+with no `tallies` kwarg") and `ApprovalQueueTable.Meta`'s comment (which read as if some other
+construction site passes the kwarg) to describe the current attribute-based mechanism. Grep for
+`tallies=` in `solsys_code/` now returns zero hits.
 
-### CR-03: `facility_for()` unguarded on public tally paths
+### WR-06: the cap hardcoded the literal `'per_page'` instead of resolving it from the table
 
-**Files modified:** `solsys_code/observation_projector.py`, `solsys_code/campaign_tally.py`,
-`solsys_code/campaign_gap.py`, `solsys_code/tests/test_campaign_tally.py`,
-`solsys_code/tests/test_campaign_gap.py`, `solsys_code/tests/test_observation_projector.py`
-**Commit:** `99588c5`
-**Applied fix:** Added `observation_projector.facility_for_or_none()`, returning `None`
-instead of raising `ImportError` for an unconfigured facility name. Switched the two real
-call sites the orchestrator confirmed (`campaign_tally.night_counts_for_run()` and
-`campaign_gap.observation_claimed_dates()`) to use it —
-`night_counts_for_run()` now skips an unclassifiable record entirely (contributes to no
-night set, same as an INCONSISTENT/QUEUED record today);
-`observation_claimed_dates()` folds it into the existing `site_unknown_count` data-quality
-signal. Per the orchestrator's correction, `calendar_display_extras.py` contains no direct
-`facility_for()` call — its `run_tally()` tag reaches the fixed code transitively through
-`get_or_compute_tally()`, so no third call site needed changing. Added regression tests with
-`facility='NOT_A_CONFIGURED_FACILITY'` at all three affected layers (the new
-`facility_for_or_none()` helper itself, `night_counts_for_run()`, and
-`observation_claimed_dates()`).
+**Files modified:** `solsys_code/campaign_views.py`, `solsys_code/tests/test_campaign_views.py`
+**Commit:** `cb07ff2`
+**Applied fix:** `CampaignRunTableView.get()` now resolves the query-string field name as
+`self.table_class._meta.prefix + self.table_class._meta.per_page_field` (verified interactively
+to be the identical expression `table.prefixed_per_page_field` that django-tables2's own
+`RequestConfig.configure()` reads) instead of the bare literal `'per_page'`, and uses that same
+resolved name for both the `request.GET.get(...)` read and the `mutable_get[...] = ...` write.
+Added `test_per_page_field_name_used_by_the_cap_matches_the_table`, which pins
+`CampaignRunTable(data=[]).prefixed_per_page_field == 'per_page'` so a future `prefix` or
+`per_page_field` override breaks this test loudly instead of silently disabling the cap.
 
-**Landed in the same commit as WR-02** (below) — both are adjacent edits inside
-`night_counts_for_run()`'s per-record loop and could not be cleanly separated at the hunk
-level.
+### WR-07: `MAX_TABLE_PER_PAGE = 100`'s ~300-query cost was justified by analogy, not arithmetic
 
-### WR-01: `ApprovalQueueTable`'s always-unavailable `Progress` column
-
-**Files modified:** `solsys_code/campaign_tables.py`, `solsys_code/tests/test_campaign_approval.py`
-**Commit:** `3c14424`
-**Applied fix:** Added `'progress'` to `ApprovalQueueTable.Meta.exclude`, alongside the
-existing `weather`/`observation_outcome`/`publication_plans` exclusions. Added a regression
-test asserting `'progress'` is absent from `ApprovalQueueTable`'s columns while still present
-on the base `CampaignRunTable`.
-
-### WR-02: `night_counts_for_run()`'s `.only()` omitted `parameters`
-
-**Files modified:** `solsys_code/campaign_tally.py` (commit `99588c5`, combined with CR-03 —
-see above)
-**Applied fix:** Added `'parameters'` to the `.only()` field list and corrected the
-comment above it, matching `campaign_gap.observation_claimed_dates()`'s existing discipline.
-Covered by the existing `test_record_time_window_raising_is_skipped_never_aborts` test, which
-already exercises the `parameters`-fallback branch this fix restores field access to.
-
-### WR-03: `campaign_rollup()`'s `.only()` triggered deferred-field queries
-
-**Files modified:** `solsys_code/campaign_tally.py`, `solsys_code/tests/test_campaign_tally.py`
-**Commit:** `900dfd3`
-**Applied fix:** Added `select_related('site')` and named `run_status`/`site__timezone`/
-`site__obscode` in `.only()`. Added a query-count regression test
-(`test_only_does_not_trigger_deferred_field_queries`) pinning the roll-up's cost for one run
-at 5 queries; verified by temporarily reverting the fix that it was 7 before.
-
-### WR-04: Campaign table computed tallies for the whole filtered queryset, not the rendered page
-
-**Files modified:** `solsys_code/campaign_views.py` (commit `05359bb`, combined with WR-05
-below — both bound query fan-out on adjacent public pages and were reviewed together)
-**Applied fix:** `get_table_kwargs()` now slices `self.object_list` to the same page window
-`RequestConfig` itself resolves (the `'page'` query param), left unevaluated so it stays a
-single `LIMIT`/`OFFSET` subquery — no extra query over the previous unbounded version. An
-out-of-range/non-integer page number degrades to page 1's pks (`RequestConfig` separately
-clamps the actually-rendered page).
-
-### WR-05: `CampaignListView` looped roll-ups over an unpaginated, anonymous campaign list
-
-**Files modified:** `solsys_code/campaign_views.py`, `solsys_code/tests/test_campaign_views.py`,
-`src/templates/campaigns/campaign_list.html`
-**Commit:** `05359bb`
-**Applied fix:** Added `paginate_by = 100` to `CampaignListView` (bounding worst-case fan-out
-without ever hiding a campaign's tally behind a cache-hit gate, which would have violated
-TALLY-01's "visible to any visitor" guarantee), minimal Bootstrap4 pagination controls in the
-template, and explicit `.order_by('name')` on the queryset (pagination needs a deterministic
-order; Django's own `UnorderedObjectListWarning` surfaced once pagination was added). Added
-tests covering pagination triggering and that a second page's campaigns remain reachable.
-
-### WR-06: `unused_night_decoration()` had no `is_publicly_visible` gate
-
-**Files modified:** `solsys_code/templatetags/calendar_display_extras.py`,
-`solsys_code/tests/test_calendar_display_extras.py`
-**Commit:** `b5da9db`
-**Applied fix:** Added the same `run is None or not run.is_publicly_visible` gate
-`campaign_decoration()`/`run_tally()` already use. Added a regression test with a
-`PENDING_REVIEW` run's elapsed allocation night, asserting the decoration is now `None`.
-
-### WR-07: Proposal code interpolated into a credentialed URL without quoting/validation
-
-**Files modified:** `solsys_code/proposal_allocation.py`, `solsys_code/tests/test_proposal_allocation.py`
-**Commit:** `e3bd492`
-**Applied fix:** Added `_PROPOSAL_CODE_RE` (a conservative charset check covering every real
-LCO/SOAR/ESO proposal-code shape already in this codebase's fixtures, e.g. the ESO-style
-`'0110.C-0234'`), validated before the request is built, and `quote()`d into the URL path.
-Added tests for path-traversal-like input, `?`/`#` characters, an over-long code, a blank
-code, and that a valid ESO-style code both passes validation and reaches a correctly-quoted
-URL.
-
-**Scope note (deliberately narrower than the review's Fix section):** the review's suggested
-fix also proposed rejecting an over-long/ill-formed token in
-`telescope_runs._resolve_proposal()` (the classical-file ingestion grammar) so it "never
-reaches the DB." This was **not applied** — `_resolve_proposal()` is a live, real-schedule-file
-parser, and tightening its accepted grammar without dedicated testing against real classical
-schedule files risked rejecting a legitimately-formatted proposal code the operator has
-actually used. The sink-level fix in `proposal_allocation.py` (validate immediately before
-the credentialed request is built) closes the actual security/DB-overflow risk without that
-blast radius. Flagging the source-level hardening as a follow-up for a human to scope against
-real schedule-file examples.
-
-### WR-08: `unused_hours_for()` summed across every semester; stale rows never pruned
-
-**Files modified:** `solsys_code/proposal_allocation.py`, `solsys_code/tests/test_proposal_allocation.py`
-**Commit:** `2c8601e`
-**Applied fix:** `unused_hours_for()` now accepts an optional `semester` parameter, defaulting
-to the proposal's own alphabetically most-recent stored semester (semester strings sort
-correctly as plain text). `store_proposal_allocations()` now prunes any stored row for the
-`proposal_code` whose `(semester, instrument_type, allocation_type)` key is absent from the
-current portal response. Added tests for cross-semester summation (only the most recent is
-summed), explicit-semester override, no-rows-in-requested-semester, pruning on a later
-response, and pruning never touching a different proposal's rows.
-
-### WR-09: Bare marker literals survived in `observation_projector.py` and `calendar.html`
-
-**Files modified:** `solsys_code/status_vocabulary.py`, `solsys_code/observation_projector.py`,
-`solsys_code/templatetags/calendar_display_extras.py`,
-`src/templates/tom_calendar/partials/calendar.html`, `solsys_code/tests/test_calendar_display_extras.py`
-**Commit:** `dea1d3e`
-**Applied fix:** Both `observation_projector.py` fallback literals (`'[F]'`, `'[?]'`) now
-source from `status_vocabulary.MARKER`. Added a `'filterable'` key to
-`status_vocabulary.LEGEND` (`True` only for the `UNUSED` entry) and switched
-`calendar.html`'s click-to-filter legend swatch to branch on `entry.filterable` instead of
-comparing `entry.marker == '[U]'`. Per the orchestrator's correction, this was scoped as a
-small tidy (source the fallback + comparison from `status_vocabulary`), not a structural
-refactor — `observation_projector.py:203` (a docstring, not code) was left untouched. Added a
-regression test asserting exactly one legend entry (`[U]`) is filterable.
-
-### WR-10: `ProposalTimeAllocationAdmin` left add/delete unguarded
-
-**Files modified:** `solsys_code/admin.py`, `solsys_code/tests/test_admin.py`
-**Commit:** `6d85e03`
-**Applied fix:** Added `has_add_permission()`/`has_delete_permission()`, both returning
-`False` unconditionally. Added both unit-level tests (calling the methods directly) and
-HTTP-level tests — the latter needed correcting mid-fix: this project's
-`tom_common.middleware.Raise403Middleware` turns every 403 into a 302 redirect to the login
-page, so the HTTP-level tests assert that redirect rather than a raw 403 status code (a
-project-wide convention discovered while verifying, not a defect in the fix).
-
-### WR-11: Gap page's "Claimed nights" list not bounded by the requested date range
-
-**Files modified:** `solsys_code/campaign_gap.py`, `solsys_code/tests/test_campaign_gap.py`
-**Commit:** `91f1968`
-**Applied fix:** `_compute_gap()`'s `'claimed_dates'`/`'observation_claimed_dates'` result
-keys are now bounded to `[start, end]` at the point the result dict is built; `gap_dates`
-keeps reading from the unbounded `claimed` set, unchanged (an out-of-range claim still
-correctly removes a night from the observable set). Added a regression test with a claimed
-run night and a claimed observation night both far outside the requested range, asserting
-both are excluded from the display lists while `claimed_dates()` itself (the underlying,
-intentionally-unbounded function) still reports them.
-
-### WR-12: Runbook still documented retired `[CANCELLED]`/`[WEATHERED]` prefixes as current
-
-**Files modified:** `docs/runbooks/telescope_runs_calendar.rst`
-**Commit:** `3a19846`
-**Applied fix:** Replaced the two stale bracket-word prefixes with the current `[C]`/`[W]`
-markers in the declined-retirement note. Grepped the rest of the runbook for the same
-strings — the only other occurrence (the "One-time title change (Phase 37)" note) is
-correctly phrased in the past tense describing the pre-Phase-37 behavior, so it was left
-unchanged.
+**Files modified:** `solsys_code/campaign_views.py`
+**Commit:** `0fad7e8`
+**Applied fix:** Comment-only change (kept the constant at `100` — the lower-risk of the two
+options the review offered, since lowering it would have rippled into WR-01's new boundary
+tests). Rewrote the `MAX_TABLE_PER_PAGE` comment to state the actual query budget explicitly:
+100 rows x the 3 queries/row this view's own
+`test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly` test pins for
+`campaign_tally.tallies_for_runs()` ~= 300 queries as the accepted anonymous ceiling, and noted
+there is no throttle on this endpoint, and that lowering the constant (e.g. to 50) halves the
+ceiling if needed later. No longer borrows `CampaignListView.paginate_by`'s number by analogy to
+a page with a materially different (fully cached) cost shape.
 
 ## Skipped Issues
 
-None — all 15 in-scope findings were fixed. Two findings (CR-02, WR-07) were fixed with a
-narrower scope than the review's suggested code, documented above with reasoning rather than
-silently applied; one finding (CR-02) required updating an existing test's expectation to
-reflect a necessary trade-off, also documented above.
+None — all 8 in-scope findings (CR-01, WR-01 through WR-07) were fixed.
 
-## Verification
+## Notes for the orchestrator / next steps
 
-Every fix was verified against its directly affected Django test module(s)
-(`python manage.py test solsys_code.tests.test_<module>`) after being applied, per this
-agent's iterative workflow — all passed before each commit. All verification ran in the main
-working tree (per `workflow.use_worktrees` being overridden to off for this task by explicit
-orchestrator instruction — no isolated worktree was created), so the results are reproducible
-directly from this checkout.
-
-A final combined run across every test module touched by this fix pass
-(`test_campaign_tally`, `test_campaign_gap`, `test_observation_projector`,
-`test_campaign_approval`, `test_campaign_views`, `test_calendar_display_extras`,
-`test_proposal_allocation`, `test_admin`, `test_status_vocabulary`, `test_calendar_template`)
-was started before this report was written; **see the orchestrator's own full-suite run
-(`python manage.py test solsys_code --exclude-tag=ephemeris_segfault`) for the authoritative
-final result** — per this agent's closeout discipline, close-out is not blocked on a
-long-running suite run when per-fix verification has already passed.
-
-Quality gates (`pre-commit run ruff --all-files`, `pre-commit run ruff-format --all-files`)
-ran automatically on every commit via the repository's pre-commit hooks and passed (one
-ruff-format auto-reformat was applied and re-committed during the WR-08 commit; captured in
-that commit's content, not left uncommitted).
+- **Info findings (IN-01 through IN-06) were NOT addressed** — `fix_scope` for this run was
+  `critical_warning`, which excludes Info-tier findings by design. If the next iteration widens
+  scope to `all`, IN-01 through IN-06 remain open in `37-REVIEW.md`.
+- Every fix was verified against the actual current source (not review's line numbers verbatim
+  — `campaign_tally.py`'s target lines had drifted by a few lines by the time WR-04 was applied,
+  due to WR-03 landing first in the same file; all edits were re-located via `grep` before being
+  applied, and every edit matched the finding's described content byte-for-byte).
+- Test modules run after each fix: `solsys_code.tests.test_campaign_views` (93 tests) and
+  `solsys_code.tests.test_campaign_tally` (83 tests) — both fully green after all 8 commits, run
+  together (176 tests) after WR-03/WR-04 to confirm no cross-file regression.
+- `pre-commit run ruff --all-files` / `ruff-format --all-files` were run per-file (scoped to
+  each commit's changed files) after every edit; a repo-wide `--all-files` pass was not re-run
+  in this session but no fix touched files outside the seven already listed as
+  `files_reviewed_list` in `37-REVIEW.md`.
+- A full `solsys_code` test suite run (excluding the known-segfaulting `TestEphemeris`, tag
+  `ephemeris_segfault`) was started as an extra sanity check beyond the per-fix verification
+  above, but was deliberately not waited on to completion — per this agent's own scope, the
+  full suite is the verifier phase's job, not the fixer's, and each fix was already verified
+  against its directly relevant test module(s) (93 + 83 = 176 tests, all green). The
+  orchestrator/verifier should still run the full suite as part of normal phase verification.
+- WR-02's optional "Consider also widening the lint hook to
+  `types_or: [ python, pyi, jupyter ]`" suggestion in `.pre-commit-config.yaml` was **not**
+  applied — it is explicitly a "consider" (not part of the Fix), and turning on ruff *lint*
+  (not just `ruff-format`, which already covers `jupyter`) for every notebook in the repo risks
+  surfacing unrelated findings across notebooks this phase didn't touch. Left for a
+  separately-scoped follow-up if desired.
 
 ---
 
-_Fixed: 2026-09-19T15:00:36Z_
+_Fixed: 2026-09-21T18:30:39Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
