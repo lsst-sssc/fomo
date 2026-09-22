@@ -1610,7 +1610,7 @@ Setting it up on a fresh host
    source verbatim into HTML, and although ``docs/conf.py`` now excludes
    ``local_settings.py`` from that scan (CR-03, 36-REVIEW.md), never build
    and serve HTML docs from a configured production checkout regardless --
-   ``_readthedocs/html/`` and ``docs/_build/html/`` are both ``.gitignore``d,
+   ``_readthedocs/html/`` and ``docs/_build/html/`` are both ``.gitignore``\ d,
    so nothing reaches git, but anything served from either tree is public.
 4. Export ``FOMO_HEARTBEAT_URL`` in the environment the cron daemon sees
    (for example via ``/etc/environment``, or a wrapper script the crontab
@@ -1716,6 +1716,42 @@ records to** are optional per-row overrides (they default to the same
 command-line ``--target-list``/``--username`` flags already produce).
 Unchecking **Active** narrows discovery just as immediately, and the row's
 history (``Last run at``/``Last run summary``) is kept for reference.
+
+Walking through a first tick
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This is how you drive the runner against your own proposal and read each
+step's report before you trust the cron line. Every command in this
+section is a dry run: it writes nothing, pings no heartbeat, and mails no
+one.
+
+1. Add your own LCO/SOAR proposal code as a watched row -- see "Adding a
+   proposal to watch" above; that is the only setup this walkthrough needs.
+2. Run the first step, **status_refresh**, on its own:
+
+   .. code-block:: console
+
+      >> python3 manage.py run_unattended --dry-run --step status_refresh
+
+   A healthy dry run reports::
+
+      step status_refresh: ok | skipped (dry run)
+
+   A status refresh is a portal read that also writes through TOM's own
+   ``post_save`` machinery, so there is no meaningful read-only variant of
+   it -- the dry run for this step does not instantiate either facility,
+   makes no portal call, and refreshes no status. It reports that it
+   skipped rather than reporting counters.
+
+These result lines are written by the logger to standard error, not
+standard output, so redirect with ``2>&1`` if you want them captured in a
+file.
+
+``check_unattended`` (see "Setting it up on a fresh host" above) is a
+separate, read-only readiness check for host configuration -- flock,
+directories, email, the heartbeat URL, and so on. It is not a substitute
+for this walkthrough: it tells you the host is ready to run ticks, not
+what any one step's own output looks like.
 
 The two failure signals
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
