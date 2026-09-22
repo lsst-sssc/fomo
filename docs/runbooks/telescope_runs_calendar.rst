@@ -397,7 +397,7 @@ the invocation the unattended runner uses -- see
 two failure signals if it stops working. An empty watched list is a quiet
 no-op: the command logs one line, writes nothing, and exits 0. Each
 watched proposal is swept in its own try block: a portal or data error on
-one is caught, recorded on that row's own ``Last run summary`` (naming the
+one is caught, recorded on that row's own ``Last sweep summary`` (naming the
 exception's class only, never its message), and counted, while every
 other row still runs; the command exits non-zero at the end and names the
 failing proposal code(s) only if at least one row failed.
@@ -1715,7 +1715,7 @@ records to** are optional per-row overrides (they default to the same
 ``<code>_targets`` naming and unattributed records the sibling
 command-line ``--target-list``/``--username`` flags already produce).
 Unchecking **Active** narrows discovery just as immediately, and the row's
-history (``Last run at``/``Last run summary``) is kept for reference.
+history (``Last swept at``/``Last sweep summary``) is kept for reference.
 
 Walking through a first tick
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1927,7 +1927,7 @@ Work through these in order:
 1. **The admin's Watched Proposals list.** Is there an active row at all?
    An empty list is a healthy, quiet no-op (see "Adding a proposal to
    watch" above) -- start here before assuming anything is broken. If a
-   row exists, its **Last run summary** column shows what its most recent
+   row exists, its **Last sweep summary** column shows what its most recent
    sweep reported, success or failure.
 2. **The log file** (``settings.FOMO_LOG_FILE``, ``/var/log/fomo/unattended.log``
    by default). Every tick writes a START/per-step/END banner with a
@@ -1967,7 +1967,7 @@ Running it by hand
 Both invocations are for debugging: neither pings the heartbeat nor mails
 staff, so an operator can run either without paging anyone.
 ``--step <name>`` accepts ``status_refresh``, ``project_sweep``,
-``discovery``, or ``reconcile``.
+``discovery``, ``reconcile``, or ``proposal_allocation``.
 
 **What the locking does and does not cover.** The cron line's own
 ``flock -n -E 99`` (against ``run_unattended.cron.lock``) and the
