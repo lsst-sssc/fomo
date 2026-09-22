@@ -2721,7 +2721,7 @@ wiped directory, and the second is what replaces it once the crontab line
 alone has been repaired but the settings have not::
 
    >> grep 'flock: cannot open' /var/log/fomo/unattended.log
-   >> grep 'PermissionError' /var/log/fomo/unattended.log | grep 'errno 13'
+   >> grep 'PermissionError' /var/log/fomo/unattended.log | grep 'Errno 13'
 
 A hit on the first grep proves the crontab's own ``flock`` guard cannot
 open its lock file at all -- the tick never even reached Python. A hit on
