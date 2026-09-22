@@ -196,13 +196,13 @@
     {
       "number": "37",
       "name": "Status Vocabulary, Public Tallies & Provenance-Blind Gaps",
-      "status": "in_progress"
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 37 of 5 · 100% · executing"
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-09-21T17:52:47.717Z"
+  "updated_at": "2026-09-21T18:43:17.342Z"
 }

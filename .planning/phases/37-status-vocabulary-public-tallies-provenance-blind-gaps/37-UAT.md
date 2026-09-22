@@ -1,9 +1,10 @@
 ---
-status: diagnosed
+status: complete
 phase: 37-status-vocabulary-public-tallies-provenance-blind-gaps
 source: [37-VERIFICATION.md]
 started: 2026-09-19T17:20:00Z
-updated: 2026-09-20T00:00:00Z
+updated: 2026-09-22T00:00:00Z
+resolution: "G-37-4 (the only gap) was closed by gap-closure plan 37-08 (commit 55349cf, option (b) as reported); 37-VERIFICATION.md (2026-09-21, status: passed) confirms the live-unused roll-up split is wired and intact after 37-10."
 ---
 
 ## Current Test
@@ -41,15 +42,16 @@ expected: |
       per-run tally now has. This requires relaxing
       `test_campaign_list_query_count_bound_with_three_campaigns`'s zero-marginal-query
       bound on the anonymous campaign list page.
-result: issue
+result: pass
 reported: "Option (b)"
 severity: major
+resolution: "Option (b) implemented by gap-closure plan 37-08 (commit 55349cf): get_or_compute_rollup() caches the roll-up without the unused_* keys and re-applies them live on every call, cache hits included, via _apply_rollup_unused_fields(). Verified intact in 37-VERIFICATION.md after 37-10's widening."
 
 ## Summary
 
 total: 4
-passed: 3
-issues: 1
+passed: 4
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -58,7 +60,10 @@ blocked: 0
 
 - gap_id: G-37-4
   truth: "The campaign-list roll-up strip's [U] total agrees with the sum of the Progress cells directly beneath it on the same page, with no time-bounded disagreement."
-  status: failed
+  status: resolved
+  resolved_by: 37-08-PLAN.md (executed, 37-08-SUMMARY.md present; commit 55349cf)
+  resolved_at: 2026-09-21
+  resolution: "Implemented option (b): the roll-up's unused split is computed live on every call, mirroring get_or_compute_tally(). Confirmed wired and intact by 37-VERIFICATION.md (status: passed)."
   reason: "User reported: Option (b)"
   severity: major
   test: 4
