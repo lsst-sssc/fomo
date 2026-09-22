@@ -1499,17 +1499,64 @@ known".
 Setting it up on a fresh host
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-1. Create the two directories the schedule below assumes exist and are
-   writable by the account cron runs as (creating them under ``/var`` and
-   handing ownership to that account typically needs ``sudo``)::
+1. The runner needs two directories: one for its locks, one for its log.
+   Only the log directory's shipped default is safe to use as-is.
 
-      /var/lock/fomo
+   The shipped ``FOMO_LOCK_DIR`` default, ``/var/lock/fomo``, is not
+   durable. ``/var/lock`` is a symlink to ``/run/lock``, which is a
+   tmpfs, so anything created there -- including that directory itself --
+   is gone after the next reboot. This is not something that might
+   happen; it is a property of the path.
+
+   That makes the failure permanent, not self-healing. After a reboot,
+   the crontab's own ``flock`` guard can no longer open its lock file at
+   all, so every tick dies before Python even starts. Pointing the
+   crontab line somewhere else does not fix it by itself either --
+   ``command_lock()`` tries to create the directory itself on every tick,
+   and an unprivileged cron account cannot create anything inside
+   root-owned ``/run/lock``. Nothing in the runner repairs this on its
+   own; it stays broken until an operator changes the configuration.
+
+   **Recommended: point** ``FOMO_LOCK_DIR`` **at a durable location owned
+   by the cron account** -- for example ``~/.local/state/fomo`` -- and
+   create it as that account. This route needs no ``sudo`` at all, which
+   is part of why it is the recommendation::
+
+      >> mkdir -p ~/.local/state/fomo
+
+   **Alternative, for operators who want to keep the conventional
+   location:** add a ``/etc/tmpfiles.d/fomo.conf`` entry so
+   ``systemd-tmpfiles`` recreates ``/var/lock/fomo`` at every boot,
+   naming the cron account as owner so the directory is never recreated
+   world-writable::
+
+      d /var/lock/fomo 0750 <cron-user> <cron-group> -
+
+   This restores the directory on every boot, but not what the previous
+   boot left inside it -- so the state file must not live there.
+
+   **The second-order trap.** ``FOMO_STATE_DIR`` takes its default from
+   ``FOMO_LOCK_DIR`` at the point ``settings.py`` defines it, and
+   ``local_settings.py`` is imported only after that point -- so
+   overriding ``FOMO_LOCK_DIR`` alone in ``local_settings.py`` leaves
+   ``FOMO_STATE_DIR`` pointed at the old, tmpfs-backed default. Both
+   variables must be set explicitly, together. Leave ``FOMO_STATE_DIR``
+   behind and the D-11 suppression-state file sits on the tmpfs too: its
+   contents are dropped at every reboot, so the runner re-decides
+   "newly failing" and re-mails the failure notice all over again after
+   each one.
+
+   Set both ``FOMO_LOCK_DIR`` and ``FOMO_STATE_DIR`` in
+   ``local_settings.py`` before running the preflight in step 6 below --
+   the cron line it prints carries this host's *resolved* lock path, so
+   setting them first means the printed line already matches this
+   host's configuration.
+
+   ``/var/log/fomo`` is unaffected by any of this -- it is on real disk,
+   not tmpfs, and was never part of this failure. Create it exactly as
+   before, with ``sudo``, owned by the cron account::
+
       /var/log/fomo
-
-   ``FOMO_STATE_DIR`` (the D-11 suppression-state file's directory)
-   defaults to ``FOMO_LOCK_DIR``, so no third directory is needed unless
-   this host points ``FOMO_STATE_DIR`` somewhere else -- create that
-   directory separately, with the same ownership, if it does.
 
    If the primary state file cannot be written at tick time -- for
    example ``FOMO_STATE_DIR`` fills up or loses write permission for the
@@ -1697,8 +1744,11 @@ Setting it up on a fresh host
    the template and hand-editing its two placeholder paths is the
    fallback if `check_unattended` cannot run on this host at all --
    confirm ``flock`` really is at ``/usr/bin/flock`` (``command -v
-   flock``) and that ``FOMO_LOCK_DIR``/``FOMO_LOG_FILE`` are still their
-   defaults before trusting that route to match the printed line.
+   flock``) and that ``FOMO_LOG_FILE`` is still at its default. The
+   template's hardcoded lock path will **not** match a host that
+   followed step 1 above -- edit the template's lock path to this
+   host's own ``FOMO_LOCK_DIR`` before using it, or use the printed
+   line instead.
 9. Drop ``deploy/logrotate/fomo.example`` into ``/etc/logrotate.d/fomo`` (or
    wherever this host's logrotate scans) so the log file rotates daily and
    keeps a fortnight instead of growing forever. Writing into
