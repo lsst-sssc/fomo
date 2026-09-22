@@ -2698,6 +2698,45 @@ minutes after the missed slot and alert about 35 minutes after the last
 ping. Standing check: compare the interval the check is configured with
 against the 15-minute cron schedule -- they must match.
 
+The heartbeat went down after a reboot and no email arrived
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** the identifying signature is the symptom pair -- the
+healthcheck goes down *and* no failure email arrives. The absence of an
+email here is expected, not a second fault: the tick died before Python
+ever started, so the runner's own failure-notification path never ran to
+send one. The heartbeat is structurally the only signal this failure can
+produce.
+
+The trigger is the lock directory: the host rebooted, the directory under
+``/run/lock`` went with the tmpfs, and every subsequent tick failed at its
+very first step. On the real incident this documents, a kernel-update
+reboot wiped the directory and 100 consecutive ticks were lost over about
+25 hours before anyone noticed -- calibrate how long this can hide against
+that number.
+
+These are two forms of the same root cause, not two separate problems --
+the first appears while the crontab's own lock path still points at the
+wiped directory, and the second is what replaces it once the crontab line
+alone has been repaired but the settings have not::
+
+   >> grep 'flock: cannot open' /var/log/fomo/unattended.log
+   >> grep 'PermissionError' /var/log/fomo/unattended.log | grep 'errno 13'
+
+A hit on the first grep proves the crontab's own ``flock`` guard cannot
+open its lock file at all -- the tick never even reached Python. A hit on
+the second proves the crontab line itself has already been pointed at a
+working path, but ``command_lock()`` still cannot create the configured
+``FOMO_LOCK_DIR`` because it sits inside root-owned ``/run/lock`` and the
+cron account has no permission there.
+
+**Fix:** point ``FOMO_LOCK_DIR`` and ``FOMO_STATE_DIR`` at durable storage
+and change the crontab's ``flock`` path to match -- all three, because
+fixing any subset leaves one of the two failure forms above in place.
+Then re-run ``check_unattended`` as the cron account, not as root, to
+confirm. See "Setting it up on a fresh host" in :ref:`unattended-operation`
+above for the durable-path recommendation and the reasoning behind it.
+
 The unused figure says it is not yet known
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
