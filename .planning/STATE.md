@@ -4,17 +4,17 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 37
 status: completed
-stopped_at: Phase 37 complete — all phases complete
-last_updated: "2026-09-21T18:43:17.329Z"
+stopped_at: Completed quick task 260922-dva (unattended runner lock-directory runbook fix)
+last_updated: "2026-09-22T17:19:04.749Z"
 last_activity: 2026-09-21
 last_activity_desc: Phase 37 complete
-state_head: 2fd554e00adf458dbf2e6d69b3086d90bb03cff5
+state_head: 142848f4f2b632c17d4dff5cde441c006dd7922e
 progress:
   total_phases: 5
   completed_phases: 37
   total_plans: 62
   completed_plans: 62
-  percent: 95
+  percent: 100
 ---
 
 # Project State
@@ -235,6 +235,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37 P08 | 75min | 3 tasks | 5 files |
 | Phase 37 P09 | ~55min | 3 tasks | 3 files |
 | Phase 37 P10 | ~50min | 3 tasks | 6 files |
+| Phase 260922-dva P01 | 25min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -401,6 +402,7 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: 37-09: get_table() override resolves the Progress tally from table.paginated_rows after RequestConfig.configure(), replacing a pre-resolution page-slice that never saw ?sort=/?per_page=. — Closes G-37-5 (CR-01): the tally must cover exactly the rows django-tables2 renders for every combination of sort/page/per_page, not a slice predicted before RequestConfig runs.
 - [Phase 37]: 37-09: added MAX_TABLE_PER_PAGE=100, capping per_page on request.GET in a get() override (never in get_table_pagination(), which RequestConfig.configure() overrides from the raw query string). — Following rendered rows removes the accidental 25-row bound the old hardcoded slice provided; per_page is otherwise unauthenticated and unbounded, and the per-run tally pass costs ~2-3 queries per row (T-37-09-02).
 - [Phase 37]: [Phase 37]: 37-10: G-37-6 closed -- unused_is_estimate now derives from whether a proposal code CONTRIBUTED a figure, not whether one was merely attempted; a new per-run unused_unknown_runs count makes the campaign roll-up strip read 'at least N (M runs not yet known)' instead of silently absorbing an unknown contributor as zero.
+- [Phase 37]: 260922-dva: recommended durable ~/.local/state/fomo lock-directory path (tmpfiles.d alternative); FOMO_STATE_DIR must be set explicitly alongside FOMO_LOCK_DIR since settings.py captures its default at definition time
 
 ### Pending Todos
 
@@ -515,8 +517,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-21T17:53:58.947Z
-Stopped at: Phase 37 complete — all phases complete
+Last session: 2026-09-22T17:19:04.453Z
+Stopped at: Completed quick task 260922-dva (unattended runner lock-directory runbook fix)
 Resume file: None
 
 ## Operator Next Steps
