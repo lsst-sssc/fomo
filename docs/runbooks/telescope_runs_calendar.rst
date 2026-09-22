@@ -1753,6 +1753,130 @@ directories, email, the heartbeat URL, and so on. It is not a substitute
 for this walkthrough: it tells you the host is ready to run ticks, not
 what any one step's own output looks like.
 
+3. Run **project_sweep**:
+
+   .. code-block:: console
+
+      >> python3 manage.py run_unattended --dry-run --step project_sweep
+
+   A healthy dry run reports::
+
+      step project_sweep: ok | failed: 0 | LCO: created: 0, updated: 1, unchanged: 4, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
+
+   This dry run writes no calendar event, and it skips the one-time
+   observed-telescope lookup entirely, so the ``site_lookups`` counters
+   above stay at zero where a real tick would do one.
+4. Run **discovery**:
+
+   .. code-block:: console
+
+      >> python3 manage.py run_unattended --dry-run --step discovery
+
+   Against your newly-watched proposal, a healthy dry run reports::
+
+      step discovery: ok | swept: 1, failed: 0
+
+   An empty watch list reports a different line that is just as healthy::
+
+      step discovery: ok | 0 watched proposals, nothing to discover
+
+   -- that is not a failure, only nothing to do yet. Either way, this dry
+   run creates no observation record and writes no bookkeeping back to the
+   watched row. Per-request preview lines -- what the sweep would create or
+   reuse for each portal request -- also appear in the log, each prefixed
+   with ``discovery`` and the stream (``stdout`` or ``stderr``) they came
+   from.
+5. Run **reconcile**:
+
+   .. code-block:: console
+
+      >> python3 manage.py run_unattended --dry-run --step reconcile
+
+   A healthy dry run reports::
+
+      step reconcile: ok | runs: 3, failed: 0
+
+   This dry run writes nothing.
+6. Run **proposal_allocation**:
+
+   .. code-block:: console
+
+      >> python3 manage.py run_unattended --dry-run --step proposal_allocation
+
+   A healthy dry run reports::
+
+      step proposal_allocation: ok | skipped (dry run)
+
+   Like ``status_refresh``, this step makes no portal call and stores no
+   allocation row in this mode -- it reports that it skipped rather than
+   reporting counters.
+7. Once each step's own output looks familiar on its own, run the whole
+   tick in one go:
+
+   .. code-block:: console
+
+      >> python3 manage.py run_unattended --dry-run
+
+   A healthy dry run reports the start banner, one line per step in
+   registry order, and the end banner carrying the process exit code::
+
+      === FOMO unattended run START 2026-09-22T14:00:00+00:00 ===
+      step status_refresh: ok | skipped (dry run)
+      step project_sweep: ok | failed: 0 | LCO: created: 0, updated: 1, unchanged: 4, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
+      step discovery: ok | 0 watched proposals, nothing to discover
+      step reconcile: ok | runs: 3, failed: 0
+      step proposal_allocation: ok | skipped (dry run)
+      === FOMO unattended run END 2026-09-22T14:00:03+00:00 exit=0 ===
+
+   Each line reads ``step <name>: ok | <summary>`` or
+   ``step <name>: FAILED | <summary>`` -- see "What runs, and when" above
+   for why a failed step never stops the later ones. The end banner's
+   ``exit=`` is the process's own exit code, checkable from the shell on
+   the next line:
+
+   .. code-block:: console
+
+      >> echo $?
+      0
+
+   A dry run is **not** automatically a success: ``project_sweep`` can
+   still report a genuinely unprojectable row, and ``reconcile`` can still
+   count a raising run, and either makes the whole tick exit non-zero even
+   though nothing was written.
+
+   If a step's own function raises an exception the runner did not already
+   catch internally, the tick still continues, and that step's line names
+   only the exception's class, never its message::
+
+      step project_sweep: FAILED | raised ConnectionError
+
+   The runner deliberately never lets a caught exception's message reach a
+   summary, a log line, or a watched row -- a portal exception's message
+   can embed request or response content.
+
+   A note on the ``--step`` flag itself: it accepts exactly the five names
+   above, and ``argparse`` rejects anything else before the runner starts
+   -- running ``run_unattended --step bogus`` fails immediately, before any
+   step, lock, or log line appears (the exact wording is Python-version
+   specific, so it is not quoted here). Using ``--step`` on its own,
+   without ``--dry-run``, still suppresses the heartbeat ping and the
+   failure email -- but it does **not** suppress the work:
+   ``run_unattended --step status_refresh`` on its own makes real portal
+   calls and real writes, exactly like a real tick's own
+   ``status_refresh`` would.
+8. **What to check afterwards.** Two places, and after every dry run above
+   they should show no change:
+
+   - The watched row in **Django admin -> Solsys code -> Watched
+     proposals**. Its bookkeeping columns are labelled **Last swept at**
+     and **Last sweep summary**. After the dry runs above, both are
+     deliberately unchanged -- that is the dry run working correctly, not
+     a failure. They only move after a real discovery sweep: either a cron
+     tick, or ``run_unattended --step discovery`` run without
+     ``--dry-run``.
+   - The calendar. A dry run adds nothing to it; new events appear only
+     after a real tick.
+
 The two failure signals
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
