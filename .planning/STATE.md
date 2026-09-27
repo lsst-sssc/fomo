@@ -4,7 +4,7 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 37
 status: completed
-stopped_at: Completed quick task 260922-dva (unattended runner lock-directory runbook fix)
+stopped_at: Completed quick task 260927-eqs (unattended run banners in host-local time + HTTP status codes on status_refresh failures)
 last_updated: "2026-09-22T17:19:04.749Z"
 last_activity: 2026-09-21
 last_activity_desc: Phase 37 complete
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 Phase: 37
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-21 — Phase 37 complete
+Last activity: 2026-09-27 - Completed quick task 260927-eqs: Timestamp each unattended run and log HTTP status codes on status_refresh failures
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -479,6 +479,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260916-o6n | Fix 35-REVIEW.md iteration 10 CR-01: a declined (human-confirmed) allocation-night retirement now falls through to a shared _refresh_labels() so mark_cancelled reaches it; 7 tests, runbook detach_declined counter pair, reconciler notebook re-executed | 2026-09-17 | c26cb97 | — | [260916-o6n-fix-35-review-md-iteration-10-cr-01-give](./quick/260916-o6n-fix-35-review-md-iteration-10-cr-01-give/) |
 | 260918-bn7 | Document the WR-17 suppression-state fallback and the WR-16 lock-held exit-code normalization in the unattended runbook section | 2026-09-18 | 6ded6b4 | — | [260918-bn7-document-the-wr-17-suppression-state-fal](./quick/260918-bn7-document-the-wr-17-suppression-state-fal/) |
 | 260922-d0w | Add a "Walking through a first tick" operator walkthrough to the unattended runbook section: drive all five `run_unattended --dry-run --step` invocations against your own watched proposal; also corrected the `--step` reference that omitted `proposal_allocation` and three wrong `WatchedProposal` admin labels | 2026-09-22 | b5b5073 | complete | [260922-d0w-add-an-operator-walkthrough-for-run-unat](./quick/260922-d0w-add-an-operator-walkthrough-for-run-unat/) |
+| 260927-eqs | Timestamp each unattended run and log HTTP status codes on status_refresh failures: START/END banners now host-local ISO time to the second with `duration=Ns` on END; status_refresh per-record/outage lines, step summary and failure email carry e.g. `HTTPError 502` (status code only, never body/URL/headers — SCHED-10 test extended); runbook updated | 2026-09-27 | 2da32fe | complete | [260927-eqs-timestamp-each-unattended-run-and-log-ht](./quick/260927-eqs-timestamp-each-unattended-run-and-log-ht/) |
 
 ## Deferred Items
 
