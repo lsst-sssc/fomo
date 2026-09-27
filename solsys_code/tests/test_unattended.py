@@ -10,8 +10,11 @@ matching ``test_reconcile_campaign_runs.py``'s own convention.
 
 import contextlib
 import fcntl
+import importlib.resources
+import importlib.util
 import json
 import os
+import re
 import stat
 import tempfile
 from datetime import date, datetime, timedelta
@@ -21,6 +24,7 @@ from pathlib import Path
 from smtplib import SMTPAuthenticationError
 from unittest import skipIf
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import requests
 from django.contrib.auth.models import User
@@ -474,15 +478,67 @@ class TestLocking(UnattendedTestBase):
                 with contextlib.redirect_stderr(stderr):
                     call_command('run_unattended')  # must not raise
             mock_reconcile.assert_not_called()
-            self.assertIn('lock', stderr.getvalue().lower())
+            stderr_value = stderr.getvalue()
+            self.assertIn('lock', stderr_value.lower())
+            # Quick task 260927-eqs, Task 2 (DEC-5): the runner's own in-process skip
+            # line now carries a trailing, parenthesised host-local timestamp.
+            self.assertIsNotNone(
+                re.search(
+                    r'run_unattended: lock held -- skipping this tick '
+                    r'\(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\)',
+                    stderr_value,
+                )
+            )
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
         self.assertEqual(len(mail.outbox), 0)
 
 
+class TestLocalTimestamp(UnattendedTestBase):
+    """Quick task 260927-eqs, Task 2 (DEC-2/DEC-3): ``_local_timestamp()`` reads the
+    host's real zone from ``/etc/localtime``, never from the process's own local-time
+    conversion (which Django's settings loader pins to UTC)."""
+
+    @skipIf(importlib.util.find_spec('tzdata') is None, 'tzdata package not installed')
+    def test_local_timestamp_uses_summer_offset_from_the_localtime_file(self):
+        zoneinfo_path = Path(self.tmp_dir.name) / 'localtime-la'
+        zoneinfo_path.write_bytes(
+            importlib.resources.files('tzdata').joinpath('zoneinfo/America/Los_Angeles').read_bytes()
+        )
+        with patch.object(unattended, '_HOST_LOCALTIME_PATH', zoneinfo_path):
+            result = unattended._local_timestamp(datetime(2026, 7, 1, 12, 0, 0, 123456, tzinfo=dt_timezone.utc))
+        self.assertEqual(result, '2026-07-01T05:00:00-07:00')
+
+    @skipIf(importlib.util.find_spec('tzdata') is None, 'tzdata package not installed')
+    def test_local_timestamp_uses_winter_offset_from_the_localtime_file(self):
+        zoneinfo_path = Path(self.tmp_dir.name) / 'localtime-la'
+        zoneinfo_path.write_bytes(
+            importlib.resources.files('tzdata').joinpath('zoneinfo/America/Los_Angeles').read_bytes()
+        )
+        with patch.object(unattended, '_HOST_LOCALTIME_PATH', zoneinfo_path):
+            result = unattended._local_timestamp(datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result, '2025-12-31T16:00:00-08:00')
+
+    def test_missing_localtime_file_falls_back_to_utc_without_raising(self):
+        missing_path = Path(self.tmp_dir.name) / 'does-not-exist'
+        with patch.object(unattended, '_HOST_LOCALTIME_PATH', missing_path):
+            result = unattended._local_timestamp(datetime(2026, 7, 1, 12, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result, '2026-07-01T12:00:00+00:00')
+
+    def test_corrupt_localtime_file_falls_back_to_utc_without_raising(self):
+        corrupt_path = Path(self.tmp_dir.name) / 'localtime-corrupt'
+        corrupt_path.write_bytes(b'not a tzif file')
+        with patch.object(unattended, '_HOST_LOCALTIME_PATH', corrupt_path):
+            result = unattended._local_timestamp(datetime(2026, 7, 1, 12, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result, '2026-07-01T12:00:00+00:00')
+
+
 class TestEndBannerTimestamp(UnattendedTestBase):
     """WR-04 (36-REVIEW.md): the END banner must report a freshly-sampled time, not the
-    tick's START time -- otherwise no tick's duration is ever readable in the log."""
+    tick's START time -- otherwise no tick's duration is ever readable in the log.
+
+    Quick task 260927-eqs, Task 2: both banners now carry the host-local timestamp
+    (DEC-2/DEC-3), and the END banner also carries ``duration=`` (DEC-4)."""
 
     def test_end_banner_timestamp_differs_from_start_banner_timestamp(self):
         self._make_campaign_run()
@@ -496,14 +552,41 @@ class TestEndBannerTimestamp(UnattendedTestBase):
             def now(cls, tz=None):
                 return next(cls._values)
 
-        with patch('solsys_code.unattended.datetime', _FakeDateTime):
+        with (
+            patch('solsys_code.unattended.datetime', _FakeDateTime),
+            patch('solsys_code.unattended._host_timezone', return_value=ZoneInfo('America/Los_Angeles')),
+        ):
             with self.assertLogs('solsys_code.unattended', level='INFO') as captured:
                 call_command('run_unattended')
 
         joined = '\n'.join(captured.output)
-        self.assertIn(f'START {start_time.isoformat()}', joined)
-        self.assertIn(f'END {end_time.isoformat()}', joined)
-        self.assertNotIn(f'END {start_time.isoformat()}', joined)
+        self.assertIn('START 2025-12-31T16:00:00-08:00 ===', joined)
+        self.assertIn('END 2025-12-31T16:15:00-08:00 exit=0 duration=900s ===', joined)
+        self.assertNotIn('END 2025-12-31T16:00:00-08:00', joined)
+
+    def test_dry_run_banners_carry_local_offset_and_no_fractional_seconds(self):
+        stdout = StringIO()
+        stderr = StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            with self.assertLogs('solsys_code.unattended', level='INFO') as captured:
+                call_command('run_unattended', '--dry-run')
+
+        joined = '\n'.join(captured.output)
+        self.assertIsNotNone(
+            re.search(
+                r'=== FOMO unattended run START \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} ===',
+                joined,
+            )
+        )
+        self.assertIsNotNone(
+            re.search(
+                r'=== FOMO unattended run END \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} '
+                r'exit=0 duration=\d+s ===',
+                joined,
+            )
+        )
+        # Both regexes above require seconds to be immediately followed by the UTC
+        # offset, with no `.` fractional-seconds component in between.
 
 
 class TestStateFileRobustness(UnattendedTestBase):

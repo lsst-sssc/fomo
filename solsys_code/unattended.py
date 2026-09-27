@@ -28,10 +28,11 @@ import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from datetime import timezone as dt_timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from django.conf import settings
@@ -75,6 +76,13 @@ _STATE_FILENAME = 'unattended-state.json'
 # budget. A handful of re-checks is enough to identify the failure mode; the rest add
 # nothing but portal load and tick duration.
 _MAX_STATUS_RECHECKS = 20
+# Quick task 260927-eqs (DEC-2): read the host's real timezone directly from this file
+# rather than from the process's own local-time conversion. Django's settings loader
+# sets the process TZ environment variable to settings.TIME_ZONE ('UTC') and calls
+# time.tzset() before any management command runs, so a plain
+# datetime.now().astimezone() inside this process always reports UTC, never the host's
+# configured zone -- verified at planning time (260927-eqs-PLAN.md's objective).
+_HOST_LOCALTIME_PATH = Path('/etc/localtime')
 
 
 @dataclass
@@ -794,13 +802,71 @@ def decide_notification(previous_state: dict, failing_steps: list[str], now: dat
     return None
 
 
-def _write_banner(kind: str, now: datetime, *, exit_code: int | None = None) -> None:
+def _host_timezone() -> tzinfo:
+    """Return the host's real configured timezone, read from ``_HOST_LOCALTIME_PATH``
+    (quick task 260927-eqs, DEC-2).
+
+    Falls back to UTC on ANY exception -- a truncated/corrupt TZif file can raise
+    ``struct.error``, which is neither an ``OSError`` nor a ``ValueError``, so the
+    except clause is deliberately broad. This function is called from inside
+    ``run_tick()``'s START banner, itself written inside the whole-run lock before the
+    first step runs -- an exception here would therefore skip every step of the tick,
+    and a purely cosmetic legibility feature (DEC-1: this plan only reformats existing
+    banner text) must never do that.
+
+    No caching is added: the file is read twice per tick (once for the START banner,
+    once for END), which is negligible cost next to a tick's own step work.
+
+    Returns:
+        tzinfo: the host's zone from ``/etc/localtime``, or ``dt_timezone.utc`` on any
+            read/parse failure (missing file, unreadable, or corrupt TZif content).
+    """
+    try:
+        with _HOST_LOCALTIME_PATH.open('rb') as fh:
+            return ZoneInfo.from_file(fh)
+    except Exception:  # noqa: BLE001 -- see docstring: this must never raise
+        return dt_timezone.utc
+
+
+def _local_timestamp(moment: datetime) -> str:
+    """Render ``moment`` in the host's local zone, to the second (quick task
+    260927-eqs, DEC-2/DEC-3).
+
+    Args:
+        moment: a tz-aware ``datetime`` -- never ``datetime.now()`` itself, so the
+            caller controls exactly which sampled instant is rendered (tests inject a
+            fake two-value clock via ``run_tick()``'s own ``now``/``end_time``).
+
+    Returns:
+        str: ``moment`` converted to the host's local zone and formatted with
+            ``isoformat(timespec='seconds')`` -- no fractional seconds, matching the
+            cron guard's own ``date -Is`` output.
+    """
+    return moment.astimezone(_host_timezone()).isoformat(timespec='seconds')
+
+
+def _write_banner(
+    kind: str, now: datetime, *, exit_code: int | None = None, duration_seconds: int | None = None
+) -> None:
     """Write the D-01 start/end log banner (module constant format, 36-01-PLAN.md
-    ``<decisions_this_plan_records>``)."""
+    ``<decisions_this_plan_records>``).
+
+    Quick task 260927-eqs (DEC-1..DEC-4): the timestamp is the host's own local time
+    with its UTC offset, to the second (``_local_timestamp()``), not the UTC value
+    ``now``/``end_time`` carry internally. The END banner additionally reports
+    ``duration_seconds`` -- the tick's wall-clock seconds from START to END -- so an
+    overrunning tick is readable directly from the log without subtracting two
+    timestamps by hand.
+    """
     if kind == 'START':
-        logger.info('=== FOMO unattended run START %s ===', now.isoformat())
+        logger.info('=== FOMO unattended run START %s ===', _local_timestamp(now))
     else:
-        logger.info('=== FOMO unattended run END %s exit=%s ===', now.isoformat(), exit_code)
+        logger.info(
+            '=== FOMO unattended run END %s exit=%s duration=%ss ===',
+            _local_timestamp(now),
+            exit_code,
+            duration_seconds,
+        )
 
 
 def _build_notification_body(decision: str, results: list[StepResult]) -> tuple[str, str]:
@@ -938,9 +1004,16 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
                     logger.error('unattended notification/state handling raised: %s', type(exc).__name__)
                 ping_heartbeat(str(exit_code))
 
-            _write_banner('END', end_time, exit_code=exit_code)
+            duration_seconds = round((end_time - now).total_seconds())
+            _write_banner('END', end_time, exit_code=exit_code, duration_seconds=duration_seconds)
             return TickResult(exit_code=exit_code, results=tuple(results))
     except LockContended:
-        sys.stderr.write('run_unattended: lock held -- skipping this tick\n')
-        logger.warning('run_unattended: lock held -- skipping this tick')
+        # Quick task 260927-eqs (DEC-5): the same trailing, parenthesised host-local
+        # timestamp the START/END banners now carry, so this line is placeable on the
+        # same clock -- while staying distinguishable from the cron guard's own
+        # `<timestamp> run_unattended skipped: lock held` line by wording and by the
+        # timestamp's position (leading there, trailing here).
+        skip_message = f'run_unattended: lock held -- skipping this tick ({_local_timestamp(now)})'
+        sys.stderr.write(f'{skip_message}\n')
+        logger.warning(skip_message)
         return TickResult(exit_code=0, results=())
