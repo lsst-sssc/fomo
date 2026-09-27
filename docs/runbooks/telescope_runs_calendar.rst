@@ -1870,19 +1870,28 @@ what any one step's own output looks like.
    A healthy dry run reports the start banner, one line per step in
    registry order, and the end banner carrying the process exit code::
 
-      === FOMO unattended run START 2026-09-22T14:00:00+00:00 ===
+      === FOMO unattended run START 2026-09-22T07:00:00-07:00 ===
       step status_refresh: ok | skipped (dry run)
       step project_sweep: ok | failed: 0 | LCO: created: 0, updated: 1, unchanged: 4, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
       step discovery: ok | 0 watched proposals, nothing to discover
       step reconcile: ok | runs: 3, failed: 0
       step proposal_allocation: ok | skipped (dry run)
-      === FOMO unattended run END 2026-09-22T14:00:03+00:00 exit=0 ===
+      === FOMO unattended run END 2026-09-22T07:00:03-07:00 exit=0 duration=3s ===
 
    Each line reads ``step <name>: ok | <summary>`` or
    ``step <name>: FAILED | <summary>`` -- see "What runs, and when" above
-   for why a failed step never stops the later ones. The end banner's
-   ``exit=`` is the process's own exit code, checkable from the shell on
-   the next line:
+   for why a failed step never stops the later ones. Both banners' own
+   timestamp is the *host's* local time with its UTC offset, to the
+   second -- read directly from ``/etc/localtime``, not from Django's
+   ``TIME_ZONE`` setting (which is UTC). That is the same clock the cron
+   guard's own ``date -Is`` skip line uses (see "When nothing has
+   appeared" item 4 below), so the two kinds of line compare directly
+   without a timezone conversion. The END banner's ``duration=`` is the
+   tick's own wall-clock seconds from START to END -- readable directly,
+   with no subtraction needed, and useful for spotting an overrunning
+   tick (see "Repeated 'lock held' lines in the unattended log" below).
+   The end banner's ``exit=`` is the process's own exit code, checkable
+   from the shell on the next line:
 
    .. code-block:: console
 
@@ -1927,6 +1936,30 @@ what any one step's own output looks like.
    - The calendar. A dry run adds nothing to it; new events appear only
      after a real tick.
 
+**Reading the log around each tick.** In the real cron log
+(``/var/log/fomo/unattended.log``) each tick's own START banner comes
+after a block of process-startup lines: a ``Note: NumExpr detected ...``
+line and the thread-count line right after it, a ``Using fallback
+library next to module: ...libcspice.so`` line, several
+``registering new views: ...`` lines, and Django's own system-check
+block (``System check identified some issues:`` / ``WARNINGS:`` /
+``?: (urls.W005) URL namespace 'calendar' isn't unique ...``). These
+come from library imports and Django's own system check, not from the
+runner -- they go to stderr just like the runner's own lines (the
+crontab redirects both with ``2>&1``), and they belong to the tick whose
+START banner follows them. They are not failures; skim past them to the
+next ``=== FOMO unattended run START`` line. A failing tick reads like
+this::
+
+   === FOMO unattended run START 2026-09-26T11:45:02-07:00 ===
+   observation_id=4378036 HTTPError 502
+   step status_refresh: FAILED | LCO: failed 1 | SOAR: failed 0 | classes: HTTPError 502
+   step project_sweep: ok | failed: 0 | LCO: created: 0, updated: 1, unchanged: 4, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
+   step discovery: ok | 0 watched proposals, nothing to discover
+   step reconcile: ok | runs: 3, failed: 0
+   step proposal_allocation: ok | proposals: 1, rows written: 1, failed: 0
+   === FOMO unattended run END 2026-09-26T11:45:34-07:00 exit=1 duration=32s ===
+
 The two failure signals
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -1939,6 +1972,23 @@ suppressed while the same set of steps keeps failing, with one reminder
 every 24 hours for as long as it does. A single
 ``FOMO unattended run recovered`` message arrives once, the next time a
 tick succeeds.
+
+A failed step's line in the email body reads exactly as it does in the
+step summary::
+
+   - status_refresh: LCO: failed 1 | SOAR: failed 0 | classes: HTTPError 502
+
+For an HTTP error the portal itself returned, the ``classes:`` field (or
+``outage (...)`` for a whole-facility failure, e.g.
+``LCO: outage (HTTPError 503)``) carries only the exception's class name
+and its numeric HTTP status code -- never the response body, the
+request URL or its query string, any request/response header, or the
+exception's own message. That is what keeps SCHED-10's no-credential
+guarantee intact even though the email now says more than it used to. A
+bare ``HTTPError`` with no number means the exception carried no
+response at all -- see "A status_refresh failure names an HTTP status
+code" below. This email is never a traceback, a request URL, or portal
+response text, exactly as stated above.
 
 **Heartbeat.** Before the first step of every tick, the runner pings
 ``<FOMO_HEARTBEAT_URL>/start``; after the last step it pings
@@ -1980,9 +2030,12 @@ Work through these in order:
    row exists, its **Last sweep summary** column shows what its most recent
    sweep reported, success or failure.
 2. **The log file** (``settings.FOMO_LOG_FILE``, ``/var/log/fomo/unattended.log``
-   by default). Every tick writes a START/per-step/END banner with a
-   timestamp, so a single tick is readable in isolation even without the
-   heartbeat dashboard open.
+   by default). Every tick writes a START/per-step/END banner, so a
+   single tick is readable in isolation even without the heartbeat
+   dashboard open. The START and END banners carry the host's own local
+   time with its UTC offset, to the second; the END banner also carries
+   ``exit=`` (the process's own exit code) and ``duration=`` (the tick's
+   wall-clock seconds from START to END).
 3. **The heartbeat dashboard's last ping.** A missing or stale ping (older
    than the expected interval plus the grace time -- about 35 minutes
    with the recommended 15/20 settings) means the tick itself never ran
@@ -1995,16 +2048,25 @@ Work through these in order:
    healthy no-op. The log line is the only place a contended lock is
    visible at all; do not expect the exit status to tell you::
 
-      2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
+      2026-09-17T08:00:03-07:00 run_unattended skipped: lock held
 
    Do not confuse this with the runner's own internal-lock message,
-   ``run_unattended: lock held -- skipping this tick`` -- both can appear
-   in the same log with the phrase "lock held", but only the cron guard's
-   line above (with the ``run_unattended skipped:`` prefix and a leading
-   timestamp) is what this checklist item means. One occurrence is normal
-   (an overrunning tick colliding with the next scheduled one); several in
-   a row means a previous tick is stuck and needs investigating -- see
-   "Repeated 'lock held' lines in the unattended log" below.
+   which carries the same host-local timestamp of its own, trailing in
+   parentheses::
+
+      run_unattended: lock held -- skipping this tick (2026-09-17T08:00:03-07:00)
+
+   Both lines can appear in the same log with the phrase "lock held", and
+   both now carry a timestamp, so the distinguishing marks are the
+   wording (``run_unattended skipped: lock held`` for the cron guard's own
+   line, versus ``run_unattended: lock held -- skipping this tick`` for
+   the runner's internal one) and the timestamp's position -- leading for
+   the cron guard, trailing in parentheses for the runner. Only the cron
+   guard's line above is what this checklist item means. One occurrence
+   is normal (an overrunning tick colliding with the next scheduled one);
+   several in a row means a previous tick is stuck and needs
+   investigating -- see "Repeated 'lock held' lines in the unattended
+   log" below.
 
 Running it by hand
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -2584,7 +2646,7 @@ every tick that finds the cron guard's own lock
 (``FOMO_LOCK_DIR/run_unattended.cron.lock``) already held exits 99 and
 the crontab line's tail writes a skip line instead of running::
 
-   2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
+   2026-09-17T08:00:03-07:00 run_unattended skipped: lock held
 
 This line means the tick genuinely did not run at all -- it is gated on
 flock's dedicated exit code 99, so a tick that ran and then *failed*
@@ -2593,7 +2655,18 @@ for that tick's own START/END banner in the log instead. A single "lock
 held" occurrence is normal -- one tick overran its own 15-minute window
 and collided with the next scheduled one. Several occurrences in a row
 mean a previous tick is genuinely stuck (for example, blocked on a slow
-portal response) and never released the lock.
+portal response) and never released the lock. If that tick's own START
+banner is also in the log (it acquired the runner's internal lock before
+getting stuck on a later step), its END banner's ``duration=`` shows how
+long it ran before finishing or dying -- a value above 900 seconds (one
+15-minute cron interval) confirms it overlapped the next scheduled tick,
+exactly the overlap this "lock held" line is reporting.
+
+The runner's own internal-lock message, quoted with its trailing
+host-local timestamp, looks like this and is a different signal (see
+"When nothing has appeared" item 4 above for how to tell the two apart)::
+
+   run_unattended: lock held -- skipping this tick (2026-09-17T08:00:03-07:00)
 
 Flock's own exit code 99 is still what the skip line above is gated on --
 that has not changed. What has changed (WR-16, 36-REVIEW.md) is what
@@ -2624,6 +2697,35 @@ preventing an overlap. The heartbeat's alert window (expected interval +
 grace; see "The two failure signals" in :ref:`unattended-operation`
 above) is the structural backstop for exactly this case -- a permanently
 contended lock eventually alerts there too.
+
+A status_refresh failure names an HTTP status code
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Cause:** the ``status_refresh`` step re-checks up to 20 failed records
+one by one and reports each as
+``observation_id=<id> <exception class> <HTTP status>``. The step line
+and the failure email carry the de-duplicated labels, e.g.
+``classes: HTTPError 502, HTTPError 504``. TOM's own facility code turns
+a 401-403 response into ``ImproperCredentialsException`` and a 400 into
+``ValidationError``, so an ``HTTPError <code>`` reported here is always
+some other 4xx (for example 404 or 429) or a 5xx.
+
+**Fix:**
+
+- For a 5xx (502/503/504): portal- or gateway-side trouble, usually
+  transient. If a later tick succeeds, a single
+  ``FOMO unattended run recovered`` email follows and no action is
+  needed. If it persists across many ticks, check the LCO portal's own
+  status page before suspecting FOMO.
+- For a 4xx: the portal rejected that particular request -- look up the
+  named ``observation_id`` on the portal.
+- For ``ImproperCredentialsException`` (no HTTP status, since it is not
+  reported by ``_exception_label()``): check the LCO API key configured
+  for this host, and never paste the key itself into a ticket, a log
+  excerpt, or an email.
+
+See "The two failure signals" in :ref:`unattended-operation` above for
+what the ``classes:``/``outage (...)`` field does and does not carry.
 
 A failure email arrived once, then went quiet while the problem continued
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
