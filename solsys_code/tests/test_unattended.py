@@ -41,6 +41,31 @@ from solsys_code.solsys_code_observatory.models import Observatory
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST'
 
 
+def _http_error(
+    status_code: int,
+    *,
+    body: bytes = b'',
+    url: str = 'https://observe.lco.global/api/observations/',
+    headers: dict | None = None,
+    reason: str = 'Error',
+) -> requests.exceptions.HTTPError:
+    """Build a genuine ``requests.exceptions.HTTPError`` by raising it from a real
+    ``requests.Response`` -- so its message really embeds the URL, exactly as TOM's
+    ``make_request()`` produces it (quick task 260927-eqs, Task 1)."""
+    response = requests.Response()
+    response.status_code = status_code
+    response.reason = reason
+    response.url = url
+    response.encoding = 'utf-8'
+    response._content = body
+    response.headers.update(headers or {})
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as exc:
+        return exc
+    raise AssertionError(f'raise_for_status() did not raise for status_code={status_code!r}')
+
+
 class UnattendedTestBase(TestCase):
     """Shared fixture: a temp lock/state dir, a fake heartbeat URL, and ``requests.get``
     patched to a no-op mock -- per the plan's own ``<behavior>`` preamble.
@@ -765,6 +790,101 @@ class TestStatusRefreshStep(UnattendedTestBase):
 
         self.assertNotIn('classes:', result.summary)
 
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_per_record_http_status_code_is_reported(self, mock_lco_cls, mock_soar_cls):
+        # Quick task 260927-eqs, Task 1: a portal HTTPError's numeric status code must
+        # travel to the per-record log line and the step summary's `classes:` field.
+        error = _http_error(502, reason='Bad Gateway')
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', str(error))]
+        mock_lco_cls.return_value.update_observation_status.side_effect = error
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        with self.assertLogs('solsys_code.unattended', level='WARNING') as captured:
+            result = unattended.step_status_refresh(dry_run=False)
+
+        joined = '\n'.join(captured.output)
+        self.assertIn('observation_id=obs-1 HTTPError 502', joined)
+        self.assertIn('classes: HTTPError 502', result.summary)
+        self.assertTrue(result.failed)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_multiple_status_codes_are_deduplicated_by_label(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.return_value = [
+            ('obs-1', 'boom'),
+            ('obs-2', 'boom'),
+            ('obs-3', 'boom'),
+        ]
+        mock_lco_cls.return_value.update_observation_status.side_effect = [
+            _http_error(502),
+            _http_error(502),
+            _http_error(504),
+        ]
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertIn('classes: HTTPError 502, HTTPError 504', result.summary)
+        self.assertEqual(result.summary.count('HTTPError 502'), 1)
+        self.assertEqual(result.summary.count('HTTPError 504'), 1)
+
+    @patch('solsys_code.unattended.SOARFacility')
+    @patch('solsys_code.unattended.LCOFacility')
+    def test_outage_reports_the_http_status_code(self, mock_lco_cls, mock_soar_cls):
+        mock_lco_cls.return_value.update_all_observation_statuses.side_effect = _http_error(
+            503, reason='Service Unavailable'
+        )
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+
+        with self.assertLogs('solsys_code.unattended', level='WARNING') as captured:
+            result = unattended.step_status_refresh(dry_run=False)
+
+        self.assertIn('LCO: outage (HTTPError 503)', result.summary)
+        self.assertNotIn('LCO: failed 1', result.summary)
+        joined = '\n'.join(captured.output)
+        self.assertTrue(any(line.endswith('HTTPError 503') for line in joined.splitlines()))
+
+
+class TestExceptionLabel(UnattendedTestBase):
+    """Quick task 260927-eqs, Task 1: ``_exception_label()``'s scope and hygiene."""
+
+    def test_http_error_with_502_response_includes_the_status_code(self):
+        exc = _http_error(
+            502,
+            reason='Bad Gateway',
+            url='https://observe.lco.global/api/observations/?api_key=FAKE-KEY-LABEL-TEST',
+            headers={'Authorization': 'Token FAKE-KEY-LABEL-TEST'},
+            body=b'body-marker-label-test',
+        )
+        self.assertEqual(unattended._exception_label(exc), 'HTTPError 502')
+
+    def test_http_error_with_404_response_includes_the_status_code(self):
+        exc = _http_error(404, reason='Not Found')
+        self.assertEqual(unattended._exception_label(exc), 'HTTPError 404')
+
+    def test_falsy_4xx_response_is_still_read_not_treated_as_no_response(self):
+        # requests.Response.__bool__ returns .ok, which is False for every 4xx/5xx --
+        # proves the helper never tests the response's truthiness.
+        exc = _http_error(404)
+        self.assertFalse(exc.response)
+        self.assertEqual(unattended._exception_label(exc), 'HTTPError 404')
+
+    def test_http_error_with_no_response_falls_back_to_bare_class_name(self):
+        exc = requests.exceptions.HTTPError('boom')
+        self.assertEqual(unattended._exception_label(exc), 'HTTPError')
+
+    def test_http_error_with_non_int_status_code_falls_back_to_bare_class_name(self):
+        exc = requests.exceptions.HTTPError(response=MagicMock())
+        self.assertEqual(unattended._exception_label(exc), 'HTTPError')
+
+    def test_generic_exception_returns_bare_class_name(self):
+        self.assertEqual(unattended._exception_label(RuntimeError('x')), 'RuntimeError')
+
+    def test_improper_credentials_exception_stays_name_only(self):
+        exc = ImproperCredentialsException('OCS: b"secret body"')
+        self.assertEqual(unattended._exception_label(exc), 'ImproperCredentialsException')
+
 
 class TestProjectSweepStep(UnattendedTestBase):
     """Task 2: the projector sweep step, reproducing project_observation_calendar's own
@@ -1113,6 +1233,54 @@ class TestCredentialHygiene(UnattendedTestBase):
             log_output, stdout_value, stderr_value = self._run_tick_capturing()
 
         self._assert_no_secrets_leaked(log_output, stdout_value, stderr_value)
+
+    def test_status_refresh_http_status_code_is_reported_without_leaking(self):
+        # Quick task 260927-eqs, Task 1's own end-to-end proof: the portal's HTTP status
+        # code travels to the log line, the step summary and the failure email, while no
+        # response body, URL, query string, header, reason phrase or exception message
+        # escapes anywhere.
+        body_marker = 'BODY-MARKER-CREDHYG-502'
+        full_url = f'https://observe.lco.global/api/observations/?api_key={_FAKE_LCO_API_KEY}'
+        auth_header_value = f'Token {_FAKE_LCO_API_KEY}'
+        error = _http_error(
+            502,
+            reason='Bad Gateway',
+            url=full_url,
+            headers={'Authorization': auth_header_value},
+            body=body_marker.encode(),
+        )
+        with (
+            patch('solsys_code.unattended.LCOFacility') as mock_lco_cls,
+            patch('solsys_code.unattended.SOARFacility') as mock_soar_cls,
+        ):
+            mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', str(error))]
+            mock_lco_cls.return_value.update_observation_status.side_effect = error
+            mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+            log_output, stdout_value, stderr_value = self._run_tick_capturing()
+
+        joined_logs = '\n'.join(log_output)
+        self.assertIn('HTTPError 502', joined_logs)
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertIn('status_refresh', sent.subject)
+        self.assertIn('HTTPError 502', sent.body)
+
+        self._assert_no_secrets_leaked(log_output, stdout_value, stderr_value)
+
+        leaked_values = (
+            body_marker,
+            full_url,
+            f'api_key={_FAKE_LCO_API_KEY}',
+            auth_header_value,
+            'Bad Gateway',
+            str(error),
+        )
+        for leaked in leaked_values:
+            self.assertNotIn(leaked, joined_logs)
+            self.assertNotIn(leaked, stdout_value)
+            self.assertNotIn(leaked, stderr_value)
+            self.assertNotIn(leaked, sent.subject)
+            self.assertNotIn(leaked, sent.body)
 
     def test_project_sweep_site_lookup_error_leaks_nothing(self):
         self._make_record_for_sweep('sweep-credhyg')

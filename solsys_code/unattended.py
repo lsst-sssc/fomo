@@ -207,6 +207,47 @@ def step_reconcile(dry_run: bool) -> StepResult:
         return StepResult(name='reconcile', failed=False, summary='skipped -- lock held')
 
 
+def _exception_label(exc: BaseException) -> str:
+    """Return a credential-free label for ``exc``: its class name, plus the numeric
+    HTTP status code when the portal actually returned one (quick task 260927-eqs).
+
+    A bare exception class name (``HTTPError``) does not distinguish a transient 502
+    gateway blip from a 404 or a 429. This helper appends only
+    ``exc.response.status_code`` -- and only when that attribute is a genuine ``int``
+    (never a ``bool``, which is an ``int`` subclass but never a real status code) -- so
+    SCHED-10's "no response body/URL/query string/header/reason/message" guarantee is
+    never weakened by this addition. It never reads the message, ``str()``/``repr()``,
+    ``.text``/``.content``, ``.url``, ``.reason``, ``.headers``, or anything on
+    ``.request``, of either the exception or its response.
+
+    The response is read with ``getattr(exc, 'response', None)`` and compared with
+    ``is None`` -- NEVER tested for truthiness: ``requests.Response.__bool__`` returns
+    ``.ok``, which is False for every 4xx/5xx response, exactly the case this helper
+    exists for.
+
+    Scope is deliberately narrow: only ``requests.exceptions.RequestException`` (and its
+    subclasses, e.g. ``HTTPError``) carry a safe-to-read ``.response.status_code``. TOM's
+    ``make_request()`` (``tom_observations/facilities/ocs.py``) turns a 401-403 into
+    ``ImproperCredentialsException``, whose message embeds the raw response body -- that
+    class is intentionally excluded here and stays name-only.
+
+    Args:
+        exc: any caught exception.
+
+    Returns:
+        str: ``type(exc).__name__``, or ``f'{type(exc).__name__} {status_code}'`` when
+            ``exc`` is a ``RequestException`` with an integer ``response.status_code``.
+    """
+    label = type(exc).__name__
+    if isinstance(exc, requests.exceptions.RequestException):
+        response = getattr(exc, 'response', None)
+        if response is not None:
+            status_code = getattr(response, 'status_code', None)
+            if isinstance(status_code, int) and not isinstance(status_code, bool):
+                return f'{label} {status_code}'
+    return label
+
+
 def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int, str | None]:
     """Refresh every non-terminal ObservationRecord for one facility instance (D-03).
 
@@ -218,13 +259,15 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int, str | Non
     Returns:
         tuple[int, list[str], int, str | None]: ``(failed_record_count, class_names,
             omitted_recheck_count, outage_class_name)``. ``class_names`` holds the
-            distinct exception class name observed while re-checking each of the first
+            distinct exception labels observed while re-checking each of the first
             ``_MAX_STATUS_RECHECKS`` failed observation ids (WR-08, 36-REVIEW.md) -- a
             transient failure (the re-check succeeds) still counts toward
-            ``failed_record_count`` but contributes no class name. ``omitted_recheck_count``
+            ``failed_record_count`` but contributes no label. An exception label is its
+            class name, plus the numeric HTTP status code when the portal returned one
+            (``_exception_label()``, quick task 260927-eqs). ``omitted_recheck_count``
             is how many of the failed records past that cap were never individually
             re-checked at all. ``outage_class_name`` is None for an ordinary per-record
-            failure count; it is the raised exception's class name, and
+            failure count; it is the raised exception's label, and
             ``failed_record_count`` is 0, when ``update_all_observation_statuses()``
             itself raised -- IN-05 (36-REVIEW.md): the true affected-record count is
             unknown in that case, so this must never be conflated with "exactly one
@@ -233,8 +276,9 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int, str | Non
     try:
         failed_records = facility.update_all_observation_statuses()
     except Exception as exc:  # noqa: BLE001 -- a portal call, D-17's first bucket
-        logger.warning('status refresh raised for %s: %s', type(facility).__name__, type(exc).__name__)
-        return 0, [], 0, type(exc).__name__
+        label = _exception_label(exc)
+        logger.warning('status refresh raised for %s: %s', type(facility).__name__, label)
+        return 0, [], 0, label
 
     class_names: list[str] = []
     recheck_targets = failed_records[:_MAX_STATUS_RECHECKS]
@@ -244,8 +288,9 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int, str | Non
         try:
             facility.update_observation_status(observation_id)
         except Exception as exc:  # noqa: BLE001 -- a portal call, D-17's first bucket
-            logger.warning('observation_id=%s %s', observation_id, type(exc).__name__)
-            class_names.append(type(exc).__name__)
+            label = _exception_label(exc)
+            logger.warning('observation_id=%s %s', observation_id, label)
+            class_names.append(label)
         else:
             logger.warning('observation_id=%s no exception on re-check', observation_id)
     omitted = len(failed_records) - len(recheck_targets)
