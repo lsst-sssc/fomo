@@ -839,10 +839,27 @@ def _local_timestamp(moment: datetime) -> str:
 
     Returns:
         str: ``moment`` converted to the host's local zone and formatted with
-            ``isoformat(timespec='seconds')`` -- no fractional seconds, matching the
-            cron guard's own ``date -Is`` output.
+            ``isoformat(timespec='seconds')`` -- no fractional seconds.
     """
     return moment.astimezone(_host_timezone()).isoformat(timespec='seconds')
+
+
+def _banner_timestamp(moment: datetime) -> str:
+    """Render ``moment`` as UTC followed by the host-local time, both to the second.
+
+    UTC leads so a banner stays directly comparable with pre-260927 log lines and with
+    the cron guard's ``date -Is`` line, which crond renders in UTC on the real host; the
+    local form follows for reading at a glance. Both are full ISO-8601 values because an
+    evening tick falls on different UTC and local dates.
+
+    Args:
+        moment: a tz-aware ``datetime``.
+
+    Returns:
+        str: e.g. ``'2026-09-27T00:45:06+00:00 (local 2026-09-26T17:45:06-07:00)'``.
+    """
+    utc = moment.astimezone(dt_timezone.utc).isoformat(timespec='seconds')
+    return f'{utc} (local {_local_timestamp(moment)})'
 
 
 def _write_banner(
@@ -851,19 +868,18 @@ def _write_banner(
     """Write the D-01 start/end log banner (module constant format, 36-01-PLAN.md
     ``<decisions_this_plan_records>``).
 
-    Quick task 260927-eqs (DEC-1..DEC-4): the timestamp is the host's own local time
-    with its UTC offset, to the second (``_local_timestamp()``), not the UTC value
-    ``now``/``end_time`` carry internally. The END banner additionally reports
-    ``duration_seconds`` -- the tick's wall-clock seconds from START to END -- so an
-    overrunning tick is readable directly from the log without subtracting two
-    timestamps by hand.
+    Quick task 260927-eqs (DEC-1..DEC-4), revised the same day at the owner's request:
+    the timestamp is rendered by ``_banner_timestamp()`` -- UTC, then the host-local
+    time -- to the second. The END banner additionally reports ``duration_seconds`` --
+    the tick's wall-clock seconds from START to END -- so an overrunning tick is
+    readable directly from the log without subtracting two timestamps by hand.
     """
     if kind == 'START':
-        logger.info('=== FOMO unattended run START %s ===', _local_timestamp(now))
+        logger.info('=== FOMO unattended run START %s ===', _banner_timestamp(now))
     else:
         logger.info(
             '=== FOMO unattended run END %s exit=%s duration=%ss ===',
-            _local_timestamp(now),
+            _banner_timestamp(now),
             exit_code,
             duration_seconds,
         )
@@ -1013,7 +1029,7 @@ def run_tick(dry_run: bool = False, only_step: str | None = None) -> TickResult:
         # same clock -- while staying distinguishable from the cron guard's own
         # `<timestamp> run_unattended skipped: lock held` line by wording and by the
         # timestamp's position (leading there, trailing here).
-        skip_message = f'run_unattended: lock held -- skipping this tick ({_local_timestamp(now)})'
+        skip_message = f'run_unattended: lock held -- skipping this tick ({_banner_timestamp(now)})'
         sys.stderr.write(f'{skip_message}\n')
         logger.warning(skip_message)
         return TickResult(exit_code=0, results=())

@@ -481,11 +481,12 @@ class TestLocking(UnattendedTestBase):
             stderr_value = stderr.getvalue()
             self.assertIn('lock', stderr_value.lower())
             # Quick task 260927-eqs, Task 2 (DEC-5): the runner's own in-process skip
-            # line now carries a trailing, parenthesised host-local timestamp.
+            # line now carries a trailing, parenthesised timestamp: UTC, then host-local.
             self.assertIsNotNone(
                 re.search(
                     r'run_unattended: lock held -- skipping this tick '
-                    r'\(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\)',
+                    r'\(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00 '
+                    r'\(local \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\)\)',
                     stderr_value,
                 )
             )
@@ -560,9 +561,12 @@ class TestEndBannerTimestamp(UnattendedTestBase):
                 call_command('run_unattended')
 
         joined = '\n'.join(captured.output)
-        self.assertIn('START 2025-12-31T16:00:00-08:00 ===', joined)
-        self.assertIn('END 2025-12-31T16:15:00-08:00 exit=0 duration=900s ===', joined)
-        self.assertNotIn('END 2025-12-31T16:00:00-08:00', joined)
+        # UTC first, then the host-local time -- which here falls on the previous date.
+        self.assertIn('START 2026-01-01T00:00:00+00:00 (local 2025-12-31T16:00:00-08:00) ===', joined)
+        self.assertIn(
+            'END 2026-01-01T00:15:00+00:00 (local 2025-12-31T16:15:00-08:00) exit=0 duration=900s ===', joined
+        )
+        self.assertNotIn('END 2026-01-01T00:00:00+00:00', joined)
 
     def test_dry_run_banners_carry_local_offset_and_no_fractional_seconds(self):
         stdout = StringIO()
@@ -574,14 +578,15 @@ class TestEndBannerTimestamp(UnattendedTestBase):
         joined = '\n'.join(captured.output)
         self.assertIsNotNone(
             re.search(
-                r'=== FOMO unattended run START \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} ===',
+                r'=== FOMO unattended run START \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00 '
+                r'\(local \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\) ===',
                 joined,
             )
         )
         self.assertIsNotNone(
             re.search(
-                r'=== FOMO unattended run END \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} '
-                r'exit=0 duration=\d+s ===',
+                r'=== FOMO unattended run END \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00 '
+                r'\(local \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\) exit=0 duration=\d+s ===',
                 joined,
             )
         )

@@ -1870,23 +1870,26 @@ what any one step's own output looks like.
    A healthy dry run reports the start banner, one line per step in
    registry order, and the end banner carrying the process exit code::
 
-      === FOMO unattended run START 2026-09-22T07:00:00-07:00 ===
+      === FOMO unattended run START 2026-09-22T14:00:00+00:00 (local 2026-09-22T07:00:00-07:00) ===
       step status_refresh: ok | skipped (dry run)
       step project_sweep: ok | failed: 0 | LCO: created: 0, updated: 1, unchanged: 4, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
       step discovery: ok | 0 watched proposals, nothing to discover
       step reconcile: ok | runs: 3, failed: 0
       step proposal_allocation: ok | skipped (dry run)
-      === FOMO unattended run END 2026-09-22T07:00:03-07:00 exit=0 duration=3s ===
+      === FOMO unattended run END 2026-09-22T14:00:03+00:00 (local 2026-09-22T07:00:03-07:00) exit=0 duration=3s ===
 
    Each line reads ``step <name>: ok | <summary>`` or
    ``step <name>: FAILED | <summary>`` -- see "What runs, and when" above
-   for why a failed step never stops the later ones. Both banners' own
-   timestamp is the *host's* local time with its UTC offset, to the
-   second -- read directly from ``/etc/localtime``, not from Django's
-   ``TIME_ZONE`` setting (which is UTC). That is the same clock the cron
-   guard's own ``date -Is`` skip line uses (see "When nothing has
-   appeared" item 4 below), so the two kinds of line compare directly
-   without a timezone conversion. The END banner's ``duration=`` is the
+   for why a failed step never stops the later ones. Both banners carry
+   two timestamps, each to the second: UTC first, then the *host's* local
+   time in parentheses (``local ...``, read directly from
+   ``/etc/localtime``, not from Django's ``TIME_ZONE`` setting, which is
+   UTC). Both are full dates because an evening tick falls on different
+   UTC and local dates. The UTC value is the one to compare against the
+   cron guard's own ``date -Is`` skip line (see "When nothing has
+   appeared" item 4 below): crond on the current host runs with its
+   clock in UTC, so that line comes out with a ``+00:00`` offset even
+   though the host's own zone is local. The END banner's ``duration=`` is the
    tick's own wall-clock seconds from START to END -- readable directly,
    with no subtraction needed, and useful for spotting an overrunning
    tick (see "Repeated 'lock held' lines in the unattended log" below).
@@ -1951,14 +1954,14 @@ START banner follows them. They are not failures; skim past them to the
 next ``=== FOMO unattended run START`` line. A failing tick reads like
 this::
 
-   === FOMO unattended run START 2026-09-26T11:45:02-07:00 ===
+   === FOMO unattended run START 2026-09-26T18:45:02+00:00 (local 2026-09-26T11:45:02-07:00) ===
    observation_id=4378036 HTTPError 502
    step status_refresh: FAILED | LCO: failed 1 | SOAR: failed 0 | classes: HTTPError 502
    step project_sweep: ok | failed: 0 | LCO: created: 0, updated: 1, unchanged: 4, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
    step discovery: ok | 0 watched proposals, nothing to discover
    step reconcile: ok | runs: 3, failed: 0
    step proposal_allocation: ok | proposals: 1, rows written: 1, failed: 0
-   === FOMO unattended run END 2026-09-26T11:45:34-07:00 exit=1 duration=32s ===
+   === FOMO unattended run END 2026-09-26T18:45:34+00:00 (local 2026-09-26T11:45:34-07:00) exit=1 duration=32s ===
 
 The two failure signals
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -2048,13 +2051,13 @@ Work through these in order:
    healthy no-op. The log line is the only place a contended lock is
    visible at all; do not expect the exit status to tell you::
 
-      2026-09-17T08:00:03-07:00 run_unattended skipped: lock held
+      2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
 
    Do not confuse this with the runner's own internal-lock message,
-   which carries the same host-local timestamp of its own, trailing in
-   parentheses::
+   which carries its own timestamp (UTC, then local, as in the banners),
+   trailing in parentheses::
 
-      run_unattended: lock held -- skipping this tick (2026-09-17T08:00:03-07:00)
+      run_unattended: lock held -- skipping this tick (2026-09-17T15:00:03+00:00 (local 2026-09-17T08:00:03-07:00))
 
    Both lines can appear in the same log with the phrase "lock held", and
    both now carry a timestamp, so the distinguishing marks are the
@@ -2646,7 +2649,7 @@ every tick that finds the cron guard's own lock
 (``FOMO_LOCK_DIR/run_unattended.cron.lock``) already held exits 99 and
 the crontab line's tail writes a skip line instead of running::
 
-   2026-09-17T08:00:03-07:00 run_unattended skipped: lock held
+   2026-09-17T15:00:03+00:00 run_unattended skipped: lock held
 
 This line means the tick genuinely did not run at all -- it is gated on
 flock's dedicated exit code 99, so a tick that ran and then *failed*
@@ -2663,10 +2666,10 @@ long it ran before finishing or dying -- a value above 900 seconds (one
 exactly the overlap this "lock held" line is reporting.
 
 The runner's own internal-lock message, quoted with its trailing
-host-local timestamp, looks like this and is a different signal (see
+timestamp, looks like this and is a different signal (see
 "When nothing has appeared" item 4 above for how to tell the two apart)::
 
-   run_unattended: lock held -- skipping this tick (2026-09-17T08:00:03-07:00)
+   run_unattended: lock held -- skipping this tick (2026-09-17T15:00:03+00:00 (local 2026-09-17T08:00:03-07:00))
 
 Flock's own exit code 99 is still what the skip line above is gated on --
 that has not changed. What has changed (WR-16, 36-REVIEW.md) is what
