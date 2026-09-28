@@ -1885,11 +1885,12 @@ what any one step's own output looks like.
    time in parentheses (``local ...``, read directly from
    ``/etc/localtime``, not from Django's ``TIME_ZONE`` setting, which is
    UTC). Both are full dates because an evening tick falls on different
-   UTC and local dates. The UTC value is the one to compare against the
-   cron guard's own ``date -Is`` skip line (see "When nothing has
-   appeared" item 4 below): crond on the current host runs with its
-   clock in UTC, so that line comes out with a ``+00:00`` offset even
-   though the host's own zone is local. The END banner's ``duration=`` is the
+   UTC and local dates. The UTC value lines up directly with banners
+   written before 2026-09-27, which were UTC-only. The cron guard's own
+   ``date -Is`` skip line (see "When nothing has appeared" item 4 below)
+   carries its own UTC offset, in whatever zone crond runs, so it can be
+   matched against whichever half of the banner has the same offset.
+   The END banner's ``duration=`` is the
    tick's own wall-clock seconds from START to END -- readable directly,
    with no subtraction needed, and useful for spotting an overrunning
    tick (see "Repeated 'lock held' lines in the unattended log" below).

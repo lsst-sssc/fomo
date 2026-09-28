@@ -847,10 +847,9 @@ def _local_timestamp(moment: datetime) -> str:
 def _banner_timestamp(moment: datetime) -> str:
     """Render ``moment`` as UTC followed by the host-local time, both to the second.
 
-    UTC leads so a banner stays directly comparable with pre-260927 log lines and with
-    the cron guard's ``date -Is`` line, which crond renders in UTC on the real host; the
-    local form follows for reading at a glance. Both are full ISO-8601 values because an
-    evening tick falls on different UTC and local dates.
+    UTC leads so a banner stays directly comparable with pre-260927 log lines, which were
+    UTC-only; the local form follows for reading at a glance. Both are full ISO-8601
+    values because an evening tick falls on different UTC and local dates.
 
     Args:
         moment: a tz-aware ``datetime``.
