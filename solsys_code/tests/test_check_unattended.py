@@ -590,13 +590,25 @@ class TestCronLine(CheckUnattendedTestBase):
         """
         _head, sep, tail = line.partition(' run_unattended >>')
         self.assertTrue(sep, 'expected exactly one " run_unattended >>" in the line')
+        # The tail really executes, including its `echo ... lock held >> <log>` skip
+        # line, so every occurrence of the line's log path is redirected into this
+        # test's temp directory. The committed template names the real
+        # /var/log/fomo/unattended.log; running it verbatim appended a fake "lock held"
+        # line to the live unattended log on every test run.
+        real_log = tail.split()[0]
+        sandbox_log = Path(self.log_dir.name) / 'lock-held-matrix.log'
+        tail = tail.replace(real_log, str(sandbox_log))
+        self.assertNotIn(real_log, tail)
         for stub_exit, expected_final_exit in ((0, 0), (1, 1), (99, 0)):
             with self.subTest(stub_exit=stub_exit):
+                sandbox_log.unlink(missing_ok=True)
                 # The stub's extra positional argument ("run_unattended") is harmless --
                 # `sh -c "exit N" $0 ...` ignores it, since "exit N" never references $0.
                 script = f'sh -c "exit {stub_exit}"{sep}{tail}'
                 result = subprocess.run(['sh', '-c', script], check=False)
                 self.assertEqual(result.returncode, expected_final_exit)
+                skip_line_written = sandbox_log.exists() and 'lock held' in sandbox_log.read_text()
+                self.assertEqual(skip_line_written, stub_exit == 99)
 
     def test_lock_held_exit_is_normalized_to_zero(self):
         # WR-16 (36-REVIEW.md): run_tick()'s own contract is that lock contention is NOT
