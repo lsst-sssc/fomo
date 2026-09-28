@@ -5,10 +5,10 @@ milestone_name: Observation-First Calendar
 current_phase: 37
 status: completed
 stopped_at: Completed quick task 260927-eqs (unattended run banners in host-local time + HTTP status codes on status_refresh failures)
-last_updated: "2026-09-28T00:53:42.550Z"
+last_updated: "2026-09-28T01:43:20.608Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 37 complete
-state_head: 4d0707272f4124cc1a0e3be68c1d846ea647f602
+state_head: dbd58d75514af36e2edec4528de8b7361f5b856e
 progress:
   total_phases: 5
   completed_phases: 37
@@ -481,6 +481,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260922-d0w | Add a "Walking through a first tick" operator walkthrough to the unattended runbook section: drive all five `run_unattended --dry-run --step` invocations against your own watched proposal; also corrected the `--step` reference that omitted `proposal_allocation` and three wrong `WatchedProposal` admin labels | 2026-09-22 | b5b5073 | complete | [260922-d0w-add-an-operator-walkthrough-for-run-unat](./quick/260922-d0w-add-an-operator-walkthrough-for-run-unat/) |
 | 260927-eqs | Timestamp each unattended run and log HTTP status codes on status_refresh failures: START/END banners now host-local ISO time to the second with `duration=Ns` on END; status_refresh per-record/outage lines, step summary and failure email carry e.g. `HTTPError 502` (status code only, never body/URL/headers — SCHED-10 test extended); runbook updated | 2026-09-27 | 2da32fe | complete | [260927-eqs-timestamp-each-unattended-run-and-log-ht](./quick/260927-eqs-timestamp-each-unattended-run-and-log-ht/) |
 | 15 | Show both UTC and host-local time on run_unattended START/END banners and the in-process lock-held line (follow-up to 260927-eqs; commit 4d07072) | 2026-09-28 | 4d07072 | — | — |
+| 16 | Stop TestCronLine's lock-held exit-matrix test from appending fake 'lock held' lines to the live /var/log/fomo/unattended.log (commit dbd58d7) | 2026-09-28 | dbd58d7 | — | — |
 
 ## Deferred Items
 
