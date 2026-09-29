@@ -520,9 +520,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-22T17:19:04.453Z
-Stopped at: Completed quick task 260922-dva (unattended runner lock-directory runbook fix)
-Resume file: None
+Last session: 2026-09-29T18:30:00Z
+Stopped at: v2.4 close-out — intent-review walkthrough set up, not yet started. Framing decisions made (current DB, real Didymos completed, KEY2026B-004 added); DB snapshotted; dev server up at tlister-thinkmate.lco.gtn:8000. Next action is setup step 2 (add KEY2026B-004 WatchedProposal, wait one tick).
+Resume file: .planning/v2.4-INTENT-REVIEW.md — read "Walkthrough setup (2026-09-29)" first, then work Q1–Q7.
 
 ## Operator Next Steps
 
