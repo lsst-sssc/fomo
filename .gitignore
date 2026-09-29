@@ -63,6 +63,8 @@ db.sqlite3
 db.sqlite3-journal
 fomo_db.sqlite3
 fomo_db.sqlite3-journal
+fomo_db_20*.sqlite3
+fomo_db.sqlite3.bak-*
 rubin.sqlite
 
 # Flask stuff:
