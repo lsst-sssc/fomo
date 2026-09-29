@@ -161,3 +161,5 @@ docs/notebooks/data/**
 
 # Django MEDIA_ROOT — downloaded DataProduct files (src/fomo/settings.py)
 src/data/
+
+.idea/
