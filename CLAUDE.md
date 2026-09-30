@@ -72,7 +72,7 @@ codes and geodetic position, with conversions between MPC parallax constants and
 `utils.MPCObscodeFetcher` populates it from the MPC Observatory Codes API.
 
 **TOM plugins & data services** are wired in `settings.py` (`INSTALLED_APPS`, `TOM_FACILITY_CLASSES`,
-`TOM_ALERT_CLASSES`, `ALERT_STREAMS`, `DATA_SERVICES`). Notably JPL Scout and Fink are registered as
+`ALERT_STREAMS`, `DATA_SERVICES`). Notably JPL Scout and Fink are registered as
 data services via `SolsysCodeConfig.data_services()` in `solsys_code/apps.py`; the navbar and
 target-detail buttons are injected via the app-config integration hooks (`nav_items`,
 `target_detail_buttons`).
