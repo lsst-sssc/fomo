@@ -52,9 +52,13 @@ class CreateObservatory(CreateView):
                 form.add_error('obscode', errors.get('message', 'Invalid MPC site code'))
             return self.form_invalid(form)
 
-        except IntegrityError:
-            print('Attempt to create duplicate Observatory')
-            messages.error(self.request, 'Attempt to create duplicate Observatory')
+        except IntegrityError as e:
+            obscode = form.cleaned_data['obscode']
+            if Observatory.objects.filter(obscode=obscode).exists():
+                form.add_error('obscode', f'Observatory with MPC code {obscode} already exists')
+            else:
+                messages.error(self.request, f'Could not create Observatory: {e}')
+            return self.form_invalid(form)
 
         return redirect(self.get_success_url())
 

@@ -50,7 +50,7 @@ If it fixes an open issue, please link to the issue here. If this PR closes an i
 - [ ] Any updated docstrings use the [NumPy docstring format](https://numpydoc.readthedocs.io/en/latest/format.html)
 
 ### Build/CI Change Checklist
-- [ ] If required or optional dependencies have changed (including version numbers), I have updated the README to reflect this
+- [ ] If required or optional dependencies have changed (including version numbers), I have updated the Requirements list in `docs/installation.rst` to match `pyproject.toml`
 - [ ] If this is a new CI setup, I have added the associated badge to the README
 
 <!-- ### Version Change Checklist [For Future Use] -->
