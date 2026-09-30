@@ -1,5 +1,6 @@
 import copy
 import io
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -10,7 +11,11 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.management.commands.backfill_lco_observations import _preserve_observed_site_keys, sweep_proposal
+from solsys_code.management.commands.backfill_lco_observations import (
+    _preserve_observed_site_keys,
+    _schedule_lookup_is_needed,
+    sweep_proposal,
+)
 from solsys_code.models import WatchedProposal
 
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
@@ -93,6 +98,7 @@ def _expected_summary(
     embedded_blocks,
     fallback_lookups_needed,
     block_lookups_failed,
+    fallback_lookups_skipped=0,
     list_name='LCO2026A-003_targets',
     list_reused=False,
     targets_added=0,
@@ -125,6 +131,7 @@ def _expected_summary(
         f'{groups_created_label}: {groups_created}, '
         f'{groups_reused_label}: {groups_reused}, '
         f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
+        f'fallback lookups skipped: {fallback_lookups_skipped}, '
         f'block lookups failed: {block_lookups_failed_value}, '
         f'target list: {list_verb} {list_name!r}, '
         f'{targets_added_label}: {targets_added}'
@@ -450,7 +457,9 @@ class TestBackfillLcoObservations(TestCase):
     def test_dry_run_unchanged_for_identical_fallback_path_request(self, mock_make_request):
         # Pins the unchanged counter on the fallback path (no embedded block, so the dry
         # run compares status/parameters only -- per the compare_schedule=embedded caveat).
-        request_group = _request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='COMPLETED')])
+        # The request is PENDING, not COMPLETED, so that the fallback path still NEEDS a
+        # lookup: a finished record at the same portal state is skipped instead (F2).
+        request_group = _request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='PENDING')])
         mock_make_request.return_value = _page_response([request_group])
         call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
 
@@ -572,7 +581,8 @@ class TestBackfillLcoObservations(TestCase):
             groups_created=0,
             groups_reused=1,
             embedded_blocks=0,
-            fallback_lookups_needed=2,
+            fallback_lookups_needed=0,
+            fallback_lookups_skipped=2,
             block_lookups_failed=0,
             list_reused=True,
             targets_added=1,
@@ -678,7 +688,8 @@ class TestBackfillLcoObservations(TestCase):
         expected_summary = (
             'requestgroups seen: 1, would create: 1, would update: 0, unchanged: 0, '
             'skipped: 0, targets would create: 1, groups would create: 0, groups would reuse: 0, '
-            'embedded blocks: 0, fallback lookups needed: 1, block lookups failed: n/a (dry-run), '
+            'embedded blocks: 0, fallback lookups needed: 1, fallback lookups skipped: 0, '
+            'block lookups failed: n/a (dry-run), '
             "target list: would create 'LCO2026A-003_targets', targets would add to list: 1"
         )
         self.assertIn(expected_summary, stdout.getvalue())
@@ -779,7 +790,8 @@ class TestBackfillLcoObservations(TestCase):
             groups_created=0,
             groups_reused=1,
             embedded_blocks=0,
-            fallback_lookups_needed=2,
+            fallback_lookups_needed=0,
+            fallback_lookups_skipped=2,
             block_lookups_failed=0,
             list_reused=True,
             targets_added=2,
@@ -903,7 +915,8 @@ class TestBackfillLcoObservations(TestCase):
             groups_created=0,
             groups_reused=0,
             embedded_blocks=0,
-            fallback_lookups_needed=1,
+            fallback_lookups_needed=0,
+            fallback_lookups_skipped=1,
             block_lookups_failed=0,
             list_reused=True,
             targets_added=1,
@@ -1524,7 +1537,8 @@ class TestObservedSiteKeysSurviveDiscovery(TestCase):
             groups_created=0,
             groups_reused=0,
             embedded_blocks=0,
-            fallback_lookups_needed=1,
+            fallback_lookups_needed=0,
+            fallback_lookups_skipped=1,
             block_lookups_failed=0,
             list_reused=True,
             targets_added=1,
@@ -1659,3 +1673,296 @@ class TestPreserveObservedSiteKeys(SimpleTestCase):
 
         self.assertEqual(result, rebuilt)
         self.assertIsNot(result, rebuilt)
+
+
+_MOVED_SCHEDULE = {
+    'state': 'COMPLETED',
+    'scheduled_start': '2026-07-01T05:00:00+00:00',
+    'scheduled_end': '2026-07-01T05:10:00+00:00',
+}
+
+
+class TestSkipLookupForFinishedRecords(TestCase):
+    """Discovery skips the live block lookup for a record finished at the same portal state (F2).
+
+    Before every second pass the mock is reset and, unless a test says otherwise, made to
+    return a MOVED schedule, so a lookup that should not have happened would show up as
+    changed stored times as well as a recorded call.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+
+    def setUp(self):
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        self.mock_get_observation_status = patcher.start()
+        self.mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+        self.addCleanup(patcher.stop)
+
+    def _summary(
+        self, dry_run, created=0, updated=0, unchanged=0, needed=0, skipped=0, embedded=0, failed=0, list_reused=True
+    ):
+        return _expected_summary(
+            dry_run=dry_run,
+            requestgroups_seen=1,
+            created=created,
+            updated=updated,
+            unchanged=unchanged,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=embedded,
+            fallback_lookups_needed=needed,
+            fallback_lookups_skipped=skipped,
+            block_lookups_failed=failed,
+            list_reused=list_reused,
+            targets_added=1,
+        )
+
+    def _pass(self, mock_make_request, dry_run=False, state='COMPLETED', windows=None, observations=None):
+        mock_make_request.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - ELP',
+                    requests=[_request(10, state=state, windows=windows, observations=observations)],
+                )
+            ]
+        )
+        args = ['--proposal=LCO2026A-003']
+        if dry_run:
+            args.append('--dry-run')
+        stdout = io.StringIO()
+        call_command('backfill_lco_observations', *args, stdout=stdout, stderr=io.StringIO())
+        return stdout.getvalue()
+
+    def _moved_lookup(self):
+        self.mock_get_observation_status.reset_mock()
+        self.mock_get_observation_status.return_value = dict(_MOVED_SCHEDULE)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_a_finished_record_at_same_state_is_skipped_and_untouched(self, mock_make_request):
+        self._pass(mock_make_request)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        record.refresh_from_db()
+        modified_before = record.modified
+        self._moved_lookup()
+
+        out = self._pass(mock_make_request)
+
+        self.assertIn(self._summary(False, unchanged=1, skipped=1), out)
+        self.mock_get_observation_status.assert_not_called()
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start.isoformat(), '2026-07-01T00:10:00+00:00')
+        self.assertEqual(record.modified, modified_before)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_b_pending_record_is_still_looked_up(self, mock_make_request):
+        self._pass(mock_make_request, state='PENDING')
+        self._moved_lookup()
+
+        out = self._pass(mock_make_request, state='PENDING')
+
+        self.assertIn(self._summary(False, updated=1, needed=1), out)
+        self.assertEqual(self.mock_get_observation_status.call_count, 1)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.scheduled_start.isoformat(), '2026-07-01T05:00:00+00:00')
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_c_state_change_from_terminal_to_terminal_is_looked_up(self, mock_make_request):
+        self._pass(mock_make_request)
+        self.mock_get_observation_status.reset_mock()
+        self.mock_get_observation_status.return_value = {
+            'state': 'CANCELED',
+            'scheduled_start': None,
+            'scheduled_end': None,
+        }
+
+        out = self._pass(mock_make_request, state='CANCELED')
+
+        self.assertIn(self._summary(False, updated=1, needed=1), out)
+        self.assertEqual(self.mock_get_observation_status.call_count, 1)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.status, 'CANCELED')
+        self.assertIsNone(record.scheduled_start)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_d_brand_new_request_is_looked_up(self, mock_make_request):
+        out = self._pass(mock_make_request)
+
+        self.assertIn(self._summary(False, created=1, needed=1, list_reused=False), out)
+        self.assertEqual(self.mock_get_observation_status.call_count, 1)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_e1_dry_run_and_real_run_agree_over_a_finished_record(self, mock_make_request):
+        self._pass(mock_make_request)
+        self._moved_lookup()
+
+        dry_out = self._pass(mock_make_request, dry_run=True)
+        real_out = self._pass(mock_make_request)
+
+        self.assertIn(self._summary(True, unchanged=1, skipped=1), dry_out)
+        self.assertIn(self._summary(False, unchanged=1, skipped=1), real_out)
+        self.mock_get_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_e2_dry_run_over_a_pending_record_counts_needed_without_a_call(self, mock_make_request):
+        self._pass(mock_make_request, state='PENDING')
+        self._moved_lookup()
+
+        out = self._pass(mock_make_request, dry_run=True, state='PENDING')
+
+        self.assertIn(self._summary(True, unchanged=1, needed=1), out)
+        self.mock_get_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_f_moved_window_updates_parameters_but_not_the_schedule(self, mock_make_request):
+        self._pass(mock_make_request)
+        self._moved_lookup()
+        moved = [{'start': '2026-07-03T00:00:00', 'end': '2026-07-04T00:00:00'}]
+
+        out = self._pass(mock_make_request, windows=moved)
+
+        self.assertIn(self._summary(False, updated=1, skipped=1), out)
+        self.mock_get_observation_status.assert_not_called()
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.parameters['start'], '2026-07-03T00:00:00')
+        self.assertEqual(record.parameters['end'], '2026-07-04T00:00:00')
+        self.assertEqual(record.scheduled_start.isoformat(), '2026-07-01T00:10:00+00:00')
+        self.assertEqual(record.scheduled_end.isoformat(), '2026-07-01T00:20:00+00:00')
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_g_observed_site_keys_survive_a_skipped_update(self, mock_make_request):
+        self._pass(mock_make_request)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        record.parameters.update({'observed_site': 'elp', 'observed_telescope': '1m0a', 'observed_enclosure': 'doma'})
+        record.save(update_fields=['parameters'])
+        self._moved_lookup()
+        moved = [{'start': '2026-07-03T00:00:00', 'end': '2026-07-04T00:00:00'}]
+
+        out = self._pass(mock_make_request, windows=moved)
+
+        self.assertIn(self._summary(False, updated=1, skipped=1), out)
+        record.refresh_from_db()
+        self.assertEqual(record.parameters['observed_site'], 'elp')
+        self.assertEqual(record.parameters['observed_telescope'], '1m0a')
+        self.assertEqual(record.parameters['observed_enclosure'], 'doma')
+        self.assertEqual(record.scheduled_start.isoformat(), '2026-07-01T00:10:00+00:00')
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_h1_completed_record_with_no_times_is_looked_up_until_they_arrive(self, mock_make_request):
+        self.mock_get_observation_status.side_effect = Exception('portal down')
+
+        out = self._pass(mock_make_request)
+
+        self.assertIn(self._summary(False, created=1, needed=1, failed=1, list_reused=False), out)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.status, 'COMPLETED')
+        self.assertIsNone(record.scheduled_start)
+
+        self.mock_get_observation_status.reset_mock()
+        self.mock_get_observation_status.side_effect = None
+        self.mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+
+        out = self._pass(mock_make_request)
+
+        self.assertIn(self._summary(False, updated=1, needed=1), out)
+        self.assertEqual(self.mock_get_observation_status.call_count, 1)
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start.isoformat(), '2026-07-01T00:10:00+00:00')
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_h2_failed_state_with_no_times_stays_skipped(self, mock_make_request):
+        self.mock_get_observation_status.return_value = {
+            'state': 'WINDOW_EXPIRED',
+            'scheduled_start': None,
+            'scheduled_end': None,
+        }
+        self._pass(mock_make_request, state='WINDOW_EXPIRED')
+        self.mock_get_observation_status.reset_mock()
+
+        out = self._pass(mock_make_request, state='WINDOW_EXPIRED')
+
+        self.assertIn(self._summary(False, unchanged=1, skipped=1), out)
+        self.mock_get_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_i_the_facilitys_own_terminal_list_decides(self, mock_make_request):
+        self.mock_get_observation_status.return_value = {
+            'state': 'WINDOW_EXPIRED',
+            'scheduled_start': None,
+            'scheduled_end': None,
+        }
+        self._pass(mock_make_request, state='WINDOW_EXPIRED')
+        self.mock_get_observation_status.reset_mock()
+
+        with patch(
+            'tom_observations.facilities.lco.LCOFacility.get_terminal_observing_states', return_value=['COMPLETED']
+        ):
+            out = self._pass(mock_make_request, state='WINDOW_EXPIRED')
+
+        self.assertIn(self._summary(False, unchanged=1, needed=1), out)
+        self.assertEqual(self.mock_get_observation_status.call_count, 1)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_j_embedded_block_is_always_compared(self, mock_make_request):
+        first = [{'state': 'COMPLETED', 'start': '2026-07-01T00:05:00', 'end': '2026-07-01T00:15:00'}]
+        second = [{'state': 'COMPLETED', 'start': '2026-07-01T00:06:00', 'end': '2026-07-01T00:16:00'}]
+        self._pass(mock_make_request, observations=first)
+        self._moved_lookup()
+
+        out = self._pass(mock_make_request, observations=second)
+
+        self.assertIn(self._summary(False, updated=1, embedded=1), out)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.scheduled_start.isoformat(), '2026-07-01T00:06:00+00:00')
+        self.mock_get_observation_status.assert_not_called()
+
+
+_TERMINAL = frozenset({'COMPLETED', 'WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED'})
+_FAILED = _TERMINAL - {'COMPLETED'}
+_START = datetime(2026, 7, 1, 0, 10, tzinfo=timezone.utc)
+_END = datetime(2026, 7, 1, 0, 20, tzinfo=timezone.utc)
+
+
+class TestScheduleLookupIsNeeded(SimpleTestCase):
+    def _needed(self, record, portal_state, terminal=_TERMINAL, failed=_FAILED):
+        return _schedule_lookup_is_needed(record, portal_state, terminal, failed)
+
+    def test_no_existing_record_needs_a_lookup(self):
+        self.assertTrue(self._needed(None, 'COMPLETED'))
+
+    def test_pending_record_needs_a_lookup(self):
+        record = ObservationRecord(status='PENDING')
+        self.assertTrue(self._needed(record, 'PENDING'))
+
+    def test_completed_record_with_times_at_same_state_is_skipped(self):
+        record = ObservationRecord(status='COMPLETED', scheduled_start=_START, scheduled_end=_END)
+        self.assertFalse(self._needed(record, 'COMPLETED'))
+
+    def test_state_change_needs_a_lookup(self):
+        record = ObservationRecord(status='COMPLETED', scheduled_start=_START, scheduled_end=_END)
+        self.assertTrue(self._needed(record, 'CANCELED'))
+
+    def test_failed_state_with_no_times_is_skipped(self):
+        record = ObservationRecord(status='WINDOW_EXPIRED')
+        self.assertFalse(self._needed(record, 'WINDOW_EXPIRED'))
+
+    def test_completed_record_missing_one_time_needs_a_lookup(self):
+        record = ObservationRecord(status='COMPLETED', scheduled_start=_START, scheduled_end=None)
+        self.assertTrue(self._needed(record, 'COMPLETED'))
+
+    def test_function_trusts_the_state_lists_it_is_given(self):
+        record = ObservationRecord(status='DONE')
+        self.assertFalse(self._needed(record, 'DONE', terminal=frozenset({'DONE'}), failed=frozenset({'DONE'})))
+        self.assertTrue(self._needed(record, 'DONE', terminal=frozenset(), failed=frozenset()))
