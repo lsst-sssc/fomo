@@ -366,7 +366,11 @@ situation is an easy mistake.
   already has an ``ObservationRecord`` has its ``status``,
   ``scheduled_start``, ``scheduled_end`` and ``parameters`` refreshed from
   the portal -- ``backfill_lco_observation_records`` skips it entirely once
-  created.
+  created. The three observed-site keys (``observed_site``,
+  ``observed_telescope``, ``observed_enclosure``) that the projector sweep's
+  one-time lookup stores in ``parameters`` are carried forward and never
+  erased, so a re-run over unchanged portal data reports the record
+  ``unchanged``.
 * **Unmatched targets are always built as non-sidereal**, from the
   request's own orbital elements -- never a sidereal field ``Target`` from
   RA/Dec, and there is no ``--create-missing-targets`` flag to opt in or
