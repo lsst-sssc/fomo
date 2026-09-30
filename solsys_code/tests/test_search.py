@@ -1,8 +1,9 @@
 """Tests for the target General Search override registered in GENERAL_SEARCH_FUNCTIONS."""
 
 from django.contrib import admin
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, User
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from tom_targets.filters import TargetFilterSet
 from tom_targets.models import Target
 
@@ -76,3 +77,39 @@ class TestTargetAdminOverride(TestCase):
 
     def test_filtering_to_non_sidereal_keeps_the_default_columns(self):
         self.assertEqual(self._columns('?type__exact=NON_SIDEREAL'), self.model_admin.list_display)
+
+
+class TestTargetSearchRequests(TestCase):
+    """Alias search through real requests to the target list and the admin, not just their components."""
+
+    def setUp(self):
+        self.renamed = Target.objects.create(name='2026 RW1', type='NON_SIDEREAL', scheme='MPC_MINOR_PLANET')
+        self.renamed.aliases.create(name='CERNQ52')
+        self.other = Target.objects.create(name='2026 XY9', type='NON_SIDEREAL', scheme='MPC_MINOR_PLANET')
+
+    def _pks(self, targets):
+        return sorted(target.pk for target in targets)
+
+    def _get_target_list(self, headers=None):
+        response = self.client.get(reverse('targets:list'), {'query': 'CERNQ52'}, headers=headers or {})
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def test_target_list_page_matches_alias(self):
+        response = self._get_target_list()
+        self.assertEqual(self._pks(response.context['object_list']), [self.renamed.pk])
+
+    def test_target_list_htmx_partial_matches_alias(self):
+        """Typing in the General Search box re-fetches only the table partial, via an HTMX request."""
+        response = self._get_target_list(headers={'HX-Request': 'true'})
+        self.assertTemplateNotUsed(response, 'tom_targets/target_list.html')
+        self.assertEqual(self._pks(response.context['object_list']), [self.renamed.pk])
+
+    def test_admin_changelist_search_matches_alias_once(self):
+        """A Target with several matching aliases must still be listed once."""
+        self.renamed.aliases.create(name='2026 RW1 (CERNQ52)')
+        self.client.force_login(User.objects.create_superuser('admin', 'admin@example.com', 'password'))
+        url = reverse(f'admin:{Target._meta.app_label}_{Target._meta.model_name}_changelist')
+        response = self.client.get(url, {'q': 'CERNQ52'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._pks(response.context['cl'].result_list), [self.renamed.pk])
