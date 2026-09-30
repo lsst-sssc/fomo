@@ -312,7 +312,9 @@ def _select_block(blocks: list[dict[str, Any]]) -> dict[str, Any] | None:
     return current_block
 
 
-def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: bool) -> tuple[Any, Any, bool, bool]:
+def _resolve_schedule(
+    facility: LCOFacility, request: dict[str, Any], dry_run: bool, skip_live_lookup: bool = False
+) -> tuple[Any, Any, bool, bool]:
     """Resolve a request's scheduled_start/scheduled_end (D-B).
 
     Reads an embedded 'observations' block list from the request payload when present
@@ -325,6 +327,10 @@ def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: b
         facility: an LCOFacility instance.
         request: a single request from request_group['requests'].
         dry_run: whether the command is running with --dry-run.
+        skip_live_lookup: when True, a request without an embedded block returns
+            (None, None, False, embedded) without any live call, exactly like a dry run.
+            The caller sets this for a record already finished at the same portal state
+            (F2). An embedded block is still read either way, because that costs nothing.
 
     Returns:
         tuple[Any, Any, bool, bool]: (scheduled_start, scheduled_end, lookup_failed,
@@ -343,7 +349,7 @@ def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: b
             return current_block.get('start'), current_block.get('end'), False, embedded
         return None, None, False, embedded
 
-    if dry_run:
+    if dry_run or skip_live_lookup:
         return None, None, False, embedded
 
     observation_id = str(request.get('id'))
@@ -353,6 +359,52 @@ def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: b
         logger.debug(f'Observed-block lookup failed for observation_id={observation_id!r}: {exc}')
         return None, None, True, embedded
     return result.get('scheduled_start'), result.get('scheduled_end'), False, embedded
+
+
+def _schedule_lookup_is_needed(
+    existing_record: ObservationRecord | None,
+    portal_state: str,
+    terminal_states: frozenset[str],
+    failed_states: frozenset[str],
+) -> bool:
+    """Decide whether a request needs a live get_observation_status() lookup (F2, option A).
+
+    The /api/requestgroups/ list payload carries no 'observations' blocks, so without this
+    gate every request costs a live get_observation_status() call (two portal GETs) on every
+    tick, and a tick lengthens as a proposal ages. A record that is already finished and is
+    still reported in that same state has an observed block that can no longer change; this
+    is the same premise update_all_observation_statuses() uses when it leaves terminal
+    records out of the status refresh. Such a record needs no lookup.
+
+    A completed record (terminal, but not a failed state) that is still missing its
+    'scheduled_start' or 'scheduled_end' keeps being looked up until the portal supplies
+    them, so a lookup that failed when the record was created or completed is retried on
+    later ticks rather than frozen at no schedule. Failed states (window expired, cancelled
+    and the like) never carry an observed block, so they stay skipped even with no times.
+
+    This is F2 option A from .planning/v2.4-INTENT-REVIEW.md. The function makes no query, no
+    network call and no mutation, and trusts the two state lists it is given.
+
+    Args:
+        existing_record: the stored ObservationRecord for this request, or None if there is none.
+        portal_state: the request's current state as reported by the portal.
+        terminal_states: the facility's terminal observing states.
+        failed_states: the facility's failed observing states (a subset of the terminal ones).
+
+    Returns:
+        bool: True when a live lookup is needed; False when it can be skipped.
+    """
+    if existing_record is None:
+        return True
+    if existing_record.status != portal_state:
+        return True
+    if existing_record.status not in terminal_states:
+        return True
+    if existing_record.status not in failed_states and (
+        existing_record.scheduled_start is None or existing_record.scheduled_end is None
+    ):
+        return True
+    return False
 
 
 def _preserve_observed_site_keys(existing: Any, rebuilt: dict[str, Any]) -> dict[str, Any]:
@@ -411,9 +463,12 @@ def _changed_record_fields(
             resolved schedule -- the live fallback lookup that would otherwise produce one
             is deliberately skipped (D-B) -- so comparing the two schedule fields against
             None here would report a spurious change on every record that already has real
-            times. Callers pass the request's 'embedded' flag from _resolve_schedule() so a
-            fallback-path request is compared on status/parameters only, matching what a
-            dry run can actually know without making the network call it exists to avoid.
+            times. The same holds for a real-run request whose lookup was skipped because the
+            record is already finished at the same portal state (F2). Callers pass True only
+            when this run resolved a schedule (an embedded block, or a real-run live lookup)
+            and False for a dry-run fallback or a skipped lookup, so such a request is
+            compared on status/parameters only, matching what the run can actually know
+            without making the network call it exists to avoid.
 
     Returns:
         dict[str, Any]: field name -> new value for each of the (up to four) fields whose
@@ -507,6 +562,10 @@ def sweep_proposal(
 
     facility = LCOFacility()
     facility.set_user(user)
+    # Read once per sweep from the facility's own lists, never hard-coded, so this gate cannot
+    # diverge from TOM's notion of which states are finished (F2).
+    terminal_states = frozenset(facility.get_terminal_observing_states())
+    failed_states = frozenset(facility.get_failed_observing_states())
 
     requestgroups_seen = 0
     created = 0
@@ -519,6 +578,7 @@ def sweep_proposal(
     block_lookups_failed = 0
     embedded_blocks = 0
     fallback_lookups_needed = 0
+    fallback_lookups_skipped = 0
     # De-dups the dry-run target counter within this invocation only (see the dry-run
     # branch below): a real run saves the target on the first request in a group and
     # matches it on the second, but a dry run never saves anything, so without this set
@@ -574,24 +634,37 @@ def sweep_proposal(
                 continue
 
             status = request.get('state', '')
-            scheduled_start, scheduled_end, lookup_failed, embedded = _resolve_schedule(facility, request, dry_run)
+            # Read once, before the schedule is resolved, so the F2 skip decision sees the
+            # stored state. The dry-run branch reuses it; the real branch keeps its own
+            # get_or_create below, so a duplicate (facility, observation_id) pair still
+            # fails the sweep exactly as before.
+            existing_record = ObservationRecord.objects.filter(
+                facility=facility.name, observation_id=observation_id
+            ).first()
+            lookup_needed = _schedule_lookup_is_needed(existing_record, status, terminal_states, failed_states)
+            scheduled_start, scheduled_end, lookup_failed, embedded = _resolve_schedule(
+                facility, request, dry_run, skip_live_lookup=not lookup_needed
+            )
             # Requests skipped above (no id, no named target, no usable elements/
-            # instrument_type) never reach here, so they are never counted under either
+            # instrument_type) never reach here, so they are never counted under any
             # schedule-path counter.
             if embedded:
                 embedded_blocks += 1
-            else:
+            elif lookup_needed:
                 fallback_lookups_needed += 1
+            else:
+                fallback_lookups_skipped += 1
             if lookup_failed:
                 block_lookups_failed += 1
                 stderr.write(f'Failed to resolve observed block for observation_id={observation_id!r}.')
             scheduled_start = _parse_datetime_value(scheduled_start)
             scheduled_end = _parse_datetime_value(scheduled_end)
+            # The schedule is compared only when this run actually resolved one. A skipped
+            # lookup, or a dry-run fallback, compares status and parameters only, so both
+            # modes decide identically (T-ik7-02).
+            compare_schedule = embedded or (lookup_needed and not dry_run)
 
             if dry_run:
-                existing_record = ObservationRecord.objects.filter(
-                    facility=facility.name, observation_id=observation_id
-                ).first()
                 if existing_record is None:
                     created += 1
                     record_verb = 'create'
@@ -602,7 +675,7 @@ def sweep_proposal(
                         scheduled_start,
                         scheduled_end,
                         parameters,
-                        compare_schedule=embedded,
+                        compare_schedule=compare_schedule,
                     )
                     if changes:
                         updated += 1
@@ -654,7 +727,9 @@ def sweep_proposal(
             if record_created:
                 created += 1
             else:
-                changes = _changed_record_fields(record, status, scheduled_start, scheduled_end, parameters)
+                changes = _changed_record_fields(
+                    record, status, scheduled_start, scheduled_end, parameters, compare_schedule=compare_schedule
+                )
                 if changes:
                     for field, value in changes.items():
                         setattr(record, field, value)
@@ -710,6 +785,7 @@ def sweep_proposal(
         f'{"groups would create" if dry_run else "groups created"}: {groups_created}, '
         f'{"groups would reuse" if dry_run else "groups reused"}: {groups_reused}, '
         f'embedded blocks: {embedded_blocks}, fallback lookups needed: {fallback_lookups_needed}, '
+        f'fallback lookups skipped: {fallback_lookups_skipped}, '
         f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}, '
         f'target list: {list_verb} {list_name!r}, '
         f'{"targets would add to list" if dry_run else "targets added to list"}: {targets_added}'
@@ -818,7 +894,18 @@ class Command(BaseCommand):
     embedded 'observations' block), a dry run compares status and parameters only, since the
     schedule fields it would otherwise compare are never resolved under --dry-run. Such a
     record can therefore be reported unchanged by a dry run when only its schedule times
-    would actually move on a real pass.
+    would actually move on a real pass. A record whose lookup is skipped (see below) is
+    compared the same way in both modes: status and parameters only.
+
+    The list payload carries no observed blocks, so each request would otherwise cost a live
+    get_observation_status() lookup (two portal GETs) on every tick (F2). A record already in
+    one of the facility's terminal states, which the portal still reports in that same state,
+    is therefore not looked up: its status and parameters are compared and its stored
+    scheduled_start/scheduled_end stay as they are. It is counted under 'fallback lookups
+    skipped'. A brand-new request, a record still in a non-terminal state, a record whose
+    state changed, and a completed record still missing its scheduled times are all looked up
+    (the last so a failed lookup is retried rather than frozen). A request with an embedded
+    'observations' block is unaffected, since reading it costs no network call.
 
     Every Target the sweep touches -- matched by fuzzy name or newly built from orbital
     elements -- is collected into a TargetList named '<proposal>_targets', created on the
