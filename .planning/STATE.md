@@ -4,11 +4,11 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 37
 status: completed
-stopped_at: Completed quick task 260927-eqs (unattended run banners in host-local time + HTTP status codes on status_refresh failures)
-last_updated: "2026-09-28T01:43:20.608Z"
-last_activity: 2026-09-27
-last_activity_desc: Phase 37 complete
-state_head: dbd58d75514af36e2edec4528de8b7361f5b856e
+stopped_at: v2.4 intent-review walkthrough in progress — setup step 2 done (KEY2026B-004 watched, first live discovery ticks), F1 churn loop found and fixed by quick task 260929-svk; next is setup step 3 (class-wide KEY2026B-004 run) then Q1–Q8
+last_updated: "2026-09-30T05:05:00.000Z"
+last_activity: 2026-09-29
+last_activity_desc: Quick task 260929-svk complete (F1 discovery/sweep churn fix)
+state_head: 213b8baae2d9aa4ffa15e837e8341a6c33012414
 progress:
   total_phases: 5
   completed_phases: 37
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 Phase: 37
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-27 - Completed quick task 260927-eqs: Timestamp each unattended run and log HTTP status codes on status_refresh failures
+Last activity: 2026-09-29 - Completed quick task 260929-svk: Stop the discovery/sweep churn loop on ObservationRecord.parameters (intent-review finding F1)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -482,6 +482,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260927-eqs | Timestamp each unattended run and log HTTP status codes on status_refresh failures: START/END banners now host-local ISO time to the second with `duration=Ns` on END; status_refresh per-record/outage lines, step summary and failure email carry e.g. `HTTPError 502` (status code only, never body/URL/headers — SCHED-10 test extended); runbook updated | 2026-09-27 | 2da32fe | complete | [260927-eqs-timestamp-each-unattended-run-and-log-ht](./quick/260927-eqs-timestamp-each-unattended-run-and-log-ht/) |
 | 15 | Show both UTC and host-local time on run_unattended START/END banners and the in-process lock-held line (follow-up to 260927-eqs; commit 4d07072) | 2026-09-28 | 4d07072 | — | — |
 | 16 | Stop TestCronLine's lock-held exit-matrix test from appending fake 'lock held' lines to the live /var/log/fomo/unattended.log (commit dbd58d7) | 2026-09-28 | dbd58d7 | — | — |
+| 260929-svk | Stop the discovery/sweep churn loop on ObservationRecord.parameters: discovery preserves the sweep's OBSERVED_SITE_PARAMETER_KEYS (intent-review finding F1) | 2026-09-30 | 213b8ba | — | [260929-svk-stop-the-discovery-sweep-churn-loop-on-o](./quick/260929-svk-stop-the-discovery-sweep-churn-loop-on-o/) |
 
 ## Deferred Items
 
@@ -520,9 +521,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T18:30:00Z
-Stopped at: v2.4 close-out — intent-review walkthrough set up, not yet started. Framing decisions made (current DB, real Didymos completed, KEY2026B-004 added); DB snapshotted; dev server up at tlister-thinkmate.lco.gtn:8000. Next action is setup step 2 (add KEY2026B-004 WatchedProposal, wait one tick).
-Resume file: .planning/v2.4-INTENT-REVIEW.md — read "Walkthrough setup (2026-09-29)" first, then work Q1–Q7.
+Last session: 2026-09-30T05:05:00Z
+Stopped at: v2.4 close-out walkthrough, mid-setup. Done: step 1 (DB snapshot), step 2 (`KEY2026B-004` `WatchedProposal` added 16:30 PDT, attributed to `look_admin`; first live discovery created 35 records / 5 groups / 12 `ProposalTimeAllocation` rows). Found F1 (discovery ⇄ sweep churn on `parameters`) and fixed it via quick task 260929-svk (commits 6b3a731, 7f31677, 213b8ba); ticks 21:30/21:45/22:00 confirm `project_sweep: updated: 0, site_lookups: 0`. Q8 (watched-proposal entry point, create-only attribution) added to the review doc. Next: setup step 3 (class-wide KEY2026B-004 run + attribute the 14 groups), step 4 (complete Didymos via `load_telescope_runs`), step 5 (retire orphans), then Q1–Q8.
+Resume file: .planning/v2.4-INTENT-REVIEW.md — "Walkthrough setup" → "Found during the walkthrough" (F1) → Q1–Q8.
 
 ## Operator Next Steps
 
