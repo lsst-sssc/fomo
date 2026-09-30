@@ -1,15 +1,16 @@
+import copy
 import io
 from unittest.mock import MagicMock, patch
 
 import requests
 from django.contrib.auth.models import User
 from django.core.management import CommandError, call_command
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.management.commands.backfill_lco_observations import sweep_proposal
+from solsys_code.management.commands.backfill_lco_observations import _preserve_observed_site_keys, sweep_proposal
 from solsys_code.models import WatchedProposal
 
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
@@ -1456,3 +1457,205 @@ class TestBareInvocationRejectsProposalOnlyFlags(TestCase):
             )
         self.assertIn('--target-list', str(ctx.exception))
         mock_make_request.assert_not_called()
+
+
+_MOVED_WINDOW = [{'start': '2026-07-03T00:00:00', 'end': '2026-07-04T00:00:00'}]
+
+
+class TestObservedSiteKeysSurviveDiscovery(TestCase):
+    """Discovery must carry the projector sweep's observed-site keys forward (F1).
+
+    The three key names are spelled literally on purpose: they are the contract with the
+    sweep's resolve_observed_site(), so renaming the shared constant must fail these tests.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+
+    def setUp(self):
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        self.mock_get_observation_status = patcher.start()
+        self.mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+        self.addCleanup(patcher.stop)
+
+    def _first_pass(self, mock_make_request, windows=None):
+        mock_make_request.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, windows=windows)])]
+        )
+        call_command('backfill_lco_observations', '--proposal=LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+    def _tag_as_swept(self, observation_id='10', site='elp', telescope='1m0a', enclosure='doma'):
+        """Write the three keys exactly as resolve_observed_site() does, and reload."""
+        record = ObservationRecord.objects.get(facility='LCO', observation_id=observation_id)
+        record.parameters.update(
+            {'observed_site': site, 'observed_telescope': telescope, 'observed_enclosure': enclosure}
+        )
+        record.save(update_fields=['parameters'])
+        # update_fields=['parameters'] does not write 'modified', so reload before capturing
+        # it: otherwise a no-churn assertion compares against a value that was never stored.
+        record.refresh_from_db()
+        return record
+
+    def _second_pass(self, mock_make_request, dry_run, windows=None):
+        mock_make_request.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, windows=windows)])]
+        )
+        args = ['--proposal=LCO2026A-003']
+        if dry_run:
+            args.append('--dry-run')
+        stdout = io.StringIO()
+        call_command('backfill_lco_observations', *args, stdout=stdout, stderr=io.StringIO())
+        return stdout.getvalue()
+
+    def _summary(self, dry_run, updated, unchanged):
+        return _expected_summary(
+            dry_run=dry_run,
+            requestgroups_seen=1,
+            created=0,
+            updated=updated,
+            unchanged=unchanged,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+            list_reused=True,
+            targets_added=1,
+        )
+
+    def _assert_keys(self, record, site='elp', telescope='1m0a', enclosure='doma'):
+        self.assertEqual(record.parameters['observed_site'], site)
+        self.assertEqual(record.parameters['observed_telescope'], telescope)
+        self.assertEqual(record.parameters['observed_enclosure'], enclosure)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_real_run_over_unchanged_data_keeps_keys_and_does_not_save(self, mock_make_request):
+        self._first_pass(mock_make_request)
+        tagged = self._tag_as_swept()
+        modified_before = tagged.modified
+
+        out = self._second_pass(mock_make_request, dry_run=False)
+
+        self.assertIn(self._summary(dry_run=False, updated=0, unchanged=1), out)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self._assert_keys(record)
+        self.assertEqual(record.parameters['proposal'], 'LCO2026A-003')
+        self.assertEqual(record.parameters['instrument_type'], '1M0-SCICAM-SINISTRO')
+        self.assertEqual(record.parameters['start'], '2026-07-01T00:00:00')
+        self.assertEqual(record.parameters['end'], '2026-07-02T00:00:00')
+        self.assertEqual(record.modified, modified_before)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_real_run_with_moved_window_updates_portal_keys_and_keeps_observed_keys(self, mock_make_request):
+        self._first_pass(mock_make_request)
+        self._tag_as_swept()
+
+        out = self._second_pass(mock_make_request, dry_run=False, windows=_MOVED_WINDOW)
+
+        self.assertIn(self._summary(dry_run=False, updated=1, unchanged=0), out)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.parameters['start'], '2026-07-03T00:00:00')
+        self.assertEqual(record.parameters['end'], '2026-07-04T00:00:00')
+        self._assert_keys(record)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_over_unchanged_data_reports_unchanged_and_touches_nothing(self, mock_make_request):
+        self._first_pass(mock_make_request)
+        tagged = self._tag_as_swept()
+        modified_before = tagged.modified
+
+        out = self._second_pass(mock_make_request, dry_run=True)
+
+        self.assertIn(self._summary(dry_run=True, updated=0, unchanged=1), out)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self._assert_keys(record)
+        self.assertEqual(record.modified, modified_before)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_with_moved_window_would_update_and_writes_nothing(self, mock_make_request):
+        self._first_pass(mock_make_request)
+        self._tag_as_swept()
+
+        out = self._second_pass(mock_make_request, dry_run=True, windows=_MOVED_WINDOW)
+
+        self.assertIn(self._summary(dry_run=True, updated=1, unchanged=0), out)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.parameters['start'], '2026-07-01T00:00:00')
+        self._assert_keys(record)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_none_valued_enclosure_is_carried_forward_as_none(self, mock_make_request):
+        self._first_pass(mock_make_request)
+        self._tag_as_swept(enclosure=None)
+
+        out = self._second_pass(mock_make_request, dry_run=False)
+
+        self.assertIn(self._summary(dry_run=False, updated=0, unchanged=1), out)
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertIn('observed_enclosure', record.parameters)
+        self.assertIsNone(record.parameters['observed_enclosure'])
+
+
+class TestPreserveObservedSiteKeys(SimpleTestCase):
+    def test_present_keys_are_copied_including_none_and_portal_keys_come_from_rebuilt(self):
+        existing = {
+            'proposal': 'LCO2026A-003',
+            'start': '2026-07-01T00:00:00',
+            'observed_site': 'elp',
+            'observed_telescope': '1m0a',
+            'observed_enclosure': None,
+        }
+        rebuilt = {'proposal': 'LCO2026A-003', 'start': '2026-07-03T00:00:00'}
+
+        result = _preserve_observed_site_keys(existing, rebuilt)
+
+        self.assertEqual(
+            result,
+            {
+                'proposal': 'LCO2026A-003',
+                'start': '2026-07-03T00:00:00',
+                'observed_site': 'elp',
+                'observed_telescope': '1m0a',
+                'observed_enclosure': None,
+            },
+        )
+
+    def test_existing_without_keys_gives_an_equal_new_dict(self):
+        rebuilt = {'proposal': 'LCO2026A-003', 'start': '2026-07-03T00:00:00'}
+
+        result = _preserve_observed_site_keys({'proposal': 'old'}, rebuilt)
+
+        self.assertEqual(result, rebuilt)
+        self.assertIsNot(result, rebuilt)
+
+    def test_partial_existing_copies_only_the_keys_it_has(self):
+        result = _preserve_observed_site_keys({'observed_site': 'elp'}, {'proposal': 'P'})
+
+        self.assertEqual(result, {'proposal': 'P', 'observed_site': 'elp'})
+        self.assertNotIn('observed_telescope', result)
+        self.assertNotIn('observed_enclosure', result)
+
+    def test_neither_argument_is_mutated(self):
+        existing = {'proposal': 'old', 'observed_site': 'elp', 'observed_telescope': '1m0a'}
+        rebuilt = {'proposal': 'P', 'start': 's'}
+        existing_snapshot, rebuilt_snapshot = copy.deepcopy(existing), copy.deepcopy(rebuilt)
+
+        _preserve_observed_site_keys(existing, rebuilt)
+
+        self.assertEqual(existing, existing_snapshot)
+        self.assertEqual(rebuilt, rebuilt_snapshot)
+
+    def test_non_dict_existing_gives_a_copy_of_rebuilt(self):
+        rebuilt = {'proposal': 'P'}
+
+        result = _preserve_observed_site_keys(None, rebuilt)
+
+        self.assertEqual(result, rebuilt)
+        self.assertIsNot(result, rebuilt)
