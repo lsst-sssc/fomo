@@ -29,9 +29,7 @@ SECRET_KEY = '1c1nvy&amp;t@z+wq16gbfag8_-t&amp;e#mppk4h=syp*i*fs^hi&amp;7ihi'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [
-    'tlister-thinkmate.lco.gtn',
-]
+ALLOWED_HOSTS = ['tlister-thinkmate.lco.gtn', '127.0.0.1']
 
 
 # Application definition

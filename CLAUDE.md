@@ -77,6 +77,12 @@ data services via `SolsysCodeConfig.data_services()` in `solsys_code/apps.py`; t
 target-detail buttons are injected via the app-config integration hooks (`nav_items`,
 `target_detail_buttons`).
 
+> **ALeRCE integration:** target `tom_dataservices.data_services.alerce.AlerceDataService`
+> (uses `pyvo`/TAP against `https://tap.alerce.online/tap` plus the `alerce` python client), **not**
+> `tom_alerts.brokers.alerce.ALeRCEBroker`. `tom_alerts`/`tom_catalogs` (and thus `ALeRCEBroker`) are
+> deprecated in tom_base's v3 update in favor of `tom_dataservices` and slated for removal — see
+> `tom_base/docs/introduction/updating.rst`.
+
 ## Testing
 
 **The Django test runner (`python manage.py test`) is the only functioning test setup.** All real tests
