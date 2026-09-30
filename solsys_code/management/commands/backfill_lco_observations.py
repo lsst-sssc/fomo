@@ -27,6 +27,10 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.base_models import REQUIRED_NON_SIDEREAL_FIELDS, REQUIRED_NON_SIDEREAL_FIELDS_PER_SCHEME
 from tom_targets.models import Target, TargetList
 
+# The parameters-key reservation shared with the projector sweep's one-time observed-site
+# lookup (calendar_utils D-09). Discovery must carry these keys forward and never erase them
+# (F1, v2.4-INTENT-REVIEW.md).
+from solsys_code.calendar_utils import OBSERVED_SITE_PARAMETER_KEYS
 from solsys_code.models import WatchedProposal
 
 logger = logging.getLogger(__name__)
@@ -351,6 +355,34 @@ def _resolve_schedule(facility: LCOFacility, request: dict[str, Any], dry_run: b
     return result.get('scheduled_start'), result.get('scheduled_end'), False, embedded
 
 
+def _preserve_observed_site_keys(existing: Any, rebuilt: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of 'rebuilt' that also carries the sweep's observed-site keys from 'existing'.
+
+    The projector sweep stores the OBSERVED_SITE_PARAMETER_KEYS in ObservationRecord.parameters
+    once per record, ever, and treats their presence as "already looked up".
+    _build_parameters() never produces them, so a whole-dict comparison would see them as
+    portal drift on every tick: discovery would erase them, the post_save trigger would
+    re-draw the event with the coarse telescope token, and the next sweep would repeat a live
+    portal lookup for every tagged record (F1).
+
+    Presence is tested by membership, never truthiness, so a key the sweep stored as None
+    (for example 'observed_enclosure' when the portal block has no enclosure) survives too.
+
+    Args:
+        existing: the record's current parameters. Anything that is not a dict carries nothing.
+        rebuilt: the freshly built parameters dict. Its portal-owned keys always win.
+
+    Returns:
+        dict[str, Any]: a new dict; neither argument is mutated.
+    """
+    merged = dict(rebuilt)
+    if isinstance(existing, dict):
+        for key in OBSERVED_SITE_PARAMETER_KEYS:
+            if key in existing:
+                merged[key] = existing[key]
+    return merged
+
+
 def _changed_record_fields(
     record: ObservationRecord,
     status: str,
@@ -369,7 +401,11 @@ def _changed_record_fields(
         status: the request's current portal state.
         scheduled_start: the resolved scheduled start, or None.
         scheduled_end: the resolved scheduled end, or None.
-        parameters: the freshly built ObservationRecord.parameters dict.
+        parameters: the freshly built ObservationRecord.parameters dict. Any of the
+            OBSERVED_SITE_PARAMETER_KEYS already on 'record.parameters' are carried into it
+            before comparing (F1), so the sweep's one-time site lookup is never erased or
+            counted as portal drift. When 'parameters' appears in the returned dict, it is
+            this merged dict.
         compare_schedule: whether 'scheduled_start'/'scheduled_end' are compared at all.
             Under --dry-run, a request with no embedded 'observations' block has no
             resolved schedule -- the live fallback lookup that would otherwise produce one
@@ -384,6 +420,7 @@ def _changed_record_fields(
             desired value differs from what 'record' currently holds. An empty dict means
             nothing would change.
     """
+    parameters = _preserve_observed_site_keys(record.parameters, parameters)
     changes: dict[str, Any] = {}
     if record.status != status:
         changes['status'] = status
