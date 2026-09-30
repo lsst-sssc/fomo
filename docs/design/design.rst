@@ -42,3 +42,5 @@ Design Notes
    target_origin_tracking
    scout_element_history
    fink_sso_support
+   alerce_sso_support
+
