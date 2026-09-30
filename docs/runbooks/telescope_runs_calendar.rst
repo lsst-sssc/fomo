@@ -370,7 +370,10 @@ situation is an easy mistake.
   ``observed_telescope``, ``observed_enclosure``) that the projector sweep's
   one-time lookup stores in ``parameters`` are carried forward and never
   erased, so a re-run over unchanged portal data reports the record
-  ``unchanged``.
+  ``unchanged``. A record already in a finished state, which the portal still
+  reports in the same portal state, keeps its stored ``scheduled_start`` and
+  ``scheduled_end`` while its status and parameters are still compared and
+  refreshed; no per-request lookup is made for it.
 * **Unmatched targets are always built as non-sidereal**, from the
   request's own orbital elements -- never a sidereal field ``Target`` from
   RA/Dec, and there is no ``--create-missing-targets`` flag to opt in or
@@ -439,7 +442,9 @@ same portal payload will report -- the one honest caveat being that a
 request needing the live fallback lookup (no embedded ``observations``
 block) has its schedule compared by a real run but not by a dry run, so
 such a record can be reported ``unchanged`` by a dry run when only its
-schedule times would actually move. A dry run also reports which
+schedule times would actually move. A request whose lookup is skipped
+under the finished-record rule described below is compared identically by a
+dry run and a real run. A dry run also reports which
 ``TargetList`` it would create or reuse and how many targets it would
 add, without creating the list -- so an operator can see a name collision
 with an existing list before anything is written:
@@ -460,23 +465,41 @@ counted under ``block lookups failed``, never fatal -- the record is still
 created or updated with whatever status the request payload itself
 reported, just without resolved schedule times.
 
-The summary also reports ``embedded blocks`` and ``fallback lookups
-needed`` -- how many requests in this run carried an embedded
-``observations`` block versus how many would need (or, on a real run,
-used) the live per-request fallback lookup. Both counters are populated in
-both modes, so a dry run alone tells an operator which schedule path the
-portal actually exercises for a given proposal, without making a single
-network call beyond the initial ``RequestGroup`` listing.
+The live lookup is not made for a record that is already finished. When the
+record's stored state is one of the terminal states reported by
+``LCOFacility.get_terminal_observing_states()`` and equals the state the
+portal reports for the request, the record is compared on status and
+parameters only and its stored ``scheduled_start``/``scheduled_end`` are left
+as they are. The exception is a completed record that is still missing its
+scheduled times: it keeps being looked up until the portal supplies them, so a
+failed lookup is retried rather than frozen. Failed states such as
+``WINDOW_EXPIRED`` or ``CANCELED`` never carry an observed block, so they stay
+skipped even with no times. A brand-new request, a record still in a
+non-terminal state, and a record whose state changed are all still looked up.
+With the portal's listing carrying no observed blocks, this keeps a tick's
+lookups roughly equal to the number of unfinished and new requests as a
+proposal ages, instead of growing with every request ever made.
+
+The summary also reports ``embedded blocks``, ``fallback lookups needed`` and
+``fallback lookups skipped`` -- how many requests in this run carried an
+embedded ``observations`` block, how many would need (or, on a real run,
+used) the live per-request fallback lookup, and how many requests with no
+embedded block had that lookup skipped under the rule above. All three
+counters are populated in both modes and counted identically, and they always
+add up to created + updated + unchanged. A dry run alone therefore tells an
+operator which schedule path the portal actually exercises for a given
+proposal, without making a single network call beyond the initial
+``RequestGroup`` listing.
 
 The final summary line reports these counters. A real pass::
 
-   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: 0, target list: created 'LCO2026A-001_targets', targets added to list: 11
+   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, embedded blocks: 5, fallback lookups needed: 7, fallback lookups skipped: 3, block lookups failed: 0, target list: created 'LCO2026A-001_targets', targets added to list: 11
 
 A ``--dry-run`` pass over the same proposal -- same counts, would-forms,
 and ``block lookups failed`` reported as not applicable since the live
 fallback lookup that would produce it is skipped entirely::
 
-   requestgroups seen: 6, would create: 4, would update: 8, unchanged: 3, skipped: 1, targets would create: 2, groups would create: 1, groups would reuse: 2, embedded blocks: 5, fallback lookups needed: 9, block lookups failed: n/a (dry-run), target list: would reuse 'LCO2026A-001_targets', targets would add to list: 11
+   requestgroups seen: 6, would create: 4, would update: 8, unchanged: 3, skipped: 1, targets would create: 2, groups would create: 1, groups would reuse: 2, embedded blocks: 5, fallback lookups needed: 7, fallback lookups skipped: 3, block lookups failed: n/a (dry-run), target list: would reuse 'LCO2026A-001_targets', targets would add to list: 11
 
 **Campaign-surface consequence.** A ``TargetList`` is also what FOMO's
 campaign surfaces treat as a campaign, so a backfill-created list shows up
