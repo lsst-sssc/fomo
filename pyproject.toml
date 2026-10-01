@@ -38,9 +38,8 @@ dev = [
     "ipython",
     "jupyter", # Clears output from Jupyter notebooks
     "playwright", # Headless-browser functional tests (solsys_code/tests/test_bootstrap5_rendering.py)
+    "coverage", # Used to report total code coverage of the Django test suite
     "pre-commit", # Used to run checks before finalizing a git commit
-    "pytest",
-    "pytest-cov", # Used to report total code coverage
     "ruff", # Used for static linting of files
 ]
 
@@ -53,22 +52,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
 write_to = "src/fomo/_version.py"
-
-[tool.pytest.ini_options]
-testpaths = [
-    "tests",
-    "src",
-    "docs",
-]
-
-[tool.black]
-line-length = 120
-target-version = ["py310"]
-
-[tool.isort]
-profile = "black"
-line_length = 120
-addopts = "--doctest-modules --doctest-glob=*.rst"
 
 [tool.ruff]
 line-length = 120
@@ -130,4 +113,5 @@ ignore = [
 "**/tests/*" = ["D101", "D102"]
 
 [tool.coverage.run]
-omit=["src/fomo/_version.py"]
+source = ["solsys_code", "src/fomo", "src/templatetags"]
+omit = ["src/fomo/_version.py", "*/migrations/*", "*/tests/*"]

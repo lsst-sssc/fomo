@@ -38,6 +38,6 @@ jobs:
     - name: List dependencies
       run: |
         pip list
-    - name: Run unit tests with pytest
+    - name: Run Django unit tests
       run: |
-        python -m pytest
+        python manage.py test --exclude-tag functional
