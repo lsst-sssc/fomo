@@ -7,6 +7,7 @@ readme = "README.md"
 authors = [
     { name = "SSSC FOMO Software Developers", email = "fomo@lco.global" }
 ]
+description = "Follow-up Observations of Moving Objects"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
