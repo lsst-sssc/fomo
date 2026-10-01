@@ -49,9 +49,7 @@ This is not a contrived case. It is the normal life cycle of a solar-system targ
 Restore alias matching in `TargetFilterSet.general_search`:
 
 ```python
-return queryset.filter(
-    Q(name__icontains=value) | Q(aliases__name__icontains=value)
-).distinct()
+return queryset.filter(Q(name__icontains=value) | Q(aliases__name__icontains=value)).distinct()
 ```
 
 The `.distinct()` matters — without it a target whose name *and* alias both match is returned twice by the join.
@@ -106,12 +104,11 @@ GENERAL_SEARCH_FUNCTIONS = {
 # myapp/search.py
 from django.db.models import Q
 
+
 def target_general_search(queryset, name, value):
     if not value:
         return queryset
-    return queryset.filter(
-        Q(name__icontains=value) | Q(aliases__name__icontains=value)
-    ).distinct()
+    return queryset.filter(Q(name__icontains=value) | Q(aliases__name__icontains=value)).distinct()
 ```
 
 Happy to open a PR for either or both parts if that's useful.
