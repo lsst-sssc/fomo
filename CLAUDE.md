@@ -25,9 +25,12 @@ python manage.py createsuperuser
 python manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --group_name NEOs
 python manage.py fetch_jplsbdb_objects --orbit_class IEO
 
-# Tests — the Django test runner is the only functioning suite (see "Testing" below):
-python manage.py test                          # Django app tests (solsys_code et al.)
+# Tests — the Django test runner is the only test runner (see "Testing" below):
+python manage.py test                          # everything, incl. Playwright browser tests (needs `playwright install chromium`)
+python manage.py test --exclude-tag functional # what pre-commit and the CI unit-test matrix run
+python manage.py test --tag functional         # Playwright browser tests only (CI functional-tests job)
 python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
+coverage run manage.py test --exclude-tag functional && coverage report       # with coverage
 
 # Lint / format (also enforced by pre-commit). Single quotes, 120-col line length.
 ruff check . --fix
@@ -79,13 +82,15 @@ target-detail buttons are injected via the app-config integration hooks (`nav_it
 
 ## Testing
 
-**The Django test runner (`python manage.py test`) is the only functioning test setup.** All real tests
-live under `solsys_code/` and use `django.test.TestCase`. Add new tests there, in the relevant app's
-`tests/` package.
+**The Django test runner (`python manage.py test`) is the only test runner.** All tests live under
+`solsys_code/` and use `django.test.TestCase`. Add new tests there, in the relevant app's `tests/`
+package. There is no pytest configuration and no `tests/` directory at the repo root — the LINCC
+template's pytest tooling was removed in the v2.2.0 update (issue #54); do not reintroduce it.
 
-The pytest configuration in `pyproject.toml` (`testpaths = ["tests", "src", "docs"]`) and the tests
-under `tests/fomo/` are a legacy of the LINCC project template. `python -m pytest` does not collect the
-Django app tests, and that suite will likely be removed — do not add tests to it.
+Tests that need a real browser (`StaticLiveServerTestCase` + Playwright) are tagged
+`@tag('functional')` so pre-commit and the CI unit-test matrix can skip them with
+`--exclude-tag functional`; the CI `functional-tests` job runs them with `--tag functional`.
+Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` in `pyproject.toml`).
 
 ## Conventions
 
@@ -94,8 +99,14 @@ Django app tests, and that suite will likely be removed — do not add tests to 
 - Targets are `NON_SIDEREAL`; default target permission is `OPEN` and `AUTH_STRATEGY='READ_ONLY'`.
 - ruff config (`pyproject.toml`) follows Rubin DM style: many `N8xx` naming rules are intentionally
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
-- pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, builds Sphinx
-  docs, and runs the pytest suite. CI (`.github/workflows/`) tests Python 3.10–3.12.
+- pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, and runs the
+  Django tests minus the `functional` tag (`django-test` hook). Sphinx docs are built only in CI. CI
+  (`.github/workflows/`) tests Python 3.10–3.12.
+- The repo is generated from the LINCC python-project-template (`.copier-answers.yml`). The template's
+  CI/pre-commit files assume pytest; after each `copier update` the test steps in
+  `testing-and-coverage.yml`, `smoke-test.yml` and `.pre-commit-config.yaml` must be re-pointed at
+  `manage.py test`, and the `ruff-pre-commit` rev (stale upstream) re-bumped — these are deliberate local
+  divergences. Answer `custom_install: custom`, never `retrofit` (which strips the ruff config).
 - **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
   `merge`, `cherry-pick`, `commit --amend`, etc.) — these operate on whatever `HEAD` currently
   points to, not the branch name mentioned in a prior command. `git push origin <branch>` in

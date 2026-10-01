@@ -6,7 +6,7 @@
 Welcome to fomo's documentation!
 ==============================================================================
 
-This documentation site contains an installation and setup guide for local 
+This documentation site contains an installation and setup guide for local
 installs, an overview of the ``fomo`` design documents, auto-generated API documentation (by Sphinx ``auto-api``) and tutorial and demonstration notebooks.
 
 What is FOMO?
