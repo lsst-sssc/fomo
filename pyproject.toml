@@ -40,7 +40,7 @@ dev = [
     "playwright", # Headless-browser functional tests (solsys_code/tests/test_bootstrap5_rendering.py)
     "coverage", # Used to report total code coverage of the Django test suite
     "pre-commit", # Used to run checks before finalizing a git commit
-    "ruff", # Used for static linting of files
+    "ruff>=0.16", # Static linting/formatting; keep the floor in step with the ruff-pre-commit rev in .pre-commit-config.yaml
 ]
 
 [build-system]
