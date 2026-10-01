@@ -163,3 +163,6 @@ docs/notebooks/data/**
 
 # Django MEDIA_ROOT — downloaded DataProduct files (src/fomo/settings.py)
 src/data/
+
+# Django STATIC_ROOT — `collectstatic` output (src/fomo/settings.py)
+src/_static/
