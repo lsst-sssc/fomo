@@ -47,7 +47,7 @@ repos:
         args: ["--verbose"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.2.1
+    rev: v0.16.9
     hooks:
       - id: ruff
         name: Lint code using ruff; sort and organize imports 
@@ -55,7 +55,7 @@ repos:
         args: ["--fix"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.2.1
+    rev: v0.16.9
     hooks:
       - id: ruff-format
         name: Format code using ruff
@@ -69,17 +69,16 @@ repos:
         verbose: true
         args:
           ["docs/pre_executed/"]
-    # Run unit tests, verify that they pass. Note that coverage is run against
-    # the ./src directory here because that is what will be committed. In the
-    # github workflow script, the coverage is run against the installed package
-    # and uploaded to Codecov by calling pytest like so:
-    # `python -m pytest --cov=<package_name> --cov-report=xml`
+    # Run the Django test suite (the only test runner for this project), skipping
+    # the Playwright browser tests tagged 'functional', which CI runs separately.
+    # Unlike the template's pytest hook there is no collection guard: an import
+    # error in a test module makes `manage.py test` exit non-zero and fail the hook.
   - repo: local
     hooks:
-      - id: pytest-check
-        name: Run unit tests
-        description: Run unit tests with pytest.
-        entry: bash -c "if python -m pytest --co -qq; then python -m pytest --cov=./src --cov-report=html; fi"
+      - id: django-test
+        name: Run Django unit tests (excluding functional)
+        description: Run the Django test suite with coverage, excluding tests tagged 'functional'.
+        entry: bash -c "coverage run manage.py test --exclude-tag functional && coverage html"
         language: system
         pass_filenames: false
         always_run: true
