@@ -4,11 +4,11 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 37
 status: completed
-stopped_at: v2.4 intent-review walkthrough in progress — setup steps 1–3 done (step 3 as one CampaignRun per target, runs #69–75); F1, F2-A and F5 fixed and confirmed live; F3/F4 open (routes noted in the review); next is setup step 4 (Didymos NTT/Magellan via load_telescope_runs) then Q1–Q8
-last_updated: "2026-10-01T21:40:00.000Z"
+stopped_at: v2.4 intent-review walkthrough in progress — setup steps 1–4 done, step 5 script ready (261002-dsa, operator runs it live); F1/F2-A/F5 fixed live, F3/F4 open; next is the step 5 live run then Q1–Q8
+last_updated: "2026-10-02T17:30:00.000Z"
 last_activity: 2026-10-01
-last_activity_desc: Quick task 261001-smo complete (F5 attribution bridge for container runs)
-state_head: f8ee7f32b999640687aec0885ba6dd058d84ed51
+last_activity_desc: Quick task 261002-dsa complete (orphan-event retirement script; live run pending)
+state_head: c0be3a4be5e9d360f9879280f142fc8199548025
 progress:
   total_phases: 5
   completed_phases: 37
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 Phase: 37
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-01 - Completed quick task 261001-smo: Fix F5: run the attribution bridge for container runs so a CampaignRunObservation link on a class-wide/queue run sets CalendarEventMeta.run on the record's observation event
+Last activity: 2026-10-02 - Completed quick task 261002-dsa: Retire the 10 orphan CalendarEvents (pks 44-52, 334) superseded by the Didymos ALLOC: nights (v2.4 intent-review setup step 5) (script committed; live run is the operator's)
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -460,6 +460,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260929-svk | Stop the discovery/sweep churn loop on ObservationRecord.parameters: discovery preserves the sweep's OBSERVED_SITE_PARAMETER_KEYS (intent-review finding F1) | 2026-09-30 | 213b8ba | — | [260929-svk-stop-the-discovery-sweep-churn-loop-on-o](./quick/260929-svk-stop-the-discovery-sweep-churn-loop-on-o/) |
 | 260930-85d | Skip discovery's live fallback schedule lookup for records already terminal at the same portal state (intent-review F2, option A) | 2026-09-30 | 96f3fd0 | — | [260930-85d-skip-discovery-s-live-fallback-schedule-](./quick/260930-85d-skip-discovery-s-live-fallback-schedule-/) |
 | 261001-smo | Fix F5: run the attribution bridge for container runs so a CampaignRunObservation link on a class-wide/queue run sets CalendarEventMeta.run on the record's observation event | 2026-10-02 | f8ee7f3 | — | [261001-smo-fix-f5-run-the-attribution-bridge-for-co](./quick/261001-smo-fix-f5-run-the-attribution-bridge-for-co/) |
+| 261002-dsa | Retire the 10 orphan CalendarEvents (pks 44-52, 334) superseded by the Didymos ALLOC: nights (v2.4 intent-review setup step 5) | 2026-10-02 | c0be3a4 | — | [261002-dsa-retire-the-10-orphan-calendarevents-pks-](./quick/261002-dsa-retire-the-10-orphan-calendarevents-pks-/) |
 
 ## Deferred Items
 
