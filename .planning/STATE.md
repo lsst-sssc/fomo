@@ -4,11 +4,11 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 37
 status: completed
-stopped_at: v2.4 intent-review walkthrough in progress — setup steps 1–4 done, step 5 script ready (261002-dsa, operator runs it live); F1/F2-A/F5 fixed live, F3/F4 open; next is the step 5 live run then Q1–Q8
-last_updated: "2026-10-02T17:30:00.000Z"
-last_activity: 2026-10-01
-last_activity_desc: Quick task 261002-dsa complete (orphan-event retirement script; live run pending)
-state_head: c0be3a4be5e9d360f9879280f142fc8199548025
+stopped_at: v2.4 intent-review walkthrough in progress — setup steps 1–4 done, step 5 script ready (261002-dsa, operator runs it live); F1/F2-A/F5/F6/F7 fixed, F8 repaired by hand (route open), F3/F4 open; next is the step 5 live run then Q1–Q8
+last_updated: "2026-10-02T19:25:00.000Z"
+last_activity: 2026-10-02
+last_activity_desc: Quick task 261002-gev complete (F7 non-LCO proposal codes are not fetchable, not failures)
+state_head: cfab05870a75a9e8c2c45d63c7b9e5d45da1adc0
 progress:
   total_phases: 5
   completed_phases: 37
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 Phase: 37
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-02 - Completed quick task 261002-dsa: Retire the 10 orphan CalendarEvents (pks 44-52, 334) superseded by the Didymos ALLOC: nights (v2.4 intent-review setup step 5) (script committed; live run is the operator's)
+Last activity: 2026-10-02 - Completed quick task 261002-gev: Fix F7: proposal_allocation fetch only attempts LCO-fetchable proposal codes; a non-LCO code is reported as not fetchable, never a step failure
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -461,6 +461,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 260930-85d | Skip discovery's live fallback schedule lookup for records already terminal at the same portal state (intent-review F2, option A) | 2026-09-30 | 96f3fd0 | — | [260930-85d-skip-discovery-s-live-fallback-schedule-](./quick/260930-85d-skip-discovery-s-live-fallback-schedule-/) |
 | 261001-smo | Fix F5: run the attribution bridge for container runs so a CampaignRunObservation link on a class-wide/queue run sets CalendarEventMeta.run on the record's observation event | 2026-10-02 | f8ee7f3 | — | [261001-smo-fix-f5-run-the-attribution-bridge-for-co](./quick/261001-smo-fix-f5-run-the-attribution-bridge-for-co/) |
 | 261002-dsa | Retire the 10 orphan CalendarEvents (pks 44-52, 334) superseded by the Didymos ALLOC: nights (v2.4 intent-review setup step 5) | 2026-10-02 | c0be3a4 | — | [261002-dsa-retire-the-10-orphan-calendarevents-pks-](./quick/261002-dsa-retire-the-10-orphan-calendarevents-pks-/) |
+| 261002-gev | Fix F7: proposal_allocation fetch only attempts LCO-fetchable proposal codes; a non-LCO code is reported as not fetchable, never a step failure | 2026-10-02 | cfab058 | — | [261002-gev-fix-f7-proposal-allocation-fetch-only-at](./quick/261002-gev-fix-f7-proposal-allocation-fetch-only-at/) |
 
 ## Deferred Items
 
