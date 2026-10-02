@@ -30,7 +30,7 @@ from solsys_code.allocation_projector import (
     allocation_night_title,
     night_bounds,
 )
-from solsys_code.campaign_reconciler import event_description, owned_events, reconcile_run
+from solsys_code.campaign_reconciler import dispatches_per_night, event_description, owned_events, reconcile_run
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import observing_night, sun_event
@@ -141,6 +141,23 @@ class AllocationProjectorTestBase(TestCase):
         )
         link = CampaignRunObservation.objects.create(run=run, observation_record=record)
         return record, link
+
+    def _make_record_event(self, record: ObservationRecord, start: datetime, end: datetime) -> CalendarEvent:
+        """Build the record's own observation-projector-style event, including the
+        `CalendarEventMeta.observation_record` link `write_event_meta()` would set in
+        production -- required for the unlink half's `observation_record__isnull=False`
+        filter to see it."""
+        facility = op.facility_for(record)
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url=op.event_url(record, facility),
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=start,
+            end_time=end,
+        )
+        op.write_event_meta(event, record)
+        return event
 
 
 class TestEndToEndAllocationNight(AllocationProjectorTestBase):
@@ -1020,23 +1037,6 @@ class TestFinalConvergenceGuard(AllocationProjectorTestBase):
 class TestAttributionBridge(AllocationProjectorTestBase):
     """Task 2, D-08: attribution is a link on the record's OWN event, both directions."""
 
-    def _make_record_event(self, record: ObservationRecord, start: datetime, end: datetime) -> CalendarEvent:
-        """Build the record's own observation-projector-style event, including the
-        `CalendarEventMeta.observation_record` link `write_event_meta()` would set in
-        production -- required for the unlink half's `observation_record__isnull=False`
-        filter to see it."""
-        facility = op.facility_for(record)
-        event = CalendarEvent.objects.create(
-            title='LCO record event',
-            url=op.event_url(record, facility),
-            telescope='FTN',
-            instrument='MuSCAT3',
-            start_time=start,
-            end_time=end,
-        )
-        op.write_event_meta(event, record)
-        return event
-
     def test_d08_round_trip_link_and_unlink_attribution(self):
         run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
         scheduled_start = datetime(2026, 7, 9, 20, 0, tzinfo=dt_timezone.utc)
@@ -1105,6 +1105,109 @@ class TestAttributionBridge(AllocationProjectorTestBase):
         self.assertEqual(meta.run_id, run.pk)
         self.assertEqual(meta.confirmed_by_id, staff_user.pk)
         self.assertEqual(meta.confirmed_at, confirmed_at)
+
+
+class TestContainerAttributionBridge(AllocationProjectorTestBase):
+    """F5 / quick task 261001-smo: container-dispatched runs (class-wide, satellite, queue-sourced)
+    attribute their linked records' own events through the same D-08 bridge a per-night run uses."""
+
+    def _make_container_run(self, **overrides) -> CampaignRun:
+        """An approved, queue-sourced, class-wide run: it dispatches to the `RUN:` container, not nights."""
+        kwargs = {
+            'source': CampaignRun.Source.LCO_QUEUE,
+            'telescope_class': CampaignRun.TelescopeClass.ONE_M0,
+            'site': None,
+            'site_raw': '',
+            'telescope_instrument': 'LCO 1m0 / Sinistro',
+            'window_start': date(2026, 7, 9),
+            'window_end': date(2026, 7, 20),
+        }
+        kwargs.update(overrides)
+        run = self._make_run(**kwargs)
+        self.assertFalse(dispatches_per_night(run))
+        return run
+
+    def _linked_record_event(self, run: CampaignRun) -> tuple[ObservationRecord, CampaignRunObservation, CalendarEvent]:
+        """Link a record to `run`, then give it its own observation event (unattributed)."""
+        start = datetime(2026, 7, 10, 2, 0, tzinfo=dt_timezone.utc)
+        end = start + timedelta(hours=1)
+        record, link = self._link_record(run, scheduled_start=start, scheduled_end=end)
+        event = self._make_record_event(record, start, end)
+        return record, link, event
+
+    def test_reconcile_attributes_the_linked_record_event(self):
+        run = self._make_container_run()
+        _record, _link, event = self._linked_record_event(run)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+        fields_before = (event.title, event.description, event.start_time, event.end_time, event.modified)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 0)
+        event.refresh_from_db()
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+        self.assertEqual(
+            (event.title, event.description, event.start_time, event.end_time, event.modified), fields_before
+        )
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        self.assertEqual(allocation_events(run).count(), 0)
+
+        again = reconcile_run(run)
+
+        self.assertEqual(again.unchanged, 1)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+
+    def test_dry_run_reconcile_attributes_nothing(self):
+        run = self._make_container_run()
+        _record, _link, event = self._linked_record_event(run)
+
+        reconcile_run(run, dry_run=True)
+
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+
+    def test_event_attributed_to_a_different_run_is_left_alone_and_counted_blocked(self):
+        run = self._make_container_run()
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        _record, _link, event = self._linked_record_event(run)
+        CalendarEventMeta.objects.filter(event=event).update(run=other_run)
+
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as logs:
+            result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, other_run.pk)
+        self.assertIn('Allocation attribution blocked', '\n'.join(logs.output))
+
+    def test_reconcile_clears_the_attribution_of_a_link_removed_without_signals(self):
+        run = self._make_container_run()
+        _record, link, event = self._linked_record_event(run)
+        reconcile_run(run)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+        event.refresh_from_db()
+        fields_before = (event.title, event.description, event.start_time, event.end_time)
+
+        with patch('solsys_code.allocation_projector.reproject_allocation_if_dispatched'):
+            link.delete()
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+
+        reconcile_run(run)
+
+        event.refresh_from_db()
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+        self.assertEqual((event.title, event.description, event.start_time, event.end_time), fields_before)
+
+    def test_bridge_still_runs_when_the_container_key_itself_is_blocked(self):
+        run = self._make_container_run()
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        _record, _link, event = self._linked_record_event(run)
+        reconcile_run(run)
+        CalendarEventMeta.objects.filter(event__url=f'RUN:{run.pk}').update(run=other_run)
+        CalendarEventMeta.objects.filter(event=event).update(run=None)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
 
 
 class TestAllocationDeletionCascade(AllocationProjectorTestBase):

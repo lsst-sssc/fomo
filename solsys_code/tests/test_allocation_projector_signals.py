@@ -13,13 +13,14 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.utils import timezone
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import allocation_projector as ap
 from solsys_code.allocation_projector import allocation_events
-from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.campaign_reconciler import dispatches_per_night, reconcile_run
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.observation_projector import facility_for
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -207,6 +208,145 @@ class TestCampaignRunObservationDeleteReceiver(AllocationSignalsTestBase):
         self.assertFalse(CampaignRun.objects.filter(pk=run_pk).exists())
         self.assertFalse(CalendarEvent.objects.filter(url__startswith=f'ALLOC:{run_pk}:').exists())
         self.assertFalse(CalendarEventMeta.objects.filter(run_id=run_pk).exists())
+
+
+class TestContainerRunObservationReceivers(AllocationSignalsTestBase):
+    """F5 / quick task 261001-smo: link/record saves and link deletes attribute (or clear) the linked
+    record's own event for a container-dispatched run, through the bridge alone."""
+
+    def _make_container_run(self, **overrides) -> CampaignRun:
+        """An approved, queue-sourced, class-wide run: it dispatches to the `RUN:` container."""
+        kwargs = {
+            'campaign': None,
+            'source': CampaignRun.Source.LCO_QUEUE,
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'telescope_instrument': 'LCO 1m0 / Sinistro',
+            'site': None,
+            'site_raw': '',
+            'telescope_class': CampaignRun.TelescopeClass.ONE_M0,
+            'window_start': date(2026, 8, 1),
+            'window_end': date(2026, 8, 3),
+            'observation_details': 'Container signals fixture',
+        }
+        kwargs.update(overrides)
+        run = CampaignRun.objects.create(**kwargs)
+        self.assertFalse(dispatches_per_night(run))
+        return run
+
+    def _own_event(self, record: ObservationRecord) -> CalendarEvent:
+        """The record's own observation-projector event."""
+        return CalendarEvent.objects.get(url=facility_for(record).get_observation_url(record.observation_id))
+
+    def _record_with_event(self) -> tuple[ObservationRecord, CalendarEvent]:
+        """A not-yet-linked record whose own event already exists and is unattributed."""
+        start, end = self._night_2_block()
+        record = self._make_record(scheduled_start=start, scheduled_end=end)
+        event = self._own_event(record)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+        return record, event
+
+    def test_linking_a_record_attributes_its_event_with_no_explicit_reconcile(self):
+        container = self._make_container_run()
+        record, event = self._record_with_event()
+        fields_before = (event.title, event.description, event.start_time, event.end_time)
+
+        with patch('solsys_code.allocation_projector.project_allocation', wraps=ap.project_allocation) as wrapped:
+            CampaignRunObservation.objects.create(run=container, observation_record=record)
+
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, container.pk)
+        self.assertEqual(wrapped.call_count, 0)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'RUN:{container.pk}').exists())
+        self.assertEqual(allocation_events(container).count(), 0)
+        event.refresh_from_db()
+        self.assertEqual((event.title, event.description, event.start_time, event.end_time), fields_before)
+
+    def test_deleting_the_link_clears_its_event_attribution(self):
+        container = self._make_container_run()
+        record, event = self._record_with_event()
+        link = CampaignRunObservation.objects.create(run=container, observation_record=record)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, container.pk)
+        event.refresh_from_db()
+        fields_before = (event.title, event.description, event.start_time, event.end_time)
+
+        link.delete()
+
+        event.refresh_from_db()
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+        self.assertEqual((event.title, event.description, event.start_time, event.end_time), fields_before)
+
+    def test_deleting_the_link_keeps_a_staff_confirmed_attribution(self):
+        container = self._make_container_run()
+        record, event = self._record_with_event()
+        link = CampaignRunObservation.objects.create(run=container, observation_record=record)
+        staffer = User.objects.create(username=f'container-staffer-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event).update(
+            run=container, confirmed_by=staffer, confirmed_at=timezone.now()
+        )
+
+        link.delete()
+
+        meta = CalendarEventMeta.objects.get(event=event)
+        self.assertEqual(meta.run_id, container.pk)
+        self.assertEqual(meta.confirmed_by_id, staffer.pk)
+
+    def test_unapproved_container_run_attributes_nothing(self):
+        container = self._make_container_run(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        record, event = self._record_with_event()
+
+        CampaignRunObservation.objects.create(run=container, observation_record=record)
+
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+        self.assertEqual(reconcile_run(container).skipped_reason, 'not approved')
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+
+    def test_bridge_raising_does_not_abort_a_container_link_save(self):
+        container = self._make_container_run()
+        record, _event = self._record_with_event()
+
+        with (
+            patch(
+                'solsys_code.allocation_projector._sync_observation_attribution',
+                side_effect=ValueError('secret detail'),
+            ),
+            self.assertLogs('solsys_code.allocation_projector', level='WARNING') as logs,
+        ):
+            link = CampaignRunObservation.objects.create(run=container, observation_record=record)
+
+        self.assertTrue(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        joined = '\n'.join(logs.output)
+        self.assertIn('ValueError', joined)
+        self.assertNotIn('secret detail', joined)
+
+    def test_bridge_raising_does_not_abort_a_container_link_delete(self):
+        container = self._make_container_run()
+        record, _event = self._record_with_event()
+        link = CampaignRunObservation.objects.create(run=container, observation_record=record)
+
+        with (
+            patch(
+                'solsys_code.allocation_projector._sync_observation_attribution',
+                side_effect=ValueError('secret detail'),
+            ),
+            self.assertLogs('solsys_code.allocation_projector', level='WARNING') as logs,
+        ):
+            link.delete()
+
+        self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        joined = '\n'.join(logs.output)
+        self.assertIn('ValueError', joined)
+        self.assertNotIn('secret detail', joined)
+
+    def test_record_save_restores_a_missing_container_attribution(self):
+        container = self._make_container_run()
+        record, event = self._record_with_event()
+        CampaignRunObservation.objects.create(run=container, observation_record=record)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, container.pk)
+        # The live pre-fix state: attribution missing, written around every receiver.
+        CalendarEventMeta.objects.filter(event=event).update(run=None)
+
+        record.save()
+
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, container.pk)
 
 
 class TestCampaignRunObservationReceiverWiring(AllocationSignalsTestBase):
