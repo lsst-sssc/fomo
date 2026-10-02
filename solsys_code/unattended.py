@@ -481,7 +481,9 @@ def step_proposal_allocation(dry_run: bool) -> StepResult:
         dry_run: report a no-op summary without calling the portal when True.
 
     Returns:
-        StepResult: ``failed`` is True if any proposal's fetch raised. The summary is built
+        StepResult: ``failed`` is True if any proposal's fetch raised. A code that cannot be an
+            LCO/SOAR portal proposal is never requested and is counted under ``not fetchable``,
+            never as a failure (F7, quick task 261002-gev). The summary is built
             only from integer counters and (on failure) the first failing exception's class
             name -- never a credential value or a response body (T-37-04/T-37-05). When the
             per-step lock is contended, returns a non-failing ``StepResult`` noting the skip
@@ -492,8 +494,11 @@ def step_proposal_allocation(dry_run: bool) -> StepResult:
 
     try:
         with command_lock('proposal_allocation'):
-            attempted, rows_written, failed, first_exception = refresh_all(LCOFacility())
-            summary = f'proposals: {attempted}, rows written: {rows_written}, failed: {failed}'
+            attempted, rows_written, failed, first_exception, not_fetchable = refresh_all(LCOFacility())
+            summary = (
+                f'proposals: {attempted}, rows written: {rows_written}, failed: {failed}, '
+                f'not fetchable: {not_fetchable}'
+            )
             if first_exception:
                 summary += f', first error: {first_exception}'
             return StepResult(name='proposal_allocation', failed=failed > 0, summary=summary)

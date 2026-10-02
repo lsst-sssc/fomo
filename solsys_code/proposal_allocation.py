@@ -10,6 +10,11 @@ per observing night, with precedent in the NOIRLab/LCO proposal process -- NOT a
 measurement. Every "unused nights" figure this module derives must be presented as an
 estimate, and callers must render ``None`` as "not yet fetched", never as zero.
 
+F7 (quick task 261002-gev): only a proposal code that can be an LCO/SOAR portal proposal is fetched --
+every active ``WatchedProposal`` code, plus a ``CampaignRun`` code whose run came from the LCO/SOAR queue
+or sits at an LCO/SOAR observatory ``campaign_attribution`` names. Any other run code (e.g. an ESO code on
+a classical NTT line) is counted as not fetchable and never sent, so its run's tally stays "not yet known".
+
 Mirrors ``campaign_gap.py``'s import discipline (``solsys_code/campaign_gap.py:1-14``): this
 module must never import ``solsys_code.views`` or ``solsys_code.ephem_utils`` (or any module
 that imports either) at module scope -- that module's ~1.6 GB SPICE-kernel download side
@@ -24,12 +29,13 @@ from urllib.parse import quote, urljoin
 
 import requests
 from django import forms
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
 
+from solsys_code.campaign_attribution import LCO_SITE_CODE_TO_OBSCODE, OBSERVED_TELESCOPE_OBSCODES
 from solsys_code.models import CampaignRun, ProposalTimeAllocation, WatchedProposal
 
 # D-06: a deliberate, fixed rule of thumb with precedent in the NOIRLab/LCO proposal
@@ -79,20 +85,61 @@ class PortalUnavailable(Exception):  # noqa: N818 -- exact symbol name given by 
 # permissive for the file-parsing use case it serves.
 _PROPOSAL_CODE_RE = re.compile(r'^[A-Za-z0-9._-]{1,100}$')
 
+# F7 (quick task 261002-gev): only a code that can be an LCO/SOAR portal proposal is ever sent to the
+# portal. A classical schedule file can carry any observatory's proposal token (e.g. an ESO code on an
+# NTT line), and the portal answers such a code with an HTTP error, which failed this step on every tick.
+# The rule is run provenance, not code shape: a run's code is fetchable when the run came from the
+# LCO/SOAR queue, or its resolved site is one of the LCO/SOAR observatories ``campaign_attribution``
+# already verifies (FTN/FTS/SOAR today; the set grows when its alias tables grow, so it is derived from
+# them and never re-listed here). A code shape regex was rejected: nothing records the portal's naming,
+# so it would be a guess (see also WR-07 above, which keeps the charset guard a charset guard only).
+# ``telescope_class`` is deliberately NOT a branch: operators set it by hand with a different meaning
+# and ``derive_telescope_class()`` infers it from free text, so a false positive here would re-create F7.
+# A false negative is benign: the code is counted as not fetchable, and the tally says "not yet known".
+_PORTAL_RUN_SOURCES = (CampaignRun.Source.LCO_QUEUE, CampaignRun.Source.SOAR_QUEUE)
+_PORTAL_SITE_OBSCODES = frozenset(OBSERVED_TELESCOPE_OBSCODES.values()) | frozenset(LCO_SITE_CODE_TO_OBSCODE.values())
+
 
 def proposal_codes_to_fetch() -> list[str]:
-    """The union of every active ``WatchedProposal`` code and every distinct non-blank
-    ``CampaignRun.proposal_code``, as a sorted list of unique codes.
+    """Every proposal code that can be a portal proposal, as a sorted list of unique codes.
+
+    That is every active ``WatchedProposal`` code, plus every distinct non-blank
+    ``CampaignRun.proposal_code`` whose run came from the LCO/SOAR queue or whose resolved site is
+    one of the LCO/SOAR observatories ``campaign_attribution`` names (F7, quick task 261002-gev). A
+    code that is also an active watched proposal, or that also sits on a fetchable run, is fetched.
 
     Uses ``.values_list(..., flat=True).distinct()`` on both sides so no ``CampaignRun``
-    row -- and in particular no contact field -- is ever fetched into this process (T-37-06).
+    row -- and in particular no contact field -- is ever fetched into this process (T-37-06). The
+    site test is a JOIN in the WHERE clause, not a loaded column.
 
     Returns:
         list[str]: sorted, de-duplicated proposal codes.
     """
     watched = set(WatchedProposal.objects.filter(is_active=True).values_list('proposal_code', flat=True))
-    run_codes = set(CampaignRun.objects.exclude(proposal_code='').values_list('proposal_code', flat=True).distinct())
+    run_codes = set(
+        CampaignRun.objects.exclude(proposal_code='')
+        .filter(Q(source__in=_PORTAL_RUN_SOURCES) | Q(site__obscode__in=_PORTAL_SITE_OBSCODES))
+        .values_list('proposal_code', flat=True)
+        .distinct()
+    )
     return sorted(watched | run_codes)
+
+
+def proposal_codes_not_fetchable() -> list[str]:
+    """Every non-blank run proposal code that :func:`proposal_codes_to_fetch` leaves out, sorted.
+
+    These are codes on runs that cannot hold an LCO/SOAR portal proposal (e.g. an ESO code on a
+    classical NTT line). They are never requested; the unattended step counts them as not fetchable.
+    A code that is also an active watched proposal, or that also sits on a fetchable run, is fetched
+    and so is not listed here.
+
+    Uses ``values_list`` only, so no ``CampaignRun`` row or contact field is loaded (T-37-06).
+
+    Returns:
+        list[str]: sorted, de-duplicated proposal codes that are never fetched.
+    """
+    run_codes = set(CampaignRun.objects.exclude(proposal_code='').values_list('proposal_code', flat=True).distinct())
+    return sorted(run_codes - set(proposal_codes_to_fetch()))
 
 
 def fetch_proposal_allocations(proposal_code: str, facility: LCOFacility) -> list[dict[str, Any]]:
@@ -261,7 +308,7 @@ def estimated_unused_nights(proposal_code: str) -> int | None:
     return math.floor(unused_hours / HOURS_PER_NIGHT + 0.5)
 
 
-def refresh_all(facility: LCOFacility) -> tuple[int, int, int, str | None]:
+def refresh_all(facility: LCOFacility) -> tuple[int, int, int, str | None, int]:
     """Fetch and store every code :func:`proposal_codes_to_fetch` names, isolating a
     per-proposal failure so one bad code does not abandon the rest.
 
@@ -270,8 +317,10 @@ def refresh_all(facility: LCOFacility) -> tuple[int, int, int, str | None]:
             settings and auth header construction), reused across every fetch.
 
     Returns:
-        tuple[int, int, int, str | None]: (proposals attempted, rows written, proposals
-            that failed, the first failing proposal's exception class name or ``None``).
+        tuple[int, int, int, str | None, int]: (proposals attempted, rows written, proposals
+            that failed, the first failing proposal's exception class name or ``None``, the
+            number of distinct run codes that are not fetchable). A not-fetchable code is
+            never requested and is never counted as a failure (F7).
     """
     attempted = 0
     rows_written = 0
@@ -286,4 +335,5 @@ def refresh_all(facility: LCOFacility) -> tuple[int, int, int, str | None]:
             failed += 1
             if first_exception is None:
                 first_exception = str(exc)
-    return attempted, rows_written, failed, first_exception
+    not_fetchable = len(proposal_codes_not_fetchable())
+    return attempted, rows_written, failed, first_exception, not_fetchable
