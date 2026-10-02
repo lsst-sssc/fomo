@@ -4,11 +4,11 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: 37
 status: completed
-stopped_at: v2.4 intent-review walkthrough in progress — setup step 2 done; F1 (260929-svk) and F2-A (260930-85d) fixed and confirmed live; next is setup step 3 (class-wide KEY2026B-004 run) then Q1–Q8
-last_updated: "2026-09-30T13:50:00.000Z"
-last_activity: 2026-09-30
-last_activity_desc: Quick task 260930-85d complete (F2-A state-gated discovery lookups)
-state_head: 96f3fd04b86fdfe04bb926e591bbe3db1e53f54e
+stopped_at: v2.4 intent-review walkthrough in progress — setup steps 1–3 done (step 3 as one CampaignRun per target, runs #69–75); F1, F2-A and F5 fixed and confirmed live; F3/F4 open (routes noted in the review); next is setup step 4 (Didymos NTT/Magellan via load_telescope_runs) then Q1–Q8
+last_updated: "2026-10-01T21:40:00.000Z"
+last_activity: 2026-10-01
+last_activity_desc: Quick task 261001-smo complete (F5 attribution bridge for container runs)
+state_head: f8ee7f32b999640687aec0885ba6dd058d84ed51
 progress:
   total_phases: 5
   completed_phases: 37
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 Phase: 37
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-30 - Completed quick task 260930-85d: Skip discovery's live fallback schedule lookup for records already terminal (intent-review F2, option A)
+Last activity: 2026-10-01 - Completed quick task 261001-smo: Fix F5: run the attribution bridge for container runs so a CampaignRunObservation link on a class-wide/queue run sets CalendarEventMeta.run on the record's observation event
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -484,6 +484,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 16 | Stop TestCronLine's lock-held exit-matrix test from appending fake 'lock held' lines to the live /var/log/fomo/unattended.log (commit dbd58d7) | 2026-09-28 | dbd58d7 | — | — |
 | 260929-svk | Stop the discovery/sweep churn loop on ObservationRecord.parameters: discovery preserves the sweep's OBSERVED_SITE_PARAMETER_KEYS (intent-review finding F1) | 2026-09-30 | 213b8ba | — | [260929-svk-stop-the-discovery-sweep-churn-loop-on-o](./quick/260929-svk-stop-the-discovery-sweep-churn-loop-on-o/) |
 | 260930-85d | Skip discovery's live fallback schedule lookup for records already terminal at the same portal state (intent-review F2, option A) | 2026-09-30 | 96f3fd0 | — | [260930-85d-skip-discovery-s-live-fallback-schedule-](./quick/260930-85d-skip-discovery-s-live-fallback-schedule-/) |
+| 261001-smo | Fix F5: run the attribution bridge for container runs so a CampaignRunObservation link on a class-wide/queue run sets CalendarEventMeta.run on the record's observation event | 2026-10-02 | f8ee7f3 | — | [261001-smo-fix-f5-run-the-attribution-bridge-for-co](./quick/261001-smo-fix-f5-run-the-attribution-bridge-for-co/) |
 
 ## Deferred Items
 
