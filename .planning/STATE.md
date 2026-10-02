@@ -406,36 +406,11 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 
 ### Pending Todos
 
-- `2026-07-02-rename-calendar-utils-py-private-helpers-to-reflect-shared-m.md` — rename
-  `calendar_utils.py`'s cross-module-consumed underscore-prefixed helpers
-  (`_derive_telescope`, `_extract_instrument`, `_resolve_placement_block`,
-  `_coarse_telescope_label`, `_aperture_class_from_telescope_code`) to reflect that the
-  module is now a real shared API (3 consumers); low-priority style cleanup found while
-  verifying the 2026-06-23 extraction todo was complete.
-
-- `2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md` — move
-  `_reconcile_classical_nights()`'s `sun_event()` call inside the `existing is None`
-  branch so idempotent sweeps stop paying per-night astropy solar scans for results
-  that are discarded (finding F2, 2026-09-01 branch review).
-
-- `2026-09-01-guard-attribution-dismiss-action-with-is-offered-candidate.md` — add the
-  `is_offered_candidate()` server-side guard to `AttributionDecisionView._dismiss()`,
-  matching every confirm path, so a stale/tampered staff POST can't persist a dismissal
-  for a never-offered pair or report false success for nonexistent pks (finding F4,
-  2026-09-01 branch review).
-
-- `2026-09-01-add-ttl-cache-to-attribution-banner-count.md` — wrap
-  `orphans_needing_attribution_count()` in a short-TTL cache (campaign_gap.py pattern)
-  so the campaign-list page stops rebuilding both attribution backlogs per request
-  (finding F1, downgraded Medium→Low after measuring 23 ms / 64 queries at 31 orphans
-  on the dev DB; opportunistic fix, 2026-09-01 branch review).
-
-- `2026-09-02-retarget-adapt-03-to-soar-and-caveat-phase-33-gemini-outcome.md` —
-  ADAPT-03/Phase 32 should target SOAR, not Gemini (GEMFacility has no queue read-back),
-  and Phase 33's outcome propagation is structurally impossible for Gemini; found via
-  gap G-31-3 and diagnosed in `.planning/debug/gemini-vs-soar-facility-scope.md`.
-
-- Carried-forward items in Deferred Items below.
+- [2026-09-01] [general] Add TTL cache to attribution banner count — [todo file](.planning/todos/pending/2026-09-01-add-ttl-cache-to-attribution-banner-count.md)
+- [2026-09-01] [general] Guard attribution dismiss action with is_offered_candidate — [todo file](.planning/todos/pending/2026-09-01-guard-attribution-dismiss-action-with-is-offered-candidate.md)
+- [2026-09-01] [general] Skip sun_event computation for already-existing reconciler nights — [todo file](.planning/todos/pending/2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md)
+- [2026-09-30] [unattended-discovery] Fetch LCO observation blocks in bulk per proposal instead of one call per request — [todo file](.planning/todos/pending/2026-09-30-fetch-lco-observation-blocks-in-bulk-per-proposal.md)
+- [2026-10-02] [telescope-runs] "load_telescope_runs: skip comment lines and warn on a bare proposal token" — [todo file](.planning/todos/pending/2026-10-02-load-telescope-runs-skip-comment-lines-and-warn-on-a-bare-pr.md)
 
 ### Blockers/Concerns
 
