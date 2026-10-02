@@ -1,11 +1,16 @@
 # Feasibility study: a JPL Scout → Kafka bridge for Rubin ToO alerting
 
-*Status: prototype running (first drafted 2026-07-17, updated 2026-09-10). Milestones
+*Status: prototype running (first drafted 2026-07-17, updated 2026-10-02). Milestones
 M1–M3 are complete and the bridge has been publishing to the Hopskotch topic
 `Scout.scout-test` on a 10-minute cycle since 2026-08-31; see §12. The `tom_jpl` work
 this design depends on was merged (PR #23, 2026-09-09) and released as `tom-jpl` 0.3.0
-on PyPI on 2026-09-10, so the bridge no longer needs a git dependency. Remaining work
-and the outstanding coordination gates are in §11–§12.*
+on PyPI on 2026-09-10, so the bridge no longer needs a git dependency. The bridge now
+runs on `tomtoolkit` 3.1.0 (released 2026-09-24; its django-allauth accounts layer makes
+`tom_common.default_settings` mandatory), as does FOMO (PR #55). FOMO's Scout ingestion
+and Rubin ToO filter views (PR #50) are on `main`, so the `rubin_too.py` the bridge
+copies is now the released version — unchanged in logic. M4 groundwork is written up in
+the bridge repository's `docs/Deployment_prep.md`, which corrects §8 below. Remaining
+work and the outstanding coordination gates are in §11–§12.*
 
 ## Summary
 
@@ -65,7 +70,7 @@ Optimization Committee approval; until then the stream is advisory.)
 | Ingestion | `rundataquery <query_id>` (tom_dataservices, via a saved broad `DataServiceQuery`) | cron-suitable full-list poll; upsert of targets + `ScoutDetail`/history rows. Caveat: catches its own failures and exits 0, so freshness must be monitored, not exit codes |
 | Reconciliation loop | `tom_jpl` `updatescout` management command | single-request roster reconcile refreshing active candidates and retiring departures (`active=False`), with empty-response **and** partial-list guards; separate MPC Previous-NEOCP outcome pass recording `mpc_status` (designated/lost/dne/na/ns), `mpc_reference`, `merged_into`, and renaming the Target to its IAU designation. Two cadences: `--skip-designations` hourly, `--skip-reconcile` daily |
 | Change history | `tom_jpl/models.py` (`ScoutDetail`, `ScoutDetailHistory`) | one current row + append-only history unique on `(target, last_run)`; field-level diffing via `changes_from()`; `HISTORY_UNTRACKED_FIELDS` suppresses pure-ephemeris churn (n.b. it includes `vmag` and `rate`, so filter evaluation must re-check each row, not rely on `changes_from()` alone) |
-| Rubin ToO filter criteria | FOMO `solsys_code/rubin_too.py` | SSSC NEOs WG v0.2 §2.1 as pure predicates (`neoScore≥98`, `geocentricScore<2`, `rating≥3`, `rms<1.0`, `nObs>5` & `arc>1h`, `V>21.6/21.8` N/S, `unc_p1>60′/180′` N/S, `rate<25″/min`); §2.3 cancellation semantics |
+| Rubin ToO filter criteria | FOMO `solsys_code/rubin_too.py` (on `main` since PR #50, 2026-09-29; the bridge's `filters.py` copy is logic-identical) | SSSC NEOs WG v0.2 §2.1 as pure predicates (`neoScore≥98`, `geocentricScore<2`, `rating≥3`, `rms<1.0`, `nObs>5` & `arc>1h`, `V>21.6/21.8` N/S, `unc_p1>60′/180′` N/S, `rate<25″/min`); §2.3 cancellation semantics |
 
 Gaps to build: Kafka producer, container image, scheduler, deployment assets, and a
 Scout filter class for Rubin's ToO Producer (§7).
@@ -112,9 +117,12 @@ Three architectures were scoped:
 
 ### Design (chosen architecture)
 
-- **Django project shell** mirroring FOMO's config-only `src/fomo/` layout: settings +
-  minimal urls (admin only; no `solsys_code`, hence no SPICE anywhere).
-  `INSTALLED_APPS` = TOM Toolkit essentials + `tom_jpl` + a new `scout_publisher` app.
+- **Django project shell** mirroring FOMO's config-only `src/fomo/` layout: settings built
+  on `tom_common.default_settings` and the stock `tom_common.urls` (no `solsys_code`, hence
+  no SPICE anywhere). `INSTALLED_APPS` = `TOMTOOLKIT_INSTALLED_APPS` + `tom_jpl` + a new
+  `scout_publisher` app. Nothing serves HTTP in production; the TOM pages and admin are
+  mounted because tomtoolkit 3.1's middleware and allauth-wrapped admin login need their
+  URL names to resolve, and they double as a local inspection surface.
 - **`scout_publisher` app** (starts in the bridge repo; designated follow-ups are
   upstreaming the publisher to `tom_jpl` as an optional extra and extracting the filters
   into a shared package used by both FOMO and the bridge):
@@ -243,9 +251,19 @@ standard pattern:
   **CronJob every 10 min** with `concurrencyPolicy: Forbid`, SCiMMA credentials as
   sealed-secrets, staging overlay pointed at the `-test` Hopskotch topic, registered as
   an ArgoCD Application.
-- The cross-org app/deploy split matches LCO's existing pattern (deploy repos reference
-  the app only as an image URL). Caveat: the ghcr package must be public, or the cluster
-  needs an `imagePullSecret`.
+- **Correction (2026-09-11, bridge `docs/Deployment_prep.md`)**: LCO's pattern is not
+  "the deploy repo references the app by image URL". The *app* repo carries `k8s/base/`
+  (kpt `cronjob` packages), `skaffold.yaml` and a `cd.yaml` calling
+  `LCOGT/reusable-workflows`; the lco-deploy-bot then PRs image pins and a kpt copy of
+  `k8s/base` into the deploy repo. That bot authenticates with LCOGT organisation secrets,
+  so a repo under `lsst-sssc` cannot drive it — the cross-org split is the first question
+  for DevOps (mirror into `LCOGT/`, deploy-repo-owned manifests, or cross-org kpt upstream
+  with manual `kpt pkg update`). Also live: the ghcr package is currently **private**
+  (anonymous pull → 401), CronJob pods run non-root with a read-only root filesystem (the
+  image works that way but declares no `USER`), Postgres would be an in-namespace
+  `cnpg-postgres`, and a CronJobs-only deployment has no admin web surface. The pre-DevOps
+  to-do list (public package, `USER 1000:1000`, a `scout_cycle` command with a real exit
+  code, `k8s/base/` skeleton, `.dockerignore`/labels) lives in that document.
 - An AWS-native variant (EventBridge → Lambda container, ~$5–8/month, Terraform) was
   designed and remains an alternative **if the service should live outside LCO
   infrastructure** — but Lambda is not manageable by ArgoCD without Crossplane/ACK, so
@@ -292,7 +310,11 @@ standard pattern:
    positioned as a community stopgap with a JPL-compatible schema. Confirm API fair-use
    with CNEOS for an institutional 10-minute poller.
 4. **LCO infrastructure**: hosting cluster and namespace; Postgres provisioning; SCiMMA
-   credential ownership; CronJob vs Deployment-with-loop convention.
+   credential ownership; CronJob vs Deployment-with-loop convention. *Superseded by the
+   question list in the bridge's `docs/Deployment_prep.md` §4: cross-org CD arrangement,
+   cluster/namespace and `cnpg-postgres`, node pool, how CronJobs are alerted on,
+   sealed-secret ownership for the production credential, whether an admin surface is
+   wanted.*
 5. **MPC outcome enrichment — resolved.** `tom_jpl` 0.3.0 settles departures via
    `updatescout --skip-reconcile` (`mpc_status`, `mpc_reference`, `merged_into`, and a
    rename to the IAU designation), but a day after the fact: reconciliation runs every
@@ -336,10 +358,10 @@ standard pattern:
 
 ## 12. Prototype milestones (~5–6 engineering weeks; external coordination dominates)
 
-*Status as of 2026-09-10: M1–M3 complete, M0 partly resolved, M4 next. `tom-jpl` 0.3.0
-is on PyPI (requires `tomtoolkit>=3.0.1`), closing the "unreleased dependency" caveat
-under which M1–M3 were built: the bridge's git pin on the PR branch can be replaced by
-`tom-jpl>=0.3.0` before M4 containerises it.*
+*Status as of 2026-10-02: M1–M3 complete, M0 partly resolved, M4 groundwork done, M4
+proper next. The bridge depends on `tom-jpl>=0.3.0` from PyPI (git pin dropped
+2026-09-11) and `tomtoolkit>=3.1.0,<3.2` (2026-10-02 — the lockfile had been the only
+thing holding 3.0.1, and 3.1.0 does not boot a hand-maintained `INSTALLED_APPS`).*
 
 - **M0 — partly done.** SCiMMA side resolved 2026-08-24: we are Owner of the `Scout`
   hopauth group, so topic creation and write credentials turned out to be self-serve and
@@ -360,10 +382,13 @@ under which M1–M3 were built: the bridge's git pin on the PR branch can be rep
 - **M3 — done 2026-07-18.** Dockerfile; local Postgres via docker compose; migration
   wiring; secrets handling. Scheduling is currently a host `cron` entry guarded by
   `flock`; the containerised CronJob arrives with M4.
-- **M4 — next.** `LCOGT/scout-alert-bridge-deploy` from the copier template; staging ArgoCD
-  app; two CronJob manifests (the 10-minute cycle and the daily MPC pass) with
-  `concurrencyPolicy: Forbid` replacing the host cron and `flock`; one-week soak on the dev
-  topic; tune event-noise suppression.
+- **M4 — groundwork done 2026-09-14, deployment next.** What LCO's ArgoCD/kpt pattern
+  expects from the app repo, where the bridge diverges, and the questions for DevOps are in
+  the bridge's `docs/Deployment_prep.md` (summarised in §8). Still to do: the repo-side
+  fixes listed there, then `LCOGT/scout-alert-bridge-deploy` (or whichever cross-org
+  arrangement DevOps prefers); staging ArgoCD app; two CronJob manifests (the 10-minute
+  cycle and the daily MPC pass) with `concurrencyPolicy: Forbid` replacing the host cron
+  and `flock`; one-week soak on the dev topic; tune event-noise suppression.
 - **M5** — `ScoutAlertFilter` for `scimma/rubin-ToO-producer` (§7): sky-map generation
   from RA/Dec and positional uncertainty, `alert_type` case names, `_test` header
   handling, unit tests against canned bridge messages; offered as a PR, with the
