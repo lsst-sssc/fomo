@@ -9,13 +9,15 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from django import forms
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from tom_common.exceptions import ImproperCredentialsException
 
 from solsys_code import proposal_allocation as pa
 from solsys_code.models import CampaignRun, ProposalTimeAllocation, WatchedProposal
+from solsys_code.solsys_code_observatory.models import Observatory
 
 
 class ProposalTimeAllocationModelTests(TestCase):
@@ -106,13 +108,24 @@ def _mock_facility() -> MagicMock:
 
 
 class ProposalCodesToFetchTests(TestCase):
-    """The union of active WatchedProposal codes and non-blank CampaignRun.proposal_code."""
+    """The union of active WatchedProposal codes and non-blank CampaignRun.proposal_code.
+
+    The run half is limited to runs that can hold an LCO/SOAR portal proposal (F7, quick task 261002-gev).
+    """
 
     def test_union_of_watched_and_run_codes_sorted_and_deduped(self):
         WatchedProposal.objects.create(proposal_code='BBB-2026-002')
         WatchedProposal.objects.create(proposal_code='CCC-2026-003', is_active=False)
-        CampaignRun.objects.create(telescope_instrument='LCO-1m-Sinistro', proposal_code='AAA-2026-001')
-        CampaignRun.objects.create(telescope_instrument='LCO-1m-Sinistro', proposal_code='BBB-2026-002')
+        CampaignRun.objects.create(
+            telescope_instrument='LCO-1m-Sinistro',
+            proposal_code='AAA-2026-001',
+            source=CampaignRun.Source.LCO_QUEUE,
+        )
+        CampaignRun.objects.create(
+            telescope_instrument='LCO-1m-Sinistro',
+            proposal_code='BBB-2026-002',
+            source=CampaignRun.Source.LCO_QUEUE,
+        )
         CampaignRun.objects.create(telescope_instrument='LCO-1m-Sinistro', proposal_code='')
 
         self.assertEqual(pa.proposal_codes_to_fetch(), ['AAA-2026-001', 'BBB-2026-002'])
@@ -431,13 +444,154 @@ class RefreshAllTests(TestCase):
             return ok_response
 
         with patch('solsys_code.proposal_allocation.make_request', side_effect=_side_effect):
-            attempted, rows_written, failed, first_exception = pa.refresh_all(_mock_facility())
+            attempted, rows_written, failed, first_exception, not_fetchable = pa.refresh_all(_mock_facility())
 
         self.assertEqual(attempted, 2)
         self.assertEqual(failed, 1)
         self.assertEqual(rows_written, 1)
         self.assertEqual(first_exception, 'Timeout')
+        self.assertEqual(not_fetchable, 0)
 
     def test_empty_code_list_is_a_no_op(self):
-        attempted, rows_written, failed, first_exception = pa.refresh_all(_mock_facility())
-        self.assertEqual((attempted, rows_written, failed, first_exception), (0, 0, 0, None))
+        attempted, rows_written, failed, first_exception, not_fetchable = pa.refresh_all(_mock_facility())
+        self.assertEqual((attempted, rows_written, failed, first_exception, not_fetchable), (0, 0, 0, None, 0))
+
+
+class ProposalCodeFetchabilityTests(TestCase):
+    """Pins F7 / quick task 261002-gev: only codes that can be LCO/SOAR portal proposals are fetched.
+
+    A proposal code on a run is sent to the LCO Observation Portal only when the run came from the
+    LCO/SOAR queue or sits at one of the LCO/SOAR observatories ``campaign_attribution`` knows. Every other
+    run code (e.g. an ESO code on a classical NTT line) is counted as not fetchable, never requested.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        def _obs(obscode, name, short_name, lat, lon, altitude, timezone_name):
+            return Observatory.objects.create(
+                obscode=obscode,
+                name=name,
+                short_name=short_name,
+                lat=lat,
+                lon=lon,
+                altitude=altitude,
+                timezone=timezone_name,
+                observations_type=Observatory.OPTICAL_OBSTYPE,
+            )
+
+        cls.la_silla = _obs('809', 'La Silla', 'La Silla', -29.2563, -70.7380, 2400.0, 'America/Santiago')
+        cls.fts = _obs('E10', 'Faulkes Telescope South', 'FTS', -31.2733, 149.0706, 1149.0, 'Australia/Sydney')
+        cls.ftn = _obs('F65', 'Faulkes Telescope North', 'FTN', 20.7073, -156.2575, 3055.0, 'Pacific/Honolulu')
+        cls.soar = _obs('I33', 'SOAR', 'SOAR', -30.2379, -70.7337, 2738.0, 'America/Santiago')
+
+    def _run(self, code, *, source, site=None, **extra):
+        return CampaignRun.objects.create(
+            telescope_instrument=f'F7 fixture {source} {code}',
+            proposal_code=code,
+            source=source,
+            site=site,
+            **extra,
+        )
+
+    def _refresh(self):
+        ok_response = MagicMock()
+        ok_response.json.return_value = {
+            'timeallocation_set': [
+                {'semester': '2026A', 'instrument_type': 'X', 'std_allocation': 10.0, 'std_time_used': 2.0}
+            ]
+        }
+        with patch('solsys_code.proposal_allocation.make_request', return_value=ok_response) as mock_request:
+            result = pa.refresh_all(_mock_facility())
+        urls = [c.args[1] for c in mock_request.call_args_list]
+        return result, urls
+
+    def test_eso_code_on_a_classical_run_at_la_silla_is_never_sent_to_the_portal(self):
+        self._run('117.2A2N.001', source=CampaignRun.Source.CLASSICAL_FILE, site=self.la_silla)
+        self._run('LCO2026A-003', source=CampaignRun.Source.CLASSICAL_FILE, site=self.fts)
+
+        (attempted, rows_written, failed, first_exception, not_fetchable), urls = self._refresh()
+
+        self.assertEqual((attempted, rows_written, failed, first_exception, not_fetchable), (1, 1, 0, None, 1))
+        self.assertFalse(any('117.2A2N.001' in url for url in urls))
+        self.assertEqual(sum('LCO2026A-003' in url for url in urls), 1)
+        self.assertEqual(pa.proposal_codes_to_fetch(), ['LCO2026A-003'])
+        self.assertEqual(pa.proposal_codes_not_fetchable(), ['117.2A2N.001'])
+
+    def test_lco_code_on_a_run_at_each_known_lco_or_soar_site_is_fetched(self):
+        self._run('LCO2026A-003', source=CampaignRun.Source.CLASSICAL_FILE, site=self.fts)
+        self._run('LCO2026A-004', source=CampaignRun.Source.LEGACY, site=self.ftn)
+        self._run('SOAR2026A-005', source=CampaignRun.Source.WEB, site=self.soar)
+
+        self.assertEqual(pa.proposal_codes_to_fetch(), ['LCO2026A-003', 'LCO2026A-004', 'SOAR2026A-005'])
+        self.assertEqual(pa.proposal_codes_not_fetchable(), [])
+
+        (attempted, _rows, _failed, _first, not_fetchable), _urls = self._refresh()
+        self.assertEqual(attempted, 3)
+        self.assertEqual(not_fetchable, 0)
+
+    def test_queue_sourced_run_codes_are_fetched_with_no_site(self):
+        self._run(
+            'KEY2026B-004',
+            source=CampaignRun.Source.LCO_QUEUE,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
+        self._run('SOAR2026B-001', source=CampaignRun.Source.SOAR_QUEUE)
+
+        fetched = pa.proposal_codes_to_fetch()
+        self.assertIn('KEY2026B-004', fetched)
+        self.assertIn('SOAR2026B-001', fetched)
+
+    def test_active_watched_proposal_is_always_fetched(self):
+        WatchedProposal.objects.create(proposal_code='LCO2026B-010')
+        WatchedProposal.objects.create(proposal_code='SHARED2026A-001')
+        WatchedProposal.objects.create(proposal_code='OFF2026A-002', is_active=False)
+        self._run('SHARED2026A-001', source=CampaignRun.Source.CLASSICAL_FILE, site=self.la_silla)
+
+        self.assertEqual(pa.proposal_codes_to_fetch(), ['LCO2026B-010', 'SHARED2026A-001'])
+        self.assertEqual(pa.proposal_codes_not_fetchable(), [])
+
+    def test_excluded_code_stays_not_yet_known_after_a_refresh(self):
+        self._run('117.2A2N.001', source=CampaignRun.Source.CLASSICAL_FILE, site=self.la_silla)
+
+        self._refresh()
+
+        # D-07 / TALLY-01: an unfetched code reads "not yet known" (None), never zero.
+        self.assertFalse(ProposalTimeAllocation.objects.filter(proposal_code='117.2A2N.001').exists())
+        self.assertIsNone(pa.unused_hours_for('117.2A2N.001'))
+        self.assertIsNone(pa.estimated_unused_nights('117.2A2N.001'))
+
+    def test_eso_gemini_and_site_less_runs_are_not_fetchable(self):
+        self._run('0110.C-0234', source=CampaignRun.Source.ESO_QUEUE)
+        self._run('GS-2026A-FT-115', source=CampaignRun.Source.GEMINI_QUEUE)
+        self._run('NOSITE2026A-001', source=CampaignRun.Source.CLASSICAL_FILE)
+        self._run('LEG2026A-002', source=CampaignRun.Source.LEGACY, site=self.la_silla)
+
+        codes = ['0110.C-0234', 'GS-2026A-FT-115', 'NOSITE2026A-001', 'LEG2026A-002']
+        fetched = pa.proposal_codes_to_fetch()
+        for code in codes:
+            self.assertNotIn(code, fetched)
+        self.assertEqual(pa.proposal_codes_not_fetchable(), sorted(codes))
+
+    def test_code_selection_never_reads_a_contact_field(self):
+        """T-37-06: choosing codes loads no contact column."""
+        self._run(
+            'KEY2026B-004',
+            source=CampaignRun.Source.LCO_QUEUE,
+            contact_person='Secret Person',
+            contact_email='secret@example.org',
+        )
+        self._run(
+            '117.2A2N.001',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            site=self.la_silla,
+            contact_person='Secret Person',
+            contact_email='secret@example.org',
+        )
+
+        with CaptureQueriesContext(connection) as ctx:
+            pa.proposal_codes_to_fetch()
+            pa.proposal_codes_not_fetchable()
+
+        statements = [q['sql'].lower() for q in ctx.captured_queries]
+        self.assertTrue(any('campaignrun' in sql for sql in statements))
+        self.assertFalse(any('contact' in sql for sql in statements))

@@ -1242,6 +1242,54 @@ class TestProposalAllocationStep(UnattendedTestBase):
         self.assertNotIn(fake_key, result.summary)
         self.assertTrue(result.failed)
 
+    def _watched_plus_eso_run(self):
+        """An active watched proposal plus a classical NTT run carrying an ESO code (the F7 shape)."""
+        la_silla = Observatory.objects.create(
+            obscode='809',
+            name='La Silla',
+            short_name='La Silla',
+            lat=-29.2563,
+            lon=-70.7380,
+            altitude=2400.0,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+        CampaignRun.objects.create(
+            telescope_instrument='NTT/EFOSC2',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            site=la_silla,
+            proposal_code='117.2A2N.001',
+        )
+
+    def test_non_lco_code_is_reported_not_fetchable_and_the_step_stays_ok(self):
+        self._watched_plus_eso_run()
+        response = MagicMock()
+        response.json.return_value = {
+            'timeallocation_set': [
+                {'semester': '2026A', 'instrument_type': 'X', 'std_allocation': 10.0, 'std_time_used': 2.0}
+            ]
+        }
+        with patch('solsys_code.proposal_allocation.make_request', return_value=response) as mock_make_request:
+            result = unattended.step_proposal_allocation(dry_run=False)
+
+        self.assertFalse(result.failed)
+        self.assertIn('proposals: 1', result.summary)
+        self.assertIn('failed: 0', result.summary)
+        self.assertIn('not fetchable: 1', result.summary)
+        self.assertNotIn('first error', result.summary)
+        self.assertFalse(any('117.2A2N.001' in str(c.args[1]) for c in mock_make_request.call_args_list))
+
+    def test_a_real_portal_failure_still_fails_the_step_alongside_an_exclusion(self):
+        self._watched_plus_eso_run()
+        with patch('solsys_code.proposal_allocation.make_request', side_effect=requests.exceptions.Timeout('boom')):
+            result = unattended.step_proposal_allocation(dry_run=False)
+
+        self.assertTrue(result.failed)
+        self.assertIn('failed: 1', result.summary)
+        self.assertIn('not fetchable: 1', result.summary)
+        self.assertIn('first error: Timeout', result.summary)
+
 
 _FAKE_LCO_API_KEY = 'FAKE-API-KEY-DO-NOT-LOG-a1b2c3'
 _FAKE_MAIL_PASSWORD = 'FAKE-MAIL-PW-d4e5f6'
