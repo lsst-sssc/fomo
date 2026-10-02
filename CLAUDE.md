@@ -141,6 +141,11 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   only execute with the portal, the mail backend and the heartbeat all mocked at once, which
   would demonstrate the mocking rather than the runner, and 36-CONTEXT.md's discretion note
   sanctions the runbook section as the paired doc in exactly that case;
+  `solsys_code/proposal_allocation.py` -> the runbook's `How do I run everything unattended?`
+  section (its **proposal_allocation** step, and which proposal codes it fetches) and that
+  runbook's `The unused figure says it is not yet known` troubleshooting entry
+  (`docs/runbooks/telescope_runs_calendar.rst`), **not** a notebook — no demo notebook
+  exercises the credentialed portal fetch;
   `solsys_code/campaign_reconciler.py`,
   `solsys_code/management/commands/reconcile_campaign_runs.py` and
   `solsys_code/allocation_projector.py` ->

@@ -1504,8 +1504,12 @@ this fixed order, in one process:
    to watch" below).
 4. **reconcile** -- the campaign reconciler sweep, the same logic
    ``reconcile_campaign_runs`` runs.
-5. **proposal_allocation** -- refreshes every watched or run-carried
-   proposal's time allocation from the LCO Observation Portal
+5. **proposal_allocation** -- refreshes the time allocation of every
+   active watched proposal, and of every proposal code carried by a run
+   that can hold an LCO/SOAR portal proposal (a run that came from the
+   LCO or SOAR queue, or a run whose resolved site is one of the LCO/SOAR
+   telescopes FOMO has a verified observatory code for -- today FTN, FTS
+   and SOAR), from the LCO Observation Portal
    (``timeallocation_set``) and stores it, one row per proposal code /
    semester / instrument type / allocation type, in
    ``ProposalTimeAllocation``. Public pages only ever read these stored
@@ -1522,6 +1526,18 @@ unused-nights estimate depends on that proposal shows **not yet known**
 rather than a blank page or a stale figure -- a portal outage is never
 visible to a public visitor as missing content, only as an honest "not yet
 known".
+
+A proposal code on any other run is never sent to the portal -- for
+example an ESO code bracketed onto an NTT line of a classical schedule
+file. The step counts it under ``not fetchable: N`` in its log line, and
+this is not a failure: the step stays ``ok`` and the tick can still exit
+0. That run's unused-nights figure stays **not yet known**, because there
+is nothing to fetch it from. The code is still kept on the run; it is what
+tells two otherwise-identical classical lines apart. If a run you know is
+at an LCO or SOAR telescope is being counted as not fetchable, check its
+ingest source and resolved site in the admin. Before quick task 261002-gev
+(2026-10-02), such a code was sent to the portal and failed this step on
+every tick.
 
 Setting it up on a fresh host
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1988,7 +2004,7 @@ this::
    step project_sweep: ok | failed: 0 | LCO: created: 0, updated: 1, unchanged: 4, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0 | SOAR: created: 0, updated: 0, unchanged: 0, unprojectable: 0, site_lookups: 0, site_lookup_failed: 0
    step discovery: ok | 0 watched proposals, nothing to discover
    step reconcile: ok | runs: 3, failed: 0
-   step proposal_allocation: ok | proposals: 1, rows written: 1, failed: 0
+   step proposal_allocation: ok | proposals: 1, rows written: 1, failed: 0, not fetchable: 0
    === FOMO unattended run END 2026-09-26T18:45:34+00:00 (local 2026-09-26T11:45:34-07:00) exit=1 duration=32s ===
 
 The two failure signals
@@ -2896,7 +2912,10 @@ successfully fetched this run's proposal from the LCO Observation Portal
 yet (check the log, or the admin's ``Proposal time allocations`` list, for
 a row matching the run's proposal code), or the run itself has a blank
 ``proposal_code`` and no allocation events of its own to count exactly --
-there is nothing this figure can be estimated from either way.
+there is nothing this figure can be estimated from either way. A third
+cause is that the run's proposal code is not an LCO/SOAR portal proposal,
+so the step never fetches it and counts it as ``not fetchable``; this is
+expected for a run at a non-LCO telescope.
 
 **Fix:** for a queue-scheduled run, confirm the run's ``proposal_code`` is
 set (the classical loader's bracketed ``[proposal]`` token populates it
@@ -2906,7 +2925,9 @@ tick -- see "How do I run everything unattended?" above. For a run that
 projects its own allocation nights, this figure should never read "not
 yet known" at all; if it does, confirm the run actually has ``ALLOC:``
 events (see "How do LCO/SOAR queue observations get onto the calendar?"
-above).
+above). Nothing needs fixing for a non-LCO run. For a run that should be
+fetchable, check its ingest source and resolved site, as in "How do I run
+everything unattended?".
 
 See also
 -----------
