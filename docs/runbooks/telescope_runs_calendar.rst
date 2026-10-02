@@ -2197,6 +2197,24 @@ this run through another writer never gets a second, reconciler-created
 entry at all (see the skip rule in that same section above) -- its own
 existing attribution is what makes the block appear.
 
+**A linked observation record's own entry gets that link
+for every kind of run** -- per-night, queue-sourced, class-wide or satellite
+alike. When a run is linked to an LCO/SOAR observation record (a ``CampaignRunObservation``,
+made through the attribution page's "Observation records awaiting
+attribution" table, a script, or the admin), that record's own calendar
+entry gets its attribution link the moment the link is saved, and every
+reconcile re-applies it (each unattended tick's reconcile step,
+``reconcile_campaign_runs``, or a staff action on the run). Deleting the
+link clears it again, unless a staff member has confirmed that entry's
+attribution. It stays unset while the run is not yet approved, or has any
+other skip reason. An entry already attributed to a different run is left
+alone, counted under ``blocked`` and logged. Once attributed, the entry
+also leaves the attribution page's "Calendar events awaiting attribution"
+worklist. Before quick task 261001-smo (2026-10-01) this happened only for
+per-night runs, so a queue or class-wide run's linked entries showed no
+campaign chip; the first unattended tick after that fix attributes them,
+with no operator action.
+
 The manual admin path below still exists, and remains the right tool for an
 entry the reconciler never touches at all -- a ``load_telescope_runs``- or
 sync-command-created entry that has not (yet) been attributed to a run
