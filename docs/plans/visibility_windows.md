@@ -18,7 +18,7 @@ under Full Requirements). Things the doc ranks higher:
    FOMO-side wiring (`TOM_ALERT_CLASSES` in `src/fomo/settings.py`) follows once that lands.
 3. Hosting/deployment (Tim's action items, overdue since week of 2026-08-17) — not code.
 4. MPC observations → `ReducedDatums`: already in flight on `feature/add_mpc_obs`, see
-   `docs/plans/ades_processor_port.md` in this directory. **Resume that before starting this plan
+   `docs/plans/ades_processor_port.md` on that branch. **Resume that before starting this plan
    unless Tim says otherwise.**
 5. Target matching / metadata storage (provisional ID ↔ final designation, target extras) — should be
    settled as part of (4).
