@@ -411,6 +411,7 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [2026-09-01] [general] Skip sun_event computation for already-existing reconciler nights — [todo file](.planning/todos/pending/2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md)
 - [2026-09-30] [unattended-discovery] Fetch LCO observation blocks in bulk per proposal instead of one call per request — [todo file](.planning/todos/pending/2026-09-30-fetch-lco-observation-blocks-in-bulk-per-proposal.md)
 - [2026-10-02] [telescope-runs] "load_telescope_runs: skip comment lines and warn on a bare proposal token" — [todo file](.planning/todos/pending/2026-10-02-load-telescope-runs-skip-comment-lines-and-warn-on-a-bare-pr.md)
+- [2026-10-02] [docs] Run pre-executed demo notebooks against a scratch DB copy, never the live dev DB — [todo file](.planning/todos/pending/2026-10-02-run-pre-executed-demo-notebooks-against-a-scratch-db-copy-ne.md)
 
 ### Blockers/Concerns
 
