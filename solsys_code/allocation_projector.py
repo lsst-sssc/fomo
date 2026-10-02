@@ -960,6 +960,12 @@ def _sync_observation_attribution(run: CampaignRun, *, dry_run: bool) -> int:
     this step inside the observation projector's own namespace, out of reach of this
     module's self-attributed ``ALLOC:`` nights.
 
+    Three callers reach this, so every kind of run attributes its linked records the same
+    way (F5, quick task 261001-smo): ``project_allocation()`` (per-night runs),
+    ``campaign_reconciler._reconcile_container()`` (class-wide, satellite and queue runs, on
+    reconcile), and ``reproject_allocation_if_dispatched()`` for a non-per-night run (the
+    link/record-save triggers).
+
     Args:
         run: the ``CampaignRun`` being projected.
         dry_run: when True, do nothing and report zero blocked -- neither half is
@@ -1581,12 +1587,22 @@ def reproject_allocation_if_dispatched(run: CampaignRun) -> None:
     re-applied outside a sweep, so every trigger and the sweep itself agree on exactly one
     dispatch decision.
 
+    A per-night run is re-projected with ``project_allocation()``, as before. A run that does
+    not dispatch per night (class-wide, satellite or queue-sourced) gets the D-08 attribution
+    bridge ``_sync_observation_attribution()`` alone: no container write happens here (that
+    stays the sweep's and staff actions' job), but a link save or delete, or a linked
+    record's own save, attributes or clears the record's own event immediately, for every
+    dispatch kind (F5, quick task 261001-smo).
+
     Args:
         run: the ``CampaignRun`` a receiver wants to re-project.
     """
     from solsys_code.campaign_reconciler import _skip_reason, dispatches_per_night
 
-    if _skip_reason(run) is not None or not dispatches_per_night(run):
+    if _skip_reason(run) is not None:
+        return
+    if not dispatches_per_night(run):
+        _sync_observation_attribution(run, dry_run=False)
         return
     project_allocation(run)
 
@@ -1594,7 +1610,9 @@ def reproject_allocation_if_dispatched(run: CampaignRun) -> None:
 def receiver_on_run_observation_save(sender: Any, instance: Any, created: bool, raw: bool, **kwargs: Any) -> None:
     """post_save receiver on ``CampaignRunObservation`` (D-11): re-projects the linked run so
     an allocation night retires the moment a staff member confirms an attribution -- no
-    operator command, no sweep.
+    operator command, no sweep. For a container run (class-wide, satellite or queue-sourced)
+    it attributes the record's own event instead of retiring a night (F5, quick task
+    261001-smo).
 
     Fires downstream of an action that is already access-controlled
     (``AttributionDecisionView`` sits behind ``StaffRequiredMixin``); this is a receiver
@@ -1682,9 +1700,11 @@ def receiver_on_run_observation_delete(sender: Any, instance: Any, **kwargs: Any
     This receiver deliberately does NOT clear the removed link's own event attribution
     itself, and must not start doing so: ``project_allocation()`` already converges
     attributions against the run's surviving links (35-01 Task 2 step 4b /
-    ``_sync_observation_attribution()``), so the one call this receiver makes both restores
-    the night and clears the stale ``CalendarEventMeta.run`` together, and the sweep gets
-    the same result without a signal. A second clearing writer here would be a second place
+    ``_sync_observation_attribution()``), so the one call this receiver makes --
+    ``reproject_allocation_if_dispatched()``, which runs ``project_allocation()`` for a
+    per-night run and the bridge alone otherwise -- clears the stale
+    ``CalendarEventMeta.run`` (and, per-night, restores the night) together, and the sweep
+    gets the same result without a signal. A second clearing writer here would be a second place
     for the human-confirmation guard to be forgotten.
 
     Fires downstream of an action that is already access-controlled

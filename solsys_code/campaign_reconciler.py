@@ -41,7 +41,9 @@ per-night allocation branch it now dispatches to (D-09, Phase 35): the container
 the sole writer of its key and is authoritative for every field on both create and update,
 while ``allocation_projector.project_allocation()`` only refreshes
 ``title``/``description``/``target_list`` on update -- ``start_time``/``end_time``/
-``telescope``/``instrument`` are never rewritten after creation.
+``telescope``/``instrument`` are never rewritten after creation. The container branch also runs
+the D-08 attribution bridge after writing its container, so a container run's linked records
+gain the same event attribution a per-night run's do (F5, quick task 261001-smo).
 """
 
 import logging
@@ -339,8 +341,8 @@ def dispatches_per_night(run: CampaignRun) -> bool:
     }
 
 
-def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
-    """The whole-window branch shared by class-wide and satellite runs
+def _write_container_event(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
+    """Write (or preview) the whole-window ``RUN:{pk}`` container event
     (RECON-02 queue half, RECON-03) -- a run's ``source`` field never selects this branch.
 
     The container is the ONLY writer of the bare ``RUN:{pk}`` key, so it is authoritative
@@ -372,6 +374,32 @@ def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
         event, action = update_calendar_event_key_and_fields(existing, url, fields)
     _link_event_to_run(event, run)
     return ReconcileResult(**{action: 1})
+
+
+def _reconcile_container(run: CampaignRun, *, dry_run: bool) -> ReconcileResult:
+    """The whole-window branch shared by class-wide and satellite runs, then the D-08
+    attribution bridge for the run's linked observation records.
+
+    The container itself is written by ``_write_container_event()``. Afterwards this runs
+    ``allocation_projector._sync_observation_attribution()`` -- the same bridge a per-night run
+    gets -- so each linked LCO/SOAR record's OWN event gains (or loses) its
+    ``CalendarEventMeta.run`` link, the link the calendar's campaign chip is drawn from. It
+    writes none of that event's own fields (F5, quick task 261001-smo). A refusal (an event
+    already attributed to a different run) is folded into ``blocked``.
+
+    The bridge runs even when the run's own ``RUN:{pk}`` key is blocked: a run's record
+    links are its own whatever happened to its container key, which mirrors
+    ``project_allocation()``. Under ``dry_run`` the bridge returns 0 and writes nothing, so
+    one code path serves both modes.
+    """
+    result = _write_container_event(run, dry_run=dry_run)
+    # Function-local on purpose, for two reasons: ``allocation_projector`` imports this module at
+    # its own top level, so a module-level import here would deadlock at load (the same idiom
+    # ``_may_write()`` uses); and the private name is deliberate -- one attribution rule with one
+    # owner, per ``allocation_projector``'s "Import discipline".
+    from solsys_code.allocation_projector import _sync_observation_attribution
+
+    return result._replace(blocked=result.blocked + _sync_observation_attribution(run, dry_run=dry_run))
 
 
 def _attributed_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
