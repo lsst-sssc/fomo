@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 **Wave 1**
 
@@ -450,7 +450,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 37.1-03-PLAN.md — The Didymos backfill links records it creates and re-encounters; paired docs: `backfill_lco_observations_demo.ipynb` system-link section with executed output, and the runbook's attribution, backfill and unattended sections (wave 2)
+- [x] 37.1-03-PLAN.md — The Didymos backfill links records it creates and re-encounters; paired docs: `backfill_lco_observations_demo.ipynb` system-link section with executed output, and the runbook's attribution, backfill and unattended sections (wave 2)
 
 ## Progress
 
@@ -495,7 +495,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 2/3 | In Progress|  |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 3/3 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 

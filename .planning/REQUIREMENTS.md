@@ -33,7 +33,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **ALLOC-03**: An allocation night with a linked `ObservationRecord` (via `CampaignRunObservation`) has no allocation event; unlinking restores it; the observation's own event is untouched by either transition
 - [x] **ALLOC-04**: `load_telescope_runs` creates or updates a campaign-less `CampaignRun` (`source=CLASSICAL`, with a collision-safe `source_identifier` per Phase 31's SCHEMA-03 finding) instead of writing calendar events directly, and the allocation projects the same per-night events the command wrote before, idempotently on re-run
 - [x] **ALLOC-05**: The cutover from today's `load_telescope_runs`-written events and `RUN:{pk}:{date}` reconciler events to allocation events has an explicit, stated sequencing (migration or one-time command) that never leaves a duplicate or orphaned event on the calendar
-- [ ] **ALLOC-06**: A newly ingested `ObservationRecord` (the LCO/SOAR discovery backfill and the Didymos field backfill) whose proposal code, target — or, when that proposal code belongs to exactly one run in the campaign the target is a member of, campaign membership — and window match exactly ONE approved `CampaignRun` is linked to that run automatically as a system link (`CampaignRunObservation` with `confirmed_by=None`), so its allocation night retires with no staff action; any partial or ambiguous match stays in the attribution queue for a person, exactly as today; staff can undo a system link the same way as a confirmed one; and the attribution banner counts a record and its own projected event once, not twice (intent review Q1, 2026-10-02: 19 record+event pairs, 182 staff-confirmed links and 0 system links on the live DB)
+- [x] **ALLOC-06**: A newly ingested `ObservationRecord` (the LCO/SOAR discovery backfill and the Didymos field backfill) whose proposal code, target — or, when that proposal code belongs to exactly one run in the campaign the target is a member of, campaign membership — and window match exactly ONE approved `CampaignRun` is linked to that run automatically as a system link (`CampaignRunObservation` with `confirmed_by=None`), so its allocation night retires with no staff action; any partial or ambiguous match stays in the attribution queue for a person, exactly as today; staff can undo a system link the same way as a confirmed one; and the attribution banner counts a record and its own projected event once, not twice (intent review Q1, 2026-10-02: 19 record+event pairs, 182 staff-confirmed links and 0 system links on the live DB)
 
 ### Campaign Annotation (reconciler inversion)
 
@@ -116,7 +116,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALLOC-03 | Phase 35 | Complete |
 | ALLOC-04 | Phase 35 | Complete |
 | ALLOC-05 | Phase 35 | Complete |
-| ALLOC-06 | Phase 37.1 | Pending |
+| ALLOC-06 | Phase 37.1 | Complete |
 | ANNOT-01 | Phase 33 | Complete |
 | ANNOT-02 | Phase 33 | Complete |
 | ANNOT-03 | Phase 34 | Complete |

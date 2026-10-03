@@ -4,18 +4,18 @@ milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
-status: executing
-stopped_at: Completed 37.1-02-PLAN.md
-last_updated: "2026-10-03T02:11:43.283Z"
+status: verifying
+stopped_at: Completed 37.1-03-PLAN.md
+last_updated: "2026-10-03T02:48:10.334Z"
 last_activity: 2026-10-02
 last_activity_desc: Phase 37.1 execution started
-state_head: 0660b72e33630f7fd04d3eb5364900249f24742b
+state_head: daa2442de0168793b5e68be1f14d182451ba42b5
 progress:
   total_phases: 6
   completed_phases: 37
   total_plans: 65
-  completed_plans: 64
-  percent: 98
+  completed_plans: 65
+  percent: 100
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-02 — Phase 37.1 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -240,6 +240,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 260922-dva P01 | 25min | 2 tasks | 1 files |
 | Phase 37.1 P01 | 45min | 3 tasks | 7 files |
 | Phase 37.1 P02 | 70 min | 3 tasks | 8 files |
+| Phase 37.1 P03 | 55 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -412,6 +413,7 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37.1]: Campaign fallback links only when no run carries the record's target anywhere and the proposal is unique in the record's campaigns before the window filter; dismissal veto applies to the winner after the pick
 - [Phase 37.1]: 37.1-02: system-link provenance is confirmed_by=None only, labelled 'System (exact match)' via CampaignRunObservation.confirmed_by_label(); no field or migration
 - [Phase 37.1]: 37.1-02: D-09 excludes record-backed events in orphan_calendar_events(); shared counts and banner count a record+event pair once
+- [Phase 37.1]: Didymos backfill: existing records are offered to the system-link step with no refresh or other write; created records are reloaded after the status refresh so the placed block decides containment
 
 ### Pending Todos
 
@@ -511,8 +513,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T02:11:42.848Z
-Stopped at: Completed 37.1-02-PLAN.md
+Last session: 2026-10-03T02:48:09.946Z
+Stopped at: Completed 37.1-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
