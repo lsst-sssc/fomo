@@ -3,18 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: "37.1"
+current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1)"
 status: in_progress
 stopped_at: Phase 37.1 context gathered
-last_updated: "2026-10-03T00:02:59.321Z"
+last_updated: "2026-10-03T01:09:51.771Z"
 last_activity: 2026-10-02
 last_activity_desc: Quick task 261002-gev complete (F7 non-LCO proposal codes are not fetchable, not failures)
-state_head: c849967bf70c41a3a2902710df41daf81bd92f7d
+state_head: 588d0e69407a5c2b6986984cfbf9a9f7bdd7768c
 progress:
   total_phases: 6
   completed_phases: 37
-  total_plans: 62
+  total_plans: 65
   completed_plans: 62
-  percent: 100
+  percent: 95
 ---
 
 # Project State
@@ -28,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1)) — READY TO EXECUTE
 Plan: Not started
 Status: Inserted (gap closure from the v2.4 intent review, Q1) — next: /gsd-discuss-phase 37.1 then /gsd-plan-phase 37.1
 Last activity: 2026-10-02 - Completed quick task 261002-l04: Retire the three testing campaigns (TargetLists #4, #5, #10) left by demo-notebook runs — dry-run-default script proven on scratch copies; live run is the operator's
