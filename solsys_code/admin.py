@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.db import transaction
 from django.forms.models import BaseInlineFormSet
 from django.utils import timezone
 from tom_targets.models import Target
@@ -7,6 +8,7 @@ from solsys_code.models import (
     CalendarEventMeta,
     CampaignRun,
     CampaignRunObservation,
+    ObservationRecordDismissal,
     ProposalTimeAllocation,
     WatchedProposal,
 )
@@ -327,7 +329,24 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
         # deletion -- it only populates formset.deleted_objects. Deleting them here
         # preserves the base ModelAdmin.save_formset() behaviour this override replaces.
         for obj in formset.deleted_objects:
-            obj.delete()
+            if isinstance(obj, CampaignRunObservation) and obj.confirmed_by_id is None:
+                # WR-01 (37.1-REVIEW.md): removing a SYSTEM link here is a human decision, and
+                # the next discovery tick would otherwise re-create it -- the exact-identity
+                # matcher's only veto is a dismissal row. Write the same dismissal the
+                # attribution page's Undo writes, in the same atomic block as the delete.
+                with transaction.atomic():
+                    ObservationRecordDismissal.objects.get_or_create(
+                        observation_record_id=obj.observation_record_id,
+                        run_id=obj.run_id,
+                        defaults={
+                            'dismissed_by': request.user,
+                            'dismissed_at': timezone.now(),
+                            'reason': 'Removed in admin.',
+                        },
+                    )
+                    obj.delete()
+            else:
+                obj.delete()
         formset.save_m2m()
 
 

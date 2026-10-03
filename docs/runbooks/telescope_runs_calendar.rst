@@ -639,7 +639,10 @@ exactly as before, for a person to decide.
 
 A system link appears in the Confirmed table with **Confirmed by** reading
 ``System (exact match)`` (a staff confirmation shows the staff member's
-name), and in the run's admin inline the same way. Existing unlinked records
+name), and in the run's admin inline the same way. Deleting a system link
+in that admin inline counts as a person's decision: it writes the same
+dismissal the Undo button writes (reason ``Removed in admin.``), so the next
+sweep does not link the record again. Existing unlinked records
 link on the first sweep after this is deployed, because the sweep re-reads
 every record each tick, and a run created after its records still picks them
 up on the next sweep.

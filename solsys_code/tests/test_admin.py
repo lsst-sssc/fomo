@@ -49,6 +49,7 @@ from solsys_code.models import (
     CalendarEventMeta,
     CampaignRun,
     CampaignRunObservation,
+    ObservationRecordDismissal,
     ProposalTimeAllocation,
     WatchedProposal,
 )
@@ -625,6 +626,54 @@ class CampaignRunAdminInlinesTests(TestCase):
         link.refresh_from_db()
         self.assertEqual(link.confirmed_by, self.other_staff_user)
         self.assertEqual(link.confirmed_at, original_confirmed_at)
+
+    def _delete_link_through_inline(self, link) -> None:
+        """Submit the run's observation-link inline with ``link``'s row marked for deletion."""
+        request = self._staff_request(self.staff_user)
+        inline = CampaignRunObservationInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            f'{prefix}-0-id': str(link.pk),
+            f'{prefix}-0-observation_record': str(link.observation_record_id),
+            f'{prefix}-0-DELETE': 'on',
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=True)
+
+    def test_deleting_a_system_link_in_the_inline_writes_a_dismissal(self) -> None:
+        """37.1 WR-01: removing a machine link in the admin is a human decision, so it writes
+        the same dismissal the attribution page's Undo does -- otherwise the next discovery
+        tick would re-create the link."""
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+
+        self._delete_link_through_inline(link)
+
+        self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        dismissal = ObservationRecordDismissal.objects.get(observation_record=self.record_1, run=self.campaign_run)
+        self.assertEqual(dismissal.dismissed_by, self.staff_user)
+        self.assertIsNotNone(dismissal.dismissed_at)
+
+    def test_deleting_a_staff_link_in_the_inline_writes_no_dismissal(self) -> None:
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record_1,
+            confirmed_by=self.other_staff_user,
+            confirmed_at=timezone.now(),
+        )
+
+        self._delete_link_through_inline(link)
+
+        self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        self.assertFalse(ObservationRecordDismissal.objects.exists())
 
     def test_save_formset_stamps_calendar_event_meta_on_run_transition(self) -> None:
         """D-12: linking a previously-unowned CalendarEvent to a run through the inline is a
