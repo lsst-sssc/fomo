@@ -529,15 +529,22 @@ def orphan_calendar_events():
     (e.g. a conference/proposal-deadline event with no ``target_list``) out of the queue --
     NOT this queryset, which is deliberately permissive.
 
+    Per 37.1 D-09 an event drawn from an observation record (its ``CalendarEventMeta`` carries
+    ``observation_record``) is never an event-side orphan: it is attributed only through its
+    record, so this worklist lists hand-entered, legacy and reconciler events only, and the two
+    counts built on this queryset count a record and its own event once. An event with no
+    companion row, or a row carrying neither ``run`` nor ``observation_record``, is still an
+    orphan.
+
     Filter-only: no ``select_related``, no ``order_by``, no slice, so each caller adds what it
     needs.
 
     Returns:
-        QuerySet[CalendarEvent]: every un-attributed CalendarEvent.
+        QuerySet[CalendarEvent]: every un-attributed CalendarEvent that is not a record's own event.
     """
     return CalendarEvent.objects.filter(
         Q(telescope_label_meta__isnull=True) | Q(telescope_label_meta__run__isnull=True)
-    )
+    ).exclude(telescope_label_meta__observation_record__isnull=False)
 
 
 def orphan_observation_records():
