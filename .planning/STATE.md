@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: "37.1"
-current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1)"
-status: in_progress
-stopped_at: Phase 37.1 context gathered
-last_updated: "2026-10-03T01:09:51.771Z"
+current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
+status: executing
+stopped_at: Completed 37.1-01-PLAN.md
+last_updated: "2026-10-03T01:44:35.249Z"
 last_activity: 2026-10-02
-last_activity_desc: Quick task 261002-gev complete (F7 non-LCO proposal codes are not fetchable, not failures)
-state_head: 588d0e69407a5c2b6986984cfbf9a9f7bdd7768c
+last_activity_desc: Phase 37.1 execution started
+state_head: d5335e36b813dea4dd216bebb3273e5ca2369b79
 progress:
   total_phases: 6
   completed_phases: 37
   total_plans: 65
-  completed_plans: 62
-  percent: 95
+  completed_plans: 63
+  percent: 97
 ---
 
 # Project State
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Phase 37.1 — Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1, inserted 2026-10-02)
+**Current focus:** Phase 37.1 — Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1)) — READY TO EXECUTE
-Plan: Not started
-Status: Inserted (gap closure from the v2.4 intent review, Q1) — next: /gsd-discuss-phase 37.1 then /gsd-plan-phase 37.1
-Last activity: 2026-10-02 - Completed quick task 261002-l04: Retire the three testing campaigns (TargetLists #4, #5, #10) left by demo-notebook runs — dry-run-default script proven on scratch copies; live run is the operator's
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-10-02 — Phase 37.1 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -238,6 +238,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37 P09 | ~55min | 3 tasks | 3 files |
 | Phase 37 P10 | ~50min | 3 tasks | 6 files |
 | Phase 260922-dva P01 | 25min | 2 tasks | 1 files |
+| Phase 37.1 P01 | 45min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -406,6 +407,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: 37-09: added MAX_TABLE_PER_PAGE=100, capping per_page on request.GET in a get() override (never in get_table_pagination(), which RequestConfig.configure() overrides from the raw query string). — Following rendered rows removes the accidental 25-row bound the old hardcoded slice provided; per_page is otherwise unauthenticated and unbounded, and the per-run tally pass costs ~2-3 queries per row (T-37-09-02).
 - [Phase 37]: [Phase 37]: 37-10: G-37-6 closed -- unused_is_estimate now derives from whether a proposal code CONTRIBUTED a figure, not whether one was merely attempted; a new per-run unused_unknown_runs count makes the campaign roll-up strip read 'at least N (M runs not yet known)' instead of silently absorbing an unknown contributor as zero.
 - [Phase 37]: 260922-dva: recommended durable ~/.local/state/fomo lock-directory path (tmpfiles.d alternative); FOMO_STATE_DIR must be set explicitly alongside FOMO_LOCK_DIR since settings.py captures its default at definition time
+- [Phase 37.1]: A system link is a CampaignRunObservation with confirmed_by=None; written only via campaign_utils.create_system_link(); the post_save receiver does the night retirement
+- [Phase 37.1]: Campaign fallback links only when no run carries the record's target anywhere and the proposal is unique in the record's campaigns before the window filter; dismissal veto applies to the winner after the pick
 
 ### Pending Todos
 
@@ -505,9 +508,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T00:02:59.213Z
-Stopped at: Phase 37.1 context gathered
-Resume file: .planning/phases/37.1-close-gap-alloc-06-exact-identity-system-links-on-ingest-int/37.1-CONTEXT.md
+Last session: 2026-10-03T01:44:34.878Z
+Stopped at: Completed 37.1-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

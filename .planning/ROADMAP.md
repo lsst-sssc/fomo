@@ -441,11 +441,11 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 **Wave 1**
 
-- [ ] 37.1-01-PLAN.md — The exact-identity matcher (`campaign_system_links.py`: target first, campaign fallback only when the proposal is unique in the record's campaigns before the window filter, dismissal veto on the winner), the one system-link writer (`campaign_utils.create_system_link()`), and the discovery sweep linking every record it touches, with dry-run, idempotence, failure isolation and the two new summary counters (wave 1)
+- [x] 37.1-01-PLAN.md — The exact-identity matcher (`campaign_system_links.py`: target first, campaign fallback only when the proposal is unique in the record's campaigns before the window filter, dismissal veto on the winner), the one system-link writer (`campaign_utils.create_system_link()`), and the discovery sweep linking every record it touches, with dry-run, idempotence, failure isolation and the two new summary counters (wave 1)
 - [ ] 37.1-02-PLAN.md — Staff surfaces: "System (exact match)" in the Confirmed table and the admin inline, undo of a system link restoring the allocation night, a record and its own event counted once on the banner (D-09), the undo-dismissal prompt, audit docstrings, and `campaign_lifecycle_demo.ipynb` re-executed for D-09 (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -495,7 +495,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 0/0 | Not started | - |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 1/3 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
