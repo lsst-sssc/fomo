@@ -9,6 +9,13 @@ from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetList
 
+from solsys_code.campaign_system_links import (
+    OUTCOME_LINKED,
+    OUTCOME_SKIPPED,
+    OUTCOME_WOULD_LINK,
+    attempt_system_link,
+)
+
 
 def _matching_request_groups(facility: LCOFacility, proposal: str, name_prefix: str):
     """Page through GET /api/requestgroups/ for a proposal, yielding name-prefix matches.
@@ -148,6 +155,15 @@ class Command(BaseCommand):
     scheduled_start, and scheduled_end are populated from LCO right away instead of staying
     unset until the next poll. A failure of that call is skip-and-logged (never fatal, never
     rolls back the already-created record) and counted in the status_sync_failed summary count.
+
+    Every record the command creates (after that status refresh, on a refreshed copy of the row
+    so the placed block rather than the request window decides containment) or re-encounters
+    (with no refresh and no other write) is offered to the exact-identity system-link step
+    (campaign_system_links.attempt_system_link). A match is linked as a system link
+    (confirmed_by=None) and counted in the summary; an ambiguous record stays in the attribution
+    queue. Under --dry-run a new record is judged on its request window only (the status refresh
+    is skipped), and a reused field target that the real run would add to the campaign is not yet
+    a member during a dry run, so a campaign-fallback link it would earn is not previewed.
     """
 
     help = 'Backfill ObservationRecords from LCO RequestGroups submitted directly at the LCO portal'
@@ -226,12 +242,29 @@ class Command(BaseCommand):
         skipped_unmatched_target = 0
         skipped_no_config = 0
         status_sync_failed = 0
+        system_links = 0
+        links_skipped = 0
+
+        def offer_for_system_link(record: ObservationRecord) -> None:
+            """Offer one record to the exact-identity matcher and tally the outcome."""
+            nonlocal system_links, links_skipped
+            outcome = attempt_system_link(record, dry_run=dry_run, stdout=self.stdout, stderr=self.stderr)
+            if outcome in (OUTCOME_LINKED, OUTCOME_WOULD_LINK):
+                system_links += 1
+            elif outcome == OUTCOME_SKIPPED:
+                links_skipped += 1
 
         for request_group in _matching_request_groups(facility, proposal, name_prefix):
             for request in request_group.get('requests', []):
                 observation_id = str(request['id'])
-                if ObservationRecord.objects.filter(facility=facility.name, observation_id=observation_id).exists():
+                existing = ObservationRecord.objects.filter(
+                    facility=facility.name, observation_id=observation_id
+                ).first()
+                if existing is not None:
+                    # D-02: an already-existing record is never re-created or refreshed, but it is still
+                    # offered to the system-link step -- the only write on this path is at most one link row.
                     skipped_existing += 1
+                    offer_for_system_link(existing)
                     continue
 
                 target_info = _request_target_info(request)
@@ -272,8 +305,20 @@ class Command(BaseCommand):
                         f'Would create ObservationRecord: target={target.name!r}, observation_id={observation_id}, '
                         f'status={request.get("state", "")!r}'
                     )
+                    if target.pk is not None:
+                        # Request window only: the status refresh is skipped under --dry-run. A would-be-new
+                        # field target has no pk, so it is in no campaign and carries no run.
+                        offer_for_system_link(
+                            ObservationRecord(
+                                target=target,
+                                facility=facility.name,
+                                observation_id=observation_id,
+                                status=request.get('state', ''),
+                                parameters=parameters,
+                            )
+                        )
                 else:
-                    ObservationRecord.objects.create(
+                    record = ObservationRecord.objects.create(
                         target=target,
                         user=user,
                         facility=facility.name,
@@ -286,12 +331,17 @@ class Command(BaseCommand):
                     except Exception as exc:
                         self.stderr.write(f'Failed to refresh status for observation_id={observation_id!r}: {exc}')
                         status_sync_failed += 1
+                    # update_observation_status() loads and saves its own instance, so the in-memory one
+                    # still lacks the placed block; reload it before judging window containment.
+                    record.refresh_from_db()
+                    offer_for_system_link(record)
                 created += 1
 
         summary = (
             f'{"Would create" if dry_run else "Created"}: {created}, already existed: {skipped_existing}, '
             f'unmatched target: {skipped_unmatched_target}, no usable configuration: {skipped_no_config}, '
-            f'created field targets: {created_targets}, status sync failed: {status_sync_failed}'
+            f'created field targets: {created_targets}, status sync failed: {status_sync_failed}, '
+            f'{"would link" if dry_run else "system links"}: {system_links}, links skipped: {links_skipped}'
         )
         self.stdout.write(summary)
         return summary

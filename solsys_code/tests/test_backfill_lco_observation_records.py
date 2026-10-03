@@ -1,3 +1,5 @@
+import io
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 from django.core.management import CommandError, call_command
@@ -5,6 +7,8 @@ from django.test import TestCase
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
+
+from solsys_code.models import CampaignRun, CampaignRunObservation
 
 
 def _configuration(
@@ -479,3 +483,138 @@ class TestBackfillLcoObservationRecords(TestCase):
         self.assertEqual(self.mock_update_observation_status.call_count, 2)
         self.assertTrue(ObservationRecord.objects.filter(facility='LCO', observation_id='10').exists())
         self.assertTrue(ObservationRecord.objects.filter(facility='LCO', observation_id='11').exists())
+
+
+class TestBackfillSystemLinks(TestCase):
+    """ALLOC-06: the Didymos backfill links records it creates and records it re-encounters."""
+
+    FIELD_NAME = 'Didymos COJ 2026 Field #14'
+    ARGS = ('--proposal=LCO2026A-003', '--name-prefix=Didymos', '--campaign=Didymos 2026 Campaign')
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.target = NonSiderealTargetFactory.create(name='Didymos')
+        cls.field_target = NonSiderealTargetFactory.create(name=cls.FIELD_NAME)
+        cls.campaign = TargetList.objects.create(name='Didymos 2026 Campaign')
+        cls.campaign.targets.add(cls.target, cls.field_target)
+        cls.container_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            target=cls.target,
+            proposal_code='LCO2026A-003',
+            telescope_class='1m0',
+            source=CampaignRun.Source.LCO_QUEUE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='1m0/Sinistro',
+            window_start=date(2026, 6, 25),
+            window_end=date(2026, 7, 1),
+        )
+
+    def setUp(self):
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.update_observation_status')
+        self.mock_update_observation_status = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _existing_record(self):
+        return ObservationRecord.objects.create(
+            target=self.field_target,
+            facility='LCO',
+            observation_id='10',
+            status='COMPLETED',
+            parameters={
+                'proposal': 'LCO2026A-003',
+                'instrument_type': '1M0-SCICAM-SINISTRO',
+                'start': '2026-06-28T00:00:00',
+                'end': '2026-06-29T00:00:00',
+            },
+        )
+
+    def _page(self):
+        return _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, target_name=self.FIELD_NAME)])]
+        )
+
+    def _run_command(self, *extra):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        summary = call_command('backfill_lco_observation_records', *self.ARGS, *extra, stdout=stdout, stderr=stderr)
+        return summary, stdout.getvalue(), stderr.getvalue()
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_existing_unlinked_record_links_by_campaign_fallback(self, mock_make_request):
+        mock_make_request.return_value = self._page()
+        record = self._existing_record()
+
+        summary, stdout, _ = self._run_command()
+
+        link = CampaignRunObservation.objects.get(observation_record=record)
+        self.assertEqual(link.run_id, self.container_run.pk)
+        self.assertIsNone(link.confirmed_by)
+        self.assertIn('(proposal unique within campaign + window)', stdout)
+        self.assertIn('already existed: 1', summary)
+        self.assertTrue(summary.endswith('system links: 1, links skipped: 0'), summary)
+        self.mock_update_observation_status.assert_not_called()
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_created_record_links_on_its_refreshed_placed_block(self, mock_make_request):
+        mock_make_request.return_value = self._page()
+
+        def _refresh_status(observation_id):
+            record = ObservationRecord.objects.get(facility='LCO', observation_id=observation_id)
+            record.scheduled_start = '2026-07-01T00:10:00+00:00'
+            record.scheduled_end = '2026-07-01T00:20:00+00:00'
+            record.save()
+
+        self.mock_update_observation_status.side_effect = _refresh_status
+
+        summary, _, _ = self._run_command()
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        # The request window (2026-07-01..07-02) is not inside the run's window; the placed block is.
+        link = CampaignRunObservation.objects.get(observation_record=record)
+        self.assertEqual(link.run_id, self.container_run.pk)
+        self.assertTrue(summary.endswith('system links: 1, links skipped: 0'), summary)
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_rerun_is_idempotent(self, mock_make_request):
+        mock_make_request.return_value = self._page()
+        record = self._existing_record()
+        self._run_command()
+        link = CampaignRunObservation.objects.get(observation_record=record)
+
+        summary, _, _ = self._run_command()
+
+        self.assertEqual(CampaignRunObservation.objects.filter(observation_record=record).count(), 1)
+        link_again = CampaignRunObservation.objects.get(observation_record=record)
+        self.assertEqual(link_again.confirmed_at, link.confirmed_at)
+        self.assertTrue(summary.endswith('system links: 0, links skipped: 0'), summary)
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_dry_run_reports_would_link_and_writes_nothing(self, mock_make_request):
+        mock_make_request.return_value = self._page()
+        self._existing_record()
+
+        summary, stdout, _ = self._run_command('--dry-run')
+
+        self.assertIn("Would system-link ObservationRecord observation_id='10'", stdout)
+        self.assertTrue(summary.endswith('would link: 1, links skipped: 0'), summary)
+        self.assertFalse(CampaignRunObservation.objects.exists())
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_second_same_proposal_run_in_campaign_blocks_the_fallback(self, mock_make_request):
+        mock_make_request.return_value = self._page()
+        record = self._existing_record()
+        CampaignRun.objects.create(
+            campaign=self.campaign,
+            target=NonSiderealTargetFactory.create(name='Didymos Other'),
+            proposal_code='LCO2026A-003',
+            telescope_class='1m0',
+            source=CampaignRun.Source.LCO_QUEUE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='1m0/Sinistro',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 5),
+        )
+
+        summary, _, _ = self._run_command()
+
+        self.assertFalse(CampaignRunObservation.objects.filter(observation_record=record).exists())
+        self.assertTrue(summary.endswith('system links: 0, links skipped: 0'), summary)
