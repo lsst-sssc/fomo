@@ -705,7 +705,11 @@ class CampaignRunAdminInlinesTests(TestCase):
         self.assertEqual(dismissal.dismissed_by, self.staff_user)
         self.assertIsNotNone(dismissal.dismissed_at)
 
-    def test_deleting_a_staff_link_in_the_inline_writes_no_dismissal(self) -> None:
+    def test_deleting_a_staff_link_in_the_inline_writes_a_dismissal(self) -> None:
+        """37.1 WR-08: a staff-confirmed link removed in the admin is a human decision too.
+        Without a dismissal the next sweep would re-create the pair as a 'System (exact
+        match)' link, overriding the staff member's decision -- so the inline writes the same
+        dismissal the attribution page's Undo does for staff links and system links alike."""
         link = CampaignRunObservation.objects.create(
             run=self.campaign_run,
             observation_record=self.record_1,
@@ -716,7 +720,9 @@ class CampaignRunAdminInlinesTests(TestCase):
         self._delete_link_through_inline(link)
 
         self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
-        self.assertFalse(ObservationRecordDismissal.objects.exists())
+        dismissal = ObservationRecordDismissal.objects.get(observation_record=self.record_1, run=self.campaign_run)
+        self.assertEqual(dismissal.dismissed_by, self.staff_user)
+        self.assertIsNotNone(dismissal.dismissed_at)
 
     def test_save_formset_stamps_calendar_event_meta_on_run_transition(self) -> None:
         """D-12: linking a previously-unowned CalendarEvent to a run through the inline is a

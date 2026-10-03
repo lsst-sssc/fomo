@@ -348,11 +348,14 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
         # deletion -- it only populates formset.deleted_objects. Deleting them here
         # preserves the base ModelAdmin.save_formset() behaviour this override replaces.
         for obj in formset.deleted_objects:
-            if isinstance(obj, CampaignRunObservation) and obj.confirmed_by_id is None:
-                # WR-01 (37.1-REVIEW.md): removing a SYSTEM link here is a human decision, and
-                # the next discovery tick would otherwise re-create it -- the exact-identity
-                # matcher's only veto is a dismissal row. Write the same dismissal the
-                # attribution page's Undo writes, in the same atomic block as the delete.
+            if isinstance(obj, CampaignRunObservation):
+                # WR-01/WR-08 (37.1-REVIEW.md): removing ANY link here -- a system link or a
+                # staff confirmation -- is a human decision, and the next discovery tick would
+                # otherwise re-create it (as a "System (exact match)" link, overriding the
+                # staff member's "this pair is wrong"). The exact-identity matcher's only veto
+                # once the link is gone is a dismissal row. Write the same dismissal the
+                # attribution page's Undo writes for both kinds of link, in the same atomic
+                # block as the delete.
                 with transaction.atomic():
                     ObservationRecordDismissal.objects.get_or_create(
                         observation_record_id=obj.observation_record_id,

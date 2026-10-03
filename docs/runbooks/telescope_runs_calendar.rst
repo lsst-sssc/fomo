@@ -642,9 +642,10 @@ A system link appears in the Confirmed table with **Confirmed by** reading
 name), and in the run's admin inline the same way. A blank **Confirmed by**
 is what marks a system link, so a staff account that has confirmed a link
 cannot be deleted -- deactivate it instead -- because its links would then
-read as system links. Deleting a system link in that admin inline counts as a person's decision: it writes the same
-dismissal the Undo button writes (reason ``Removed in admin.``), so the next
-sweep does not link the record again. A saved link's observation record
+read as system links. Deleting a link in that admin inline -- a system link or a staff
+confirmation -- counts as a person's decision: it writes the same dismissal
+the Undo button writes (reason ``Removed in admin.``), so the next sweep does
+not link the record again. A saved link's observation record
 cannot be changed in the inline; delete the link and add a new one, which is
 recorded as that staff member's own confirmation. Existing unlinked records
 link on the first sweep after this is deployed, because the sweep re-reads
