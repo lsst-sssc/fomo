@@ -2,15 +2,15 @@
 gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
-current_phase: 37
-status: completed
-stopped_at: v2.4 intent-review walkthrough in progress — setup steps 1–4 done, step 5 script ready (261002-dsa, operator runs it live); F1/F2-A/F5/F6/F7 fixed, F8 repaired by hand (route open), F3/F4 open; next is the step 5 live run then Q1–Q8
-last_updated: "2026-10-02T22:29:44.715Z"
+current_phase: "37.1"
+status: in_progress
+stopped_at: Phase 37.1 context gathered
+last_updated: "2026-10-03T00:02:59.321Z"
 last_activity: 2026-10-02
 last_activity_desc: Quick task 261002-gev complete (F7 non-LCO proposal codes are not fetchable, not failures)
-state_head: c9783215fb27369bfda5d679bd240e6aa9eb5075
+state_head: c849967bf70c41a3a2902710df41daf81bd92f7d
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 37
   total_plans: 62
   completed_plans: 62
@@ -24,13 +24,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Phase 37 — Status Vocabulary, Public Tallies & Provenance-Blind Gaps
+**Current focus:** Phase 37.1 — Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1, inserted 2026-10-02)
 
 ## Current Position
 
-Phase: 37
+Phase: 37.1
 Plan: Not started
-Status: All phases complete
+Status: Inserted (gap closure from the v2.4 intent review, Q1) — next: /gsd-discuss-phase 37.1 then /gsd-plan-phase 37.1
 Last activity: 2026-10-02 - Completed quick task 261002-l04: Retire the three testing campaigns (TargetLists #4, #5, #10) left by demo-notebook runs — dry-run-default script proven on scratch copies; live run is the operator's
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
@@ -42,6 +42,7 @@ Last activity: 2026-10-02 - Completed quick task 261002-l04: Retire the three te
 | 35. Allocation Layer & Classical Cutover | An allocation projects its own sunset→sunrise intent nights and hands each night over when a real observation links to it; `load_telescope_runs` writes allocations instead of events | ALLOC-01..05 |
 | 36. Unattended Operation | The sweep, the discovery backfill and the reconciler run on the real host on a cron + `flock` schedule against an admin-editable watched-proposal list, with failures visible and no credential logged | SCHED-08..10, DISCOVER-01 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | One status vocabulary, an ongoing public tally per run and campaign, unused awarded nights that look unused, and coverage gaps that count every observation | STATUS-01..02, TALLY-01..03, UNUSED-01, GAPB-01 |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | A newly ingested observation record that matches exactly one approved run by proposal code, target (or campaign) and window is linked to it as a system link, so its allocation night retires with no staff action; ambiguous matches stay in the queue; the banner counts a record and its event once | ALLOC-06 |
 
 Coverage: 29/29 v1 requirements mapped, no orphans, no duplicates. Phase numbering continues from the superseded v2.3 (last phase: 32). Full phase detail, locked constraints and paired-docs scope in `.planning/ROADMAP.md`.
 
@@ -251,6 +252,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 - Phase 30 added: v2.2 Tech-Debt Cleanup: repo-wide ruff pass, runbook prose fixes, attribution candidate approval_status filter
 - Phase 30 edited: edited fields: goal, depends_on, success_criteria (added), scope list (added), locked-context pointer (added), paired-docs. Rewritten from 30-CONTEXT.md per D-11 — the original goal named the WR-09/WR-10 runbook fixes and a repo-wide ruff pass, all three of which discuss-phase verified as already closed, and specified excluding PENDING_REVIEW from attribution candidates, which D-01 reversed.
 - Phase 32 edited (2026-09-03, discuss-phase): resolved the pending retarget todo (`2026-09-02-retarget-adapt-03-to-soar-and-caveat-phase-33-gemini-outcome.md`, gap G-31-3) at discussion time rather than deferring it further. ADAPT-03 retargeted from Gemini to SOAR (folded into `sync_lco_observation_calendar` under a new `SOAR_QUEUE` source value) as the facility proving the pattern generalises to real read-back; Gemini's own write path kept in scope as new requirement ADAPT-06, explicitly caveated as unable to support Phase 33 outcome propagation. Coverage moves from 22/22 to 23/23. ROADMAP.md's Phase 32 goal/success-criteria/locked constraints and REQUIREMENTS.md's ADAPT-03/ADAPT-06 text updated to match; full rationale in `32-CONTEXT.md` and `32-DISCUSSION-LOG.md`.
+- Phase 37.1 inserted after Phase 37: Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (URGENT)
 
 ### Decisions
 
@@ -502,9 +504,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-30T13:50:00Z
-Stopped at: v2.4 close-out walkthrough, mid-setup. Done: step 1 (DB snapshot), step 2 (`KEY2026B-004` `WatchedProposal` added 16:30 PDT, attributed to `look_admin`; first live discovery created 35 records / 5 groups / 12 `ProposalTimeAllocation` rows). Found F1 (discovery ⇄ sweep churn on `parameters`) and fixed it via quick task 260929-svk (commits 6b3a731, 7f31677, 213b8ba); ticks 21:30/21:45/22:00 confirm `project_sweep: updated: 0, site_lookups: 0`. F2-A fixed via quick task 260930-85d (04aa2ef, 9f7ce9f, 96f3fd0): ticks 06:15/06:30 PDT 2026-09-30 at 42 s/41 s (were ~255 s), `fallback lookups needed: 10, skipped: 171`; option B captured as todo `2026-09-30-fetch-lco-observation-blocks-in-bulk-per-proposal.md`. Q8 (watched-proposal entry point, create-only attribution) added to the review doc. Next: setup step 3 (class-wide KEY2026B-004 run + attribute the 14 groups), step 4 (complete Didymos via `load_telescope_runs`), step 5 (retire orphans), then Q1–Q8.
-Resume file: .planning/v2.4-INTENT-REVIEW.md — "Walkthrough setup" → "Found during the walkthrough" (F1) → Q1–Q8.
+Last session: 2026-10-03T00:02:59.213Z
+Stopped at: Phase 37.1 context gathered
+Resume file: .planning/phases/37.1-close-gap-alloc-06-exact-identity-system-links-on-ingest-int/37.1-CONTEXT.md
 
 ## Operator Next Steps
 
