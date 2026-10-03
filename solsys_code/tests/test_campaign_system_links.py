@@ -452,6 +452,43 @@ class TestCreateSystemLink(SystemLinkTestBase):
         self.assertEqual(link.run_id, run.pk)
         self.assertIsNone(link.confirmed_by)
 
+    def test_a_failing_receiver_write_does_not_roll_back_the_link(self):
+        # CR-01: a failed ORM write inside the post_save receiver chain must not take the
+        # caller's just-written link row with it.
+        target = self._make_target()
+        run = self._make_run(target=target)
+        record = self._make_record(target)
+
+        def failing_projection(projected_run):
+            # A second row for the same record violates the unique constraint.
+            CampaignRunObservation.objects.create(run=projected_run, observation_record=record)
+
+        with (
+            patch(
+                'solsys_code.allocation_projector.reproject_allocation_if_dispatched', side_effect=failing_projection
+            ),
+            self.assertLogs('solsys_code.allocation_projector', level='WARNING'),
+        ):
+            self.assertTrue(create_system_link(record, run))
+
+        self.assertTrue(CampaignRunObservation.objects.filter(observation_record=record).exists())
+
+    def test_a_link_that_is_not_in_the_database_is_never_reported_as_created(self):
+        # CR-01: belt and braces -- a created=True backed by no row raises rather than reporting.
+        target = self._make_target()
+        run = self._make_run(target=target)
+        record = self._make_record(target)
+
+        with (
+            patch.object(
+                CampaignRunObservation.objects,
+                'get_or_create',
+                return_value=(CampaignRunObservation(pk=999999), True),
+            ),
+            self.assertRaises(IntegrityError),
+        ):
+            create_system_link(record, run)
+
 
 class TestAttemptSystemLink(SystemLinkTestBase):
     """The ingest entry point: outcomes, output lines and failure isolation (D-08)."""
@@ -503,6 +540,19 @@ class TestAttemptSystemLink(SystemLinkTestBase):
         self.assertIn(f'CampaignRun #{self.run_obj.pk}', self.stderr.getvalue())
         self.assertNotIn('secret detail', self.stderr.getvalue())
         self.assertEqual(self.stdout.getvalue(), '')
+
+    def test_a_link_lost_to_a_rollback_is_skipped_not_reported_as_linked(self):
+        # CR-01: a created=True with no row behind it must be counted as skipped.
+        with patch.object(
+            CampaignRunObservation.objects,
+            'get_or_create',
+            return_value=(CampaignRunObservation(pk=999999), True),
+        ):
+            outcome = self._attempt(dry_run=False)
+
+        self.assertEqual(outcome, OUTCOME_SKIPPED)
+        self.assertEqual(self.stdout.getvalue(), '')
+        self.assertIn('IntegrityError', self.stderr.getvalue())
 
     def test_a_failing_match_is_skipped_and_never_leaks_the_message(self):
         with patch('solsys_code.campaign_system_links.find_exact_run', side_effect=RuntimeError('secret detail')):

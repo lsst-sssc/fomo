@@ -1648,7 +1648,12 @@ def receiver_on_run_observation_save(sender: Any, instance: Any, created: bool, 
     if run is None:
         return
     try:
-        reproject_allocation_if_dispatched(run)
+        # CR-01 (37.1-REVIEW.md): the re-projection gets its own savepoint, so a failed ORM write
+        # inside it rolls back only the projection. Without it the failure marks the CALLER's
+        # savepoint for rollback (``needs_rollback``) and the link row it just wrote vanishes
+        # even though this receiver swallows the exception.
+        with transaction.atomic():
+            reproject_allocation_if_dispatched(run)
     except Exception as exc:  # noqa: BLE001 -- never abort the caller's save
         logger.warning(
             'receiver_on_run_observation_save failed for link pk=%s run pk=%s: %s',
@@ -1734,7 +1739,10 @@ def receiver_on_run_observation_delete(sender: Any, instance: Any, **kwargs: Any
     if run is None:
         return
     try:
-        reproject_allocation_if_dispatched(run)
+        # CR-01 (37.1-REVIEW.md): own savepoint, so a failed projection write cannot roll back
+        # the caller's delete (see receiver_on_run_observation_save()).
+        with transaction.atomic():
+            reproject_allocation_if_dispatched(run)
     except Exception as exc:  # noqa: BLE001 -- never abort the caller's delete
         logger.warning(
             'receiver_on_run_observation_delete failed for link pk=%s run pk=%s: %s',

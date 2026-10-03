@@ -1032,12 +1032,21 @@ def create_system_link(record: ObservationRecord, run: CampaignRun) -> bool:
     Returns:
         bool: True when a new row was created; False when a row for this record already
             existed (possibly a staff link to a different run) and it was left untouched.
+
+    Raises:
+        IntegrityError: when the new row was rolled back by a failure inside the post_save
+            receiver chain, so a reported link is always backed by a row.
     """
     with transaction.atomic():
-        _link, created = CampaignRunObservation.objects.get_or_create(
+        link, created = CampaignRunObservation.objects.get_or_create(
             observation_record=record,
             defaults={'run': run, 'confirmed_at': timezone.now()},
         )
+    # CR-01 (37.1-REVIEW.md): never report a link that is not in the database. A failure inside the
+    # post_save receiver chain can mark the savepoint for rollback; Django then undoes the INSERT
+    # without raising, yet ``get_or_create()`` still returns ``created=True``.
+    if created and not CampaignRunObservation.objects.filter(pk=link.pk).exists():
+        raise IntegrityError('system link rolled back by a post_save receiver failure')
     return created
 
 
