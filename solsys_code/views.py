@@ -20,7 +20,7 @@ from astropy.table import QTable
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
 from django.contrib import messages
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Prefetch, ProtectedError, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -33,6 +33,7 @@ from sorcha.ephemeris.simulation_geometry import (
 )
 from tom_calendar.models import CalendarEvent
 from tom_calendar.views import DAY_NAMES, MoonPhase
+from tom_common.views import UserDeleteView
 from tom_targets.models import Target, TargetList
 
 from solsys_code.models import CalendarEventMeta
@@ -755,3 +756,36 @@ class JPLSBDBQuery:
                 target.save()
                 new_targets.append(target)
         return new_targets
+
+
+class ProtectedUserDeleteView(UserDeleteView):
+    """TOM's user-delete view, made to survive a protected provenance link (WR-10, 37.1-REVIEW.md).
+
+    ``CampaignRunObservation.confirmed_by`` and ``CalendarEventMeta.confirmed_by`` are
+    ``on_delete=PROTECT`` because a blank ``confirmed_by`` is read as "machine, safe to undo"
+    (WR-03/WR-11). TOM's own ``UserDeleteView`` does not catch the resulting ``ProtectedError``,
+    so deleting an account that confirmed anything was an HTTP 500. This subclass keeps TOM's
+    behavior for every other account and, for a protected one, leaves the account in place and
+    sends the operator back to the user list with an explanation.
+    """
+
+    def form_valid(self, form: Any) -> HttpResponse:
+        """Delete the user, or explain why the account has to be deactivated instead.
+
+        Args:
+            form: the (empty) confirmation form Django's ``DeleteView`` passes in.
+
+        Returns:
+            Django's usual redirect to the user list, whether or not the delete went through.
+        """
+        try:
+            return super().form_valid(form)
+        except ProtectedError as exc:
+            messages.error(
+                self.request,
+                f'{self.object.get_username()} cannot be deleted: the account confirmed '
+                f'{len(exc.protected_objects)} campaign link(s) or calendar event attribution(s), and deleting it '
+                'would make them read as machine-made. Deactivate the account instead (clear "Active" on its '
+                'admin page).',
+            )
+            return redirect(self.get_success_url())

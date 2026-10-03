@@ -642,7 +642,9 @@ A system link appears in the Confirmed table with **Confirmed by** reading
 name), and in the run's admin inline the same way. A blank **Confirmed by**
 is what marks a system link, so a staff account that has confirmed a link
 cannot be deleted -- deactivate it instead -- because its links would then
-read as system links. Deleting a link in that admin inline -- a system link or a staff
+read as system links. The Delete button on the Users page (and the Django
+admin) refuses such an account with a message and leaves it in place; clear
+**Active** on its admin page to lock it out. Deleting a link in that admin inline -- a system link or a staff
 confirmation -- counts as a person's decision: it writes the same dismissal
 the Undo button writes (reason ``Removed in admin.``), so the next sweep does
 not link the record again. A saved link's observation record

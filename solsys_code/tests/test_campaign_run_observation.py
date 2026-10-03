@@ -8,9 +8,11 @@ from datetime import datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
+from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
@@ -155,3 +157,59 @@ class TestCampaignRunObservation(TestCase):
         self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
         self.assertTrue(CalendarEventMeta.objects.filter(pk=meta.pk).exists())
         self.assertIsNone(meta.run_id)
+
+
+class TestUserDeleteView(TestCase):
+    """WR-10 (37.1-REVIEW.md): TOM's user-delete page must refuse, not crash, on a protected account."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.admin_user = User.objects.create_superuser(username='delete-admin', password='pw', email='a@example.com')
+        cls.target = NonSiderealTargetFactory.create()
+        cls.record_owner = User.objects.create(username='delete-record-owner')
+        cls.record = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.record_owner,
+            facility='LCO',
+            observation_id='user-delete-record',
+            status='COMPLETED',
+            parameters={},
+        )
+        cls.campaign_run = CampaignRun.objects.create(
+            campaign=TargetList.objects.create(name='user-delete campaign'),
+            telescope_instrument='FTN/MuSCAT3',
+            window_start='2025-07-04',
+            window_end='2025-07-04',
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.admin_user)
+
+    def _post_delete(self, user: User):
+        return self.client.post(reverse('user-delete', kwargs={'pk': user.pk}))
+
+    def test_deleting_a_user_who_confirmed_a_link_redirects_with_a_message_instead_of_a_500(self) -> None:
+        confirmer = User.objects.create(username='delete-link-confirmer')
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record,
+            confirmed_by=confirmer,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        response = self._post_delete(confirmer)
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(pk=confirmer.pk).exists())
+        self.assertEqual(CampaignRunObservation.objects.get(observation_record=self.record).confirmed_by, confirmer)
+        messages_text = ' '.join(str(m) for m in get_messages(response.wsgi_request))
+        self.assertIn('cannot be deleted', messages_text)
+        self.assertIn('delete-link-confirmer', messages_text)
+
+    def test_deleting_an_unprotected_user_still_works(self) -> None:
+        bystander = User.objects.create(username='delete-bystander')
+
+        response = self._post_delete(bystander)
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertFalse(User.objects.filter(pk=bystander.pk).exists())
