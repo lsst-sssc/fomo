@@ -1,7 +1,8 @@
 import copy
 import io
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import requests
 from django.contrib.auth.models import User
@@ -11,12 +12,17 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.allocation_projector import allocation_events
+from solsys_code.campaign_attribution import record_attribution_backlog
+from solsys_code.campaign_reconciler import reconcile_run
 from solsys_code.management.commands.backfill_lco_observations import (
     _preserve_observed_site_keys,
     _schedule_lookup_is_needed,
     sweep_proposal,
 )
-from solsys_code.models import WatchedProposal
+from solsys_code.models import CampaignRun, CampaignRunObservation, WatchedProposal
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import observing_night
 
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
 # for every fixture request unless a test deliberately builds an incomplete one.
@@ -102,6 +108,8 @@ def _expected_summary(
     list_name='LCO2026A-003_targets',
     list_reused=False,
     targets_added=0,
+    system_links=0,
+    links_skipped=0,
 ):
     """Build the exact summary line a run over these counts should produce.
 
@@ -122,6 +130,7 @@ def _expected_summary(
     else:
         list_verb = 'reused' if list_reused else 'created'
     targets_added_label = 'targets would add to list' if dry_run else 'targets added to list'
+    system_links_label = 'would link' if dry_run else 'system links'
     return (
         f'requestgroups seen: {requestgroups_seen}, '
         f'{created_label}: {created}, '
@@ -134,7 +143,8 @@ def _expected_summary(
         f'fallback lookups skipped: {fallback_lookups_skipped}, '
         f'block lookups failed: {block_lookups_failed_value}, '
         f'target list: {list_verb} {list_name!r}, '
-        f'{targets_added_label}: {targets_added}'
+        f'{targets_added_label}: {targets_added}, '
+        f'{system_links_label}: {system_links}, links skipped: {links_skipped}'
     )
 
 
@@ -1966,3 +1976,92 @@ class TestScheduleLookupIsNeeded(SimpleTestCase):
         record = ObservationRecord(status='DONE')
         self.assertFalse(self._needed(record, 'DONE', terminal=frozenset({'DONE'}), failed=frozenset({'DONE'})))
         self.assertTrue(self._needed(record, 'DONE', terminal=frozenset(), failed=frozenset()))
+
+
+class TestSweepSystemLinks(TestCase):
+    """ALLOC-06: the discovery sweep links a record that exactly matches one approved run."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+        cls.chilean_site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def setUp(self):
+        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        self.mock_get_observation_status = patcher.start()
+        self.mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+        self.addCleanup(patcher.stop)
+
+    def _make_per_night_run(self, **overrides):
+        kwargs = {
+            'campaign': None,
+            'target': self.existing_target,
+            'proposal_code': 'LCO2026A-003',
+            'source': CampaignRun.Source.CLASSICAL_FILE,
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'telescope_instrument': 'NTT/EFOSC2',
+            'site': self.chilean_site,
+            'site_raw': '809',
+            'window_start': date(2026, 6, 29),
+            'window_end': date(2026, 7, 2),
+        }
+        kwargs.update(overrides)
+        return CampaignRun.objects.create(**kwargs)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_exact_target_match_links_and_retires_the_night(self, mock_make_request):
+        run = self._make_per_night_run()
+        reconcile_run(run)
+        events_before = allocation_events(run).count()
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+        stdout, stderr = io.StringIO(), io.StringIO()
+
+        summary = sweep_proposal('LCO2026A-003', stdout=stdout, stderr=stderr)
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        link = CampaignRunObservation.objects.get(observation_record=record)
+        self.assertEqual(link.run_id, run.pk)
+        self.assertIsNone(link.confirmed_by)
+        self.assertIsNotNone(link.confirmed_at)
+        retired_night = observing_night(record.scheduled_start, ZoneInfo('America/Santiago'))
+        self.assertFalse(allocation_events(run).filter(url=f'ALLOC:{run.pk}:{retired_night.isoformat()}').exists())
+        self.assertEqual(allocation_events(run).count(), events_before - 1)
+        self.assertNotIn(record.pk, {g.orphan.pk for g in record_attribution_backlog()})
+        self.assertIn(
+            f"System-linked ObservationRecord observation_id='10' to CampaignRun #{run.pk} "
+            f'(proposal + target + window).',
+            stdout.getvalue(),
+        )
+        self.assertEqual(stderr.getvalue(), '')
+        expected = _expected_summary(
+            dry_run=False,
+            requestgroups_seen=1,
+            created=1,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            targets=0,
+            groups_created=0,
+            groups_reused=0,
+            embedded_blocks=0,
+            fallback_lookups_needed=1,
+            block_lookups_failed=0,
+            list_reused=False,
+            targets_added=1,
+            system_links=1,
+            links_skipped=0,
+        )
+        self.assertEqual(summary, expected)

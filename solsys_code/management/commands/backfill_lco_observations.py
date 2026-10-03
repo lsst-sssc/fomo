@@ -31,6 +31,12 @@ from tom_targets.models import Target, TargetList
 # lookup (calendar_utils D-09). Discovery must carry these keys forward and never erase them
 # (F1, v2.4-INTENT-REVIEW.md).
 from solsys_code.calendar_utils import OBSERVED_SITE_PARAMETER_KEYS
+from solsys_code.campaign_system_links import (
+    OUTCOME_LINKED,
+    OUTCOME_SKIPPED,
+    OUTCOME_WOULD_LINK,
+    attempt_system_link,
+)
 from solsys_code.models import WatchedProposal
 
 logger = logging.getLogger(__name__)
@@ -579,6 +585,10 @@ def sweep_proposal(
     embedded_blocks = 0
     fallback_lookups_needed = 0
     fallback_lookups_skipped = 0
+    # ALLOC-06: exact-identity system links written (or, under --dry-run, that would be
+    # written) and link attempts that raised, both reported at the end of the summary.
+    system_links = 0
+    links_skipped = 0
     # De-dups the dry-run target counter within this invocation only (see the dry-run
     # branch below): a real run saves the target on the first request in a group and
     # matches it on the second, but a dry run never saves anything, so without this set
@@ -738,6 +748,15 @@ def sweep_proposal(
                 else:
                     unchanged += 1
 
+            # ALLOC-06 / D-01: every record the sweep touches -- created, updated or unchanged --
+            # is offered to the exact-identity matcher, because runs are often created after their
+            # records. The record's own status has no effect on whether it links (D-03).
+            link_outcome = attempt_system_link(record, dry_run=False, stdout=stdout, stderr=stderr)
+            if link_outcome in (OUTCOME_LINKED, OUTCOME_WOULD_LINK):
+                system_links += 1
+            elif link_outcome == OUTCOME_SKIPPED:
+                links_skipped += 1
+
             processed_in_group.append(record)
 
         if len(requests_in_group) > 1 and processed_in_group:
@@ -788,7 +807,8 @@ def sweep_proposal(
         f'fallback lookups skipped: {fallback_lookups_skipped}, '
         f'block lookups failed: {"n/a (dry-run)" if dry_run else block_lookups_failed}, '
         f'target list: {list_verb} {list_name!r}, '
-        f'{"targets would add to list" if dry_run else "targets added to list"}: {targets_added}'
+        f'{"targets would add to list" if dry_run else "targets added to list"}: {targets_added}, '
+        f'{"would link" if dry_run else "system links"}: {system_links}, links skipped: {links_skipped}'
     )
     return summary
 

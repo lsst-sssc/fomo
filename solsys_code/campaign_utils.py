@@ -21,6 +21,7 @@ from typing import Any, NamedTuple
 
 import requests
 from django.core.cache import cache
+from django.db import transaction
 from django.db.utils import IntegrityError
 from django.utils import timezone
 from tom_calendar.models import CalendarEvent
@@ -1007,6 +1008,39 @@ def adopt_event_into_run(event: CalendarEvent, run: CampaignRun) -> bool:
     return True
 
 
+def create_system_link(record: ObservationRecord, run: CampaignRun) -> bool:
+    """Write the one system link that ties an ObservationRecord to a CampaignRun (ALLOC-06).
+
+    A system link is a ``CampaignRunObservation`` row whose ``confirmed_by`` is left unset
+    (``None`` is the provenance: no staff member confirmed it) and whose ``confirmed_at`` is
+    stamped now. This is the single definition of a system-link write: both
+    :func:`write_and_reconcile_campaign_run` and the discovery sweep's exact-identity step
+    (:mod:`solsys_code.campaign_system_links`) go through it.
+
+    The write does NOT call ``reconcile_run()``: the ``CampaignRunObservation`` post_save
+    receiver already re-projects the run (35 D-11), retiring the record's allocation night or
+    attributing its own event to a container run.
+
+    The write runs inside its own ``transaction.atomic()`` savepoint, so a raised
+    ``IntegrityError`` (for example a lost race on ``unique_campaign_run_observation_record``)
+    cannot poison a caller that is itself inside a transaction (D-08).
+
+    Args:
+        record: the ObservationRecord to link.
+        run: the CampaignRun it realises.
+
+    Returns:
+        bool: True when a new row was created; False when a row for this record already
+            existed (possibly a staff link to a different run) and it was left untouched.
+    """
+    with transaction.atomic():
+        _link, created = CampaignRunObservation.objects.get_or_create(
+            observation_record=record,
+            defaults={'run': run, 'confirmed_at': timezone.now()},
+        )
+    return created
+
+
 class WriteAndReconcileResult(NamedTuple):
     """Outcome of one :func:`write_and_reconcile_campaign_run` call."""
 
@@ -1048,7 +1082,8 @@ def write_and_reconcile_campaign_run(
         fields: the field-value mapping to create or update the run with.
         observation_record: when given, creates the exact-identity
             ``CampaignRunObservation`` link (system link -- ``confirmed_by=None``,
-            ``confirmed_at=timezone.now()``) before reconciling, so a fresh
+            ``confirmed_at=timezone.now()``) through :func:`create_system_link` -- the
+            one definition of a system-link write -- before reconciling, so a fresh
             single-observation queue run already has its link in place on its very
             first reconcile.
         adopt_event: when given, calls :func:`adopt_event_into_run` after the run write
@@ -1068,10 +1103,7 @@ def write_and_reconcile_campaign_run(
     run, action = insert_or_create_campaign_run(lookup, fields)
 
     if observation_record is not None:
-        CampaignRunObservation.objects.get_or_create(
-            observation_record=observation_record,
-            defaults={'run': run, 'confirmed_at': timezone.now()},
-        )
+        create_system_link(observation_record, run)
 
     if adopt_event is not None:
         adopt_event_into_run(adopt_event, run)
