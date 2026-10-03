@@ -14,7 +14,7 @@
 - ✅ **v2.1 Uncertain Scheduling & Site Disambiguation** — Phases 18-25 (shipped 2026-07-18) — see [milestones/v2.1-ROADMAP.md](milestones/v2.1-ROADMAP.md)
 - ✅ **v2.2 One Canonical Run Record** — Phases 26, 27, 27.1, 28-30 (shipped 2026-09-01) — see [milestones/v2.2-ROADMAP.md](milestones/v2.2-ROADMAP.md)
 - ⊘ **v2.3 Automatic Run Sync & Outcome Propagation** — Phases 31-32 (superseded 2026-09-03, not shipped) — see [milestones/v2.3-ROADMAP.md](milestones/v2.3-ROADMAP.md)
-- 🚧 **v2.4 Observation-First Calendar** — Phases 33-37 (in progress)
+- 🚧 **v2.4 Observation-First Calendar** — Phases 33-37 + 37.1 (in progress)
 
 ## Phases
 
@@ -126,7 +126,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 </details>
 
-### 🚧 v2.4 Observation-First Calendar (Phases 33-37) — IN PROGRESS
+### 🚧 v2.4 Observation-First Calendar (Phases 33-37, 37.1 inserted) — IN PROGRESS
 
 **Milestone Goal:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action — with allocations projecting their own intent nights until a real observation retires them, campaigns annotating rather than owning, and the whole pipeline running unattended on the real host.
 
@@ -135,6 +135,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 - [x] **Phase 35: Allocation Layer & Classical Cutover** - An allocation projects its own sunset→sunrise intent nights and hands each night over when a real observation links to it; `load_telescope_runs` writes allocations instead of calendar events (completed 2026-09-16)
 - [x] **Phase 36: Unattended Operation** - The sweep, the discovery backfill and the reconciler run on the real host on a schedule against an admin-editable watched-proposal list, with failures visible and no credential logged (completed 2026-09-18)
 - [x] **Phase 37: Status Vocabulary, Public Tallies & Provenance-Blind Gaps** - One status vocabulary, an ongoing public tally of what each run and campaign actually got, unused awarded nights that look unused, and coverage gaps that count every observation (completed 2026-09-21)
+- [ ] **Phase 37.1: Close gap: ALLOC-06 — exact-identity system links on ingest** (INSERTED 2026-10-02, intent review Q1) - A newly ingested observation record that matches exactly one approved run by proposal code, target (or campaign) and window is linked to it as a system link, so its allocation night retires with no staff action; ambiguous matches stay in the queue; the banner counts a record and its event once
 
 **Locked constraints** (settled by the `/gsd-explore` session's D1–D5 and the five spikes — phase planning executes these, it does not re-open them; full detail in the `spike-findings-fomo_devel` project skill):
 
@@ -423,6 +424,34 @@ Plans:
 
 **UI hint**: yes
 
+### Phase 37.1: Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)
+
+**Goal**: A newly ingested observation record that matches exactly one approved run — same proposal code, same target (or, when that proposal code belongs to exactly one run in the campaign the target is a member of, campaign membership) and a window inside the run's — is linked to that run automatically as a system link, so its allocation night retires with no staff action. Anything partial or ambiguous stays in the attribution queue for a person, exactly as today.
+**Depends on**: Phase 36 (the discovery backfill is where new records arrive unattended), Phase 35 (ALLOC-03's retire-on-link is what the system link triggers), Phase 34 (the record's own projected event, which attribution must also carry) and v2.2 Phase 28 (the attribution queue, `CampaignRunObservation`, and the undo path a system link must share)
+**Requirements**: ALLOC-06
+**Inserted**: 2026-10-02 from the v2.4 intent review, Q1. Evidence on the live DB: the "38 orphans awaiting attribution" were 19 record+event pairs; 9 were 10P records discovered that day (`proposal=KEY2026B-004`, `target=10P`, inside run 69's window) that the similarity scorer cannot single out because it never compares target (runs 69/71/73 all score 0.90 High, so no bulk checkbox); 10 were Didymos `LCO2026A-003` field pointings inside run 1's window (run 1 is the only run carrying that proposal). All 182 existing links were staff-confirmed, 74 of them to run 69, and every discovery tick adds more.
+**Scope note**: This is exact identity, not similarity — the Out of Scope row rejecting scored auto-attribution stands, and the scorer's weights are not touched. The link is made by the ingest paths that create records (`backfill_lco_observations`, which the unattended discovery step runs, and `backfill_lco_observation_records`), through the existing `write_and_reconcile_campaign_run(observation_record=...)` / `CampaignRunObservation` system-link contract (`confirmed_by=None`), never by the projector's `post_save` receiver and never inside a view. A record that was already dismissed against that run, or that matches two approved runs, is left for the queue. Undo of a system link goes through the same staff action as undo of a confirmed one. The attribution banner stops counting a record and its own projected event separately.
+**Paired docs (CLAUDE.md rule)**: `docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` (the discovery/backfill contract gains a system-link step) and `docs/runbooks/telescope_runs_calendar.rst` (the attribution-queue and unattended-run sections describe what links by itself and what still waits for a person).
+**Success Criteria** (what must be TRUE):
+
+  1. Running the discovery backfill over a watched proposal whose new records each match exactly one approved run by proposal code + target + window creates a `CampaignRunObservation` with `confirmed_by=None` for each, the records' allocation nights retire on that same tick, and the attribution queue shows none of them
+  2. A new record whose proposal code is shared by several runs in its campaign, or whose target matches no run and whose proposal is not unique within the campaign, or whose window falls outside the only matching run's, is NOT linked and appears in the attribution queue exactly as today
+  3. A record previously dismissed against a run is never system-linked to that run
+  4. Staff can undo a system link from the attribution page's Confirmed list the same way as a staff-confirmed one, and the allocation night comes back
+  5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
+  6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
+
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 37.1-01-PLAN.md — The exact-identity matcher (`campaign_system_links.py`: target first, campaign fallback only when the proposal is unique in the record's campaigns before the window filter, dismissal veto on the winner), the one system-link writer (`campaign_utils.create_system_link()`), and the discovery sweep linking every record it touches, with dry-run, idempotence, failure isolation and the two new summary counters (wave 1)
+- [ ] 37.1-02-PLAN.md — Staff surfaces: "System (exact match)" in the Confirmed table and the admin inline, undo of a system link restoring the allocation night, a record and its own event counted once on the banner (D-09), the undo-dismissal prompt, audit docstrings, and `campaign_lifecycle_demo.ipynb` re-executed for D-09 (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 37.1-03-PLAN.md — The Didymos backfill links records it creates and re-encounters; paired docs: `backfill_lco_observations_demo.ipynb` system-link section with executed output, and the runbook's attribution, backfill and unattended sections (wave 2)
+
 ## Progress
 
 | Phase             | Milestone | Plans Complete | Status      | Completed  |
@@ -466,11 +495,12 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 0/0 | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
 ## Current Milestone
 
-🚧 **v2.4 Observation-First Calendar** — Phases 33-37, started 2026-09-03.
+🚧 **v2.4 Observation-First Calendar** — Phases 33-37 plus 37.1 (inserted 2026-10-02), started 2026-09-03.
 
-Coverage: 29/29 v1 requirements mapped, no orphans, no duplicates. Next: `/gsd-discuss-phase 33`.
+Coverage: 30/30 v1 requirements mapped (ALLOC-06 added 2026-10-02 → Phase 37.1), no orphans, no duplicates. Next: `/gsd-discuss-phase 37.1`.
