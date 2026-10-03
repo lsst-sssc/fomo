@@ -21,7 +21,7 @@ from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
 from django.contrib import messages
 from django.db.models import Count, Prefetch, ProtectedError, Q
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone as dj_timezone
@@ -768,6 +768,24 @@ class ProtectedUserDeleteView(UserDeleteView):
     behavior for every other account and, for a protected one, leaves the account in place and
     sends the operator back to the user list with an explanation.
     """
+
+    def delete(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Send an HTTP ``DELETE`` through ``form_valid()`` so the ``ProtectedError`` guard applies (WR-12).
+
+        Django's ``DeletionMixin.delete()`` calls ``self.object.delete()`` directly, bypassing the
+        overridden ``form_valid()``. ``BaseDeleteView.post()`` is not reused because it validates a form
+        bound to ``request.POST``, which a ``DELETE`` request does not populate.
+
+        Args:
+            request: the incoming ``DELETE`` request.
+            *args: positional URL arguments, unused.
+            **kwargs: keyword URL arguments, unused (``pk`` is read by ``get_object()``).
+
+        Returns:
+            The same redirect to the user list that ``form_valid()`` gives a POST.
+        """
+        self.object = self.get_object()
+        return self.form_valid(self.get_form())
 
     def form_valid(self, form: Any) -> HttpResponse:
         """Delete the user, or explain why the account has to be deactivated instead.

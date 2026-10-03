@@ -231,6 +231,33 @@ class TestUserDeleteView(TestCase):
         self.assertIn('cannot be deleted', messages_text)
         self.assertIn('delete-link-confirmer', messages_text)
 
+    def test_http_delete_for_a_protected_user_redirects_with_a_message_instead_of_a_500(self) -> None:
+        """WR-12: DELETE reaches DeletionMixin.delete(), not form_valid(), so it needs the same guard."""
+        confirmer = User.objects.create(username='delete-http-delete-confirmer')
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record,
+            confirmed_by=confirmer,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        response = self.client.delete(reverse('user-delete', kwargs={'pk': confirmer.pk}))
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(pk=confirmer.pk).exists())
+        self.assertEqual(CampaignRunObservation.objects.get(observation_record=self.record).confirmed_by, confirmer)
+        messages_text = ' '.join(str(m) for m in get_messages(response.wsgi_request))
+        self.assertIn('cannot be deleted', messages_text)
+        self.assertIn('delete-http-delete-confirmer', messages_text)
+
+    def test_http_delete_for_an_unprotected_user_still_deletes_it(self) -> None:
+        bystander = User.objects.create(username='delete-http-delete-bystander')
+
+        response = self.client.delete(reverse('user-delete', kwargs={'pk': bystander.pk}))
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertFalse(User.objects.filter(pk=bystander.pk).exists())
+
     def test_deleting_an_unprotected_user_still_works(self) -> None:
         bystander = User.objects.create(username='delete-bystander')
 
