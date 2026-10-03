@@ -754,9 +754,9 @@ events awaiting attribution". It is worked through its record, on
 "Observation records awaiting attribution": confirming the record (or the
 sweep system-linking it) attributes the entry too, and the campaign-list
 banner and the "Attribution complete" count tally a record and its own
-entry once, not twice. The staff-only "Possible campaign run match"
-pop-up hint on such an entry still links to the queue, where its record is
-the row to confirm.
+entry once, not twice. For the same reason the staff-only "Possible
+campaign run match" pop-up hint is not shown on such an entry: open its
+record on "Observation records awaiting attribution" instead.
 
 **Behavior change:** before this phase, the only mechanism that could
 create a run-to-event link was the Django admin's foreign-key picker on
@@ -2365,7 +2365,9 @@ candidate run and linking straight to the attribution queue (filtered to
 the High band) to confirm it. This hint is staff-only -- the attribution
 queue itself requires staff, and a candidate run may not yet be publicly
 visible -- and an event with zero candidates (the conference/proposal-
-deadline case just described) still shows nothing extra. The hint only
+deadline case just described) still shows nothing extra, and so does an
+entry drawn from an observation record, which is attributed through its
+record instead. The hint only
 ever names a real match that already passed the same scoring the
 attribution queue itself uses; see "How do I attribute existing calendar
 events and observation records to a run?" above.

@@ -833,6 +833,28 @@ class EventModalAttributionHintTest(TestCase):
         self.assertIn('Possible campaign run match', content)
         self.assertIn(f'{reverse("campaigns:attribution")}?band=high', content)
 
+    def test_record_backed_event_shows_no_hint(self):
+        """37.1 WR-06 (D-09): a record's own event is attributed only through its record and is
+        never on the event worklist, so the pop-up must not point at a queue that omits it."""
+        record = ObservationRecord.objects.create(
+            target=NonSiderealTargetFactory.create(),
+            user=User.objects.create(username='hint-record-owner'),
+            facility='LCO',
+            observation_id='HINT-1',
+            status='PENDING',
+            parameters={},
+        )
+        # The observation projector may already have given the record its own event; hand the
+        # record to the candidate-bearing event instead, so only the record link differs.
+        CalendarEventMeta.objects.filter(observation_record=record).update(observation_record=None)
+        CalendarEventMeta.objects.filter(event=self.unlinked_event_with_candidate).update(observation_record=record)
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('Possible campaign run match', response.content.decode())
+
     def test_anonymous_does_not_see_hint(self):
         response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
         self.assertEqual(response.status_code, 200)
