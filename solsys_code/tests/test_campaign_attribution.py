@@ -39,6 +39,7 @@ from solsys_code.campaign_attribution import (
     is_offered_candidate,
     orphan_calendar_events,
     orphan_observation_records,
+    orphans_needing_attribution_count,
     record_attribution_backlog,
     telescope_match_score,
     unattributable_orphan_count,
@@ -737,12 +738,12 @@ class TestOrphanQuerysets(TestCase):
 
         self.assertNotIn(record.pk, {r.pk for r in orphan_observation_records()})
 
-    def test_event_with_observation_record_but_no_run_is_still_included(self):
-        """D-15 (33-CONTEXT.md, plan 33-04 Task 3): the event attribution queue keys off
-        the attribution link only, never the observation link -- an event whose companion
-        row has `observation_record` set but `run` unset is offered exactly like any other
-        unattributed event. This is the assertion that stops a later reader from
-        'optimising' observation-backed events out of Phase 28's queue."""
+    def test_event_with_observation_record_but_no_run_is_excluded(self):
+        """37.1 D-09 supersedes 33-CONTEXT D-15 for the event worklist: an event whose
+        companion row has `observation_record` set (and `run` unset) is that record's own
+        projected event, so it is never an event-side orphan -- it is attributed only through
+        its record, which 35 D-08's `_sync_observation_attribution()` then carries to the
+        event. Counting it here as well made the banner count each record+event pair twice."""
         target = NonSiderealTargetFactory.create()
         user = User.objects.create(username='orphan-queryset-observation-owner')
         record = ObservationRecord.objects.create(
@@ -760,7 +761,64 @@ class TestOrphanQuerysets(TestCase):
         )
         CalendarEventMeta.objects.create(event=event, run=None, observation_record=record)
 
+        self.assertNotIn(event.pk, {e.pk for e in orphan_calendar_events()})
+
+    def test_event_row_with_neither_run_nor_observation_record_is_still_included(self):
+        event = CalendarEvent.objects.create(
+            title='Hand-entered event with an empty companion row',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=None, observation_record=None)
+
         self.assertIn(event.pk, {e.pk for e in orphan_calendar_events()})
+
+
+class TestRecordAndItsEventCountOnce(TestCase):
+    """37.1 D-09/D-10: a record and the event the observation projector drew from it are ONE
+    orphan in both shared counts, never two."""
+
+    def _record_with_own_event(self, campaign=None):
+        target = NonSiderealTargetFactory.create()
+        if campaign is not None:
+            campaign.targets.add(target)
+        user = User.objects.create(username=f'count-once-owner-{target.pk}')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=user,
+            facility='LCO',
+            observation_id=f'COUNTONCE-{target.pk}',
+            status='PENDING',
+            parameters={
+                'proposal': 'TEST',
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+                'start': datetime(2026, 7, 7, 22, 0).isoformat(),
+                'end': datetime(2026, 7, 8, 6, 0).isoformat(),
+            },
+        )
+        # The pair: the projector's post_save receiver drew exactly one event for this record.
+        self.assertEqual(CalendarEventMeta.objects.filter(observation_record=record).count(), 1)
+        return record
+
+    def test_pair_with_a_candidate_run_counts_once(self):
+        campaign = TargetList.objects.create(name='Count Once Campaign')
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+        )
+        record = self._record_with_own_event(campaign)
+
+        self.assertEqual(orphans_needing_attribution_count(), 1)
+        self.assertIn(record.pk, {g.orphan.pk for g in record_attribution_backlog()})
+        own_event_pk = CalendarEventMeta.objects.get(observation_record=record).event_id
+        self.assertNotIn(own_event_pk, {g.orphan.pk for g in event_attribution_backlog()})
+
+    def test_pair_with_no_candidate_run_counts_once(self):
+        self._record_with_own_event()
+
+        self.assertEqual(unattributable_orphan_count(), 1)
 
 
 class TestSoleHighCandidateUnderBandFilter(TestCase):

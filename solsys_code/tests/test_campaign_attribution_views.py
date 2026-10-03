@@ -899,6 +899,14 @@ class TestBandFilterAndBanner(AttributionViewTestBase):
         self.assertContains(response, 'awaiting attribution')
         self.assertContains(response, reverse('campaigns:attribution'))
 
+    def test_banner_counts_a_record_and_its_own_event_once(self):
+        """37.1 D-09/D-10: one record plus the event the projector drew from it is ONE orphan."""
+        record = self._make_record()
+        self.assertEqual(CalendarEventMeta.objects.filter(observation_record=record).count(), 1)
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertContains(response, '1 orphan awaiting attribution')
+        self.assertNotContains(response, '2 orphans awaiting attribution')
+
     def test_anonymous_campaign_list_banner_shows_neither(self):
         self._make_event()
         self.client.logout()
