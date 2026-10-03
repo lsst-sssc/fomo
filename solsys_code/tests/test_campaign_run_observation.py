@@ -130,6 +130,31 @@ class TestCampaignRunObservation(TestCase):
         self.assertEqual(link.confirmed_by, self.user)
         self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
 
+    def test_deleting_a_user_who_confirmed_a_calendar_event_is_protected(self):
+        """37.1 WR-11: ``CalendarEventMeta.confirmed_by IS NULL`` lets the reconciler release or
+        delete an event, so deleting a confirming user must be refused for event confirmations
+        too -- SET_NULL would silently strip the human guard from every event they confirmed.
+        """
+        event = CalendarEvent.objects.create(
+            title='FTN/MuSCAT3 run',
+            start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        meta = CalendarEventMeta.objects.create(
+            event=event,
+            is_verified=True,
+            run=self.run_a,
+            confirmed_by=self.user,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.user.delete()
+        meta.refresh_from_db()
+
+        self.assertEqual(meta.confirmed_by, self.user)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+
     def test_plain_orm_create_leaves_confirmed_by_and_confirmed_at_blank(self):
         """D-01/D-03: the row's existence carries 'confirmed'; only the admin's
         save_formset (Plan 05) stamps confirmed_by/confirmed_at -- nothing else may.
@@ -213,3 +238,26 @@ class TestUserDeleteView(TestCase):
 
         self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
         self.assertFalse(User.objects.filter(pk=bystander.pk).exists())
+
+    def test_deleting_a_user_who_confirmed_only_a_calendar_event_also_redirects_with_a_message(self) -> None:
+        """WR-11 compounds WR-10: an account with only event confirmations is now protected too."""
+        confirmer = User.objects.create(username='delete-event-confirmer')
+        event = CalendarEvent.objects.create(
+            title='FTN/MuSCAT3 run',
+            start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=event,
+            is_verified=True,
+            run=self.campaign_run,
+            confirmed_by=confirmer,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        response = self._post_delete(confirmer)
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(pk=confirmer.pk).exists())
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).confirmed_by, confirmer)
+        self.assertIn('cannot be deleted', ' '.join(str(m) for m in get_messages(response.wsgi_request)))

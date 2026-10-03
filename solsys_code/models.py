@@ -140,9 +140,16 @@ class CalendarEventMeta(models.Model):
     # Consequence readers need: an event link written before Phase 28 (e.g. by the admin FK
     # picker) has both fields NULL, so NULL means "confirmed before audit fields existed", not
     # "unconfirmed" -- the `run` FK being set is still what means "attributed".
+    #
+    # WR-11 (37.1-REVIEW.md): PROTECT, not SET_NULL, for the same reason as
+    # CampaignRunObservation.confirmed_by (WR-03). ``confirmed_by IS NULL`` is what lets the
+    # reconciler release or delete an event (campaign_reconciler's ``_clearable_and_declined``
+    # and the attribution sync's unlink half), so SET_NULL on a departed staff member's account
+    # would silently strip the human guard from every event they confirmed. Staff accounts that
+    # confirmed an event are deactivated, never deleted.
     confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='confirmed_calendar_event_metas',
