@@ -1616,7 +1616,10 @@ def receiver_on_run_observation_save(sender: Any, instance: Any, created: bool, 
 
     Fires downstream of an action that is already access-controlled
     (``AttributionDecisionView`` sits behind ``StaffRequiredMixin``); this is a receiver
-    below an access-controlled action, not a new entry point. Makes no network call of its
+    below an access-controlled action, not a new entry point. It also fires when an ingest
+    management command (an operator or the unattended runner, never a request path) writes a
+    system link through ``campaign_utils.create_system_link()`` (ALLOC-06); such a link
+    carries ``confirmed_by=None``. Makes no network call of its
     own, and reaches ``sun_event()`` only through ``project_allocation()``'s own
     create-or-re-mint branch -- the common transition here (linking a placed record) is a
     delete, not a mint.
@@ -1708,7 +1711,10 @@ def receiver_on_run_observation_delete(sender: Any, instance: Any, **kwargs: Any
     for the human-confirmation guard to be forgotten.
 
     Fires downstream of an action that is already access-controlled
-    (``AttributionDecisionView`` sits behind ``StaffRequiredMixin``). Makes no network call
+    (``AttributionDecisionView`` sits behind ``StaffRequiredMixin``). The matching save
+    receiver also fires for a system link an ingest management command writes through
+    ``campaign_utils.create_system_link()`` (ALLOC-06, ``confirmed_by=None``); undoing such a
+    link through the staff Undo action lands here. Makes no network call
     of its own, and reaches ``sun_event()`` only through ``project_allocation()``'s own
     create-or-re-mint branch.
 

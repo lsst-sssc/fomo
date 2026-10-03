@@ -551,6 +551,20 @@ def sweep_proposal(
         stderr: a file-like sink for skip/failure lines (defaults to a fresh
             ``io.StringIO()``).
 
+    System links (ALLOC-06): every record the sweep touches -- created, updated or unchanged
+    alike, whatever its own status -- is offered to
+    ``campaign_system_links.attempt_system_link()``, because runs are often created after their
+    records (D-01). A record that exactly matches one approved run by proposal code, target (or
+    campaign membership when the proposal is unique in the campaign) and window is linked to it
+    and its allocation night retires on this sweep; one stdout line per link names the
+    ``observation_id``, the ``CampaignRun`` pk and the match basis. The summary ends with
+    ``system links: N, links skipped: M`` (``would link: N, links skipped: M`` under
+    ``dry_run``); ``links skipped`` counts a match check or write that raised, which never fails
+    the sweep. A target this sweep adds to its own ``<proposal>_targets`` list counts as a
+    campaign member from the NEXT tick, because that list is written after the loop. Under
+    ``dry_run`` an existing record is judged on its stored window and a not-yet-created record on
+    its request window; a would-be-new target is never asked.
+
     Returns:
         str: a one-line summary of the counts described in the ``Command`` class docstring.
 
@@ -711,6 +725,32 @@ def sweep_proposal(
                     f'would {record_verb} ObservationRecord '
                     f'observation_id={observation_id!r} status={status!r}.'
                 )
+                # ALLOC-06 / T-kpy-01: ask the matcher about the record this sweep would see, with
+                # dry_run=True so nothing is written. An existing record is judged on its STORED
+                # window (a dry run cannot see a schedule change the real pass would apply); a
+                # not-yet-created record is judged as an unsaved instance (instantiating fires no
+                # signal and writes nothing) on its request window or embedded block. A would-be-new
+                # target has no pk, is in no campaign and carries no run, so nothing is asked.
+                if existing_record is not None:
+                    link_subject = existing_record
+                elif target.pk is not None:
+                    link_subject = ObservationRecord(
+                        target=target,
+                        facility=facility.name,
+                        observation_id=observation_id,
+                        status=status,
+                        parameters=parameters,
+                        scheduled_start=scheduled_start,
+                        scheduled_end=scheduled_end,
+                    )
+                else:
+                    link_subject = None
+                if link_subject is not None:
+                    link_outcome = attempt_system_link(link_subject, dry_run=True, stdout=stdout, stderr=stderr)
+                    if link_outcome in (OUTCOME_LINKED, OUTCOME_WOULD_LINK):
+                        system_links += 1
+                    elif link_outcome == OUTCOME_SKIPPED:
+                        links_skipped += 1
                 processed_in_group.append(True)
                 continue
 
@@ -941,6 +981,17 @@ class Command(BaseCommand):
     isolating a portal or data error to that row alone (D-09), and recording
     last_run_at/last_run_summary on every row it swept. An empty watched list is a quiet,
     zero-exit no-op (D-08).
+
+    System links (ALLOC-06): after each request is written (or, under --dry-run, previewed),
+    the record is checked for an exact match with one approved campaign run -- same proposal
+    code, same target (or, for a field-pointing record, the one run its campaign holds for that
+    proposal) and a run window that contains the record's. A match is linked on the spot as a
+    system link (no staff confirmation, undoable from the attribution queue), which retires the
+    run's allocation night for that block on the same sweep. Re-running writes no second link.
+    The summary ends with 'system links: N, links skipped: M' ('would link' under --dry-run);
+    every link also writes one line naming the observation id, the run and the match basis.
+    The similarity scorer is never consulted: an ambiguous or partial match stays in the
+    attribution queue for a person to decide.
     """
 
     help = 'Backfill ObservationRecords, non-sidereal Targets and ObservationGroups from LCO RequestGroups'
