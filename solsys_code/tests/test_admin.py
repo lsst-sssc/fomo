@@ -546,6 +546,31 @@ class CampaignRunAdminInlinesTests(TestCase):
         # The actual claim: no editable <select> widget for the attribution exists.
         self.assertNotIn('<select name="calendar_event_metas-0-run"', content)
 
+    def test_inline_shows_system_label_for_a_link_with_no_confirmer(self) -> None:
+        """37.1 D-05: a CampaignRunObservation with confirmed_by None is a system link and
+        the inline labels it 'System (exact match)'; confirmed_by is still not a form input."""
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('System (exact match)', content)
+        self.assertNotIn('name="observation_links-0-confirmed_by"', content)
+
+    def test_inline_shows_the_staff_username_for_a_staff_confirmed_link(self) -> None:
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record_1,
+            confirmed_by=self.other_staff_user,
+            confirmed_at=timezone.now(),
+        )
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        content = response.content.decode()
+        self.assertIn('other-staffer', content)
+        self.assertNotIn('System (exact match)', content)
+        self.assertNotIn('name="observation_links-0-confirmed_by"', content)
+
     def test_save_formset_stamps_confirmed_by_and_confirmed_at_on_create(self) -> None:
         """D-07: a newly created CampaignRunObservation row is stamped with the acting
         staff user and a non-null confirmed_at."""

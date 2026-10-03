@@ -30,7 +30,7 @@ from solsys_code import campaign_attribution
 from solsys_code.allocation_projector import allocation_events
 from solsys_code.campaign_attribution import candidates_for_event, event_attribution_backlog
 from solsys_code.campaign_reconciler import reconcile_run
-from solsys_code.campaign_tables import AttributionConfirmedTable
+from solsys_code.campaign_tables import AttributionConfirmedTable, AttributionDismissedTable
 from solsys_code.campaign_utils import unlink_event_from_run
 from solsys_code.campaign_views import AttributionQueueView
 from solsys_code.models import (
@@ -1303,3 +1303,23 @@ class TestSystemLinkInConfirmedTable(AttributionViewTestBase):
         self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
         self.assertEqual(allocation_events(run).count(), 3)
         self.assertTrue(CalendarEvent.objects.filter(url=retired_url).exists())
+
+
+class TestUndoDismissalPrompt(AttributionViewTestBase):
+    """37.1 D-06 addendum: the Dismissed table's Undo confirmation tells staff that an exactly
+    matching record is linked automatically by the next sweep; an event's prompt is unchanged."""
+
+    def test_record_dismissal_prompt_mentions_the_automatic_link(self):
+        dismissal = ObservationRecordDismissal.objects.create(
+            observation_record=self._make_record(), run=self.campaign_run, dismissed_by=self.staff_user
+        )
+        html = str(AttributionDismissedTable([], request=None).render_actions(dismissal))
+        self.assertIn('the next discovery sweep or backfill run will link it to that run automatically', html)
+
+    def test_event_dismissal_prompt_is_unchanged(self):
+        dismissal = CalendarEventDismissal.objects.create(
+            event=self._make_event(), run=self.campaign_run, dismissed_by=self.staff_user
+        )
+        html = str(AttributionDismissedTable([], request=None).render_actions(dismissal))
+        self.assertIn('Undo this dismissal? It will return to the worklist above.', html)
+        self.assertNotIn('link it to that run automatically', html)
