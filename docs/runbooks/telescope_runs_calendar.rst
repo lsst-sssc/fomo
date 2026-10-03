@@ -293,8 +293,9 @@ How do I backfill ObservationRecords for LCO observations submitted outside FOMO
 ``backfill_lco_observation_records`` queries the LCO Observation Portal's "Get
 All RequestGroups" API for a proposal, keeps only RequestGroups whose name
 starts with ``--name-prefix``, and creates one ``ObservationRecord`` per child
-request. A request that already has an ``ObservationRecord`` is skipped, so
-the command is safe to re-run.
+request. A request that already has an ``ObservationRecord`` is not
+re-created and its status is not refreshed, so the command is safe to re-run
+-- but it is still offered to the system-link step below.
 
 It exists to create the ObservationRecords for observations submitted
 directly at the LCO portal rather than through FOMO -- each created
@@ -329,6 +330,19 @@ surprising detail of the flag.
 ``--username <user>`` optionally attributes created records to that user;
 default is unattributed. An unknown username is a hard error.
 
+**System links.** Every record the command creates (after its status call, so
+the record's placed block rather than the request window decides whether it
+fits a run's window) or re-encounters (with no status call and no other
+change) is offered to the same exact-identity step the discovery sweep uses
+(see "What links by itself" in the attribution section below). A match is
+written as a system link and counted; an ambiguous record stays in the
+attribution queue. This is how the field-pointing records that were created
+before this step existed get linked: re-run the command over the same
+proposal. Two dry-run caveats: a new record is judged on its request window,
+because the status call is skipped under ``--dry-run``; and a reused field
+target that the real run would add to the campaign is not yet a member during
+a dry run, so a link it would earn through the campaign is not previewed.
+
 Always run with ``--dry-run`` first to see what would be created --
 including which field Targets would be created versus reused -- without
 writing anything, in the same spirit as ``reconcile_campaign_runs`` below:
@@ -346,7 +360,7 @@ counted, never fatal, and the already-created record is not rolled back.
 
 The final summary line reports these counters::
 
-   Created: 4, already existed: 12, unmatched target: 1, no usable configuration: 0, created field targets: 1, status sync failed: 0
+   Created: 4, already existed: 12, unmatched target: 1, no usable configuration: 0, created field targets: 1, status sync failed: 0, system links: 10, links skipped: 0
 
 How do I backfill ObservationRecords without a campaign?
 ------------------------------------------------------------
@@ -455,6 +469,17 @@ with an existing list before anything is written:
    >> python3 manage.py backfill_lco_observations --proposal LCO2026A-001
    >> python3 manage.py backfill_lco_observations --proposal LCO2026A-001 --created-after 2026-06-01 --created-before 2026-07-01
 
+**System links.** Every record the sweep touches -- created, updated or
+unchanged -- is offered to the exact-identity system-link step (see "What
+links by itself" in the attribution section below). Each link prints one
+``System-linked ObservationRecord ...`` line naming the run and the basis
+(``proposal + target + window`` or
+``proposal unique within campaign + window``); a dry run prints ``Would system-link ...`` instead and writes
+nothing. A target the sweep adds to its own ``<proposal>_targets`` list
+counts as a campaign member from the next run. ``links skipped`` counts a
+record whose link check or link write failed; the failure is named on
+stderr by its error class only and never stops the sweep.
+
 **Scheduled times.** Unlike the sibling command's post-create live status
 call, this command resolves each request's observed block from an embedded
 block list on the RequestGroup payload when the portal supplies one, or
@@ -493,13 +518,13 @@ proposal, without making a single network call beyond the initial
 
 The final summary line reports these counters. A real pass::
 
-   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, embedded blocks: 5, fallback lookups needed: 7, fallback lookups skipped: 3, block lookups failed: 0, target list: created 'LCO2026A-001_targets', targets added to list: 11
+   requestgroups seen: 6, created: 4, updated: 8, unchanged: 3, skipped: 1, targets created: 2, groups created: 1, groups reused: 2, embedded blocks: 5, fallback lookups needed: 7, fallback lookups skipped: 3, block lookups failed: 0, target list: created 'LCO2026A-001_targets', targets added to list: 11, system links: 9, links skipped: 0
 
 A ``--dry-run`` pass over the same proposal -- same counts, would-forms,
 and ``block lookups failed`` reported as not applicable since the live
 fallback lookup that would produce it is skipped entirely::
 
-   requestgroups seen: 6, would create: 4, would update: 8, unchanged: 3, skipped: 1, targets would create: 2, groups would create: 1, groups would reuse: 2, embedded blocks: 5, fallback lookups needed: 7, fallback lookups skipped: 3, block lookups failed: n/a (dry-run), target list: would reuse 'LCO2026A-001_targets', targets would add to list: 11
+   requestgroups seen: 6, would create: 4, would update: 8, unchanged: 3, skipped: 1, targets would create: 2, groups would create: 1, groups would reuse: 2, embedded blocks: 5, fallback lookups needed: 7, fallback lookups skipped: 3, block lookups failed: n/a (dry-run), target list: would reuse 'LCO2026A-001_targets', targets would add to list: 11, would link: 9, links skipped: 0
 
 **Campaign-surface consequence.** A ``TargetList`` is also what FOMO's
 campaign surfaces treat as a campaign, so a backfill-created list shows up
@@ -590,6 +615,35 @@ awaiting attribution" -- with its own "Attribution queue" link, following
 the same nested-``{% if %}`` staff-only rule the pending/site-review counts
 already use.
 
+**What links by itself.** Not every observation record waits for a person.
+The discovery sweep (``backfill_lco_observations``) -- and
+``backfill_lco_observation_records`` when it is re-run over records it
+already created -- links a record to a run as a *system link* when it is an
+exact match, and only then. The record must carry a proposal code, and
+that proposal must match exactly one ``APPROVED`` run in one of two ways.
+Either the run has the same proposal code, carries the record's target, and
+its window contains the record's window; or, when no run with that proposal
+carries the record's target (the usual case for a per-pointing field
+target), the record's campaign holds exactly one ``APPROVED`` run with
+dates and that proposal, and its window contains the record's. A second such
+run anywhere in the campaign stops the second route, even one whose window
+does not contain the record. Containment is inclusive and compared on
+UTC dates, so a block on a western site's last local night can fall a day
+after the run's end and wait for a person. A pending, rejected or
+dates-to-be-decided run never links and never blocks, a run's own status
+(planned, cancelled and so on) is ignored, and a record's own status is
+irrelevant. A record that is already linked, or that a staff member
+dismissed against that run, is never touched. The similarity score plays no
+part in any of this. Anything partial or ambiguous stays in the worklists
+exactly as before, for a person to decide.
+
+A system link appears in the Confirmed table with **Confirmed by** reading
+``System (exact match)`` (a staff confirmation shows the staff member's
+name), and in the run's admin inline the same way. Existing unlinked records
+link on the first sweep after this is deployed, because the sweep re-reads
+every record each tick, and a run created after its records still picks them
+up on the next sweep.
+
 **The two worklists, and why an orphan may be absent.** The page lists
 "Calendar events awaiting attribution" and "Observation records awaiting
 attribution" as two sibling tables. Only an event or record with *at
@@ -658,6 +712,16 @@ exact pair a staff member just decided was wrong. A freshly-undone
 confirmation therefore appears in the Dismissed section, not directly
 back in an open worklist, until that dismissal is itself undone.
 
+A system link is undone exactly the same way, with the same Undo button
+in the Confirmed table: it deletes the link, writes a dismissal naming the
+staff member who undid it, and brings the run's allocation night back on the
+calendar. While that dismissal stands, the sweep never links that pair
+again. Undoing the dismissal returns the pair to the worklist -- unless the
+record is an exact match, in which case the next discovery sweep or
+``backfill_lco_observation_records`` run links it again, and the Undo prompt
+on the Dismissed table says so. To keep such a record unlinked for good, leave
+the dismissal in place.
+
 **The done signal Phase 29 depends on.** The attribution pass is complete
 when both worklists are empty and the page shows its "Attribution
 complete" heading, naming how many orphans still have no matching run at
@@ -673,10 +737,14 @@ then shows its campaign as a pop-up decoration and a month-cell marker
 (see "Why doesn't the calendar pop-up show an 'Attributed campaign run'
 block?" below), rendered from that link at request time, and nothing
 else changes. An entry backed by a real observation record
-(``CalendarEventMeta.observation_record``) is offered in this queue
-exactly like any other unattributed entry -- the queue keys off the
-attribution link alone, never off whether an observation link is also
-present.
+(``CalendarEventMeta.observation_record``) is never listed on "Calendar
+events awaiting attribution". It is worked through its record, on
+"Observation records awaiting attribution": confirming the record (or the
+sweep system-linking it) attributes the entry too, and the campaign-list
+banner and the "Attribution complete" count tally a record and its own
+entry once, not twice. The staff-only "Possible campaign run match"
+pop-up hint on such an entry still links to the queue, where its record is
+the row to confirm.
 
 **Behavior change:** before this phase, the only mechanism that could
 create a run-to-event link was the Django admin's foreign-key picker on
@@ -1501,7 +1569,8 @@ this fixed order, in one process:
    one-time observed-telescope lookup for a newly observed record.
 3. **discovery** -- ``backfill_lco_observations`` run with no arguments,
    sweeping every active ``WatchedProposal`` row (see "Adding a proposal
-   to watch" below).
+   to watch" below). It also system-links records that exactly match one
+   approved run (see "What links by itself" in the attribution section).
 4. **reconcile** -- the campaign reconciler sweep, the same logic
    ``reconcile_campaign_runs`` runs.
 5. **proposal_allocation** -- refreshes the time allocation of every
@@ -2075,7 +2144,12 @@ Work through these in order:
    An empty list is a healthy, quiet no-op (see "Adding a proposal to
    watch" above) -- start here before assuming anything is broken. If a
    row exists, its **Last sweep summary** column shows what its most recent
-   sweep reported, success or failure.
+   sweep reported, success or failure. The summary now ends with
+   ``system links: N, links skipped: N`` -- how many records the sweep linked
+   to a run by itself, and how many link checks failed. Each link also
+   appears in the log as its own
+   ``discovery stdout: System-linked ObservationRecord ...`` line, while the ``step discovery:`` line itself
+   still reads ``swept: N, failed: M``.
 2. **The log file** (``settings.FOMO_LOG_FILE``, ``/var/log/fomo/unattended.log``
    by default). Every tick writes a START/per-step/END banner, so a
    single tick is readable in isolation even without the heartbeat
@@ -2217,7 +2291,8 @@ existing attribution is what makes the block appear.
 for every kind of run** -- per-night, queue-sourced, class-wide or satellite
 alike. When a run is linked to an LCO/SOAR observation record (a ``CampaignRunObservation``,
 made through the attribution page's "Observation records awaiting
-attribution" table, a script, or the admin), that record's own calendar
+attribution" table, a script, the admin, or automatically by the discovery
+sweep or the Didymos backfill as a system link), that record's own calendar
 entry gets its attribution link the moment the link is saved, and every
 reconcile re-applies it (each unattended tick's reconcile step,
 ``reconcile_campaign_runs``, or a staff action on the run). Deleting the
@@ -2452,13 +2527,13 @@ Command cheat-sheet
    * - ``backfill_lco_observation_records``
      - ``--proposal <code>``, ``--name-prefix <str>`` (both required); ``--campaign <name>``,
        ``--username <user>``, ``--create-missing-targets``, ``--dry-run`` (optional)
-     - Backfill ObservationRecords for LCO RequestGroups submitted outside FOMO.
+     - Backfill ObservationRecords for LCO RequestGroups submitted outside FOMO; system-links records that exactly match one approved run.
    * - ``backfill_lco_observations``
      - ``--proposal <code>`` (optional -- omit to sweep every active Watched proposal
        row), ``--created-after``/``--created-before``, ``--username <user>``,
        ``--target-list <name>``, ``--dry-run`` (optional; the four non-``--dry-run``
        flags require ``--proposal``)
-     - Campaign-agnostic backfill; bare invocation sweeps the admin-editable watched-proposal list (the discovery step of :ref:`unattended-operation`).
+     - Campaign-agnostic backfill; bare invocation sweeps the admin-editable watched-proposal list (the discovery step of :ref:`unattended-operation`); system-links records that exactly match one approved run.
    * - ``sync_gemini_observation_calendar``
      - (none)
      - Sync every Gemini ToO ObservationRecord to CalendarEvents.
