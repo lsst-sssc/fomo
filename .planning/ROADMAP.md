@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 3/3 plans executed
+**Plans**: 3/6 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3)
 
 **Wave 1**
 
@@ -451,6 +451,15 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 37.1-03-PLAN.md — The Didymos backfill links records it creates and re-encounters; paired docs: `backfill_lco_observations_demo.ipynb` system-link section with executed output, and the runbook's attribution, backfill and unattended sections (wave 2)
+
+**Wave 3** *(gap closure, 2026-10-03)*
+
+- [ ] 37.1-04-PLAN.md — The attribution page's Confirmed and Dismissed sections open under Bootstrap 5 (Confirmed open on load, Dismissed open while paging its own table), a staff-only Attribution button on the campaign list that is there even with an empty queue, render, browser and template-wide guard tests, and the runbook (gap closure G-37.1-1, G-37.1-1-nav)
+- [ ] 37.1-05-PLAN.md — `telescope_runs_demo`, `sync_gemini_observation_calendar_demo` and `import_campaign_csv_demo` build, migrate and remove their own fresh `/tmp/fomo-notebook-db-*` database instead of opening the developer database, with prose corrected and fresh executed output (gap closure G-37.1-3, first half)
+
+**Wave 4** *(blocked on 37.1-05)*
+
+- [ ] 37.1-06-PLAN.md — `project_observation_calendar_demo` works on a read-only online-backup snapshot of the developer database and never rewrites the SCHED-06 baseline JSON (SCHED-06 recorded as closed), a guard test that fails if any pre-executed notebook opens the developer database, and the rule in `docs/notebooks/README.md` (gap closure G-37.1-3, second half)
 
 ## Progress
 
@@ -495,7 +504,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 3/3 | In Progress|  |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 3/6 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
