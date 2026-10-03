@@ -32,7 +32,7 @@ from solsys_code.campaign_attribution import candidates_for_event, event_attribu
 from solsys_code.campaign_reconciler import reconcile_run
 from solsys_code.campaign_tables import AttributionConfirmedTable, AttributionDismissedTable
 from solsys_code.campaign_utils import unlink_event_from_run
-from solsys_code.campaign_views import AttributionQueueView
+from solsys_code.campaign_views import AttributionQueueView, _confirmed_attribution_rows
 from solsys_code.models import (
     CalendarEventDismissal,
     CalendarEventMeta,
@@ -1251,6 +1251,31 @@ class TestSystemLinkInConfirmedTable(AttributionViewTestBase):
         self.assertEqual(table.render_confirmed_by(system_link, None), 'System (exact match)')
         self.assertEqual(str(table.render_confirmed_by(staff_link, staff_link.confirmed_by)), 'staffcoordinator')
         self.assertEqual(table.render_confirmed_by(meta, None), table.default)
+
+    def test_a_linked_record_and_its_own_event_appear_once_in_the_confirmed_rows(self):
+        """WR-02: the record's own event is adopted into the run by the link, but only the
+        record row is listed -- an event row's Undo would be reverted by the next reconcile."""
+        record = self._make_record()
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=record, confirmed_at=timezone.now()
+        )
+        # The observation projector gave the record its own event; the link adopts it into the run.
+        record_meta = CalendarEventMeta.objects.get(observation_record=record)
+        record_meta.run = self.campaign_run
+        record_meta.save()
+        # A genuinely event-confirmed row for an event with no record must still be listed.
+        plain_event = self._make_event(night_offset=3)
+        plain_meta = CalendarEventMeta.objects.get(event=plain_event)
+        plain_meta.run = self.campaign_run
+        plain_meta.save()
+
+        rows = _confirmed_attribution_rows()
+
+        self.assertIn(link, rows)
+        self.assertIn(plain_meta, rows)
+        self.assertNotIn(record_meta, rows)
+        self.assertEqual(sum(1 for row in rows if isinstance(row, CalendarEventMeta)), 1)
+        self.assertEqual(sum(1 for row in rows if isinstance(row, CampaignRunObservation)), 1)
 
     def test_undo_of_a_system_link_restores_the_allocation_night(self):
         """SC4: undoing a system link deletes it, writes a dismissal naming the staff user and

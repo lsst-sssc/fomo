@@ -1208,7 +1208,8 @@ def _dismissed_attribution_rows(limit: int = 50) -> list:
 
 def _confirmed_attribution_rows(limit: int = 50) -> list:
     """D-14: the Confirmed section's rows -- every owned ``CalendarEventMeta`` row plus every
-    ``CampaignRunObservation`` row, newest first, capped and materialized to a plain list. See
+    ``CampaignRunObservation`` row, newest first, capped and materialized to a plain list. An
+    event that follows its record's link to the same run is not listed separately (WR-02). See
     ``_dismissed_attribution_rows()``'s docstring for why the merge happens in Python.
 
     Args:
@@ -1218,9 +1219,17 @@ def _confirmed_attribution_rows(limit: int = 50) -> list:
         list: confirmed rows (mixed ``CalendarEventMeta``/``CampaignRunObservation``
             instances) ordered by ``-confirmed_at``, capped at ``limit``.
     """
-    rows = list(
-        CalendarEventMeta.objects.filter(run__isnull=False).select_related('event', 'run__campaign', 'confirmed_by')
-    ) + list(CampaignRunObservation.objects.select_related('observation_record', 'run__campaign', 'confirmed_by'))
+    # WR-02 (37.1-REVIEW.md): a record's own event adopted into the run follows its record's
+    # link, so it is listed once, as the record row. A second row for the event would carry an
+    # Undo that unlinks only the event -- the surviving link re-adopts it on the next reconcile.
+    event_rows = (
+        CalendarEventMeta.objects.filter(run__isnull=False)
+        .exclude(observation_record__campaign_run_links__run=F('run'))
+        .select_related('event', 'run__campaign', 'confirmed_by')
+    )
+    rows = list(event_rows) + list(
+        CampaignRunObservation.objects.select_related('observation_record', 'run__campaign', 'confirmed_by')
+    )
     rows.sort(key=lambda r: r.confirmed_at or datetime.min.replace(tzinfo=dt_timezone.utc), reverse=True)
     return rows[:limit]
 

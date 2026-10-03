@@ -717,6 +717,11 @@ exact pair a staff member just decided was wrong. A freshly-undone
 confirmation therefore appears in the Dismissed section, not directly
 back in an open worklist, until that dismissal is itself undone.
 
+A linked record's own calendar entry follows the link, so the Confirmed
+table lists that pair once, as the record's row, and that row's Undo is the
+one to use (an Undo on the entry alone would be reverted by the next
+reconcile, which is why the entry is not listed separately).
+
 A system link is undone exactly the same way, with the same Undo button
 in the Confirmed table: it deletes the link, writes a dismissal naming the
 staff member who undid it, and brings the run's allocation night back on the
