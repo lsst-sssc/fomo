@@ -204,6 +204,26 @@ class TestConfirmUndo(AttributionViewTestBase):
         self.assertIsNotNone(meta.confirmed_at)
         self.assertIn('Attribution confirmed.', self._message_strings(response))
 
+    def test_confirm_event_for_a_records_own_event_is_refused(self):
+        """37.1 WR-05 (D-09): a record-backed event is attributed only through its record, so
+        a stale page or hand-crafted POST confirming the event directly writes nothing."""
+        record = self._make_record()
+        meta = CalendarEventMeta.objects.get(observation_record=record)
+        self.assertIsNone(meta.run_id)
+
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'confirm', 'kind': 'event', 'orphan_pk': meta.event_id, 'run_pk': self.campaign_run.pk},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        meta.refresh_from_db()
+        self.assertIsNone(meta.run_id)
+        self.assertIsNone(meta.confirmed_by)
+        self.assertIn(
+            'This candidate was already confirmed or dismissed by someone else.', self._message_strings(response)
+        )
+
     def test_confirm_record_creates_link_and_stamps_audit_fields(self):
         record = self._make_record()
         response = self.client.post(

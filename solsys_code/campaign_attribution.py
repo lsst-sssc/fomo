@@ -29,7 +29,6 @@ from solsys_code.calendar_utils import (
 )
 from solsys_code.models import (
     CalendarEventDismissal,
-    CalendarEventMeta,
     CampaignRun,
     CampaignRunObservation,
     ObservationRecordDismissal,
@@ -895,11 +894,11 @@ def is_offered_candidate(kind: str, orphan_pk: int, run_pk: int) -> AttributionC
             event = CalendarEvent.objects.get(pk=orphan_pk)
         except CalendarEvent.DoesNotExist:
             return None
-        try:
-            if event.telescope_label_meta.run_id is not None:
-                return None
-        except CalendarEventMeta.DoesNotExist:
-            pass
+        # WR-05 (37.1-REVIEW.md): the same rules the queue lists by. An attributed event, and
+        # (37.1 D-09) a record's own event -- attributed only through its record -- is not offered,
+        # so a stale page or a hand-crafted POST cannot confirm one onto a run directly.
+        if not orphan_calendar_events().filter(pk=orphan_pk).exists():
+            return None
         candidates = candidates_for_event(event)
     elif kind == 'record':
         try:
