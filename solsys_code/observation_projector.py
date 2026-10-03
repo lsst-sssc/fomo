@@ -696,7 +696,14 @@ def receiver_on_record_save(sender: Any, instance: ObservationRecord, created: b
         if link.run is None:
             continue
         try:
-            reproject_allocation_if_dispatched(link.run)
+            # WR-09 (37.1-REVIEW.md): the re-projection gets its own savepoint, as in the two
+            # allocation_projector receivers (CR-01). A failed ORM write inside it would
+            # otherwise mark the CALLER's atomic block for rollback (``needs_rollback``) --
+            # silently discarding the record's own save, and making every later link's
+            # re-projection raise ``TransactionManagementError`` -- even though the
+            # ``except`` below swallows the exception.
+            with transaction.atomic():
+                reproject_allocation_if_dispatched(link.run)
         except Exception as exc:  # noqa: BLE001 -- a linked-run re-project fault must never
             # mask the base projection above, or abort the caller's save (D-11).
             logger.warning(

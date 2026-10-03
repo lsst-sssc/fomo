@@ -662,6 +662,31 @@ class TestLinkedRunReproject(TestCase):
         self.assertIn(f'run pk={self.run.pk}', joined)
         self.assertIn('RuntimeError', joined)
 
+    def test_a_failing_linked_run_write_does_not_roll_back_the_records_own_save(self):
+        """37.1 WR-09 (mirrors CR-01 for a record save): a failed ORM write inside the
+        linked-run re-projection must not mark the CALLER's atomic block for rollback. Without
+        the receiver's own savepoint the record's status change below vanishes when the
+        enclosing block exits, although the receiver swallows the exception."""
+        record = self._make_record()
+        CampaignRunObservation.objects.create(run=self.run, observation_record=record)
+
+        def failing_projection(projected_run):
+            # A second row for the same record violates the unique constraint.
+            CampaignRunObservation.objects.create(run=projected_run, observation_record=record)
+
+        with (
+            patch(
+                'solsys_code.allocation_projector.reproject_allocation_if_dispatched', side_effect=failing_projection
+            ),
+            self.assertLogs('solsys_code.observation_projector', level='WARNING') as logs,
+            transaction.atomic(),
+        ):
+            record.status = 'CANCELED'
+            record.save()  # must not raise
+
+        self.assertEqual(ObservationRecord.objects.get(pk=record.pk).status, 'CANCELED')
+        self.assertIn('linked-run re-project failed', '\n'.join(logs.output))
+
     def test_linked_run_lookup_raising_does_not_abort_the_records_own_save_or_projection(self):
         """F-34-1 (34-VERIFICATION.md, 2026-09-15): the `campaign_run_links` lookup itself --
         evaluated as the `for` loop's own iterable, before any per-link `try` -- had no guard
