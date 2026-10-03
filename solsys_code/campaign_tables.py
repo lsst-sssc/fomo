@@ -545,6 +545,16 @@ class ApprovalQueueTable(CampaignRunTable):
         )
 
 
+# 37.1 D-06 addendum: the Undo-dismissal confirm() text. Both constants sit inside a
+# single-quoted JavaScript string in an onclick attribute, so they must never contain an
+# apostrophe or a double quote.
+_UNDO_DISMISSAL_PROMPT_EVENT = 'Undo this dismissal? It will return to the worklist above.'
+_UNDO_DISMISSAL_PROMPT_RECORD = (
+    'Undo this dismissal? It will return to the worklist above, or, if it exactly matches one approved run, '
+    'the next discovery sweep or backfill run will link it to that run automatically.'
+)
+
+
 class AttributionDismissedTable(tables.Table):
     """D-07/D-14 Dismissed section: rows are a plain Python list mixing
     ``CalendarEventDismissal``/``ObservationRecordDismissal`` instances (see
@@ -608,8 +618,13 @@ class AttributionDismissedTable(tables.Table):
         "Mark Cancelled"/"Mark Weathered" precedent above -- UI-SPEC reserves ``.btn-primary``/
         ``.btn-success`` for confirm and ``.btn-danger`` for dismiss, neither of which applies to
         a state-reversal action that writes a row rather than destroying data.
+
+        The confirm() prompt is kind-aware (37.1 D-06 addendum): an observation-record
+        dismissal warns that an exactly matching record is linked automatically by the next
+        discovery sweep or backfill run; an event dismissal's prompt is unchanged.
         """
         kind, orphan = self._kind_and_orphan(record)
+        prompt = _UNDO_DISMISSAL_PROMPT_RECORD if kind == 'record' else _UNDO_DISMISSAL_PROMPT_EVENT
         decide_url = reverse('campaigns:attribution_decide')
         csrf_token = get_token(self.request) if self.request is not None else ''
         return format_html(
@@ -620,14 +635,14 @@ class AttributionDismissedTable(tables.Table):
             '<input type="hidden" name="orphan_pk" value="{3}">'
             '<input type="hidden" name="run_pk" value="{4}">'
             '<button type="submit" class="btn btn-sm btn-outline-secondary" '
-            'onclick="return confirm(\'Undo this dismissal? '
-            'It will return to the worklist above.\')">Undo</button>'
+            'onclick="return confirm(\'{5}\')">Undo</button>'
             '</form>',
             decide_url,
             csrf_token,
             kind,
             orphan.pk,
             record.run.pk,
+            prompt,
         )
 
 

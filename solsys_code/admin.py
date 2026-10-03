@@ -134,15 +134,30 @@ class CalendarEventMetaInline(admin.TabularInline):
 class CampaignRunObservationInline(admin.TabularInline):
     """D-06/CANON-05: confirmed observation-record attributions for this run.
 
-    confirmed_by/confirmed_at are read-only here -- CampaignRunAdmin.save_formset is the
-    only place that sets them (D-07), so they can never be hand-typed, which is what keeps
-    D-03's audit trail trustworthy.
+    confirmed_by/confirmed_at are never editable here -- CampaignRunAdmin.save_formset is the
+    only admin place that sets them (D-07), so they can never be hand-typed, which is what
+    keeps D-03's audit trail trustworthy. ``confirmed_by`` is excluded from the form and
+    shown through ``confirmed_by_display``, which reads "System (exact match)" for a link an
+    ingest command wrote (confirmed_by None, 37.1 D-05) and the staff user otherwise -- the
+    same label the attribution page's Confirmed table shows.
     """
 
     model = CampaignRunObservation
     fk_name = 'run'
     extra = 0
-    readonly_fields = ['confirmed_by', 'confirmed_at']
+    # confirmed_by was kept out of the form by being read-only; it is replaced in
+    # readonly_fields by confirmed_by_display, so it must be excluded explicitly or it would
+    # become an editable field (37.1 T-37.1-10).
+    exclude = ['confirmed_by']
+    readonly_fields = ['confirmed_by_display', 'confirmed_at']
+
+    @admin.display(description='Confirmed by')
+    def confirmed_by_display(self, obj):
+        """The link's confirmer as staff should read it: the user, or the system-link label."""
+        if obj is None or obj.pk is None:
+            # An unsaved extra row is neither a staff link nor a system link.
+            return self.get_empty_value_display()
+        return obj.confirmed_by_label()
 
 
 class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
@@ -267,10 +282,11 @@ class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
         renders -- newly created CampaignRunObservation rows, and a CalendarEventMeta row's
         genuine run-link transition.
 
-        Under D-01, a CampaignRunObservation row's existence *is* the claim that a human
-        confirmed the attribution -- a row created here without confirmed_by would look
-        confirmed while carrying no attribution, exactly the hole D-07 exists to close, and
-        the one Phase 28's ATTRIB-03 depends on being closed. Follows Django's own
+        A CampaignRunObservation row's existence is the confirmation and ``confirmed_by``
+        records who made it -- a staff user, or None for an exact-identity system link written
+        by an ingest command (Phase 37.1). A row created HERE without confirmed_by would
+        therefore read as a system link although a person made it, which is the hole D-07
+        closes (and Phase 28's ATTRIB-03 depends on it being closed). Follows Django's own
         save_formset idiom (formset.save(commit=False) + manual instance.save() +
         formset.deleted_objects cleanup + formset.save_m2m()) rather than the base
         implementation's bare formset.save(), since request.user is only available here.
