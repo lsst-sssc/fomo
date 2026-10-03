@@ -582,18 +582,24 @@ def _delete_owned_calendar_events_on_campaign_run_delete(sender, instance, **kwa
 class CampaignRunObservation(models.Model):
     """Links a CampaignRun to an ObservationRecord that realises it (CANON-04).
 
-    D-01: a row exists only once a staff member confirms the attribution. Phase 28 computes
-    attribution candidates on the fly and writes nothing until confirmation -- this keeps
-    ATTRIB-03 ("no association without explicit staff confirmation") structural rather than a
-    rule code must remember, and it is what Phase 28 uses to compute attribution candidates
-    without ever writing one itself.
+    D-01/D-03: a row's existence IS the confirmation, and there is still no boolean
+    confirmation flag -- a flag would be redundant state that could contradict the row.
+    Phase 28 computes attribution candidates on the fly and writes nothing until a link is
+    confirmed, which keeps ATTRIB-03 structural rather than a rule code must remember.
 
-    No boolean confirmation flag (D-03): under D-01 the row's existence already means "a
-    staff member confirmed this", so a flag would be redundant state that could contradict
-    the row. Consequence for Phase 28: it computes candidates on the fly and writes nothing
-    until confirmation, which is what keeps ATTRIB-03 structural rather than a rule code must
-    remember.
+    A row is created by one of two producers. A staff member creates it through the
+    attribution page or the admin, and ``confirmed_by`` then names that person. An ingest
+    management command creates it when a record matches exactly one approved run by proposal,
+    target (or campaign) and window -- a "system link" (Phase 37.1, ALLOC-06, written by
+    ``campaign_utils.create_system_link()``), and ``confirmed_by`` is then None. ``confirmed_by``
+    is the only provenance (37.1 D-05/D-07): it is what
+    ``allocation_projector._sync_observation_attribution()`` already reads, and no field, flag
+    or migration is added for it. Every display of a link's confirmer goes through
+    ``confirmed_by_label()`` so a system link is never shown as a blank or as a person.
     """
+
+    # D-05: the one label every staff surface shows for a link whose confirmed_by is None.
+    SYSTEM_LINK_LABEL = 'System (exact match)'
 
     run = models.ForeignKey(
         CampaignRun,
@@ -641,6 +647,17 @@ class CampaignRunObservation(models.Model):
 
     def __str__(self):
         return f'{self.run}: {self.observation_record}'
+
+    def confirmed_by_label(self) -> str:
+        """Who confirmed this link, as staff should read it (37.1 D-05).
+
+        Returns:
+            ``SYSTEM_LINK_LABEL`` for a system link (``confirmed_by`` None), else the staff
+            user's string form.
+        """
+        if self.confirmed_by_id is None:
+            return self.SYSTEM_LINK_LABEL
+        return str(self.confirmed_by)
 
 
 class CalendarEventDismissal(models.Model):

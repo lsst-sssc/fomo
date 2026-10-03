@@ -637,11 +637,17 @@ class AttributionConfirmedTable(tables.Table):
     ``campaign_views._confirmed_attribution_rows()``). Same shape as
     ``AttributionDismissedTable`` above -- see its docstring for the CSRF-per-row and
     auto-escaping discipline this class follows identically.
+
+    A ``CampaignRunObservation`` written by an ingest command's exact-identity match has
+    ``confirmed_by`` None; its "Confirmed by" cell reads "System (exact match)" (37.1 D-05).
     """
 
     orphan = tables.Column(empty_values=(), orderable=False, verbose_name='Orphan')
     run = tables.Column(empty_values=(), orderable=False, verbose_name='Run')
-    confirmed_by = tables.Column(verbose_name='Confirmed by')
+    # empty_values=() is required: django-tables2 never calls a render_<col> method for a value
+    # in the column's empty_values (None by default), so a system link's confirmed_by=None
+    # would reach the cell as the blank dash and never get its label (37.1 RESEARCH Pitfall 4).
+    confirmed_by = tables.Column(empty_values=(), verbose_name='Confirmed by')
     confirmed_at = tables.Column(verbose_name='Confirmed at')
     actions = tables.Column(empty_values=(), orderable=False, verbose_name='Actions')
 
@@ -668,6 +674,17 @@ class AttributionConfirmedTable(tables.Table):
         if kind == 'event':
             return f'{orphan.title} ({orphan.start_time:%Y-%m-%d}..{orphan.end_time:%Y-%m-%d})'
         return f'{orphan.facility} observation {orphan.observation_id}'
+
+    def render_confirmed_by(self, record, value):
+        """The confirmer: the staff user, "System (exact match)" for a system link (D-05).
+
+        A ``CalendarEventMeta`` row with no ``confirmed_by`` (a self-attributed ``ALLOC:``/
+        ``RUN:`` event or an adopted record event) is not a system link and keeps the table's
+        empty-cell dash.
+        """
+        if isinstance(record, CampaignRunObservation):
+            return record.confirmed_by_label()
+        return value if value is not None else self.default
 
     def render_run(self, record):
         """The confirmed pair's run, identified by telescope/instrument + campaign.

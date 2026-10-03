@@ -10,14 +10,16 @@ context assembly). Plan 28-04's classes below are written against the real templ
 GET-render the page directly through ``self.client.get()``, now that it exists.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.db.models.signals import post_save
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import escape
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
@@ -25,7 +27,10 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import campaign_attribution
+from solsys_code.allocation_projector import allocation_events
 from solsys_code.campaign_attribution import candidates_for_event, event_attribution_backlog
+from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.campaign_tables import AttributionConfirmedTable
 from solsys_code.campaign_utils import unlink_event_from_run
 from solsys_code.campaign_views import AttributionQueueView
 from solsys_code.models import (
@@ -37,6 +42,7 @@ from solsys_code.models import (
 )
 from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import observing_night
 
 
 class AttributionViewTestBase(TestCase):
@@ -1201,3 +1207,91 @@ class TestUnlinkEventFromRun(AttributionViewTestBase):
         meta_b.refresh_from_db()
         self.assertIsNone(meta_a.run_id)
         self.assertIsNone(meta_b.run_id)
+
+
+class TestSystemLinkInConfirmedTable(AttributionViewTestBase):
+    """37.1 D-05/D-06: a link whose ``confirmed_by`` is None is a system link -- the Confirmed
+    table labels it, and staff undo it with the existing button, which restores the retired
+    allocation night."""
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def test_system_link_row_renders_system_label(self):
+        record = self._make_record()
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=record, confirmed_at=timezone.now()
+        )
+        response = self.client.get(reverse('campaigns:attribution'))
+        self.assertContains(response, 'System (exact match)')
+
+    def test_render_confirmed_by_per_row_kind(self):
+        table = AttributionConfirmedTable([], request=None)
+        system_link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self._make_record(), confirmed_at=timezone.now()
+        )
+        staff_link = CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self._make_record(night_offset=1),
+            confirmed_by=self.staff_user,
+            confirmed_at=timezone.now(),
+        )
+        event = self._make_event()
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = self.campaign_run
+        meta.save()
+        self.assertEqual(table.render_confirmed_by(system_link, None), 'System (exact match)')
+        self.assertEqual(str(table.render_confirmed_by(staff_link, staff_link.confirmed_by)), 'staffcoordinator')
+        self.assertEqual(table.render_confirmed_by(meta, None), table.default)
+
+    def test_undo_of_a_system_link_restores_the_allocation_night(self):
+        """SC4: undoing a system link deletes it, writes a dismissal naming the staff user and
+        the existing post_delete receiver brings the allocation night back."""
+        site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=site,
+            site_raw='809',
+            window_start=date(2026, 7, 9),
+            window_end=date(2026, 7, 11),
+        )
+        reconcile_run(run)
+        self.assertEqual(allocation_events(run).count(), 3)
+
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        record = self._make_record(
+            observation_id='SYSLINK-UNDO',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_start + timedelta(hours=1),
+            status='COMPLETED',
+        )
+        CampaignRunObservation.objects.create(run=run, observation_record=record, confirmed_at=timezone.now())
+        retired_night = observing_night(scheduled_start, ZoneInfo('America/Santiago'))
+        retired_url = f'ALLOC:{run.pk}:{retired_night.isoformat()}'
+        self.assertEqual(allocation_events(run).count(), 2)
+        self.assertFalse(CalendarEvent.objects.filter(url=retired_url).exists())
+
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'undo_confirmation', 'kind': 'record', 'orphan_pk': record.pk, 'run_pk': run.pk},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(CampaignRunObservation.objects.filter(observation_record=record).exists())
+        dismissal = ObservationRecordDismissal.objects.get(observation_record=record, run=run)
+        self.assertEqual(dismissal.dismissed_by, self.staff_user)
+        self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
+        self.assertEqual(allocation_events(run).count(), 3)
+        self.assertTrue(CalendarEvent.objects.filter(url=retired_url).exists())
