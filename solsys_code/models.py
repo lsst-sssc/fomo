@@ -594,8 +594,10 @@ class CampaignRunObservation(models.Model):
     ``campaign_utils.create_system_link()``), and ``confirmed_by`` is then None. ``confirmed_by``
     is the only provenance (37.1 D-05/D-07): it is what
     ``allocation_projector._sync_observation_attribution()`` already reads, and no field, flag
-    or migration is added for it. Every display of a link's confirmer goes through
-    ``confirmed_by_label()`` so a system link is never shown as a blank or as a person.
+    or migration is added for it. The ``confirmed_by`` foreign key is ``PROTECT`` so deleting
+    a staff account can never turn a person's link into a system link (WR-03). Every display of
+    a link's confirmer goes through ``confirmed_by_label()`` so a system link is never shown as
+    a blank or as a person.
     """
 
     # D-05: the one label every staff surface shows for a link whose confirmed_by is None.
@@ -617,10 +619,13 @@ class CampaignRunObservation(models.Model):
         related_name='campaign_run_links',
         verbose_name='Observation record',
     )
-    # D-03.
+    # D-03. WR-03 (37.1-REVIEW.md): PROTECT, not SET_NULL. ``confirmed_by IS NULL`` is the
+    # system-link provenance (37.1 D-05), so SET_NULL on a departed staff member's account
+    # would silently rewrite every link they confirmed into a "System (exact match)" link.
+    # Staff accounts that confirmed links are deactivated, never deleted.
     confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='confirmed_campaign_run_observations',

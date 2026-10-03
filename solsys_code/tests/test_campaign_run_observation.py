@@ -9,6 +9,7 @@ from datetime import timezone as dt_timezone
 
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
@@ -107,9 +108,11 @@ class TestCampaignRunObservation(TestCase):
         self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
         self.assertTrue(CampaignRun.objects.filter(pk=self.run_a.pk).exists())
 
-    def test_deleting_confirming_user_sets_confirmed_by_null_and_keeps_link_row(self):
-        """D-03: confirmed_by is SET_NULL, not CASCADE -- deleting the confirming user must
-        not delete the confirmed attribution itself.
+    def test_deleting_confirming_user_is_protected_and_keeps_the_link_row(self):
+        """37.1 WR-03 (supersedes D-03's SET_NULL): ``confirmed_by IS NULL`` is the system-link
+        provenance, so deleting a confirming user must be refused -- SET_NULL would silently
+        turn the person's link into a "System (exact match)" link. The confirmed attribution
+        itself survives, as D-03 required.
         """
         link = CampaignRunObservation.objects.create(
             run=self.run_a,
@@ -118,11 +121,12 @@ class TestCampaignRunObservation(TestCase):
             confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
         )
 
-        self.user.delete()
+        with self.assertRaises(ProtectedError):
+            self.user.delete()
         link.refresh_from_db()
 
-        self.assertIsNone(link.confirmed_by)
-        self.assertTrue(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        self.assertEqual(link.confirmed_by, self.user)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
 
     def test_plain_orm_create_leaves_confirmed_by_and_confirmed_at_blank(self):
         """D-01/D-03: the row's existence carries 'confirmed'; only the admin's
