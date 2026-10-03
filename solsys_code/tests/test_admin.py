@@ -627,6 +627,49 @@ class CampaignRunAdminInlinesTests(TestCase):
         self.assertEqual(link.confirmed_by, self.other_staff_user)
         self.assertEqual(link.confirmed_at, original_confirmed_at)
 
+    def test_inline_cannot_re_point_an_existing_link_to_another_record(self) -> None:
+        """37.1 WR-04: a saved link's observation_record is frozen, so re-pointing a system
+        link cannot produce a human-chosen pair that still reads as a machine link."""
+        record_2 = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.record_owner,
+            facility='LCO',
+            observation_id='333334',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+        request = self._staff_request(self.staff_user)
+        inline = CampaignRunObservationInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            f'{prefix}-0-id': str(link.pk),
+            f'{prefix}-0-observation_record': str(record_2.pk),
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        CampaignRunAdmin(CampaignRun, django_admin.site).save_formset(request, None, formset, change=True)
+
+        link.refresh_from_db()
+        self.assertEqual(link.observation_record_id, self.record_1.pk)
+        self.assertIsNone(link.confirmed_by)
+
+    def test_blank_inline_row_keeps_an_editable_record_picker(self) -> None:
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        content = response.content.decode()
+        self.assertIn('name="observation_links-__prefix__-observation_record"', content)
+        self.assertRegex(content, r'<select[^>]*name="observation_links-0-observation_record"[^>]*disabled')
+
     def _delete_link_through_inline(self, link) -> None:
         """Submit the run's observation-link inline with ``link``'s row marked for deletion."""
         request = self._staff_request(self.staff_user)

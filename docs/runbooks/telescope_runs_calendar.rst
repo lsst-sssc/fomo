@@ -642,7 +642,9 @@ A system link appears in the Confirmed table with **Confirmed by** reading
 name), and in the run's admin inline the same way. Deleting a system link
 in that admin inline counts as a person's decision: it writes the same
 dismissal the Undo button writes (reason ``Removed in admin.``), so the next
-sweep does not link the record again. Existing unlinked records
+sweep does not link the record again. A saved link's observation record
+cannot be changed in the inline; delete the link and add a new one, which is
+recorded as that staff member's own confirmation. Existing unlinked records
 link on the first sweep after this is deployed, because the sweep re-reads
 every record each tick, and a run created after its records still picks them
 up on the next sweep.

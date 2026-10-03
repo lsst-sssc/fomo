@@ -133,6 +133,24 @@ class CalendarEventMetaInline(admin.TabularInline):
     ]
 
 
+class CampaignRunObservationInlineFormSet(BaseInlineFormSet):
+    """WR-04 (37.1-REVIEW.md): freeze `observation_record` on links that already exist.
+
+    ``confirmed_by`` is stamped only when a row is created, and ``confirmed_by IS NULL`` is the
+    system-link provenance (37.1 D-05). Re-pointing an existing link at another record would
+    therefore keep the old confirmer -- for a system link, fabricating machine provenance for
+    a pair a person chose. With the field disabled on saved rows, re-pointing takes a delete
+    plus an add, and the add stamps the acting staff user. ``disabled`` (not ``readonly_fields``)
+    is used so the blank "Add another" row keeps its editable record picker.
+    """
+
+    def add_fields(self, form, index):
+        """Disable the record field on any form bound to an already-saved link."""
+        super().add_fields(form, index)
+        if form.instance.pk is not None and 'observation_record' in form.fields:
+            form.fields['observation_record'].disabled = True
+
+
 class CampaignRunObservationInline(admin.TabularInline):
     """D-06/CANON-05: confirmed observation-record attributions for this run.
 
@@ -145,6 +163,7 @@ class CampaignRunObservationInline(admin.TabularInline):
     """
 
     model = CampaignRunObservation
+    formset = CampaignRunObservationInlineFormSet
     fk_name = 'run'
     extra = 0
     # confirmed_by was kept out of the form by being read-only; it is replaced in
