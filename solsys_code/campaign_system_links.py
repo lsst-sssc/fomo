@@ -105,6 +105,44 @@ def _windowed_approved_runs(proposal: str):
     )
 
 
+def _campaign_fallback_run(record: ObservationRecord, proposal: str, start, end) -> CampaignRun | None:
+    """D-11 step 2: the campaign fallback, for a record whose own target carries no run.
+
+    A field-pointing record's target is a per-pointing target, never the run's moving target
+    (see ``campaign_attribution._eligible_runs_for_record``), so step 1 cannot match it. The
+    record then links to the run of its campaigns (its target's ``TargetList``s) when, and
+    only when:
+
+    * no APPROVED, windowed same-proposal run anywhere carries the record's target -- this
+      includes a run whose window does not contain the record, which makes the record's own
+      target ambiguous rather than absent (roadmap SC2; stricter reading of the amended D-11);
+    * the record's campaigns hold exactly one APPROVED, windowed same-proposal run, counted
+      BEFORE any window filter (RESEARCH Pitfall 1), so a second run with a different window
+      still makes the proposal ambiguous; and
+    * that run's window contains the record's window (inclusive, UTC dates).
+
+    Args:
+        record: the ObservationRecord being matched; may be unsaved.
+        proposal: the record's trimmed proposal code, already known to be non-blank.
+        start: the record's window start date.
+        end: the record's window end date.
+
+    Returns:
+        CampaignRun | None: the unique containing campaign run, or None.
+    """
+    if record.target_id is None or record.target is None or record.target.pk is None:
+        return None
+    if _windowed_approved_runs(proposal).filter(target_id=record.target_id).exists():
+        return None
+    campaign_runs = list(_windowed_approved_runs(proposal).filter(campaign__in=record.target.targetlist_set.all()))
+    if len(campaign_runs) != 1:
+        return None
+    run = campaign_runs[0]
+    if run.window_start <= start and run.window_end >= end:
+        return run
+    return None
+
+
 def find_exact_run(record: ObservationRecord) -> SystemLinkMatch | None:
     """Return the one run the record exactly matches, or None (ALLOC-06, D-11..D-15).
 
@@ -118,7 +156,9 @@ def find_exact_run(record: ObservationRecord) -> SystemLinkMatch | None:
        record's window (inclusive, UTC dates).
     3. Step 1 (D-11/D-15): exactly one candidate carrying the record's target wins with
        :data:`BASIS_TARGET`; two or more give None with no fall-through.
-    4. Dismissal veto (applied to the winner after the pick, never as a pre-filter, so a
+    4. Step 2 (D-11 as amended at plan time, D-15), only when no candidate carries the target:
+       see :func:`_campaign_fallback_run`. It wins with :data:`BASIS_CAMPAIGN`.
+    5. Dismissal veto (applied to the winner after the pick, never as a pre-filter, so a
        record is never linked to a different run instead): a staff dismissal of the
        (record, winner) pair gives None.
 
@@ -147,7 +187,9 @@ def find_exact_run(record: ObservationRecord) -> SystemLinkMatch | None:
         winner = by_target[0]
     elif len(by_target) > 1:
         return None
-    # D-11 step 2 (the campaign fallback) is added where this branch returns None.
+    else:
+        winner = _campaign_fallback_run(record, proposal, start, end)
+        basis = BASIS_CAMPAIGN
     if winner is None:
         return None
 
