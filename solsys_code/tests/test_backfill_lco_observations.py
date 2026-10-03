@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import requests
 from django.contrib.auth.models import User
 from django.core.management import CommandError, call_command
+from django.db import IntegrityError
 from django.test import SimpleTestCase, TestCase
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
@@ -15,12 +16,13 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 from solsys_code.allocation_projector import allocation_events
 from solsys_code.campaign_attribution import record_attribution_backlog
 from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.campaign_utils import create_system_link
 from solsys_code.management.commands.backfill_lco_observations import (
     _preserve_observed_site_keys,
     _schedule_lookup_is_needed,
     sweep_proposal,
 )
-from solsys_code.models import CampaignRun, CampaignRunObservation, WatchedProposal
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import observing_night
 
@@ -2065,3 +2067,157 @@ class TestSweepSystemLinks(TestCase):
             links_skipped=0,
         )
         self.assertEqual(summary, expected)
+
+    def _make_container_run(self, **overrides):
+        """An APPROVED class-wide queue run (no site); the class is what lets the receiver resolve it."""
+        kwargs = {
+            'campaign': None,
+            'target': self.existing_target,
+            'proposal_code': 'LCO2026A-003',
+            'source': CampaignRun.Source.LCO_QUEUE,
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'telescope_instrument': '1m0/Sinistro',
+            'telescope_class': '1m0',
+            'window_start': date(2026, 6, 29),
+            'window_end': date(2026, 7, 2),
+        }
+        kwargs.update(overrides)
+        return CampaignRun.objects.create(**kwargs)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_over_an_existing_record_previews_the_link_and_writes_nothing(self, mock_make_request):
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+        sweep_proposal('LCO2026A-003')
+        run = self._make_per_night_run()
+        links_before = CampaignRunObservation.objects.count()
+        records_before = ObservationRecord.objects.count()
+        stdout, stderr = io.StringIO(), io.StringIO()
+
+        summary = sweep_proposal('LCO2026A-003', dry_run=True, stdout=stdout, stderr=stderr)
+
+        self.assertIn(
+            f"Would system-link ObservationRecord observation_id='10' to CampaignRun #{run.pk} "
+            f'(proposal + target + window).',
+            stdout.getvalue(),
+        )
+        self.assertTrue(summary.endswith('would link: 1, links skipped: 0'), summary)
+        self.assertEqual(CampaignRunObservation.objects.count(), links_before)
+        self.assertEqual(ObservationRecord.objects.count(), records_before)
+        self.assertEqual(stderr.getvalue(), '')
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_over_a_new_request_with_an_existing_target_previews_the_link(self, mock_make_request):
+        run = self._make_per_night_run()
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+        stdout = io.StringIO()
+
+        summary = sweep_proposal('LCO2026A-003', dry_run=True, stdout=stdout, stderr=io.StringIO())
+
+        self.assertIn(
+            f"Would system-link ObservationRecord observation_id='10' to CampaignRun #{run.pk} "
+            f'(proposal + target + window).',
+            stdout.getvalue(),
+        )
+        self.assertTrue(summary.endswith('would link: 1, links skipped: 0'), summary)
+        self.assertFalse(ObservationRecord.objects.exists())
+        self.assertFalse(CampaignRunObservation.objects.exists())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_dry_run_over_a_would_be_new_target_asks_nothing(self, mock_make_request):
+        self._make_per_night_run()
+        mock_make_request.return_value = _page_response(
+            [_request_group(1, 'Brand New Comet - ELP', requests=[_request(10, target_name='Brand New Comet')])]
+        )
+        stdout = io.StringIO()
+
+        summary = sweep_proposal('LCO2026A-003', dry_run=True, stdout=stdout, stderr=io.StringIO())
+
+        self.assertNotIn('Would system-link', stdout.getvalue())
+        self.assertTrue(summary.endswith('would link: 0, links skipped: 0'), summary)
+        self.assertFalse(Target.objects.filter(name='Brand New Comet').exists())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_container_run_adopts_the_records_own_event(self, mock_make_request):
+        run = self._make_container_run()
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        link = CampaignRunObservation.objects.get(observation_record=record)
+        self.assertEqual(link.run_id, run.pk)
+        self.assertIsNone(link.confirmed_by)
+        meta = CalendarEventMeta.objects.get(observation_record=record)
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertIsNone(meta.confirmed_by)
+        self.assertTrue(summary.endswith('system links: 1, links skipped: 0'), summary)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_a_second_sweep_writes_no_second_row_and_leaves_confirmed_at_alone(self, mock_make_request):
+        self._make_per_night_run()
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        first = CampaignRunObservation.objects.get()
+        stdout = io.StringIO()
+
+        summary = sweep_proposal('LCO2026A-003', stdout=stdout, stderr=io.StringIO())
+
+        self.assertEqual(CampaignRunObservation.objects.count(), 1)
+        self.assertEqual(CampaignRunObservation.objects.get().confirmed_at, first.confirmed_at)
+        self.assertTrue(summary.endswith('system links: 0, links skipped: 0'), summary)
+        self.assertNotIn('System-linked', stdout.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_an_unchanged_record_is_linked_once_its_run_exists(self, mock_make_request):
+        """D-01: runs are often created after their records."""
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+        first_summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        self.assertTrue(first_summary.endswith('system links: 0, links skipped: 0'), first_summary)
+        self.assertFalse(CampaignRunObservation.objects.exists())
+        run = self._make_per_night_run()
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertIn('unchanged: 1', summary)
+        self.assertTrue(summary.endswith('system links: 1, links skipped: 0'), summary)
+        self.assertEqual(CampaignRunObservation.objects.get().run_id, run.pk)
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_a_failing_link_write_is_counted_and_the_sweep_continues(self, mock_make_request):
+        """D-08: the first write raises, the second record still links, the sweep returns."""
+        self._make_per_night_run()
+        mock_make_request.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10), _request(20)])]
+        )
+        calls = []
+
+        def flaky_create_system_link(record, run):
+            calls.append(record.observation_id)
+            if len(calls) == 1:
+                raise IntegrityError('boom')
+            return create_system_link(record, run)
+
+        stderr = io.StringIO()
+        with patch('solsys_code.campaign_system_links.create_system_link', side_effect=flaky_create_system_link):
+            summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=stderr)
+
+        first = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        second = ObservationRecord.objects.get(facility='LCO', observation_id='20')
+        self.assertFalse(CampaignRunObservation.objects.filter(observation_record=first).exists())
+        self.assertTrue(CampaignRunObservation.objects.filter(observation_record=second).exists())
+        self.assertTrue(summary.endswith('system links: 1, links skipped: 1'), summary)
+        self.assertIn('IntegrityError', stderr.getvalue())
+        self.assertNotIn('boom', stderr.getvalue())
+
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_bare_invocation_records_the_link_count_on_the_watched_row(self, mock_make_request):
+        self._make_per_night_run()
+        row = WatchedProposal.objects.create(proposal_code='LCO2026A-003')
+        mock_make_request.side_effect = _watched_side_effect(
+            ('LCO2026A-003', {'group_id': 1, 'name': 'Didymos 2026 - ELP', 'requests': [_request(10)]}),
+        )
+
+        call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        row.refresh_from_db()
+        self.assertTrue(row.last_run_summary.endswith('system links: 1, links skipped: 0'), row.last_run_summary)

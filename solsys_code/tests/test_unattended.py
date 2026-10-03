@@ -41,6 +41,7 @@ from solsys_code import notifications, unattended
 from solsys_code import observation_projector as op
 from solsys_code.models import CampaignRun, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.tests.test_backfill_lco_observations import _page_response, _request_group
 
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST'
 
@@ -1174,6 +1175,45 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertEqual(len(discovery_records), 2, discovery_records)
         self.assertTrue(any('obs-1' in record for record in discovery_records))
         self.assertTrue(any('obs-2' in record for record in discovery_records))
+
+    @patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+    @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
+    def test_system_links_reach_the_log_and_leave_the_step_summary_unchanged(
+        self, mock_make_request, mock_get_observation_status
+    ):
+        # ALLOC-06 (37.1-01, D-04 as corrected): no sweep_proposal() mock -- the real sweep
+        # links a matching record, its per-link stdout line reaches the log as its own INFO
+        # record, and the step's own summary keeps its 'swept: N, failed: M' shape.
+        mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': '2026-07-01T00:10:00+00:00',
+            'scheduled_end': '2026-07-01T00:20:00+00:00',
+        }
+        target = NonSiderealTargetFactory.create(name='Didymos')
+        WatchedProposal.objects.create(proposal_code='LCO2026A-003')
+        run = CampaignRun.objects.create(
+            campaign=None,
+            target=target,
+            proposal_code='LCO2026A-003',
+            source=CampaignRun.Source.LCO_QUEUE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='1m0/Sinistro',
+            telescope_class='1m0',
+            window_start=date(2026, 6, 29),
+            window_end=date(2026, 7, 2),
+        )
+        mock_make_request.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP')])
+
+        with self.assertLogs('solsys_code.unattended', level='INFO') as captured:
+            result = unattended.step_discovery(dry_run=False)
+
+        link_records = [
+            record for record in captured.output if 'discovery stdout: System-linked ObservationRecord' in record
+        ]
+        self.assertEqual(len(link_records), 1, captured.output)
+        self.assertIn(f'CampaignRun #{run.pk}', link_records[0])
+        self.assertEqual(result.summary, 'swept: 1, failed: 0')
+        self.assertFalse(result.failed)
 
 
 class TestProposalAllocationStep(UnattendedTestBase):
