@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
-stopped_at: Completed 37.1-01-PLAN.md
-last_updated: "2026-10-03T01:44:35.249Z"
+stopped_at: Completed 37.1-02-PLAN.md
+last_updated: "2026-10-03T02:11:43.283Z"
 last_activity: 2026-10-02
 last_activity_desc: Phase 37.1 execution started
-state_head: d5335e36b813dea4dd216bebb3273e5ca2369b79
+state_head: 0660b72e33630f7fd04d3eb5364900249f24742b
 progress:
   total_phases: 6
   completed_phases: 37
   total_plans: 65
-  completed_plans: 63
-  percent: 97
+  completed_plans: 64
+  percent: 98
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-10-02 — Phase 37.1 execution started
 
@@ -239,6 +239,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37 P10 | ~50min | 3 tasks | 6 files |
 | Phase 260922-dva P01 | 25min | 2 tasks | 1 files |
 | Phase 37.1 P01 | 45min | 3 tasks | 7 files |
+| Phase 37.1 P02 | 70 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -409,6 +410,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37]: 260922-dva: recommended durable ~/.local/state/fomo lock-directory path (tmpfiles.d alternative); FOMO_STATE_DIR must be set explicitly alongside FOMO_LOCK_DIR since settings.py captures its default at definition time
 - [Phase 37.1]: A system link is a CampaignRunObservation with confirmed_by=None; written only via campaign_utils.create_system_link(); the post_save receiver does the night retirement
 - [Phase 37.1]: Campaign fallback links only when no run carries the record's target anywhere and the proposal is unique in the record's campaigns before the window filter; dismissal veto applies to the winner after the pick
+- [Phase 37.1]: 37.1-02: system-link provenance is confirmed_by=None only, labelled 'System (exact match)' via CampaignRunObservation.confirmed_by_label(); no field or migration
+- [Phase 37.1]: 37.1-02: D-09 excludes record-backed events in orphan_calendar_events(); shared counts and banner count a record+event pair once
 
 ### Pending Todos
 
@@ -508,8 +511,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-03T01:44:34.878Z
-Stopped at: Completed 37.1-01-PLAN.md
+Last session: 2026-10-03T02:11:42.848Z
+Stopped at: Completed 37.1-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
