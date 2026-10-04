@@ -466,7 +466,9 @@ failing proposal code(s) only if at least one row failed.
 These four flags apply to the single-proposal override only; combined with the bare
 invocation the command now fails with a ``CommandError`` rather than silently
 discarding them, because the watched-list sweep takes its overrides from each
-``WatchedProposal`` row (WR-12, 36-REVIEW.md).
+``WatchedProposal`` row (WR-12, 36-REVIEW.md). ``--recheck-unscheduled``
+(see "Scheduled times" below) is not one of them: unlike those four flags it
+works with the bare form as well as with ``--proposal``.
 
 **Date filtering instead of a name prefix.** ``--created-after`` and
 ``--created-before`` (ISO-8601 timestamps or bare dates) restrict the
@@ -520,8 +522,13 @@ stderr by its error class only and never stops the sweep.
 call, this command resolves each request's observed block from an embedded
 block list on the RequestGroup payload when the portal supplies one, or
 otherwise falls back to a live, best-effort
-``LCOFacility.get_observation_status()`` call per request (skipped
-entirely under ``--dry-run``). A failed fallback lookup is logged and
+``get_observation_status()`` call per request (skipped
+entirely under ``--dry-run``). Both paths use FOMO's block choice -- the first
+completed block, else the last in-progress block or block that started and was
+aborted after taking data, else the last pending block (see "How do LCO/SOAR
+queue observations get onto the calendar?" above) -- because TOM Toolkit's own
+status call ignores an aborted block. A request that never got a block has no
+times. A failed fallback lookup is logged and
 counted under ``block lookups failed``, never fatal -- the record is still
 created or updated with whatever status the request payload itself
 reported, just without resolved schedule times.
@@ -533,13 +540,42 @@ portal reports for the request, the record is compared on status and
 parameters only and its stored ``scheduled_start``/``scheduled_end`` are left
 as they are. The exception is a completed record that is still missing its
 scheduled times: it keeps being looked up until the portal supplies them, so a
-failed lookup is retried rather than frozen. Failed states such as
-``WINDOW_EXPIRED`` or ``CANCELED`` never carry an observed block, so they stay
-skipped even with no times. A brand-new request, a record still in a
-non-terminal state, and a record whose state changed are all still looked up.
-With the portal's listing carrying no observed blocks, this keeps a tick's
+failed lookup is retried rather than frozen. A request that expired or was
+cancelled can still carry a block that started and was aborted after taking
+data. Since this release every status change made by FOMO's own commands and
+the unattended runner reads that block, so the per-tick skip stays safe for
+those records. A status change made through one of TOM Toolkit's own routes --
+its ``updatestatus`` command, the **Update status** button on its observation
+list, its Cancel button or its REST cancel route (see "What runs, and when"
+below) -- still uses TOM's rule and leaves such a record without times, and
+the per-tick skip then leaves it alone too. A brand-new request, a record still
+in a non-terminal state, and a record whose state changed are all still looked
+up. With the portal's listing carrying no observed blocks, this keeps a tick's
 lookups roughly equal to the number of unfinished and new requests as a
 proposal ages, instead of growing with every request ever made.
+
+**Re-checking records with no scheduled time.** Records stored before this
+release, and any finished through one of TOM's own routes, are brought up to
+date with ``--recheck-unscheduled``, which looks up once every record that is
+missing a scheduled time, including the finished records the per-tick skip
+leaves alone. Each such record costs one portal lookup. A record that gains
+its aborted block's times retires its night on the linked per-night run's
+allocation calendar in the same sweep; a request that never got a block stays
+without times and keeps its night. The unattended runner never passes the
+flag, so the lookups per tick stay as described above. Run it once by hand for
+every watched proposal, dry run first:
+
+.. code-block:: console
+
+   >> python3 manage.py backfill_lco_observations --recheck-unscheduled --dry-run
+   >> python3 manage.py backfill_lco_observations --recheck-unscheduled
+
+The flag also works for a single proposal, for example
+``backfill_lco_observations --proposal LCO2026A-001 --recheck-unscheduled``.
+On that one run the summary shows the finished records that have no times under
+``fallback lookups needed``; on later ordinary ticks they are back under
+``fallback lookups skipped``. A failed lookup is counted under
+``block lookups failed`` and never stops the sweep.
 
 The summary also reports ``embedded blocks``, ``fallback lookups needed`` and
 ``fallback lookups skipped`` -- how many requests in this run carried an
@@ -1664,9 +1700,12 @@ of them is stored without its aborted block's times, its run's allocation
 night comes back, and nothing on a tick looks at a finished record again.
 Run ``run_unattended --step status_refresh`` rather than updatestatus or
 the Update status button. If one of those routes was used on an LCO record,
-re-run the backfill command for its proposal with ``--recheck-unscheduled``
-(the Didymos form is in "How do I backfill ObservationRecords for LCO
-observations submitted outside FOMO?"). The backfill commands read LCO
+re-run the backfill command for its proposal with ``--recheck-unscheduled``:
+for the Didymos records, the form in "How do I backfill ObservationRecords for
+LCO observations submitted outside FOMO?"; for the watched proposals,
+``backfill_lco_observations --recheck-unscheduled``; for any other proposal,
+``backfill_lco_observations --proposal <code> --recheck-unscheduled`` (the
+unattended runner never passes the flag). The backfill commands read LCO
 records only, so a SOAR record finished through one of those routes has no
 re-run and keeps empty times (this matters only when its request had already
 started a block).
