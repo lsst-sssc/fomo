@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 5/6 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3)
+**Plans**: 6/6 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3)
 
 **Wave 1**
 
@@ -459,7 +459,7 @@ Plans:
 
 **Wave 4** *(blocked on 37.1-05)*
 
-- [ ] 37.1-06-PLAN.md — `project_observation_calendar_demo` works on a read-only online-backup snapshot of the developer database and never rewrites the SCHED-06 baseline JSON (SCHED-06 recorded as closed), a guard test that fails if any pre-executed notebook opens the developer database, and the rule in `docs/notebooks/README.md` (gap closure G-37.1-3, second half)
+- [x] 37.1-06-PLAN.md — `project_observation_calendar_demo` works on a read-only online-backup snapshot of the developer database and never rewrites the SCHED-06 baseline JSON (SCHED-06 recorded as closed), a guard test that fails if any pre-executed notebook opens the developer database, and the rule in `docs/notebooks/README.md` (gap closure G-37.1-3, second half)
 
 ## Progress
 
@@ -504,7 +504,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 5/6 | In Progress|  |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 6/6 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
