@@ -37,7 +37,6 @@ from zoneinfo import ZoneInfo
 import requests
 from django.conf import settings
 from tom_observations.facilities.lco import LCOFacility
-from tom_observations.facilities.soar import SOARFacility
 from tom_observations.models import ObservationRecord
 
 from solsys_code import notifications
@@ -48,6 +47,7 @@ from solsys_code.constants import DEFAULT_LOG_FILE as _DEFAULT_LOG_FILE
 from solsys_code.management.commands.backfill_lco_observations import sweep_watched_rows
 from solsys_code.management.commands.project_observation_calendar import resolve_observed_site
 from solsys_code.models import CampaignRun
+from solsys_code.observation_blocks import FomoLCOFacility, FomoSOARFacility
 from solsys_code.observation_projector import PROJECTED_FACILITIES, project_queryset
 from solsys_code.proposal_allocation import refresh_all
 
@@ -260,7 +260,7 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int, str | Non
     """Refresh every non-terminal ObservationRecord for one facility instance (D-03).
 
     Args:
-        facility: an already-constructed ``LCOFacility``/``SOARFacility`` instance -- one
+        facility: an already-constructed ``FomoLCOFacility``/``FomoSOARFacility`` instance -- one
             per call, never shared across facilities or reused between ticks (Phase 34
             D-10).
 
@@ -306,8 +306,17 @@ def _refresh_one_facility(facility: Any) -> tuple[int, list[str], int, str | Non
 
 
 def step_status_refresh(dry_run: bool) -> StepResult:
-    """Refresh every LCO/SOAR ``ObservationRecord``'s status via TOM's own facility classes
-    (D-03), replacing the stock ``updatestatus`` command's always-zero exit.
+    """Refresh every LCO/SOAR ``ObservationRecord``'s status via FOMO's ``FomoLCOFacility``/
+    ``FomoSOARFacility`` (D-03), replacing the stock ``updatestatus`` command's always-zero exit.
+
+    This step runs FIRST in every tick. On TOM's own facility classes it would write TOM's block
+    rule back over a still-PENDING record every 15 minutes, and at a request's PENDING to
+    WINDOW_EXPIRED transition it would store empty times for a block that started and was
+    aborted; after that the record is terminal, TOM's poll never looks at it again, and the
+    discovery sweep's finished-record skip (F2) never looks either -- which is exactly how the
+    live LCO2026A-003 records were left with no times (UAT G-37.1-1-alloc). On FOMO's
+    subclasses the poll keeps TOM's own update loop and error semantics and changes only which
+    block it reads (``observation_blocks.select_schedule_block``).
 
     A dry run returns immediately without instantiating either facility -- a status
     refresh is a portal read that mutates ``ObservationRecord`` rows through the Phase 34
@@ -328,8 +337,8 @@ def step_status_refresh(dry_run: bool) -> StepResult:
 
     try:
         with command_lock('status_refresh'):
-            lco_failed, lco_classes, lco_omitted, lco_outage = _refresh_one_facility(LCOFacility())
-            soar_failed, soar_classes, soar_omitted, soar_outage = _refresh_one_facility(SOARFacility())
+            lco_failed, lco_classes, lco_omitted, lco_outage = _refresh_one_facility(FomoLCOFacility())
+            soar_failed, soar_classes, soar_omitted, soar_outage = _refresh_one_facility(FomoSOARFacility())
             total_failed = lco_failed + soar_failed
             total_omitted = lco_omitted + soar_omitted
             classes: list[str] = []

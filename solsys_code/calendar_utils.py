@@ -23,8 +23,8 @@ from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
 
+from solsys_code.observation_blocks import select_schedule_block
 from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
-from solsys_code.status_vocabulary import OCSState
 
 # (site, aperture_class) -> 'SITECODE-CLASS' telescope label (TELESCOPE-01/D-03/D-04).
 # Verified, real-data-grounded inventory of the 7 real LCO-network sites this
@@ -294,9 +294,9 @@ def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[
     """Call the LCO Observation Portal API once to resolve a placed record's block.
 
     Issues a single, timeout-bounded GET to /api/requests/{observation_id}/observations/
-    and selects the same COMPLETED-first-else-PENDING block that
-    OCSFacility.get_observation_status() selects for scheduled_start/scheduled_end, so
-    telescope resolution and timing always come from the same block (Pitfall 3).
+    and selects the block with FOMO's rule (``observation_blocks.select_schedule_block``) --
+    the same rule that now sets scheduled_start/scheduled_end -- so telescope resolution and
+    timing always come from the same block (Pitfall 3).
 
     Args:
         observation_id: the record's LCO observation_id.
@@ -306,7 +306,7 @@ def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[
     Returns:
         dict[str, Any] | None: the matched block dict (with 'site'/'enclosure'/
             'telescope'/'state' keys) on success, or None if the API call failed,
-            timed out, or returned no usable COMPLETED/PENDING block. Never raises --
+            timed out, or returned no usable block (see select_schedule_block). Never raises --
             every failure mode (network error, library auth/validation exception,
             malformed/non-JSON body, missing 'state' key) is caught and converted to
             None so the caller always falls through to the coarse fallback (SYNC-07:
@@ -332,14 +332,7 @@ def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[
     if not isinstance(blocks, list):
         return None
 
-    current_block = None
-    for block in blocks:
-        if block.get('state') == OCSState.COMPLETED:
-            current_block = block
-            break
-        elif block.get('state') == OCSState.PENDING:
-            current_block = block
-    return current_block
+    return select_schedule_block(blocks)
 
 
 def _has_muscat_exposure_signal(parameters: dict[str, Any], n: int) -> bool:
