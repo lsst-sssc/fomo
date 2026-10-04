@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
-stopped_at: Completed 37.1-04-PLAN.md
-last_updated: "2026-10-04T01:31:53.068Z"
+stopped_at: Completed 37.1-05-PLAN.md
+last_updated: "2026-10-04T01:39:45.336Z"
 last_activity: 2026-10-03
 last_activity_desc: Phase 37.1 execution started
-state_head: f2ce65db9a00d35e3bf3dea0880557a2ae0d9efe
+state_head: 0749f3c79821e8866104b97f248e10df479bbb30
 progress:
   total_phases: 6
   completed_phases: 37
   total_plans: 68
-  completed_plans: 66
-  percent: 97
+  completed_plans: 67
+  percent: 99
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-10-03 — Phase 37.1 execution started
 
@@ -242,6 +242,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37.1 P02 | 70 min | 3 tasks | 8 files |
 | Phase 37.1 P03 | 55 min | 3 tasks | 4 files |
 | Phase 37.1 P04 | 34 min | 3 tasks | 6 files |
+| Phase 37.1 P05 | 5 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -417,6 +418,7 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37.1]: Didymos backfill: existing records are offered to the system-link step with no refresh or other write; created records are reloaded after the status refresh so the placed block decides containment
 - [Phase 37.1]: 37.1-04: Confirmed section renders open by default on the attribution page (only place system links and Undo are visible)
 - [Phase 37.1]: 37.1-04: staff route to attribution page is an always-visible campaign-list header button, not a navbar entry (nav_items unchanged)
+- [Phase 37.1]: 37.1-05: telescope_runs, sync_gemini and import_campaign_csv demo notebooks use a fresh empty scratch database (not a copy of the developer database) because each creates every row it needs
 
 ### Pending Todos
 
@@ -516,8 +518,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-04T01:31:52.653Z
-Stopped at: Completed 37.1-04-PLAN.md
+Last session: 2026-10-04T01:39:44.918Z
+Stopped at: Completed 37.1-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
