@@ -15,6 +15,7 @@ from solsys_code.campaign_system_links import (
     OUTCOME_WOULD_LINK,
     attempt_system_link,
 )
+from solsys_code.observation_blocks import FomoLCOFacility
 
 
 def _matching_request_groups(facility: LCOFacility, proposal: str, name_prefix: str):
@@ -151,10 +152,18 @@ class Command(BaseCommand):
 
     Immediately after a newly created ObservationRecord is saved (non-dry-run only), the
     command makes a live best-effort call to facility.update_observation_status(observation_id)
-    -- the same TOM Toolkit method periodic polling uses -- so the new record's status,
+    -- TOM Toolkit's method, running on FOMO's FomoLCOFacility, whose block choice counts a block
+    that started and was aborted after taking data -- so the new record's status,
     scheduled_start, and scheduled_end are populated from LCO right away instead of staying
     unset until the next poll. A failure of that call is skip-and-logged (never fatal, never
     rolls back the already-created record) and counted in the status_sync_failed summary count.
+
+    --recheck-unscheduled (opt-in) also makes that same lookup for an already-existing record that
+    is missing either scheduled time, so records stored before FOMO's block rule (whose request ran
+    an aborted block) pick up their block's times; a linked record that gains both times retires its
+    run's allocation night for that block in the same run. A record that already has both times, and
+    every existing record when the flag is absent, is never refreshed or rewritten. A failed lookup
+    is skip-and-logged by exception class name only and counted in status_sync_failed.
 
     Every record the command creates (after that status refresh, on a refreshed copy of the row
     so the placed block rather than the request window decides containment) or re-encounters
@@ -209,6 +218,16 @@ class Command(BaseCommand):
                 'what would be created/reused and added without writing anything.'
             ),
         )
+        parser.add_argument(
+            '--recheck-unscheduled',
+            action='store_true',
+            help=(
+                'Also look up the observed block of an already-existing record that is missing either '
+                'scheduled time, using the block rule FOMO applies (a block that started and was aborted '
+                'after taking data counts), so records stored before that rule pick up their block times. '
+                'One portal lookup per such record. Default off.'
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
         """Fetch matching RequestGroups and create ObservationRecords for their requests.
@@ -222,6 +241,7 @@ class Command(BaseCommand):
         name_prefix = options['name_prefix']
         dry_run = options['dry_run']
         create_missing_targets = options['create_missing_targets']
+        recheck_unscheduled = options['recheck_unscheduled']
 
         user = None
         if options.get('username'):
@@ -235,7 +255,7 @@ class Command(BaseCommand):
         if not targets_by_name:
             raise CommandError(f'Campaign {campaign.name!r} has no targets to match requests against.')
 
-        facility = LCOFacility()
+        facility = FomoLCOFacility()
         facility.set_user(user)
 
         created = 0
@@ -244,6 +264,8 @@ class Command(BaseCommand):
         skipped_unmatched_target = 0
         skipped_no_config = 0
         status_sync_failed = 0
+        schedules_rechecked = 0
+        blocks_found = 0
         system_links = 0
         links_skipped = 0
 
@@ -263,9 +285,32 @@ class Command(BaseCommand):
                     facility=facility.name, observation_id=observation_id
                 ).first()
                 if existing is not None:
-                    # D-02: an already-existing record is never re-created or refreshed, but it is still
-                    # offered to the system-link step -- the only write on this path is at most one link row.
+                    # D-02: an already-existing record is never re-created, and is refreshed only under
+                    # --recheck-unscheduled and only when it has no scheduled block. It is still offered to
+                    # the system-link step either way.
                     skipped_existing += 1
+                    if recheck_unscheduled and (existing.scheduled_start is None or existing.scheduled_end is None):
+                        schedules_rechecked += 1
+                        if dry_run:
+                            self.stdout.write(
+                                f'Would recheck the observed block of ObservationRecord '
+                                f'observation_id={observation_id!r}.'
+                            )
+                        else:
+                            try:
+                                facility.update_observation_status(observation_id)
+                            except Exception as exc:
+                                # Class name only: a portal exception's text can carry response content.
+                                self.stderr.write(
+                                    f'Failed to recheck the observed block for observation_id='
+                                    f'{observation_id!r}: {type(exc).__name__}'
+                                )
+                                status_sync_failed += 1
+                                schedules_rechecked -= 1
+                            else:
+                                existing.refresh_from_db()
+                                if existing.scheduled_start is not None and existing.scheduled_end is not None:
+                                    blocks_found += 1
                     offer_for_system_link(existing)
                     continue
 
@@ -343,6 +388,8 @@ class Command(BaseCommand):
             f'{"Would create" if dry_run else "Created"}: {created}, already existed: {skipped_existing}, '
             f'unmatched target: {skipped_unmatched_target}, no usable configuration: {skipped_no_config}, '
             f'created field targets: {created_targets}, status sync failed: {status_sync_failed}, '
+            f'{"schedules would recheck" if dry_run else "schedules rechecked"}: {schedules_rechecked}, '
+            f'blocks found: {"n/a (dry-run)" if dry_run else blocks_found}, '
             f'{"would link" if dry_run else "system links"}: {system_links}, links skipped: {links_skipped}'
         )
         return summary
