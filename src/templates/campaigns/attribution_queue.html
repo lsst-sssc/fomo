@@ -231,25 +231,41 @@ rather than wrapping it.
 </div>
 {% endif %}
 
+{% comment %}
+UAT G-37.1-1: the two section headings below use Bootstrap 5 collapse attributes
+(data-bs-toggle / data-bs-target) because tom_common/base.html loads Bootstrap 5, whose
+collapse plugin ignores the Bootstrap 4 data-toggle / data-target spelling.
+
+Confirmed renders open on load: it is the only table where a system link ("Confirmed by" =
+"System (exact match)") and its Undo button are visible (37.1 D-05/D-06), and since 37.1 an
+empty queue is the normal state, so it is the table staff come to this page for. Staff can
+still fold it away with its heading.
+
+Dismissed renders folded away on a plain load (the Phase 28 collapsed section), but opens
+while its own table is being paged or sorted -- a page or sort link inside it reloads the page,
+which would otherwise fold it shut again. Only the field NAMES are tested against request.GET;
+no query-string value is echoed into the page.
+{% endcomment %}
 <h5 class="font-weight-bold mb-3 mt-4">
-  <button class="btn btn-link p-0 font-weight-bold" type="button" data-toggle="collapse"
-          data-target="#attribution-dismissed-section" aria-expanded="false"
+  <button class="btn btn-link p-0 font-weight-bold{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %}{% else %} collapsed{% endif %}"
+          type="button" data-bs-toggle="collapse" data-bs-target="#attribution-dismissed-section"
+          aria-expanded="{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %}true{% else %}false{% endif %}"
           aria-controls="attribution-dismissed-section">
     Dismissed
   </button>
 </h5>
-<div id="attribution-dismissed-section" class="collapse">
+<div id="attribution-dismissed-section" class="collapse{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %} show{% endif %}">
   {% render_table dismissed_table %}
 </div>
 
 <h5 class="font-weight-bold mb-3 mt-4">
-  <button class="btn btn-link p-0 font-weight-bold" type="button" data-toggle="collapse"
-          data-target="#attribution-confirmed-section" aria-expanded="false"
+  <button class="btn btn-link p-0 font-weight-bold" type="button" data-bs-toggle="collapse"
+          data-bs-target="#attribution-confirmed-section" aria-expanded="true"
           aria-controls="attribution-confirmed-section">
     Confirmed
   </button>
 </h5>
-<div id="attribution-confirmed-section" class="collapse">
+<div id="attribution-confirmed-section" class="collapse show">
   {% render_table confirmed_table %}
 </div>
 {% endblock %}
