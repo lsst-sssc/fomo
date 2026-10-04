@@ -18,14 +18,23 @@ import os
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.urls import reverse
+from django.utils import timezone
 from playwright.sync_api import sync_playwright
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.models import CalendarEventMeta, CampaignRun
+from solsys_code.models import (
+    CalendarEventMeta,
+    CampaignRun,
+    CampaignRunObservation,
+    ObservationRecordDismissal,
+)
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
@@ -212,3 +221,86 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
 
         assert '/observatory/create/' not in self.page.url
         assert Observatory.objects.filter(obscode='704').exists()
+
+    def test_attribution_page_sections_open_and_close_with_bootstrap5(self):
+        """UAT G-37.1-1: the attribution page's Confirmed and Dismissed headings must open and
+        close their sections under the Bootstrap 5 that ``tom_common/base.html`` loads. The page
+        used the Bootstrap 4 ``data-toggle``/``data-target`` attributes, which Bootstrap 5
+        ignores, so neither heading did anything and the system-linked rows (and their Undo
+        buttons) were unreachable. Also pins the default state: Confirmed open on load,
+        Dismissed folded away."""
+        staff = get_user_model().objects.create_user(username='bs5-attribution-staff', password='pw', is_staff=True)
+        campaign = TargetList.objects.create(name='BS5 Attribution Campaign')
+        target = NonSiderealTargetFactory.create()
+        campaign.targets.add(target)
+        observatory = Observatory.objects.create(obscode='E10', name='Siding Spring', short_name='SSO')
+        # Same shape as AttributionViewTestBase.campaign_run, whose system links
+        # TestSystemLinkInConfirmedTable already saves without error.
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+            site=observatory,
+            telescope_class='',
+        )
+
+        def make_record(night_offset, observation_id):
+            return ObservationRecord.objects.create(
+                target=target,
+                user=staff,
+                facility='LCO',
+                observation_id=observation_id,
+                status='PENDING',
+                parameters={
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': datetime(2026, 7, 7 + night_offset, 22, 0).isoformat(),
+                    'end': datetime(2026, 7, 8 + night_offset, 6, 0).isoformat(),
+                },
+            )
+
+        CampaignRunObservation.objects.create(
+            run=run, observation_record=make_record(0, 'BS5-ATTR-1'), confirmed_at=timezone.now()
+        )
+        ObservationRecordDismissal.objects.create(
+            observation_record=make_record(1, 'BS5-ATTR-2'),
+            run=run,
+            dismissed_by=staff,
+            dismissed_at=timezone.now(),
+            reason='BS5 browser dismissal',
+        )
+
+        # Log the browser in by handing it the test client's session cookie.
+        self.client.force_login(staff)
+        self.page.context.add_cookies(
+            [
+                {
+                    'name': settings.SESSION_COOKIE_NAME,
+                    'value': self.client.cookies[settings.SESSION_COOKIE_NAME].value,
+                    'url': self.live_server_url,
+                }
+            ]
+        )
+        page_errors = []
+        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
+
+        self.page.goto(f'{self.live_server_url}{reverse("campaigns:attribution")}')
+
+        confirmed = self.page.locator('#attribution-confirmed-section')
+        dismissed = self.page.locator('#attribution-dismissed-section')
+
+        # On load: Confirmed is open and shows the system link; Dismissed is folded away.
+        confirmed.wait_for(state='visible')
+        assert 'System (exact match)' in confirmed.inner_text()
+        dismissed.wait_for(state='hidden')
+
+        # Clicking the Dismissed heading opens it, with the dismissal reason showing.
+        self.page.locator('button[data-bs-target="#attribution-dismissed-section"]').click()
+        dismissed.wait_for(state='visible')
+        assert 'BS5 browser dismissal' in dismissed.inner_text()
+
+        # Clicking the Confirmed heading folds it away.
+        self.page.locator('button[data-bs-target="#attribution-confirmed-section"]').click()
+        confirmed.wait_for(state='hidden')
+
+        assert page_errors == []

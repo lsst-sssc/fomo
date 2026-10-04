@@ -17,10 +17,15 @@ from collections import defaultdict
 from django.template.loader import get_template
 from django.test import SimpleTestCase
 from django.urls import reverse
+from django.utils import timezone
 
+from solsys_code.models import CampaignRunObservation, ObservationRecordDismissal
 from solsys_code.tests.test_campaign_attribution_views import AttributionViewTestBase
 
 TEMPLATE_NAME = 'campaigns/attribution_queue.html'
+CONFIRMED_SECTION_ID = 'attribution-confirmed-section'
+DISMISSED_SECTION_ID = 'attribution-dismissed-section'
+SECTION_IDS = (CONFIRMED_SECTION_ID, DISMISSED_SECTION_ID)
 
 
 class _FormStructureParser(html.parser.HTMLParser):
@@ -80,6 +85,28 @@ class _FormStructureParser(html.parser.HTMLParser):
             self._form_stack.pop()
 
 
+class _CollapseSectionParser(html.parser.HTMLParser):
+    """Records the attributes of the two collapsible section ``div``s (matched by id) and of
+    every ``button`` carrying a ``data-bs-target``, so a test can assert each section's
+    open/closed state and its trigger's matching ``aria-expanded`` and ``collapsed`` class."""
+
+    def __init__(self):
+        super().__init__()
+        self.sections: dict[str, dict] = {}
+        self.triggers: dict[str, dict] = {}
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        if attrs_dict.get('id') in SECTION_IDS:
+            self.sections[attrs_dict['id']] = attrs_dict
+        if tag == 'button' and 'data-bs-target' in attrs_dict:
+            self.triggers[attrs_dict['data-bs-target']] = attrs_dict
+
+    @staticmethod
+    def classes(attrs: dict) -> set[str]:
+        return set((attrs.get('class') or '').split())
+
+
 class AttributionTemplateSourceTests(SimpleTestCase):
     """No database, no test client, no HTTP at all -- the evidence is the on-disk template
     source, resolved through Django's own template loader rather than a hardcoded path."""
@@ -123,6 +150,81 @@ class AttributionTemplateSourceTests(SimpleTestCase):
             self.assertNotIn(
                 'novalidate', form_tag, f'a <form> tag carries a standalone novalidate opt-out: {form_tag!r}'
             )
+
+    def test_collapse_triggers_use_bootstrap5_attributes(self):
+        """G-37.1-1: ``tom_common/base.html`` loads Bootstrap 5, whose collapse plugin binds only
+        ``data-bs-toggle``/``data-bs-target``. The Bootstrap 4 spelling (``data-toggle``,
+        ``data-target``) is inert there, so the Confirmed and Dismissed headings opened nothing.
+        Exactly two triggers, one per section, none using a Bootstrap 4 plugin attribute."""
+        collapse_buttons = [b for b in re.findall(r'<button\b[^>]*>', self.source) if 'data-bs-toggle' in b]
+        self.assertEqual(len(collapse_buttons), 2, f'expected exactly 2 collapse triggers, found {collapse_buttons}')
+        targets = []
+        for button in collapse_buttons:
+            self.assertIn('data-bs-toggle="collapse"', button)
+            match = re.search(r'data-bs-target="#([^"]+)"', button)
+            self.assertIsNotNone(match, f'collapse trigger has no data-bs-target: {button!r}')
+            targets.append(match.group(1))
+        self.assertCountEqual(targets, SECTION_IDS)
+        self.assertIsNone(
+            re.search(r'\bdata-(toggle|target|dismiss)=', self.source),
+            'the template still carries a Bootstrap 4 plugin data attribute',
+        )
+
+
+class AttributionCollapseSectionRenderTests(AttributionViewTestBase):
+    """G-37.1-1: renders the real page through a GET and parses the section markup a browser
+    would receive. GET only -- see the module docstring."""
+
+    def setUp(self):
+        self.system_record = self._make_record()
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.system_record, confirmed_at=timezone.now()
+        )
+        self.dismissed_record = self._make_record(night_offset=1)
+        ObservationRecordDismissal.objects.create(
+            observation_record=self.dismissed_record,
+            run=self.campaign_run,
+            dismissed_by=self.staff_user,
+            dismissed_at=timezone.now(),
+            reason='Wrong night',
+        )
+        self.client.force_login(self.staff_user)
+
+    def _parse(self, data=None):
+        response = self.client.get(reverse('campaigns:attribution'), data or {})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        parser = _CollapseSectionParser()
+        parser.feed(content)
+        return content, parser
+
+    def test_confirmed_section_renders_open_with_the_system_link_inside(self):
+        content, parser = self._parse()
+        section = parser.sections[CONFIRMED_SECTION_ID]
+        self.assertEqual(parser.classes(section), {'collapse', 'show'})
+        trigger = parser.triggers[f'#{CONFIRMED_SECTION_ID}']
+        self.assertEqual(trigger.get('data-bs-toggle'), 'collapse')
+        self.assertEqual(trigger.get('aria-expanded'), 'true')
+        self.assertNotIn('collapsed', parser.classes(trigger))
+        confirmed_start = content.index(f'id="{CONFIRMED_SECTION_ID}"')
+        self.assertIn('System (exact match)', content[confirmed_start:])
+
+    def test_dismissed_section_renders_folded_by_default(self):
+        _, parser = self._parse()
+        section = parser.sections[DISMISSED_SECTION_ID]
+        self.assertIn('collapse', parser.classes(section))
+        self.assertNotIn('show', parser.classes(section))
+        trigger = parser.triggers[f'#{DISMISSED_SECTION_ID}']
+        self.assertEqual(trigger.get('aria-expanded'), 'false')
+        self.assertIn('collapsed', parser.classes(trigger))
+
+    def test_dismissed_section_renders_open_while_paging_its_own_table(self):
+        _, parser = self._parse({'dismissed-page': '1'})
+        section = parser.sections[DISMISSED_SECTION_ID]
+        self.assertEqual(parser.classes(section), {'collapse', 'show'})
+        trigger = parser.triggers[f'#{DISMISSED_SECTION_ID}']
+        self.assertEqual(trigger.get('aria-expanded'), 'true')
+        self.assertNotIn('collapsed', parser.classes(trigger))
 
 
 class AttributionRenderedFormStructureTests(AttributionViewTestBase):
