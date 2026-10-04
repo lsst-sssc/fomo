@@ -214,7 +214,9 @@ class Command(BaseCommand):
         """Fetch matching RequestGroups and create ObservationRecords for their requests.
 
         Returns:
-            str | None: a one-line summary of created/skipped counts.
+            str | None: a one-line summary of the created/skipped/link counts.
+                BaseCommand.execute() writes this returned string to stdout once, so handle()
+                does not write it itself; call_command() returns the same string to callers.
         """
         proposal = options['proposal']
         name_prefix = options['name_prefix']
@@ -343,7 +345,6 @@ class Command(BaseCommand):
             f'created field targets: {created_targets}, status sync failed: {status_sync_failed}, '
             f'{"would link" if dry_run else "system links"}: {system_links}, links skipped: {links_skipped}'
         )
-        self.stdout.write(summary)
         return summary
 
     def _resolve_campaign(self, campaign_name: str | None) -> TargetList:
