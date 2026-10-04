@@ -582,6 +582,9 @@ class AttributionDismissedTable(tables.Table):
         sequence = ('orphan', 'run', 'dismissed_by', 'dismissed_at', 'reason', 'actions')
         attrs = {'class': 'table table-sm'}
         empty_text = 'No dismissals recorded yet.'
+        # The base page is Bootstrap 5 (TOM Toolkit 3.0.1); with no template django-tables2 falls back to
+        # its unstyled default pager (UAT G-37.1-1-pager).
+        template_name = 'django_tables2/bootstrap5-responsive.html'
 
     def __init__(self, *args, request=None, **kwargs):
         self.request = request
@@ -670,6 +673,9 @@ class AttributionConfirmedTable(tables.Table):
         sequence = ('orphan', 'run', 'confirmed_by', 'confirmed_at', 'actions')
         attrs = {'class': 'table table-sm'}
         empty_text = 'No confirmed attributions yet.'
+        # The base page is Bootstrap 5 (TOM Toolkit 3.0.1); with no template django-tables2 falls back to
+        # its unstyled default pager (UAT G-37.1-1-pager).
+        template_name = 'django_tables2/bootstrap5-responsive.html'
 
     def __init__(self, *args, request=None, **kwargs):
         self.request = request
