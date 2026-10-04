@@ -618,3 +618,21 @@ class TestBackfillSystemLinks(TestCase):
 
         self.assertFalse(CampaignRunObservation.objects.filter(observation_record=record).exists())
         self.assertTrue(summary.endswith('system links: 0, links skipped: 0'), summary)
+
+    @patch('solsys_code.management.commands.backfill_lco_observation_records.make_request')
+    def test_summary_line_is_printed_exactly_once(self, mock_make_request):
+        # Quick task 261004-c7x: Django's BaseCommand.execute() already writes a returned string to
+        # stdout, so handle() must return the summary and not also write it itself.
+        mock_make_request.return_value = self._page()
+        self._existing_record()
+
+        # Dry run first so it writes nothing before the real run links the record.
+        for extra, prefix in ((('--dry-run',), 'Would create:'), ((), 'Created:')):
+            with self.subTest(extra=extra):
+                summary, stdout, _ = self._run_command(*extra)
+
+                self.assertIsInstance(summary, str)
+                self.assertTrue(summary)
+                self.assertEqual(stdout.count(summary), 1, stdout)
+                self.assertEqual(stdout.splitlines()[-1], summary)
+                self.assertTrue(summary.startswith(prefix), summary)
