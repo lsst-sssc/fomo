@@ -16,6 +16,11 @@
    owns, and both will drift on a future tomtoolkit upgrade -- diff this file against the
    upstream path above when upgrading.
 
+   Second deviation from upstream (UAT G-37.1-1-allocurl): the URL label's "View" link is limited
+   to http(s) web addresses via the is_web_url filter, because the allocation layer and the campaign
+   reconciler store ALLOC:/RUN: namespace keys in CalendarEvent.url; any other value shows a
+   "not a web link" note instead, and the link gains rel="noopener noreferrer".
+
    Below this point, this file starts as an exact copy of the upstream partial with one
    new block inserted after </form> and before the Todo list heading (D-08).
 {% endcomment %}
@@ -49,10 +54,12 @@
       <div class="col">
         <label for="{{ form.url.id_for_label }}">
           URL
-          {% if form.url.value %}
+          {% if form.url.value|is_web_url %}
             <small>
-              <a href="{{ form.url.value }}" target="_blank">View  ↗</a>
+              <a href="{{ form.url.value }}" target="_blank" rel="noopener noreferrer">View  ↗</a>
             </small>
+          {% elif form.url.value %}
+            <small class="text-muted">(not a web link)</small>
           {% endif %}
         </label>
         {% bootstrap_field form.url show_label=False %}

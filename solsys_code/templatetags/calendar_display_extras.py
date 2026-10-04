@@ -33,6 +33,8 @@ import hashlib
 from collections import defaultdict
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from typing import Any
+from urllib.parse import urlsplit
 
 from django import template
 from django.core.exceptions import ObjectDoesNotExist
@@ -45,6 +47,32 @@ from solsys_code.calendar_utils import record_time_window
 from solsys_code.models import NO_CAMPAIGN_LABEL
 
 register = template.Library()
+
+
+@register.filter
+def is_web_url(value: Any) -> bool:
+    """Return True only for an http or https web address with a host.
+
+    The allocation layer (``ALLOC:{run.pk}:{night}``) and the campaign reconciler (``RUN:{pk}``)
+    keep their namespace keys in ``CalendarEvent.url``, so the event form must not render them as
+    a link (UAT G-37.1-1-allocurl). A stored ``javascript:`` or any other non-web scheme must never
+    become a link either.
+
+    Args:
+        value: The stored url value (usually a string, but anything may arrive from a template).
+
+    Returns:
+        True when the stripped value is a string whose scheme is ``http`` or ``https``
+        (case-insensitive) with a non-empty host; False otherwise. Never raises.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        parts = urlsplit(value.strip())
+        return parts.scheme.lower() in ('http', 'https') and bool(parts.hostname)
+    except ValueError:
+        return False
+
 
 # Colorblind-vetted, white-text-AA palette — 8 hex values locked by 09-UI-SPEC.md
 # Color section.  Mutual distinguishability verified against CVD simulators for
