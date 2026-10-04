@@ -613,7 +613,12 @@ alongside the approval queue as a second staff decision surface: the
 campaign-list warning banner now names a third count -- "N orphans
 awaiting attribution" -- with its own "Attribution queue" link, following
 the same nested-``{% if %}`` staff-only rule the pending/site-review counts
-already use.
+already use. Staff also always see an **Attribution** button at the top of
+the campaign list, next to **Submit a Run**, whether or not anything is
+waiting. That button is the way in once both worklists are empty -- to see
+what the discovery sweep linked by itself, or to undo a link or a dismissal.
+The banner and its "Attribution queue" link still appear only while
+something is waiting.
 
 **What links by itself.** Not every observation record waits for a person.
 The discovery sweep (``backfill_lco_observations``) -- and
@@ -639,7 +644,10 @@ exactly as before, for a person to decide.
 
 A system link appears in the Confirmed table with **Confirmed by** reading
 ``System (exact match)`` (a staff confirmation shows the staff member's
-name), and in the run's admin inline the same way. A blank **Confirmed by**
+name), and in the run's admin inline the same way. The Confirmed section
+sits at the bottom of the page and is open when the page loads, so system
+links and their Undo buttons are visible without a click; clicking its
+**Confirmed** heading folds it away. A blank **Confirmed by**
 is what marks a system link, so a staff account that has confirmed a link
 -- or a calendar event's attribution -- cannot be deleted; deactivate it
 instead, because its confirmations would then read as machine-made (a link
@@ -710,8 +718,9 @@ persisting one never creates a link between the orphan and the run, and
 an unconfirmed guess can never be mistaken for a confirmed attribution. It exists so
 the queue can actually drain -- without it, a rejected candidate would
 return on every page load -- and it is fully reversible from the
-collapsed "Dismissed" section on the same page, which lists who dismissed
-each pair and offers an Undo button for every row. That reason box is
+"Dismissed" section on the same page, which is folded away until you click
+its **Dismissed** heading and stays open while you page through it. It lists
+who dismissed each pair and offers an Undo button for every row. That reason box is
 required for Dismiss only -- clicking Confirm on the same row never asks
 for one, because a confirmation records the pair itself rather than a
 rejection of it.
