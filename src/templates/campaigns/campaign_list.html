@@ -4,7 +4,13 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="font-weight-bold mb-0">Campaigns</h4>
-  <a class="btn btn-primary" href="{% url 'campaigns:submit' %}">Submit a Run</a>
+  <div>
+    {% if request.user.is_staff %}
+    {# G-37.1-1-nav: always shown to staff, unlike the count-gated banner below, because an empty queue is the normal state since 37.1. #}
+    <a class="btn btn-outline-secondary me-2" href="{% url 'campaigns:attribution' %}">Attribution</a>
+    {% endif %}
+    <a class="btn btn-primary" href="{% url 'campaigns:submit' %}">Submit a Run</a>
+  </div>
 </div>
 
 {% if request.user.is_staff %}
