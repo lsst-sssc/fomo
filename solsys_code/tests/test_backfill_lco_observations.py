@@ -18,6 +18,7 @@ from solsys_code.campaign_attribution import record_attribution_backlog
 from solsys_code.campaign_reconciler import reconcile_run
 from solsys_code.campaign_utils import create_system_link
 from solsys_code.management.commands.backfill_lco_observations import (
+    _build_parameters,
     _preserve_observed_site_keys,
     _schedule_lookup_is_needed,
     sweep_proposal,
@@ -25,6 +26,7 @@ from solsys_code.management.commands.backfill_lco_observations import (
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import observing_night
+from solsys_code.tests.test_observation_blocks import portal_side_effect
 
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
 # for every fixture request unless a test deliberately builds an incomplete one.
@@ -1948,8 +1950,10 @@ _END = datetime(2026, 7, 1, 0, 20, tzinfo=timezone.utc)
 
 
 class TestScheduleLookupIsNeeded(SimpleTestCase):
-    def _needed(self, record, portal_state, terminal=_TERMINAL, failed=_FAILED):
-        return _schedule_lookup_is_needed(record, portal_state, terminal, failed)
+    def _needed(self, record, portal_state, terminal=_TERMINAL, failed=_FAILED, recheck=False):
+        # The keyword is only passed when set, so every default-path test also pins that it is optional.
+        extra = {'recheck_unscheduled': True} if recheck else {}
+        return _schedule_lookup_is_needed(record, portal_state, terminal, failed, **extra)
 
     def test_no_existing_record_needs_a_lookup(self):
         self.assertTrue(self._needed(None, 'COMPLETED'))
@@ -1973,6 +1977,38 @@ class TestScheduleLookupIsNeeded(SimpleTestCase):
     def test_completed_record_missing_one_time_needs_a_lookup(self):
         record = ObservationRecord(status='COMPLETED', scheduled_start=_START, scheduled_end=None)
         self.assertTrue(self._needed(record, 'COMPLETED'))
+
+    def test_failed_state_with_no_times_needs_a_lookup_when_rechecking(self):
+        # An aborted block can sit under a request that expired or was cancelled, so the operator's
+        # one-time catch-up looks at it once even though the per-tick skip does not.
+        record = ObservationRecord(status='WINDOW_EXPIRED')
+        self.assertFalse(self._needed(record, 'WINDOW_EXPIRED'))
+        self.assertTrue(self._needed(record, 'WINDOW_EXPIRED', recheck=True))
+
+    def test_failed_state_missing_one_time_needs_a_lookup_when_rechecking(self):
+        record = ObservationRecord(status='CANCELED', scheduled_start=_START, scheduled_end=None)
+        self.assertFalse(self._needed(record, 'CANCELED'))
+        self.assertTrue(self._needed(record, 'CANCELED', recheck=True))
+
+    def test_failed_state_with_both_times_needs_no_lookup_even_when_rechecking(self):
+        record = ObservationRecord(status='WINDOW_EXPIRED', scheduled_start=_START, scheduled_end=_END)
+        self.assertFalse(self._needed(record, 'WINDOW_EXPIRED', recheck=True))
+
+    def test_recheck_changes_nothing_for_records_that_already_needed_a_lookup(self):
+        missing_time = ObservationRecord(status='COMPLETED', scheduled_start=_START, scheduled_end=None)
+        self.assertTrue(self._needed(missing_time, 'COMPLETED'))
+        self.assertTrue(self._needed(missing_time, 'COMPLETED', recheck=True))
+        pending = ObservationRecord(status='PENDING')
+        self.assertTrue(self._needed(pending, 'PENDING'))
+        self.assertTrue(self._needed(pending, 'PENDING', recheck=True))
+        changed = ObservationRecord(status='COMPLETED', scheduled_start=_START, scheduled_end=_END)
+        self.assertTrue(self._needed(changed, 'CANCELED'))
+        self.assertTrue(self._needed(changed, 'CANCELED', recheck=True))
+        self.assertTrue(self._needed(None, 'COMPLETED', recheck=True))
+
+    def test_recheck_leaves_a_finished_record_with_both_times_skipped(self):
+        record = ObservationRecord(status='COMPLETED', scheduled_start=_START, scheduled_end=_END)
+        self.assertFalse(self._needed(record, 'COMPLETED', recheck=True))
 
     def test_function_trusts_the_state_lists_it_is_given(self):
         record = ObservationRecord(status='DONE')
@@ -2221,3 +2257,276 @@ class TestSweepSystemLinks(TestCase):
 
         row.refresh_from_db()
         self.assertTrue(row.last_run_summary.endswith('system links: 1, links skipped: 0'), row.last_run_summary)
+
+
+_ABORTED_BLOCK = {'state': 'ABORTED', 'start': '2026-07-01T01:00:00Z', 'end': '2026-07-01T01:40:00Z'}
+_LISTING = 'solsys_code.management.commands.backfill_lco_observations.make_request'
+_PORTAL = 'solsys_code.observation_blocks.make_request'
+
+
+class TestDiscoveryUsesFomoBlockRule(TestCase):
+    """G-37.1-1-alloc: a new request whose block was aborted is stored with that block's times.
+
+    Nothing here patches get_observation_status, so FOMO's own block rule runs for both the embedded
+    block list and the live lookup.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+
+    @patch(_LISTING)
+    def test_an_embedded_aborted_block_gives_the_record_its_times(self, mock_listing):
+        mock_listing.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - ELP',
+                    requests=[_request(10, state='WINDOW_EXPIRED', observations=[dict(_ABORTED_BLOCK)])],
+                )
+            ]
+        )
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertIn('embedded blocks: 1', summary)
+
+    @patch(_LISTING)
+    def test_an_embedded_block_list_with_only_a_cancelled_block_gives_no_times(self, mock_listing):
+        mock_listing.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - ELP',
+                    requests=[
+                        _request(
+                            10,
+                            state='CANCELED',
+                            observations=[{'state': 'CANCELED', 'start': _ABORTED_BLOCK['start'], 'end': None}],
+                        )
+                    ],
+                )
+            ]
+        )
+
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_the_live_lookup_for_a_new_expired_request_uses_the_aborted_block(self, mock_listing, mock_portal):
+        mock_listing.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='WINDOW_EXPIRED')])]
+        )
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [dict(_ABORTED_BLOCK)]})
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertEqual(mock_portal.call_count, 2)
+        self.assertIn('fallback lookups needed: 1', summary)
+
+
+class TestRecheckUnscheduledSweep(TestCase):
+    """G-37.1-1-alloc: --recheck-unscheduled through sweep_proposal() re-resolves records stored under
+    TOM's old rule, retires a linked run's night in the same sweep, and leaves never-scheduled requests alone."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+        cls.chilean_site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.per_night_run = CampaignRun.objects.create(
+            campaign=None,
+            target=cls.existing_target,
+            proposal_code='LCO2026A-003',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=cls.chilean_site,
+            site_raw='809',
+            window_start=date(2026, 6, 29),
+            window_end=date(2026, 7, 2),
+        )
+
+    def setUp(self):
+        reconcile_run(self.per_night_run)
+        self.alloc_before = allocation_events(self.per_night_run).count()
+
+    def _stored_record(self, request_id, state):
+        """A record as the sweep stored it under TOM's old rule: finished, linked, and without times."""
+        request = _request(request_id, state=state)
+        group = _request_group(1, 'Didymos 2026 - ELP', requests=[request])
+        record = ObservationRecord.objects.create(
+            target=self.existing_target,
+            facility='LCO',
+            observation_id=str(request_id),
+            status=state,
+            parameters=_build_parameters(group, request),
+        )
+        create_system_link(record, self.per_night_run)
+        return group, record
+
+    def _alloc_url(self, record):
+        night = observing_night(record.scheduled_start, ZoneInfo('America/Santiago'))
+        return f'ALLOC:{self.per_night_run.pk}:{night.isoformat()}'
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_recheck_gives_the_aborted_block_its_times_and_retires_its_night(self, mock_listing, mock_portal):
+        group, record = self._stored_record(10, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [dict(_ABORTED_BLOCK)]})
+
+        summary = sweep_proposal('LCO2026A-003', recheck_unscheduled=True, stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertFalse(allocation_events(self.per_night_run).filter(url=self._alloc_url(record)).exists())
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+        self.assertEqual(mock_portal.call_count, 2)
+        self.assertIn('updated: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('fallback lookups skipped: 0', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_without_the_flag_the_finished_record_is_not_looked_up(self, mock_listing, mock_portal):
+        group, record = self._stored_record(10, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [dict(_ABORTED_BLOCK)]})
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_portal.assert_not_called()
+        record.refresh_from_db()
+        self.assertIsNone(record.scheduled_start)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups skipped: 1', summary)
+        self.assertIn('fallback lookups needed: 0', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_never_scheduled_request_keeps_its_night_when_rechecked(self, mock_listing, mock_portal):
+        group, record = self._stored_record(20, 'CANCELED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'20': 'CANCELED'}, {'20': []})
+
+        summary = sweep_proposal('LCO2026A-003', recheck_unscheduled=True, stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before)
+        self.assertEqual(mock_portal.call_count, 2)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('updated: 0', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_failed_lookup_is_counted_and_never_writes_the_error_text(self, mock_listing, mock_portal):
+        group, record = self._stored_record(10, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = requests.exceptions.ConnectionError('secret-token-in-the-url')
+        stdout, stderr = io.StringIO(), io.StringIO()
+
+        summary = sweep_proposal('LCO2026A-003', recheck_unscheduled=True, stdout=stdout, stderr=stderr)
+
+        record.refresh_from_db()
+        self.assertIsNone(record.scheduled_start)
+        self.assertIn('block lookups failed: 1', summary)
+        self.assertIn("Failed to resolve observed block for observation_id='10'.", stderr.getvalue())
+        self.assertNotIn('secret-token-in-the-url', stderr.getvalue() + stdout.getvalue() + summary)
+
+
+class TestRecheckUnscheduledCommand(TestCase):
+    """The flag reaches sweep_proposal() from both invocation forms and is not one of the proposal-only flags."""
+
+    SWEEP = 'solsys_code.management.commands.backfill_lco_observations.sweep_proposal'
+
+    @patch(SWEEP)
+    def test_proposal_form_passes_the_flag_through(self, mock_sweep):
+        mock_sweep.return_value = 'summary line'
+
+        call_command(
+            'backfill_lco_observations',
+            '--proposal',
+            'LCO2026A-003',
+            '--recheck-unscheduled',
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+        self.assertIs(mock_sweep.call_args.kwargs['recheck_unscheduled'], True)
+
+    @patch(SWEEP)
+    def test_proposal_form_without_the_flag_passes_false(self, mock_sweep):
+        mock_sweep.return_value = 'summary line'
+
+        call_command(
+            'backfill_lco_observations', '--proposal', 'LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO()
+        )
+
+        self.assertIs(mock_sweep.call_args.kwargs['recheck_unscheduled'], False)
+
+    @patch(SWEEP)
+    def test_bare_form_passes_the_flag_for_every_watched_row(self, mock_sweep):
+        mock_sweep.return_value = 'summary line'
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+
+        call_command('backfill_lco_observations', '--recheck-unscheduled', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_sweep.call_count, 1)
+        self.assertEqual(mock_sweep.call_args.args[0], 'AAA-2026-001')
+        self.assertIs(mock_sweep.call_args.kwargs['recheck_unscheduled'], True)
+
+    @patch(SWEEP)
+    def test_bare_form_without_the_flag_passes_false(self, mock_sweep):
+        mock_sweep.return_value = 'summary line'
+        WatchedProposal.objects.create(proposal_code='AAA-2026-001')
+
+        call_command('backfill_lco_observations', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertIs(mock_sweep.call_args.kwargs['recheck_unscheduled'], False)
+
+    @patch(SWEEP)
+    def test_bare_form_still_rejects_the_proposal_only_flags(self, mock_sweep):
+        for flag, value in (
+            ('--created-after', '2026-01-01'),
+            ('--created-before', '2026-12-31'),
+            ('--username', 'someone'),
+            ('--target-list', 'My list'),
+        ):
+            with self.subTest(flag=flag):
+                with self.assertRaises(CommandError) as ctx:
+                    call_command(
+                        'backfill_lco_observations',
+                        '--recheck-unscheduled',
+                        flag,
+                        value,
+                        stdout=io.StringIO(),
+                        stderr=io.StringIO(),
+                    )
+                self.assertIn(flag, str(ctx.exception))
+                self.assertNotIn('--recheck-unscheduled', str(ctx.exception))
+        mock_sweep.assert_not_called()

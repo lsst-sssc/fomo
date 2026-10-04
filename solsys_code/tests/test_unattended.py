@@ -1263,6 +1263,18 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertEqual(result.summary, 'swept: 1, failed: 0')
         self.assertFalse(result.failed)
 
+    @patch('solsys_code.unattended.sweep_watched_rows')
+    def test_discovery_step_never_passes_the_recheck_flag(self, mock_sweep_watched_rows):
+        # T-37.1-35: --recheck-unscheduled is an operator catch-up. The runner must never pass it, so the
+        # per-tick lookup count stays what the finished-record skip (F2) made it.
+        mock_sweep_watched_rows.return_value = (1, 0, [])
+
+        unattended.step_discovery(dry_run=False)
+
+        self.assertEqual(mock_sweep_watched_rows.call_count, 1)
+        self.assertFalse(mock_sweep_watched_rows.call_args.kwargs.get('recheck_unscheduled', False))
+        self.assertNotIn('recheck_unscheduled', mock_sweep_watched_rows.call_args.kwargs)
+
 
 class TestProposalAllocationStep(UnattendedTestBase):
     """Task 3 (D-07): the proposal-allocation fetch step joins the runner's fixed step order."""
