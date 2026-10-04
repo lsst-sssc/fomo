@@ -18,6 +18,7 @@ These tests read notebook JSON only and never execute a notebook. Code is inspec
 trip a check.
 """
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -31,9 +32,97 @@ RESOLVED_LINE = re.compile(r"Resolved database: '([^']+)'")
 TEARDOWN_OUTPUT = 'Removed scratch database directory:'
 
 
+def _cell_source(cell: dict) -> str:
+    """Return a cell's source as one string (``.ipynb`` stores it as a string or a list of lines)."""
+    source = cell.get('source', '')
+    return ''.join(source) if isinstance(source, list) else source
+
+
+def _cell_output_text(cell: dict) -> str:
+    """Return the text of a code cell's committed stream outputs as one string."""
+    parts = []
+    for output in cell.get('outputs', []):
+        text = output.get('text', '')
+        parts.append(''.join(text) if isinstance(text, list) else text)
+    return ''.join(parts)
+
+
+def _parse(source: str) -> ast.Module | None:
+    """Parse a cell's source, or return None when it is not plain Python (e.g. IPython magics)."""
+    try:
+        return ast.parse(source)
+    except SyntaxError:
+        return None
+
+
+def _dotted_name(node: ast.expr) -> str:
+    """Return ``a.b.c`` for a chain of attribute accesses on a name, or an empty string."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+        return '.'.join(reversed(parts))
+    return ''
+
+
+def _is_constant(node: ast.AST, value: str) -> bool:
+    return isinstance(node, ast.Constant) and node.value == value
+
+
+def _calls(tree: ast.Module, dotted_name: str) -> list[ast.Call]:
+    """Return every call in ``tree`` to the function named ``dotted_name`` (e.g. ``django.setup``)."""
+    return [node for node in ast.walk(tree) if isinstance(node, ast.Call) and _dotted_name(node.func) == dotted_name]
+
+
+def _code_cells(notebook: dict) -> list[dict]:
+    return [cell for cell in notebook.get('cells', []) if cell.get('cell_type') == 'code']
+
+
 def django_setup_cells(notebook: dict) -> list[dict]:
     """Return the code cells of ``notebook`` that call ``django.setup()``."""
-    return []
+    cells = []
+    for cell in _code_cells(notebook):
+        tree = _parse(_cell_source(cell))
+        if tree is not None and _calls(tree, 'django.setup'):
+            cells.append(cell)
+    return cells
+
+
+def _routes_before(tree: ast.Module, setup_line: int) -> tuple[bool, bool]:
+    """Report whether a scratch directory is created, and the variable assigned, before ``setup_line``."""
+    creates_scratch_dir = any(
+        node.lineno < setup_line
+        and any(keyword.arg == 'prefix' and _is_constant(keyword.value, SCRATCH_PREFIX) for keyword in node.keywords)
+        for node in _calls(tree, 'tempfile.mkdtemp')
+    )
+    assigns_variable = any(
+        node.lineno < setup_line
+        and any(
+            isinstance(target, ast.Subscript)
+            and _dotted_name(target.value) == 'os.environ'
+            and _is_constant(target.slice, DB_ENV_VAR)
+            for target in node.targets
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+    )
+    return creates_scratch_dir, assigns_variable
+
+
+def _reads_resolved_database_name(tree: ast.Module) -> bool:
+    """Return True when the cell reads ``<settings>.DATABASES['default']['NAME']``."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and _is_constant(node.slice, 'NAME'):
+            inner = node.value
+            if (
+                isinstance(inner, ast.Subscript)
+                and _is_constant(inner.slice, 'default')
+                and _dotted_name(inner.value).split('.')[-1] == 'DATABASES'
+            ):
+                return True
+    return False
 
 
 def isolation_problems(notebook: dict) -> list[str]:
@@ -46,7 +135,65 @@ def isolation_problems(notebook: dict) -> list[str]:
         A list of problems; empty when the notebook never calls ``django.setup()`` or is
         correctly isolated onto a scratch database.
     """
-    return []
+    problems = []
+    code_cells = _code_cells(notebook)
+    parsed = {id(cell): _parse(_cell_source(cell)) for cell in code_cells}
+
+    for cell in code_cells:
+        if parsed[id(cell)] is None and 'django.setup' in _cell_source(cell):
+            problems.append('a code cell mentions django.setup but is not parseable Python, so it cannot be checked')
+
+    # An inherited FOMO_DATABASE_PATH could point at a real database, so no cell may defer to it.
+    for number, cell in enumerate(code_cells, start=1):
+        tree = parsed[id(cell)]
+        if tree is None:
+            continue
+        for call in _calls(tree, 'os.environ.setdefault'):
+            if call.args and _is_constant(call.args[0], DB_ENV_VAR):
+                problems.append(
+                    f'code cell {number} routes with os.environ.setdefault({DB_ENV_VAR!r}, ...); '
+                    'assign it directly so an inherited value cannot win'
+                )
+
+    setup_cells = django_setup_cells(notebook)
+    if not setup_cells:
+        return problems
+    if len(setup_cells) > 1:
+        problems.append(f'{len(setup_cells)} code cells call django.setup(); expected exactly one setup cell')
+        return problems
+
+    setup = setup_cells[0]
+    tree = parsed[id(setup)]
+    setup_line = min(call.lineno for call in _calls(tree, 'django.setup'))
+    creates_scratch_dir, assigns_variable = _routes_before(tree, setup_line)
+    if not creates_scratch_dir:
+        problems.append(
+            f'the setup cell does not call tempfile.mkdtemp(prefix={SCRATCH_PREFIX!r}) before django.setup()'
+        )
+    if not assigns_variable:
+        problems.append(f'the setup cell does not assign os.environ[{DB_ENV_VAR!r}] before django.setup()')
+    if not _reads_resolved_database_name(tree):
+        problems.append("the setup cell never reads DATABASES['default']['NAME'] to check what Django resolved")
+
+    resolved = RESOLVED_LINE.search(_cell_output_text(setup))
+    if resolved is None:
+        problems.append("the setup cell's committed output has no \"Resolved database: '<path>'\" line")
+    elif not Path(resolved.group(1)).parent.name.startswith(SCRATCH_PREFIX):
+        problems.append(
+            f'the committed run resolved {resolved.group(1)!r}, which is not inside a {SCRATCH_PREFIX}* directory'
+        )
+
+    last = code_cells[-1]
+    last_tree = parsed[id(last)]
+    removes_scratch_dir = last_tree is not None and any(
+        call.args and isinstance(call.args[0], ast.Name) and call.args[0].id == 'scratch_db_dir'
+        for call in _calls(last_tree, 'shutil.rmtree')
+    )
+    if not removes_scratch_dir:
+        problems.append('the last code cell is not the scratch teardown (shutil.rmtree(scratch_db_dir, ...))')
+    if TEARDOWN_OUTPUT not in _cell_output_text(last):
+        problems.append(f"the last code cell's committed output does not contain {TEARDOWN_OUTPUT!r}")
+    return problems
 
 
 def _notebook(setup_source=None, setup_output=None, last_source=None, last_output=None, extra_cells=()):
