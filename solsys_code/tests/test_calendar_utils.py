@@ -458,6 +458,32 @@ class TestResolvePlacementBlockFailureModes(TestCase):
         self.assertEqual(block['state'], 'PENDING')
         self.assertEqual(block['site'], 'cpt')
 
+    def _facility_and_blocks(self, states):
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [
+            {'site': site, 'enclosure': 'doma', 'telescope': '1m0a', 'state': state} for site, state in states
+        ]
+        return mock_facility, response
+
+    def test_aborted_only_list_returns_the_aborted_block(self):
+        """G-37.1-1-alloc: a block that started and was aborted is the one the schedule comes from, so
+        the observed-telescope lookup reads the same block as scheduled_start/scheduled_end."""
+        mock_facility, response = self._facility_and_blocks([('lsc', 'ABORTED')])
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'ABORTED')
+        self.assertEqual(block['site'], 'lsc')
+
+    def test_earlier_aborted_block_outranks_a_later_pending_one(self):
+        mock_facility, response = self._facility_and_blocks([('lsc', 'ABORTED'), ('cpt', 'PENDING')])
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'ABORTED')
+        self.assertEqual(block['site'], 'lsc')
+
 
 class TestCoerceScheduleDatetime(SimpleTestCase):
     """coerce_schedule_datetime() (G-34-2) -- no database rows needed; every case is a pure

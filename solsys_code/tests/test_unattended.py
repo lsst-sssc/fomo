@@ -42,6 +42,7 @@ from solsys_code import observation_projector as op
 from solsys_code.models import CampaignRun, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.tests.test_backfill_lco_observations import _page_response, _request_group
+from solsys_code.tests.test_observation_blocks import portal_side_effect
 
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST'
 
@@ -727,8 +728,8 @@ class TestNoneSettingGuards(UnattendedTestBase):
 class TestStatusRefreshStep(UnattendedTestBase):
     """Task 1 (D-03): the FOMO-owned LCO/SOAR status refresh step."""
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_calls_both_facilities_with_fresh_instances(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.return_value = []
         mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
@@ -741,8 +742,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         mock_soar_cls.return_value.update_all_observation_statuses.assert_called_once_with()
         self.assertIsNot(mock_lco_cls.return_value, mock_soar_cls.return_value)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_clean_refresh_is_not_a_failure(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.return_value = []
         mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
@@ -753,8 +754,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertIn('LCO: failed 0', result.summary)
         self.assertIn('SOAR: failed 0', result.summary)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_non_empty_failure_list_is_a_step_failure(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', 'boom')]
         mock_lco_cls.return_value.update_observation_status.return_value = None
@@ -765,8 +766,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertTrue(result.failed)
         self.assertIn('LCO: failed 1', result.summary)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_failure_is_reported_by_class_name_not_message(self, mock_lco_cls, mock_soar_cls):
         fake_key = 'FAKE-API-KEY-CREDHYG-STATUS-1'
         mock_lco_cls.return_value.update_all_observation_statuses.return_value = [
@@ -786,8 +787,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertNotIn(fake_key, joined)
         self.assertTrue(result.failed)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_transient_failure_still_counts(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', 'boom')]
         mock_lco_cls.return_value.update_observation_status.return_value = None
@@ -801,8 +802,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         joined = '\n'.join(captured.output)
         self.assertIn('no exception on re-check', joined)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_facility_exception_is_isolated_per_facility(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.side_effect = RuntimeError('lco down')
         mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
@@ -812,8 +813,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         mock_soar_cls.return_value.update_all_observation_statuses.assert_called_once_with()
         self.assertTrue(result.failed)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_dry_run_makes_no_facility_call(self, mock_lco_cls, mock_soar_cls):
         result = unattended.step_status_refresh(dry_run=True)
 
@@ -821,8 +822,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         mock_soar_cls.assert_not_called()
         self.assertFalse(result.failed)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_whole_facility_outage_caps_the_recheck_calls(self, mock_lco_cls, mock_soar_cls):
         # WR-08 (36-REVIEW.md): a whole-facility outage fails every non-terminal record,
         # so the re-check must be capped -- not one portal call per failed record with
@@ -841,8 +842,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertIn(f'LCO: failed {len(many_failures)}', result.summary)
         self.assertIn('recheck capped: 5 omitted', result.summary)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_under_cap_failure_count_omits_the_capped_note(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', 'boom')]
         mock_lco_cls.return_value.update_observation_status.return_value = None
@@ -852,8 +853,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
 
         self.assertNotIn('recheck capped', result.summary)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_whole_facility_outage_reads_as_outage_not_failed_one(self, mock_lco_cls, mock_soar_cls):
         # IN-05 (36-REVIEW.md): a whole-facility outage (update_all_observation_statuses()
         # itself raised) must never read as "failed 1" -- the true affected-record count
@@ -867,8 +868,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertIn('LCO: outage (RuntimeError)', result.summary)
         self.assertNotIn('LCO: failed 1', result.summary)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_clean_refresh_summary_has_no_dangling_classes_fragment(self, mock_lco_cls, mock_soar_cls):
         # IN-05 (36-REVIEW.md): an empty classes list must omit the whole 'classes: '
         # segment rather than leaving a dangling, content-free fragment in the summary.
@@ -879,8 +880,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
 
         self.assertNotIn('classes:', result.summary)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_per_record_http_status_code_is_reported(self, mock_lco_cls, mock_soar_cls):
         # Quick task 260927-eqs, Task 1: a portal HTTPError's numeric status code must
         # travel to the per-record log line and the step summary's `classes:` field.
@@ -897,8 +898,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertIn('classes: HTTPError 502', result.summary)
         self.assertTrue(result.failed)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_multiple_status_codes_are_deduplicated_by_label(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.return_value = [
             ('obs-1', 'boom'),
@@ -918,8 +919,8 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertEqual(result.summary.count('HTTPError 502'), 1)
         self.assertEqual(result.summary.count('HTTPError 504'), 1)
 
-    @patch('solsys_code.unattended.SOARFacility')
-    @patch('solsys_code.unattended.LCOFacility')
+    @patch('solsys_code.unattended.FomoSOARFacility')
+    @patch('solsys_code.unattended.FomoLCOFacility')
     def test_outage_reports_the_http_status_code(self, mock_lco_cls, mock_soar_cls):
         mock_lco_cls.return_value.update_all_observation_statuses.side_effect = _http_error(
             503, reason='Service Unavailable'
@@ -933,6 +934,53 @@ class TestStatusRefreshStep(UnattendedTestBase):
         self.assertNotIn('LCO: failed 1', result.summary)
         joined = '\n'.join(captured.output)
         self.assertTrue(any(line.endswith('HTTPError 503') for line in joined.splitlines()))
+
+
+class TestStatusRefreshKeepsBlockTimes(UnattendedTestBase):
+    """G-37.1-1-alloc: the poll reads blocks with FOMO's rule, so it neither erases nor fails to record the
+    times of an in-progress or aborted block. A real FomoLCOFacility runs; only the portal calls are mocked."""
+
+    PORTAL = 'solsys_code.observation_blocks.make_request'
+
+    def setUp(self):
+        super().setUp()
+        soar_patcher = patch('solsys_code.unattended.FomoSOARFacility')
+        mock_soar_cls = soar_patcher.start()
+        self.addCleanup(soar_patcher.stop)
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+        self.target = NonSiderealTargetFactory.create(name='Didymos')
+
+    def _pending_record(self):
+        return ObservationRecord.objects.create(
+            target=self.target, facility='LCO', observation_id='500', status='PENDING', parameters={}
+        )
+
+    def test_in_progress_block_times_survive_two_polls(self):
+        record = self._pending_record()
+        block = {'state': 'IN_PROGRESS', 'start': '2026-07-01T01:00:00Z', 'end': '2026-07-01T01:40:00Z'}
+        with patch(self.PORTAL, side_effect=portal_side_effect({'500': 'PENDING'}, {'500': [block]})):
+            unattended.step_status_refresh(dry_run=False)
+            record.refresh_from_db()
+            first = (record.scheduled_start, record.scheduled_end)
+            unattended.step_status_refresh(dry_run=False)
+            record.refresh_from_db()
+
+        self.assertIsNotNone(first[0])
+        self.assertIsNotNone(first[1])
+        self.assertEqual((record.scheduled_start, record.scheduled_end), first)
+        self.assertEqual(record.status, 'PENDING')
+
+    def test_window_expired_transition_stores_the_aborted_block(self):
+        record = self._pending_record()
+        block = {'state': 'ABORTED', 'start': '2026-07-01T01:00:00Z', 'end': '2026-07-01T01:40:00Z'}
+        with patch(self.PORTAL, side_effect=portal_side_effect({'500': 'WINDOW_EXPIRED'}, {'500': [block]})):
+            result = unattended.step_status_refresh(dry_run=False)
+
+        record.refresh_from_db()
+        self.assertFalse(result.failed)
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self.assertIsNotNone(record.scheduled_start)
+        self.assertIsNotNone(record.scheduled_end)
 
 
 class TestExceptionLabel(UnattendedTestBase):
@@ -1398,8 +1446,10 @@ class TestCredentialHygiene(UnattendedTestBase):
             f'portal error key={_FAKE_LCO_API_KEY} pass={_FAKE_MAIL_PASSWORD} url={_FAKE_HEARTBEAT_PING_URL}'
         )
         with (
-            patch('solsys_code.unattended.LCOFacility') as mock_lco_cls,
-            patch('solsys_code.unattended.SOARFacility') as mock_soar_cls,
+            patch('solsys_code.unattended.FomoLCOFacility') as mock_lco_cls,
+            patch('solsys_code.unattended.FomoSOARFacility') as mock_soar_cls,
+            # The full tick's proposal_allocation step still builds TOM's own LCOFacility.
+            patch('solsys_code.unattended.LCOFacility'),
         ):
             mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', error_message)]
             mock_lco_cls.return_value.update_observation_status.side_effect = requests.exceptions.HTTPError(
@@ -1426,8 +1476,10 @@ class TestCredentialHygiene(UnattendedTestBase):
             body=body_marker.encode(),
         )
         with (
-            patch('solsys_code.unattended.LCOFacility') as mock_lco_cls,
-            patch('solsys_code.unattended.SOARFacility') as mock_soar_cls,
+            patch('solsys_code.unattended.FomoLCOFacility') as mock_lco_cls,
+            patch('solsys_code.unattended.FomoSOARFacility') as mock_soar_cls,
+            # The full tick's proposal_allocation step still builds TOM's own LCOFacility.
+            patch('solsys_code.unattended.LCOFacility'),
         ):
             mock_lco_cls.return_value.update_all_observation_statuses.return_value = [('obs-1', str(error))]
             mock_lco_cls.return_value.update_observation_status.side_effect = error
