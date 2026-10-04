@@ -132,6 +132,15 @@ The event narrows as the record's own fields change:
 * a marked event on the original window if the record expires, is
   cancelled, or fails.
 
+FOMO chooses the block itself: the first completed block, else the last block
+that is in progress or that started and was aborted after taking data, else
+the last pending one. So an earlier aborted block outranks a later pending
+block that has not run yet. FOMO does not leave this to TOM's own status
+call, which ignores in-progress and aborted blocks. A request whose block was
+aborted is therefore drawn over that block, with the marker its request state
+gives it (usually ``[X]`` once the window has expired), and only a request
+that never got a block is drawn over its whole request window.
+
 The event's title carries a compact marker naming that stage, e.g.
 ``[Q] 2m0 3I/ATLAS``. **One module, ``solsys_code/status_vocabulary.py``,
 defines every marker below, its label and the calendar legend** -- the
@@ -154,7 +163,9 @@ every state, final as of this phase:
    * - ``[O]``
      - Observed -- a successful terminal status.
    * - ``[X]``
-     - Window expired before the observation was attempted.
+     - Window expired before the observation was attempted -- drawn over the
+       whole request window when no block ever ran, or over the block when
+       one started and was aborted.
    * - ``[C]``
      - Cancelled -- by whichever layer owns the entry: a staff decision on
        a campaign run (the approval queue's "Mark Cancelled" button, see
@@ -294,8 +305,9 @@ How do I backfill ObservationRecords for LCO observations submitted outside FOMO
 All RequestGroups" API for a proposal, keeps only RequestGroups whose name
 starts with ``--name-prefix``, and creates one ``ObservationRecord`` per child
 request. A request that already has an ``ObservationRecord`` is not
-re-created and its status is not refreshed, so the command is safe to re-run
--- but it is still offered to the system-link step below.
+re-created and its status is not refreshed unless ``--recheck-unscheduled`` is
+given (see below), so the command is safe to re-run -- but it is still offered
+to the system-link step below.
 
 It exists to create the ObservationRecords for observations submitted
 directly at the LCO portal rather than through FOMO -- each created
@@ -330,6 +342,27 @@ surprising detail of the flag.
 ``--username <user>`` optionally attributes created records to that user;
 default is unattributed. An unknown username is a hard error.
 
+**Re-checking records with no scheduled block.** ``--recheck-unscheduled`` is
+opt-in, default off. With it, an existing record that is missing either
+scheduled time gets one portal lookup using FOMO's block choice (see "How do
+LCO/SOAR queue observations get onto the calendar?" above); a record that
+already has both times is left alone. This matters because records stored
+before that rule, whose request ran a block that started and was aborted, have
+no times, so their run's allocation night was never retired. After the
+recheck, such a record gains the block's times and, if it is linked to a
+per-night run, that night's allocation entry disappears in the same run; a
+request that never got a block stays without times and keeps its night. It is
+a one-time catch-up an operator runs by hand -- the unattended runner never
+sets it. The live re-run for the Didymos records, dry run first:
+
+.. code-block:: console
+
+   >> python3 manage.py backfill_lco_observation_records --proposal LCO2026A-003 --name-prefix 65803 --campaign "Didymos 2026" --recheck-unscheduled --dry-run
+   >> python3 manage.py backfill_lco_observation_records --proposal LCO2026A-003 --name-prefix 65803 --campaign "Didymos 2026" --recheck-unscheduled
+
+A failed lookup is logged by the exception's class name only, counted under
+``status sync failed``, and never stops the run.
+
 **System links.** Every record the command creates (after its status call, so
 the record's placed block rather than the request window decides whether it
 fits a run's window) or re-encounters (with no status call and no other
@@ -353,14 +386,17 @@ writing anything, in the same spirit as ``reconcile_campaign_runs`` below:
    >> python3 manage.py backfill_lco_observation_records --proposal LCO2026A-001 --name-prefix "3I/ATLAS" --campaign "3I/ATLAS"
 
 Immediately after each new record is saved (non-dry-run only), the command
-makes one live best-effort status call to LCO so the record's status,
-``scheduled_start``, and ``scheduled_end`` are populated right away instead
-of staying unset until the next poll. If that call fails it is logged and
+makes one live best-effort status call to LCO, using FOMO's block choice, so
+the record's status, ``scheduled_start``, and ``scheduled_end`` are populated
+right away instead of staying unset until the next poll. If that call fails it is logged and
 counted, never fatal, and the already-created record is not rolled back.
 
 The final summary line reports these counters::
 
-   Created: 4, already existed: 12, unmatched target: 1, no usable configuration: 0, created field targets: 1, status sync failed: 0, system links: 10, links skipped: 0
+   Created: 4, already existed: 12, unmatched target: 1, no usable configuration: 0, created field targets: 1, status sync failed: 0, schedules rechecked: 0, blocks found: 0, system links: 10, links skipped: 0
+
+Under ``--dry-run`` the two new fields read ``schedules would recheck: N,
+blocks found: n/a (dry-run)``.
 
 How do I backfill ObservationRecords without a campaign?
 ------------------------------------------------------------
@@ -1264,7 +1300,10 @@ placed or observed its block on that night, so the projected
 sunset-to-sunrise event is no longer needed -- the observation's own
 calendar entry is that night's entry now, and unlinking the record restores
 the night on the next reconcile (this is the ONLY one of the five reasons
-that "unlink to restore" sentence applies to); (2) a boundary-affecting
+that "unlink to restore" sentence applies to). A block counts once it is
+placed, in progress, completed, or started and aborted after taking data,
+while a request that expired or was cancelled without ever getting a block
+retires nothing and its night stays; (2) a boundary-affecting
 field changed since the night was last minted -- either a sub-night window
 field (the run's own dawn/dusk or dark-window overrides), or a correction
 to the run's ``site`` (see "Can I correct a run's source?" above). What a
@@ -1589,7 +1628,10 @@ this fixed order, in one process:
 
 1. **status_refresh** -- the FOMO-owned LCO/SOAR observation-status
    refresh, replacing TOM's stock ``updatestatus`` command. It never
-   touches Gemini or ESO, which have no facility read-back to refresh.
+   touches Gemini or ESO, which have no facility read-back to refresh. It
+   reads each request's block with FOMO's own block choice (see "How do
+   LCO/SOAR queue observations get onto the calendar?"), so a tick never
+   erases the times of an aborted or in-progress block.
 2. **project_sweep** -- the observation projector's backstop sweep (the
    same logic ``project_observation_calendar`` runs), including the
    one-time observed-telescope lookup for a newly observed record.
@@ -1610,6 +1652,24 @@ this fixed order, in one process:
    ``ProposalTimeAllocation``. Public pages only ever read these stored
    rows -- an anonymous visitor's page load never triggers a credentialed
    portal call.
+
+FOMO's block choice covers FOMO's own commands and the unattended runner
+only -- FOMO's facility classes are deliberately not registered with TOM.
+Every TOM Toolkit route still uses TOM's rule: its stock ``updatestatus``
+command, the **Update status** button on TOM's observation list page (it
+runs that same command), the Cancel button on TOM's own observation page,
+and TOM's REST cancel route ``PATCH /api/observations/<pk>/cancel/``. A
+request moved to an expired, cancelled or other finished state through one
+of them is stored without its aborted block's times, its run's allocation
+night comes back, and nothing on a tick looks at a finished record again.
+Run ``run_unattended --step status_refresh`` rather than updatestatus or
+the Update status button. If one of those routes was used on an LCO record,
+re-run the backfill command for its proposal with ``--recheck-unscheduled``
+(the Didymos form is in "How do I backfill ObservationRecords for LCO
+observations submitted outside FOMO?"). The backfill commands read LCO
+records only, so a SOAR record finished through one of those routes has no
+re-run and keeps empty times (this matters only when its request had already
+started a block).
 
 A step that fails never stops the later ones: every tick runs all five
 steps, records each one's own outcome, and exits non-zero at the end only
