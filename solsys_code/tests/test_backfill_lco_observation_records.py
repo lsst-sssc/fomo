@@ -1,14 +1,22 @@
 import io
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
+import requests
 from django.core.management import CommandError, call_command
 from django.test import TestCase
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.allocation_projector import allocation_events
+from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.campaign_utils import create_system_link
 from solsys_code.models import CampaignRun, CampaignRunObservation
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import observing_night
+from solsys_code.tests.test_observation_blocks import portal_side_effect
 
 
 def _configuration(
@@ -636,3 +644,186 @@ class TestBackfillSystemLinks(TestCase):
                 self.assertEqual(stdout.count(summary), 1, stdout)
                 self.assertEqual(stdout.splitlines()[-1], summary)
                 self.assertTrue(summary.startswith(prefix), summary)
+
+
+class TestRecheckUnscheduledRetiresAllocationNight(TestCase):
+    """G-37.1-1-alloc: --recheck-unscheduled gives an existing record its aborted block's times, which
+    retires the linked run's allocation night; the status call is NOT patched, so FOMO's block rule runs."""
+
+    FIELD_NAME = 'Didymos COJ 2026 Field #14'
+    ARGS = ('--proposal=LCO2026A-003', '--name-prefix=Didymos', '--campaign=Didymos 2026 Campaign')
+    ABORTED = {'state': 'ABORTED', 'start': '2026-07-01T01:00:00Z', 'end': '2026-07-01T01:40:00Z'}
+    LISTING = 'solsys_code.management.commands.backfill_lco_observation_records.make_request'
+    PORTAL = 'solsys_code.observation_blocks.make_request'
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.target = NonSiderealTargetFactory.create(name='Didymos')
+        cls.field_target = NonSiderealTargetFactory.create(name=cls.FIELD_NAME)
+        cls.campaign = TargetList.objects.create(name='Didymos 2026 Campaign')
+        cls.campaign.targets.add(cls.target, cls.field_target)
+        cls.site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.per_night_run = CampaignRun.objects.create(
+            campaign=None,
+            target=cls.target,
+            proposal_code='LCO2026A-003',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=cls.site,
+            site_raw='809',
+            window_start=date(2026, 6, 29),
+            window_end=date(2026, 7, 2),
+        )
+
+    def setUp(self):
+        reconcile_run(self.per_night_run)
+        self.alloc_before = allocation_events(self.per_night_run).count()
+        self.record_a = self._record('10', 'WINDOW_EXPIRED')
+        self.record_b = self._record('20', 'CANCELED')
+        for record in (self.record_a, self.record_b):
+            create_system_link(record, self.per_night_run)
+
+    def _record(self, observation_id, status):
+        return ObservationRecord.objects.create(
+            target=self.field_target,
+            facility='LCO',
+            observation_id=observation_id,
+            status=status,
+            parameters={
+                'proposal': 'LCO2026A-003',
+                'instrument_type': '1M0-SCICAM-SINISTRO',
+                'start': '2026-06-29T00:00:00',
+                'end': '2026-07-02T00:00:00',
+            },
+        )
+
+    def _listing(self):
+        return _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - ELP',
+                    requests=[_request(10, target_name=self.FIELD_NAME), _request(20, target_name=self.FIELD_NAME)],
+                )
+            ]
+        )
+
+    def _portal(self):
+        return portal_side_effect({'10': 'WINDOW_EXPIRED', '20': 'CANCELED'}, {'10': [dict(self.ABORTED)], '20': []})
+
+    def _run_command(self, *extra):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        summary = call_command('backfill_lco_observation_records', *self.ARGS, *extra, stdout=stdout, stderr=stderr)
+        return summary, stdout.getvalue(), stderr.getvalue()
+
+    def _alloc_url(self, record):
+        night = observing_night(record.scheduled_start, ZoneInfo('America/Santiago'))
+        return f'ALLOC:{self.per_night_run.pk}:{night.isoformat()}'
+
+    @patch(PORTAL)
+    @patch(LISTING)
+    def test_recheck_gives_the_aborted_block_times_and_retires_its_night(self, mock_listing, mock_portal):
+        mock_listing.return_value = self._listing()
+        mock_portal.side_effect = self._portal()
+
+        summary, _, stderr = self._run_command('--recheck-unscheduled')
+
+        self.record_a.refresh_from_db()
+        self.record_b.refresh_from_db()
+        self.assertIsNotNone(self.record_a.scheduled_start)
+        self.assertIsNotNone(self.record_a.scheduled_end)
+        self.assertEqual(self.record_a.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertFalse(allocation_events(self.per_night_run).filter(url=self._alloc_url(self.record_a)).exists())
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+        # The never-scheduled request gets no times and keeps its night (Phase 35 D-05).
+        self.assertIsNone(self.record_b.scheduled_start)
+        self.assertIsNone(self.record_b.scheduled_end)
+        self.assertIn('already existed: 2', summary)
+        self.assertIn('schedules rechecked: 2, blocks found: 1', summary)
+        self.assertTrue(summary.endswith('system links: 0, links skipped: 0'), summary)
+        self.assertEqual(stderr, '')
+
+    @patch(PORTAL)
+    @patch(LISTING)
+    def test_without_the_flag_an_existing_record_is_not_touched(self, mock_listing, mock_portal):
+        mock_listing.return_value = self._listing()
+        mock_portal.side_effect = self._portal()
+
+        summary, _, _ = self._run_command()
+
+        mock_portal.assert_not_called()
+        self.record_a.refresh_from_db()
+        self.assertIsNone(self.record_a.scheduled_start)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before)
+        self.assertIn('already existed: 2', summary)
+        self.assertIn('schedules rechecked: 0, blocks found: 0', summary)
+
+    @patch(PORTAL)
+    @patch(LISTING)
+    def test_dry_run_recheck_previews_and_writes_nothing(self, mock_listing, mock_portal):
+        mock_listing.return_value = self._listing()
+        mock_portal.side_effect = self._portal()
+
+        summary, stdout, _ = self._run_command('--dry-run', '--recheck-unscheduled')
+
+        mock_portal.assert_not_called()
+        for observation_id in ('10', '20'):
+            self.assertIn(
+                f"Would recheck the observed block of ObservationRecord observation_id='{observation_id}'", stdout
+            )
+        self.record_a.refresh_from_db()
+        self.assertIsNone(self.record_a.scheduled_start)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before)
+        self.assertIn('schedules would recheck: 2, blocks found: n/a (dry-run)', summary)
+
+    @patch(PORTAL)
+    @patch(LISTING)
+    def test_portal_failure_is_reported_by_class_only_and_does_not_stop_the_run(self, mock_listing, mock_portal):
+        mock_listing.return_value = self._listing()
+        working = self._portal()
+
+        def _flaky(method, url, **kwargs):
+            if url.endswith('/api/requests/10'):
+                raise requests.HTTPError('portal said SECRET-MARKER-123')
+            return working(method, url, **kwargs)
+
+        mock_portal.side_effect = _flaky
+
+        summary, stdout, stderr = self._run_command('--recheck-unscheduled')
+
+        self.assertIn('HTTPError', stderr)
+        self.assertNotIn('SECRET-MARKER-123', stderr)
+        self.assertNotIn('SECRET-MARKER-123', stdout)
+        self.assertNotIn('SECRET-MARKER-123', summary)
+        self.assertIn('status sync failed: 1', summary)
+        self.assertIn('schedules rechecked: 1, blocks found: 0', summary)
+        # The other record was still rechecked.
+        self.record_b.refresh_from_db()
+        self.assertTrue(any(c.args[1].endswith('/api/requests/20') for c in mock_portal.call_args_list))
+
+    @patch(PORTAL)
+    @patch(LISTING)
+    def test_a_record_with_both_times_is_not_rechecked(self, mock_listing, mock_portal):
+        mock_listing.return_value = self._listing()
+        mock_portal.side_effect = self._portal()
+        ObservationRecord.objects.filter(pk=self.record_a.pk).update(
+            scheduled_start=datetime(2026, 7, 1, 2, 0, tzinfo=timezone.utc),
+            scheduled_end=datetime(2026, 7, 1, 2, 30, tzinfo=timezone.utc),
+        )
+
+        summary, _, _ = self._run_command('--recheck-unscheduled')
+
+        urls = [c.args[1] for c in mock_portal.call_args_list]
+        self.assertFalse([u for u in urls if '/requests/10' in u], urls)
+        self.assertTrue([u for u in urls if '/requests/20' in u], urls)
+        self.assertIn('schedules rechecked: 1, blocks found: 0', summary)
