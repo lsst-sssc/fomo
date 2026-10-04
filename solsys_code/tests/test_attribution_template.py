@@ -11,14 +11,17 @@ the test client would defeat this module's purpose -- do not add one.
 """
 
 import html.parser
+import inspect
 import re
 from collections import defaultdict
 
+import django_tables2 as tables
 from django.template.loader import get_template
 from django.test import SimpleTestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from solsys_code import campaign_tables
 from solsys_code.models import CampaignRunObservation, ObservationRecordDismissal
 from solsys_code.tests.test_campaign_attribution_views import AttributionViewTestBase
 
@@ -169,6 +172,66 @@ class AttributionTemplateSourceTests(SimpleTestCase):
             re.search(r'\bdata-(toggle|target|dismiss)=', self.source),
             'the template still carries a Bootstrap 4 plugin data attribute',
         )
+
+    def test_every_campaign_table_names_a_bootstrap_template(self):
+        """G-37.1-1-pager: a django-tables2 table with no template_name falls back to the
+        unstyled default pager ("12next"); every table in campaign_tables must name a Bootstrap one."""
+        table_classes = [
+            cls
+            for _, cls in inspect.getmembers(campaign_tables, inspect.isclass)
+            if issubclass(cls, tables.Table) and cls.__module__ == campaign_tables.__name__
+        ]
+        self.assertGreaterEqual(len(table_classes), 4)
+        offenders = [
+            f'{cls.__name__}: {cls._meta.template_name}'
+            for cls in table_classes
+            if not cls._meta.template_name.startswith('django_tables2/bootstrap')
+        ]
+        self.assertEqual(offenders, [], 'campaign tables without a Bootstrap template')
+
+
+class AttributionPagerRenderTests(AttributionViewTestBase):
+    """G-37.1-1-pager: the Confirmed and Dismissed tables paginate with Bootstrap 5 controls,
+    not the unstyled default list. GET only -- see the module docstring."""
+
+    def setUp(self):
+        for offset in (0, 1):
+            record = self._make_record(night_offset=offset)
+            CampaignRunObservation.objects.create(
+                run=self.campaign_run, observation_record=record, confirmed_at=timezone.now()
+            )
+        for offset in (2, 3):
+            record = self._make_record(night_offset=offset)
+            ObservationRecordDismissal.objects.create(
+                observation_record=record,
+                run=self.campaign_run,
+                dismissed_by=self.staff_user,
+                dismissed_at=timezone.now(),
+                reason='Wrong night',
+            )
+        self.client.force_login(self.staff_user)
+
+    def _get_html(self, data):
+        response = self.client.get(reverse('campaigns:attribution'), data)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_confirmed_pager_uses_bootstrap5_markup(self):
+        content = self._get_html({'confirmed-per_page': '1'})
+        section = content[content.index(f'id="{CONFIRMED_SECTION_ID}"') :]
+        self.assertIn('class="page-link"', section)
+        self.assertIn('page-item', section)
+        self.assertIn('confirmed-page=2', section)
+        self.assertIn('table-responsive', section)
+
+    def test_dismissed_pager_uses_bootstrap5_markup(self):
+        content = self._get_html({'dismissed-per_page': '1'})
+        start = content.index(f'id="{DISMISSED_SECTION_ID}"')
+        section = content[start : content.index(f'id="{CONFIRMED_SECTION_ID}"')]
+        self.assertIn('class="page-link"', section)
+        self.assertIn('page-item', section)
+        self.assertIn('dismissed-page=2', section)
+        self.assertIn('table-responsive', section)
 
 
 class AttributionCollapseSectionRenderTests(AttributionViewTestBase):
