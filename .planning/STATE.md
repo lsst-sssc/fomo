@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
-stopped_at: Completed 37.1-09-PLAN.md
-last_updated: "2026-10-04T20:35:50.847Z"
+stopped_at: Completed 37.1-08-PLAN.md
+last_updated: "2026-10-04T21:01:35.741Z"
 last_activity: 2026-10-04
 last_activity_desc: Phase 37.1 execution started
-state_head: cae621bc4889318edf8bbf51cf4bb4314b472d67
+state_head: fdbda6aea44b005272c0f085d3f5aa304a7e3566
 progress:
   total_phases: 6
   completed_phases: 37
   total_plans: 71
-  completed_plans: 70
-  percent: 99
+  completed_plans: 71
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 Last activity: 2026-10-04 — Phase 37.1 execution started
 
@@ -246,6 +246,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37.1 P06 | 10 min | 3 tasks | 3 files |
 | Phase 37.1 P07 | 15 min | 3 tasks | 9 files |
 | Phase 37.1 P09 | 17 min | 2 tasks | 6 files |
+| Phase 37.1 P08 | 45 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -427,6 +428,7 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37.1]: 37.1-07: FOMO block rule (first COMPLETED, else last ABORTED/IN_PROGRESS, else last PENDING) lives on unregistered FomoLCOFacility/FomoSOARFacility subclasses; TOM's own status routes keep TOM's rule, recovery is backfill --recheck-unscheduled (SOAR has no re-run)
 - [Phase 37.1]: 37.1-07: --recheck-unscheduled narrows the 37.1-03 no-refresh prohibition to opt-in and existing records missing a scheduled time only
 - [Phase 37.1]: 37.1-09: is_web_url template filter limits the event form URL link to http(s); CampaignRunTable left on Bootstrap 4, attribution tables moved to bootstrap5-responsive
+- [Phase 37.1]: 37.1-08: recheck_unscheduled gate branch -- a record missing a scheduled time is looked up when the flag is set or the state is not failed; the flag defaults False at every layer and the unattended runner never passes it
 
 ### Pending Todos
 
@@ -527,8 +529,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-04T20:35:50.438Z
-Stopped at: Completed 37.1-09-PLAN.md
+Last session: 2026-10-04T21:01:35.315Z
+Stopped at: Completed 37.1-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
