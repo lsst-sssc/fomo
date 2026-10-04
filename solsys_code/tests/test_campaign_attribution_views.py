@@ -935,6 +935,30 @@ class TestBandFilterAndBanner(AttributionViewTestBase):
         self.assertNotIn('awaiting attribution', content)
         self.assertNotIn(reverse('campaigns:attribution'), content)
 
+    def test_staff_campaign_list_links_the_attribution_page_when_nothing_awaits(self):
+        """G-37.1-1-nav: since 37.1 an empty queue is the normal state, so the route in must not
+        depend on the count-gated banner -- staff always get the header button."""
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.context['attribution_count'], 0)
+        self.assertContains(response, reverse('campaigns:attribution'))
+        self.assertContains(response, 'Attribution</a>')
+        self.assertNotContains(response, 'awaiting attribution')
+
+    def test_staff_campaign_list_shows_button_and_banner_link_when_an_orphan_waits(self):
+        self._make_event()
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertContains(response, 'Attribution</a>')
+        self.assertContains(response, 'Attribution queue')
+        self.assertContains(response, 'awaiting attribution')
+
+    def test_non_staff_campaign_list_has_no_attribution_link(self):
+        """T-37.1-19: the header button is staff-only."""
+        self.client.logout()
+        self.client.login(username='regularobserver', password='pw')
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('campaigns:attribution'))
+
 
 class TestQueueDrainsToEmpty(AttributionViewTestBase):
     """ATTRIB-06/D-15: an end-to-end pass -- confirm or dismiss every offered candidate, then

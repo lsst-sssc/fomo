@@ -15,12 +15,15 @@ no page error.
 """
 
 import os
+import re
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.test import SimpleTestCase
 from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import sync_playwright
@@ -304,3 +307,52 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
         confirmed.wait_for(state='hidden')
 
         assert page_errors == []
+
+
+class TestTemplatesUseBootstrap5DataAttributes(SimpleTestCase):
+    """UAT G-37.1-1 guard: ``tom_common/base.html`` loads Bootstrap 5, whose plugins bind only the
+    ``data-bs-*`` attribute spellings. A Bootstrap 4 spelling (``data-toggle``, ``data-target``,
+    ...) in a template is inert there and fails silently in a browser -- the attribution page's
+    collapse headings did exactly that. This scan needs no browser and no database."""
+
+    # Bootstrap 4's plugin data attributes. Bootstrap 5's carry a `bs-` segment (data-bs-toggle)
+    # and so never match: after `data-` the next characters must be one of these names and then `=`.
+    BOOTSTRAP4_ATTRIBUTE = re.compile(
+        r'\bdata-(?:toggle|target|dismiss|parent|ride|slide-to|slide|spy|backdrop|keyboard|placement)\s*='
+    )
+
+    @staticmethod
+    def _template_files():
+        files = []
+        for template_dir in settings.TEMPLATES[0]['DIRS']:
+            files.extend(sorted(Path(template_dir).rglob('*.html')))
+        return files
+
+    def test_no_template_uses_bootstrap4_data_attributes(self):
+        files = self._template_files()
+        hits = []
+        for path in files:
+            for lineno, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):
+                if self.BOOTSTRAP4_ATTRIBUTE.search(line):
+                    relative = path.relative_to(Path(settings.TEMPLATES[0]['DIRS'][0]))
+                    hits.append(f'{relative}:{lineno}: {line.strip()}')
+        self.assertEqual(hits, [], 'Bootstrap 4 plugin data attributes found:\n' + '\n'.join(hits))
+
+    def test_the_scan_is_not_vacuous(self):
+        """Guard against the scan silently covering nothing (wrong directory, empty glob)."""
+        files = self._template_files()
+        self.assertGreaterEqual(len(files), 20, f'expected at least 20 templates, scanned {len(files)}')
+        names = {path.as_posix() for path in files}
+        for expected in ('campaigns/attribution_queue.html', 'campaigns/campaign_list.html'):
+            self.assertTrue(any(name.endswith(expected) for name in names), f'{expected} was not covered by the scan')
+
+    def test_the_pattern_matches_bootstrap4_and_not_bootstrap5_spellings(self):
+        for bad in ('data-toggle="collapse"', 'data-target="#x"', '<a data-dismiss="modal">', 'data-slide-to="1"'):
+            self.assertIsNotNone(self.BOOTSTRAP4_ATTRIBUTE.search(bad), bad)
+        for good in (
+            'data-bs-toggle="collapse"',
+            'data-bs-target="#x"',
+            'data-bs-dismiss="modal"',
+            'data-bs-slide-to="1"',
+        ):
+            self.assertIsNone(self.BOOTSTRAP4_ATTRIBUTE.search(good), good)
