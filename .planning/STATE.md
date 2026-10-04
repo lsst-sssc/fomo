@@ -6,10 +6,10 @@ current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
 stopped_at: Completed 37.1-06-PLAN.md
-last_updated: "2026-10-04T02:17:57.803Z"
+last_updated: "2026-10-04T16:46:59.615Z"
 last_activity: 2026-10-03
 last_activity_desc: Phase 37.1 execution started
-state_head: 948ebd38546530b172a47e385d52b0d3f3a76666
+state_head: ac8437de06fbeda910827263c1613d98d987a034
 progress:
   total_phases: 6
   completed_phases: 37
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
 Plan: 6 of 6
 Status: Ready to execute
-Last activity: 2026-10-03 — Phase 37.1 execution started
+Last activity: 2026-10-04 - Completed quick task 261004-c7x: Fix duplicated summary line in backfill_lco_observation_records
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -483,6 +483,7 @@ Phase 31's scheduling-track host-facts gap (previously listed here) is resolved:
 | 261002-dsa | Retire the 10 orphan CalendarEvents (pks 44-52, 334) superseded by the Didymos ALLOC: nights (v2.4 intent-review setup step 5) | 2026-10-02 | c0be3a4 | — | [261002-dsa-retire-the-10-orphan-calendarevents-pks-](./quick/261002-dsa-retire-the-10-orphan-calendarevents-pks-/) |
 | 261002-gev | Fix F7: proposal_allocation fetch only attempts LCO-fetchable proposal codes; a non-LCO code is reported as not fetchable, never a step failure | 2026-10-02 | cfab058 | — | [261002-gev-fix-f7-proposal-allocation-fetch-only-at](./quick/261002-gev-fix-f7-proposal-allocation-fetch-only-at/) |
 | 261002-l04 | Retire the three testing campaigns (TargetLists #4, #5, #10) left in the live dev DB by demo-notebook runs: a dry-run-default one-off script like 261002-dsa that deletes their 24 CalendarEvents, 14 CampaignRuns, demo Target #143 and the three TargetLists after a strict read-only pre-flight; proven on scratch copies only | 2026-10-02 | c978321 | — | [261002-l04-retire-the-three-testing-campaigns-targe](./quick/261002-l04-retire-the-three-testing-campaigns-targe/) |
+| 261004-c7x | Fix duplicated summary line in backfill_lco_observation_records (handle() both writes and returns the summary) | 2026-10-04 | ac8437d | — | [261004-c7x-fix-duplicated-summary-line-in-backfill-](./quick/261004-c7x-fix-duplicated-summary-line-in-backfill-/) |
 
 ## Deferred Items
 
