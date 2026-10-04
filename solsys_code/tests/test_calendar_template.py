@@ -28,6 +28,8 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.allocation_projector import ALLOC_URL_NAMESPACE
+from solsys_code.campaign_reconciler import RUN_URL_NAMESPACE
 from solsys_code.models import NO_CAMPAIGN_LABEL, CalendarEventMeta, CampaignRun
 from solsys_code.observation_projector import receiver_on_group_membership_changed, receiver_on_record_save
 from solsys_code.templatetags.calendar_display_extras import (
@@ -1587,3 +1589,53 @@ class EventModalSeriesDecorationTest(TestCase):
         large_count = len(large_ctx)
 
         self.assertEqual(large_count, small_count)
+
+
+class EventFormUrlLinkTest(TestCase):
+    """UAT G-37.1-1-allocurl: the event pop-up's URL label links only http(s) addresses.
+
+    The allocation layer (``ALLOC:{run.pk}:{night}``) and the campaign reconciler (``RUN:{pk}``)
+    keep namespace keys in ``CalendarEvent.url``; those must show as plain values, never as a
+    dead link, and a stored ``javascript:`` url must never land in an href.
+    """
+
+    PORTAL_URL = 'https://observe.lco.global/requests/4229878'
+
+    def _form_html(self, url: str) -> str:
+        event = CalendarEvent.objects.create(
+            title='URL case',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+            url=url,
+        )
+        response = self.client.get(reverse('calendar:update-event', args=[event.id]))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_allocation_key_is_not_a_link(self):
+        key = f'{ALLOC_URL_NAMESPACE}1:2026-07-07'
+        content = self._form_html(key)
+        self.assertNotIn(f'href="{ALLOC_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+        self.assertIn(f'value="{key}"', content)
+
+    def test_campaign_run_key_is_not_a_link(self):
+        content = self._form_html(f'{RUN_URL_NAMESPACE}5')
+        self.assertNotIn(f'href="{RUN_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+
+    def test_portal_url_still_links_with_noopener(self):
+        content = self._form_html(self.PORTAL_URL)
+        self.assertIn(f'href="{self.PORTAL_URL}"', content)
+        self.assertIn('rel="noopener noreferrer"', content)
+        self.assertIn('View', content)
+        self.assertNotIn('not a web link', content)
+
+    def test_javascript_url_is_never_a_link(self):
+        content = self._form_html('javascript:alert(1)')
+        self.assertNotIn('href="javascript:', content)
+
+    def test_empty_url_shows_neither_link_nor_note(self):
+        content = self._form_html('')
+        self.assertNotIn('not a web link', content)
+        self.assertNotIn(self.PORTAL_URL, content)

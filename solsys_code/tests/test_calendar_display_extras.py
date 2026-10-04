@@ -10,7 +10,7 @@ from datetime import timezone as dt_timezone
 from types import SimpleNamespace
 
 from django.db.models.signals import m2m_changed, post_save
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from tom_calendar.models import CalendarEvent
@@ -30,6 +30,7 @@ from solsys_code.templatetags.calendar_display_extras import (
     TELESCOPE_STRIPE_PALETTE,
     _contrast_ratio,
     _relative_luminance,
+    is_web_url,
     neutral_slot_color,
     observation_series_decoration,
     observation_status_legend,
@@ -1078,3 +1079,36 @@ class TestUnusedNightDecoration(TestCase):
         unused_night_decoration(event)
         event.refresh_from_db()
         self.assertEqual(event.title, before_title)
+
+
+class TestIsWebUrl(SimpleTestCase):
+    """UAT G-37.1-1-allocurl: only http(s) addresses with a host may become a link in the event form."""
+
+    def test_accepts_https_portal_url(self):
+        self.assertTrue(is_web_url('https://observe.lco.global/requests/4229878'))
+
+    def test_accepts_http_url(self):
+        self.assertTrue(is_web_url('http://example.org/x'))
+
+    def test_scheme_is_case_insensitive(self):
+        self.assertTrue(is_web_url('HTTPS://observe.lco.global/requests/1'))
+
+    def test_surrounding_spaces_are_ignored(self):
+        self.assertTrue(is_web_url('  https://observe.lco.global/requests/1  '))
+
+    def test_rejects_allocation_namespace_key(self):
+        self.assertFalse(is_web_url('ALLOC:1:2026-07-07'))
+
+    def test_rejects_campaign_run_namespace_key(self):
+        self.assertFalse(is_web_url('RUN:5'))
+
+    def test_rejects_javascript_scheme(self):
+        self.assertFalse(is_web_url('javascript:alert(1)'))
+
+    def test_rejects_scheme_without_host(self):
+        self.assertFalse(is_web_url('https://'))
+
+    def test_rejects_empty_none_and_non_string_values(self):
+        self.assertFalse(is_web_url(''))
+        self.assertFalse(is_web_url(None))
+        self.assertFalse(is_web_url(42))
