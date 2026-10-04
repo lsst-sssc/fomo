@@ -38,6 +38,7 @@ from solsys_code.campaign_system_links import (
     attempt_system_link,
 )
 from solsys_code.models import WatchedProposal
+from solsys_code.observation_blocks import FomoLCOFacility, select_schedule_block
 
 logger = logging.getLogger(__name__)
 
@@ -297,40 +298,21 @@ def _build_parameters(request_group: dict[str, Any], request: dict[str, Any]) ->
     return None
 
 
-def _select_block(blocks: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Apply the same block-selection rule as LCOFacility.get_observation_status:
-    first COMPLETED block, else last PENDING block.
-
-    Args:
-        blocks: a list of observation-block dicts (each carrying at least 'state').
-
-    Returns:
-        dict[str, Any] | None: the selected block, or None if no block is COMPLETED or
-            PENDING.
-    """
-    current_block = None
-    for block in blocks:
-        if block.get('state') == 'COMPLETED':
-            current_block = block
-            break
-        elif block.get('state') == 'PENDING':
-            current_block = block
-    return current_block
-
-
 def _resolve_schedule(
     facility: LCOFacility, request: dict[str, Any], dry_run: bool, skip_live_lookup: bool = False
 ) -> tuple[Any, Any, bool, bool]:
     """Resolve a request's scheduled_start/scheduled_end (D-B).
 
     Reads an embedded 'observations' block list from the request payload when present
-    (no extra HTTP call either way, so this is not skipped under --dry-run); otherwise
-    falls back to a live facility.get_observation_status() call, which *is* skipped
-    entirely under --dry-run. A failed fallback call is caught and reported via the
+    (no extra HTTP call either way, so this is not skipped under --dry-run) and chooses
+    the block with FOMO's rule, ``select_schedule_block()``; otherwise falls back to a live
+    facility.get_observation_status() call -- on ``FomoLCOFacility``, so the live path
+    chooses the block with the same rule -- which *is* skipped entirely under --dry-run.
+    A failed fallback call is caught and reported via the
     returned 'lookup_failed' flag -- never fatal, never counted as a skipped request.
 
     Args:
-        facility: an LCOFacility instance.
+        facility: an LCOFacility instance (``sweep_proposal()`` passes a ``FomoLCOFacility``).
         request: a single request from request_group['requests'].
         dry_run: whether the command is running with --dry-run.
         skip_live_lookup: when True, a request without an embedded block returns
@@ -350,7 +332,7 @@ def _resolve_schedule(
     blocks = request.get('observations')
     embedded = blocks is not None
     if embedded:
-        current_block = _select_block(blocks)
+        current_block = select_schedule_block(blocks)
         if current_block:
             return current_block.get('start'), current_block.get('end'), False, embedded
         return None, None, False, embedded
@@ -372,6 +354,8 @@ def _schedule_lookup_is_needed(
     portal_state: str,
     terminal_states: frozenset[str],
     failed_states: frozenset[str],
+    *,
+    recheck_unscheduled: bool = False,
 ) -> bool:
     """Decide whether a request needs a live get_observation_status() lookup (F2, option A).
 
@@ -385,8 +369,25 @@ def _schedule_lookup_is_needed(
     A completed record (terminal, but not a failed state) that is still missing its
     'scheduled_start' or 'scheduled_end' keeps being looked up until the portal supplies
     them, so a lookup that failed when the record was created or completed is retried on
-    later ticks rather than frozen at no schedule. Failed states (window expired, cancelled
-    and the like) never carry an observed block, so they stay skipped even with no times.
+    later ticks rather than frozen at no schedule. A record in a failed state (window
+    expired, cancelled and the like) with no times is skipped too: it was resolved with
+    FOMO's block rule when it reached that state, so it already holds whatever block the
+    request had.
+
+    A failed request can carry a block that started and was aborted after taking data, and that
+    block counts (Phase 35 D-05/D-06). Since 37.1-07 every FOMO-owned path that writes a state
+    change -- the unattended status refresh, this sweep and the Didymos backfill command --
+    resolves the block with FOMO's rule (``select_schedule_block()``), so a record that reaches
+    a failed state through one of them already holds its block and this skip stays correct for
+    it. TOM Toolkit's own status routes run on TOM's registered ``LCOFacility``, which ignores an
+    aborted block: its stock ``updatestatus`` command and the observation list's "Update status"
+    button that runs it, the Cancel button on its observation page, and its REST cancel route
+    ``PATCH /api/observations/<pk>/cancel/``. A record finished through one of them is stored
+    without its aborted block's times, and this skip then leaves it alone exactly like a record
+    stored before 37.1-07 (T-37.1-42, accepted). Both kinds are brought up to date by an operator
+    run with ``recheck_unscheduled=True``, which also looks up a failed-state record that is
+    missing either time, once per run. The unattended runner never passes it, so F2's bounded
+    per-tick lookups stay as they are.
 
     This is F2 option A from .planning/v2.4-INTENT-REVIEW.md. The function makes no query, no
     network call and no mutation, and trusts the two state lists it is given.
@@ -396,6 +397,8 @@ def _schedule_lookup_is_needed(
         portal_state: the request's current state as reported by the portal.
         terminal_states: the facility's terminal observing states.
         failed_states: the facility's failed observing states (a subset of the terminal ones).
+        recheck_unscheduled: when True, a record missing either scheduled time is looked up even
+            in a failed state. Keyword-only; the unattended runner never sets it.
 
     Returns:
         bool: True when a live lookup is needed; False when it can be skipped.
@@ -406,10 +409,8 @@ def _schedule_lookup_is_needed(
         return True
     if existing_record.status not in terminal_states:
         return True
-    if existing_record.status not in failed_states and (
-        existing_record.scheduled_start is None or existing_record.scheduled_end is None
-    ):
-        return True
+    if existing_record.scheduled_start is None or existing_record.scheduled_end is None:
+        return recheck_unscheduled or existing_record.status not in failed_states
     return False
 
 
@@ -519,6 +520,7 @@ def sweep_proposal(
     created_after: str | None = None,
     created_before: str | None = None,
     dry_run: bool = False,
+    recheck_unscheduled: bool = False,
     stdout: Any = None,
     stderr: Any = None,
 ) -> str:
@@ -529,7 +531,8 @@ def sweep_proposal(
     Extracted from ``Command.handle()`` (36-CONTEXT.md D-07/36-RESEARCH.md Open Question 2)
     so the sweep for a single proposal is callable directly -- by the bare-invocation
     watched-list loop (Task 3) and by the unattended runner (36-01/Plan 03) -- without going
-    through ``call_command()``. Constructs its own ``LCOFacility()`` and calls
+    through ``call_command()``. Constructs its own ``FomoLCOFacility`` (TOM's LCO facility with
+    FOMO's block rule, so an aborted block's times are stored) and calls
     ``facility.set_user(user)`` here so each call gets a fresh instance (Phase 34 D-10: a
     facility instance is never shared across calls).
 
@@ -546,6 +549,10 @@ def sweep_proposal(
         created_before: raw ISO-8601 CLI value; only RequestGroups created on/before this
             timestamp are backfilled, or None for no upper bound.
         dry_run: whether to report what would be created/updated without writing anything.
+        recheck_unscheduled: when True, every record still missing a scheduled time is looked up
+            once, including a failed-state record the finished-record skip (F2) otherwise leaves
+            alone, so records stored under TOM's old block rule pick up an aborted block's times.
+            One portal lookup per such record. Default False; the unattended runner never passes it.
         stdout: a file-like sink for progress/summary lines (defaults to a fresh
             ``io.StringIO()`` so this function is callable with no sink at all).
         stderr: a file-like sink for skip/failure lines (defaults to a fresh
@@ -580,7 +587,7 @@ def sweep_proposal(
     parsed_created_after = _parse_created_bound(created_after)
     parsed_created_before = _parse_created_bound(created_before)
 
-    facility = LCOFacility()
+    facility = FomoLCOFacility()
     facility.set_user(user)
     # Read once per sweep from the facility's own lists, never hard-coded, so this gate cannot
     # diverge from TOM's notion of which states are finished (F2).
@@ -665,7 +672,13 @@ def sweep_proposal(
             existing_record = ObservationRecord.objects.filter(
                 facility=facility.name, observation_id=observation_id
             ).first()
-            lookup_needed = _schedule_lookup_is_needed(existing_record, status, terminal_states, failed_states)
+            lookup_needed = _schedule_lookup_is_needed(
+                existing_record,
+                status,
+                terminal_states,
+                failed_states,
+                recheck_unscheduled=recheck_unscheduled,
+            )
             scheduled_start, scheduled_end, lookup_failed, embedded = _resolve_schedule(
                 facility, request, dry_run, skip_live_lookup=not lookup_needed
             )
@@ -868,7 +881,11 @@ def watched_rows():
 
 
 def sweep_watched_rows(
-    *, dry_run: bool, stdout: TextIO | None = None, stderr: TextIO | None = None
+    *,
+    dry_run: bool,
+    recheck_unscheduled: bool = False,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
 ) -> tuple[int, int, list[str]]:
     """Sweep every active ``WatchedProposal`` row through ``sweep_proposal()`` (D-07..D-09).
 
@@ -882,6 +899,8 @@ def sweep_watched_rows(
     Args:
         dry_run: report what would change without writing any ``WatchedProposal``
             bookkeeping when True.
+        recheck_unscheduled: forwarded to ``sweep_proposal()`` for every row. ``Command.handle()``
+            sets it from ``--recheck-unscheduled``; ``unattended.step_discovery()`` never does.
         stdout: forwarded to ``sweep_proposal()``. ``Command.handle()``'s bare-invocation
             path passes ``self.stdout`` (a Django ``OutputWrapper``); ``unattended.
             step_discovery()`` passes a throwaway ``io.StringIO()`` it captures and logs
@@ -907,6 +926,7 @@ def sweep_watched_rows(
                 target_list_name=row.target_list_name or None,
                 user=row.attributed_to,
                 dry_run=dry_run,
+                recheck_unscheduled=recheck_unscheduled,
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -966,6 +986,16 @@ class Command(BaseCommand):
     state changed, and a completed record still missing its scheduled times are all looked up
     (the last so a failed lookup is retried rather than frozen). A request with an embedded
     'observations' block is unaffected, since reading it costs no network call.
+
+    A request that expired or was cancelled can still carry a block that started and was aborted
+    after taking data, and FOMO's block rule (first completed block, else the last aborted or
+    in-progress block, else the last pending one) stores that block's times, for both the embedded
+    list and the live lookup. Records stored before that rule, and records finished through one of
+    TOM Toolkit's own status routes, have no times and the skip above leaves them alone.
+    --recheck-unscheduled (opt-in, works with --proposal and on the bare form) looks up once every
+    record missing a scheduled time, including those finished records, so they pick up an aborted
+    block's times; a linked record that gains them retires its run's allocation night in that same
+    sweep. It costs one portal lookup per such record and is never used by the unattended runner.
 
     Every Target the sweep touches -- matched by fuzzy name or newly built from orbital
     elements -- is collected into a TargetList named '<proposal>_targets', created on the
@@ -1046,6 +1076,17 @@ class Command(BaseCommand):
                 'into. Requires --proposal -- see --created-after.'
             ),
         )
+        parser.add_argument(
+            '--recheck-unscheduled',
+            action='store_true',
+            help=(
+                'Also look up once every record that is missing a scheduled time, including finished '
+                'records the per-tick skip leaves alone, using the block rule FOMO applies (a block that '
+                'started and was aborted after taking data counts), so records stored before that rule '
+                'pick up their block times. One portal lookup per such record. Works with or without '
+                '--proposal. Never used by the unattended runner. Default off.'
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> str | None:
         """Resolve CLI-only arguments, then either sweep the single --proposal override or
@@ -1066,6 +1107,8 @@ class Command(BaseCommand):
         """
         proposal = options.get('proposal')
         dry_run = options['dry_run']
+        # Not one of the CR-02 proposal-only flags below: the bare watched-list sweep honours it.
+        recheck_unscheduled = options['recheck_unscheduled']
 
         # CR-02 (36-REVIEW.md): the watched-list sweep takes its overrides from each
         # WatchedProposal row and has no window argument at all, so --created-after/
@@ -1114,6 +1157,7 @@ class Command(BaseCommand):
                 created_after=options.get('created_after'),
                 created_before=options.get('created_before'),
                 dry_run=dry_run,
+                recheck_unscheduled=recheck_unscheduled,
                 stdout=self.stdout,
                 stderr=self.stderr,
             )
@@ -1123,7 +1167,7 @@ class Command(BaseCommand):
         # this method only needs its own terminal reporting (a written summary line and a
         # CommandError) from the counts that helper returns.
         rows_swept, failed_count, failed_codes = sweep_watched_rows(
-            dry_run=dry_run, stdout=self.stdout, stderr=self.stderr
+            dry_run=dry_run, recheck_unscheduled=recheck_unscheduled, stdout=self.stdout, stderr=self.stderr
         )
         if not rows_swept:
             # D-08: a legitimately empty watch list is a healthy, quiet no-op -- not a

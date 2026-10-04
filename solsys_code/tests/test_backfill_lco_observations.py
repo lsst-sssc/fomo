@@ -158,12 +158,12 @@ class TestBackfillLcoObservations(TestCase):
         cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
 
     def setUp(self):
-        # The command constructs its own LCOFacility() instance, so the D-B fallback lookup
+        # The command constructs its own FomoLCOFacility() instance, so the D-B fallback lookup
         # must be patched at the class level, exactly as the sibling test patches
         # update_observation_status. A sensible default return value keeps every test that
         # doesn't care about block-derived times passing without extra setup; tests that do
         # care override .return_value/.side_effect explicitly.
-        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        patcher = patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
         self.mock_get_observation_status = patcher.start()
         self.mock_get_observation_status.return_value = {
             'state': 'COMPLETED',
@@ -1072,7 +1072,7 @@ class TestSweepProposalFunction(TestCase):
         cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
 
     def setUp(self):
-        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        patcher = patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
         self.mock_get_observation_status = patcher.start()
         self.mock_get_observation_status.return_value = {
             'state': 'COMPLETED',
@@ -1165,7 +1165,7 @@ class TestWatchedListSweep(TestCase):
         cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
 
     def setUp(self):
-        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        patcher = patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
         self.mock_get_observation_status = patcher.start()
         self.mock_get_observation_status.return_value = {
             'state': 'COMPLETED',
@@ -1292,7 +1292,7 @@ class TestPerProposalIsolation(TestCase):
         cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
 
     def setUp(self):
-        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        patcher = patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
         self.mock_get_observation_status = patcher.start()
         self.mock_get_observation_status.return_value = {
             'state': 'COMPLETED',
@@ -1501,7 +1501,7 @@ class TestObservedSiteKeysSurviveDiscovery(TestCase):
         cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
 
     def setUp(self):
-        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        patcher = patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
         self.mock_get_observation_status = patcher.start()
         self.mock_get_observation_status.return_value = {
             'state': 'COMPLETED',
@@ -1709,7 +1709,7 @@ class TestSkipLookupForFinishedRecords(TestCase):
         cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
 
     def setUp(self):
-        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        patcher = patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
         self.mock_get_observation_status = patcher.start()
         self.mock_get_observation_status.return_value = {
             'state': 'COMPLETED',
@@ -2034,7 +2034,7 @@ class TestSweepSystemLinks(TestCase):
         )
 
     def setUp(self):
-        patcher = patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+        patcher = patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
         self.mock_get_observation_status = patcher.start()
         self.mock_get_observation_status.return_value = {
             'state': 'COMPLETED',

@@ -1224,7 +1224,7 @@ class TestDiscoveryStep(UnattendedTestBase):
         self.assertTrue(any('obs-1' in record for record in discovery_records))
         self.assertTrue(any('obs-2' in record for record in discovery_records))
 
-    @patch('tom_observations.facilities.lco.LCOFacility.get_observation_status')
+    @patch('solsys_code.observation_blocks.FomoLCOFacility.get_observation_status')
     @patch('solsys_code.management.commands.backfill_lco_observations.make_request')
     def test_system_links_reach_the_log_and_leave_the_step_summary_unchanged(
         self, mock_make_request, mock_get_observation_status
