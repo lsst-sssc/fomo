@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
-stopped_at: Completed 37.1-06-PLAN.md
-last_updated: "2026-10-04T16:46:59.615Z"
-last_activity: 2026-10-03
+stopped_at: Completed 37.1-07-PLAN.md
+last_updated: "2026-10-04T20:19:46.448Z"
+last_activity: 2026-10-04
 last_activity_desc: Phase 37.1 execution started
-state_head: ac8437de06fbeda910827263c1613d98d987a034
+state_head: bcaad1f7cd25e1d517559447f1577151f49b4e15
 progress:
   total_phases: 6
   completed_phases: 37
-  total_plans: 68
-  completed_plans: 68
-  percent: 100
+  total_plans: 71
+  completed_plans: 69
+  percent: 97
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
-Plan: 6 of 6
+Plan: 2 of 9
 Status: Ready to execute
-Last activity: 2026-10-04 - Completed quick task 261004-c7x: Fix duplicated summary line in backfill_lco_observation_records
+Last activity: 2026-10-04 — Phase 37.1 execution started
 
 ## Roadmap Summary (v2.4 — in progress, started 2026-09-03)
 
@@ -244,6 +244,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37.1 P04 | 34 min | 3 tasks | 6 files |
 | Phase 37.1 P05 | 5 min | 3 tasks | 3 files |
 | Phase 37.1 P06 | 10 min | 3 tasks | 3 files |
+| Phase 37.1 P07 | 15 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -422,6 +423,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37.1]: 37.1-05: telescope_runs, sync_gemini and import_campaign_csv demo notebooks use a fresh empty scratch database (not a copy of the developer database) because each creates every row it needs
 - [Phase 37.1]: 37.1-06: snapshot the developer database for the projector demo with SQLite's online backup through a mode=ro connection, not a byte copy — The unattended runner rewrites the developer database every 15 minutes; a byte copy can catch it mid-write and the read-only URI makes accidental writes impossible.
 - [Phase 37.1]: 37.1-06: guard test test_pre_executed_notebooks inspects notebook JSON with ast and requires the resolved path's parent directory to start with fomo-notebook-db- — Comments cannot satisfy or trip a check, and the rule holds on hosts whose temp directory is not /tmp.
+- [Phase 37.1]: 37.1-07: FOMO block rule (first COMPLETED, else last ABORTED/IN_PROGRESS, else last PENDING) lives on unregistered FomoLCOFacility/FomoSOARFacility subclasses; TOM's own status routes keep TOM's rule, recovery is backfill --recheck-unscheduled (SOAR has no re-run)
+- [Phase 37.1]: 37.1-07: --recheck-unscheduled narrows the 37.1-03 no-refresh prohibition to opt-in and existing records missing a scheduled time only
 
 ### Pending Todos
 
@@ -522,8 +525,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-04T02:17:57.407Z
-Stopped at: Completed 37.1-06-PLAN.md
+Last session: 2026-10-04T20:19:46.060Z
+Stopped at: Completed 37.1-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

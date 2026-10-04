@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 6/9 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager)
+**Plans**: 7/9 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager)
 
 **Wave 1**
 
@@ -463,7 +463,7 @@ Plans:
 
 **Wave 5** *(gap closure, 2026-10-04)*
 
-- [ ] 37.1-07-PLAN.md — FOMO's own block rule (`observation_blocks.py`: first COMPLETED, else last ABORTED/IN_PROGRESS, else last PENDING) on FOMO facility subclasses; the Didymos backfill on it with an opt-in `--recheck-unscheduled` that re-resolves existing records with no scheduled block, so an aborted block retires its allocation night and a never-scheduled request keeps its night; the unattended status refresh and the observed-telescope lookup on the same rule; the runbook (gap closure G-37.1-1-alloc, first half)
+- [x] 37.1-07-PLAN.md — FOMO's own block rule (`observation_blocks.py`: first COMPLETED, else last ABORTED/IN_PROGRESS, else last PENDING) on FOMO facility subclasses; the Didymos backfill on it with an opt-in `--recheck-unscheduled` that re-resolves existing records with no scheduled block, so an aborted block retires its allocation night and a never-scheduled request keeps its night; the unattended status refresh and the observed-telescope lookup on the same rule; the runbook (gap closure G-37.1-1-alloc, first half)
 - [ ] 37.1-09-PLAN.md — The calendar event form links only http(s) urls, so an `ALLOC:`/`RUN:` key reads as "not a web link"; both attribution tables paginate with django-tables2's Bootstrap 5 template, with a guard that every campaign table names a Bootstrap template (gap closure G-37.1-1-allocurl, G-37.1-1-pager)
 
 **Wave 6** *(blocked on 37.1-07)*
@@ -513,7 +513,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 6/9 | In Progress|  |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 7/9 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
