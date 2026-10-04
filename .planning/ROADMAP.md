@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 9/9 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager)
+**Plans**: 9/10 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager; 37.1-10 added 2026-10-04 as gap-closure wave 7 for the re-verification gap on G-37.1-1-alloc's failure path, 37.1-REVIEW CR-01)
 
 **Wave 1**
 
@@ -469,6 +469,10 @@ Plans:
 **Wave 6** *(blocked on 37.1-07)*
 
 - [x] 37.1-08-PLAN.md — The discovery sweep on FOMO's block rule (embedded and live lookups) with `--recheck-unscheduled` for the watched proposals' legacy records (never passed by the unattended runner); paired docs: `backfill_lco_observations_demo.ipynb` aborted-block section regenerated from a scratch database, and the runbook's discovery section (gap closure G-37.1-1-alloc, second half)
+
+**Wave 7** *(blocked on 37.1-08)*
+
+- [ ] 37.1-10-PLAN.md — A failed live block lookup in the discovery sweep never erases a record's stored times or commits its new failed status (the state change is held back so the next tick retries), a record created while its lookup fails is marked `schedule_lookup_failed` and looked up until a lookup succeeds, the verifier's two-tick reproduction as a regression test, the gate docstring corrected; paired docs: the runbook's discovery section and a failed-lookup section in `backfill_lco_observations_demo.ipynb` regenerated from a scratch database (gap closure G-37.1-1-alloc failure path, 37.1-REVIEW CR-01)
 
 ## Progress
 
@@ -513,7 +517,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 9/9 | In Progress|  |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 9/10 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
