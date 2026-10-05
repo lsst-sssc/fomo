@@ -2459,6 +2459,139 @@ class TestRecheckUnscheduledSweep(TestCase):
         self.assertNotIn('secret-token-in-the-url', stderr.getvalue() + stdout.getvalue() + summary)
 
 
+class TestFailedLookupKeepsTheStoredSchedule(TestCase):
+    """37.1-REVIEW CR-01: a live lookup that raises never erases a stored time or commits a state change.
+
+    The record's status change is held back so the next ordinary sweep sees it and looks the request up
+    again; nothing here patches get_observation_status, so FOMO's own facility method runs and only the
+    portal call fails.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+        cls.chilean_site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.per_night_run = CampaignRun.objects.create(
+            campaign=None,
+            target=cls.existing_target,
+            proposal_code='LCO2026A-003',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=cls.chilean_site,
+            site_raw='809',
+            window_start=date(2026, 6, 29),
+            window_end=date(2026, 7, 2),
+        )
+
+    def setUp(self):
+        reconcile_run(self.per_night_run)
+        self.alloc_before = allocation_events(self.per_night_run).count()
+
+    def _placed_record(self, request_id, state):
+        """A linked record that already holds its block's times, so its allocation night is retired."""
+        request = _request(request_id, state=state)
+        group = _request_group(1, 'Didymos 2026 - ELP', requests=[request])
+        record = ObservationRecord.objects.create(
+            target=self.existing_target,
+            facility='LCO',
+            observation_id=str(request_id),
+            status=state,
+            parameters=_build_parameters(group, request),
+            scheduled_start=datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc),
+            scheduled_end=datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc),
+        )
+        create_system_link(record, self.per_night_run)
+        reconcile_run(self.per_night_run)
+        return record
+
+    def _alloc_url(self, record):
+        night = observing_night(record.scheduled_start, ZoneInfo('America/Santiago'))
+        return f'ALLOC:{self.per_night_run.pk}:{night.isoformat()}'
+
+    def _assert_still_placed(self, record):
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertFalse(allocation_events(self.per_night_run).filter(url=self._alloc_url(record)).exists())
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_failed_lookup_on_a_state_change_keeps_status_times_and_the_retired_night(
+        self, mock_listing, mock_portal
+    ):
+        record = self._placed_record(10, 'PENDING')
+        self._assert_still_placed(record)
+        group = _request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='WINDOW_EXPIRED')])
+        mock_listing.return_value = _page_response([group])
+
+        # Tick 1: the portal reports a state change and the lookup for it raises.
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out: marker-text')
+        stdout, stderr = io.StringIO(), io.StringIO()
+        summary = sweep_proposal('LCO2026A-003', stdout=stdout, stderr=stderr)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'PENDING')
+        self._assert_still_placed(record)
+        self.assertIn('updated: 0', summary)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
+        self.assertNotIn('marker-text', stdout.getvalue() + stderr.getvalue() + summary)
+
+        # Tick 2: the portal is healthy; the held-back state change is seen again and looked up.
+        mock_portal.reset_mock()
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [dict(_ABORTED_BLOCK)]})
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_portal.call_count, 2)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self._assert_still_placed(record)
+        self.assertIn('updated: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('block lookups failed: 0', summary)
+
+        # Tick 3: the record is finished at the same state with both times, so the ordinary skip applies.
+        mock_portal.reset_mock()
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_portal.assert_not_called()
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups skipped: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_failed_lookup_at_the_same_state_keeps_the_times(self, mock_listing, mock_portal):
+        record = self._placed_record(10, 'PENDING')
+        self._assert_still_placed(record)
+        mock_listing.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='PENDING')])]
+        )
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out: marker-text')
+        stdout, stderr = io.StringIO(), io.StringIO()
+
+        summary = sweep_proposal('LCO2026A-003', stdout=stdout, stderr=stderr)
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'PENDING')
+        self._assert_still_placed(record)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('updated: 0', summary)
+        self.assertIn('block lookups failed: 1', summary)
+        self.assertNotIn('marker-text', stdout.getvalue() + stderr.getvalue() + summary)
+
+
 class TestRecheckUnscheduledCommand(TestCase):
     """The flag reaches sweep_proposal() from both invocation forms and is not one of the proposal-only flags."""
 
