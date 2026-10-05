@@ -6,14 +6,14 @@ current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
 stopped_at: Completed 37.1-11-PLAN.md
-last_updated: "2026-10-05T04:01:42.908Z"
-state_head: 92812f9beff4969b573a7a710d170dcd0894fc34
+last_updated: "2026-10-05T12:26:31.898Z"
+state_head: 9a1c3923dccb482e8807c37e71638cd0ae14fc31
 progress:
   total_phases: 6
   completed_phases: 37
-  total_plans: 73
+  total_plans: 74
   completed_plans: 73
-  percent: 100
+  percent: 99
 last_activity: 2026-10-05
 last_activity_desc: Phase 37.1 gaps-only round 4 (37.1-11) executed; verification gaps_found 92/93
 ---
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — READY TO EXECUTE
 Plan: 11 of 11 (37.1-11 complete)
 Status: All 11 plans executed — round-4 verification 2026-10-05 `gaps_found` 92/93 (docs-only: runbook recheck paragraph + help/docstrings/notebook cell 39 promise the runner retries a failed recheck lookup unconditionally; false for an unwatched `--proposal`, 37.1-REVIEW round-4 WR-01). Next: `/gsd-plan-phase 37.1 --gaps` (or `/gsd-code-review 37.1 --fix` for WR-01)
 
