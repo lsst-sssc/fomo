@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 11/11 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager; 37.1-10 added 2026-10-04 as gap-closure wave 7 for the re-verification gap on G-37.1-1-alloc's failure path, 37.1-REVIEW CR-01; 37.1-11 added 2026-10-05 as gap-closure wave 8 for the round-3 re-verification gap, 37.1-REVIEW WR-03, plus review findings WR-01, WR-02, IN-02, IN-04 and IN-05)
+**Plans**: 11/12 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager; 37.1-10 added 2026-10-04 as gap-closure wave 7 for the re-verification gap on G-37.1-1-alloc's failure path, 37.1-REVIEW CR-01; 37.1-11 added 2026-10-05 as gap-closure wave 8 for the round-3 re-verification gap, 37.1-REVIEW WR-03, plus review findings WR-01, WR-02, IN-02, IN-04 and IN-05; 37.1-12 added 2026-10-05 as gap-closure wave 9 for the round-4 re-verification gap, 37.1-REVIEW round-4 WR-01 and IN-04, docs-only by the developer's decision)
 
 **Wave 1**
 
@@ -477,6 +477,10 @@ Plans:
 **Wave 8** *(blocked on 37.1-10)*
 
 - [x] 37.1-11-PLAN.md — A block-list reply that is not a list is a failed lookup (FOMO's facility raises `UnexpectedBlockPayloadError`, so the discovery sweep keeps the times, status and mark and the unattended status refresh writes nothing); a failed `--recheck-unscheduled` lookup marks the record so the unattended runner retries it; IN-04 sweep-level tests, newline-terminated sweep output, corrected docstrings; paired docs: the runbook's "Re-running updates in place" bullet, recheck paragraph, status_refresh step and troubleshooting entry, and two new sections in `backfill_lco_observations_demo.ipynb` regenerated from a scratch database (gap closure: 37.1-VERIFICATION gap 37.1-REVIEW WR-03, plus WR-01 and WR-02)
+
+**Wave 9** *(blocked on 37.1-11)*
+
+- [ ] 37.1-12-PLAN.md — Docs-only (developer decision 2026-10-05): the runbook's `--recheck-unscheduled` paragraph, the flag's `--help` text, the command module's docstrings and comment, and cells 0 and 39 of `backfill_lco_observations_demo.ipynb` (edited in place, executed output untouched) say the unattended runner retries a failed recheck only for an active watched proposal and give the manual re-run for any other `--proposal` code, plus the IN-04 summary-count sentence; 37.1-UAT.md's three code-resolved gaps annotated as awaiting the live-host check (gap closure: 37.1-VERIFICATION truth 93, 37.1-REVIEW round-4 WR-01 and IN-04)
 
 ## Progress
 
@@ -521,7 +525,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 11/11 | In Progress|  |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 11/12 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
