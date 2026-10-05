@@ -15,7 +15,7 @@ progress:
   completed_plans: 74
   percent: 100
 last_activity: 2026-10-05
-last_activity_desc: Phase 37.1 gaps-only round 5 (37.1-12, docs-only) executed; ready for re-verification
+last_activity_desc: Phase 37.1 gaps-only round 5 (37.1-12, docs-only) executed; verification human_needed 102/102
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — AWAITING HUMAN VERIFICATION
 Plan: 12 of 12 (37.1-12 complete)
-Status: Plans complete — ready for round-5 verification
+Status: All 12 plans executed — round-5 verification 2026-10-05 `human_needed` 102/102 (truth 93 closed by 37.1-12; round-5 review 0 critical / 0 warning / 10 info; full suite 2000 + 40 OK). Five human items are tests 6-10 of 37.1-UAT.md: two live-host re-runs, the TOM-untouched judgment check, the pop-up/pager check, and a decision on review notes IN-08 to IN-11. Next: `/gsd-verify-work 37.1`
 
 ## Performance Metrics
 
