@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
-stopped_at: Completed 37.1-08-PLAN.md
-last_updated: "2026-10-04T23:31:51.635Z"
+stopped_at: Completed 37.1-10-PLAN.md
+last_updated: "2026-10-05T01:04:03.759Z"
 last_activity: 2026-10-04
 last_activity_desc: Phase 37.1 execution started
-state_head: 35f789fa69aff0f65296b4f5bb362056eeff59a1
+state_head: 0a1e98ce06e05764edfe1c7108876e1a734004b7
 progress:
   total_phases: 6
   completed_phases: 37
   total_plans: 72
-  completed_plans: 71
-  percent: 99
+  completed_plans: 72
+  percent: 100
 ---
 
 # Project State
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — READY TO EXECUTE
-Plan: 4 of 9
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Plan: 2 of 10
 Status: Ready to execute
 Last activity: 2026-10-04 — Phase 37.1 execution started
 
@@ -247,6 +247,7 @@ Coverage: 19/19 v1 requirements mapped, no orphans.
 | Phase 37.1 P07 | 15 min | 3 tasks | 9 files |
 | Phase 37.1 P09 | 17 min | 2 tasks | 6 files |
 | Phase 37.1 P08 | 45 min | 2 tasks | 5 files |
+| Phase 37.1 P10 | 19 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -429,6 +430,8 @@ Phase 36 close decisions (UAT 2026-09-18; full rows in PROJECT.md Key Decisions)
 - [Phase 37.1]: 37.1-07: --recheck-unscheduled narrows the 37.1-03 no-refresh prohibition to opt-in and existing records missing a scheduled time only
 - [Phase 37.1]: 37.1-09: is_web_url template filter limits the event form URL link to http(s); CampaignRunTable left on Bootstrap 4, attribution tables moved to bootstrap5-responsive
 - [Phase 37.1]: 37.1-08: recheck_unscheduled gate branch -- a record missing a scheduled time is looked up when the flag is set or the state is not failed; the flag defaults False at every layer and the unattended runner never passes it
+- [Phase 37.1]: 37.1-10: a failed live block lookup writes neither schedule field and holds back the status change; the next sweep retries via the state-change branch
+- [Phase 37.1]: 37.1-10: parameters['schedule_lookup_failed'] is set only on create and cleared by any save that resolves a schedule, keeping per-tick lookups bounded (F2)
 
 ### Pending Todos
 
@@ -529,8 +532,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-04T21:01:35.315Z
-Stopped at: Completed 37.1-08-PLAN.md
+Last session: 2026-10-05T01:04:03.326Z
+Stopped at: Completed 37.1-10-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
