@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: "37.1"
-current_phase_name: close-gap-alloc-06-exact-identity-system-links-on-ingest-int
-status: verifying
-stopped_at: Completed 37.1-13-PLAN.md
-last_updated: "2026-10-05T21:29:32.965Z"
-state_head: 254917a49aa2aa6e258d001e3433e150f8d924ed
+current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
+status: executing
+stopped_at: Completed 37.1-14-PLAN.md
+last_updated: "2026-10-05T22:26:16.968Z"
+state_head: 203d99e8cd3cac170241fe638d80226cdb2362f1
 progress:
   total_phases: 6
   completed_phases: 38
   total_plans: 76
-  completed_plans: 75
-  percent: 99
+  completed_plans: 76
+  percent: 100
 last_activity: 2026-10-05
-last_activity_desc: Phase 37.1 gaps-only round 6 (37.1-13) executed; verification gaps_found 116/117 (notebook cell 7); WR-19 awaits a developer decision
+last_activity_desc: Phase 37.1 gap-closure plan 37.1-14 executed (placed block wins, WR-19; IN-23 to IN-28 fixed); awaiting verification
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (close-gap-alloc-06-exact-identity-system-links-on-ingest-int) — READY TO EXECUTE
-Plan: 13 of 13 (37.1-13 complete)
-Status: All 13 plans executed — round-6 verification 2026-10-05 `gaps_found` 116/117 (one docs gap: notebook cell 7 of backfill_lco_observations_demo.ipynb still names a single dry-run caveat, review IN-23). Round-6 review 0 critical / 1 warning / 6 info; WR-19 (a FAILED-with-data block outranks a later PENDING block on a rescheduled request) needs a developer decision. Full suite 2022 + 40 OK at 1526b4c; security 72/72 threats closed; Nyquist validated; UI review 24/24. G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-plan-phase 37.1 --gaps`
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Plan: 14 of 14
+Status: Plan 37.1-14 executed; ready for verification (live-host Didymos re-run still owed by the developer)
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ Status: All 13 plans executed — round-6 verification 2026-10-05 `gaps_found` 1
 | Phase 37.1 P11 | 38 min | 3 tasks | 7 files |
 | Phase 37.1 P12 | 59 min | 3 tasks | 4 files |
 | Phase 37.1 P13 | 11 min | 3 tasks | 11 files |
+| Phase 37.1 P14 | 11 min | 3 tasks | 12 files |
 
 ## Decisions
 
@@ -49,9 +50,11 @@ Status: All 13 plans executed — round-6 verification 2026-10-05 `gaps_found` 1
 - [Phase 37.1]: 37.1-13 A-17: time_completed counts only as an int or float (not a bool) above 0; numeric strings, None, missing, NaN, zero and negative read as no data
 - [Phase 37.1]: 37.1-13 A-18: an embedded FAILED block is judged by its own configuration_statuses; one with none gives no times and no live lookup
 - [Phase 37.1]: 37.1-13 A-19: WR-04 marked fixed alongside IN-08..IN-11 (open count 24 -> 19); G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live re-run
+- [Phase 37.1]: 37.1-14: placed block wins -- select_schedule_block() returns the last PENDING block before the started tier (developer decision 2026-10-05, WR-19 option a); a record keeps carrying one block
+- [Phase 37.1]: 37.1-14 A-24: an IN_PROGRESS block yields to a PENDING block in either order (pinned by test)
 
 ## Session
 
-**Last session:** 2026-10-05T18:20:07.373Z
-**Stopped at:** Completed 37.1-13-PLAN.md
+**Last session:** 2026-10-05T22:26:16.859Z
+**Stopped at:** Completed 37.1-14-PLAN.md
 **Resume file:** None
