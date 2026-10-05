@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 10/10 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager; 37.1-10 added 2026-10-04 as gap-closure wave 7 for the re-verification gap on G-37.1-1-alloc's failure path, 37.1-REVIEW CR-01)
+**Plans**: 10/11 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager; 37.1-10 added 2026-10-04 as gap-closure wave 7 for the re-verification gap on G-37.1-1-alloc's failure path, 37.1-REVIEW CR-01; 37.1-11 added 2026-10-05 as gap-closure wave 8 for the round-3 re-verification gap, 37.1-REVIEW WR-03, plus review findings WR-01, WR-02, IN-02, IN-04 and IN-05)
 
 **Wave 1**
 
@@ -473,6 +473,10 @@ Plans:
 **Wave 7** *(blocked on 37.1-08)*
 
 - [x] 37.1-10-PLAN.md — A failed live block lookup in the discovery sweep never erases a record's stored times or commits its new failed status (the state change is held back so the next tick retries), a record created while its lookup fails is marked `schedule_lookup_failed` and looked up until a lookup succeeds, the verifier's two-tick reproduction as a regression test, the gate docstring corrected; paired docs: the runbook's discovery section and a failed-lookup section in `backfill_lco_observations_demo.ipynb` regenerated from a scratch database (gap closure G-37.1-1-alloc failure path, 37.1-REVIEW CR-01)
+
+**Wave 8** *(blocked on 37.1-10)*
+
+- [ ] 37.1-11-PLAN.md — A block-list reply that is not a list is a failed lookup (FOMO's facility raises `UnexpectedBlockPayloadError`, so the discovery sweep keeps the times, status and mark and the unattended status refresh writes nothing); a failed `--recheck-unscheduled` lookup marks the record so the unattended runner retries it; IN-04 sweep-level tests, newline-terminated sweep output, corrected docstrings; paired docs: the runbook's "Re-running updates in place" bullet, recheck paragraph, status_refresh step and troubleshooting entry, and two new sections in `backfill_lco_observations_demo.ipynb` regenerated from a scratch database (gap closure: 37.1-VERIFICATION gap 37.1-REVIEW WR-03, plus WR-01 and WR-02)
 
 ## Progress
 
