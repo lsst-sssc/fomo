@@ -415,15 +415,19 @@ situation is an easy mistake.
 * **Re-running updates in place instead of skipping.** A request that
   already has an ``ObservationRecord`` has its ``status``,
   ``scheduled_start``, ``scheduled_end`` and ``parameters`` refreshed from
-  the portal -- ``backfill_lco_observation_records`` skips it entirely once
-  created. The three observed-site keys (``observed_site``,
-  ``observed_telescope``, ``observed_enclosure``) that the projector sweep's
-  one-time lookup stores in ``parameters`` are carried forward and never
-  erased, so a re-run over unchanged portal data reports the record
-  ``unchanged``. A record already in a finished state, which the portal still
-  reports in the same portal state, keeps its stored ``scheduled_start`` and
-  ``scheduled_end`` while its status and parameters are still compared and
-  refreshed; no per-request lookup is made for it.
+  the portal, except after a failed block lookup, which keeps the stored
+  status and times (see **Scheduled times** below) --
+  ``backfill_lco_observation_records`` skips it entirely once created. The
+  three observed-site keys (``observed_site``, ``observed_telescope``,
+  ``observed_enclosure``) that the projector sweep's one-time lookup stores
+  in ``parameters`` are carried forward and never erased, so a re-run over
+  unchanged portal data reports the record ``unchanged``. A record already
+  in a finished state, which the portal still reports in the same portal
+  state, keeps its stored ``scheduled_start`` and ``scheduled_end`` while its
+  status and parameters are still compared and refreshed; no per-request
+  lookup is made for it unless it is a completed record still missing a
+  scheduled time or it carries the ``schedule_lookup_failed`` mark (see
+  **Scheduled times** below).
 * **Unmatched targets are always built as non-sidereal**, from the
   request's own orbital elements -- never a sidereal field ``Target`` from
   RA/Dec, and there is no ``--create-missing-targets`` flag to opt in or
@@ -528,16 +532,19 @@ completed block, else the last in-progress block or block that started and was
 aborted after taking data, else the last pending block (see "How do LCO/SOAR
 queue observations get onto the calendar?" above) -- because TOM Toolkit's own
 status call ignores an aborted block. A request that never got a block has no
-times. A failed fallback lookup (a timeout or a portal error) is logged and
-counted under ``block lookups failed``, is never fatal, and never erases
-anything. A record that already exists keeps its stored
-``scheduled_start``/``scheduled_end`` and its stored status: a state change
-the portal reported is held back until a lookup for it succeeds, so the
-record's allocation night stays as it was and the next run looks the request
-up again. A brand-new request is still created, with the status from the
-listing and no times, and is marked with the ``schedule_lookup_failed`` key in
-its parameters. Every later run looks a marked record up, even a finished one,
-until a lookup succeeds, and that lookup removes the mark.
+times. A failed fallback lookup (a timeout, a portal error, or a reply whose
+block list is not a list) is logged and counted under
+``block lookups failed``, is never fatal, and never erases anything. A record
+that already exists keeps its stored ``scheduled_start``/``scheduled_end`` and
+its stored status: a state change the portal reported is held back until a
+lookup for it succeeds, so the record's allocation night stays as it was and
+the next run looks the request up again. A brand-new request is still
+created, with the status from the listing and no times, and is marked with the
+``schedule_lookup_failed`` key in its parameters. Every later real run looks a
+marked record up, even a finished one, until a lookup (or an embedded block)
+resolves it, and that removes the mark; a dry run makes no lookup and leaves
+the mark alone. A failed ``--recheck-unscheduled`` lookup marks an existing
+record the same way (see below).
 
 The live lookup is not made for a record that is already finished. When the
 record's stored state is one of the terminal states reported by
@@ -556,15 +563,16 @@ keeps the per-tick skip safe for those records. The Didymos backfill
 (``backfill_lco_observation_records``) creates a record with the listing's
 status before it looks up the block and reports a failed lookup under
 ``status sync failed``; such a record is recovered by re-running it with
-``--recheck-unscheduled``. A status change made through one of TOM Toolkit's own routes --
-its ``updatestatus`` command, the **Update status** button on its observation
-list, its Cancel button or its REST cancel route (see "What runs, and when"
-below) -- still uses TOM's rule and leaves such a record without times, and
-the per-tick skip then leaves it alone too. A brand-new request, a record still
-in a non-terminal state, a record whose state changed, and a record marked
-after a failed lookup are all still looked up. With the portal's listing carrying no observed blocks, this keeps a tick's
-lookups roughly equal to the number of unfinished and new requests as a
-proposal ages, instead of growing with every request ever made.
+``--recheck-unscheduled``. A status change made through one of TOM Toolkit's
+own routes -- its ``updatestatus`` command, the **Update status** button on
+its observation list, its Cancel button or its REST cancel route (see "What
+runs, and when" below) -- still uses TOM's rule and leaves such a record
+without times, and the per-tick skip then leaves it alone too. A brand-new
+request, a record still in a non-terminal state, a record whose state changed,
+and a record marked after a failed lookup are all still looked up. With the
+portal's listing carrying no observed blocks, this keeps a tick's lookups
+roughly equal to the number of unfinished and new requests as a proposal ages,
+instead of growing with every request ever made.
 
 **Re-checking records with no scheduled time.** Records stored before this
 release, and any finished through one of TOM's own routes, are brought up to
@@ -587,7 +595,11 @@ The flag also works for a single proposal, for example
 On that one run the summary shows the finished records that have no times under
 ``fallback lookups needed``; on later ordinary ticks they are back under
 ``fallback lookups skipped``. A failed lookup is counted under
-``block lookups failed`` and never stops the sweep.
+``block lookups failed`` and never stops the sweep. A record whose recheck
+lookup fails, and which the ordinary per-tick skip would otherwise leave
+alone, is marked ``schedule_lookup_failed``, so the unattended runner looks it
+up again on every tick until a lookup succeeds; there is no need to run the
+recheck again for it. A dry run makes no lookup and marks nothing.
 
 The summary also reports ``embedded blocks``, ``fallback lookups needed`` and
 ``fallback lookups skipped`` -- how many requests in this run carried an
@@ -1679,7 +1691,10 @@ this fixed order, in one process:
    touches Gemini or ESO, which have no facility read-back to refresh. It
    reads each request's block with FOMO's own block choice (see "How do
    LCO/SOAR queue observations get onto the calendar?"), so a tick never
-   erases the times of an aborted or in-progress block.
+   erases the times of an aborted or in-progress block. A reply whose block
+   list is not a list counts as a failed record
+   (``UnexpectedBlockPayloadError``), never as an empty block list, so it
+   never erases a stored time either.
 2. **project_sweep** -- the observation projector's backstop sweep (the
    same logic ``project_observation_calendar`` runs), including the
    one-time observed-telescope lookup for a newly observed record.
@@ -3002,6 +3017,14 @@ some other 4xx (for example 404 or 429) or a 5xx.
   reported by ``_exception_label()``): check the LCO API key configured
   for this host, and never paste the key itself into a ticket, a log
   excerpt, or an email.
+- For ``UnexpectedBlockPayloadError`` (no HTTP status): the portal
+  answered a request's block-list call with something that is not a list
+  -- an error body, or a page in a different format. FOMO counts it as a
+  failed lookup and writes nothing to that record, so its stored times and
+  status stay as they were, and the next tick tries it again. If it
+  persists, look up the named ``observation_id`` on the portal and check
+  whether the reply format of ``/api/requests/<id>/observations/`` has
+  changed.
 
 See "The two failure signals" in :ref:`unattended-operation` above for
 what the ``classes:``/``outage (...)`` field does and does not carry.
