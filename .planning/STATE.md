@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: "37.1"
-current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
+current_phase_name: close-gap-alloc-06-exact-identity-system-links-on-ingest-int
 status: verifying
 stopped_at: Completed 37.1-13-PLAN.md
-last_updated: "2026-10-05T18:20:07.483Z"
-state_head: 1db93a4364b8062bf8b182d7eb7ea301599ac97c
+last_updated: "2026-10-05T21:29:32.965Z"
+state_head: 254917a49aa2aa6e258d001e3433e150f8d924ed
 progress:
   total_phases: 6
   completed_phases: 38
-  total_plans: 75
+  total_plans: 76
   completed_plans: 75
-  percent: 100
+  percent: 99
 last_activity: 2026-10-05
 last_activity_desc: Phase 37.1 gaps-only round 6 (37.1-13) executed; verification gaps_found 116/117 (notebook cell 7); WR-19 awaits a developer decision
 ---
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — GAPS FOUND
+Phase: 37.1 (close-gap-alloc-06-exact-identity-system-links-on-ingest-int) — READY TO EXECUTE
 Plan: 13 of 13 (37.1-13 complete)
 Status: All 13 plans executed — round-6 verification 2026-10-05 `gaps_found` 116/117 (one docs gap: notebook cell 7 of backfill_lco_observations_demo.ipynb still names a single dry-run caveat, review IN-23). Round-6 review 0 critical / 1 warning / 6 info; WR-19 (a FAILED-with-data block outranks a later PENDING block on a rescheduled request) needs a developer decision. Full suite 2022 + 40 OK at 1526b4c; security 72/72 threats closed; Nyquist validated; UI review 24/24. G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-plan-phase 37.1 --gaps`
 
