@@ -441,7 +441,7 @@ Plans:
   5. The campaign-list banner and the attribution page count a record and its own projected calendar event as one orphan, and the count is still produced by the one shared helper
   6. Re-running the backfill over the same records is idempotent: no duplicate links, no churn in `confirmed_at`
 
-**Plans**: 13/13 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager; 37.1-10 added 2026-10-04 as gap-closure wave 7 for the re-verification gap on G-37.1-1-alloc's failure path, 37.1-REVIEW CR-01; 37.1-11 added 2026-10-05 as gap-closure wave 8 for the round-3 re-verification gap, 37.1-REVIEW WR-03, plus review findings WR-01, WR-02, IN-02, IN-04 and IN-05; 37.1-12 added 2026-10-05 as gap-closure wave 9 for the round-4 re-verification gap, 37.1-REVIEW round-4 WR-01 and IN-04, docs-only by the developer's decision; 37.1-13 added 2026-10-05 as gap-closure wave 10 for UAT gap G-37.1-6 (the portal reports a block that took data and stopped early as FAILED), plus review notes IN-08 to IN-11)
+**Plans**: 13/14 plans executed (37.1-04, 37.1-05 and 37.1-06 added 2026-10-03 as gap-closure waves 3 and 4 for UAT gaps G-37.1-1, G-37.1-1-nav and G-37.1-3; 37.1-07, 37.1-08 and 37.1-09 added 2026-10-04 as gap-closure waves 5 and 6 for UAT gaps G-37.1-1-alloc, G-37.1-1-allocurl and G-37.1-1-pager; 37.1-10 added 2026-10-04 as gap-closure wave 7 for the re-verification gap on G-37.1-1-alloc's failure path, 37.1-REVIEW CR-01; 37.1-11 added 2026-10-05 as gap-closure wave 8 for the round-3 re-verification gap, 37.1-REVIEW WR-03, plus review findings WR-01, WR-02, IN-02, IN-04 and IN-05; 37.1-12 added 2026-10-05 as gap-closure wave 9 for the round-4 re-verification gap, 37.1-REVIEW round-4 WR-01 and IN-04, docs-only by the developer's decision; 37.1-13 added 2026-10-05 as gap-closure wave 10 for UAT gap G-37.1-6 (the portal reports a block that took data and stopped early as FAILED), plus review notes IN-08 to IN-11; 37.1-14 added 2026-10-05 as gap-closure wave 11 for the round-6 verification gap (truth 117, review IN-23) and the developer's 2026-10-05 decisions on review WR-19 ("placed block wins") and IN-24 to IN-28)
 
 **Wave 1**
 
@@ -486,6 +486,10 @@ Plans:
 
 - [x] 37.1-13-PLAN.md — FOMO's block rule counts a FAILED block that took data (some configuration's `time_completed` above zero) with the aborted and in-progress tier, so the Didymos requests whose only block the portal reports FAILED get their block times and their `ALLOC:` twins retire; a FAILED block with nothing completed, a not-attempted or cancelled block and an empty block list still give no times; tests from the real portal replies (the Didymos reproduction reports `blocks found: 4`); review notes IN-08 to IN-11 (and WR-04) fixed; paired docs: the runbook's block-rule passages and a failed-block section in `backfill_lco_observations_demo.ipynb` regenerated from a scratch database (gap closure G-37.1-6, completes G-37.1-1-alloc in code)
 
+**Wave 11** *(blocked on 37.1-13)*
+
+- [ ] 37.1-14-PLAN.md — "Placed block wins" (developer decision 2026-10-05, review WR-19): FOMO's block rule becomes first COMPLETED, else last PENDING, else last aborted / in-progress / failed-with-data block, so a request the LCO scheduler places again after a failed or aborted block follows its placed block and that night retires; proved through the unattended status refresh, the discovery sweep and the placement lookup on a multi-block request, with single-block requests (the four Didymos requests) unchanged; every docstring, help text and the runbook state the new order and the one-block consequence; review notes IN-24 to IN-28 fixed; paired docs: `backfill_lco_observations_demo.ipynb` cell 7 names the same two dry-run caveats as the runbook and module (truth 117, IN-23) and a placed-block section regenerated from a scratch database, `reconcile_campaign_runs_demo.ipynb` handoff cell edited in place (gap closure: 37.1-VERIFICATION truth 117, 37.1-REVIEW round-6 WR-19 and IN-23 to IN-28)
+
 ## Progress
 
 | Phase             | Milestone | Plans Complete | Status      | Completed  |
@@ -529,7 +533,7 @@ Plans:
 | 35. Allocation Layer & Classical Cutover | v2.4 | 25/25 | Complete    | 2026-09-16 |
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
-| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 13/13 | In Progress|  |
+| 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 13/14 | In Progress|  |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
