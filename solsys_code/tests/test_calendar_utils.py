@@ -33,6 +33,7 @@ from solsys_code.models import CampaignRun
 # any import-time failure over there also failed this module, for a helper unrelated to the
 # sync command.
 from solsys_code.tests.helpers import observations_block_response
+from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS, failed_block
 
 # A fixed UTC sunset-like start time and a companion end time, used across the
 # drift-tolerance tests below.
@@ -483,6 +484,27 @@ class TestResolvePlacementBlockFailureModes(TestCase):
             block = resolve_placement_block('12345', mock_facility)
         self.assertEqual(block['state'], 'ABORTED')
         self.assertEqual(block['site'], 'lsc')
+
+    def test_failed_block_that_took_data_is_returned(self):
+        """G-37.1-6: the observed-telescope lookup reads the FAILED block the times come from."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [dict(REAL_FAILED_BLOCKS['4253588'])]
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('4253588', mock_facility)
+        self.assertEqual(block['state'], 'FAILED')
+        self.assertEqual(block['site'], 'coj')
+
+    def test_failed_block_that_took_no_data_gives_none(self):
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [failed_block(0.0)]
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            self.assertIsNone(resolve_placement_block('12345', mock_facility))
 
 
 class TestCoerceScheduleDatetime(SimpleTestCase):

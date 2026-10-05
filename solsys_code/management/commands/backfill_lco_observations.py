@@ -317,6 +317,10 @@ def _resolve_schedule(
     the block with FOMO's rule, ``select_schedule_block()``; otherwise falls back to a live
     facility.get_observation_status() call -- on ``FomoLCOFacility``, so the live path
     chooses the block with the same rule -- which *is* skipped entirely under --dry-run.
+    An embedded FAILED block counts only when its own configuration_statuses show time completed; one that
+    carries none gives no times and no live lookup is made for it. The portal's requestgroups listing
+    carries no embedded blocks today, so FAILED blocks are seen on the live lookup, whose block dicts carry
+    configuration_statuses.
     A failed fallback call is caught and reported via the
     returned 'lookup_failed' flag -- never fatal, never counted as a skipped request. That includes a
     reply whose block list is not a list: ``FomoLCOFacility`` raises ``UnexpectedBlockPayloadError``
@@ -405,16 +409,16 @@ def _schedule_lookup_is_needed(
     a lookup succeeds; and the unattended status refresh writes nothing for a request whose lookup
     raises, including a block-list reply that is not a list (``UnexpectedBlockPayloadError``).
 
-    A failed request can carry a block that started and was aborted after taking data, and that
-    block counts (Phase 35 D-05/D-06). Since 37.1-07 every FOMO-owned path that writes a state
-    change -- the unattended status refresh, this sweep and the Didymos backfill command --
-    resolves the block with FOMO's rule (``select_schedule_block()``), so a record that reaches
+    A failed request can carry a block that took data -- one that started and was aborted, or one that
+    failed after taking data -- and that block counts (Phase 35 D-05/D-06). Since 37.1-07 every FOMO-owned
+    path that writes a state change -- the unattended status refresh, this sweep and the Didymos backfill
+    command -- resolves the block with FOMO's rule (``select_schedule_block()``), so a record that reaches
     a failed state through one of them already holds its block and this skip stays correct for
-    it. TOM Toolkit's own status routes run on TOM's registered ``LCOFacility``, which ignores an
-    aborted block: its stock ``updatestatus`` command and the observation list's "Update status"
+    it. TOM Toolkit's own status routes run on TOM's registered ``LCOFacility``, which ignores
+    aborted and failed blocks: its stock ``updatestatus`` command and the observation list's "Update status"
     button that runs it, the Cancel button on its observation page, and its REST cancel route
     ``PATCH /api/observations/<pk>/cancel/``. A record finished through one of them is stored
-    without its aborted block's times, and this skip then leaves it alone exactly like a record
+    without its block's times, and this skip then leaves it alone exactly like a record
     stored before 37.1-07 (T-37.1-42, accepted). The Didymos backfill command creates its record with
     the listing's state before its own lookup and reports a failure under ``status sync failed``, so
     such a record is recovered with ``recheck_unscheduled=True`` like a legacy one. Both kinds are
@@ -422,8 +426,8 @@ def _schedule_lookup_is_needed(
     failed-state record that is missing either time, once per run. The unattended runner never passes
     it, so F2's bounded per-tick lookups stay as they are. If that recheck lookup fails, the record is
     marked as above, so the next ordinary sweep of its proposal looks it up again: on every unattended
-    tick for an active WatchedProposal row, and otherwise only on the operator's next manual run (no
-    flag needed).
+    tick for an active WatchedProposal row, and otherwise only on the operator's next manual run
+    (without --recheck-unscheduled).
 
     This is F2 option A from .planning/v2.4-INTENT-REVIEW.md. The function makes no query, no
     network call and no mutation, and trusts the two state lists it is given.
@@ -629,7 +633,7 @@ def sweep_proposal(
     so the sweep for a single proposal is callable directly -- by the bare-invocation
     watched-list loop (Task 3) and by the unattended runner (36-01/Plan 03) -- without going
     through ``call_command()``. Constructs its own ``FomoLCOFacility`` (TOM's LCO facility with
-    FOMO's block rule, so an aborted block's times are stored) and calls
+    FOMO's block rule, so the times of a block that took data are stored) and calls
     ``facility.set_user(user)`` here so each call gets a fresh instance (Phase 34 D-10: a
     facility instance is never shared across calls).
 
@@ -648,7 +652,7 @@ def sweep_proposal(
         dry_run: whether to report what would be created/updated without writing anything.
         recheck_unscheduled: when True, every record still missing a scheduled time is looked up
             once, including a failed-state record the finished-record skip (F2) otherwise leaves
-            alone, so records stored under TOM's old block rule pick up an aborted block's times.
+            alone, so records stored under TOM's old block rule pick up the times of a block that took data.
             One portal lookup per such record. A lookup that fails on a record the per-tick skip would
             otherwise leave alone marks it with ``SCHEDULE_LOOKUP_FAILED_KEY``, so every later ordinary
             sweep of this proposal looks it up again until a lookup succeeds; the unattended runner makes
@@ -1087,13 +1091,16 @@ class Command(BaseCommand):
     ObservationGroup; a single-request RequestGroup gets no group.
 
     A --dry-run pass reports what a real pass over the same portal payload would do -- same
-    created/updated/unchanged/target/group counts, labelled with the would-forms -- with one
-    honest caveat: for a request that would need the live fallback schedule lookup (no
+    created/updated/unchanged/target/group counts, labelled with the would-forms -- with two caveats.
+    First: for a request that would need the live fallback schedule lookup (no
     embedded 'observations' block), a dry run compares status and parameters only, since the
     schedule fields it would otherwise compare are never resolved under --dry-run. Such a
     record can therefore be reported unchanged by a dry run when only its schedule times
     would actually move on a real pass. A record whose lookup is skipped (see below) is
-    compared the same way in both modes: status and parameters only.
+    compared the same way in both modes: status and parameters only. Second: a real pass whose block
+    lookup fails reports a state change it holds back as unchanged instead of updated, and a record a
+    failed --recheck-unscheduled lookup marks as updated instead of unchanged; 'block lookups failed'
+    counts each of them.
 
     The list payload carries no observed blocks, so each request would otherwise cost a live
     get_observation_status() lookup (two portal GETs) on every tick (F2). A record already in
@@ -1113,19 +1120,23 @@ class Command(BaseCommand):
     A failed --recheck-unscheduled lookup on a record the per-tick skip would otherwise leave alone marks
     it the same way. If its proposal is an active WatchedProposal row, the bare sweep covers it on every
     unattended tick, so the unattended runner retries it until a lookup succeeds; the runner never sweeps
-    any other --proposal code, so for such a code an operator re-runs --proposal <code> (no flag needed)
-    until 'block lookups failed' is 0. A block-list reply that is not a list is a failed lookup too
+    any other --proposal code, so for such a code an operator re-runs --proposal <code> without
+    --recheck-unscheduled until stderr no longer prints the record's 'Failed to resolve observed block'
+    line ('block lookups failed' reaching 0 also means it is done, but another request whose lookup keeps
+    failing can hold that count above 0). A block-list reply that is not a list is a failed lookup too
     (FomoLCOFacility raises UnexpectedBlockPayloadError for it).
 
-    A request that expired or was cancelled can still carry a block that started and was aborted
-    after taking data, and FOMO's block rule (first completed block, else the last aborted or
-    in-progress block, else the last pending one) stores that block's times, for both the embedded
-    list and the live lookup. Records stored before that rule, and records finished through one of
-    TOM Toolkit's own status routes, have no times and the skip above leaves them alone.
-    --recheck-unscheduled (opt-in, works with --proposal and on the bare form) looks up once every
-    record missing a scheduled time, including those finished records, so they pick up an aborted
-    block's times; a linked record that gains them retires its run's allocation night in that same
-    sweep. It costs one portal lookup per such record and is never used by the unattended runner.
+    A request in one of the facility's failed request states can still carry a block that took data --
+    one that started and was aborted, or one that failed after taking data -- and FOMO's block rule
+    (first completed block, else the last in-progress, aborted or failed-with-data block, else the last
+    pending one; a failed block counts only when one of its configurations reports time completed)
+    stores that block's times, for both the embedded list and the live lookup. Records stored before
+    that rule, and records finished through one of TOM Toolkit's own status routes, have no times and
+    the skip above leaves them alone. --recheck-unscheduled (opt-in, works with --proposal and on the
+    bare form) looks up once every record missing a scheduled time, including those finished records,
+    so they pick up the times of a block that took data; a linked record that gains them retires its
+    run's allocation night in that same sweep. It costs one portal lookup per such record and is never used by
+    the unattended runner.
 
     Every Target the sweep touches -- matched by fuzzy name or newly built from orbital
     elements -- is collected into a TargetList named '<proposal>_targets', created on the
@@ -1212,12 +1223,14 @@ class Command(BaseCommand):
             help=(
                 'Also look up once every record that is missing a scheduled time, including finished '
                 'records the per-tick skip leaves alone, using the block rule FOMO applies (a block that '
-                'started and was aborted after taking data counts), so records stored before that rule '
-                'pick up their block times. One portal lookup per such record. Works with or without '
-                '--proposal. Never used by the unattended runner. A failed lookup on a record the per-tick skip '
-                'would otherwise leave alone marks it schedule_lookup_failed; the unattended runner retries a '
-                'marked record only while its proposal is an active watched proposal, so for any other '
-                '--proposal code re-run the command (no flag needed) until block lookups failed is 0. '
+                'started and was aborted, or that failed after taking data, counts), so records stored '
+                'before that rule pick up their block times. One portal lookup per such record. Works with '
+                'or without --proposal. Never used by the unattended runner. A failed lookup on a record '
+                'the per-tick skip would otherwise leave alone marks it schedule_lookup_failed; the '
+                'unattended runner retries a marked record only while its proposal is an active watched '
+                'proposal, so for any other code re-run --proposal <code> without --recheck-unscheduled '
+                'until stderr no longer prints a Failed to resolve observed block line for that record '
+                '(or block lookups failed is 0). '
                 'Default off.'
             ),
         )

@@ -29,7 +29,7 @@ from solsys_code.management.commands.backfill_lco_observations import (
 from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation, WatchedProposal
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import observing_night
-from solsys_code.tests.test_observation_blocks import portal_side_effect
+from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS, failed_block, portal_side_effect
 
 # A complete, correctly-scoped ORBITAL_ELEMENTS wire-key payload (D-E), used as the default
 # for every fixture request unless a test deliberately builds an incomplete one.
@@ -2362,6 +2362,85 @@ class TestDiscoveryUsesFomoBlockRule(TestCase):
         self.assertEqual(mock_portal.call_count, 2)
         self.assertIn('fallback lookups needed: 1', summary)
 
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_the_live_lookup_for_a_new_expired_request_uses_a_failed_block_that_took_data(
+        self, mock_listing, mock_portal
+    ):
+        mock_listing.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='WINDOW_EXPIRED')])]
+        )
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [failed_block(18060.0)]})
+
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_the_live_lookup_gives_no_times_for_a_failed_block_that_took_no_data(self, mock_listing, mock_portal):
+        mock_listing.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='WINDOW_EXPIRED')])]
+        )
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [failed_block(0.0)]})
+
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_an_embedded_failed_block_that_took_data_gives_the_record_its_times(self, mock_listing, mock_portal):
+        mock_listing.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - ELP',
+                    requests=[
+                        _request(
+                            10,
+                            state='WINDOW_EXPIRED',
+                            observations=[failed_block(2160.0, summary_state='ABORTED')],
+                        )
+                    ],
+                )
+            ]
+        )
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertIn('embedded blocks: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_an_embedded_failed_block_with_no_configuration_statuses_gives_no_times_and_no_lookup(
+        self, mock_listing, mock_portal
+    ):
+        bare = {'state': 'FAILED', 'start': _ABORTED_BLOCK['start'], 'end': _ABORTED_BLOCK['end']}
+        mock_listing.return_value = _page_response(
+            [
+                _request_group(
+                    1,
+                    'Didymos 2026 - ELP',
+                    requests=[_request(10, state='WINDOW_EXPIRED', observations=[bare])],
+                )
+            ]
+        )
+
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='10')
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+        mock_portal.assert_not_called()
+
 
 class TestRecheckUnscheduledSweep(TestCase):
     """G-37.1-1-alloc: --recheck-unscheduled through sweep_proposal() re-resolves records stored under
@@ -2568,6 +2647,59 @@ class TestRecheckUnscheduledSweep(TestCase):
         self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
         self.assertIn('unchanged: 1', summary)
         self.assertIn('block lookups failed: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_recheck_gives_a_failed_block_that_took_data_its_times_and_retires_its_night(
+        self, mock_listing, mock_portal
+    ):
+        group, record = self._stored_record(10, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [failed_block(18060.0)]})
+
+        summary = sweep_proposal('LCO2026A-003', recheck_unscheduled=True, stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertFalse(allocation_events(self.per_night_run).filter(url=self._alloc_url(record)).exists())
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+        self.assertIn('updated: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_recheck_keeps_the_night_of_a_failed_block_that_took_no_data(self, mock_listing, mock_portal):
+        group, record = self._stored_record(10, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [failed_block(0.0)]})
+
+        summary = sweep_proposal('LCO2026A-003', recheck_unscheduled=True, stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('updated: 0', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_the_ordinary_sweep_gives_a_completed_record_its_failed_block_times(self, mock_listing, mock_portal):
+        # Request 4276100's case: the request is COMPLETED but its only block is FAILED after taking data.
+        group, record = self._stored_record(4276100, 'COMPLETED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect(
+            {'4276100': 'COMPLETED'}, {'4276100': [dict(REAL_FAILED_BLOCKS['4276100'])]}
+        )
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 19, 8, 57, 45, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 19, 14, 44, 26, tzinfo=timezone.utc))
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('updated: 1', summary)
 
 
 class TestFailedLookupKeepsTheStoredSchedule(TestCase):

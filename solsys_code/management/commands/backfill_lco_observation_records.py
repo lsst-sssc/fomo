@@ -153,14 +153,14 @@ class Command(BaseCommand):
     Immediately after a newly created ObservationRecord is saved (non-dry-run only), the
     command makes a live best-effort call to facility.update_observation_status(observation_id)
     -- TOM Toolkit's method, running on FOMO's FomoLCOFacility, whose block choice counts a block
-    that started and was aborted after taking data -- so the new record's status,
-    scheduled_start, and scheduled_end are populated from LCO right away instead of staying
-    unset until the next poll. A failure of that call is skip-and-logged (never fatal, never
+    that took data -- one that started and was aborted, or one that failed after taking data -- so the new
+    record's status, scheduled_start, and scheduled_end are populated from LCO right away instead of
+    staying unset until the next poll. A failure of that call is skip-and-logged (never fatal, never
     rolls back the already-created record) and counted in the status_sync_failed summary count.
 
     --recheck-unscheduled (opt-in) also makes that same lookup for an already-existing record that
     is missing either scheduled time, so records stored before FOMO's block rule (whose request ran
-    an aborted block) pick up their block's times; a linked record that gains both times retires its
+    a block that took data) pick up their block's times; a linked record that gains both times retires its
     run's allocation night for that block in the same run. A record that already has both times, and
     every existing record when the flag is absent, is never refreshed or rewritten. A failed lookup
     is skip-and-logged by exception class name only and counted in status_sync_failed.
@@ -223,9 +223,9 @@ class Command(BaseCommand):
             action='store_true',
             help=(
                 'Also look up the observed block of an already-existing record that is missing either '
-                'scheduled time, using the block rule FOMO applies (a block that started and was aborted '
-                'after taking data counts), so records stored before that rule pick up their block times. '
-                'One portal lookup per such record. Default off.'
+                'scheduled time, using the block rule FOMO applies (a block that started and was aborted, '
+                'or that failed after taking data, counts), so records stored before that rule pick up '
+                'their block times. One portal lookup per such record. Default off.'
             ),
         )
 
