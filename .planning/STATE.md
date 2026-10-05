@@ -30,5 +30,5 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 ## Current Position
 
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — READY TO EXECUTE
-Plan: 10 of 10
-Status: Gaps found — stale runbook bullet (37.1-VERIFICATION.md, WR-03); next: /gsd-plan-phase 37.1 --gaps
+Plan: 10 of 11
+Status: Ready to execute — gap-closure plan 37.1-11 planned 2026-10-05 (WR-01 + WR-02 fixes, WR-03 runbook gap, IN-04 tests, paired notebook); next: /gsd-execute-phase 37.1 --gaps-only
