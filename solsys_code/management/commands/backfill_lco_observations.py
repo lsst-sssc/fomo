@@ -1204,8 +1204,11 @@ class Command(BaseCommand):
                 'records the per-tick skip leaves alone, using the block rule FOMO applies (a block that '
                 'started and was aborted after taking data counts), so records stored before that rule '
                 'pick up their block times. One portal lookup per such record. Works with or without '
-                '--proposal. Never used by the unattended runner. A record whose lookup fails is marked, so the '
-                'unattended runner retries it. Default off.'
+                '--proposal. Never used by the unattended runner. A failed lookup on a record the per-tick skip '
+                'would otherwise leave alone marks it schedule_lookup_failed; the unattended runner retries a '
+                'marked record only while its proposal is an active watched proposal, so for any other '
+                '--proposal code re-run the command (no flag needed) until block lookups failed is 0. '
+                'Default off.'
             ),
         )
 

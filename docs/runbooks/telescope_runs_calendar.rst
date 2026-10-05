@@ -592,14 +592,23 @@ every watched proposal, dry run first:
 
 The flag also works for a single proposal, for example
 ``backfill_lco_observations --proposal LCO2026A-001 --recheck-unscheduled``.
-On that one run the summary shows the finished records that have no times under
-``fallback lookups needed``; on later ordinary ticks they are back under
-``fallback lookups skipped``. A failed lookup is counted under
-``block lookups failed`` and never stops the sweep. A record whose recheck
-lookup fails, and which the ordinary per-tick skip would otherwise leave
-alone, is marked ``schedule_lookup_failed``, so the unattended runner looks it
-up again on every tick until a lookup succeeds; there is no need to run the
-recheck again for it. A dry run makes no lookup and marks nothing.
+On that one run the summary shows the finished records that have no times
+under ``fallback lookups needed``. On later ordinary runs, an expired or
+cancelled record whose recheck lookup succeeded is back under
+``fallback lookups skipped``, whether or not it gained times; a completed
+record still missing a time keeps being looked up (see **Scheduled times**
+above). A failed lookup is counted under ``block lookups failed`` and never
+stops the sweep. A record whose recheck lookup fails, and which the ordinary
+per-tick skip would otherwise leave alone, is marked
+``schedule_lookup_failed``: it is counted under ``updated`` (the mark is the
+change, although its status, times and night did not change) and stays under
+``fallback lookups needed`` on later runs until its lookup succeeds. While its
+proposal is an active watched proposal, the unattended runner looks it up
+again on every tick until a lookup succeeds, and there is no need to run the
+recheck again for it. The runner sweeps only active watched proposals, so for
+a ``--proposal`` code that is not one, run
+``backfill_lco_observations --proposal <code>`` (no flag needed) again until
+``block lookups failed`` is 0. A dry run makes no lookup and marks nothing.
 
 The summary also reports ``embedded blocks``, ``fallback lookups needed`` and
 ``fallback lookups skipped`` -- how many requests in this run carried an
