@@ -309,7 +309,9 @@ def _resolve_schedule(
     facility.get_observation_status() call -- on ``FomoLCOFacility``, so the live path
     chooses the block with the same rule -- which *is* skipped entirely under --dry-run.
     A failed fallback call is caught and reported via the
-    returned 'lookup_failed' flag -- never fatal, never counted as a skipped request.
+    returned 'lookup_failed' flag -- never fatal, never counted as a skipped request. A failed
+    lookup resolved nothing: the caller then writes neither schedule field nor a status change
+    for an existing record (see ``_changed_record_fields``), so a stored time is never erased.
 
     Args:
         facility: an LCOFacility instance (``sweep_proposal()`` passes a ``FomoLCOFacility``).
@@ -449,6 +451,8 @@ def _changed_record_fields(
     scheduled_end: datetime | None,
     parameters: dict[str, Any],
     compare_schedule: bool = True,
+    *,
+    lookup_failed: bool = False,
 ) -> dict[str, Any]:
     """Return the ObservationRecord fields whose desired value differs from the record's.
 
@@ -476,6 +480,14 @@ def _changed_record_fields(
             and False for a dry-run fallback or a skipped lookup, so such a request is
             compared on status/parameters only, matching what the run can actually know
             without making the network call it exists to avoid.
+        lookup_failed: True when this run's live block lookup was attempted and raised. Keyword-only.
+            A failed lookup resolved nothing, so neither schedule field is compared (it behaves as
+            ``compare_schedule=False``, so a stored time is never overwritten with None) and the
+            ``status`` change is held back too: the record keeps its stored state, so the next
+            sweep still sees a state change, runs the lookup again, and stores the new status and
+            the block's times together in one save. Writing the status without the block would
+            disarm that retry and leave a finished record looking resolved (37.1-REVIEW CR-01).
+            ``parameters`` are still compared.
 
     Returns:
         dict[str, Any]: field name -> new value for each of the (up to four) fields whose
@@ -484,7 +496,9 @@ def _changed_record_fields(
     """
     parameters = _preserve_observed_site_keys(record.parameters, parameters)
     changes: dict[str, Any] = {}
-    if record.status != status:
+    if lookup_failed:
+        compare_schedule = False
+    elif record.status != status:
         changes['status'] = status
     if compare_schedule:
         if record.scheduled_start != scheduled_start:
@@ -698,8 +712,10 @@ def sweep_proposal(
             scheduled_end = _parse_datetime_value(scheduled_end)
             # The schedule is compared only when this run actually resolved one. A skipped
             # lookup, or a dry-run fallback, compares status and parameters only, so both
-            # modes decide identically (T-ik7-02).
-            compare_schedule = embedded or (lookup_needed and not dry_run)
+            # modes decide identically (T-ik7-02). A failed live lookup resolved nothing, so it
+            # never writes a schedule field either: an existing record keeps its stored times
+            # (and its stored status, see _changed_record_fields) instead of having them erased.
+            compare_schedule = (embedded or (lookup_needed and not dry_run)) and not lookup_failed
 
             if dry_run:
                 if existing_record is None:
@@ -713,6 +729,7 @@ def sweep_proposal(
                         scheduled_end,
                         parameters,
                         compare_schedule=compare_schedule,
+                        lookup_failed=lookup_failed,
                     )
                     if changes:
                         updated += 1
@@ -791,7 +808,13 @@ def sweep_proposal(
                 created += 1
             else:
                 changes = _changed_record_fields(
-                    record, status, scheduled_start, scheduled_end, parameters, compare_schedule=compare_schedule
+                    record,
+                    status,
+                    scheduled_start,
+                    scheduled_end,
+                    parameters,
+                    compare_schedule=compare_schedule,
+                    lookup_failed=lookup_failed,
                 )
                 if changes:
                     for field, value in changes.items():
