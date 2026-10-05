@@ -478,12 +478,29 @@ class TestResolvePlacementBlockFailureModes(TestCase):
         self.assertEqual(block['state'], 'ABORTED')
         self.assertEqual(block['site'], 'lsc')
 
-    def test_earlier_aborted_block_outranks_a_later_pending_one(self):
+    def test_a_later_pending_block_outranks_an_earlier_aborted_one(self):
+        """WR-19 (developer decision 2026-10-05): the placed block wins, so the observed-telescope lookup reads
+        the block the record's times come from."""
         mock_facility, response = self._facility_and_blocks([('lsc', 'ABORTED'), ('cpt', 'PENDING')])
         with patch('solsys_code.calendar_utils.make_request', return_value=response):
             block = resolve_placement_block('12345', mock_facility)
-        self.assertEqual(block['state'], 'ABORTED')
-        self.assertEqual(block['site'], 'lsc')
+        self.assertEqual(block['state'], 'PENDING')
+        self.assertEqual(block['site'], 'cpt')
+
+    def test_a_pending_block_outranks_a_failed_block_that_took_data(self):
+        """The observed-telescope lookup reads the placed block the times come from (37.1 CONTEXT D-12)."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [
+            dict(REAL_FAILED_BLOCKS['4253588']),
+            {'site': 'cpt', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+        ]
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('4253588', mock_facility)
+        self.assertEqual(block['state'], 'PENDING')
+        self.assertEqual(block['site'], 'cpt')
 
     def test_failed_block_that_took_data_is_returned(self):
         """G-37.1-6: the observed-telescope lookup reads the FAILED block the times come from."""

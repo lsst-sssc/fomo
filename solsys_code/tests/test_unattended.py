@@ -39,10 +39,15 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import notifications, unattended
 from solsys_code import observation_projector as op
+from solsys_code.allocation_projector import allocation_events
+from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.campaign_utils import create_system_link
 from solsys_code.models import CampaignRun, WatchedProposal
+from solsys_code.observation_blocks import FomoLCOFacility
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.status_vocabulary import DisplayState, classify_record
 from solsys_code.tests.test_backfill_lco_observations import _page_response, _request_group
-from solsys_code.tests.test_observation_blocks import portal_side_effect
+from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS, failed_block, portal_side_effect
 
 _FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST'
 
@@ -1004,6 +1009,123 @@ class TestStatusRefreshKeepsBlockTimes(UnattendedTestBase):
         self.assertEqual(record.status, 'PENDING')
         self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=dt_timezone.utc))
+
+
+class TestStatusRefreshFollowsThePlacedBlock(UnattendedTestBase):
+    """WR-19, developer decision 2026-10-05 ("Placed block wins"): while a request is still pending, its record
+    follows the block the scheduler has placed, and that night's allocation entry retires. A real
+    FomoLCOFacility runs through ``step_status_refresh()``; only the portal calls are mocked."""
+
+    PORTAL = 'solsys_code.observation_blocks.make_request'
+    PLACED_START = '2026-07-17T09:00:00Z'
+    PLACED_END = '2026-07-17T14:00:00Z'
+
+    def setUp(self):
+        super().setUp()
+        soar_patcher = patch('solsys_code.unattended.FomoSOARFacility')
+        mock_soar_cls = soar_patcher.start()
+        self.addCleanup(soar_patcher.stop)
+        mock_soar_cls.return_value.update_all_observation_statuses.return_value = []
+        self.target = NonSiderealTargetFactory.create(name='Didymos')
+        self.run = self._make_campaign_run(
+            campaign=None,
+            target=self.target,
+            proposal_code='LCO2026A-003',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 11),
+            window_end=date(2026, 7, 20),
+        )
+        reconcile_run(self.run)
+        self.alloc_before = allocation_events(self.run).count()
+        # '4400001' is a synthetic request id; the failed block below is the real 4253588 block.
+        self.record = ObservationRecord.objects.create(
+            target=self.target,
+            facility='LCO',
+            observation_id='4400001',
+            status='PENDING',
+            parameters={
+                'proposal': 'LCO2026A-003',
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+                'start': '2026-07-11T00:00:00',
+                'end': '2026-07-21T00:00:00',
+            },
+        )
+        create_system_link(self.record, self.run)
+        self.failed_0712 = dict(REAL_FAILED_BLOCKS['4253588'])
+        self.placed = {
+            'site': 'coj',
+            'enclosure': 'clma',
+            'telescope': '2m0a',
+            'state': 'PENDING',
+            'start': self.PLACED_START,
+            'end': self.PLACED_END,
+        }
+
+    def _tick(self, state, blocks):
+        with patch(self.PORTAL, side_effect=portal_side_effect({'4400001': state}, {'4400001': blocks})):
+            result = unattended.step_status_refresh(dry_run=False)
+        self.assertFalse(result.failed, result.summary)
+        self.record.refresh_from_db()
+
+    def _nights(self):
+        urls = allocation_events(self.run).values_list('url', flat=True)
+        return {url.rsplit(':', 1)[-1] for url in urls}
+
+    def _display(self):
+        return classify_record(self.record, FomoLCOFacility())
+
+    def _failed_placed(self, time_completed):
+        return failed_block(time_completed, start=self.PLACED_START, end=self.PLACED_END)
+
+    def test_a_rescheduled_request_follows_its_placed_block_until_it_completes(self):
+        # Tick 1: the only block failed after taking data on 07-12; no pending block, so the record sits there.
+        self._tick('PENDING', [self.failed_0712])
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc))
+        self.assertEqual(self._display(), DisplayState.SCHEDULED)
+        self.assertNotIn('2026-07-12', self._nights())
+
+        # Tick 2: the scheduler places a new block on 07-17, so the record follows it.
+        self._tick('PENDING', [self.failed_0712, self.placed])
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(self.record.scheduled_end, datetime(2026, 7, 17, 14, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(self.record.status, 'PENDING')
+        self.assertEqual(self._display(), DisplayState.SCHEDULED)
+        self.assertNotIn('2026-07-17', self._nights())
+        self.assertIn('2026-07-12', self._nights())
+        self.assertEqual(allocation_events(self.run).count(), self.alloc_before - 1)
+
+        # Tick 3: the placed block completes; one block per record, so 07-12 stays unretired.
+        self._tick('COMPLETED', [self.failed_0712, dict(self.placed, state='COMPLETED')])
+        self.assertEqual(self.record.status, 'COMPLETED')
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(self._display(), DisplayState.OBSERVED)
+        self.assertNotIn('2026-07-17', self._nights())
+        self.assertIn('2026-07-12', self._nights())
+        self.assertEqual(allocation_events(self.run).count(), self.alloc_before - 1)
+
+    def test_a_placed_block_that_fails_after_taking_data_keeps_the_later_night(self):
+        self._tick('PENDING', [self.failed_0712, self.placed])
+        self._tick('PENDING', [self.failed_0712, self._failed_placed(3600.0)])
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=dt_timezone.utc))
+        self.assertNotIn('2026-07-17', self._nights())
+        self.assertIn('2026-07-12', self._nights())
+
+        self._tick('WINDOW_EXPIRED', [self.failed_0712, self._failed_placed(3600.0)])
+        self.assertEqual(self.record.status, 'WINDOW_EXPIRED')
+        self.assertEqual(self._display(), DisplayState.WINDOW_EXPIRED)
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=dt_timezone.utc))
+        self.assertNotIn('2026-07-17', self._nights())
+        self.assertIn('2026-07-12', self._nights())
+
+    def test_a_placed_block_that_fails_with_nothing_completed_hands_back_the_earlier_night(self):
+        self._tick('PENDING', [self.failed_0712, self.placed])
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=dt_timezone.utc))
+
+        self._tick('PENDING', [self.failed_0712, self._failed_placed(0.0)])
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc))
+        self.assertNotIn('2026-07-12', self._nights())
+        self.assertIn('2026-07-17', self._nights())
 
 
 class TestExceptionLabel(UnattendedTestBase):

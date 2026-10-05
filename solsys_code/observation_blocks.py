@@ -15,9 +15,14 @@ zero (developer decision 2026-10-05). It then ranks with ABORTED and IN_PROGRESS
 completed gives no times, and neither does a block the portal never attempted (NOT_ATTEMPTED) or cancelled
 (CANCELED), whatever else it carries.
 
-The rule, in tiers (see :func:`select_schedule_block`): the first COMPLETED block, else the last ABORTED,
-IN_PROGRESS or FAILED-with-data block, else the last PENDING block, else none. A request with no block that
-counts therefore keeps no times and retires nothing (Phase 35 D-05 unchanged).
+The rule, in tiers (see :func:`select_schedule_block`): the first COMPLETED block, else the last PENDING block,
+else the last ABORTED, IN_PROGRESS or FAILED-with-data block, else none (developer decision 2026-10-05 on review
+WR-19, "placed block wins"; it reverses the 2026-10-04/05 order, which put the started tier above PENDING). While a
+request is still pending, its record follows the block the scheduler has placed: drawn as scheduled on the
+upcoming night, whose allocation night retires. An aborted, in-progress or failed-with-data block counts only once
+no pending block remains. A record carries one block, so while a request is placed again the night of its earlier
+aborted or failed block is not retired, and it stays unretired if the placed block completes (Phase 35 D-06 gives
+ground here). A request with no block that counts keeps no times and retires nothing (Phase 35 D-05 unchanged).
 
 FOMO never edits or monkeypatches TOM Toolkit's installed code. The rule lives only on FOMO's own
 facility subclasses, :class:`FomoLCOFacility` and :class:`FomoSOARFacility`, which override the one
@@ -117,13 +122,20 @@ def _block_took_data(block: dict[str, Any]) -> bool:
 def select_schedule_block(blocks: Any) -> dict[str, Any] | None:
     """Choose the block a request's scheduled start and end come from.
 
-    The first COMPLETED block wins. Otherwise the LAST block that is ABORTED or IN_PROGRESS (a block that is
-    running now, or that started and was aborted after taking data), or that is FAILED after taking data
-    (some configuration's summary reports ``time_completed`` above zero; the portal reports every such July
-    2026 Didymos block as FAILED, not ABORTED). Otherwise the LAST PENDING block. Otherwise None. "Last"
-    mirrors TOM's last-PENDING convention. An earlier started block beats a later pending block that has not
-    run yet: data already taken outranks intent, and once the pending block runs it becomes COMPLETED, which
-    wins, or stops early, which as the later block replaces the earlier one.
+    The first COMPLETED block wins. Otherwise the LAST PENDING block: while the request is still pending, the
+    block the scheduler has placed is its live schedule (developer decision 2026-10-05, review WR-19 "placed
+    block wins"; this reverses the 2026-10-04/05 order, in which an earlier started block beat a later pending
+    one). Otherwise the LAST block that is ABORTED or IN_PROGRESS (a block that is running now, or that started
+    and was aborted after taking data), or that is FAILED after taking data (some configuration's summary
+    reports ``time_completed`` above zero; the portal reports every such July 2026 Didymos block as FAILED, not
+    ABORTED). Otherwise None. An IN_PROGRESS block yields to a PENDING one too: the LCO scheduler places a new
+    block for a request whose block is still running only once that block has had a configuration fail, so it is
+    about to stop early (37.1-14 A-24).
+
+    The portal lists a request's blocks in creation order (the observation portal orders them by block id).
+    "First" and "last" lean on that order only within a tier -- the first COMPLETED block, the last PENDING
+    block and the last block of the started tier, mirroring TOM's last-PENDING convention. Which tier wins never
+    depends on position.
 
     A FAILED block with no usable ``time_completed`` above zero (missing, None, zero, negative, NaN, a
     string, a bool, or a summary or ``configuration_statuses`` of the wrong type) gives no times and is
@@ -135,8 +147,8 @@ def select_schedule_block(blocks: Any) -> dict[str, Any] | None:
             and entries that are not dicts or carry no state are ignored.
 
     Returns:
-        dict[str, Any] | None: the chosen block dict, or None when no block is COMPLETED, ABORTED, IN_PROGRESS,
-            FAILED after taking data, or PENDING.
+        dict[str, Any] | None: the chosen block dict, or None when no block is COMPLETED, PENDING, ABORTED,
+            IN_PROGRESS, or FAILED after taking data.
     """
     if not isinstance(blocks, list):
         return None
@@ -154,7 +166,7 @@ def select_schedule_block(blocks: Any) -> dict[str, Any] | None:
             last_started = block
         elif state == BlockState.PENDING:
             last_pending = block
-    return last_started if last_started is not None else last_pending
+    return last_pending if last_pending is not None else last_started
 
 
 class ScheduleBlockRuleMixin:

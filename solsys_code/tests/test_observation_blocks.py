@@ -212,10 +212,11 @@ class TestSelectScheduleBlock(SimpleTestCase):
         in_progress = _block(BlockState.IN_PROGRESS)
         self.assertIs(select_schedule_block([failed, in_progress]), in_progress)
 
-    def test_failed_with_data_beats_pending_in_either_order(self):
+    def test_a_pending_block_beats_a_failed_block_that_took_data_in_either_order(self):
+        """WR-19, developer decision 2026-10-05: the placed block wins while the request is pending."""
         failed, pending = failed_block(18060.0), _block(BlockState.PENDING, start='2026-07-05T01:00:00Z')
-        self.assertIs(select_schedule_block([failed, pending]), failed)
-        self.assertIs(select_schedule_block([pending, failed]), failed)
+        self.assertIs(select_schedule_block([failed, pending]), pending)
+        self.assertIs(select_schedule_block([pending, failed]), pending)
 
     def test_completed_beats_failed_with_data_in_either_order(self):
         failed, completed = failed_block(18060.0), _block(BlockState.COMPLETED, start='2026-07-03T01:00:00Z')
@@ -231,11 +232,10 @@ class TestSelectScheduleBlock(SimpleTestCase):
         aborted = _block(BlockState.ABORTED)
         self.assertIs(select_schedule_block([aborted]), aborted)
 
-    def test_aborted_beats_pending_in_either_order(self):
+    def test_a_pending_block_beats_an_aborted_block_in_either_order(self):
         aborted, pending = _block(BlockState.ABORTED), _block(BlockState.PENDING, start='2026-07-05T01:00:00Z')
-        self.assertIs(select_schedule_block([pending, aborted]), aborted)
-        # An earlier aborted block (data already taken) outranks a later pending block that has not run.
-        self.assertIs(select_schedule_block([aborted, pending]), aborted)
+        self.assertIs(select_schedule_block([pending, aborted]), pending)
+        self.assertIs(select_schedule_block([aborted, pending]), pending)
 
     def test_last_of_two_aborted_blocks_is_chosen(self):
         first, last = _block(BlockState.ABORTED), _block(BlockState.ABORTED, start='2026-07-02T01:00:00Z')
@@ -254,9 +254,55 @@ class TestSelectScheduleBlock(SimpleTestCase):
         first, last = _block(BlockState.PENDING), _block(BlockState.PENDING, start='2026-07-02T01:00:00Z')
         self.assertIs(select_schedule_block([first, last]), last)
 
-    def test_in_progress_beats_pending(self):
+    def test_a_pending_block_beats_an_in_progress_block_in_either_order(self):
+        """A-24: an IN_PROGRESS block yields to a PENDING one, as the developer's chosen code does."""
         in_progress, pending = _block(BlockState.IN_PROGRESS), _block(BlockState.PENDING, start='2026-07-02T01:00:00Z')
-        self.assertIs(select_schedule_block([in_progress, pending]), in_progress)
+        self.assertIs(select_schedule_block([in_progress, pending]), pending)
+        self.assertIs(select_schedule_block([pending, in_progress]), pending)
+
+    def test_every_pair_of_block_states_follows_the_order(self):
+        """Every ordered pair of the nine block kinds gives the winner the order names (WR-19, A-25)."""
+        # kind -> (builder, rank). Rank 0: the first of equal rank wins; rank 1 (PENDING) and rank 2 (the
+        # started tier) -- the last of equal rank wins; rank None never counts.
+        kinds = {
+            'COMPLETED': (lambda day: _block('COMPLETED', start=f'2026-07-{day:02d}T01:00:00Z'), 0),
+            'PENDING': (lambda day: _block('PENDING', start=f'2026-07-{day:02d}T01:00:00Z'), 1),
+            'IN_PROGRESS': (lambda day: _block('IN_PROGRESS', start=f'2026-07-{day:02d}T01:00:00Z'), 2),
+            'ABORTED': (lambda day: _block('ABORTED', start=f'2026-07-{day:02d}T01:00:00Z'), 2),
+            'FAILED with data': (lambda day: failed_block(18060.0, start=f'2026-07-{day:02d}T01:00:00Z'), 2),
+            'FAILED without data': (lambda day: failed_block(0.0, start=f'2026-07-{day:02d}T01:00:00Z'), None),
+            'NOT_ATTEMPTED': (lambda day: _block('NOT_ATTEMPTED', start=f'2026-07-{day:02d}T01:00:00Z'), None),
+            'CANCELED': (lambda day: _block('CANCELED', start=f'2026-07-{day:02d}T01:00:00Z'), None),
+            'unknown state': (lambda day: _block('SOMETHING_NEW', start=f'2026-07-{day:02d}T01:00:00Z'), None),
+        }
+        for first_name, (first_build, first_rank) in kinds.items():
+            for second_name, (second_build, second_rank) in kinds.items():
+                with self.subTest(first=first_name, second=second_name):
+                    first, second = first_build(1), second_build(2)
+                    counting = [
+                        (rank, block)
+                        for rank, block in ((first_rank, first), (second_rank, second))
+                        if rank is not None
+                    ]
+                    if not counting:
+                        expected = None
+                    else:
+                        best = min(rank for rank, _ in counting)
+                        winners = [block for rank, block in counting if rank == best]
+                        expected = winners[0] if best == 0 else winners[-1]
+                    self.assertIs(select_schedule_block([first, second]), expected)
+
+    def test_rescheduled_request_sequences(self):
+        """A request placed again after a block stopped early: which block the record carries."""
+        failed_day1 = failed_block(18060.0, start='2026-07-01T01:00:00Z')
+        failed_day3 = failed_block(3600.0, start='2026-07-03T01:00:00Z')
+        no_data_day3 = failed_block(0.0, start='2026-07-03T01:00:00Z')
+        canceled = _block('CANCELED', start='2026-07-02T01:00:00Z')
+        pending = _block('PENDING', start='2026-07-04T01:00:00Z')
+        self.assertIs(select_schedule_block([failed_day1, canceled, pending]), pending)
+        self.assertIs(select_schedule_block([failed_day1, failed_day3]), failed_day3)
+        self.assertIs(select_schedule_block([failed_day1, no_data_day3]), failed_day1)
+        self.assertIs(select_schedule_block([failed_day1, canceled]), failed_day1)
 
     def test_entries_that_are_not_dicts_or_carry_no_state_are_ignored(self):
         pending = _block(BlockState.PENDING)
@@ -325,6 +371,23 @@ class TestFomoFacilityStatus(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=timezone.utc))
         self.assertEqual(record.scheduled_end, datetime(2026, 7, 12, 15, 0, 31, tzinfo=timezone.utc))
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_update_observation_status_stores_the_placed_block_over_a_failed_one(self, mock_make_request):
+        """WR-19: the stored times are the placed PENDING block's, not the earlier failed block's."""
+        placed = {'state': 'PENDING', 'start': '2026-07-17T09:00:00Z', 'end': '2026-07-17T14:00:00Z'}
+        mock_make_request.side_effect = portal_side_effect(
+            {'123': 'PENDING'}, {'123': [REAL_FAILED_BLOCKS['4253588'], placed]}
+        )
+        record = ObservationRecord.objects.create(
+            target=self.target, facility='LCO', observation_id='123', status='PENDING', parameters={}
+        )
+
+        FomoLCOFacility().update_observation_status('123')
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 17, 14, 0, tzinfo=timezone.utc))
 
     @patch('solsys_code.observation_blocks.make_request')
     def test_status_with_no_blocks_has_no_times(self, mock_make_request):
