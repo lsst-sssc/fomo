@@ -15,7 +15,7 @@ progress:
   completed_plans: 75
   percent: 100
 last_activity: 2026-10-05
-last_activity_desc: Phase 37.1 gap-closure round 6 (37.1-13, G-37.1-6 FAILED-with-data blocks) executed; awaiting the developer's live-host re-run
+last_activity_desc: Phase 37.1 gaps-only round 6 (37.1-13) executed; verification gaps_found 116/117 (notebook cell 7); WR-19 awaits a developer decision
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
-Plan: 13 of 13
-Status: Phase complete — ready for verification. 37.1-13 complete (FAILED-with-data blocks counted, IN-08..IN-11 and WR-04 fixed); G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7)
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — GAPS FOUND
+Plan: 13 of 13 (37.1-13 complete)
+Status: All 13 plans executed — round-6 verification 2026-10-05 `gaps_found` 116/117 (one docs gap: notebook cell 7 of backfill_lco_observations_demo.ipynb still names a single dry-run caveat, review IN-23). Round-6 review 0 critical / 1 warning / 6 info; WR-19 (a FAILED-with-data block outranks a later PENDING block on a rescheduled request) needs a developer decision. Full suite 2022 + 40 OK at 1526b4c; security 72/72 threats closed; Nyquist validated; UI review 24/24. G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-plan-phase 37.1 --gaps`
 
 ## Performance Metrics
 
