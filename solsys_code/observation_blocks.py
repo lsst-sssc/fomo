@@ -27,6 +27,15 @@ page (``ObservationRecordCancelView``), its REST cancel route (``PATCH /api/obse
 finished state through one of them is stored without its aborted block's times, and nothing on a
 tick looks at a finished record again, so its allocation night comes back. An operator recovers an
 LCO record by re-running the backfill command for its proposal with ``--recheck-unscheduled``.
+
+A portal reply whose block list is not a list (a dict error body, or a paginated ``{'results': [...]}``
+envelope) is a failed lookup, not "no block": :meth:`ScheduleBlockRuleMixin.get_observation_status` raises
+:class:`UnexpectedBlockPayloadError`, so every caller's existing failure handling applies. The discovery
+sweep holds the status change back and keeps the stored times, TOM's update loop writes nothing and the
+unattended runner counts the record as failed, and the Didymos command reports it under
+``status sync failed``. :func:`select_schedule_block` itself stays tolerant (anything that is not a list
+gives None) for the embedded-list caller and ``calendar_utils.resolve_placement_block()``, which must never
+raise.
 """
 
 from typing import Any
@@ -48,6 +57,18 @@ class BlockState:
     ABORTED = 'ABORTED'
     IN_PROGRESS = 'IN_PROGRESS'
     PENDING = 'PENDING'
+
+
+class UnexpectedBlockPayloadError(ValueError):
+    """Raised when the portal's ``/observations/`` reply for a request is not a list.
+
+    A dict error body or a paginated ``{'results': [...]}`` envelope is a failed lookup, never "no
+    block": reading it as an empty list would erase a stored time and commit a status change without
+    its block. It subclasses ``ValueError`` so the handlers that already catch it (and
+    ``calendar_utils``'s own ``ValueError`` catch) keep working, and it is named so the unattended
+    runner's failure line says what happened. The message carries only the request id and the body's
+    Python type name, never the body, which can hold portal text.
+    """
 
 
 def select_schedule_block(blocks: Any) -> dict[str, Any] | None:
@@ -86,13 +107,18 @@ def select_schedule_block(blocks: Any) -> dict[str, Any] | None:
 
 
 class ScheduleBlockRuleMixin:
-    """Replace TOM's block choice in ``get_observation_status()`` with :func:`select_schedule_block`."""
+    """Replace TOM's block choice in ``get_observation_status()`` with :func:`select_schedule_block`.
+
+    A block-list reply that is not a list raises :class:`UnexpectedBlockPayloadError` instead of reading
+    as "no block".
+    """
 
     def get_observation_status(self, observation_id: str) -> dict[str, Any]:
         """Return the request state and the chosen block's start and end.
 
         Makes the same two portal GETs TOM's own implementation makes; ``make_request``'s
-        exceptions propagate exactly as TOM's do.
+        exceptions propagate exactly as TOM's do. An empty block list still means "no block"; a block
+        list that is not a list at all is a failed lookup.
 
         Args:
             observation_id: the LCO request id.
@@ -100,6 +126,11 @@ class ScheduleBlockRuleMixin:
         Returns:
             dict[str, Any]: ``{'state', 'scheduled_start', 'scheduled_end'}`` with the raw portal
                 strings, or None for both times when no block qualifies.
+
+        Raises:
+            UnexpectedBlockPayloadError: when the ``/observations/`` reply is not a list (for example a
+                dict error body or a paginated envelope). The message names only the request id and the
+                body's Python type.
         """
         portal_url = self.facility_settings.get_setting('portal_url')
         response = make_request(
@@ -114,7 +145,12 @@ class ScheduleBlockRuleMixin:
             urljoin(portal_url, f'/api/requests/{observation_id}/observations/'),
             headers=self._portal_headers(),
         )
-        block = select_schedule_block(response.json())
+        blocks = response.json()
+        if not isinstance(blocks, list):
+            raise UnexpectedBlockPayloadError(
+                f'observations reply for request {observation_id} is a {type(blocks).__name__}, not a list'
+            )
+        block = select_schedule_block(blocks)
         if block is None:
             return {'state': state, 'scheduled_start': None, 'scheduled_end': None}
         return {'state': state, 'scheduled_start': block.get('start'), 'scheduled_end': block.get('end')}
