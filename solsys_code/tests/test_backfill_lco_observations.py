@@ -18,7 +18,9 @@ from solsys_code.campaign_attribution import record_attribution_backlog
 from solsys_code.campaign_reconciler import reconcile_run
 from solsys_code.campaign_utils import create_system_link
 from solsys_code.management.commands.backfill_lco_observations import (
+    SCHEDULE_LOOKUP_FAILED_KEY,
     _build_parameters,
+    _changed_record_fields,
     _preserve_observed_site_keys,
     _schedule_lookup_is_needed,
     sweep_proposal,
@@ -2015,6 +2017,30 @@ class TestScheduleLookupIsNeeded(SimpleTestCase):
         self.assertFalse(self._needed(record, 'DONE', terminal=frozenset({'DONE'}), failed=frozenset({'DONE'})))
         self.assertTrue(self._needed(record, 'DONE', terminal=frozenset(), failed=frozenset()))
 
+    def test_a_marked_failed_state_record_needs_a_lookup(self):
+        record = ObservationRecord(status='WINDOW_EXPIRED', parameters={SCHEDULE_LOOKUP_FAILED_KEY: True})
+        self.assertTrue(self._needed(record, 'WINDOW_EXPIRED'))
+
+    def test_a_marked_record_with_both_times_still_needs_a_lookup(self):
+        record = ObservationRecord(
+            status='COMPLETED',
+            scheduled_start=_START,
+            scheduled_end=_END,
+            parameters={SCHEDULE_LOOKUP_FAILED_KEY: True},
+        )
+        self.assertTrue(self._needed(record, 'COMPLETED'))
+
+    def test_parameters_that_are_not_a_dict_carry_no_marker(self):
+        for parameters in (
+            None,
+            [SCHEDULE_LOOKUP_FAILED_KEY],
+            'schedule_lookup_failed',
+            {SCHEDULE_LOOKUP_FAILED_KEY: False},
+        ):
+            with self.subTest(parameters=parameters):
+                record = ObservationRecord(status='WINDOW_EXPIRED', parameters=parameters)
+                self.assertFalse(self._needed(record, 'WINDOW_EXPIRED'))
+
 
 class TestSweepSystemLinks(TestCase):
     """ALLOC-06: the discovery sweep links a record that exactly matches one approved run."""
@@ -2590,6 +2616,207 @@ class TestFailedLookupKeepsTheStoredSchedule(TestCase):
         self.assertIn('updated: 0', summary)
         self.assertIn('block lookups failed: 1', summary)
         self.assertNotIn('marker-text', stdout.getvalue() + stderr.getvalue() + summary)
+
+
+class TestChangedRecordFieldsOnAFailedLookup(SimpleTestCase):
+    """_changed_record_fields() when the live block lookup raised (37.1-REVIEW CR-01)."""
+
+    _PARAMETERS = {'proposal': 'LCO2026A-003', 'instrument_type': '1M0-SCICAM-SINISTRO'}
+
+    def _record(self, status='PENDING', parameters=None):
+        return ObservationRecord(
+            status=status,
+            scheduled_start=_START,
+            scheduled_end=_END,
+            parameters=dict(self._PARAMETERS) if parameters is None else parameters,
+        )
+
+    def test_a_failed_lookup_compares_neither_status_nor_schedule(self):
+        record = self._record()
+
+        changes = _changed_record_fields(
+            record, 'WINDOW_EXPIRED', None, None, dict(self._PARAMETERS), compare_schedule=True, lookup_failed=True
+        )
+
+        self.assertEqual(changes, {})
+
+    def test_a_failed_lookup_still_compares_parameters(self):
+        record = self._record()
+        rebuilt = {**self._PARAMETERS, 'start': '2026-07-01T00:00:00'}
+
+        changes = _changed_record_fields(
+            record, 'WINDOW_EXPIRED', None, None, rebuilt, compare_schedule=True, lookup_failed=True
+        )
+
+        self.assertEqual(changes, {'parameters': rebuilt})
+
+    def test_without_a_failed_lookup_status_and_schedule_are_still_compared(self):
+        record = self._record()
+
+        changes = _changed_record_fields(record, 'WINDOW_EXPIRED', None, None, dict(self._PARAMETERS))
+
+        self.assertEqual(changes, {'status': 'WINDOW_EXPIRED', 'scheduled_start': None, 'scheduled_end': None})
+
+    def test_the_marker_is_carried_when_no_schedule_was_resolved(self):
+        record = self._record(
+            status='WINDOW_EXPIRED', parameters={**self._PARAMETERS, SCHEDULE_LOOKUP_FAILED_KEY: True}
+        )
+
+        skipped = _changed_record_fields(
+            record, 'WINDOW_EXPIRED', None, None, dict(self._PARAMETERS), compare_schedule=False
+        )
+        failed = _changed_record_fields(
+            record, 'WINDOW_EXPIRED', None, None, dict(self._PARAMETERS), compare_schedule=True, lookup_failed=True
+        )
+
+        self.assertEqual(skipped, {})
+        self.assertEqual(failed, {})
+
+    def test_the_marker_is_dropped_when_a_schedule_was_resolved(self):
+        record = self._record(
+            status='WINDOW_EXPIRED', parameters={**self._PARAMETERS, SCHEDULE_LOOKUP_FAILED_KEY: True}
+        )
+
+        changes = _changed_record_fields(
+            record, 'WINDOW_EXPIRED', _START, _END, dict(self._PARAMETERS), compare_schedule=True
+        )
+
+        self.assertEqual(changes, {'parameters': self._PARAMETERS})
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, changes['parameters'])
+
+
+class TestFailedLookupOnANewRecord(TestCase):
+    """37.1-REVIEW CR-01: a request first seen while its lookup fails is marked and looked up until one succeeds."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.existing_target = NonSiderealTargetFactory.create(name='Didymos')
+        cls.chilean_site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.per_night_run = CampaignRun.objects.create(
+            campaign=None,
+            target=cls.existing_target,
+            proposal_code='LCO2026A-003',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=cls.chilean_site,
+            site_raw='809',
+            window_start=date(2026, 6, 29),
+            window_end=date(2026, 7, 2),
+        )
+
+    def setUp(self):
+        reconcile_run(self.per_night_run)
+        self.alloc_before = allocation_events(self.per_night_run).count()
+
+    def _marked_record(self, request_id, state):
+        """A record stored the way the sweep stores one whose lookup failed: finished, no times, marked."""
+        request = _request(request_id, state=state)
+        group = _request_group(1, 'Didymos 2026 - ELP', requests=[request])
+        record = ObservationRecord.objects.create(
+            target=self.existing_target,
+            facility='LCO',
+            observation_id=str(request_id),
+            status=state,
+            parameters={**_build_parameters(group, request), SCHEDULE_LOOKUP_FAILED_KEY: True},
+        )
+        return group, record
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_new_finished_request_whose_lookup_fails_is_looked_up_again(self, mock_listing, mock_portal):
+        mock_listing.return_value = _page_response(
+            [_request_group(1, 'Didymos 2026 - ELP', requests=[_request(30, state='WINDOW_EXPIRED')])]
+        )
+
+        # Tick 1: the request is new and already finished, and its lookup raises.
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out: marker-text')
+        stdout, stderr = io.StringIO(), io.StringIO()
+        summary = sweep_proposal('LCO2026A-003', stdout=stdout, stderr=stderr)
+
+        record = ObservationRecord.objects.get(facility='LCO', observation_id='30')
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+        self.assertIs(record.parameters[SCHEDULE_LOOKUP_FAILED_KEY], True)
+        self.assertTrue(CampaignRunObservation.objects.filter(observation_record=record).exists())
+        self.assertIn('created: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
+        self.assertNotIn('marker-text', stdout.getvalue() + stderr.getvalue() + summary)
+
+        # Tick 2: the portal is healthy. The finished, same-state record is looked up because it is marked.
+        mock_portal.reset_mock()
+        mock_portal.side_effect = portal_side_effect({'30': 'WINDOW_EXPIRED'}, {'30': [dict(_ABORTED_BLOCK)]})
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_portal.call_count, 2)
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
+        night = observing_night(record.scheduled_start, ZoneInfo('America/Santiago'))
+        self.assertFalse(
+            allocation_events(self.per_night_run)
+            .filter(url=f'ALLOC:{self.per_night_run.pk}:{night.isoformat()}')
+            .exists()
+        )
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+        self.assertIn('updated: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('block lookups failed: 0', summary)
+
+        # Tick 3: the mark is gone, so the ordinary per-tick skip applies again.
+        mock_portal.reset_mock()
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_portal.assert_not_called()
+        self.assertIn('fallback lookups skipped: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_dry_run_over_a_marked_record_makes_no_lookup_and_keeps_the_marker(self, mock_listing, mock_portal):
+        group, record = self._marked_record(30, 'WINDOW_EXPIRED')
+        stored_parameters = dict(record.parameters)
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'30': 'WINDOW_EXPIRED'}, {'30': [dict(_ABORTED_BLOCK)]})
+
+        summary = sweep_proposal('LCO2026A-003', dry_run=True, stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_portal.assert_not_called()
+        record.refresh_from_db()
+        self.assertEqual(record.parameters, stored_parameters)
+        self.assertIsNone(record.scheduled_start)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_an_embedded_block_resolves_a_marked_record_and_clears_the_marker(self, mock_listing, mock_portal):
+        _, record = self._marked_record(30, 'WINDOW_EXPIRED')
+        group = _request_group(
+            1,
+            'Didymos 2026 - ELP',
+            requests=[_request(30, state='WINDOW_EXPIRED', observations=[dict(_ABORTED_BLOCK)])],
+        )
+        mock_listing.return_value = _page_response([group])
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_portal.assert_not_called()
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
+        self.assertIn('embedded blocks: 1', summary)
 
 
 class TestRecheckUnscheduledCommand(TestCase):
