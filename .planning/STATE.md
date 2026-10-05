@@ -15,7 +15,7 @@ progress:
   completed_plans: 76
   percent: 100
 last_activity: 2026-10-05
-last_activity_desc: Phase 37.1 gap-closure plan 37.1-14 executed (placed block wins, WR-19; IN-23 to IN-28 fixed); awaiting verification
+last_activity_desc: Phase 37.1 gaps-only round 7 (37.1-14) executed; verification gaps_found 131/132 (observation_blocks.py module docstring, IN-30); WR-20 awaits a developer decision
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — VERIFICATION GAPS
 Plan: 14 of 14
-Status: Plan 37.1-14 executed; ready for verification (live-host Didymos re-run still owed by the developer)
+Status: All 14 plans executed — round-7 verification 2026-10-05 `gaps_found` 131/132 (one docs gap: the observation_blocks.py module docstring, lines 9-11, still says a block that stopped early retires its night exactly like a COMPLETED one; review IN-30). Round-7 review 0 critical / 1 warning / 2 info; WR-20 (the placed-block rule reads block states only, so a request that expires while the portal still lists a never-run PENDING block would keep that block's night) needs a developer decision. Full suite 2030 + 40 OK at d8e4f62; security 80/80 threats closed; Nyquist validated (40 tasks); UI review 24/24 unchanged. ALLOC-06 reverted from Complete. G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-plan-phase 37.1 --gaps`
 
 ## Performance Metrics
 
